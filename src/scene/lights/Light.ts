@@ -14,7 +14,7 @@ export enum LightType {
 export class Light extends Entity {
     public isLight: boolean = true;
     public lightType: LightType;
-    
+
     public color: vec3;
     public intensity: number;
 

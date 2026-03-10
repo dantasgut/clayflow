@@ -1,11 +1,11 @@
 import { WebGPUContext } from '../context/WebGPUContext';
 import { EngineBindGroup } from './EngineBindGroup';
-import type { IBindGroupManager } from '../interfaces/IBindGroupManager';
+import type { BindGroupManager } from '../interfaces/BindGroupManager';
 
 /**
  * Cache dinâmico para evitar a recriação de lixo de memória de GPUBindGroup todo frame.
  */
-export class BindGroupManager implements IBindGroupManager {
+export class WebGPUBindGroupManager implements BindGroupManager {
     private context: WebGPUContext;
     private bindGroupLayouts: Map<string, GPUBindGroupLayout>;
     private bindGroups: Map<string, EngineBindGroup>;

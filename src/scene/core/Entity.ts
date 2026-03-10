@@ -1,19 +1,10 @@
 import { EventDispatcher } from '../core/EventDispatcher';
 import { Transform } from '../math/Transform';
-
-/**
- * Interface base para qualquer Componente (Geometry, Material, Transform) 
- * anexado a uma Entidade Entity. (Padrão ECS)
- */
-export interface IComponent {
-    readonly type: string;
-    onAttach?(entity: Entity): void;
-    onDetach?(entity: Entity): void;
-}
+import type { Component } from './Component';
 
 /**
  * A Entidade (Container ECS / Padrão Facade).
- * Responsabilidade Única: Segurar 'IComponents'.
+ * Responsabilidade Única: Segurar 'Components'.
  * A Matemática foi extraída para o Componente Obrigatório 'Transform'.
  */
 export class Entity extends EventDispatcher {
@@ -22,7 +13,7 @@ export class Entity extends EventDispatcher {
     public name: string = "Entity";
 
     // Repositório de Componentes Lógicos (O coração do ECS)
-    private _components: Map<string, IComponent> = new Map();
+    private _components: Map<string, Component> = new Map();
 
     constructor() {
         super();
@@ -83,7 +74,7 @@ export class Entity extends EventDispatcher {
     // ==========================================================
     // SISTEMA ECS: Gerenciamento real da Entidade
     // ==========================================================
-    public addComponent(component: IComponent): this {
+    public addComponent(component: Component): this {
         this._components.set(component.type, component);
         if (component.onAttach) {
             component.onAttach(this);
@@ -100,7 +91,7 @@ export class Entity extends EventDispatcher {
         return this;
     }
 
-    public getComponent<T extends IComponent>(type: string): T | undefined {
+    public getComponent<T extends Component>(type: string): T | undefined {
         return this._components.get(type) as T | undefined;
     }
 

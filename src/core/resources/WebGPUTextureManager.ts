@@ -1,11 +1,11 @@
 import { WebGPUContext } from '../context/WebGPUContext';
 import { EngineTexture } from './EngineTexture';
-import type { ITextureManager } from '../interfaces/ITextureManager';
+import type { TextureManager } from '../interfaces/TextureManager';
 
 /**
  * Abstração pura para Texturas (Imagens 2D, 3D, Cube), Depth Buffers e Samplers.
  */
-export class TextureManager implements ITextureManager {
+export class WebGPUTextureManager implements TextureManager {
     private context: WebGPUContext;
     private textures: Map<string, EngineTexture>;
     private samplers: Map<string, GPUSampler>;

@@ -1,11 +1,11 @@
 import { WebGPUContext } from '../context/WebGPUContext';
-import type { IPipelineManager } from '../interfaces/IPipelineManager';
+import type { PipelineManager } from '../interfaces/PipelineManager';
 
 /**
  * Gerencia o cache e a compilação paralela dos shaders.
  * Recebe strings brutas de shader e as transforma em pipelines agnósticos.
  */
-export class PipelineManager implements IPipelineManager {
+export class WebGPUPipelineManager implements PipelineManager {
     private context: WebGPUContext;
     private shaderModules: Map<string, GPUShaderModule>;
     private renderPipelines: Map<string, GPURenderPipeline>;

@@ -1,10 +1,10 @@
 import { WebGPUContext } from '../context/WebGPUContext';
-import type { IRenderPassManager } from '../interfaces/IRenderPassManager';
+import type { RenderPassManager } from '../interfaces/RenderPassManager';
 
 /**
  * Encapsulamento de Comandos e Passes Gráficos da GPU.
  */
-export class RenderPassManager implements IRenderPassManager {
+export class WebGPURenderPassManager implements RenderPassManager {
     private context: WebGPUContext;
 
     constructor() {

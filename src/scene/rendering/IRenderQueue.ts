@@ -7,7 +7,7 @@ import type { LightType } from '../lights/Light';
  */
 export interface RenderCommand {
     pipelineHashId: string;     // Qual Shader usar (OpaqueLine, TransparentFill)
-    geometryId: string;         // Qual ID apontar pro IResourceManager
+    geometryId: string;         // Qual ID apontar pro ResourceManager
     vertexCount: number;
     instanceCount: number;
     
@@ -50,5 +50,5 @@ export interface IRenderQueue {
     clear(): void;
     
     // Extrai todo esse estado atual e empilha num bloco gigante de memória para a WebGPU num único copo
-    // buildInstancedBuffers(resourceManager: IResourceManager): void;
+    // buildInstancedBuffers(resourceManager: ResourceManager): void;
 }

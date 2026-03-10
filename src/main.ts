@@ -1,4 +1,4 @@
-import { EngineCore } from './core/EngineCore';
+import { WebGPUEngineCore } from './core/WebGPUEngineCore';
 
 async function init() {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
@@ -12,7 +12,7 @@ async function init() {
     resizeCanvas();
 
     // 1. Inicializa a Arquitetura Suprema da Camada 1
-    const engine = EngineCore.getInstance();
+    const engine = WebGPUEngineCore.getInstance();
     await engine.initialize(canvas);
 
     // 2. Loop de Renderização Base usando os Wrappers Oficiais

@@ -1,6 +1,5 @@
 import { Material } from '../../scene/components/Material';
-import type { IResourceManager } from '../../core/interfaces/IResourceManager';
-import type { IMaterialBuilder } from './IMaterialBuilder';
+import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 
 export interface StandardMaterialOptions {
     color?: [number, number, number, number];
@@ -13,23 +12,25 @@ export interface StandardMaterialOptions {
  * Material Padrão Simples da Camada 3.
  * Configura cor e propriedades para renderização clássica (PBR básico ou unlit).
  */
-export class StandardMaterial implements IMaterialBuilder {
+export class StandardMaterial extends Material {
     public color: [number, number, number, number];
     public emissive: [number, number, number];
     public roughness: number;
     public metallic: number;
 
     constructor(options: StandardMaterialOptions = {}) {
+        super();
         this.color = options.color || [1.0, 1.0, 1.0, 1.0];
         this.emissive = options.emissive || [0.0, 0.0, 0.0];
         this.roughness = options.roughness !== undefined ? options.roughness : 0.5;
         this.metallic = options.metallic !== undefined ? options.metallic : 0.0;
     }
 
-    public build(resourceManager: IResourceManager): Material {
+    public compile(resourceManager: ResourceManager): void {
+        if (this.isCompiled) return;
+
         // [1] SOLICITA O PIPELINE (WebGPU Shader) na Camada 1
-        // (Assumindo que resourceManager.pipelines gerencia isso via hashes)
-        const pipelineId = 'std_pipeline_hash'; 
+        this.shaderId = 'std_pipeline_hash'; 
         
         // [2] ALOCA UM UNIFORM BUFFER para as propriedades deste material
         // Float32Array: Vec4 (Color) + Vec3 (Emissive) + 1 PAD + float (R) + float (M) + 2 PAD = 12 floats
@@ -44,13 +45,11 @@ export class StandardMaterial implements IMaterialBuilder {
 
         // [3] CRIA O BIND GROUP ESTRUTURAL
         // Vincula o uniform buffer na signature do Shader
-        const bindGroup = resourceManager.bindings.getBindGroup('std_mat_bg', pipelineId, [
+        const bindGroup = resourceManager.bindings.getBindGroup('std_mat_bg', this.shaderId, [
             { binding: 0, resource: { buffer: uniformBuffer.native } }
         ]);
 
-        // Retorna a entidade lógica abstrata pra Camada 2
-        const mat = new Material(pipelineId);
-        mat.bindGroupIds.push(bindGroup.id);
-        return mat;
+        this.bindGroupIds.push(bindGroup.id);
+        this.isCompiled = true;
     }
 }

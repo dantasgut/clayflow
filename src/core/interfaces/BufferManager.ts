@@ -1,6 +1,6 @@
 import { EngineBuffer } from '../resources/EngineBuffer';
 
-export interface IBufferManager {
+export interface BufferManager {
     createUniformBuffer(id: string, size: number, usage?: GPUBufferUsageFlags): EngineBuffer;
     createStorageBuffer(id: string, size: number, usage?: GPUBufferUsageFlags): EngineBuffer;
     createVertexBuffer(id: string, data: Float32Array, usage?: GPUBufferUsageFlags): EngineBuffer;

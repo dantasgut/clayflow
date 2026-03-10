@@ -1,12 +1,12 @@
 import { WebGPUContext } from '../context/WebGPUContext';
 import { EngineBuffer } from './EngineBuffer';
-import type { IBufferManager } from '../interfaces/IBufferManager';
+import type { BufferManager } from '../interfaces/BufferManager';
 
 /**
  * Gerenciador Abstrato de Buffers (Camada 1).
  * Agora retorna EngineBuffers controlados em vez de raw GPUObjectBase.
  */
-export class BufferManager implements IBufferManager {
+export class WebGPUBufferManager implements BufferManager {
     private context: WebGPUContext;
     private buffers: Map<string, EngineBuffer>;
 

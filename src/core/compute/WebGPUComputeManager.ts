@@ -1,10 +1,10 @@
 import { WebGPUContext } from '../context/WebGPUContext';
-import type { IComputeManager } from '../interfaces/IComputeManager';
+import type { ComputeManager } from '../interfaces/ComputeManager';
 
 /**
  * Gerenciador focado inteiramente em processamento GPGPU e Matemática sem envolver rasterização.
  */
-export class ComputeManager implements IComputeManager {
+export class WebGPUComputeManager implements ComputeManager {
     private context: WebGPUContext;
     private pipelines: Map<string, GPUComputePipeline>;
 

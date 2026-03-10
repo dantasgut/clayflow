@@ -1,11 +1,12 @@
 import { mat4, vec3, quat } from 'gl-matrix';
-import type { IComponent, Entity } from '../core/Entity';
+import type { Entity } from '../core/Entity';
+import type { Component } from '../core/Component';
 
 /**
  * Componente Lógico responsável EXCLUSIVAMENTE pela Matemática Espacial.
  * Resolve posição, rotação, escala e parentesco (Álgebra Linear Pura/Composite).
  */
-export class Transform implements IComponent {
+export class Transform implements Component {
     public readonly type = 'Transform';
 
     // Transformações Ativas Locais

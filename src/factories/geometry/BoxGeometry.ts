@@ -1,25 +1,26 @@
 import { Geometry } from '../../scene/components/Geometry';
 import { VertexLayout } from '../../scene/data/VertexLayout';
-import type { IResourceManager } from '../../core/interfaces/IResourceManager';
-import type { IGeometryBuilder } from './IGeometryBuilder';
+import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 
 /**
- * Fábrica OCP para gerar a primitiva Box/Cubo.
- * Calcula os vértices programaticamente baseados em dimensões, injeta
- * na VRAM e devolve a entidade Componente Geometry.
+ * Primitiva amigável geradora de Cubos.
+ * O desenvolvedor instancia na CPU e ela se auto-compila na GPU no primeiro frame.
  */
-export class BoxGeometry implements IGeometryBuilder {
+export class BoxGeometry extends Geometry {
     private width: number;
     private height: number;
     private depth: number;
 
     constructor(width: number = 1, height: number = 1, depth: number = 1) {
+        super();
         this.width = width;
         this.height = height;
         this.depth = depth;
     }
 
-    public build(resourceManager: IResourceManager): Geometry {
+    public compile(resourceManager: ResourceManager): void {
+        if (this.isCompiled) return;
+
         const w = this.width / 2;
         const h = this.height / 2;
         const d = this.depth / 2;
@@ -72,18 +73,18 @@ export class BoxGeometry implements IGeometryBuilder {
             20, 21, 22,     20, 22, 23,   // left
         ]);
 
-        // Assinamos o Layout estrito da Engine
-        const layout = new VertexLayout([
+        const vertexBuffer = resourceManager.buffers.createVertexBuffer('box_vbo', vertices);
+        const indexBuffer = resourceManager.buffers.createIndexBuffer('box_ibo', indices);
+
+        this.layout = new VertexLayout([
             { name: 'position', format: 'float32x3', shaderLocation: 0 },
             { name: 'normal',   format: 'float32x3', shaderLocation: 1 },
             { name: 'uv',       format: 'float32x2', shaderLocation: 2 }
         ]);
 
-        // A Camada 3 se comunica com a Camada 1 (Hardware) gerando o buffer
-        // Note: IResourceManager assumes 'buffers' object as per implementation.
-        const vertexBuffer = resourceManager.buffers.createVertexBuffer('box_vbo', vertices);
-        const indexBuffer = resourceManager.buffers.createIndexBuffer('box_ibo', indices);
-
-        return new Geometry(vertexBuffer.id, layout, indices.length, indexBuffer.id);
+        this.vertexBufferId = vertexBuffer.id;
+        this.indexBufferId = indexBuffer.id;
+        this.vertexCount = indices.length;
+        this.isCompiled = true;
     }
 }

@@ -7,10 +7,10 @@ import { mat4 } from 'gl-matrix';
  */
 export class Camera extends Entity {
     public isCamera: boolean = true;
-    
+
     // A matriz que transforma o mundo 3D chapado para a tela 2D (A Perspectiva)
     public projectionMatrix: mat4 = mat4.create();
-    
+
     // A Inversa da WorldMatrix da câmera (Como a cena é vista do ponto de vista dela)
     public viewMatrix: mat4 = mat4.create();
 
@@ -19,7 +19,7 @@ export class Camera extends Entity {
 
     constructor() {
         super();
-        
+
         // Em vez de sobrescrever o método do Grafo, a Câmera apenas "escuta" o Transform dela.
         this.transform.onUpdateMatrixCallbacks.push((worldMatrix: mat4) => {
             this.updateViewMatrix(worldMatrix);
