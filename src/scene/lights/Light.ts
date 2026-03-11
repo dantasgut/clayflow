@@ -1,5 +1,5 @@
-import { Entity } from '../core/Entity';
 import { vec3 } from 'gl-matrix';
+import type { Component } from '../core/Component';
 
 export enum LightType {
     Directional,
@@ -8,18 +8,17 @@ export enum LightType {
 }
 
 /**
- * Entidade de Iluminação. (Camada 2 - Representação)
- * Contém a cor e a intensidade. Sua posição/direção é herdada do Entity.
+ * Componente de Iluminação. (Camada 2 - Representação - ECS Puro)
+ * Contém a cor e a intensidade. Sua posição/direção será lida do Transform da Entidade à qual está anexado.
  */
-export class Light extends Entity {
-    public isLight: boolean = true;
+export class Light implements Component {
+    public readonly type: string = 'Light';
     public lightType: LightType;
-
+    
     public color: vec3;
     public intensity: number;
 
     constructor(type: LightType, color: [number, number, number] = [1, 1, 1], intensity: number = 1.0) {
-        super();
         this.lightType = type;
         this.color = vec3.fromValues(color[0], color[1], color[2]);
         this.intensity = intensity;

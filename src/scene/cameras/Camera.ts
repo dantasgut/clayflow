@@ -1,29 +1,51 @@
-import { Entity } from '../core/Entity';
 import { mat4 } from 'gl-matrix';
+import type { Component } from '../core/Component';
+import type { Entity } from '../core/Entity';
 
 /**
  * A Câmera Virtual. (Camada 2 - Representação)
- * Estende Entity para podermos movê-la e rotacioná-la pelo mundo livremente.
+ * Componente ECS Puro que calcula as matrizes de visão e projeção a partir do Transform da Entidade dona.
  */
-export class Camera extends Entity {
-    public isCamera: boolean = true;
-
+export class Camera implements Component {
+    public readonly type: string = 'Camera';
+    
     // A matriz que transforma o mundo 3D chapado para a tela 2D (A Perspectiva)
     public projectionMatrix: mat4 = mat4.create();
-
+    
     // A Inversa da WorldMatrix da câmera (Como a cena é vista do ponto de vista dela)
     public viewMatrix: mat4 = mat4.create();
 
     // Cache combinado para a GPU (Projection * View)
     public viewProjectionMatrix: mat4 = mat4.create();
 
-    constructor() {
-        super();
+    // Opcional: Referência à Entidade dona
+    public owner: Entity | null = null;
+    private _transformCallback: ((worldMatrix: mat4) => void) | null = null;
 
-        // Em vez de sobrescrever o método do Grafo, a Câmera apenas "escuta" o Transform dela.
-        this.transform.onUpdateMatrixCallbacks.push((worldMatrix: mat4) => {
+    constructor() {
+        // No longer extends Entity, so no super() call
+    }
+
+    public onAttach(entity: Entity): void {
+        this.owner = entity;
+        this._transformCallback = (worldMatrix: mat4) => {
             this.updateViewMatrix(worldMatrix);
-        });
+        };
+        this.owner.transform.onUpdateMatrixCallbacks.push(this._transformCallback);
+        // Atualiza a view matrix inicial baseada no transform atual da Entidade
+        this.updateViewMatrix(this.owner.worldMatrix);
+    }
+
+    public onDetach(entity: Entity): void {
+        if (this.owner && this._transformCallback) {
+            const callbacks = this.owner.transform.onUpdateMatrixCallbacks;
+            const index = callbacks.indexOf(this._transformCallback);
+            if (index !== -1) {
+                callbacks.splice(index, 1);
+            }
+        }
+        this.owner = null;
+        this._transformCallback = null;
     }
 
     /**
