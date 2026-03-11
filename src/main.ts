@@ -1,4 +1,9 @@
 import { WebGPUEngineCore } from './core/WebGPUEngineCore';
+import { WebGPURenderer } from './presentation/renderers/WebGPURenderer';
+import { Scene } from './scene/core/Scene';
+import { Entity } from './scene/core/Entity';
+import { Camera } from './scene/cameras/Camera';
+import { vec3 } from 'gl-matrix';
 
 async function init() {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
@@ -11,26 +16,31 @@ async function init() {
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
 
-    // 1. Inicializa a Arquitetura Suprema da Camada 1
-    const engine = WebGPUEngineCore.getInstance();
-    await engine.initialize(canvas);
+    // 2. Setup Básico da Camada 2 (Data-Oriented Scene)
+    const scene = new Scene();
 
-    // 2. Loop de Renderização Base usando os Wrappers Oficiais
-    const commandEncoder = engine.renderPasses.createCommandEncoder("BaseFrame");
-    const textureView = engine.getCurrentCanvasTextureView();
-    
-    const passEncoder = engine.renderPasses.beginRenderPass(
-        commandEncoder,
-        textureView,
-        undefined, // Depth não configurado ainda
-        { r: 0.1, g: 0.1, b: 0.15, a: 1.0 },
-        "BackgroundColorPass"
-    );
-    
-    passEncoder.end();
-    engine.renderPasses.submit([commandEncoder]);
+    const cameraEntity = new Entity();
+    const camera = new Camera();
+    cameraEntity.addComponent(camera);
+    vec3.set(cameraEntity.transform.position, 0, 0, 5);
 
-    console.log("WebGPU Layer 1 Core Initialized Successfully!");
+    // 3. O Maestro da Camada 4
+    const renderer = new WebGPURenderer();
+    renderer.setSize(canvas.width, canvas.height);
+    renderer.setClearColor(0.2, 0.2, 0.25, 1.0);
+
+    console.log("WebGPU Architecture Initialized Successfully! Starting Game Loop...");
+
+    // 4. O Game Loop Reativo
+    const tick = async () => {
+        // Toda a magia de sincronização de buffers (Loader) e 
+        // extração otimizada OCP (RenderExtractor) e encodings acontece aqui dentro
+        await renderer.render(scene, camera);
+
+        requestAnimationFrame(tick);
+    };
+
+    tick();
 }
 
 init().catch(console.error);

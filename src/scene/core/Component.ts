@@ -6,6 +6,7 @@ import type { Entity } from './Entity';
  */
 export interface Component {
     readonly type: string;
+    readonly uuid?: string;
     onAttach?(entity: Entity): void;
     onDetach?(entity: Entity): void;
 }

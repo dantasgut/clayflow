@@ -8,6 +8,9 @@ import type { Component } from './Component';
  * A Matemática foi extraída para o Componente Obrigatório 'Transform'.
  */
 export class Entity extends EventDispatcher {
+    private static _nextId: number = 0;
+    public readonly id: number = ++Entity._nextId;
+
     public isEntity: boolean = true;
     public visible: boolean = true;
     public name: string = "Entity";

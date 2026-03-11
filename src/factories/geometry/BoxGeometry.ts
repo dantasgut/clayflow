@@ -1,10 +1,9 @@
 import { Geometry } from '../../scene/components/Geometry';
 import { VertexLayout } from '../../scene/data/VertexLayout';
-import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 
 /**
- * Primitiva amigável geradora de Cubos.
- * O desenvolvedor instancia na CPU e ela se auto-compila na GPU no primeiro frame.
+ * Primitiva amigável geradora de Cubos. (Camada 3)
+ * O desenvolvedor instancia na CPU e ela preenche suas propriedades `rawVertices`.
  */
 export class BoxGeometry extends Geometry {
     private width: number;
@@ -16,11 +15,11 @@ export class BoxGeometry extends Geometry {
         this.width = width;
         this.height = height;
         this.depth = depth;
+        
+        this._buildGeometry();
     }
 
-    public compile(resourceManager: ResourceManager): void {
-        if (this.isCompiled) return;
-
+    private _buildGeometry(): void {
         const w = this.width / 2;
         const h = this.height / 2;
         const d = this.depth / 2;
@@ -73,8 +72,8 @@ export class BoxGeometry extends Geometry {
             20, 21, 22,     20, 22, 23,   // left
         ]);
 
-        const vertexBuffer = resourceManager.buffers.createVertexBuffer('box_vbo', vertices);
-        const indexBuffer = resourceManager.buffers.createIndexBuffer('box_ibo', indices);
+        this.rawVertices = vertices;
+        this.rawIndices = indices;
 
         this.layout = new VertexLayout([
             { name: 'position', format: 'float32x3', shaderLocation: 0 },
@@ -82,9 +81,6 @@ export class BoxGeometry extends Geometry {
             { name: 'uv',       format: 'float32x2', shaderLocation: 2 }
         ]);
 
-        this.vertexBufferId = vertexBuffer.id;
-        this.indexBufferId = indexBuffer.id;
         this.vertexCount = indices.length;
-        this.isCompiled = true;
     }
 }
