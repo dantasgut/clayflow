@@ -16,6 +16,10 @@ export abstract class Material implements Component {
     public shaderId: string = '';
     public transparent: boolean = false;
     public bindGroupIds: string[] = [];
+    
+    /** Layout Schema Declarativo que dita à Camada 1 como alocar este material */
+    public bindGroupSchema: GPUBindGroupLayoutEntry[] = [];
+
     public doubleSided: boolean = false;
     public topology: GPUPrimitiveTopology = 'triangle-list';
 

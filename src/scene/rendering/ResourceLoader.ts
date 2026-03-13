@@ -90,6 +90,10 @@ export class ResourceLoader {
                 const uniformBuffer = resourceManager.buffers.createUniformBuffer('mat_ubo_' + material.uuid, uniformData.byteLength);
                 resourceManager.buffers.writeBuffer(uniformBuffer.id, uniformData);
 
+                // Camada 2 dita a Regra (Schema) para a Camada 1 gerar/pescar do Cache o Layout
+                const layout = resourceManager.bindings.getLayout(material.shaderId, material.bindGroupSchema);
+
+                // Camada 2 solicita a Criação do Pacote (BindGroup) definitivo usando o Layout Registrado
                 const bindGroup = resourceManager.bindings.getBindGroup('mat_bg_' + material.uuid, material.shaderId, [
                     { binding: 0, resource: { buffer: uniformBuffer.native } }
                 ]);

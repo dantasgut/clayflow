@@ -37,6 +37,15 @@ export class StandardMaterial extends Material {
             this.roughness, this.metallic, 0, 0 // offset 8: floats
         ]);
 
+        // Define a Regra Lógica (Schema) para a Camada 1 criar o BindGroupLayout
+        this.bindGroupSchema = [
+            {
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                buffer: { type: 'uniform' }
+            }
+        ];
+
         this.rawUniforms.set('std_mat_buf', uniformData);
     }
 }
