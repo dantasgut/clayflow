@@ -1,6 +1,8 @@
 import type { Component } from '../core/Component';
+import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { VertexLayout } from '../data/VertexLayout';
 import { ResourceState } from '../core/ResourceState';
+import { ResourceType } from '../core/ResourceType';
 
 /**
  * Componente Lógico (ECS) representando a malha matemática de um Nó.
@@ -12,6 +14,7 @@ export abstract class Geometry implements Component {
     private static _nextUuid: number = 0;
     public readonly uuid: string = `geom_${++Geometry._nextUuid}`;
 
+    public readonly layer = ResourceType.VISUAL_COMPONENT;
     public readonly type: string = 'Geometry';
 
     public state: ResourceState = ResourceState.Uninitialized;
@@ -35,10 +38,47 @@ export abstract class Geometry implements Component {
         }
     }
 
+    public async allocateResource(resourceManager: ResourceManager): Promise<void> {
+        this.state = ResourceState.Loading;
+
+        const uploadPromises: Promise<void>[] = [];
+
+        if (this.rawVertices) {
+            const vbo = resourceManager.buffers.createVertexBuffer('geom_vbo_' + this.uuid, this.rawVertices.byteLength);
+            this.vertexBufferId = vbo.id;
+            uploadPromises.push(resourceManager.buffers.uploadStagedAsync(vbo.id, this.rawVertices));
+        }
+
+        if (this.rawIndices) {
+            const ibo = resourceManager.buffers.createIndexBuffer('geom_ibo_' + this.uuid, this.rawIndices.byteLength);
+            this.indexBufferId = ibo.id;
+            uploadPromises.push(resourceManager.buffers.uploadStagedAsync(ibo.id, this.rawIndices));
+        }
+
+        await Promise.all(uploadPromises);
+        this.state = ResourceState.Ready;
+    }
+
+    public async updateResource(resourceManager: ResourceManager): Promise<void> {
+        const uploadPromises: Promise<void>[] = [];
+
+        if (this.rawVertices && this.vertexBufferId) {
+            uploadPromises.push(resourceManager.buffers.uploadStagedAsync(this.vertexBufferId, this.rawVertices));
+        }
+        if (this.rawIndices && this.indexBufferId) {
+            uploadPromises.push(resourceManager.buffers.uploadStagedAsync(this.indexBufferId, this.rawIndices));
+        }
+
+        await Promise.all(uploadPromises);
+        this.state = ResourceState.Ready;
+    }
+
     /**
      * Sinaliza que a geometria deve ser limpa da VRAM.
      */
-    public dispose(): void {
+    public disposeResource(resourceManager: ResourceManager): void {
+        if (this.vertexBufferId) resourceManager.buffers.destroyBuffer(this.vertexBufferId);
+        if (this.indexBufferId) resourceManager.buffers.destroyBuffer(this.indexBufferId);
         this.state = ResourceState.Disposed;
     }
 }

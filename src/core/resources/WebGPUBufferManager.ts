@@ -26,7 +26,7 @@ export class WebGPUBufferManager implements BufferManager {
         return engineBuf;
     }
 
-    public createStorageBuffer(id: string, size: number, usage: GPUBufferUsageFlags = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST): EngineBuffer {
+    public createStorageBuffer(id: string, size: number, usage: GPUBufferUsageFlags = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC): EngineBuffer {
         const rawBuffer = this.context.device.createBuffer({
             label: `StorageBuffer_${id}`,
             size: Math.ceil(size / 4) * 4,

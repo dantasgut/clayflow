@@ -1,12 +1,14 @@
 import { mat4, vec3, quat } from 'gl-matrix';
 import type { Entity } from '../core/Entity';
 import type { Component } from '../core/Component';
+import { ResourceType } from '../core/ResourceType';
 
 /**
  * Componente Lógico responsável EXCLUSIVAMENTE pela Matemática Espacial.
  * Resolve posição, rotação, escala e parentesco (Álgebra Linear Pura/Composite).
  */
 export class Transform implements Component {
+    public readonly layer = ResourceType.VISUAL_COMPONENT;
     public readonly type = 'Transform';
 
     // Transformações Ativas Locais
@@ -71,7 +73,7 @@ export class Transform implements Component {
      */
     public updateWorldMatrix(updateParents: boolean = false, updateChildren: boolean = true): void {
         const parent = this.parent;
-        
+
         if (updateParents && parent !== null) {
             parent.updateWorldMatrix(true, false);
         }

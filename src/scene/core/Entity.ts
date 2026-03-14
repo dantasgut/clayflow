@@ -1,6 +1,7 @@
 import { EventDispatcher } from '../core/EventDispatcher';
 import { Transform } from '../math/Transform';
 import type { Component } from './Component';
+import type { Physic } from './Physic';
 
 /**
  * A Entidade (Container ECS / Padrão Facade).
@@ -15,13 +16,18 @@ export class Entity extends EventDispatcher {
     public visible: boolean = true;
     public name: string = "Entity";
 
-    // Repositório de Componentes Lógicos (O coração do ECS)
-    private _components: Map<string, Component> = new Map();
+    // O Array de gavetas! Índice 0 = Visuais, Índice 1 = Físicas
+    private _layers: Map<string, any>[] = [
+        new Map(), // ResourceType.VISUAL_COMPONENT
+        new Map(), // ResourceType.PHYSICS_MECHANIC
+    ];
 
     constructor() {
         super();
         // Toda Entidade 3D nasce OBRIGATORIAMENTE com as Leis da Física/Espaço anexadas.
-        this.addComponent(new Transform());
+        const transform = new Transform();
+        (transform as any).isComponent = true; // Força rotar como componente no ECS interno
+        this.add(transform);
     }
 
     // ==========================================================
@@ -35,7 +41,7 @@ export class Entity extends EventDispatcher {
     get position() { return this.transform.position; }
     get rotation() { return this.transform.rotation; }
     get scale() { return this.transform.scale; }
-    
+
     // Matrizes para o Extrator
     get localMatrix() { return this.transform.localMatrix; }
     get worldMatrix() { return this.transform.worldMatrix; }
@@ -44,26 +50,50 @@ export class Entity extends EventDispatcher {
         // Se meu Transform tem pai, quem é o dono primário (Entidade Entity) dele?
         return this.transform.parent ? this.transform.parent.owner : null;
     }
-    
+
     get children(): Entity[] {
         // Mapeia os filhos do Transform de volta para a Entidade Mãe correspondente
         return this.transform.children.map(t => t.owner).filter(entity => entity !== null) as Entity[];
     }
 
     /**
-     * Adiciona Entidade filha (Delega a matemática de parentesco ao Transform)
+     * Adiciona Entidade filha ou Componente. (Roteamento Automático ECS)
      */
-    public add(object: Entity): this {
-        if (object === this) return this;
-        
-        this.transform.add(object.transform);
-        this.dispatchEvent({ type: 'added', target: object });
+    public add(object: any): this {
+        if (object === this as any) return this;
+
+        // ROTEAMENTO ORIENTADO A DADOS
+        if ('layer' in object && this._layers[object.layer]) {
+            this._layers[object.layer]!.set(object.type, object);
+            if (object.onAttach) object.onAttach(this);
+            // Se o objeto for uma Entidade por si só (como RigidBody), adiciona na topologia espacial
+            if (object.isEntity) {
+                this.transform.add(object.transform);
+            }
+        }
+        // ROTEAMENTO: É um Nó Espacial Puro (Entidade vazia/grupo)
+        else if (object.isEntity) {
+            this.transform.add(object.transform);
+            this.dispatchEvent({ type: 'added', target: object });
+        }
+
         return this;
     }
 
-    public remove(object: Entity): this {
-        this.transform.remove(object.transform);
-        this.dispatchEvent({ type: 'removed', target: object });
+    public remove(object: any): this {
+        if ('layer' in object && this._layers[object.layer]) {
+            if (this._layers[object.layer]!.has(object.type)) {
+                if (object.onDetach) object.onDetach(this);
+                this._layers[object.layer]!.delete(object.type);
+            }
+            if (object.isEntity) {
+                this.transform.remove(object.transform);
+            }
+        }
+        else if (object.isEntity) {
+            this.transform.remove(object.transform);
+            this.dispatchEvent({ type: 'removed', target: object });
+        }
         return this;
     }
 
@@ -74,32 +104,23 @@ export class Entity extends EventDispatcher {
         this.transform.updateWorldMatrix(updateParents, updateChildren);
     }
 
-    // ==========================================================
-    // SISTEMA ECS: Gerenciamento real da Entidade
-    // ==========================================================
-    public addComponent(component: Component): this {
-        this._components.set(component.type, component);
-        if (component.onAttach) {
-            component.onAttach(this);
-        }
-        return this;
-    }
-
-    public removeComponent(type: string): this {
-        const component = this._components.get(type);
-        if (component) {
-            if (component.onDetach) component.onDetach(this);
-            this._components.delete(type);
-        }
-        return this;
-    }
+    // Note: addComponent e removeComponent foram removidos da API pública 
+    // a pedido da arquitetura, pois add() roteia isso agora nativamente.
 
     public getComponent<T extends Component>(type: string): T | undefined {
-        return this._components.get(type) as T | undefined;
+        return this._layers[0]?.get(type) as T | undefined;
+    }
+
+    public getComponents(): IterableIterator<Component> {
+        return this._layers[0]!.values();
+    }
+
+    public getPhysics(): IterableIterator<Physic> {
+        return this._layers[1]!.values();
     }
 
     public hasComponent(type: string): boolean {
-        return this._components.has(type);
+        return this._layers[0]!.has(type);
     }
 
     /**

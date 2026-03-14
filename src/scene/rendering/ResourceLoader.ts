@@ -1,17 +1,14 @@
 import type { Scene } from '../core/Scene';
 import type { Entity } from '../core/Entity';
+import type { Resource } from '../core/Resource';
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
-import { Geometry } from '../components/Geometry';
-import { Material } from '../components/Material';
 import { ResourceState } from '../core/ResourceState';
 
 /**
- * Sistema focado na Camada 2 (ResourceLoader).
- * Ele varre a Cena procurando por Componentes Lógicos (Geometry e Material)
- * que estejam nos estados `Uninitialized` ou `Dirty`.
- * Quando encontrados, o Loader despacha os arrays crus (Float32Array) para 
- * a Camada 1 (ResourceManager), obtém os IDs reais de Buffers da placa de vídeo
- * e atualiza o estado do Componente para `Ready`.
+ * Sistema focado na Camada 2 (Unified ResourceLoader).
+ * Ele itera todas as Entidades da Cena. Se a própria Entidade (ex: RigidBody) for um 
+ * Resource alocável, ela será processada. Em seguida, ele itera todos os Componentes 
+ * da Entidade (ex: Geometry, Material). Tudo o que veste o contrato Resource envia à Placa.
  */
 export class ResourceLoader {
     public async load(scene: Scene, resourceManager: ResourceManager): Promise<void> {
@@ -20,93 +17,42 @@ export class ResourceLoader {
         scene.traverse((entity: Entity) => {
             if (!entity.visible) return;
 
-            promises.push(this._processGeometry(entity, resourceManager));
-            promises.push(this._processMaterial(entity, resourceManager));
+            // 1. Checa se o próprio nó da árvore (Entidade Física) tem contrato de hardware
+            const entityAsResource = entity as unknown as Resource;
+            if (entityAsResource.allocateResource || entityAsResource.updateResource) {
+                this._processResource(entityAsResource, resourceManager, promises);
+            }
+
+            // 2. Itera pelos Componentes visuais/lógicos da Entidade
+            for (const component of entity.getComponents()) {
+                this._processResource(component, resourceManager, promises);
+            }
         });
 
         await Promise.all(promises);
     }
 
-    private async _processGeometry(entity: Entity, resourceManager: ResourceManager): Promise<void> {
-        const geometry = entity.getComponent<Geometry>('Geometry');
-        if (!geometry) return;
+    private _processResource(resource: Resource, resourceManager: ResourceManager, promises: Promise<void>[]): void {
+        if (!resource) return;
 
-        if (geometry.state === ResourceState.Uninitialized) {
-            geometry.state = ResourceState.Loading;
-
-            const uploadPromises: Promise<void>[] = [];
-
-            if (geometry.rawVertices) {
-                const vbo = resourceManager.buffers.createVertexBuffer('geom_vbo_' + geometry.uuid, geometry.rawVertices.byteLength);
-                geometry.vertexBufferId = vbo.id;
-                uploadPromises.push(resourceManager.buffers.uploadStagedAsync(vbo.id, geometry.rawVertices));
+        // Aloca se estiver cru
+        if (resource.state === ResourceState.Uninitialized && resource.allocateResource) {
+            const result = resource.allocateResource(resourceManager);
+            if (result instanceof Promise) {
+                promises.push(result);
             }
-
-            if (geometry.rawIndices) {
-                const ibo = resourceManager.buffers.createIndexBuffer('geom_ibo_' + geometry.uuid, geometry.rawIndices.byteLength);
-                geometry.indexBufferId = ibo.id;
-                uploadPromises.push(resourceManager.buffers.uploadStagedAsync(ibo.id, geometry.rawIndices));
+        } 
+        // Atualiza se estiver sujo
+        else if (resource.state === ResourceState.Dirty && resource.updateResource) {
+            const result = resource.updateResource(resourceManager);
+            if (result instanceof Promise) {
+                promises.push(result);
             }
-
-            await Promise.all(uploadPromises);
-
-            // Opcional: Liberar memória RAM pesada se o motor não prevê leitura em CPU constante
-            // geometry.rawVertices = null;
-            // geometry.rawIndices = null;
-
-            geometry.state = ResourceState.Ready;
-
-        } else if (geometry.state === ResourceState.Dirty) {
-            const uploadPromises: Promise<void>[] = [];
-
-            if (geometry.rawVertices && geometry.vertexBufferId) {
-                uploadPromises.push(resourceManager.buffers.uploadStagedAsync(geometry.vertexBufferId, geometry.rawVertices));
-            }
-            if (geometry.rawIndices && geometry.indexBufferId) {
-                uploadPromises.push(resourceManager.buffers.uploadStagedAsync(geometry.indexBufferId, geometry.rawIndices));
-            }
-
-            await Promise.all(uploadPromises);
-            
-            geometry.state = ResourceState.Ready;
-        } else if (geometry.state === ResourceState.Disposed) {
-            // Todo: Instruir a Layer 1 a destruir buffers e clean up
-            // geometry.vertexBufferId = null;
         }
-    }
-
-    private async _processMaterial(entity: Entity, resourceManager: ResourceManager): Promise<void> {
-        const material = entity.getComponent<Material>('Material');
-        if (!material) return;
-
-        if (material.state === ResourceState.Uninitialized) {
-            material.state = ResourceState.Loading;
-
-            // Por enquanto, consideramos os buffers PBR básicos e BindGroup 0 padrão
-            // (Esta lógica ficaria mais complexa gerada atráves do tipo do material)
-            const uniformData = material.rawUniforms.get('std_mat_buf');
-            
-            if (uniformData && material.shaderId) {
-                const uniformBuffer = resourceManager.buffers.createUniformBuffer('mat_ubo_' + material.uuid, uniformData.byteLength);
-                resourceManager.buffers.writeBuffer(uniformBuffer.id, uniformData);
-
-                // Camada 2 dita a Regra (Schema) para a Camada 1 gerar/pescar do Cache o Layout
-                const layout = resourceManager.bindings.getLayout(material.shaderId, material.bindGroupSchema);
-
-                // Camada 2 solicita a Criação do Pacote (BindGroup) definitivo usando o Layout Registrado
-                const bindGroup = resourceManager.bindings.getBindGroup('mat_bg_' + material.uuid, material.shaderId, [
-                    { binding: 0, resource: { buffer: uniformBuffer.native } }
-                ]);
-                
-                // Salva a identificação de bindings final
-                material.bindGroupIds.push(bindGroup.id);
-            }
-
-            material.state = ResourceState.Ready;
-
-        } else if (material.state === ResourceState.Dirty) {
-            // Em tese localizamos o ubo associado pelo bindGroup e atualizamos com writeBuffer
-            material.state = ResourceState.Ready;
+        // Descarta caso descartado
+        else if (resource.state === ResourceState.Disposed && resource.disposeResource) {
+            resource.disposeResource(resourceManager);
         }
     }
 }
+

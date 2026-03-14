@@ -1,17 +1,19 @@
 import { mat4 } from 'gl-matrix';
 import type { Component } from '../core/Component';
 import type { Entity } from '../core/Entity';
+import { ResourceType } from '../core/ResourceType';
 
 /**
  * A Câmera Virtual. (Camada 2 - Representação)
  * Componente ECS Puro que calcula as matrizes de visão e projeção a partir do Transform da Entidade dona.
  */
 export class Camera implements Component {
+    public readonly layer = ResourceType.VISUAL_COMPONENT;
     public readonly type: string = 'Camera';
-    
+
     // A matriz que transforma o mundo 3D chapado para a tela 2D (A Perspectiva)
     public projectionMatrix: mat4 = mat4.create();
-    
+
     // A Inversa da WorldMatrix da câmera (Como a cena é vista do ponto de vista dela)
     public viewMatrix: mat4 = mat4.create();
 

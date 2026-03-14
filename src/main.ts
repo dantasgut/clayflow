@@ -21,7 +21,7 @@ async function init() {
 
     const cameraEntity = new Entity();
     const camera = new Camera();
-    cameraEntity.addComponent(camera);
+    cameraEntity.add(camera);
     vec3.set(cameraEntity.transform.position, 0, 0, 5);
 
     // 3. O Maestro da Camada 4
