@@ -1,4 +1,5 @@
 import type { Component } from '../core/Component';
+import { Entity } from '../core/Entity';
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { VertexLayout } from '../data/VertexLayout';
 import { ResourceState } from '../core/ResourceState';
@@ -10,7 +11,7 @@ import { ResourceType } from '../core/ResourceType';
  * que diz a Engine como iterar esse buffer (Stride).
  * Odiado Loader processará os arrays brutos mantidos aqui.
  */
-export abstract class Geometry implements Component {
+export abstract class Geometry extends Entity implements Component {
     private static _nextUuid: number = 0;
     public readonly uuid: string = `geom_${++Geometry._nextUuid}`;
 

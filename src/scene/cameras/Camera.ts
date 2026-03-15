@@ -2,6 +2,7 @@ import { mat4 } from 'gl-matrix';
 import type { Component } from '../core/Component';
 import type { Entity } from '../core/Entity';
 import { ResourceType } from '../core/ResourceType';
+import type { Transform } from '../math/Transform';
 
 /**
  * A Câmera Virtual. (Camada 2 - Representação)
@@ -33,17 +34,24 @@ export class Camera implements Component {
         this._transformCallback = (worldMatrix: mat4) => {
             this.updateViewMatrix(worldMatrix);
         };
-        this.owner.transform.onUpdateMatrixCallbacks.push(this._transformCallback);
-        // Atualiza a view matrix inicial baseada no transform atual da Entidade
-        this.updateViewMatrix(this.owner.worldMatrix);
+        const transform = this.owner.getComponent<Transform>('Transform');
+        if (transform) {
+            transform.onUpdateMatrixCallbacks.push(this._transformCallback);
+            this.updateViewMatrix(transform.worldMatrix);
+        } else {
+            this.updateViewMatrix(mat4.create()); // Fallback caso a câmera seja anexada a um nó lógico puro
+        }
     }
 
     public onDetach(entity: Entity): void {
         if (this.owner && this._transformCallback) {
-            const callbacks = this.owner.transform.onUpdateMatrixCallbacks;
-            const index = callbacks.indexOf(this._transformCallback);
-            if (index !== -1) {
-                callbacks.splice(index, 1);
+            const transform = this.owner.getComponent<Transform>('Transform');
+            if (transform) {
+                const callbacks = transform.onUpdateMatrixCallbacks;
+                const index = callbacks.indexOf(this._transformCallback);
+                if (index !== -1) {
+                    callbacks.splice(index, 1);
+                }
             }
         }
         this.owner = null;

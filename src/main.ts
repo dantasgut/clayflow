@@ -3,6 +3,7 @@ import { WebGPURenderer } from './presentation/renderers/WebGPURenderer';
 import { Scene } from './scene/core/Scene';
 import { Entity } from './scene/core/Entity';
 import { Camera } from './scene/cameras/Camera';
+import { Transform } from './scene/math/Transform';
 import { vec3 } from 'gl-matrix';
 
 async function init() {
@@ -20,9 +21,12 @@ async function init() {
     const scene = new Scene();
 
     const cameraEntity = new Entity();
+    const cameraTransform = new Transform();
+    cameraEntity.add(cameraTransform);
+    
     const camera = new Camera();
     cameraEntity.add(camera);
-    vec3.set(cameraEntity.transform.position, 0, 0, 5);
+    vec3.set(cameraTransform.position, 0, 0, 5);
 
     // 3. O Maestro da Camada 4
     const renderer = new WebGPURenderer();

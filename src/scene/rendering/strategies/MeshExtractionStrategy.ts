@@ -2,6 +2,7 @@ import { Entity } from '../../core/Entity';
 import { RenderExtractor } from '../RenderExtractor';
 import { Geometry } from '../../components/Geometry';
 import { Material } from '../../components/Material';
+import type { Transform } from '../../math/Transform';
 import type { RenderCommand } from '../IRenderQueue';
 import { mat4, vec3 } from 'gl-matrix';
 import type { ExtractionStrategy } from './ExtractionStrategy';
@@ -16,8 +17,11 @@ export class MeshExtractionStrategy implements ExtractionStrategy {
     public extract(entity: Entity, extractor: RenderExtractor, cameraWorldPos?: vec3): void {
         const geometry = entity.getComponent<Geometry>('Geometry');
         const material = entity.getComponent<Material>('Material');
+        const transform = entity.getComponent<Transform>('Transform');
 
         if (!geometry || !material) return;
+
+        const worldMatio = transform ? transform.worldMatrix : mat4.create();
 
         const command: RenderCommand = {
             pipelineHashId: material.shaderId,
@@ -25,14 +29,14 @@ export class MeshExtractionStrategy implements ExtractionStrategy {
             vertexCount: geometry.vertexCount,
             instanceCount: geometry.instanceCount,
             materialBindGroupIds: material.bindGroupIds.slice(), // clonagem de segurança
-            worldMatrix: new Float32Array(entity.worldMatrix),
+            worldMatrix: new Float32Array(worldMatio),
             distanceToCamera: 0
         };
 
         if (material.transparent) {
             if (cameraWorldPos) {
                 vec3.copy(this._tempCameraPos, cameraWorldPos);
-                mat4.getTranslation(this._tempObjPos, entity.worldMatrix);
+                mat4.getTranslation(this._tempObjPos, worldMatio);
                 command.distanceToCamera = vec3.sqrDist(this._tempCameraPos, this._tempObjPos);
             }
             extractor.transparentList.push(command);

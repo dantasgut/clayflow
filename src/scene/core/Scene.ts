@@ -21,6 +21,7 @@ export class Scene extends Entity {
      * ser alinhados antes da extração Linear.
      */
     public preRenderUpdate(): void {
-        this.updateWorldMatrix(false, true);
+        const transform = this.getComponent<any>('Transform');
+        if (transform) transform.updateWorldMatrix(false, true);
     }
 }

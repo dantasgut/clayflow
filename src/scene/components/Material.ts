@@ -1,4 +1,5 @@
 import type { Component } from '../core/Component';
+import { Entity } from '../core/Entity';
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { ResourceState } from '../core/ResourceState';
 import { ResourceType } from '../core/ResourceType';
@@ -8,7 +9,7 @@ import { ResourceType } from '../core/ResourceType';
  * Guarda a Hash pro WebGPUPipelineManager (Camada 1) e referencias de texturas/uniformes.
  * Será processado pelo ResourceLoader.
  */
-export abstract class Material implements Component {
+export abstract class Material extends Entity implements Component {
     private static _nextUuid: number = 0;
     public readonly uuid: string = `mat_${++Material._nextUuid}`;
 

@@ -4,9 +4,9 @@ import type { Component } from './Component';
 import type { Physic } from './Physic';
 
 /**
- * A Entidade (Container ECS / Padrão Facade).
- * Responsabilidade Única: Segurar 'Components'.
- * A Matemática foi extraída para o Componente Obrigatório 'Transform'.
+ * A Entidade (Container ECS Lógico Puro).
+ * Responsabilidade Única: Segurar Componentes e Relacionar Filhos Lógicamente.
+ * A Matemática (Transform) foi totalmente separada.
  */
 export class Entity extends EventDispatcher {
     private static _nextId: number = 0;
@@ -16,6 +16,9 @@ export class Entity extends EventDispatcher {
     public visible: boolean = true;
     public name: string = "Entity";
 
+    public parent: Entity | null = null;
+    public children: Entity[] = [];
+
     // O Array de gavetas! Índice 0 = Visuais, Índice 1 = Físicas
     private _layers: Map<string, any>[] = [
         new Map(), // ResourceType.VISUAL_COMPONENT
@@ -24,37 +27,12 @@ export class Entity extends EventDispatcher {
 
     constructor() {
         super();
-        // Toda Entidade 3D nasce OBRIGATORIAMENTE com as Leis da Física/Espaço anexadas.
-        const transform = new Transform();
-        (transform as any).isComponent = true; // Força rotar como componente no ECS interno
-        this.add(transform);
+        // A Entidade não nasce com nenhuma dependência espacial explícita (ECS Puro).
     }
 
     // ==========================================================
-    // FACADE / DX (Developer Experience):
-    // Atalhos para manipular o Transform como se fosse nativo, mantendo a API Familiar
+    // Roteamento Automático de Componentes e Sub-entidades
     // ==========================================================
-    get transform(): Transform {
-        return this.getComponent<Transform>('Transform')!; // Garantido no constructor
-    }
-
-    get position() { return this.transform.position; }
-    get rotation() { return this.transform.rotation; }
-    get scale() { return this.transform.scale; }
-
-    // Matrizes para o Extrator
-    get localMatrix() { return this.transform.localMatrix; }
-    get worldMatrix() { return this.transform.worldMatrix; }
-
-    get parent(): Entity | null {
-        // Se meu Transform tem pai, quem é o dono primário (Entidade Entity) dele?
-        return this.transform.parent ? this.transform.parent.owner : null;
-    }
-
-    get children(): Entity[] {
-        // Mapeia os filhos do Transform de volta para a Entidade Mãe correspondente
-        return this.transform.children.map(t => t.owner).filter(entity => entity !== null) as Entity[];
-    }
 
     /**
      * Adiciona Entidade filha ou Componente. (Roteamento Automático ECS)
@@ -66,15 +44,17 @@ export class Entity extends EventDispatcher {
         if ('layer' in object && this._layers[object.layer]) {
             this._layers[object.layer]!.set(object.type, object);
             if (object.onAttach) object.onAttach(this);
-            // Se o objeto for uma Entidade por si só (como RigidBody), adiciona na topologia espacial
-            if (object.isEntity) {
-                this.transform.add(object.transform);
-            }
         }
-        // ROTEAMENTO: É um Nó Espacial Puro (Entidade vazia/grupo)
+        // ROTEAMENTO: É um Nó Lógico (Entidade / Grupo)
         else if (object.isEntity) {
-            this.transform.add(object.transform);
-            this.dispatchEvent({ type: 'added', target: object });
+            if (object.parent !== null) {
+                object.parent.remove(object);
+            }
+            object.parent = this;
+            this.children.push(object);
+            
+            // Dispara para o barramento que um filho lógico nasceu (Transform e física escutam isso)
+            this.dispatchEvent({ type: 'child_added', child: object });
         }
 
         return this;
@@ -86,22 +66,18 @@ export class Entity extends EventDispatcher {
                 if (object.onDetach) object.onDetach(this);
                 this._layers[object.layer]!.delete(object.type);
             }
-            if (object.isEntity) {
-                this.transform.remove(object.transform);
-            }
         }
         else if (object.isEntity) {
-            this.transform.remove(object.transform);
-            this.dispatchEvent({ type: 'removed', target: object });
+            const index = this.children.indexOf(object);
+            if (index !== -1) {
+                object.parent = null;
+                this.children.splice(index, 1);
+                
+                // Dispara ao vento que um filho foi removido
+                this.dispatchEvent({ type: 'child_removed', child: object });
+            }
         }
         return this;
-    }
-
-    /**
-     * Dispara o cálculo em cascata no subsistema matemático.
-     */
-    public updateWorldMatrix(updateParents: boolean = false, updateChildren: boolean = true): void {
-        this.transform.updateWorldMatrix(updateParents, updateChildren);
     }
 
     // Note: addComponent e removeComponent foram removidos da API pública 

@@ -4,6 +4,7 @@ import type { Camera } from '../../scene/cameras/Camera';
 import { WebGPUEngineCore } from '../../core/WebGPUEngineCore';
 import { RenderExtractor } from '../../scene/rendering/RenderExtractor';
 import { ResourceLoader } from '../../scene/rendering/ResourceLoader';
+import type { Transform } from '../../scene/math/Transform';
 
 /**
  * O Renderizador Final WebGPU (Camada 4).
@@ -45,8 +46,13 @@ export class WebGPURenderer implements IRenderer {
 
         // [PASSO 2] ATUALIZAR MATEMÁTICA E EXTRAIR DADOS LINEARES (SCENE -> EXTRACTOR)
         if (camera.owner) {
-            camera.owner.updateWorldMatrix(false, false);
-            this.extractor.extract(scene, camera.owner.position);
+            const transform = camera.owner.getComponent<Transform>('Transform');
+            if (transform) {
+                transform.updateWorldMatrix(false, false);
+                this.extractor.extract(scene, transform.position);
+            } else {
+                this.extractor.extract(scene);
+            }
         } else {
             this.extractor.extract(scene);
         }

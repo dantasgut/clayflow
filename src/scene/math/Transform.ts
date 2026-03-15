@@ -35,11 +35,47 @@ export class Transform implements Component {
 
     public onAttach(entity: Entity): void {
         this.owner = entity;
+        // O Componente Transform assina proativamente o barramento do Dono (Entidade).
+        this.owner.addEventListener('child_added', this.handleChildAdded);
+        this.owner.addEventListener('child_removed', this.handleChildRemoved);
+        
+        // CUIDADO RETROATIVO: Se o Transform foi adicionado ATRASADO na Entidade, ele varre os
+        // filhos que já existiam na entidade Lógica e arrasta eles pro Grafo Espacial retroativamente.
+        for (let i = 0; i < this.owner.children.length; i++) {
+            this.handleChildAdded({ child: this.owner.children[i] });
+        }
     }
 
     public onDetach(entity: Entity): void {
-        this.owner = null;
+        if (this.owner) {
+            this.owner.removeEventListener('child_added', this.handleChildAdded);
+            this.owner.removeEventListener('child_removed', this.handleChildRemoved);
+            this.owner = null;
+        }
     }
+
+    // ==========================================
+    // PADRÃO OBSERVER (Reatividade ECS Pura)
+    // ==========================================
+
+    private handleChildAdded = (event: any) => {
+        const childEntity = event.child as Entity;
+        const childTransform = childEntity.getComponent<Transform>('Transform');
+        
+        // Se a nova Entidade "Filha" lógica possuir um coração Espacial (Transform)...
+        if (childTransform) {
+            this.add(childTransform); // ...O meu transform puxa o transform do filho pra debaixo da minha Matriz.
+        }
+    };
+
+    private handleChildRemoved = (event: any) => {
+        const childEntity = event.child as Entity;
+        const childTransform = childEntity.getComponent<Transform>('Transform');
+        
+        if (childTransform) {
+            this.remove(childTransform); // Quebra o galho matemático.
+        }
+    };
 
     /**
      * Adiciona um Transform filho.
