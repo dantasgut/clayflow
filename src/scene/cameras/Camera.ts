@@ -12,74 +12,43 @@ export class Camera implements Component {
     public readonly layer = ResourceType.VISUAL_COMPONENT;
     public readonly type: string = 'Camera';
 
-    // A matriz que transforma o mundo 3D chapado para a tela 2D (A Perspectiva)
     public projectionMatrix: mat4 = mat4.create();
-
-    // A Inversa da WorldMatrix da câmera (Como a cena é vista do ponto de vista dela)
     public viewMatrix: mat4 = mat4.create();
-
-    // Cache combinado para a GPU (Projection * View)
     public viewProjectionMatrix: mat4 = mat4.create();
 
-    // Opcional: Referência à Entidade dona
     public owner: Entity | null = null;
-    private _transformCallback: ((worldMatrix: mat4) => void) | null = null;
-
-    constructor() {
-        // No longer extends Entity, so no super() call
-    }
+    private _unsubscribeTransform: (() => void) | null = null;
 
     public onAttach(entity: Entity): void {
         this.owner = entity;
-        this._transformCallback = (worldMatrix: mat4) => {
-            this.updateViewMatrix(worldMatrix);
-        };
-        const transform = this.owner.getComponent<Transform>('Transform');
+        const transform = entity.getComponent<Transform>('Transform');
         if (transform) {
-            transform.onUpdateMatrixCallbacks.push(this._transformCallback);
-            this.updateViewMatrix(transform.worldMatrix);
-        } else {
-            this.updateViewMatrix(mat4.create()); // Fallback caso a câmera seja anexada a um nó lógico puro
+            this._unsubscribeTransform = transform.onMatrixUpdate((worldMatrix) => {
+                this._updateViewMatrix(worldMatrix);
+            });
+            this._updateViewMatrix(transform.worldMatrix);
         }
     }
 
-    public onDetach(entity: Entity): void {
-        if (this.owner && this._transformCallback) {
-            const transform = this.owner.getComponent<Transform>('Transform');
-            if (transform) {
-                const callbacks = transform.onUpdateMatrixCallbacks;
-                const index = callbacks.indexOf(this._transformCallback);
-                if (index !== -1) {
-                    callbacks.splice(index, 1);
-                }
-            }
-        }
+    public onDetach(_entity: Entity): void {
+        this._unsubscribeTransform?.();
+        this._unsubscribeTransform = null;
         this.owner = null;
-        this._transformCallback = null;
     }
 
     /**
-     * Atualiza a Matriz de Perspectiva (Fov, Aspect Ratio, Near, Far)
+     * Perspectiva com Z-range [0, 1] correto para WebGPU.
      */
     public setPerspective(fovY: number, aspect: number, near: number, far: number): void {
-        mat4.perspective(this.projectionMatrix, fovY, aspect, near, far);
+        mat4.perspectiveZO(this.projectionMatrix, fovY, aspect, near, far);
     }
 
-    /**
-     * Atualiza a Matriz Ortográfica (Câmera 2D/Isométrica sem distorção de profundidade)
-     */
     public setOrthographic(left: number, right: number, bottom: number, top: number, near: number, far: number): void {
-        mat4.ortho(this.projectionMatrix, left, right, bottom, top, near, far);
+        mat4.orthoZO(this.projectionMatrix, left, right, bottom, top, near, far);
     }
 
-    /**
-     * Chamado automaticamente pelo evento do Transform sempre que a matriz global da câmera for atualizada.
-     */
-    private updateViewMatrix(worldMatrix: mat4): void {
-        // A View Matrix é a inversa da posição global da câmera.
+    private _updateViewMatrix(worldMatrix: mat4): void {
         mat4.invert(this.viewMatrix, worldMatrix);
-
-        // Multiplica Projection * View para o Shader já receber mastigado
         mat4.multiply(this.viewProjectionMatrix, this.projectionMatrix, this.viewMatrix);
     }
 }

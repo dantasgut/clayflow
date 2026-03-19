@@ -41,7 +41,14 @@ const gpuStatePipelineOuro = device.createRenderPipeline({
       format: 'depth24plus-stencil8' // O formato Textural invisível atrelado.
   },
 
-  // D. Cores, Transparências, Telas / Fragment Shader!
+  // D. Multisampling (MSAA) - OPCIONAL
+  multisample: {
+    count: 4,            // 1 (padrão, sem MSAA) ou 4 (4x MSAA)
+    mask: 0xFFFFFFFF,    // Máscara de amostras ativas (padrão: todas)
+    alphaToCoverageEnabled: false // Usa alpha do fragmento para máscara de cobertura
+  },
+
+  // E. Cores, Transparências, Telas / Fragment Shader!
   fragment: {
     module: moduloCompiladoShaderPronto,
     entryPoint: "minha_funcao_cor_final",
@@ -100,12 +107,35 @@ const renderPassFísico = encoderCena.beginRenderPass(configDrawFinal);
   renderPassFísico.setVertexBuffer(0, bufferTriangulosFísicoDaPlaca);
   renderPassFísico.setIndexBuffer(bufferArrayIndicesCurtoGeometricos, 'uint16');
   
+  // 3b. Viewport e Scissor (opcionais — padrão cobre todo o attachment)
+  renderPassFísico.setViewport(0, 0, canvas.width, canvas.height, 0.0, 1.0);
+  renderPassFísico.setScissorRect(0, 0, canvas.width, canvas.height);
+
   // 4. Mande invocar 3.000 Vértice Threads. Inicie! O Hardware decola!
   renderPassFísico.drawIndexed(3000);
+
+  // 4b. Draw Indireto: parâmetros de draw lidos de um GPUBuffer na GPU (sem roundtrip CPU)
+  // renderPassFísico.drawIndirect(indirectBuffer, 0);
+  // renderPassFísico.drawIndexedIndirect(indirectBuffer, 0);
 
 renderPassFísico.end(); // Assine a fita. Fim de Frame
 /* ENVIE TUDO VIA QUEUE!! QUEUE.SUBMIT([]) */
 ```
+
+## 7.3 Criação Assíncrona de Pipeline
+
+`createRenderPipeline` é síncrono mas pode causar stutter porque a compilação do shader bloqueia a thread. Para evitar isso durante o loading:
+
+```javascript
+// Retorna uma Promise — compila em background sem travar o frame loop
+const pipeline = await device.createRenderPipelineAsync({
+  layout: pipelineLayout,
+  vertex: { /* ... */ },
+  fragment: { /* ... */ }
+});
+```
+
+Use sempre a versão `Async` durante screens de loading. Reserve a versão síncrona apenas para hot-reloads de shader em ferramentas de desenvolvimento.
 
 ### O Custo da Invocação
 Uma única Invocação de `draw/drawIndexed` pode acordar todas as dezenas de núcleos paralelos. Como boa prática em qualquer API explícita baixo-nível (Vulkan/Metal), o programador estuda incessantemente formas de *minitificar* a repetição abusiva dos "Fios de Energia na Tomada" `setBindGroup()` ou repetições custosas na CPU de múltiplos `draw()`. Para essa otimização massiva final, a classe avançada do [Módulo 9](./09_Compute_Pass_e_Queries.md) e [Módulo 10](./10_Hierarquia_Objetos_3D.md) lidará com Otimizações Pesadas (Instânciamentos e RenderBundles Automáticos).

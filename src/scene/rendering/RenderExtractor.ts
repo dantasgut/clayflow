@@ -3,7 +3,8 @@ import { Scene } from '../core/Scene';
 import type { ExtractionStrategy } from './strategies/ExtractionStrategy';
 import { LightExtractionStrategy } from './strategies/LightExtractionStrategy';
 import { MeshExtractionStrategy } from './strategies/MeshExtractionStrategy';
-import type { RenderCommand, IRenderQueue, RenderLight } from './IRenderQueue';
+import type { RenderCommand, RenderQueue, RenderLight } from './RenderQueue';
+import { Float32Pool } from './Float32Pool';
 import { mat4, vec3 } from 'gl-matrix';
 
 /**
@@ -11,13 +12,13 @@ import { mat4, vec3 } from 'gl-matrix';
  * Percorre a Scene orientada a objetos (Camada 2) e gera Arrays Lineares (DoD)
  * para a Camada 3 consumir.
  */
-export class RenderExtractor implements IRenderQueue {
+export class RenderExtractor implements RenderQueue {
     public readonly opaqueGroups: Map<string, RenderCommand[]> = new Map();
     public readonly transparentList: RenderCommand[] = [];
     public readonly lights: RenderLight[] = [];
 
-    // Pipeline de Estratégias Injetadas (OCP puro)
     private _strategies: ExtractionStrategy[] = [];
+    private _pool = new Float32Pool();
 
     constructor() {
         // Registra as estratégias nativas da engine por padrão
@@ -40,6 +41,11 @@ export class RenderExtractor implements IRenderQueue {
         this.opaqueGroups.clear();
         this.transparentList.length = 0;
         this.lights.length = 0;
+        this._pool.reset();
+    }
+
+    public acquireFloat32(size: number): Float32Array {
+        return this._pool.acquire(size);
     }
 
     /**
@@ -48,7 +54,7 @@ export class RenderExtractor implements IRenderQueue {
      */
     public extract(scene: Scene, cameraWorldPos?: vec3): void {
         this.clear();
-        
+
         // Garante que a matemática global está 100% calculada
         scene.preRenderUpdate();
 
@@ -57,7 +63,7 @@ export class RenderExtractor implements IRenderQueue {
 
             // O Extrator simplesmente cede a Entidade para todos os especialistas registrados
             for (let i = 0; i < this._strategies.length; i++) {
-                this._strategies[i]!.extract(entity, this, cameraWorldPos);
+                this._strategies[i]!.extract(entity, this as RenderQueue, cameraWorldPos);
             }
         });
 

@@ -1,9 +1,11 @@
 import { WebGPUContext } from '../context/WebGPUContext';
+import type { EngineBuffer } from './EngineBuffer';
+import type { CopyManager as CopyManagerInterface } from '../interfaces/CopyManager';
 
 /**
- * Operações de transferência de memória asssíncrona (Upload/Download e CPU-GPU-CPU)
+ * Operações de transferência de memória assíncrona (GPU-GPU e GPU->CPU readback).
  */
-export class CopyManager {
+export class CopyManager implements CopyManagerInterface {
     private context: WebGPUContext;
 
     constructor() {
@@ -11,43 +13,34 @@ export class CopyManager {
     }
 
     /**
-     * Cópia intra-GPU direta (Ex: Salvar estado anterior de fisica).
+     * Cópia intra-GPU direta (ex: salvar estado anterior de física).
      */
     public copyBufferToBuffer(
         encoder: GPUCommandEncoder,
-        source: GPUBuffer,
-        dest: GPUBuffer,
+        source: EngineBuffer,
+        dest: EngineBuffer,
         size: number,
         srcOffset: number = 0,
         destOffset: number = 0
-    ) {
-        encoder.copyBufferToBuffer(source, srcOffset, dest, destOffset, size);
+    ): void {
+        encoder.copyBufferToBuffer(source.native, srcOffset, dest.native, destOffset, size);
     }
 
     /**
-     * Readback Assíncrono: Traz um buffer da GPU (geralmente gerado por um Compute Shader) de volta pro Javascript.
-     * Usaremos muito isso para ler o output das fórmulas matemáticas se necessário exportar geometrias.
+     * Readback assíncrono: traz um buffer da GPU de volta para o JavaScript.
      */
-    public async readBuffer(buffer: GPUBuffer, size: number): Promise<Float32Array> {
-        // 1. Criar Buffer Staging (MAP_READ)
+    public async readBuffer(source: EngineBuffer, size: number): Promise<Float32Array> {
         const stagingBuffer = this.context.device.createBuffer({
             size,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
         });
 
-        // 2. Comanda a cópia
         const encoder = this.context.device.createCommandEncoder();
-        encoder.copyBufferToBuffer(buffer, 0, stagingBuffer, 0, size);
+        encoder.copyBufferToBuffer(source.native, 0, stagingBuffer, 0, size);
         this.context.queue.submit([encoder.finish()]);
 
-        // 3. Mapeia e aguarda
         await stagingBuffer.mapAsync(GPUMapMode.READ);
-        const arrayBuffer = stagingBuffer.getMappedRange();
-
-        // 4. Copia os dados
-        const result = new Float32Array(arrayBuffer.slice(0));
-
-        // 5. Limpa memórias
+        const result = new Float32Array(stagingBuffer.getMappedRange().slice(0));
         stagingBuffer.unmap();
         stagingBuffer.destroy();
 

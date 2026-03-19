@@ -76,4 +76,43 @@ No código WGSL, a declaração refletirá rigorosamente a exata ordem abstrata 
 
 A WebGPU validará em *Microssegundos* se `fisicaMatrizPosicaoHeroi` é do tipo 'Uniform' e se ocupa `64 Bytes`. Qualquer fraude ou falha do JS jogará o Canvas num **Device Error** imediato.
 
+## 6.4 Layout Automático (`layout: 'auto'`)
+
+Ao criar pipelines simples, você pode omitir o `GPUPipelineLayout` e deixar a API derivar o layout diretamente das declarações WGSL:
+
+```javascript
+const pipeline = device.createComputePipeline({
+  layout: 'auto', // WebGPU infere o layout a partir do shader
+  compute: { module: shaderModule, entryPoint: 'main' }
+});
+
+// Recuperando o layout inferido para criar o BindGroup compatível:
+const bindGroup = device.createBindGroup({
+  layout: pipeline.getBindGroupLayout(0), // índice do @group(0)
+  entries: [{ binding: 0, resource: { buffer: meuBuffer } }]
+});
+```
+
+> `layout: 'auto'` impede o reuso do pipeline com outros pipelines que tenham layouts distintos. Em engines com muitos materiais compartilhando recursos (câmera, luz), prefira layouts explícitos.
+
+## 6.5 Dynamic Offsets
+
+Quando múltiplos objetos compartilham o mesmo buffer de uniforms (ex: matrizes de modelo empacotadas), é possível usar um único `GPUBindGroup` e variar o offset em tempo de execução:
+
+```javascript
+// Layout declarando o buffer como suportando offset dinâmico:
+const layout = device.createBindGroupLayout({
+  entries: [{
+    binding: 0,
+    visibility: GPUShaderStage.VERTEX,
+    buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 64 }
+  }]
+});
+
+// No render pass, o terceiro argumento é o array de offsets dinâmicos:
+renderPass.setBindGroup(0, bindGroup, [objetoIndex * 256]); // pula 256 bytes por objeto
+```
+
+> O offset dinâmico deve respeitar o alinhamento mínimo de `minUniformBufferOffsetAlignment` (padrão: 256 bytes).
+
 [⬅ Voltar para Shaders e WGSL](./05_Shaders_e_WGSL.md) | [Próximo: Pipeline de Renderização e Passes ➡](./07_Pipeline_de_Renderizacao_e_Passes.md)

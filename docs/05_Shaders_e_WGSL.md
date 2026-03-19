@@ -44,6 +44,29 @@ const moduloAsync = device.createShaderModule({
 ```
 Ao usar isso no boot da tela de *Loading...*, quando o momento do jogador invocar `device.createRenderPipeline()`, aquele gargalo massivo de travamento de frames (stutters) não existirá porque ele resgatará a *hint* cacheadamente pela V8 do Chrome!
 
+## 5.2.1 Inspecionando Erros de Compilação
+
+`getCompilationInfo()` retorna uma `Promise<GPUCompilationInfo>` com a lista de mensagens do compilador. Cada `GPUCompilationMessage` possui:
+
+```typescript
+{
+  message: string,        // Texto do erro ou aviso
+  type: "error" | "warning" | "info",
+  lineNum: number,        // Linha no código WGSL (1-based)
+  linePos: number,        // Coluna (1-based)
+  length: number          // Extensão do token problemático
+}
+```
+
+```javascript
+const info = await moduloCompiladoShaderPronto.getCompilationInfo();
+for (const msg of info.messages) {
+  if (msg.type === 'error') {
+    console.error(`WGSL erro linha ${msg.lineNum}: ${msg.message}`);
+  }
+}
+```
+
 ## 5.3 O Universo Interno do WGSL
 
 A sintaxe WGSL não usa classes ou métodos dinâmicos. Ela foi feita arquiteturalmente para o layout estático.

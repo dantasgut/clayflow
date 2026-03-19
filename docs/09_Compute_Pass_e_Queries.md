@@ -30,7 +30,37 @@ const passC = encoderCena.beginComputePass();
 passC.end();
 ```
 
-## 9.2 Ocultando Complexidade do Spector.js (Debug Markers)
+## 9.2 Occlusion Queries
+
+Além de Timestamps, o `GPUQuerySet` suporta **Occlusion Queries**: contam quantas amostras de fragmento passaram pelos testes de depth/stencil durante um draw. Útil para otimização (não renderizar objetos completamente ocluídos).
+
+```javascript
+// Requer a feature 'occlusion-query' (suportada por padrão, sem requestDevice extra)
+const occlusionSet = device.createQuerySet({ type: 'occlusion', count: 8 });
+
+// No render pass, ativar para um objeto específico:
+const pass = encoder.beginRenderPass({
+  colorAttachments: [{ /* ... */ }],
+  occlusionQuerySet: occlusionSet
+});
+
+pass.beginOcclusionQuery(0); // Slot 0 do QuerySet
+  pass.setPipeline(pipeline);
+  pass.draw(36);
+pass.endOcclusionQuery();
+pass.end();
+
+// Resolver: transfere os contadores do QuerySet para um GPUBuffer
+const resultBuffer = device.createBuffer({
+  size: 8 * 8, // 8 queries × 8 bytes (uint64)
+  usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC
+});
+encoder.resolveQuerySet(occlusionSet, 0, 8, resultBuffer, 0);
+
+// Depois fazer mapAsync no resultBuffer para ler os contadores no JS
+```
+
+## 9.5 Ocultando Complexidade do Spector.js (Debug Markers)
 
 Ao abrir os Inspecionadores e Profilers da Placa (`Spector.JS`, `RenderDoc` da vida real C++), todos os envios são um pesadelo "PULL BUFFER 0", "DRAW 300 VERTEX". É uma confusão abstrata ilegível.
 Use **Debug Groups** para etiquetar humanamente seus Encoders de Hardware:
@@ -44,7 +74,7 @@ encoderCena.popDebugGroup();
 ```
 
 
-## 9.3 Profiling Nativo de Placa: `GPUQuerySet`
+## 9.4 Profiling Nativo de Placa: `GPUQuerySet`
 
 Como saber quanto tempo O CÓDIGO DA GPU (não do JS) demorou para emular aquele sol da Galáxia de Andrômeda visualmente renderizado?!
 Usando `Timestamp Queries`. As medições da Memória WebGPU têm precisão letal nos Nanosegundos (1 Bilionésimo do Segundo de Hardware).

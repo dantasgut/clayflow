@@ -46,7 +46,7 @@ export class WebGPURenderPassManager implements RenderPassManager {
                 view: depthView,
                 depthClearValue: 1.0,
                 depthLoadOp: 'clear',
-                depthStoreOp: 'store',
+                depthStoreOp: 'discard',
             };
         }
 

@@ -37,7 +37,12 @@ export class WebGPUComputeManager implements ComputeManager {
         return this.pipelines.get(id);
     }
 
+    public beginComputePass(encoder: GPUCommandEncoder, label?: string): GPUComputePassEncoder {
+        return encoder.beginComputePass(label !== undefined ? { label } : undefined);
+    }
+
     public dispatch(
+        encoder: GPUCommandEncoder,
         pipelineId: string,
         bindGroups: GPUBindGroup[],
         workgroupsX: number,
@@ -47,8 +52,7 @@ export class WebGPUComputeManager implements ComputeManager {
         const pipeline = this.pipelines.get(pipelineId);
         if (!pipeline) throw new Error(`Pipeline de Compute ${pipelineId} não encontrado.`);
 
-        const commandEncoder = this.context.device.createCommandEncoder({ label: `ComputeCommandEncoder_${pipelineId}` });
-        const passEncoder = commandEncoder.beginComputePass({ label: `ComputePass_${pipelineId}` });
+        const passEncoder = encoder.beginComputePass({ label: `ComputePass_${pipelineId}` });
 
         passEncoder.setPipeline(pipeline);
         bindGroups.forEach((bg, index) => {
@@ -57,7 +61,5 @@ export class WebGPUComputeManager implements ComputeManager {
 
         passEncoder.dispatchWorkgroups(workgroupsX, workgroupsY, workgroupsZ);
         passEncoder.end();
-
-        this.context.queue.submit([commandEncoder.finish()]);
     }
 }

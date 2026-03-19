@@ -1,180 +1,310 @@
-## Núcleo
+# Resumo WebGPU — Componentes, Uso e Relacionamentos
 
-1. GPU (Ponto de entrada)
+---
 
-    * navigator.gpu 
-    * Permite solicitar um adapter (representação de uma GPU disponível no sistema)
+## Modelo de Execução: As Três Timelines
 
-    > ```const adapter = await navigator.gpu.requestAdapter();```
+A spec W3C define três contextos de execução separados e assíncronos entre si:
 
-2. GPUAdapter
-    Representa uma GPU física ou lógica disponível
+| Timeline | Onde roda | Responsabilidade |
+|---|---|---|
+| **Content** | Thread JS do browser | Criação de objetos, gravação de comandos no encoder |
+| **Device** | User agent / GPU process | Validação de descritores, criação de recursos no driver |
+| **Queue** | Núcleos físicos da GPU | Execução real de shaders, draws, dispatches e cópias |
 
-    * Consulta de recursos e limites
-    * Solicita um GPUDevice
+**Pontes de sincronização:**
+- `queue.submit()` — move o trabalho da Content para a Queue Timeline
+- `buffer.mapAsync()` — bloqueia o buffer para leitura no JS; resolve quando a GPU termina
+- `queue.onSubmittedWorkDone()` — Promise que resolve quando toda a Queue Timeline conclui o lote submetido
 
-    >```const device = await adapter.requestDevice();```
+> A Content Timeline **nunca** espera a Queue de forma síncrona. Toda comunicação de retorno é via Promise.
 
+---
 
-3. GPUDevice (Núcleo do WebGPU)
-    É o componente central
+## Hierarquia de Objetos
 
-    A partir dele você cria praticamente tudo:
+Todos os objetos WebGPU herdam de `GPUObjectBase`:
+- **`label`** — string de debug; aparece em mensagens de erro do driver
+- **`destroy()`** — libera VRAM imediatamente, sem esperar o GC do JS
 
-    * Buffers
-    * Shaders
-    * Pipelines
-    * Command encoders
-    * Bind groups
-    * Textures
+```
+navigator.gpu
+  └── GPUAdapter          — representa o hardware físico (features, limits)
+        └── GPUDevice     — fábrica central; cria todos os outros objetos
+              └── GPUQueue — única fila padrão; submete e escreve dados
+```
 
-    Ele também contém a queue para envio de comandos à GPU<br/>
+---
 
-4. GPUQueue
+## Família 1 — Dados (VRAM física)
 
-    * Responsável por enviar comandos para execução na GPU.
-    * Submete command buffers
+### GPUBuffer
+Array de bytes brutos na GPU. Sem tipo intrínseco — a tipagem vem do shader ou do JS ao mapear.
 
-    > ```device.queue.submit([commandBuffer])```
+| Usage flag | Para que serve |
+|---|---|
+| `VERTEX` | Fonte de atributos no Input Assembler |
+| `INDEX` | Índices de vértices |
+| `UNIFORM` | Leitura somente em shaders (câmera, luz, time) |
+| `STORAGE` | Leitura/escrita aleatória em compute ou fragment |
+| `COPY_SRC` / `COPY_DST` | Origem/destino de cópias e `writeBuffer` |
+| `INDIRECT` | Parâmetros de `drawIndirect` / `dispatchWorkgroupsIndirect` |
+| `QUERY_RESOLVE` | Destino de `resolveQuerySet` (timestamps, occlusion) |
 
-## Timelines (O Modelo de Execução)
+**Estados (`mapState`):** `"unmapped"` → `"pending"` → `"mapped"` → (unmap) → `"unmapped"`
 
-A WebGPU opera em duas linhas do tempo paralelas. Essa separação é o que permite que o JavaScript continue rodando enquanto a GPU processa tarefas pesadas em segundo plano.
+**Relacionamentos:** alimenta `GPURenderPassEncoder` (VERTEX/INDEX), é lido por shaders via `GPUBindGroup` (UNIFORM/STORAGE), e serve de destino para `GPUQueue.writeBuffer` e `encoder.copyBufferToBuffer`.
 
-5. Content Timeline (Linha do Tempo do Conteúdo)
-    É o "lado da CPU", onde o seu código JavaScript reside.
+---
 
-    * **O que acontece aqui:**
-        * **Definição:** Criação de objetos (Buffers, Texturas) e configuração de Pipelines.
-        * **Gravação:** Registro de comandos no `GPUCommandEncoder`.
-    * **Comportamento:** É uma linha do tempo de **agendamento**. Você está montando o "roteiro" (Command Buffer). O JS apenas despacha essas ordens e segue adiante.
+### GPUTexture
+Memória multidimensional da GPU. Não é lida diretamente — sempre via `GPUTextureView`.
 
-6. Device Timeline (Linha do Tempo do Dispositivo)
-    É o "lado da GPU", onde o hardware executa o trabalho seguindo o ciclo de vida dos dados.
+| Dimensão | Uso típico |
+|---|---|
+| `'1d'` | Lookup tables, gradientes |
+| `'2d'` | Imagens, render targets, depth buffers, cubemaps (6 layers) |
+| `'3d'` | Volumes, voxels |
 
-    * **O que acontece aqui (O Ciclo de Execução):**
-        1. **Entrada (Input):** A GPU acessa os dados brutos nos Buffers e Texturas.
-        2. **Processamento (Shaders):** O hardware executa os programas (WGSL) para transformar os dados:
-            * **Vertex Shaders:** Cálculos de posicionamento de geometria.
-            * **Compute Shaders:** Cálculos matemáticos genéricos e processamento de dados.
-            * **Fragment Shaders:** Cálculos de cor e iluminação por pixel.
-        3. **Saída (Output):** Escrita dos resultados finais no Canvas (pixels) ou em Buffers de destino.
-    * **Comportamento:** É uma linha do tempo de **consumo**. Ela processa os pacotes enviados via `queue.submit()` de forma independente.
+Propriedades relevantes: `format`, `mipLevelCount`, `sampleCount` (1 = normal, 4 = MSAA), `depthOrArrayLayers`.
 
+Usage flags: `TEXTURE_BINDING` (shader lê), `STORAGE_BINDING` (shader lê/escreve), `RENDER_ATTACHMENT` (alvo de Render Pass), `COPY_SRC` / `COPY_DST`.
 
+**`GPUTextureView`** — "lente" sobre a textura; especifica mip level, array layer e aspect. É o que se conecta a pipelines, bind groups e render pass attachments.
 
-7. Sincronização (A Ponte)
-    Como as duas linhas rodam em tempos diferentes, existem pontos de coordenação:
+**`GPUExternalTexture`** — importa `<video>` / `ImageBitmap` diretamente para a GPU sem cópia pela RAM JS. Expira ao fim do frame; deve ser reimportada a cada `requestAnimationFrame`.
 
-    * **Submissão (`submit`):** O ponto em que o trabalho sai da *Content Timeline* e entra na fila da *Device Timeline*.
-    * **Mapeamento (`mapAsync`):** Quando o JS solicita ler um buffer que a GPU processou. A Promise resolve na *Content Timeline* apenas quando a *Device Timeline* encerra a escrita.
-    * **Trabalho Concluído (`onSubmittedWorkDone`):** Promise que notifica o JS quando a GPU finalizou todo o ciclo de execução anterior.
+**Relacionamentos:** `GPUTexture.createView()` gera `GPUTextureView`, que é usada em `GPUBindGroup` (para sampling) e em `colorAttachments` / `depthStencilAttachment` de Render Passes.
 
-    > **Regra de Ouro:**
-    > A *Content Timeline* nunca espera pela *Device Timeline* de forma síncrona. Toda comunicação de volta para o JS é feita através de Promises para evitar travamentos.
+---
 
+### GPUSampler
+Define **como** o shader lê uma `GPUTextureView` — não armazena dados.
 
-## Recursos (Resources)
+| Propriedade | Opções | Efeito |
+|---|---|---|
+| `magFilter` / `minFilter` | `nearest` / `linear` | Pixelado vs. suavizado |
+| `mipmapFilter` | `nearest` / `linear` | Transição entre níveis de mip |
+| `addressModeU/V/W` | `clamp-to-edge` / `repeat` / `mirror-repeat` | Comportamento além de UV [0,1] |
+| `compare` | funções de comparação | Para shadow maps (depth comparison) |
+| `maxAnisotropy` | 1–16 | Qualidade em superfícies oblíquas |
 
-São os dados que a GPU usa.
+**Relacionamentos:** sempre emparelhado com `GPUTextureView` num `GPUBindGroup`; referenciado no WGSL via `@group(N) @binding(M) var s: sampler`.
 
-5. Buffers ( GPUBuffer )
-    * Armazenam:
-        * Vértices
-        * Índices
-        * Uniforms
-        * Storage data<br/><br/>
-    * Podem ser:
-        * VERTEX
-        * INDEX
-        * UNIFORM
-        * STORAGE
-        * COPY SRC, COPY DST
+---
 
-6. Textures ( GPUTexture)
-    * Imagens 2D/3D 
-    * Render targets 
-    * Depth buffers
-    * Cubemaps
-    * A partir delas você cria:
-        * GPUTextureView
+## Família 2 — Estado estático (Binding & Layout)
 
-7. Samplers ( GPUSampler )
-    * Definem como texturas são amostradas: 
-    * Filtering 
-    * Wrapping 
-    * Mipmapping
+### GPUBindGroupLayout
+Define o **contrato** de recursos que um grupo de shaders espera. Não contém dados — é um molde.
 
-## Shaders e Pipeline
+**Importância:** determina `visibility` (VERTEX / FRAGMENT / COMPUTE) e tipo de cada recurso (`buffer`, `texture`, `sampler`, `storageTexture`, `externalTexture`). Imutável após criação.
 
-8. Shaders (WGSL)
+### GPUBindGroup
+Instância concreta do contrato. Conecta buffers, views e samplers reais aos slots declarados no layout.
 
-    Escritos em WGSL (WebGPU Shading Language) Tipos principais:<br/>
-    * Vertex shader 
-    * Fragment shader
-    * Compute shader
+```
+GPUBindGroupLayout  ←──────  GPUBindGroup  ──────→  GPUBuffer / GPUTextureView / GPUSampler
+       ↑                                                        (recursos físicos)
+GPUPipelineLayout
+       ↑
+GPURenderPipeline / GPUComputePipeline
+```
 
+**Opção `layout: 'auto'`** — a pipeline infere o layout diretamente do WGSL. Conveniente para shaders simples; impede reuso do layout entre pipelines distintas.
 
-9. Bind Groups
-    Organizam o acesso a recursos dentro do shader
-    Componentes relacionados.<br/>
+**`getBindGroupLayout(index)`** — recupera o layout inferido de uma pipeline para criar bind groups compatíveis.
 
-    * GPUBindGroupLayout
-    * GPUBindGroup
+**Dynamic offsets** (`hasDynamicOffset: true`) — permite variar o offset de um buffer uniform em runtime via `setBindGroup(0, bg, [offset])`. Útil para empacotar matrizes de múltiplos objetos num único buffer com stride de 256 bytes.
 
-    Eles definem como buffers, texturas e samplers são expostos ae shader.
+### GPUPipelineLayout
+Agrupa múltiplos `GPUBindGroupLayout` (grupos 0, 1, 2…). Define a interface completa de recursos de uma pipeline.
 
-10. Pipeline
-    Define como a GPU processa dados.
-    Tipos:
+**Relacionamentos:** `GPUPipelineLayout` é passado a `createRenderPipeline` / `createComputePipeline`. Compartilhar o mesmo `GPUPipelineLayout` entre pipelines permite trocar pipelines sem precisar rebindar os grupos.
 
-    * GPURenderPipeline
-    * Vertex + Fragment
-    * Configurações de rasterização
-    * Blend
-    * Depth test
-    * GPUComputePipeline
-    * Apenas compute shader
+---
 
-    Pipeline é essencialmente: 
+## Família 3 — Execução (Shaders & Pipelines)
 
-    * Estado + Shaders + Layout de recursos
+### GPUShaderModule
+Contém o código WGSL compilado. Um único módulo pode ter múltiplos entry points (`@vertex`, `@fragment`, `@compute`).
 
-## Sistema de Comandos (Fluxo de Trabalho)
+- `compilationHints` — pré-compila entry points associando-os ao `GPUPipelineLayout` durante o loading, eliminando stutter ao criar a pipeline depois.
+- `getCompilationInfo()` → `GPUCompilationInfo` com array de `GPUCompilationMessage` (`type`, `message`, `lineNum`, `linePos`, `length`).
 
-A WebGPU utiliza um modelo de "gravação e submissão". Em vez de enviar ordens isoladas, você registra um roteiro completo de execução para que a GPU o processe de forma otimizada.
+### GPURenderPipeline
+Objeto imutável e compilado que encapsula **todo** o estado de renderização:
 
-11. **Command Encoder** (`GPUCommandEncoder`)
-    O objeto responsável por abrir a sessão de gravação e traduzir chamadas JavaScript em instruções de hardware.
-    > ```const encoder = device.createCommandEncoder();```
+| Estágio | O que configura |
+|---|---|
+| `vertex` | Shader, entry point, layout de buffers de vértice (stride, atributos, `stepMode`) |
+| `fragment` | Shader, entry point, color targets, blend state |
+| `primitive` | Topology, cullMode, frontFace, stripIndexFormat |
+| `depthStencil` | Format, depthWriteEnabled, depthCompare, operações de stencil |
+| `multisample` | count (1 ou 4), mask, alphaToCoverageEnabled |
 
-12. **Passes** (Contextos de Gravação)
-    Toda operação deve ocorrer dentro de um escopo específico de "Pass", que define o estado inicial e os alvos (targets) da operação:
-    * **`GPURenderPassEncoder`**: Voltado ao pipeline gráfico (desenho de triângulos, rasterização). Define onde os pixels serão escritos e se o alvo deve ser limpo antes do início.
-    * **`GPUComputePassEncoder`**: Voltado a cálculos matemáticos e processamento de dados genéricos via Compute Shaders.
+**Criação assíncrona:** `createRenderPipelineAsync()` compila em background — obrigatória em loading screens para evitar stutter de shader compilation.
 
-13. **Command Buffer**
-    Um objeto imutável que contém a lista final de instruções gravadas. Ele é gerado ao finalizar o encoder e representa o "pacote" pronto para o hardware.
-    > ```const commandBuffer = encoder.finish();```
+### GPUComputePipeline
+Pipeline para compute shaders. Apenas estágio `compute` (shader + entry point). Não tem estado de rasterização.
 
-14. **Submissão** (`GPUQueue`)
-    O passo crucial de execução. O Command Buffer é enviado para a fila (Queue) da GPU, movendo o trabalho da **Content Timeline** para a **Device Timeline**.
-    > ```device.queue.submit([commandBuffer]);```
+**Relacionamentos:** ambas as pipelines requerem `GPUPipelineLayout` (ou `'auto'`), são ativadas com `setPipeline()` dentro de um Pass Encoder, e expõem `getBindGroupLayout(index)`.
 
-## Canvas e Contexto
+---
 
-14. GPUCanvasContext
-    Conecta o WebGPU ao canvas
+## Família 4 — Gravação e Medição
 
-    > ```const context = canvas.getContext("webgpu")```
-    * Configura formato
-    * Obtém textura atual para renderização
+### GPUCommandEncoder
+Objeto temporário de gravação. Não executa nada — acumula intenções que a GPU executará após `submit()`. Torna-se inválido após `finish()`.
 
-## Estrutura Mental Simplificada
+**Métodos de cópia:**
 
-Podemos resumir o WebGPU em 4 blocos principais:
+| Método | O que faz |
+|---|---|
+| `copyBufferToBuffer` | Cópia GPU-GPU entre buffers |
+| `copyBufferToTexture` | Sobe dados de buffer para textura |
+| `copyTextureToBuffer` | Baixa textura para buffer (screenshot, readback) |
+| `copyTextureToTexture` | Cópia entre texturas |
+| `clearBuffer` | Zera região de buffer sem passar pela CPU |
+| `resolveQuerySet` | Transfere resultados de QuerySet para um buffer |
 
-1. Device -> cria tudo
-2. Resources - buffers, textures, samplers 
-3. Pipeline - shaders + estado 
-4. Commands - encoder - passes - queue
+**Debug:** `pushDebugGroup(label)` / `popDebugGroup()` / `insertDebugMarker(label)` — visíveis em Spector.js / RenderDoc.
+
+### GPURenderPassEncoder
+Subcontexto de gravação para draws. Criado por `encoder.beginRenderPass(descriptor)`.
+
+Descriptor define: `colorAttachments` (view, `loadOp: 'clear'|'load'`, `storeOp: 'store'|'discard'`, `clearValue`) e `depthStencilAttachment`.
+
+Métodos principais: `setPipeline`, `setBindGroup`, `setVertexBuffer`, `setIndexBuffer`, `setViewport`, `setScissorRect`, `setBlendConstant`, `setStencilReference`, `draw`, `drawIndexed`, `drawIndirect`, `drawIndexedIndirect`, `executeBundles`, `beginOcclusionQuery` / `endOcclusionQuery`, `end`.
+
+### GPUComputePassEncoder
+Subcontexto para compute. `setPipeline`, `setBindGroup`, `dispatchWorkgroups(x,y,z)`, `dispatchWorkgroupsIndirect(buffer, offset)`, `end`.
+
+### GPURenderBundle / GPURenderBundleEncoder
+Pré-grava sequências de draw imutáveis reutilizáveis. `GPURenderBundleEncoder` grava como um render pass (sem attachment concreto — só formatos). `finish()` produz um `GPURenderBundle`.
+
+`renderPass.executeBundles([bundle])` injeta os comandos pré-gravados com custo mínimo de CPU por frame.
+
+**Caso de uso:** geometria estática de cenário (cidades, florestas) gravada uma vez no loading e disparada todo frame.
+
+### GPUQuerySet
+Armazena resultados de medições da GPU.
+
+| Tipo | Para que serve | Como usar |
+|---|---|---|
+| `'timestamp'` | Medir tempo de GPU em nanosegundos | `timestampWrites` no descriptor do pass; `resolveQuerySet` no encoder |
+| `'occlusion'` | Contar amostras que passaram depth/stencil | `beginOcclusionQuery(slot)` / `endOcclusionQuery()` no Render Pass |
+
+Resultado sempre vai para um `GPUBuffer` via `encoder.resolveQuerySet(querySet, first, count, buffer, offset)`, depois lido via `mapAsync`.
+
+---
+
+## GPUQueue — Submissão e Escrita
+
+Interface única obtida via `device.queue`. Ponto de entrada da Queue Timeline.
+
+| Método | Uso |
+|---|---|
+| `submit([...commandBuffers])` | Envia lote de comandos para execução na GPU |
+| `writeBuffer(buffer, offset, data)` | Escreve ArrayBuffer/TypedArray direto no buffer GPU (sem mapAsync) |
+| `writeTexture(dest, data, layout, size)` | Sobe pixels da CPU para uma textura |
+| `copyExternalImageToTexture(src, dest, size)` | Importa `<img>`, `<canvas>`, `<video>`, `ImageBitmap` sem passar pela RAM JS |
+| `onSubmittedWorkDone()` | Promise que resolve quando todo o trabalho submetido até agora termina |
+
+---
+
+## GPUCanvasContext — Saída Visual
+
+```javascript
+const context = canvas.getContext('webgpu');
+context.configure({ device, format, alphaMode, toneMapping });
+// alphaMode: 'opaque' | 'premultiplied'
+// toneMapping: { mode: 'standard' | 'extended' }  (HDR)
+const texture = context.getCurrentTexture(); // usar como RENDER_ATTACHMENT
+context.unconfigure(); // desasocia o device (necessário ao recriar após device lost)
+```
+
+`getCurrentTexture()` retorna a `GPUTexture` do frame atual. Sua `createView()` é o que vai em `colorAttachments[0].view` do Render Pass.
+
+---
+
+## Erros e Debugging
+
+```javascript
+// Captura erros de um bloco específico:
+device.pushErrorScope('validation' | 'out-of-memory' | 'internal');
+// ... operações ...
+const error = await device.popErrorScope(); // GPUValidationError | GPUOutOfMemoryError | null
+
+// Erros fora de qualquer escopo:
+device.addEventListener('uncapturederror', e => console.error(e.error.message));
+
+// Device perdido (driver crash, GPU reset):
+device.lost.then(info => { /* recriar device */ });
+```
+
+---
+
+## Fluxo Completo por Frame
+
+```
+JS (Content Timeline)
+│
+├─ queue.writeBuffer / writeTexture      ← atualiza dados dinâmicos (uniforms, posições)
+│
+├─ createCommandEncoder()
+│     ├─ beginComputePass()              ← física, IA, simulações
+│     │     setPipeline / setBindGroup / dispatchWorkgroups
+│     │     end()
+│     │
+│     ├─ beginRenderPass()               ← rasterização
+│     │     setPipeline / setBindGroup
+│     │     setVertexBuffer / setIndexBuffer
+│     │     setViewport / setScissorRect
+│     │     executeBundles([...])        ← geometria estática pré-gravada
+│     │     draw / drawIndexed           ← geometria dinâmica
+│     │     end()
+│     │
+│     └─ finish()  →  GPUCommandBuffer
+│
+└─ queue.submit([commandBuffer])
+         │
+         ▼
+   Queue Timeline (GPU executa)
+```
+
+---
+
+## Mapa de Relacionamentos
+
+```
+GPUAdapter
+  └─ GPUDevice ──────────────────────────────────────────────────────┐
+       ├─ GPUQueue                                                    │
+       │    ├─ submit(GPUCommandBuffer[])                             │
+       │    ├─ writeBuffer(GPUBuffer, ...)                            │
+       │    ├─ writeTexture(GPUTexture, ...)                          │
+       │    └─ onSubmittedWorkDone()                                  │
+       │                                                              │
+       ├─ GPUBuffer  ←─────────────────────────────── usage flags    │
+       ├─ GPUTexture → GPUTextureView                                 │
+       ├─ GPUExternalTexture                                          │
+       ├─ GPUSampler                                                  │
+       │                                                              │
+       ├─ GPUShaderModule                                             │
+       ├─ GPUBindGroupLayout ─┐                                       │
+       ├─ GPUBindGroup ───────┤→ conecta recursos aos shaders         │
+       ├─ GPUPipelineLayout ──┘                                       │
+       │                                                              │
+       ├─ GPURenderPipeline  (layout + vertex + fragment + ...)       │
+       ├─ GPUComputePipeline (layout + compute)                       │
+       │                                                              │
+       ├─ GPUCommandEncoder                                           │
+       │    ├─ beginRenderPass()  → GPURenderPassEncoder  → end()     │
+       │    ├─ beginComputePass() → GPUComputePassEncoder → end()     │
+       │    ├─ copy* / clearBuffer / resolveQuerySet                  │
+       │    └─ finish() → GPUCommandBuffer                            │
+       │                                                              │
+       ├─ GPURenderBundleEncoder → finish() → GPURenderBundle         │
+       └─ GPUQuerySet (timestamp / occlusion) ───────────────────────┘
+```

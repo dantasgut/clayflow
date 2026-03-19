@@ -6,4 +6,5 @@ export interface TextureManager {
     getTexture(id: string): EngineTexture | undefined;
     createSampler(id: string, descriptor?: GPUSamplerDescriptor): GPUSampler;
     destroyTexture(id: string): void;
+    destroyAll(): void;
 }

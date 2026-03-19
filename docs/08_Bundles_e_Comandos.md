@@ -29,7 +29,7 @@ for(let i = 0; i < 50000; i++) {
 }
 
 /* 3. FECHE O PACOTE MASSIVO (Vira um pacote fechado Binário na Nuvem do Driver!) */
-const pacoteAs 50MilFolhas = gravadorDePacote.finish(); 
+const pacoteAs50MilFolhas = gravadorDePacote.finish();
 ```
 
 ## 8.2 Disparando Mísseis Nuclearmente Rápidos: O `executeBundles`
@@ -46,8 +46,8 @@ pass.setPipeline(...);
 pass.draw(...);
 
 // INJETAR AS 50 MIL FOLHAS INSTANTANEAMENTE NA GARGUIDA DA GPU!!
-pass.executeBundles([ pacoteAs50MilFolhas ]); 
-// Literalmente 1 milésimo de milissegundo em gargalo CPU. O Driver da Placa engole os C++ de uma vez enjaulados na VRAM. O framerate do jogo salta aos estrondosos 800 FPS em monitores G-Sync de altíssima tensão!
+pass.executeBundles([ pacoteAs50MilFolhas ]);
+// O Driver da Placa engole os C++ de uma vez enjaulados na VRAM, eliminando o overhead de JavaScript.
 
 pass.end();
 device.queue.submit([encoderCena.finish()]);

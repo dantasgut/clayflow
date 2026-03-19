@@ -69,4 +69,12 @@ export class WebGPUTextureManager implements TextureManager {
             this.textures.delete(id);
         }
     }
+
+    public destroyAll(): void {
+        for (const engineTex of this.textures.values()) {
+            engineTex.destroy();
+        }
+        this.textures.clear();
+        this.samplers.clear();
+    }
 }

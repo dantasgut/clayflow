@@ -1,10 +1,11 @@
 import { WebGPUContext } from '../context/WebGPUContext';
+import type { Profiler } from '../interfaces/Profiler';
 
 /**
  * Encapsulamento das APIs de timestamp originárias direto no chip da Placa Gráfica.
  * Usado se device.features.has('timestamp-query') for true.
  */
-export class ProfilerSystem {
+export class ProfilerSystem implements Profiler {
     private context: WebGPUContext;
     private querySet: GPUQuerySet | null = null;
     private resolveBuffer: GPUBuffer | null = null;

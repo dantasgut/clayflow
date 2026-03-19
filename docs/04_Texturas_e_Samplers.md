@@ -10,15 +10,32 @@ Existem dezenas de formatos estritos para Texturas, alguns não representam dado
 
 ```javascript
 const texture = device.createTexture({
-  size: [1024, 1024, 1], // Dimensão Extent3D: 1024x1024 Planos. Profundidade de Camada: 1 Imagem.
-  format: 'rgba8unorm',  // 4 Bytes não assinados (Padrão 2D SRGB) 
-  usage: GPUTextureUsage.TEXTURE_BINDING // O nosso Shader WGSL PODE e VAI LE-LA usando group(0)!
-       | GPUTextureUsage.COPY_DST        // O queue.writeTexture PODE gravar nela!
-       | GPUTextureUsage.RENDER_ATTACHMENT // PODE ser destino alvo primário do Output Merger!!
+  size: [1024, 1024, 1], // Extent3D: width, height, depthOrArrayLayers
+  dimension: '2d',       // '1d' | '2d' (padrão) | '3d'
+  format: 'rgba8unorm',  // 4 bytes não assinados por pixel
+  mipLevelCount: 1,      // Quantos níveis de mipmap gerar (padrão: 1)
+  sampleCount: 1,        // 1 = normal; 4 = MSAA 4x (requer RENDER_ATTACHMENT)
+  usage: GPUTextureUsage.TEXTURE_BINDING   // Shader pode ler via @binding
+       | GPUTextureUsage.COPY_DST          // queue.writeTexture pode gravar
+       | GPUTextureUsage.RENDER_ATTACHMENT // Pode ser alvo de Render Pass
 });
 ```
 
+Texturas **3D** usam `dimension: '3d'` e o terceiro valor de `size` como profundidade real (não layers). Texturas **array** usam `dimension: '2d'` com `depthOrArrayLayers > 1`.
+
 Apenas CRIAR este componente o deixa completamente em branco. Para preencher os milhares de blocos minúsculos RGBA, o leitor precisa [Usar Cópias, como visto Anteriormente](./03_Copias_de_Dados_e_Queues.md) e rodar o `copyExternalImageToTexture`.
+
+## 4.2.1 Texturas Externas: `GPUExternalTexture`
+
+Para consumir vídeos (`<video>`) ou frames de câmera diretamente nos shaders sem cópia explícita para memória da GPU, a spec define `GPUExternalTexture`:
+
+```javascript
+const externalTex = device.importExternalTexture({ source: videoElement });
+// Válida apenas pelo frame atual — expira após o próximo microtask checkpoint.
+// No WGSL: var t: texture_external;  textureSampleBaseClampToEdge(t, sampler, uv)
+```
+
+> A textura externa expira automaticamente após o frame. Deve ser reimportada a cada `requestAnimationFrame`.
 
 ## 4.3 O Periscópio Mágico: `GPUTextureView`
 

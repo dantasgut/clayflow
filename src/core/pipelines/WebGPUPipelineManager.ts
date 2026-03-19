@@ -1,5 +1,5 @@
 import { WebGPUContext } from '../context/WebGPUContext';
-import type { PipelineManager } from '../interfaces/PipelineManager';
+import type { PipelineManager, RenderPipelineDescriptor } from '../interfaces/PipelineManager';
 
 /**
  * Gerencia o cache e a compilação paralela dos shaders.
@@ -30,11 +30,7 @@ export class WebGPUPipelineManager implements PipelineManager {
     public async createRenderPipeline(
         id: string,
         wgslCode: string,
-        pipelineDescriptor: Omit<GPURenderPipelineDescriptor, 'vertex' | 'fragment'> & {
-            vertexEntryPoint: string,
-            fragmentEntryPoint: string,
-            vertexBuffers?: Iterable<GPUVertexBufferLayout>
-        }
+        pipelineDescriptor: RenderPipelineDescriptor
     ): Promise<GPURenderPipeline> {
         if (this.renderPipelines.has(id)) {
             return this.renderPipelines.get(id)!;

@@ -111,8 +111,15 @@ export class WebGPUBufferManager implements BufferManager {
     public destroyBuffer(id: string): void {
         const engineBuf = this.buffers.get(id);
         if (engineBuf) {
-            engineBuf.destroy(); // Aciona destroy na nativa e loga liberação
+            engineBuf.destroy();
             this.buffers.delete(id);
         }
+    }
+
+    public destroyAll(): void {
+        for (const engineBuf of this.buffers.values()) {
+            engineBuf.destroy();
+        }
+        this.buffers.clear();
     }
 }

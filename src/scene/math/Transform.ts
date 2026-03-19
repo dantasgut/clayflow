@@ -30,8 +30,18 @@ export class Transform implements Component {
     // A Entidade (Entity) dona desta matemática
     public owner: Entity | null = null;
 
-    // Callbacks disparados toda vez que a worldMatrix deste nó é recalculada
-    public onUpdateMatrixCallbacks: Array<(worldMatrix: mat4) => void> = [];
+    private _matrixCallbacks: Array<(worldMatrix: mat4) => void> = [];
+
+    /**
+     * Registra um listener para quando a worldMatrix for recalculada.
+     * Retorna uma função de cancelamento (unsubscribe).
+     */
+    public onMatrixUpdate(cb: (worldMatrix: mat4) => void): () => void {
+        this._matrixCallbacks.push(cb);
+        return () => {
+            this._matrixCallbacks = this._matrixCallbacks.filter(fn => fn !== cb);
+        };
+    }
 
     public onAttach(entity: Entity): void {
         this.owner = entity;
@@ -122,12 +132,8 @@ export class Transform implements Component {
             mat4.multiply(this.worldMatrix, parent.worldMatrix, this.localMatrix);
         }
 
-        // Dispara os callbacks registrados avisando que a matriz mudou
-        for (let i = 0; i < this.onUpdateMatrixCallbacks.length; i++) {
-            const callback = this.onUpdateMatrixCallbacks[i];
-            if (callback) {
-                callback(this.worldMatrix);
-            }
+        for (let i = 0; i < this._matrixCallbacks.length; i++) {
+            this._matrixCallbacks[i]!(this.worldMatrix);
         }
 
         this.matrixWorldNeedsUpdate = false;

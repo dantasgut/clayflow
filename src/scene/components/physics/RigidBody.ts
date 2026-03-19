@@ -1,26 +1,19 @@
-import { Entity } from '../../core/Entity';
-import type { Resource } from '../../core/Resource';
-import type { Physic } from '../../core/Physic';
-import { ResourceType } from '../../core/ResourceType';
-import { ResourceState } from '../../core/ResourceState';
 import type { ResourceManager } from '../../../core/interfaces/ResourceManager';
+import { PhysicsBody } from './PhysicsBody';
 
 export interface RigidBodyOptions {
     mass?: number;
     velocity?: [number, number, number];
-    isKinematic?: boolean; // Se true, o objeto não é afetado por forças, apenas move via Transform/Script
+    isKinematic?: boolean;
 }
 
 /**
- * Corpo Lógico/Físico (Camada 3) que atua como nó mecânico na Cena.
- * Não é um Componente Visual (Geometria), mas sim uma Entidade autônoma autossuficiente (herdando de Entity).
+ * Corpo rígido — não deformável, simulado por integradores numéricos.
+ * Estende PhysicsBody (Template Method): só precisa implementar doAllocate/doDispose.
  */
-export class RigidBody extends Entity implements Resource, Physic {
-    public readonly type: string = 'RigidBody';
-    public readonly layer = ResourceType.PHYSICS_MECHANIC;
+export class RigidBody extends PhysicsBody {
+    public readonly type = 'RigidBody';
     public readonly physicType = 'RigidBody';
-
-    public state: ResourceState = ResourceState.Uninitialized;
 
     public mass: number;
     public velocity: Float32Array;
@@ -30,25 +23,20 @@ export class RigidBody extends Entity implements Resource, Physic {
 
     constructor(options: RigidBodyOptions = {}) {
         super();
-        this.mass = options.mass !== undefined ? options.mass : 1.0;
-        this.velocity = new Float32Array(options.velocity || [0.0, 0.0, 0.0]);
-        this.isKinematic = options.isKinematic || false;
+        this.mass = options.mass ?? 1.0;
+        this.velocity = new Float32Array(options.velocity ?? [0, 0, 0]);
+        this.isKinematic = options.isKinematic ?? false;
     }
 
-    public allocateResource(resourceManager: ResourceManager): void {
-        this.state = ResourceState.Loading;
-        // Buffer de física alocado globalmente ou em isolamento conforme Compute Shader da 엔진
-        this.state = ResourceState.Ready;
+    protected async doAllocate(_resourceManager: ResourceManager): Promise<void> {
+        // Buffer de estado (posição, velocidade, massa) para o solver
+        // Implementação completa aguarda integração com o PhysicsSolver
     }
 
-    public updateResource(resourceManager: ResourceManager): void {
-        this.state = ResourceState.Ready;
-    }
-
-    public disposeResource(resourceManager: ResourceManager): void {
-        if (this.storageBufferId) {
+    protected doDispose(resourceManager: ResourceManager): void {
+        if (this.storageBufferId !== undefined) {
             resourceManager.buffers.destroyBuffer(this.storageBufferId);
+            delete this.storageBufferId;
         }
-        this.state = ResourceState.Disposed;
     }
 }

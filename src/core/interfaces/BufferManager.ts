@@ -11,4 +11,5 @@ export interface BufferManager {
     uploadStagedAsync(destinationId: string, data: Float32Array | Uint16Array | Uint32Array): Promise<void>;
     getBuffer(id: string): EngineBuffer | undefined;
     destroyBuffer(id: string): void;
+    destroyAll(): void;
 }

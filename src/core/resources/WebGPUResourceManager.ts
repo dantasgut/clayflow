@@ -26,13 +26,8 @@ export class WebGPUResourceManager implements ResourceManager {
      * Limpeza absoluta. Essencial para quando o app reiniciar ou destruir o contexto.
      */
     public destroyAll(): void {
-        console.warn("[WebGPUResourceManager] Destruindo TODOS os recursos alocados na GPU.");
-
-        // Limparia todos os dicionários das sub-estruturas
-        // Como implementamos o EngineResource, precisamos garantir que cada Manager
-        // possua um método próprio para iterar e dar .destroy() nos EngineResources restantes.
-
-        // (Nota: Adicionaremos a lógica de varredura nos Managers em seguida)
         this.bindings.clearCache();
+        this.textures.destroyAll();
+        this.buffers.destroyAll();
     }
 }

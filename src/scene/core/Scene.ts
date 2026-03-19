@@ -1,4 +1,5 @@
 import { Entity } from './Entity';
+import type { Transform } from '../math/Transform';
 
 /**
  * Root container lógico para iteração. (Camada 2 Pura)
@@ -21,7 +22,7 @@ export class Scene extends Entity {
      * ser alinhados antes da extração Linear.
      */
     public preRenderUpdate(): void {
-        const transform = this.getComponent<any>('Transform');
+        const transform = this.getComponent<Transform>('Transform');
         if (transform) transform.updateWorldMatrix(false, true);
     }
 }

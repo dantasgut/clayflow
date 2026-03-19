@@ -1,15 +1,13 @@
 import type { Component } from '../core/Component';
-import { Entity } from '../core/Entity';
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { ResourceState } from '../core/ResourceState';
 import { ResourceType } from '../core/ResourceType';
 
 /**
  * Componente Lógico (ECS) representando a aparência (Shader + Material Data) do Nó.
- * Guarda a Hash pro WebGPUPipelineManager (Camada 1) e referencias de texturas/uniformes.
- * Será processado pelo ResourceLoader.
+ * Componente puro — não é um nó da cena. Deve ser adicionado a um Mesh.
  */
-export abstract class Material extends Entity implements Component {
+export abstract class Material implements Component {
     private static _nextUuid: number = 0;
     public readonly uuid: string = `mat_${++Material._nextUuid}`;
 
@@ -20,23 +18,11 @@ export abstract class Material extends Entity implements Component {
     public shaderId: string = '';
     public transparent: boolean = false;
     public bindGroupIds: string[] = [];
-
-    /** Layout Schema Declarativo que dita à Camada 1 como alocar este material */
     public bindGroupSchema: GPUBindGroupLayoutEntry[] = [];
-
     public doubleSided: boolean = false;
     public topology: GPUPrimitiveTopology = 'triangle-list';
-
-
-
-    // Para uso do ResourceLoader e Builders: Definição dos buffers uniformes e dados cru de inicialização
-    // ex: color array temporario, referências a texturas
     public rawUniforms: Map<string, Float32Array> = new Map();
 
-    /**
-     * Marca o material como sujo (seja por textura alterada ou cor) 
-     * para que o ResourceLoader atualize o uniform buffer/bindgroup associado.
-     */
     public markDirty(): void {
         if (this.state === ResourceState.Ready) {
             this.state = ResourceState.Dirty;
@@ -67,16 +53,16 @@ export abstract class Material extends Entity implements Component {
     public updateResource(resourceManager: ResourceManager): void {
         const uniformData = this.rawUniforms.get('std_mat_buf');
         if (uniformData && this.shaderId) {
-            const uniformBufferId = 'mat_ubo_' + this.uuid;
-            resourceManager.buffers.writeBuffer(uniformBufferId, uniformData);
+            resourceManager.buffers.writeBuffer('mat_ubo_' + this.uuid, uniformData);
         }
         this.state = ResourceState.Ready;
     }
 
-    /**
-     * Sinaliza desalocação do bind group e material associado da GPU.
-     */
     public disposeResource(resourceManager: ResourceManager): void {
-        this.state = ResourceState.Disposed;
+        for (const id of this.bindGroupIds) {
+            resourceManager.bindings.destroyBindGroup(id, this.shaderId);
+        }
+        this.bindGroupIds = [];
+        this.state = ResourceState.Destroyed;
     }
 }

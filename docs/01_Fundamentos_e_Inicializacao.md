@@ -46,7 +46,21 @@ context.configure({
 
 Ao rodar `.configure`, dizemos que este Canvas terá uma "porta" ligada a uma memória reservada na Placa de Vídeo. Durante cada frame geramos uma Textura que o Canvas puxará para a tela do usuário.
 
-## 1.3 Errors e Debugging
+O contexto pode ser desconfigured com `context.unconfigure()`, liberando a associação com o device atual (útil ao recriar o device após perda).
+
+A propriedade `toneMapping` aceita `'linear'` (padrão) ou `'reinhard'`, habilitando suporte a conteúdo HDR quando disponível.
+
+## 1.3 As Três Timelines
+
+A spec W3C define três contextos de execução separados:
+
+- **Content Timeline** — onde o JavaScript roda: cria objetos, grava comandos no `GPUCommandEncoder`.
+- **Device Timeline** — onde o user agent / driver valida e processa os descritores. Pode rodar num processo separado do browser.
+- **Queue Timeline** — onde os núcleos físicos da GPU executam de fato os shaders, draws e dispatches após o `queue.submit()`.
+
+A comunicação de volta ao JS (leitura de buffer, fim de trabalho) é sempre assíncrona via Promises.
+
+## 1.4 Errors e Debugging
 
 O `GPUDevice` isola as falhas. Se você envia comandos corrompidos para a VRAM, a página inteira não cai, mas o Objeto gerado torna-se "inválido".
 

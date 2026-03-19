@@ -37,7 +37,7 @@ export interface RenderLight {
  * Interface Oficial que a Camada 3 consumirá.
  * Arrays Lineares 100% blindados e livres de orientação a objetos gordos.
  */
-export interface IRenderQueue {
+export interface RenderQueue {
     // PipelineHashID -> Lista de Comandos Lineares
     readonly opaqueGroups: Map<string, RenderCommand[]>;
     
@@ -48,7 +48,7 @@ export interface IRenderQueue {
     readonly lights: RenderLight[];
     
     clear(): void;
-    
-    // Extrai todo esse estado atual e empilha num bloco gigante de memória para a WebGPU num único copo
-    // buildInstancedBuffers(resourceManager: ResourceManager): void;
+
+    /** Obtém um Float32Array do pool interno — evita alocações GC por frame. */
+    acquireFloat32(size: number): Float32Array;
 }

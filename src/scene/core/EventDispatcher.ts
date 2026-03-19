@@ -63,12 +63,11 @@ export class EventDispatcher {
             // Cria uma cópia rasa do array para evitar mutações durante o loop (caso um listener se remova dentro dele mesmo)
             const listenersCopy = listeners.slice(0);
             
-            // Injeta a referência de quem disparou o evento (this) no objeto do evento
-            event.target = this;
-            
+            const enriched = { ...event, target: this };
+
             for (let i = 0, l = listenersCopy.length; i < l; i++) {
                 const listener = listenersCopy[i];
-                if (listener) listener.call(this, event);
+                if (listener) listener.call(this, enriched);
             }
         }
     }

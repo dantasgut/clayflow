@@ -16,5 +16,8 @@ export enum ResourceState {
     Dirty = 3,
 
     /** Componente marcado para ser destruído da Cena. O ResourceLoader irá desalocar da GPU no próximo frame. */
-    Disposed = 4
+    Disposed = 4,
+
+    /** Estado terminal após disposeResource. O ResourceLoader ignora este estado. */
+    Destroyed = 5
 }

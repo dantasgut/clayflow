@@ -32,7 +32,7 @@ device.queue.writeTexture(
   { width: larguraDaImagem, height: altura }   // Blocos (Extent3D) de pixels a substituir!
 ); // Boom! Puxado para a Máquina visual.
 ```
-> **Dica W3C**: Você também pode usar atalhos espertos fornecidos aos browsers modernos como `device.queue.copyExternalImageToTexture({ source: imgHTMLVideoDOMBrowser }, { texture: minhaGPUtx })` que absorve diretamente o ponteiro gráfico sem tocar na RAM local JavaScript.
+> **Método oficial da Queue**: `device.queue.copyExternalImageToTexture({ source: imgElement }, { texture: minhaGPUTexture }, { width, height })` — importa diretamente de `<img>`, `<canvas>`, `<video>` ou `ImageBitmap` para a GPU sem passar pela RAM do JavaScript. É um método formal de `GPUQueue`, não apenas um atalho.
 
 ## 3.3 A Arte do GPUCommandEncoder
 
@@ -64,6 +64,29 @@ const asOrdensMatadoras = encoder.finish();
 device.queue.submit([ asOrdensMatadoras ]); 
 ```
 
-O uso magistral dessas transferências é o que divide uma página de WebAssembly engasgando a 20 FPS e um código polido rodando suavemente em um simulador paralelo de fluido maciço de um trilhão de bytes as 144 FPS.
+### Limpando regiões de buffer
+
+O encoder também oferece `clearBuffer` para zerar uma região sem precisar enviar dados da CPU:
+
+```javascript
+encoder.clearBuffer(meuBuffer, 0, 256); // Zera os primeiros 256 bytes
+```
+
+## 3.4 Sincronização: `onSubmittedWorkDone`
+
+Após um `queue.submit()`, como saber quando a GPU terminou de executar tudo aquilo?
+
+```javascript
+device.queue.submit([commandBuffer]);
+
+// Retorna uma Promise que resolve somente quando toda a Queue Timeline
+// concluiu o processamento do trabalho submetido até este ponto.
+await device.queue.onSubmittedWorkDone();
+console.log("GPU terminou. Seguro fazer mapAsync agora.");
+```
+
+> Múltiplas chamadas a `onSubmittedWorkDone` na mesma fila resolvem **em ordem** — a primeira promise sempre resolve antes da segunda.
+
+O uso magistral dessas transferências é o que divide uma página de WebAssembly engasgando a 20 FPS e um código polido rodando suavemente em um simulador paralelo de fluido maciço de um trilhão de bytes a 144 FPS.
 
 [⬅ Voltar para Buffers e Layout](./02_Buffer_e_Layout_Memoria.md) | [Próximo: Texturas e Samplers ➡](./04_Texturas_e_Samplers.md)

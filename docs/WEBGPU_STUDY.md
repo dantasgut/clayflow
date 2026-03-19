@@ -6,44 +6,40 @@ Selecione um dos tópicos abaixo para iniciar sua jornada partindo de Fundamento
 
 ## Módulo 1: Fundamentos e Inicialização
 1. [Fundamentos e Inicialização (WebGPU & Canvas)](./01_Fundamentos_e_Inicializacao.md)
-   *Como conectar a placa (Adapter/Device), instanciar o Canvas e interceptar Erros Gráficos físicos.*
-1.1 [A Arquitetura Oculta Extensível (GPUObjectBase)](./01.1_A_Arquitetura_GPUObjectBase.md)
-   *A herança unificada da WebGPU: Labels, GC Manual (`destroy`) e as Famílias de Classes da VRAM.*
+   *Adapter/Device, configuração do Canvas (`configure`/`unconfigure`/`toneMapping`), as três Timelines (Content · Device · Queue) e Error Scopes.*
+1.1 [A Arquitetura Interna: GPUObjectBase](./01.1_A_Arquitetura_GPUObjectBase.md)
+   *Herança unificada da WebGPU: `label`, `destroy()` e as quatro famílias de objetos (`GPUBuffer`, `GPURenderBundle`, `GPUQuerySet`…).*
 
 ## Módulo 2: Memória e Movimentação de Dados
 2. [Buffers e Layout de Memória](./02_Buffer_e_Layout_Memoria.md)
-   *O pesadelo do alinhamento (vec3 == 16bytes), criação de FloatArrays e MapAsync.*
-3. [Copias de Dados e Queues](./03_Copias_de_Dados_e_Queues.md)
-   *Cópias explícitas (`writeBuffer`, `writeTexture`) e as transferências C++ entre VRAMs (`copyBufferToBuffer`).*
+   *Usage flags completos (`VERTEX`/`INDEX`/`UNIFORM`/`STORAGE`/`INDIRECT`/`QUERY_RESOLVE`…), `mapState`, alinhamento WGSL (vec3 = 16 bytes) e `mappedAtCreation`.*
+3. [Cópias de Dados e Queues](./03_Copias_de_Dados_e_Queues.md)
+   *`writeBuffer`, `writeTexture`, `copyExternalImageToTexture`, transferências encoder (`copyBufferToBuffer`, `clearBuffer`) e sincronização via `onSubmittedWorkDone`.*
 
 ## Módulo 3: Imagens e Amostragem
 4. [Texturas, Vistas e Samplers](./04_Texturas_e_Samplers.md)
-   *Entenda os blocos dimensionais de imagens (`GPUTexture`), A Lente do Programador (`View`) e a Lupa de Filtro do Shader (`GPUSampler`).*
+   *`GPUTexture` (1D/2D/3D, mips, MSAA), `GPUTextureView`, `GPUSampler` (filtros, address modes, anisotropia) e `GPUExternalTexture` (vídeo/câmera).*
 
 ## Módulo 4: Shaders e Layout de Recursos
 5. [Shaders e Compilação WGSL](./05_Shaders_e_WGSL.md)
-   *Sintaxe `@builtin`, Variaveis Estritas e Entry Points pre-compilados (`Hints`).*
-6. [O Coração de Dados: Resource Bindings](./06_Resource_Bindings.md)
-   *Como "A Memória da Placa" se vincula com o "Código do WGSL" através do Layout de Contrato Estático.*
+   *`GPUShaderModule`, `compilationHints`, inspeção de erros com `getCompilationInfo` (`GPUCompilationMessage`), `@builtin` e `@location`.*
+6. [Resource Bindings](./06_Resource_Bindings.md)
+   *`GPUBindGroupLayout`, `GPUBindGroup`, `GPUPipelineLayout`, `layout: 'auto'`, `getBindGroupLayout()` e dynamic offsets (`hasDynamicOffset`).*
 
 ## Módulo 5: Renderização
 7. [Pipeline de Renderização e Passes](./07_Pipeline_de_Renderizacao_e_Passes.md)
-   *O Blindado `RenderPipeline` (Topologia, DepthStencil, Blending State) e sua execução via Command Encoder Passes.*
-8. [Otimização Brutal: Render Bundles](./08_Bundles_e_Comandos.md)
-   *Despachando Cidades de 50.000 Mesh Arrays num Custo-Zero de Javascript via Injeção Enjaulada.*
+   *`GPURenderPipeline` (vertex/fragment/primitive/depthStencil/multisample/blend), `createRenderPipelineAsync`, Render Pass com `setViewport`/`setScissorRect`/`drawIndirect`.*
+8. [Render Bundles](./08_Bundles_e_Comandos.md)
+   *`GPURenderBundleEncoder`, pré-gravação de geometria estática e `executeBundles` para eliminação de overhead de JavaScript por frame.*
 
 ## Módulo 6: Avançado, Computação e Profiling
-9. [Compute Passes e Profiling Queries](./09_Compute_Pass_e_Queries.md)
-   *Simulação de Inteligência Artifical Pura por Caixas Simultâneas, Marcações de Debug Visual e Cronometros via Timestamp Queries de Hardware.*
+9. [Compute Passes, Queries e Debug](./09_Compute_Pass_e_Queries.md)
+   *`GPUComputePassEncoder` (`dispatchWorkgroups`/`Indirect`), **Occlusion Queries** (`beginOcclusionQuery`/`resolveQuerySet`), **Timestamp Queries** e Debug Groups.*
 
-## Módulo 7: Scene Graph Prático (Clímax)
-10. [A Prática: Instancing e Matemática de Vetores 3D](./10_Hierarquia_Objetos_3D.md)
-    *Como a Deformação por Matrizes transforma Modelos Ocos. O que é Produto Vetorial e Matriz TBN pra Iluminação Realista, e o trunfo do Multi-Instancing via buffer.*
+## Módulo 7: Malha, Material e Transformação
+10. [Malha, Material e Transformação — Da Álgebra Linear à VRAM](./10_Hierarquia_Objetos_3D.md)
+    *Sistema de coordenadas WebGPU; vértice como estrutura de dados (position/normal/tangent/uv); vertex/index buffers na VRAM; UV mapping e PBR (albedo, normal map, metallic/roughness); produto vetorial, Matriz TBN e iluminação lambertiana; matrizes Model/View/Projection, uniform buffers, normal matrix, dynamic offsets e instancing via storage buffer.*
 
 ---
 
 > Documento de referência profunda baseado nas especificações oficiais da W3C.
-
-## Dicas
-Verifica erros no código
-npx tsc --noEmit

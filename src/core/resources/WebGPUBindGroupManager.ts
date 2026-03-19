@@ -49,6 +49,11 @@ export class WebGPUBindGroupManager implements BindGroupManager {
         return this.bindGroups.get(hashId)!;
     }
 
+    public destroyBindGroup(id: string, layoutId: string): void {
+        const hashId = `${layoutId}_${id}`;
+        this.bindGroups.delete(hashId);
+    }
+
     public clearCache(): void {
         this.bindGroups.clear();
         this.bindGroupLayouts.clear();

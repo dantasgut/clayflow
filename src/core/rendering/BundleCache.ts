@@ -2,8 +2,9 @@
  * Gravação de comandos geométricos invariáveis.
  */
 import { WebGPUContext } from '../context/WebGPUContext';
+import type { BundleCache as BundleCacheInterface } from '../interfaces/BundleCache';
 
-export class BundleCache {
+export class BundleCache implements BundleCacheInterface {
     private context: WebGPUContext;
     private bundles: Map<string, GPURenderBundle>;
 

@@ -30,7 +30,20 @@ const meuBuffer = device.createBuffer({
 });
 ```
 
-`Usage Flags` são mascaras binárias. Como nossa intenção é ler como Vértices e permitir que a fila de comandos preencha (`COPY_DST`), usamos o operador bitwise OR `|` para combiná-los.
+`Usage Flags` são máscaras binárias combinadas com `|`. Tabela completa de flags:
+
+| Flag | Uso |
+|---|---|
+| `VERTEX` | Fonte de vértices no Input Assembler |
+| `INDEX` | Fonte de índices no Input Assembler |
+| `UNIFORM` | Leitura como uniform buffer nos shaders |
+| `STORAGE` | Leitura e escrita aleatória em compute/fragment shaders |
+| `COPY_SRC` | Origem em operações de cópia |
+| `COPY_DST` | Destino em operações de cópia e `writeBuffer` |
+| `INDIRECT` | Parâmetros de `drawIndirect` / `dispatchWorkgroupsIndirect` |
+| `QUERY_RESOLVE` | Destino de `resolveQuerySet` (timestamp/occlusion) |
+
+A propriedade `mapState` reflete o estado atual do buffer em tempo real: `"unmapped"` (GPU pode usar), `"pending"` (mapeamento em andamento), `"mapped"` (JS pode ler/escrever via `getMappedRange`).
 
 ## 2.2 O Labirinto do `mapAsync`
 
