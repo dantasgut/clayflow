@@ -14,6 +14,7 @@ import { BroadphaseStage }          from './pipeline/BroadphaseStage';
 import { NarrowphaseStage }         from './pipeline/NarrowphaseStage';
 import { CollisionResolutionStage } from './pipeline/CollisionResolutionStage';
 import { IntegrationStage }         from './pipeline/IntegrationStage';
+import { SleepStage }               from './pipeline/SleepStage';
 import { SyncStage }                from './pipeline/SyncStage';
 import type { PhysicsStage }        from '../../scene/systems/PhysicsStage';
 import { vec3, quat }               from 'gl-matrix';
@@ -25,6 +26,7 @@ export interface PhysicsWorldOptions {
     broadphase?: Broadphase;
     restitution?: number;
     restitutionThreshold?: number;
+    friction?: number;
 }
 
 /**
@@ -93,10 +95,12 @@ export class PhysicsWorld extends SimulationWorld {
             new BroadphaseStage(broadphase),
             new NarrowphaseStage(this.collisionDispatcher),
             new CollisionResolutionStage({
-                restitution: options.restitution ?? 0.3,
+                restitution:          options.restitution          ?? 0.3,
                 restitutionThreshold: options.restitutionThreshold ?? 1.0,
+                friction:             options.friction             ?? 0.5,
             }),
             new IntegrationStage(),
+            new SleepStage(),
         ];
 
         this.syncStage = new SyncStage();

@@ -13,7 +13,7 @@ import type { vec3, quat }          from 'gl-matrix';
 export class SyncStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, _dt: number): void {
         for (const { body, entity } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic')) continue;
+            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
             const position  = body.get<vec3>('position');
             const transform = entity.getComponent<Transform>('Transform');
             if (position && transform) {

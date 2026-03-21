@@ -1,6 +1,7 @@
 import type { CollisionAlgorithm } from '../../../scene/systems/collision/CollisionAlgorithm';
 import type { Collider } from '../../../scene/components/physics/Collider';
 import type { CollisionManifold } from '../../../scene/systems/collision/CollisionManifold';
+import type { PlaneShape } from '../shapes/PlaneShape';
 import { vec3, mat4 } from 'gl-matrix';
 
 /**
@@ -36,6 +37,15 @@ export class PlaneSphereCollision implements CollisionAlgorithm {
         const worldN  = vec3.normalize(vec3.create(), vec3.transformMat4(vec3.create(), localN, rotMat));
 
         const contactPoint = vec3.scaleAndAdd(vec3.create(), centerWorld, worldN, -radius);
+
+        // Verificação de limites: rejeita contato fora da área do plano.
+        const planeShape = plane as unknown as PlaneShape;
+        if (isFinite(planeShape.halfWidth) || isFinite(planeShape.halfDepth)) {
+            const invPlane2 = mat4.invert(mat4.create(), planeMat) ?? mat4.create();
+            const localContact = vec3.transformMat4(vec3.create(), contactPoint, invPlane2);
+            if (Math.abs(localContact[0]!) > planeShape.halfWidth ||
+                Math.abs(localContact[2]!) > planeShape.halfDepth) return null;
+        }
 
         return {
             contactPoint: new Float32Array(contactPoint),

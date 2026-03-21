@@ -2,7 +2,7 @@ import type { PhysicsStage }                  from '../../../scene/systems/Physi
 import type { PhysicsStageContext }            from '../../../scene/systems/PhysicsStageContext';
 import type { Broadphase, ColliderEntry }      from '../../../scene/systems/Broadphase';
 import type { Transform }                      from '../../../scene/math/Transform';
-import type { vec3 }                           from 'gl-matrix';
+import type { vec3, quat }                      from 'gl-matrix';
 
 /**
  * Estágio 2: detecta pares de colisores com AABB sobrepostas.
@@ -17,13 +17,22 @@ export class BroadphaseStage implements PhysicsStage {
 
     public execute(context: PhysicsStageContext, _dt: number): void {
         for (const { body, entity } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic')) continue;
+            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
             const pos = body.get<vec3>('position');
+            const rot = body.get<quat>('rotation');
             const transform = entity.getComponent<Transform>('Transform');
-            if (pos && transform) {
-                transform.position[0] = pos[0] ?? 0;
-                transform.position[1] = pos[1] ?? 0;
-                transform.position[2] = pos[2] ?? 0;
+            if (transform && (pos || rot)) {
+                if (pos) {
+                    transform.position[0] = pos[0] ?? 0;
+                    transform.position[1] = pos[1] ?? 0;
+                    transform.position[2] = pos[2] ?? 0;
+                }
+                if (rot) {
+                    transform.rotation[0] = rot[0] ?? 0;
+                    transform.rotation[1] = rot[1] ?? 0;
+                    transform.rotation[2] = rot[2] ?? 0;
+                    transform.rotation[3] = rot[3] ?? 1;
+                }
                 transform.updateWorldMatrix(false, true);
             }
         }

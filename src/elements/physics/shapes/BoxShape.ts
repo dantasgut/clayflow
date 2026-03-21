@@ -1,6 +1,6 @@
 import { SDFCollider } from '../SDFCollider';
 import type { AABB }   from '../../../scene/components/physics/Collider';
-import type { mat4 }   from 'gl-matrix';
+import { vec3, mat4 }  from 'gl-matrix';
 
 /**
  * Forma de colisão cúbica. (Camada 3)
@@ -51,17 +51,52 @@ export class BoxShape extends SDFCollider {
     }
 
     /**
-     * AABB justa por eixo: extrai a escala por coluna da worldMatrix e
-     * multiplica pelos half-extents locais. Válido para caixas não rotacionadas.
+     * Ponto mais próximo na superfície do OBB ao queryPoint — analítico, sem gradient descent.
+     * Para pontos externos: clamp aos half-extents → suporte exato (vértice mais profundo).
+     * Para pontos internos: projeta na face mais próxima.
+     */
+    public override getClosestPoint(worldMatrix: mat4, queryPoint: vec3): vec3 {
+        const invWm = mat4.invert(mat4.create(), worldMatrix) ?? mat4.create();
+        const local = vec3.transformMat4(vec3.create(), queryPoint, invWm);
+
+        const lx = local[0]!, ly = local[1]!, lz = local[2]!;
+        const dx = this.hw - Math.abs(lx);
+        const dy = this.hh - Math.abs(ly);
+        const dz = this.hd - Math.abs(lz);
+
+        let cx: number, cy: number, cz: number;
+        if (dx < 0 || dy < 0 || dz < 0) {
+            // Externo: clamp para o ponto mais próximo na superfície do OBB.
+            // Para queryPoints muito distantes, resulta no vértice de suporte exato.
+            cx = Math.max(-this.hw, Math.min(this.hw, lx));
+            cy = Math.max(-this.hh, Math.min(this.hh, ly));
+            cz = Math.max(-this.hd, Math.min(this.hd, lz));
+        } else {
+            // Interno: projeta na face mais próxima
+            cx = lx; cy = ly; cz = lz;
+            const minD = Math.min(dx, dy, dz);
+            if (minD === dx)      cx = (lx >= 0 ? 1 : -1) * this.hw;
+            else if (minD === dy) cy = (ly >= 0 ? 1 : -1) * this.hh;
+            else                  cz = (lz >= 0 ? 1 : -1) * this.hd;
+        }
+
+        return vec3.transformMat4(vec3.create(), vec3.fromValues(cx, cy, cz), worldMatrix);
+    }
+
+    /**
+     * AABB mínima que contém o OBB rotacionado.
+     * Fórmula: half_i = Σ_j |R_ij| * localHalfExtent_j
+     * onde R é a matriz de rotação (colunas da worldMatrix, normalizadas).
+     * Correto para caixas com qualquer rotação.
      */
     public override getAABB(worldMatrix: mat4): AABB {
         const center = this.getWorldCenter(worldMatrix);
-        const sx = Math.sqrt(worldMatrix[0]! ** 2 + worldMatrix[1]! ** 2 + worldMatrix[2]!  ** 2);
-        const sy = Math.sqrt(worldMatrix[4]! ** 2 + worldMatrix[5]! ** 2 + worldMatrix[6]!  ** 2);
-        const sz = Math.sqrt(worldMatrix[8]! ** 2 + worldMatrix[9]! ** 2 + worldMatrix[10]! ** 2);
+        const halfX = Math.abs(worldMatrix[0]!)  * this.hw + Math.abs(worldMatrix[4]!)  * this.hh + Math.abs(worldMatrix[8]!)  * this.hd;
+        const halfY = Math.abs(worldMatrix[1]!)  * this.hw + Math.abs(worldMatrix[5]!)  * this.hh + Math.abs(worldMatrix[9]!)  * this.hd;
+        const halfZ = Math.abs(worldMatrix[2]!)  * this.hw + Math.abs(worldMatrix[6]!)  * this.hh + Math.abs(worldMatrix[10]!) * this.hd;
         return {
-            min: new Float32Array([center[0]! - this.hw * sx, center[1]! - this.hh * sy, center[2]! - this.hd * sz]),
-            max: new Float32Array([center[0]! + this.hw * sx, center[1]! + this.hh * sy, center[2]! + this.hd * sz]),
+            min: new Float32Array([center[0]! - halfX, center[1]! - halfY, center[2]! - halfZ]),
+            max: new Float32Array([center[0]! + halfX, center[1]! + halfY, center[2]! + halfZ]),
         };
     }
 }

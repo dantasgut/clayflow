@@ -1,12 +1,13 @@
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { PhysicsBody } from '../../scene/components/physics/PhysicsBody';
-import { vec3, quat } from 'gl-matrix';
+import { vec3 } from 'gl-matrix';
 
 export interface RigidBodyOptions {
     mass?: number;
     velocity?: [number, number, number];
     isKinematic?: boolean;
     restitution?: number;        // elasticidade deste corpo (default usa o global do mundo)
+    friction?: number;           // coeficiente de atrito de Coulomb (default usa o global do mundo)
     linearDamping?: number;      // taxa de amortecimento linear por segundo (default 0.05)
     angularDamping?: number;     // taxa de amortecimento angular por segundo (default 0.1)
 }
@@ -28,12 +29,13 @@ export class RigidBody extends PhysicsBody {
         this.set('velocity',    vec3.fromValues(...(options.velocity ?? [0, 0, 0])));
         this.set('isKinematic', options.isKinematic ?? false);
         if (options.restitution !== undefined) this.set('restitution', options.restitution);
+        if (options.friction    !== undefined) this.set('friction',    options.friction);
         this.set('linearDamping',   options.linearDamping  ?? 0.05);
         this.set('angularDamping',  options.angularDamping ?? 0.1);
         this.set('angularVelocity', vec3.fromValues(0, 0, 0));
         // inertiaTensor will be seeded by PhysicsWorld.registerEntity based on collider shape
         this.set('inertiaTensor',   vec3.fromValues(1, 1, 1));
-        this.set('rotation', quat.create()); // seeded from Transform.rotation in registerEntity
+        // rotation NÃO é inicializado aqui — registerEntity copia de Transform.rotation
     }
 
     // Acessores tipados para DX — delegam ao Property Bag

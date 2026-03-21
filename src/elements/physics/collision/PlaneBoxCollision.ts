@@ -1,13 +1,18 @@
 import type { CollisionAlgorithm } from '../../../scene/systems/collision/CollisionAlgorithm';
 import type { Collider } from '../../../scene/components/physics/Collider';
 import type { CollisionManifold } from '../../../scene/systems/collision/CollisionManifold';
+import type { PlaneShape } from '../shapes/PlaneShape';
 import { vec3, mat4 } from 'gl-matrix';
 
 /**
  * Narrowphase exato para Caixa vs Plano.
  * O dispatcher chama sempre detect(Box, Plane) — ordem canônica alfabética (Box < Plane).
- * Retorna normal A→B: do primeiro arg (Box) em direção ao segundo (Plane),
- * ou seja, a negação da normal de saída do plano.
+ * Retorna normal A→B: do primeiro arg (Box) em direção ao segundo (Plane).
+ *
+ * Ponto de contato: vértice mais profundo da caixa (support point em -worldN),
+ * obtido via getClosestPoint da Collider interface. Isso garante que o vetor
+ * r = contactPoint - bodyCenter seja não-nulo para caixas inclinadas,
+ * produzindo torque real na resolução de colisões.
  */
 export class PlaneBoxCollision implements CollisionAlgorithm {
     private static readonly GRAD_EPS = 1e-3;
@@ -18,6 +23,7 @@ export class PlaneBoxCollision implements CollisionAlgorithm {
     ): CollisionManifold | null {
         if (!plane.sdf) return null;
 
+        // Normal do plano em espaço de mundo
         const e = PlaneBoxCollision.GRAD_EPS;
         const gx = plane.sdf(vec3.fromValues( e, 0, 0)) - plane.sdf(vec3.fromValues(-e, 0, 0));
         const gy = plane.sdf(vec3.fromValues(0,  e, 0)) - plane.sdf(vec3.fromValues(0, -e, 0));
@@ -31,22 +37,26 @@ export class PlaneBoxCollision implements CollisionAlgorithm {
         const planeOriginWorld = vec3.transformMat4(vec3.create(), vec3.create(), planeMat);
         const planeOffset = vec3.dot(worldN, planeOriginWorld);
 
-        const aabb      = box.getAABB(boxMat);
+        // Vértice mais profundo da caixa ao longo de -worldN (support point).
+        // Passando um ponto muito distante em -worldN, getClosestPoint converge
+        // para o vértice/aresta mais próximo dessa direção — exatamente o ponto
+        // de contato. Isso produz r ≠ 0 para caixas inclinadas → torque real.
         const boxCenter = box.getWorldCenter(boxMat);
-        const hx = (aabb.max[0]! - aabb.min[0]!) * 0.5;
-        const hy = (aabb.max[1]! - aabb.min[1]!) * 0.5;
-        const hz = (aabb.max[2]! - aabb.min[2]!) * 0.5;
+        const queryPt   = vec3.scaleAndAdd(vec3.create(), boxCenter, worldN, -1000);
+        const contactPoint = box.getClosestPoint(boxMat, queryPt) as Float32Array;
 
-        const centerProj = vec3.dot(worldN, boxCenter);
-        const extent     = Math.abs(worldN[0]!) * hx + Math.abs(worldN[1]!) * hy + Math.abs(worldN[2]!) * hz;
-        const minProj    = centerProj - extent;
-
-        const depth = planeOffset - minProj;
+        const depth = planeOffset - vec3.dot(worldN, contactPoint as unknown as vec3);
         if (depth <= 0) return null;
 
-        const contactPoint = vec3.scaleAndAdd(vec3.create(), boxCenter, worldN, -extent);
+        // Verificação de limites: rejeita contato fora da área do plano.
+        const planeShape = plane as unknown as PlaneShape;
+        if (isFinite(planeShape.halfWidth) || isFinite(planeShape.halfDepth)) {
+            const invPlane = mat4.invert(mat4.create(), planeMat) ?? mat4.create();
+            const localContact = vec3.transformMat4(vec3.create(), contactPoint as unknown as vec3, invPlane);
+            if (Math.abs(localContact[0]!) > planeShape.halfWidth ||
+                Math.abs(localContact[2]!) > planeShape.halfDepth) return null;
+        }
 
-        // A→B: de Box (primeiro arg) em direção ao Plane (segundo arg) = negação da normal do plano.
         return {
             contactPoint: new Float32Array(contactPoint),
             normal:       new Float32Array(vec3.negate(vec3.create(), worldN)),

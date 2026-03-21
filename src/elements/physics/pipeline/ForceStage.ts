@@ -16,6 +16,7 @@ export class ForceStage implements PhysicsStage {
 
     public execute(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
+            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
             if (this.forces.size > 0) {
                 const net = vec3.create();
                 for (const force of this.forces.values()) {
@@ -25,6 +26,7 @@ export class ForceStage implements PhysicsStage {
             }
             const solver = this.solvers.get(body.physicType);
             if (solver) solver.solve(body, dt);
+
         }
     }
 }

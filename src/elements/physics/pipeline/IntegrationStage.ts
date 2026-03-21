@@ -10,7 +10,7 @@ import type { vec3, quat } from 'gl-matrix';
 export class IntegrationStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic')) continue;
+            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
             const velocity = body.get<vec3>('velocity');
             const position = body.get<vec3>('position');
             if (velocity && position) {
