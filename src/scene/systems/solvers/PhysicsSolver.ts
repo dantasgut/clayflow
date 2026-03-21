@@ -19,8 +19,7 @@ export interface PhysicsSolver {
     /**
      * Avança a simulação do corpo por um passo de tempo.
      * @param body   Corpo a simular
-     * @param encoder Encoder compartilhado do frame (para compute passes GPU)
      * @param dt     Delta-time em segundos
      */
-    solve(body: PhysicsBody, encoder: GPUCommandEncoder, dt: number): void;
+    solve(body: PhysicsBody, dt: number): void;
 }

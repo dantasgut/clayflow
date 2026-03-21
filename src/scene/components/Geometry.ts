@@ -9,8 +9,8 @@ import { ResourceType } from '../core/ResourceType';
  * Componente puro — não é um nó da cena. Deve ser adicionado a um Mesh.
  */
 export abstract class Geometry implements Component {
-    private static _nextUuid: number = 0;
-    public readonly uuid: string = `geom_${++Geometry._nextUuid}`;
+    private static nextUuid: number = 0;
+    public readonly uuid: string = `geom_${++Geometry.nextUuid}`;
 
     public readonly layer = ResourceType.VISUAL_COMPONENT;
     public readonly type: string = 'Geometry';
@@ -25,6 +25,27 @@ export abstract class Geometry implements Component {
     public rawVertices: Float32Array | null = null;
     public rawIndices: Uint16Array | Uint32Array | null = null;
 
+    /**
+     * Lista explícita de posições de vértice para wireframe (3 floats por vértice).
+     * Separada do VBO principal para ser independente de stride/normal/uv.
+     * Definida pelo autor da geometria — nunca derivada da triangulação.
+     */
+    public rawWireframePositions: Float32Array | null = null;
+
+    /**
+     * Lista explícita de arestas para wireframe (2 u32 por aresta: índices em rawWireframePositions).
+     * Definida pelo autor da geometria — contém apenas as arestas reais da malha,
+     * sem diagonais de triangulação.
+     */
+    public rawWireframeEdges: Uint32Array | null = null;
+
+    /** ID do storage buffer de posições de wireframe. */
+    public wireframePositionsBufferId?: string;
+    /** ID do storage buffer de arestas de wireframe. */
+    public wireframeEdgesBufferId?: string;
+    /** Número de arestas wireframe (rawWireframeEdges.length / 2). */
+    public wireframeEdgeCount: number = 0;
+
     public markDirty(): void {
         if (this.state === ResourceState.Ready) {
             this.state = ResourceState.Dirty;
@@ -37,15 +58,32 @@ export abstract class Geometry implements Component {
         const uploads: Promise<void>[] = [];
 
         if (this.rawVertices) {
-            const vbo = resourceManager.buffers.createVertexBuffer('geom_vbo_' + this.uuid, this.rawVertices.byteLength);
-            this.vertexBufferId = vbo.id;
-            uploads.push(resourceManager.buffers.uploadStagedAsync(vbo.id, this.rawVertices));
+            const vboKey = 'geom_vbo_' + this.uuid;
+            resourceManager.buffers.createVertexBuffer(vboKey, this.rawVertices.byteLength);
+            this.vertexBufferId = vboKey;
+            uploads.push(resourceManager.buffers.uploadStagedAsync(vboKey, this.rawVertices));
         }
 
         if (this.rawIndices) {
-            const ibo = resourceManager.buffers.createIndexBuffer('geom_ibo_' + this.uuid, this.rawIndices.byteLength);
-            this.indexBufferId = ibo.id;
-            uploads.push(resourceManager.buffers.uploadStagedAsync(ibo.id, this.rawIndices));
+            const iboKey = 'geom_ibo_' + this.uuid;
+            resourceManager.buffers.createIndexBuffer(iboKey, this.rawIndices.byteLength);
+            this.indexBufferId = iboKey;
+            uploads.push(resourceManager.buffers.uploadStagedAsync(iboKey, this.rawIndices));
+        }
+
+        if (this.rawWireframePositions) {
+            const wpKey = 'geom_wfpos_' + this.uuid;
+            resourceManager.buffers.createStorageBuffer(wpKey, this.rawWireframePositions.byteLength);
+            this.wireframePositionsBufferId = wpKey;
+            uploads.push(resourceManager.buffers.uploadStagedAsync(wpKey, this.rawWireframePositions));
+        }
+
+        if (this.rawWireframeEdges) {
+            const weKey = 'geom_wfedge_' + this.uuid;
+            resourceManager.buffers.createStorageBuffer(weKey, this.rawWireframeEdges.byteLength);
+            this.wireframeEdgesBufferId = weKey;
+            this.wireframeEdgeCount    = this.rawWireframeEdges.length / 2;
+            uploads.push(resourceManager.buffers.uploadStagedAsync(weKey, this.rawWireframeEdges));
         }
 
         await Promise.all(uploads);
@@ -67,8 +105,10 @@ export abstract class Geometry implements Component {
     }
 
     public disposeResource(resourceManager: ResourceManager): void {
-        if (this.vertexBufferId) resourceManager.buffers.destroyBuffer(this.vertexBufferId);
-        if (this.indexBufferId) resourceManager.buffers.destroyBuffer(this.indexBufferId);
+        if (this.vertexBufferId)           resourceManager.buffers.destroyBuffer(this.vertexBufferId);
+        if (this.indexBufferId)            resourceManager.buffers.destroyBuffer(this.indexBufferId);
+        if (this.wireframePositionsBufferId) resourceManager.buffers.destroyBuffer(this.wireframePositionsBufferId);
+        if (this.wireframeEdgesBufferId)     resourceManager.buffers.destroyBuffer(this.wireframeEdgesBufferId);
         this.state = ResourceState.Destroyed;
     }
 }

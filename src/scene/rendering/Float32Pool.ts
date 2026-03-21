@@ -8,32 +8,32 @@
  *   // ao fim do frame: pool.reset() — arrays ficam disponíveis novamente
  */
 export class Float32Pool {
-    private _buckets = new Map<number, Float32Array[]>();
-    private _cursors = new Map<number, number>();
+    private buckets = new Map<number, Float32Array[]>();
+    private cursors = new Map<number, number>();
 
     public acquire(size: number): Float32Array {
-        let bucket = this._buckets.get(size);
+        let bucket = this.buckets.get(size);
         if (!bucket) {
             bucket = [];
-            this._buckets.set(size, bucket);
-            this._cursors.set(size, 0);
+            this.buckets.set(size, bucket);
+            this.cursors.set(size, 0);
         }
 
-        const cursor = this._cursors.get(size)!;
+        const cursor = this.cursors.get(size)!;
         if (cursor < bucket.length) {
-            this._cursors.set(size, cursor + 1);
+            this.cursors.set(size, cursor + 1);
             return bucket[cursor]!;
         }
 
         const arr = new Float32Array(size);
         bucket.push(arr);
-        this._cursors.set(size, cursor + 1);
+        this.cursors.set(size, cursor + 1);
         return arr;
     }
 
     public reset(): void {
-        for (const size of this._buckets.keys()) {
-            this._cursors.set(size, 0);
+        for (const size of this.buckets.keys()) {
+            this.cursors.set(size, 0);
         }
     }
 }

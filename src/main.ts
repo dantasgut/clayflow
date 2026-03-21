@@ -1,36 +1,25 @@
-import { WebGPUEngineCore } from './core/WebGPUEngineCore';
-import { WebGPURenderer } from './presentation/renderers/WebGPURenderer';
-import { Scene } from './scene/core/Scene';
-import { Entity } from './scene/core/Entity';
-import { Camera } from './scene/cameras/Camera';
-import { Transform } from './scene/math/Transform';
-import { vec3 } from 'gl-matrix';
+import { WebGPURenderer }    from './presentation/renderers/WebGPURenderer';
+import { Scene }             from './scene/core/Scene';
+import { PerspectiveCamera } from './elements/cameras/PerspectiveCamera';
 
 async function init() {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 
-    // Resize canvas to match window
     const resizeCanvas = () => {
-        canvas.width = window.innerWidth * window.devicePixelRatio;
+        canvas.width  = window.innerWidth  * window.devicePixelRatio;
         canvas.height = window.innerHeight * window.devicePixelRatio;
     };
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
 
-    // 2. Setup Básico da Camada 2 (Data-Oriented Scene)
-    const scene = new Scene();
+    const scene  = new Scene();
+    const camera = new PerspectiveCamera(Math.PI / 4, canvas.width / canvas.height, 0.1, 1000);
+    camera.position[2] = 5;
+    scene.add(camera);
 
-    const cameraEntity = new Entity();
-    const cameraTransform = new Transform();
-    cameraEntity.add(cameraTransform);
-    
-    const camera = new Camera();
-    cameraEntity.add(camera);
-    vec3.set(cameraTransform.position, 0, 0, 5);
-
-    // 3. O Maestro da Camada 4
+    // A camada 1 (device WebGPU) é inicializada aqui — invisível ao usuário da biblioteca
     const renderer = new WebGPURenderer();
-    renderer.setSize(canvas.width, canvas.height);
+    await renderer.initialize(canvas);
     renderer.setClearColor(0.2, 0.2, 0.25, 1.0);
 
     console.log("WebGPU Architecture Initialized Successfully! Starting Game Loop...");

@@ -30,16 +30,16 @@ export class Transform implements Component {
     // A Entidade (Entity) dona desta matemática
     public owner: Entity | null = null;
 
-    private _matrixCallbacks: Array<(worldMatrix: mat4) => void> = [];
+    private matrixCallbacks: Array<(worldMatrix: mat4) => void> = [];
 
     /**
      * Registra um listener para quando a worldMatrix for recalculada.
      * Retorna uma função de cancelamento (unsubscribe).
      */
     public onMatrixUpdate(cb: (worldMatrix: mat4) => void): () => void {
-        this._matrixCallbacks.push(cb);
+        this.matrixCallbacks.push(cb);
         return () => {
-            this._matrixCallbacks = this._matrixCallbacks.filter(fn => fn !== cb);
+            this.matrixCallbacks = this.matrixCallbacks.filter(fn => fn !== cb);
         };
     }
 
@@ -132,8 +132,8 @@ export class Transform implements Component {
             mat4.multiply(this.worldMatrix, parent.worldMatrix, this.localMatrix);
         }
 
-        for (let i = 0; i < this._matrixCallbacks.length; i++) {
-            this._matrixCallbacks[i]!(this.worldMatrix);
+        for (let i = 0; i < this.matrixCallbacks.length; i++) {
+            this.matrixCallbacks[i]!(this.worldMatrix);
         }
 
         this.matrixWorldNeedsUpdate = false;

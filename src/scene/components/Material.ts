@@ -8,8 +8,8 @@ import { ResourceType } from '../core/ResourceType';
  * Componente puro — não é um nó da cena. Deve ser adicionado a um Mesh.
  */
 export abstract class Material implements Component {
-    private static _nextUuid: number = 0;
-    public readonly uuid: string = `mat_${++Material._nextUuid}`;
+    private static nextUuid: number = 0;
+    public readonly uuid: string = `mat_${++Material.nextUuid}`;
 
     public readonly layer = ResourceType.VISUAL_COMPONENT;
     public readonly type: string = 'Material';
@@ -17,6 +17,8 @@ export abstract class Material implements Component {
     public state: ResourceState = ResourceState.Uninitialized;
     public shaderId: string = '';
     public transparent: boolean = false;
+    /** Quando true, o renderer usa vertex pulling (lê VBO/IBO como storage buffers). */
+    public useVertexPulling: boolean = false;
     public bindGroupIds: string[] = [];
     public bindGroupSchema: GPUBindGroupLayoutEntry[] = [];
     public doubleSided: boolean = false;
@@ -35,16 +37,19 @@ export abstract class Material implements Component {
         const uniformData = this.rawUniforms.get('std_mat_buf');
 
         if (uniformData && this.shaderId) {
-            const uniformBuffer = resourceManager.buffers.createUniformBuffer('mat_ubo_' + this.uuid, uniformData.byteLength);
-            resourceManager.buffers.writeBuffer(uniformBuffer.id, uniformData);
+            const matUboKey = 'mat_ubo_' + this.uuid;
+            resourceManager.buffers.createUniformBuffer(matUboKey, uniformData.byteLength);
+            resourceManager.buffers.writeBuffer(matUboKey, uniformData);
 
             resourceManager.bindings.getLayout(this.shaderId, this.bindGroupSchema);
 
-            const bindGroup = resourceManager.bindings.getBindGroup('mat_bg_' + this.uuid, this.shaderId, [
-                { binding: 0, resource: { buffer: uniformBuffer.native } }
+            const matBuf = resourceManager.buffers.getBuffer(matUboKey)!;
+            resourceManager.bindings.getBindGroup('mat_bg_' + this.uuid, this.shaderId, [
+                { binding: 0, resource: { buffer: matBuf.native } }
             ]);
 
-            this.bindGroupIds.push(bindGroup.id);
+            // Armazena a chave lógica (não o UUID interno) para permitir lookup e dispose corretos.
+            this.bindGroupIds.push('mat_bg_' + this.uuid);
         }
 
         this.state = ResourceState.Ready;

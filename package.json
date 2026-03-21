@@ -1,23 +1,46 @@
 {
-  "name": "engine",
-  "version": "1.0.0",
+  "name": "webgpu-engine",
+  "version": "0.1.0",
+  "description": "WebGPU engine with Clean Architecture — ECS, physics, particles and forward rendering.",
   "type": "module",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "keywords": [
+    "webgpu",
+    "engine",
+    "ecs",
+    "physics",
+    "rendering"
+  ],
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build:lib": "vite build",
+    "preview": "vite preview",
+    "doc": "typedoc --out docs src/index.ts"
+  },
   "devDependencies": {
     "@types/gl-matrix": "^2.4.5",
+    "@types/uuid": "^10.0.0",
     "@webgpu/types": "^0.1.69",
+    "docusaurus-plugin-typedoc": "^1.4.2",
+    "typedoc": "^0.28.17",
+    "typedoc-plugin-markdown": "^4.11.0",
     "typescript": "^5.9.3",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vite-plugin-dts": "^4.5.4"
   },
   "dependencies": {
-    "@types/uuid": "^10.0.0",
     "gl-matrix": "^3.4.4",
     "uuid": "^13.0.0"
   }

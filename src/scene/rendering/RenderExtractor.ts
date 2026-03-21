@@ -1,24 +1,28 @@
-import { Entity } from '../core/Entity';
-import { Scene } from '../core/Scene';
+import { Entity }                  from '../core/Entity';
+import { Scene }                   from '../core/Scene';
 import type { ExtractionStrategy } from './strategies/ExtractionStrategy';
 import { LightExtractionStrategy } from './strategies/LightExtractionStrategy';
-import { MeshExtractionStrategy } from './strategies/MeshExtractionStrategy';
+import { MeshExtractionStrategy }  from './strategies/MeshExtractionStrategy';
 import type { RenderCommand, RenderQueue, RenderLight } from './RenderQueue';
-import { Float32Pool } from './Float32Pool';
-import { mat4, vec3 } from 'gl-matrix';
+import { Float32Pool }             from './Float32Pool';
+import { vec3 }                    from 'gl-matrix';
+import { Loggable }                from '../../core/debug/Loggable';
+import { Logger }                  from '../../core/debug/Logger';
 
 /**
  * O Funil (Extrator de Cena).
  * Percorre a Scene orientada a objetos (Camada 2) e gera Arrays Lineares (DoD)
  * para a Camada 3 consumir.
  */
+@Loggable('RenderExtractor')
 export class RenderExtractor implements RenderQueue {
+    declare private readonly log: Logger;
     public readonly opaqueGroups: Map<string, RenderCommand[]> = new Map();
     public readonly transparentList: RenderCommand[] = [];
     public readonly lights: RenderLight[] = [];
 
-    private _strategies: ExtractionStrategy[] = [];
-    private _pool = new Float32Pool();
+    private strategies: ExtractionStrategy[] = [];
+    private pool = new Float32Pool();
 
     constructor() {
         // Registra as estratégias nativas da engine por padrão
@@ -27,13 +31,13 @@ export class RenderExtractor implements RenderQueue {
     }
 
     public addStrategy(strategy: ExtractionStrategy): void {
-        this._strategies.push(strategy);
+        this.strategies.push(strategy);
     }
 
     public removeStrategy(strategy: ExtractionStrategy): void {
-        const index = this._strategies.indexOf(strategy);
+        const index = this.strategies.indexOf(strategy);
         if (index !== -1) {
-            this._strategies.splice(index, 1);
+            this.strategies.splice(index, 1);
         }
     }
 
@@ -41,11 +45,11 @@ export class RenderExtractor implements RenderQueue {
         this.opaqueGroups.clear();
         this.transparentList.length = 0;
         this.lights.length = 0;
-        this._pool.reset();
+        this.pool.reset();
     }
 
     public acquireFloat32(size: number): Float32Array {
-        return this._pool.acquire(size);
+        return this.pool.acquire(size);
     }
 
     /**
@@ -62,8 +66,8 @@ export class RenderExtractor implements RenderQueue {
             if (!entity.visible) return;
 
             // O Extrator simplesmente cede a Entidade para todos os especialistas registrados
-            for (let i = 0; i < this._strategies.length; i++) {
-                this._strategies[i]!.extract(entity, this as RenderQueue, cameraWorldPos);
+            for (let i = 0; i < this.strategies.length; i++) {
+                this.strategies[i]!.extract(entity, this as RenderQueue, cameraWorldPos);
             }
         });
 
@@ -71,5 +75,8 @@ export class RenderExtractor implements RenderQueue {
         if (this.transparentList.length > 0) {
             this.transparentList.sort((a, b) => b.distanceToCamera - a.distanceToCamera);
         }
+
+        const opaque = [...this.opaqueGroups.values()].reduce((s, g) => s + g.length, 0);
+        this.log.debug(`Extração — opaque:${opaque} transparent:${this.transparentList.length} lights:${this.lights.length}`);
     }
 }

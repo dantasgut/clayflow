@@ -9,8 +9,8 @@ import type { Physic } from './Physic';
  * A Matemática (Transform) foi totalmente separada.
  */
 export class Entity extends EventDispatcher {
-    private static _nextId: number = 0;
-    public readonly id: number = ++Entity._nextId;
+    private static nextId: number = 0;
+    public readonly id: number = ++Entity.nextId;
 
     public isEntity: boolean = true;
     public visible: boolean = true;
@@ -20,7 +20,7 @@ export class Entity extends EventDispatcher {
     public children: Entity[] = [];
 
     // O Array de gavetas! Índice 0 = Visuais, Índice 1 = Físicas
-    private _layers: Map<string, any>[] = [
+    private layers: Map<string, any>[] = [
         new Map(), // ResourceType.VISUAL_COMPONENT
         new Map(), // ResourceType.PHYSICS_MECHANIC
     ];
@@ -41,8 +41,8 @@ export class Entity extends EventDispatcher {
         if (object === this as any) return this;
 
         // ROTEAMENTO ORIENTADO A DADOS
-        if ('layer' in object && this._layers[object.layer]) {
-            this._layers[object.layer]!.set(object.type, object);
+        if ('layer' in object && this.layers[object.layer]) {
+            this.layers[object.layer]!.set(object.type, object);
             if (object.onAttach) object.onAttach(this);
         }
         // ROTEAMENTO: É um Nó Lógico (Entidade / Grupo)
@@ -61,10 +61,10 @@ export class Entity extends EventDispatcher {
     }
 
     public remove(object: any): this {
-        if ('layer' in object && this._layers[object.layer]) {
-            if (this._layers[object.layer]!.has(object.type)) {
+        if ('layer' in object && this.layers[object.layer]) {
+            if (this.layers[object.layer]!.has(object.type)) {
                 if (object.onDetach) object.onDetach(this);
-                this._layers[object.layer]!.delete(object.type);
+                this.layers[object.layer]!.delete(object.type);
             }
         }
         else if (object.isEntity) {
@@ -84,19 +84,19 @@ export class Entity extends EventDispatcher {
     // a pedido da arquitetura, pois add() roteia isso agora nativamente.
 
     public getComponent<T extends Component>(type: string): T | undefined {
-        return this._layers[0]?.get(type) as T | undefined;
+        return this.layers[0]?.get(type) as T | undefined;
     }
 
     public getComponents(): IterableIterator<Component> {
-        return this._layers[0]!.values();
+        return this.layers[0]!.values();
     }
 
     public getPhysics(): IterableIterator<Physic> {
-        return this._layers[1]!.values();
+        return this.layers[1]!.values();
     }
 
     public hasComponent(type: string): boolean {
-        return this._layers[0]!.has(type);
+        return this.layers[0]!.has(type);
     }
 
     /**

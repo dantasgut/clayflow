@@ -1,6 +1,6 @@
 import type { Entity } from '../../core/Entity';
 import type { RenderQueue } from '../RenderQueue';
-import { Light, PointLight, LightType } from '../../lights/Light';
+import { Light, PointLight, DirectionalLight, LightType } from '../../lights/Light';
 import type { Transform } from '../../math/Transform';
 import { NULL_TRANSFORM } from '../../math/NullTransform';
 import { mat4, vec3 } from 'gl-matrix';
@@ -10,7 +10,7 @@ import type { ExtractionStrategy } from './ExtractionStrategy';
  * Estratégia concreta para extrair dados do componente Light.
  */
 export class LightExtractionStrategy implements ExtractionStrategy {
-    private _tempObjPos: vec3 = vec3.create();
+    private tempObjPos: vec3 = vec3.create();
 
     public extract(entity: Entity, queue: RenderQueue, _cameraWorldPos?: vec3): void {
         const light = entity.getComponent<Light>('Light');
@@ -18,7 +18,7 @@ export class LightExtractionStrategy implements ExtractionStrategy {
 
         // Null Object — usa identidade se não há Transform
         const transform = entity.getComponent<Transform>('Transform') ?? NULL_TRANSFORM;
-        mat4.getTranslation(this._tempObjPos, transform.worldMatrix);
+        mat4.getTranslation(this.tempObjPos, transform.worldMatrix);
 
         let distance = 0;
         let decay = 0;
@@ -31,13 +31,19 @@ export class LightExtractionStrategy implements ExtractionStrategy {
         color.set(light.color);
 
         const worldPosition = queue.acquireFloat32(3);
-        worldPosition.set(this._tempObjPos);
+        worldPosition.set(this.tempObjPos);
+
+        const direction = queue.acquireFloat32(3);
+        if (light.lightType === LightType.Directional) {
+            direction.set((light as DirectionalLight).direction);
+        }
 
         queue.lights.push({
             type: light.lightType,
             color,
             intensity: light.intensity,
             worldPosition,
+            direction,
             distance,
             decay
         });

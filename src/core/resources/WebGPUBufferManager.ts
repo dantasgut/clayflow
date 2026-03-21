@@ -37,7 +37,7 @@ export class WebGPUBufferManager implements BufferManager {
         return engineBuf;
     }
 
-    public createVertexBuffer(id: string, size: number, usage: GPUBufferUsageFlags = GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST): EngineBuffer {
+    public createVertexBuffer(id: string, size: number, usage: GPUBufferUsageFlags = GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST): EngineBuffer {
         const rawBuffer = this.context.device.createBuffer({
             label: `VertexBuffer_${id}`,
             size: size,
@@ -48,7 +48,7 @@ export class WebGPUBufferManager implements BufferManager {
         return engineBuf;
     }
 
-    public createIndexBuffer(id: string, size: number, usage: GPUBufferUsageFlags = GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST): EngineBuffer {
+    public createIndexBuffer(id: string, size: number, usage: GPUBufferUsageFlags = GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST): EngineBuffer {
         const rawBuffer = this.context.device.createBuffer({
             label: `IndexBuffer_${id}`,
             size: size,

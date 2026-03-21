@@ -5,24 +5,24 @@
  */
 export class EventDispatcher {
     // Dicionário mapeando o nome do evento para um array de funções de Callback
-    private _listeners: Map<string, Array<(event: any) => void>>;
+    private listeners: Map<string, Array<(event: any) => void>>;
 
     constructor() {
-        this._listeners = new Map();
+        this.listeners = new Map();
     }
 
     /**
      * Inscreve uma função callback para escutar um evento específico.
      */
     public addEventListener(type: string, listener: (event: any) => void): void {
-        const listeners = this._listeners.get(type);
+        const listeners = this.listeners.get(type);
         if (listeners) {
             // Evita duplicatas do mesmo listener
             if (listeners.indexOf(listener) === -1) {
                 listeners.push(listener);
             }
         } else {
-            this._listeners.set(type, [listener]);
+            this.listeners.set(type, [listener]);
         }
     }
 
@@ -30,7 +30,7 @@ export class EventDispatcher {
      * Verifica se existe alguma inscrição para aquele evento e função.
      */
     public hasEventListener(type: string, listener: (event: any) => void): boolean {
-        const listeners = this._listeners.get(type);
+        const listeners = this.listeners.get(type);
         return listeners !== undefined && listeners.indexOf(listener) !== -1;
     }
 
@@ -38,7 +38,7 @@ export class EventDispatcher {
      * Remove uma inscrição existente.
      */
     public removeEventListener(type: string, listener: (event: any) => void): void {
-        const listeners = this._listeners.get(type);
+        const listeners = this.listeners.get(type);
         if (listeners) {
             const index = listeners.indexOf(listener);
             if (index !== -1) {
@@ -51,14 +51,14 @@ export class EventDispatcher {
      * Remove todos os listeners (ideal para cleanup de lixo na memória).
      */
     public clearEventListeners(): void {
-        this._listeners.clear();
+        this.listeners.clear();
     }
 
     /**
      * Despacha o evento, executando todos os callbacks inscritos para aquele tipo.
      */
     public dispatchEvent(event: { type: string; [attachment: string]: any }): void {
-        const listeners = this._listeners.get(event.type);
+        const listeners = this.listeners.get(event.type);
         if (listeners) {
             // Cria uma cópia rasa do array para evitar mutações durante o loop (caso um listener se remova dentro dele mesmo)
             const listenersCopy = listeners.slice(0);

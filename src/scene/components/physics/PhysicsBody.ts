@@ -5,20 +5,29 @@ import { ResourceType } from '../../core/ResourceType';
 import { ResourceState } from '../../core/ResourceState';
 
 /**
- * Base abstrata para todos os corpos físicos (Template Method — GoF).
+ * Base abstrata para todos os corpos físicos.
+ * Combina dois padrões:
  *
- * Define o esqueleto do ciclo de vida de alocação/dispose na GPU e delega
- * apenas os detalhes de buffer para as subclasses via hooks protegidos.
- * Garante que o estado nunca regride (ex: Destroyed permanece Destroyed).
+ * Template Method — ciclo de vida GPU (allocate/dispose) selado na base.
+ * Property Bag — propriedades físicas abertas via get/set tipados.
+ *
+ * O Property Bag permite que o mesmo corpo represente um RigidBody
+ * convencional (mass, velocity), uma partícula carregada (charge, spin),
+ * ou qualquer entidade de um espaço físico abstrato, sem subclasses
+ * específicas para cada configuração.
  *
  * @example
- * class RigidBody extends PhysicsBody {
- *     protected async doAllocate(rm: ResourceManager): Promise<void> { ... }
- *     protected doDispose(rm: ResourceManager): void { ... }
- * }
+ * // Corpo genérico para simulação eletromagnética
+ * const particle = new Particle();  // subclasse mínima
+ * particle.set('mass', 9.11e-31)   // massa do elétron
+ *         .set('charge', -1.6e-19)  // carga
+ *         .set('velocity', vec3.create());
+ *
+ * // Força de Lorentz lê as propriedades sem saber o tipo do corpo
+ * const q = body.get<number>('charge') ?? 0;
  */
 export abstract class PhysicsBody implements Resource, Physic {
-    private static _nextUuid: number = 0;
+    private static nextUuid: number = 0;
     public readonly uuid: string;
 
     public abstract readonly type: string;
@@ -28,22 +37,39 @@ export abstract class PhysicsBody implements Resource, Physic {
 
     public state: ResourceState = ResourceState.Uninitialized;
 
+    /** Propriedades físicas abertas — não há campos fixos na base. */
+    private readonly props = new Map<string, unknown>();
+
     constructor() {
-        this.uuid = `physicsbody_${++PhysicsBody._nextUuid}`;
+        this.uuid = `physicsbody_${++PhysicsBody.nextUuid}`;
+    }
+
+    // ------------------------------------------------------------------
+    // Property Bag — aberto para qualquer domínio físico
+    // ------------------------------------------------------------------
+
+    public set<T>(key: string, value: T): this {
+        this.props.set(key, value);
+        return this;
+    }
+
+    public get<T>(key: string): T | undefined {
+        return this.props.get(key) as T | undefined;
+    }
+
+    public has(key: string): boolean {
+        return this.props.has(key);
     }
 
     // ------------------------------------------------------------------
     // Template Method hooks — subclasses implementam apenas estes
     // ------------------------------------------------------------------
 
-    /** Aloca buffers GPU específicos do corpo. Chamado uma única vez. */
     protected abstract doAllocate(resourceManager: ResourceManager): Promise<void>;
-
-    /** Libera buffers GPU específicos do corpo. */
     protected abstract doDispose(resourceManager: ResourceManager): void;
 
     // ------------------------------------------------------------------
-    // Ciclo de vida selado (Template Method)
+    // Ciclo de vida selado
     // ------------------------------------------------------------------
 
     public async allocateResource(resourceManager: ResourceManager): Promise<void> {

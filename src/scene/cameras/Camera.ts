@@ -5,34 +5,35 @@ import { ResourceType } from '../core/ResourceType';
 import type { Transform } from '../math/Transform';
 
 /**
- * A Câmera Virtual. (Camada 2 - Representação)
- * Componente ECS Puro que calcula as matrizes de visão e projeção a partir do Transform da Entidade dona.
+ * Componente interno de câmera. (Camada 2 - não exportado na API pública)
+ * Calcula as matrizes de visão e projeção a partir do Transform da Entidade dona.
+ * O usuário interage com PerspectiveCamera / OrthographicCamera da camada 3.
  */
-export class Camera implements Component {
+export class CameraComponent implements Component {
     public readonly layer = ResourceType.VISUAL_COMPONENT;
-    public readonly type: string = 'Camera';
+    public readonly type: string = 'CameraComponent';
 
     public projectionMatrix: mat4 = mat4.create();
     public viewMatrix: mat4 = mat4.create();
     public viewProjectionMatrix: mat4 = mat4.create();
 
     public owner: Entity | null = null;
-    private _unsubscribeTransform: (() => void) | null = null;
+    private unsubscribeTransform: (() => void) | null = null;
 
     public onAttach(entity: Entity): void {
         this.owner = entity;
         const transform = entity.getComponent<Transform>('Transform');
         if (transform) {
-            this._unsubscribeTransform = transform.onMatrixUpdate((worldMatrix) => {
-                this._updateViewMatrix(worldMatrix);
+            this.unsubscribeTransform = transform.onMatrixUpdate((worldMatrix) => {
+                this.updateViewMatrix(worldMatrix);
             });
-            this._updateViewMatrix(transform.worldMatrix);
+            this.updateViewMatrix(transform.worldMatrix);
         }
     }
 
     public onDetach(_entity: Entity): void {
-        this._unsubscribeTransform?.();
-        this._unsubscribeTransform = null;
+        this.unsubscribeTransform?.();
+        this.unsubscribeTransform = null;
         this.owner = null;
     }
 
@@ -47,7 +48,7 @@ export class Camera implements Component {
         mat4.orthoZO(this.projectionMatrix, left, right, bottom, top, near, far);
     }
 
-    private _updateViewMatrix(worldMatrix: mat4): void {
+    private updateViewMatrix(worldMatrix: mat4): void {
         mat4.invert(this.viewMatrix, worldMatrix);
         mat4.multiply(this.viewProjectionMatrix, this.projectionMatrix, this.viewMatrix);
     }

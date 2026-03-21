@@ -1,11 +1,15 @@
 import { WebGPUContext } from '../context/WebGPUContext';
-import type { Profiler } from '../interfaces/Profiler';
+import type { Profiler }  from '../interfaces/Profiler';
+import { Loggable }       from '../debug/Loggable';
+import { Logger }         from '../debug/Logger';
 
 /**
  * Encapsulamento das APIs de timestamp originárias direto no chip da Placa Gráfica.
  * Usado se device.features.has('timestamp-query') for true.
  */
+@Loggable('ProfilerSystem')
 export class ProfilerSystem implements Profiler {
+    declare private readonly log: Logger;
     private context: WebGPUContext;
     private querySet: GPUQuerySet | null = null;
     private resolveBuffer: GPUBuffer | null = null;
@@ -21,8 +25,9 @@ export class ProfilerSystem implements Profiler {
         if (this.context.device.features.has('timestamp-query')) {
             this.isSupported = true;
             this.initBuffers();
+            this.log.info('Timestamp queries habilitadas');
         } else {
-            console.warn("Timestamp Queries não suportadas pela GPU/Navegador atual.");
+            this.log.warn('Timestamp queries indisponíveis neste device/navegador');
         }
     }
 

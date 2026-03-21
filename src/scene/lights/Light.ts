@@ -34,7 +34,9 @@ export class AmbientLight extends Light {
 }
 
 export class DirectionalLight extends Light {
-    // A direção é resolvida pela rotação/posição do Entity apontando para um "target" (na Camada 3)
+    /** Direção normalizada para a qual a luz aponta (espaço mundo). Padrão: levemente à direita e acima. */
+    public direction: vec3 = vec3.normalize(vec3.create(), vec3.fromValues(0.5, -1.0, -0.3));
+
     constructor(color: [number, number, number] = [1, 1, 1], intensity: number = 1.0) {
         super(LightType.Directional, color, intensity);
     }

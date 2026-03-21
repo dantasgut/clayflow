@@ -308,3 +308,4 @@ GPUAdapter
        ├─ GPURenderBundleEncoder → finish() → GPURenderBundle         │
        └─ GPUQuerySet (timestamp / occlusion) ───────────────────────┘
 ```
+Brilho, rugosidade, refração, caustics, transparência

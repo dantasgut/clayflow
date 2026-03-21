@@ -9,11 +9,13 @@ export class WebGPUPipelineManager implements PipelineManager {
     private context: WebGPUContext;
     private shaderModules: Map<string, GPUShaderModule>;
     private renderPipelines: Map<string, GPURenderPipeline>;
+    private pipelineLayouts: Map<string, GPUPipelineLayout>;
 
     constructor() {
         this.context = WebGPUContext.getInstance();
-        this.shaderModules = new Map();
-        this.renderPipelines = new Map();
+        this.shaderModules    = new Map();
+        this.renderPipelines  = new Map();
+        this.pipelineLayouts  = new Map();
     }
 
     private getShaderModule(id: string, code: string): GPUShaderModule {
@@ -49,9 +51,7 @@ export class WebGPUPipelineManager implements PipelineManager {
             fragment: {
                 module: shaderModule,
                 entryPoint: pipelineDescriptor.fragmentEntryPoint,
-                targets: [{
-                    format: this.context.format,
-                }]
+                targets: pipelineDescriptor.fragmentTargets ?? [{ format: this.context.format }],
             }
         };
 
@@ -62,5 +62,16 @@ export class WebGPUPipelineManager implements PipelineManager {
 
     public getRenderPipeline(id: string): GPURenderPipeline | undefined {
         return this.renderPipelines.get(id);
+    }
+
+    public createPipelineLayout(id: string, layouts: GPUBindGroupLayout[]): GPUPipelineLayout {
+        if (!this.pipelineLayouts.has(id)) {
+            const layout = this.context.device.createPipelineLayout({
+                label: `PipelineLayout_${id}`,
+                bindGroupLayouts: layouts,
+            });
+            this.pipelineLayouts.set(id, layout);
+        }
+        return this.pipelineLayouts.get(id)!;
     }
 }

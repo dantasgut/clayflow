@@ -12,8 +12,8 @@ import type { ExtractionStrategy } from './ExtractionStrategy';
  * Estratégia concreta para extrair as malhas (Geometry + Material).
  */
 export class MeshExtractionStrategy implements ExtractionStrategy {
-    private _tempObjPos: vec3 = vec3.create();
-    private _tempCameraPos: vec3 = vec3.create();
+    private tempObjPos: vec3 = vec3.create();
+    private tempCameraPos: vec3 = vec3.create();
 
     public extract(entity: Entity, queue: RenderQueue, cameraWorldPos?: vec3): void {
         const geometry = entity.getComponent<Geometry>('Geometry');
@@ -27,28 +27,43 @@ export class MeshExtractionStrategy implements ExtractionStrategy {
         const worldMatrix = queue.acquireFloat32(16);
         worldMatrix.set(transform.worldMatrix);
 
+        const transparent    = material.transparent;
+        const pipelineHashId = `${material.shaderId}|${material.topology}${transparent ? '|t' : ''}`;
+
+        // Para vertex pulling: vertexCount = número de arestas (o renderer faz draw(edges * 6))
+        const vertexCount = material.useVertexPulling && geometry.wireframeEdgeCount > 0
+            ? geometry.wireframeEdgeCount
+            : geometry.vertexCount;
+
         const command: RenderCommand = {
-            pipelineHashId: material.shaderId,
-            geometryId: geometry.vertexBufferId,
-            vertexCount: geometry.vertexCount,
-            instanceCount: geometry.instanceCount,
+            pipelineHashId,
+            materialLayoutId:  material.shaderId,
+            geometryId:        geometry.vertexBufferId,
+            ...(geometry.indexBufferId !== undefined ? { indexBufferId: geometry.indexBufferId } : {}),
+            vertexCount,
+            instanceCount:     geometry.instanceCount,
+            vertexLayout:      geometry.layout,
+            topology:          material.topology,
             materialBindGroupIds: material.bindGroupIds.slice(),
             worldMatrix,
-            distanceToCamera: 0
+            distanceToCamera: 0,
+            ...(material.useVertexPulling ? { useVertexPulling: true } : {}),
+            ...(geometry.wireframePositionsBufferId ? { wireframePositionsBufferId: geometry.wireframePositionsBufferId } : {}),
+            ...(geometry.wireframeEdgesBufferId     ? { wireframeEdgesBufferId:     geometry.wireframeEdgesBufferId     } : {}),
         };
 
         if (material.transparent) {
             if (cameraWorldPos) {
-                vec3.copy(this._tempCameraPos, cameraWorldPos);
-                mat4.getTranslation(this._tempObjPos, transform.worldMatrix);
-                command.distanceToCamera = vec3.sqrDist(this._tempCameraPos, this._tempObjPos);
+                vec3.copy(this.tempCameraPos, cameraWorldPos);
+                mat4.getTranslation(this.tempObjPos, transform.worldMatrix);
+                command.distanceToCamera = vec3.sqrDist(this.tempCameraPos, this.tempObjPos);
             }
             queue.transparentList.push(command);
         } else {
-            let group = queue.opaqueGroups.get(material.shaderId);
+            let group = queue.opaqueGroups.get(command.pipelineHashId);
             if (!group) {
                 group = [];
-                queue.opaqueGroups.set(material.shaderId, group);
+                queue.opaqueGroups.set(command.pipelineHashId, group);
             }
             group.push(command);
         }

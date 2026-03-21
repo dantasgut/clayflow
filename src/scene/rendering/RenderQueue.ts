@@ -1,24 +1,48 @@
 import type { mat4 } from 'gl-matrix';
 import type { LightType } from '../lights/Light';
+import type { VertexLayout } from '../data/VertexLayout';
 
 /**
  * Pílula puramente descritiva (Data-Oriented).
  * Não possui métodos ou referências ao Grafo da Cena.
  */
 export interface RenderCommand {
-    pipelineHashId: string;     // Qual Shader usar (OpaqueLine, TransparentFill)
-    geometryId: string;         // Qual ID apontar pro ResourceManager
+    /** Hash único: shaderId + '|' + topology — identifica a GPURenderPipeline a usar. */
+    pipelineHashId: string;
+    /** shaderId do material — chave do GPUBindGroupLayout no BindGroupManager. */
+    materialLayoutId: string;
+    /** ID do vertex buffer no ResourceManager. */
+    geometryId: string;
+    /** ID do index buffer (opcional). */
+    indexBufferId?: string;
     vertexCount: number;
     instanceCount: number;
-    
+    /**
+     * Layout dos atributos de vértice — necessário para criar a pipeline.
+     * Omitido em comandos de partículas (vertex shader usa storage buffer interno).
+     */
+    vertexLayout?: VertexLayout;
+    /**
+     * Topologia — necessária para criar a pipeline.
+     * Omitido em comandos de partículas (usa 'triangle-list' implicitamente).
+     */
+    topology?: GPUPrimitiveTopology;
+
     // IDs extras de Bindings se a geometria tiver (Texturas ou Cores)
-    materialBindGroupIds: string[]; 
+    materialBindGroupIds: string[];
 
     // A matriz isolada, pronta para upload
     worldMatrix: Float32Array;  // Exatos 16 floats continuos.
-    
+
     // Para z-sorting translúcido
     distanceToCamera: number;
+
+    /** Quando true, o renderer usa vertex pulling com buffers de wireframe em @group(3). */
+    useVertexPulling?: boolean;
+    /** ID do storage buffer de posições wireframe (3 floats por vértice). */
+    wireframePositionsBufferId?: string;
+    /** ID do storage buffer de arestas wireframe (2 u32 por aresta). */
+    wireframeEdgesBufferId?: string;
 }
 
 /**
@@ -26,10 +50,11 @@ export interface RenderCommand {
  */
 export interface RenderLight {
     type: LightType;
-    color: Float32Array;      // vec3
+    color: Float32Array;         // vec3
     intensity: number;
     worldPosition: Float32Array; // vec3
-    distance: number;         // Para PointLight
+    direction: Float32Array;     // vec3 normalizado (DirectionalLight); zero para outros tipos
+    distance: number;            // Para PointLight
     decay: number;
 }
 
