@@ -10,32 +10,32 @@ import { CameraComponent } from '../../scene/cameras/Camera';
  * Subclasses concretas: PerspectiveCamera, OrthographicCamera.
  */
 export abstract class Camera extends Entity {
-    protected readonly _transform: Transform;
-    protected readonly _cam: CameraComponent;
+    protected readonly transform: Transform;
+    protected readonly cam: CameraComponent;
 
     constructor() {
         super();
-        this._transform = new Transform();
-        this._cam       = new CameraComponent();
-        this.add(this._transform);
-        this.add(this._cam);
+        this.transform = new Transform();
+        this.cam       = new CameraComponent();
+        this.add(this.transform);
+        this.add(this.cam);
     }
 
     /** Posição da câmera no mundo (atalho direto para transform.position). */
     get position(): vec3 {
-        return this._transform.position;
+        return this.transform.position;
     }
 
     get viewProjectionMatrix(): mat4 {
-        return this._cam.viewProjectionMatrix;
+        return this.cam.viewProjectionMatrix;
     }
 
     get projectionMatrix(): mat4 {
-        return this._cam.projectionMatrix;
+        return this.cam.projectionMatrix;
     }
 
     /** Recalcula as matrizes de mundo e visão. Chamado pelo renderer a cada frame. */
     updateMatrices(): void {
-        this._transform.updateWorldMatrix(false, false);
+        this.transform.updateWorldMatrix(false, false);
     }
 }

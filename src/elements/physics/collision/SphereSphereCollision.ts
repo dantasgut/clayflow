@@ -31,8 +31,8 @@ export class SphereSphereCollision implements CollisionAlgorithm {
         const contactPoint = vec3.scaleAndAdd(vec3.create(), centerA, normal, -a.getBoundingRadius(aWorldMatrix));
 
         return {
-            contactPoint: new Float32Array(contactPoint),
-            normal:       new Float32Array(normal),
+            contactPoints: [new Float32Array(contactPoint) as unknown as import('gl-matrix').vec3],
+            normal:        new Float32Array(normal) as unknown as import('gl-matrix').vec3,
             depth,
         };
     }

@@ -28,8 +28,8 @@ export class BoxSphereCollision implements CollisionAlgorithm {
             : vec3.fromValues(0, 1, 0);
 
         return {
-            contactPoint: new Float32Array(closest),
-            normal:       new Float32Array(normal),
+            contactPoints: [new Float32Array(closest) as unknown as import('gl-matrix').vec3],
+            normal:        new Float32Array(normal) as unknown as import('gl-matrix').vec3,
             depth,
         };
     }

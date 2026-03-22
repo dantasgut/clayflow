@@ -1,4 +1,4 @@
-import { SDFCollider } from '../SDFCollider';
+import { SDFCollider } from './SDFCollider';
 
 /**
  * Forma de colisão de plano finito ou infinito. (Camada 3)

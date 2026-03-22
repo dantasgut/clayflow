@@ -48,8 +48,8 @@ export class PlaneSphereCollision implements CollisionAlgorithm {
         }
 
         return {
-            contactPoint: new Float32Array(contactPoint),
-            normal:       new Float32Array(worldN),
+            contactPoints: [new Float32Array(contactPoint) as unknown as import('gl-matrix').vec3],
+            normal:        new Float32Array(worldN) as unknown as import('gl-matrix').vec3,
             depth,
         };
     }

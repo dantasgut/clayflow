@@ -63,6 +63,13 @@ export abstract class Collider implements Physic {
     /** SDF opcional em espaço local — implementado por SDFCollider e subclasses que suportam testes genéricos. */
     public sdf?(localPoint: vec3): number;
 
+    /**
+     * Vértices da forma em espaço de mundo — implementado por poliedros (BoxShape).
+     * Usado pelo PlaneBoxCollision para manifold multi-ponto sem cast para tipo concreto.
+     * Retorna array vazio por default; formas sem vértices explícitos não o implementam.
+     */
+    public getWorldVertices?(worldMatrix: mat4): vec3[];
+
     /** Tensor de inércia diagonal para esta forma, dado uma massa. */
     public abstract computeInertiaTensor(mass: number): [number, number, number];
 }

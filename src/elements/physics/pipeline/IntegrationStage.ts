@@ -3,9 +3,27 @@ import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageCon
 import type { vec3, quat } from 'gl-matrix';
 
 /**
- * Estágio 5: integra posição física — body.position += velocity * dt.
- * Também integra rotação física — q' = normalize(q + 0.5 * Ω ⊗ q * dt).
- * Não toca no Transform — isso é responsabilidade do SyncStage.
+ * Estágio 5 do pipeline de física — Integração de posição e rotação.
+ *
+ * Integra o estado cinemático de cada corpo dinâmico acordado usando os valores
+ * de velocidade já atualizados pelo ForceStage e CollisionResolutionStage.
+ *
+ * **Posição (Euler explícito):**
+ *   position += velocity * dt
+ *
+ * **Rotação (integração de quaternion):**
+ *   Usa a fórmula de derivada de quaternion:
+ *     q' = normalize(q + 0.5 * Ω ⊗ q * dt)
+ *   onde Ω = [ωx, ωy, ωz, 0] é o quaternion puro da velocidade angular.
+ *   O produto Ω ⊗ q representa a taxa de variação instantânea da orientação.
+ *   A normalização ao final previne drift numérico que acumularia ao longo de
+ *   muitos substeps, corrompendo a representação de rotação.
+ *
+ * **Separação física / visual:**
+ *   Este estágio modifica apenas `body.position` e `body.rotation` — o estado
+ *   interno do simulador. O Transform visual (`entity.getComponent('Transform')`)
+ *   só é atualizado pelo SyncStage ao final do frame, evitando N gravações
+ *   desnecessárias ao longo dos substeps.
  */
 export class IntegrationStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, dt: number): void {

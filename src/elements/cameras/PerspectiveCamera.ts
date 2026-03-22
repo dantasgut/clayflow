@@ -13,10 +13,10 @@ import { Camera } from './Camera';
 export class PerspectiveCamera extends Camera {
     constructor(fovY: number, aspect: number, near: number, far: number) {
         super();
-        this._cam.setPerspective(fovY, aspect, near, far);
+        this.cam.setPerspective(fovY, aspect, near, far);
     }
 
     setPerspective(fovY: number, aspect: number, near: number, far: number): void {
-        this._cam.setPerspective(fovY, aspect, near, far);
+        this.cam.setPerspective(fovY, aspect, near, far);
     }
 }

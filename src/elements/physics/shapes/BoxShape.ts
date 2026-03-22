@@ -1,4 +1,4 @@
-import { SDFCollider } from '../SDFCollider';
+import { SDFCollider } from './SDFCollider';
 import type { AABB }   from '../../../scene/components/physics/Collider';
 import { vec3, mat4 }  from 'gl-matrix';
 
@@ -48,6 +48,27 @@ export class BoxShape extends SDFCollider {
             mass * (this.hw ** 2 + this.hd ** 2) / 12,
             mass * (this.hw ** 2 + this.hh ** 2) / 12,
         ];
+    }
+
+    /**
+     * Os 8 vértices do OBB em espaço de mundo.
+     * Implementa Collider.getWorldVertices? — usado pelo PlaneBoxCollision
+     * para gerar manifold multi-ponto sem acoplar ao tipo concreto BoxShape.
+     */
+    public override getWorldVertices(worldMatrix: mat4): vec3[] {
+        const verts: vec3[] = [];
+        for (const sx of [-1, 1] as const) {
+            for (const sy of [-1, 1] as const) {
+                for (const sz of [-1, 1] as const) {
+                    verts.push(vec3.transformMat4(
+                        vec3.create(),
+                        vec3.fromValues(sx * this.hw, sy * this.hh, sz * this.hd),
+                        worldMatrix,
+                    ));
+                }
+            }
+        }
+        return verts;
     }
 
     /**

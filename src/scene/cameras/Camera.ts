@@ -8,6 +8,7 @@ import type { Transform } from '../math/Transform';
  * Componente interno de câmera. (Camada 2 - não exportado na API pública)
  * Calcula as matrizes de visão e projeção a partir do Transform da Entidade dona.
  * O usuário interage com PerspectiveCamera / OrthographicCamera da camada 3.
+ * TODO Revisar as classes de cameras
  */
 export class CameraComponent implements Component {
     public readonly layer = ResourceType.VISUAL_COMPONENT;

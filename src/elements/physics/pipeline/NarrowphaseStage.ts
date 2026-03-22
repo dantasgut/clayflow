@@ -5,8 +5,33 @@ import { CollisionDispatcher }      from '../collision/CollisionDispatcher';
 import { NULL_TRANSFORM }           from '../../../scene/math/NullTransform';
 
 /**
- * Estágio 3: testa pares candidatos, gera contacts e despacha eventos de colisão.
- * Escreve contacts no contexto para o CollisionResolutionStage.
+ * Estágio 3 do pipeline de física — Detecção de colisão exata (narrowphase).
+ *
+ * Recebe os pares candidatos do BroadphaseStage e executa o algoritmo de colisão
+ * preciso para cada par via `CollisionDispatcher`, que seleciona o algoritmo
+ * correto para cada combinação de formas (Box+Plane, Sphere+Sphere, etc.).
+ *
+ * **Manifolds multi-ponto:**
+ *   Alguns algoritmos (PlaneBoxCollision, BoxBoxCollision) retornam N pontos de
+ *   contato em vez de um único. Isso é essencial para dissipar rotações corretamente:
+ *   com apenas um ponto central, `ω × r = 0` para rotação de yaw → atrito zero nesse
+ *   eixo → o corpo gira indefinidamente. Com N cantos, cada um tem velocidade
+ *   tangencial não-nula → o atrito dissipa todos os eixos de rotação.
+ *
+ *   Para cada manifold com N pontos, este estágio gera N `CollisionContact`s com:
+ *   - `weight = 1/N` — distribui o impulso total entre os pontos, evitando N×
+ *     super-correção da mesma penetração.
+ *   - `depth = manifold.depth * weight` — cada contato corrige 1/N da penetração total.
+ *
+ * **Convenção de normal:**
+ *   O dispatcher normaliza a ordem dos argumentos (canônica: shape A ≤ shape B
+ *   alfabeticamente) antes de invocar o algoritmo. O `signA` compensa a possível
+ *   inversão, garantindo que a normal armazenada em `context.contacts` sempre
+ *   aponte de B → A (direção de separação de A).
+ *
+ * **Evento de colisão:**
+ *   Disparado uma única vez por par (no primeiro ponto de contato), independente
+ *   de N — o evento é semântico ("estes dois objetos colidiram"), não geométrico.
  */
 export class NarrowphaseStage implements PhysicsStage {
     constructor(private readonly dispatcher: CollisionDispatcher) {}
@@ -20,27 +45,37 @@ export class NarrowphaseStage implements PhysicsStage {
             const manifold = this.dispatcher.dispatch(a.collider, wma, b.collider, wmb);
             if (!manifold) continue;
 
-            a.entity.dispatchEvent({ type: 'collision', other: b.entity, contactPoint: manifold.contactPoint, normal: manifold.normal, impulse: manifold.depth });
-            b.entity.dispatchEvent({ type: 'collision', other: a.entity, contactPoint: manifold.contactPoint, normal: manifold.normal, impulse: manifold.depth });
-
             // signA garante que a normal armazenada aponte de entityB → entityA.
-            // Todos os algoritmos usam convenção A→B (do primeiro arg para o segundo).
-            // Quando aIsCanonical=true, dispatch chama detect(a,b) → normal A→B → negar.
-            // Quando aIsCanonical=false, dispatch chama detect(b,a) → normal B→A (invertido) → manter.
             const aIsCanonical = a.collider.colliderShape <= b.collider.colliderShape;
             const signA = aIsCanonical ? -1 : 1;
 
-            context.contacts.push({
-                entityIdA: a.entity.id,
-                entityIdB: b.entity.id,
-                nx: manifold.normal[0]! * signA,
-                ny: manifold.normal[1]! * signA,
-                nz: manifold.normal[2]! * signA,
-                depth: manifold.depth,
-                cpx: manifold.contactPoint[0]!,
-                cpy: manifold.contactPoint[1]!,
-                cpz: manifold.contactPoint[2]!,
-            });
+            const nx = manifold.normal[0]! * signA;
+            const ny = manifold.normal[1]! * signA;
+            const nz = manifold.normal[2]! * signA;
+
+            const n = manifold.contactPoints.length;
+            const weight = 1 / n;
+            // Distribui a profundidade de penetração entre os N contatos.
+            // A soma das correções de posição (depth/N * N) é igual à profundidade máxima.
+            const depthPerContact = manifold.depth * weight;
+
+            // Dispara evento de colisão uma única vez por par
+            const cp0 = manifold.contactPoints[0]!;
+            a.entity.dispatchEvent({ type: 'collision', other: b.entity, contactPoint: cp0, normal: manifold.normal, impulse: manifold.depth });
+            b.entity.dispatchEvent({ type: 'collision', other: a.entity, contactPoint: cp0, normal: manifold.normal, impulse: manifold.depth });
+
+            for (const cp of manifold.contactPoints) {
+                context.contacts.push({
+                    entityIdA: a.entity.id,
+                    entityIdB: b.entity.id,
+                    nx, ny, nz,
+                    depth: depthPerContact,
+                    cpx: cp[0]!,
+                    cpy: cp[1]!,
+                    cpz: cp[2]!,
+                    weight,
+                });
+            }
         }
     }
 

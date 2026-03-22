@@ -15,6 +15,7 @@ import { NarrowphaseStage }         from './pipeline/NarrowphaseStage';
 import { CollisionResolutionStage } from './pipeline/CollisionResolutionStage';
 import { IntegrationStage }         from './pipeline/IntegrationStage';
 import { SleepStage }               from './pipeline/SleepStage';
+import type { SleepStageOptions }   from './pipeline/SleepStage';
 import { SyncStage }                from './pipeline/SyncStage';
 import type { PhysicsStage }        from '../../scene/systems/PhysicsStage';
 import { vec3, quat }               from 'gl-matrix';
@@ -27,6 +28,15 @@ export interface PhysicsWorldOptions {
     restitution?: number;
     restitutionThreshold?: number;
     friction?: number;
+    /**
+     * Razão máxima entre o maior e o menor componente do tensor de inércia.
+     * Limita instabilidade numérica em corpos finos/longos (ex: bastão 0.2×4×0.2
+     * tem Iy ≈ Ix/50, gerando ω 50× maior nesse eixo por qualquer torque).
+     * Default: 10. Use Infinity para desabilitar.
+     */
+    inertiaTensorMaxRatio?: number;
+    /** Configurações do gerenciador de sono (SleepStage). */
+    sleep?: SleepStageOptions;
 }
 
 /**
@@ -35,8 +45,53 @@ export interface PhysicsWorldOptions {
  * Orquestra o pipeline de física composto por estágios independentes
  * (Pipeline pattern). Cada estágio encapsula uma fase única da simulação.
  *
- * Registro event-driven com fila de pendências — modificações no grafo de cena
- * durante step() são diferidas para o início do próximo frame.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * PIPELINE DE FÍSICA — executado a cada frame em `step(scene, dt)`
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * O frame dt é dividido em N substeps (padrão: 8) para estabilidade numérica.
+ * O pipeline de substeps roda N vezes; SyncStage roda uma única vez ao final.
+ *
+ *  ┌─ loop substeps (N × substepDt) ──────────────────────────────────────┐
+ *  │                                                                       │
+ *  │  1. ForceStage          Acumula forças globais (gravidade, etc.) e   │
+ *  │                         executa o solver: netForce → velocity,        │
+ *  │                         aplica linearDamping e angularDamping.        │
+ *  │                                                                       │
+ *  │  2. BroadphaseStage     Sincroniza worldMatrix dos corpos com suas   │
+ *  │                         posições físicas atuais; detecta pares de    │
+ *  │                         colisores com AABBs sobrepostas (O(n²)).     │
+ *  │                                                                       │
+ *  │  3. NarrowphaseStage    Testa pares candidatos com o algoritmo       │
+ *  │                         exato para cada par de formas (dispatcher);  │
+ *  │                         gera CollisionContacts com normal, depth,    │
+ *  │                         pontos de contato e weight = 1/N.            │
+ *  │                                                                       │
+ *  │  4. CollisionResolutionStage                                         │
+ *  │                         Aplica impulso normal (restituição) e        │
+ *  │                         tangencial (atrito de Coulomb) em cada       │
+ *  │                         contato; corrige posição (depenetração).     │
+ *  │                                                                       │
+ *  │  5. IntegrationStage    Integra velocity → position (Euler) e       │
+ *  │                         angularVelocity → rotation (quaternion).     │
+ *  │                                                                       │
+ *  │  6. SleepStage          Coloca em sono corpos cujas velocidades      │
+ *  │                         ficaram abaixo dos limiares por tempo        │
+ *  │                         suficiente; elimina micro-impulsos residuais. │
+ *  │                                                                       │
+ *  └───────────────────────────────────────────────────────────────────────┘
+ *
+ *  7. SyncStage (1× por frame)
+ *                         Copia body.position/rotation → Transform visual,
+ *                         tornando o resultado visível ao renderer.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * REGISTRO EVENT-DRIVEN
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Modificações no grafo de cena (addChild / removeChild) durante step() são
+ * diferidas em filas (`pendingAdd`, `pendingRemove`) e processadas no início
+ * do próximo frame — evitando mutação de coleções durante a iteração do pipeline.
  *
  * @example
  * const world = new PhysicsWorld();
@@ -74,11 +129,13 @@ export class PhysicsWorld extends SimulationWorld {
     private readonly onChildRemoved: (e: any) => void;
 
     private substeps: number = 8;
+    private readonly inertiaTensorMaxRatio: number;
 
     constructor(options: PhysicsWorldOptions = {}) {
         super();
 
         const broadphase = options.broadphase ?? new AABBBroadphase();
+        this.inertiaTensorMaxRatio = options.inertiaTensorMaxRatio ?? 10;
 
         this.context = {
             bodies:       this.bodies,
@@ -100,7 +157,7 @@ export class PhysicsWorld extends SimulationWorld {
                 friction:             options.friction             ?? 0.5,
             }),
             new IntegrationStage(),
-            new SleepStage(),
+            new SleepStage(options.sleep),
         ];
 
         this.syncStage = new SyncStage();
@@ -220,7 +277,17 @@ export class PhysicsWorld extends SimulationWorld {
         if (bodyEntry && colliderEntry && !bodyEntry.body.get<boolean>('isKinematic')) {
             const mass = bodyEntry.body.get<number>('mass') ?? 1.0;
             const [Ix, Iy, Iz] = colliderEntry.collider.computeInertiaTensor(mass);
-            bodyEntry.body.set('inertiaTensor', vec3.fromValues(Ix, Iy, Iz));
+            // Limita a razão máxima entre componentes do tensor de inércia.
+            // Corpos muito finos/longos (ex: bastão 0.2×4×0.2) têm Iy ≈ Ix/50,
+            // gerando velocidades angulares 50× maiores nesse eixo por qualquer torque.
+            // Ratio 10:1 é o padrão de motores como Bullet e PhysX para estabilidade.
+            const maxI = Math.max(Ix, Iy, Iz, 1e-6);
+            const minI = maxI / this.inertiaTensorMaxRatio;
+            bodyEntry.body.set('inertiaTensor', vec3.fromValues(
+                Math.max(Ix, minI),
+                Math.max(Iy, minI),
+                Math.max(Iz, minI),
+            ));
         }
     }
 

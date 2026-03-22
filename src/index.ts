@@ -75,7 +75,7 @@ export { BoxShape }               from './elements/physics/shapes/BoxShape';
 export { PlaneShape }             from './elements/physics/shapes/PlaneShape';
 
 // Colisores e broadphase
-export { SDFCollider }            from './elements/physics/SDFCollider';
+export { SDFCollider }            from './elements/physics/shapes/SDFCollider';
 export { AABBBroadphase }         from './elements/physics/AABBBroadphase';
 
 // Forças

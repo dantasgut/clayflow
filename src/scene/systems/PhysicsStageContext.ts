@@ -17,6 +17,13 @@ export interface CollisionContact {
     depth: number;
     /** Ponto de contato no espaço de mundo. */
     cpx: number; cpy: number; cpz: number;
+    /**
+     * Fator de escala para distribuição de impulso em manifolds multi-ponto.
+     * Para N contatos do mesmo par: weight = 1/N, garantindo que a soma dos
+     * impulsos normais equivalha ao caso de contato único.
+     * Default: 1.0 (contato único).
+     */
+    weight: number;
 }
 
 /**

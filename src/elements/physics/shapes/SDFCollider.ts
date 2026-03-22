@@ -1,4 +1,4 @@
-import { Collider, type AABB } from '../../scene/components/physics/Collider';
+import { Collider, type AABB } from '../../../scene/components/physics/Collider';
 import { vec3, mat4 } from 'gl-matrix';
 
 /** Signed Distance Function em espaço local: retorna distância negativa se dentro da forma. */

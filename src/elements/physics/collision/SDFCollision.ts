@@ -43,8 +43,8 @@ export class SDFCollision implements CollisionAlgorithm {
         else              vec3.set(normal, 0, 1, 0);
 
         return {
-            contactPoint: new Float32Array(candidate),
-            normal:       new Float32Array(normal),
+            contactPoints: [new Float32Array(candidate) as unknown as import('gl-matrix').vec3],
+            normal:        new Float32Array(normal) as unknown as import('gl-matrix').vec3,
             depth,
         };
     }

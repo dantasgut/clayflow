@@ -5,12 +5,30 @@ import type { Transform }                      from '../../../scene/math/Transfo
 import type { vec3, quat }                      from 'gl-matrix';
 
 /**
- * Estágio 2: detecta pares de colisores com AABB sobrepostas.
- * Escreve candidatePairs no contexto para o NarrowphaseStage.
+ * Estágio 2 do pipeline de física — Detecção de pares candidatos (broadphase).
  *
- * Antes de delegar ao Broadphase, sincroniza o worldMatrix de cada corpo
- * dinâmico com body.position — garantindo que todos os substeps usem a
- * posição física atual, não a posição visual do frame anterior.
+ * Responsabilidade: produzir uma lista de pares de colisores que *podem* estar
+ * em contato, para que o NarrowphaseStage realize o teste exato apenas nesses pares.
+ *
+ * Duas fases internas:
+ *
+ * **Sincronização de worldMatrix (pré-broadphase):**
+ *   Antes de testar AABBs, atualiza o Transform de cada corpo dinâmico acordado
+ *   com a posição e rotação físicas correntes (`body.position`, `body.rotation`).
+ *   Isso é necessário porque o IntegrationStage modificou body.position no substep
+ *   anterior, mas o Transform visual ainda não foi atualizado (SyncStage roda só
+ *   uma vez por frame). Sem essa etapa, os colisores usariam posições defasadas.
+ *   Corpos cinemáticos e adormecidos são ignorados — suas worldMatrices não mudam
+ *   durante os substeps.
+ *
+ * **Broadphase (detecção de pares):**
+ *   Delega ao Broadphase concreto (padrão: AABBBroadphase) que testa sobreposição
+ *   de AABBs para todos os pares de colisores. A saída é `context.candidatePairs`,
+ *   consumida pelo NarrowphaseStage.
+ *
+ * A separação broadphase / narrowphase é clássica em motores de física: o teste
+ * AABB é O(n²) mas extremamente barato; o narrowphase exato (GJK, SAT, SDF) só
+ * roda para os pares que passaram no filtro grosseiro.
  */
 export class BroadphaseStage implements PhysicsStage {
     constructor(private readonly broadphase: Broadphase) {}

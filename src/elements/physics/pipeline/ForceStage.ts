@@ -5,8 +5,19 @@ import type { PhysicsSolver }       from '../../../scene/systems/solvers/Physics
 import { vec3 } from 'gl-matrix';
 
 /**
- * Estágio 1: acumula forças globais e executa solvers de velocidade.
- * Responsabilidade única: v += (F/m) * dt para cada corpo dinâmico.
+ * Estágio 1 do pipeline de física — Acúmulo de forças e integração de velocidade.
+ *
+ * Para cada corpo dinâmico e acordado:
+ *  1. Soma todas as forças globais registradas (ex: gravidade) em `netForce`.
+ *  2. Chama o solver correspondente ao tipo do corpo (ex: CPURigidBodySolver),
+ *     que aplica `netForce → velocity` via integração de Euler semi-implícita,
+ *     e aplica linearDamping e angularDamping para dissipar energia.
+ *
+ * Corpos cinemáticos (isKinematic) e adormecidos (isSleeping) são ignorados:
+ * cinemáticos têm posição controlada externamente; adormecidos estão em repouso.
+ *
+ * Após este estágio, cada corpo tem sua velocidade atualizada mas sua posição
+ * ainda não — a integração de posição ocorre no IntegrationStage (estágio 5).
  */
 export class ForceStage implements PhysicsStage {
     constructor(

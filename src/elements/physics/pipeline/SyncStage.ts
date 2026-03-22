@@ -4,11 +4,27 @@ import type { Transform }           from '../../../scene/math/Transform';
 import type { vec3, quat }          from 'gl-matrix';
 
 /**
- * Estágio 6: sincroniza estado físico → Transform visual.
+ * Estágio de sincronização — Copia estado físico → Transform visual.
  *
- * Único ponto de escrita no Transform por frame.
- * Executado uma única vez após todos os substeps — câmera e renderização
- * leem o Transform apenas após esta fase.
+ * Este estágio é executado **uma única vez por frame**, fora do loop de substeps,
+ * após todas as iterações físicas terem convergido. É o único ponto que escreve
+ * no Transform visual das entidades.
+ *
+ * **Por que fora do loop de substeps?**
+ *   O pipeline de substeps (ForceStage → SleepStage) pode rodar N vezes por frame
+ *   (padrão: 8). Se SyncStage rodasse dentro do loop, o Transform seria atualizado
+ *   8× por frame sem nenhum ganho visual — a câmera e o renderer só leem o Transform
+ *   uma vez por frame, na renderização. Manter SyncStage fora elimina essas 7
+ *   escritas redundantes e mantém a separação clara entre estado físico e visual.
+ *
+ * **Estado físico vs. estado visual:**
+ *   Durante os substeps, `body.position` e `body.rotation` avançam a cada
+ *   IntegrationStage. O BroadphaseStage resincroniza o worldMatrix internamente
+ *   para que os testes de colisão usem posições correntes. O Transform visual
+ *   permanece na posição do frame anterior durante todo esse processo — somente
+ *   este estágio o atualiza, garantindo consistência para o renderer.
+ *
+ * Também despacha o evento `deformation` para SoftBodies (extensão futura).
  */
 export class SyncStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, _dt: number): void {

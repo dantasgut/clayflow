@@ -1,4 +1,4 @@
-import { SDFCollider } from '../SDFCollider';
+import { SDFCollider } from './SDFCollider';
 
 /**
  * Forma de colisão esférica. (Camada 3)
