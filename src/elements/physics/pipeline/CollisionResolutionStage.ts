@@ -241,12 +241,12 @@ export class CollisionResolutionStage implements PhysicsStage {
             }
             // Impulso angular do normal:
             // - Face-contact (isMultiContact): omitido — torques cancelam por simetria.
-            // - Edge/vertex contact: usa jAngular = j / weight (sem escala de weight).
-            //   Motivo: j já foi dividido por N para correção linear (N×j/N = j_total).
-            //   O torque angular de cada contato deve ser calculado com o j completo;
-            //   a soma dos N torques produz o total correto (ex: N=2, cada torque com
-            //   j_full/2, soma = j_full — igual ao contato único equivalente).
-            const jAngular = isMultiContact ? 0 : j / weight;
+            // - Edge/vertex contact: usa jAngular = j (NÃO j/weight).
+            //   j = j_total/N (já escalado por weight=1/N para a correção linear).
+            //   Cada contato aplica j_total/N como torque angular.
+            //   Soma de N contatos = N × (j_total/N) = j_total. ✓
+            //   Usar j/weight daria j_total por contato → N × j_total total. N× errado.
+            const jAngular = isMultiContact ? 0 : j;
             if (jAngular > 0) {
                 if (dynA && omegaA && IA) {
                     const tAx = rAy * (jAngular * nz) - rAz * (jAngular * ny);
