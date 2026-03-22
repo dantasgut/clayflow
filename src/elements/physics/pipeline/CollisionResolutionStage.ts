@@ -17,6 +17,35 @@ export interface CollisionResolutionOptions {
      * Default: 0.5
      */
     friction?: number;
+    /**
+     * Fator de Baumgarte — fração da penetração corrigida por substep (0–1).
+     *
+     * Corrigir 100% da penetração em um substep move o CM abruptamente,
+     * convertendo energia potencial de depenetração em energia cinética
+     * (o objeto "dispara"). Com β < 1 a correção é distribuída em vários
+     * substeps: estável, sem picos de energia e com resíduo mínimo de
+     * penetração que garante contato contínuo entre substeps (mantém
+     * fricção ativa sem depender exclusivamente do contact skin).
+     *
+     * Default: 0.4  (padrão Bullet/PhysX para estabilidade geral)
+     */
+    baumgarteFactor?: number;
+    /**
+     * Penetração mínima (m) antes de aplicar correção de posição.
+     *
+     * Penetrações abaixo deste limiar são tratadas apenas via impulso de
+     * velocidade — sem mover posições. Isso quebra o ciclo de micro-oscilação
+     * causado pelo Baumgarte: o resíduo de penetração que o fator < 1 deixa
+     * propositalmente fica abaixo do slop e nunca gera correção de posição,
+     * então o objeto repousado não vibra. Para penetrações grandes (> slop),
+     * Baumgarte age normalmente.
+     *
+     * Deve ser igual ou maior que o CONTACT_SKIN dos colisores para garantir
+     * que contatos rasantes (d ≈ 0) não gerem correções espúrias.
+     *
+     * Default: 0.005 (5 mm)
+     */
+    penetrationSlop?: number;
 }
 
 /**
@@ -74,11 +103,15 @@ export class CollisionResolutionStage implements PhysicsStage {
     private readonly restitution: number;
     private readonly restitutionThreshold: number;
     private readonly friction: number;
+    private readonly baumgarteFactor: number;
+    private readonly penetrationSlop: number;
 
     constructor(options: CollisionResolutionOptions = {}) {
         this.restitution          = options.restitution          ?? 0.3;
         this.restitutionThreshold = options.restitutionThreshold ?? 1.0;
         this.friction             = options.friction             ?? 0.5;
+        this.baumgarteFactor      = options.baumgarteFactor      ?? 0.4;
+        this.penetrationSlop      = options.penetrationSlop      ?? 0.005;
     }
 
     public execute(context: PhysicsStageContext, _dt: number): void {
@@ -164,20 +197,28 @@ export class CollisionResolutionStage implements PhysicsStage {
             // Evita sobre-correção quando N contatos cobrem o mesmo par de corpos.
             const j = -(1.0 + effectiveE) * vRelN / invSum * weight;
 
-            // Depenetração translacional
+            // Depenetração translacional com Baumgarte + slop.
+            // Só corrige penetrações acima do slop (padrão 5 mm) e aplica
+            // apenas baumgarteFactor × excesso por substep.
+            // Penetrações rasantes (≤ slop) ficam sem correção de posição —
+            // somente o impulso de velocidade atua — quebrando o ciclo de
+            // micro-oscilação que ocorreria com Baumgarte puro sem slop.
             const invSumTrans = invMA + invMB;
             if (invSumTrans > 0) {
-                if (dynA && posA) {
-                    const s = (invMA / invSumTrans) * depth;
-                    posA[0] = (posA[0] ?? 0) + nx * s;
-                    posA[1] = (posA[1] ?? 0) + ny * s;
-                    posA[2] = (posA[2] ?? 0) + nz * s;
-                }
-                if (dynB && posB) {
-                    const s = (invMB / invSumTrans) * depth;
-                    posB[0] = (posB[0] ?? 0) - nx * s;
-                    posB[1] = (posB[1] ?? 0) - ny * s;
-                    posB[2] = (posB[2] ?? 0) - nz * s;
+                const correctionDepth = Math.max(depth - this.penetrationSlop, 0) * this.baumgarteFactor;
+                if (correctionDepth > 0) {
+                    if (dynA && posA) {
+                        const s = (invMA / invSumTrans) * correctionDepth;
+                        posA[0] = (posA[0] ?? 0) + nx * s;
+                        posA[1] = (posA[1] ?? 0) + ny * s;
+                        posA[2] = (posA[2] ?? 0) + nz * s;
+                    }
+                    if (dynB && posB) {
+                        const s = (invMB / invSumTrans) * correctionDepth;
+                        posB[0] = (posB[0] ?? 0) - nx * s;
+                        posB[1] = (posB[1] ?? 0) - ny * s;
+                        posB[2] = (posB[2] ?? 0) - nz * s;
+                    }
                 }
             }
 

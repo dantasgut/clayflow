@@ -29,6 +29,16 @@ export interface PhysicsWorldOptions {
     restitutionThreshold?: number;
     friction?: number;
     /**
+     * Fator de Baumgarte — fração da penetração corrigida por substep (0–1).
+     * Default: 0.4
+     */
+    baumgarteFactor?: number;
+    /**
+     * Penetração mínima (m) antes de aplicar correção de posição.
+     * Default: 0.005 (5 mm)
+     */
+    penetrationSlop?: number;
+    /**
      * Razão máxima entre o maior e o menor componente do tensor de inércia.
      * Limita instabilidade numérica em corpos finos/longos (ex: bastão 0.2×4×0.2
      * tem Iy ≈ Ix/50, gerando ω 50× maior nesse eixo por qualquer torque).
@@ -155,6 +165,8 @@ export class PhysicsWorld extends SimulationWorld {
                 restitution:          options.restitution          ?? 0.3,
                 restitutionThreshold: options.restitutionThreshold ?? 1.0,
                 friction:             options.friction             ?? 0.5,
+                baumgarteFactor:      options.baumgarteFactor      ?? 0.4,
+                penetrationSlop:      options.penetrationSlop      ?? 0.005,
             }),
             new IntegrationStage(),
             new SleepStage(options.sleep),
