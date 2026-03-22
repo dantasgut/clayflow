@@ -38,13 +38,15 @@ export class PlaneSphereCollision implements CollisionAlgorithm {
 
         const contactPoint = vec3.scaleAndAdd(vec3.create(), centerWorld, worldN, -radius);
 
-        // Verificação de limites: rejeita contato fora da área do plano.
+        // Verificação de limite baseada no CENTRO da esfera.
+        // Margem = radius — contato ativo enquanto o centro estiver dentro da borda.
+        // Quando o centro ultrapassa (halfWidth + radius), a esfera caiu da borda.
         const planeShape = plane as unknown as PlaneShape;
         if (isFinite(planeShape.halfWidth) || isFinite(planeShape.halfDepth)) {
             const invPlane2 = mat4.invert(mat4.create(), planeMat) ?? mat4.create();
-            const localContact = vec3.transformMat4(vec3.create(), contactPoint, invPlane2);
-            if (Math.abs(localContact[0]!) > planeShape.halfWidth ||
-                Math.abs(localContact[2]!) > planeShape.halfDepth) return null;
+            const localCenter = vec3.transformMat4(vec3.create(), centerWorld, invPlane2);
+            if (Math.abs(localCenter[0]!) > planeShape.halfWidth  + radius * 0.5 ||
+                Math.abs(localCenter[2]!) > planeShape.halfDepth + radius * 0.5) return null;
         }
 
         return {

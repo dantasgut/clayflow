@@ -11,7 +11,7 @@ import { vec3, mat4 }  from 'gl-matrix';
  *
  * Substitui getAABB herdado da SDFCollider (esférico, conservador demais)
  * por uma AABB justa — centro ± halfExtents * escala por eixo.
- * Sem isso, BoxBoxCollision detecta colisões fantasma ~70% antes do contato real.
+ * Sem isso, a broadphase detecta colisões fantasma ~70% antes do contato real.
  */
 export class BoxShape extends SDFCollider {
     private readonly hw: number;
@@ -48,6 +48,11 @@ export class BoxShape extends SDFCollider {
             mass * (this.hw ** 2 + this.hd ** 2) / 12,
             mass * (this.hw ** 2 + this.hh ** 2) / 12,
         ];
+    }
+
+    /** Semi-extensões locais — usadas pelo SATAlgorithm para extrair dimensões do OBB. */
+    public override getLocalHalfExtents(): [number, number, number] {
+        return [this.hw, this.hh, this.hd];
     }
 
     /**

@@ -17,6 +17,8 @@ import { IntegrationStage }         from './pipeline/IntegrationStage';
 import { SleepStage }               from './pipeline/SleepStage';
 import type { SleepStageOptions }   from './pipeline/SleepStage';
 import { SyncStage }                from './pipeline/SyncStage';
+import type { NarrowphaseConfig }   from '../../scene/systems/collision/NarrowphaseConfig';
+import type { ResolutionConfig }    from '../../scene/systems/resolution/ResolutionConfig';
 import type { PhysicsStage }        from '../../scene/systems/PhysicsStage';
 import { vec3, quat }               from 'gl-matrix';
 import { Loggable }                 from '../../core/debug/Loggable';
@@ -25,19 +27,6 @@ import { LogCall }                  from '../../core/debug/LogCall';
 
 export interface PhysicsWorldOptions {
     broadphase?: Broadphase;
-    restitution?: number;
-    restitutionThreshold?: number;
-    friction?: number;
-    /**
-     * Fator de Baumgarte — fração da penetração corrigida por substep (0–1).
-     * Default: 0.4
-     */
-    baumgarteFactor?: number;
-    /**
-     * Penetração mínima (m) antes de aplicar correção de posição.
-     * Default: 0.005 (5 mm)
-     */
-    penetrationSlop?: number;
     /**
      * Razão máxima entre o maior e o menor componente do tensor de inércia.
      * Limita instabilidade numérica em corpos finos/longos (ex: bastão 0.2×4×0.2
@@ -47,6 +36,10 @@ export interface PhysicsWorldOptions {
     inertiaTensorMaxRatio?: number;
     /** Configurações do gerenciador de sono (SleepStage). */
     sleep?: SleepStageOptions;
+    /** Configuração dos algoritmos de narrowphase (Registry pattern). */
+    narrowphase?: NarrowphaseConfig;
+    /** Configuração do método de resolução de colisões (Strategy pattern). */
+    resolution?: ResolutionConfig;
 }
 
 /**
@@ -155,19 +148,13 @@ export class PhysicsWorld extends SimulationWorld {
             contacts:     [],
         };
 
-        this.collisionDispatcher = new CollisionDispatcher();
+        this.collisionDispatcher = new CollisionDispatcher(options.narrowphase);
 
         this.substepPipeline = [
             new ForceStage(this.globalForces, this.solvers),
             new BroadphaseStage(broadphase),
             new NarrowphaseStage(this.collisionDispatcher),
-            new CollisionResolutionStage({
-                restitution:          options.restitution          ?? 0.3,
-                restitutionThreshold: options.restitutionThreshold ?? 1.0,
-                friction:             options.friction             ?? 0.5,
-                baumgarteFactor:      options.baumgarteFactor      ?? 0.4,
-                penetrationSlop:      options.penetrationSlop      ?? 0.005,
-            }),
+            new CollisionResolutionStage(options.resolution),
             new IntegrationStage(),
             new SleepStage(options.sleep),
         ];

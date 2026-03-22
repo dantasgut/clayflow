@@ -12,7 +12,7 @@ import { NULL_TRANSFORM }           from '../../../scene/math/NullTransform';
  * correto para cada combinação de formas (Box+Plane, Sphere+Sphere, etc.).
  *
  * **Manifolds multi-ponto:**
- *   Alguns algoritmos (PlaneBoxCollision, BoxBoxCollision) retornam N pontos de
+ *   Alguns algoritmos (PlaneBoxCollision, SATAlgorithm) retornam N pontos de
  *   contato em vez de um único. Isso é essencial para dissipar rotações corretamente:
  *   com apenas um ponto central, `ω × r = 0` para rotação de yaw → atrito zero nesse
  *   eixo → o corpo gira indefinidamente. Com N cantos, cada um tem velocidade

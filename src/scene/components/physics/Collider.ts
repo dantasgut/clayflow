@@ -70,6 +70,13 @@ export abstract class Collider implements Physic {
      */
     public getWorldVertices?(worldMatrix: mat4): vec3[];
 
+    /**
+     * Semi-extensões da forma em espaço local (antes de qualquer transformação).
+     * Usado pelo SATAlgorithm para extrair dimensões do OBB sem depender do tipo concreto.
+     * Caixas: [halfWidth, halfHeight, halfDepth].
+     */
+    public getLocalHalfExtents?(): [number, number, number];
+
     /** Tensor de inércia diagonal para esta forma, dado uma massa. */
     public abstract computeInertiaTensor(mass: number): [number, number, number];
 }
