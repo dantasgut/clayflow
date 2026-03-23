@@ -47,6 +47,9 @@ export type { NarrowphaseConfig }         from './scene/systems/collision/Narrow
 export      { CollisionAlgorithmType }    from './scene/systems/collision/CollisionAlgorithmType';
 export type { ResolutionConfig }          from './scene/systems/resolution/ResolutionConfig';
 export      { ResolutionType }            from './scene/systems/resolution/ResolutionType';
+export type { RigidBodySimConfig }        from './scene/systems/simulation/RigidBodySimConfig';
+export type { SoftBodySimConfig }         from './scene/systems/simulation/SoftBodySimConfig';
+export type { CollisionSimConfig }        from './scene/systems/simulation/CollisionSimConfig';
 export type { PhysicsStage }              from './scene/systems/PhysicsStage';
 export type { PhysicsStageContext, BodyEntry, ColliderReg, CollisionContact } from './scene/systems/PhysicsStageContext';
 export type { ExtractionStrategy } from './scene/rendering/strategies/ExtractionStrategy';
@@ -88,6 +91,7 @@ export { FunctionalForce }        from './elements/physics/forces/FunctionalForc
 
 // Solvers
 export { CPURigidBodySolver }     from './elements/physics/solvers/CPURigidBodySolver';
+export { XPBDSoftBodySolver }     from './elements/physics/solvers/XPBDSoftBodySolver';
 export { GPUSpringMassSolver }    from './elements/physics/solvers/GPUSpringMassSolver';
 
 // Partículas

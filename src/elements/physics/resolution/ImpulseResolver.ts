@@ -2,15 +2,16 @@ import type { CollisionResolver }   from '../../../scene/systems/resolution/Coll
 import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
 import type { ResolutionConfig }    from '../../../scene/systems/resolution/ResolutionConfig';
 import type { vec3 }                from 'gl-matrix';
+import { ContactImpulseKernel }     from './ContactImpulseKernel';
 
 /**
  * Resolução de colisões por impulso direto — 1 pass por substep.
  *
- * Implementação original do motor: para cada contato aplica impulso normal
- * (restituição) e tangencial (Coulomb) com correção de posição via Baumgarte.
+ * Para cada contato aplica impulso normal (restituição) e tangencial
+ * (Coulomb) com correção de posição via Baumgarte.
  *
  * Adequado para colisões isoladas e cenas com poucos empilhamentos.
- * Para pilhas de 3+ corpos, prefira SequentialImpulseResolver.
+ * Para pilhas de 3+ corpos, prefira `SequentialImpulseResolver`.
  */
 export class ImpulseResolver implements CollisionResolver {
     public readonly restitution:          number;
@@ -29,22 +30,15 @@ export class ImpulseResolver implements CollisionResolver {
 
     public resolve(context: PhysicsStageContext, _dt: number): void {
         for (const contact of context.contacts) {
-            ImpulseResolver.resolveContact(contact, context, this);
+            this.resolveContact(contact, context);
         }
     }
 
-    // Exposto como estático para ser reutilizado pelo SequentialImpulseResolver
-    // no cálculo da massa efetiva e da velocidade relativa.
-    public static resolveContact(
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private resolveContact(
         contact: PhysicsStageContext['contacts'][number],
         context: PhysicsStageContext,
-        cfg: {
-            restitution: number;
-            restitutionThreshold: number;
-            friction: number;
-            baumgarteFactor: number;
-            penetrationSlop: number;
-        },
     ): void {
         const weight  = contact.weight;
         const entryA  = context.entityBodies.get(contact.entityIdA);
@@ -69,7 +63,6 @@ export class ImpulseResolver implements CollisionResolver {
         const IA     = dynA ? entryA!.body.get<vec3>('inertiaTensor')   : null;
         const IB     = dynB ? entryB!.body.get<vec3>('inertiaTensor')   : null;
 
-        // Vetores do CM ao ponto de contato
         const rAx = cpx - (posA ? (posA[0] ?? 0) : 0);
         const rAy = cpy - (posA ? (posA[1] ?? 0) : 0);
         const rAz = cpz - (posA ? (posA[2] ?? 0) : 0);
@@ -77,48 +70,44 @@ export class ImpulseResolver implements CollisionResolver {
         const rBy = cpy - (posB ? (posB[1] ?? 0) : 0);
         const rBz = cpz - (posB ? (posB[2] ?? 0) : 0);
 
-        const rAxNx = rAy * nz - rAz * ny;
-        const rAxNy = rAz * nx - rAx * nz;
-        const rAxNz = rAx * ny - rAy * nx;
-        const rBxNx = rBy * nz - rBz * ny;
-        const rBxNy = rBz * nx - rBx * nz;
-        const rBxNz = rBx * ny - rBy * nx;
-
+        // isMultiContact: suprime angular em contatos face-face (4 pontos).
+        // A correção angular em contatos múltiplos pode sobre-estimular rotação.
         const isMultiContact = weight <= 0.25;
-        const angA = (!isMultiContact && IA)
-            ? rAxNx * rAxNx / Math.max(IA[0]!, 1e-6)
-            + rAxNy * rAxNy / Math.max(IA[1]!, 1e-6)
-            + rAxNz * rAxNz / Math.max(IA[2]!, 1e-6) : 0;
-        const angB = (!isMultiContact && IB)
-            ? rBxNx * rBxNx / Math.max(IB[0]!, 1e-6)
-            + rBxNy * rBxNy / Math.max(IB[1]!, 1e-6)
-            + rBxNz * rBxNz / Math.max(IB[2]!, 1e-6) : 0;
+        const a = ContactImpulseKernel.axis(
+            rAx, rAy, rAz, rBx, rBy, rBz,
+            nx, ny, nz,
+            invMA, invMB, dynA, dynB,
+            isMultiContact ? null : IA,
+            isMultiContact ? null : IB,
+        );
+        if (a.wSum === 0) return;
 
-        const invSum = invMA + invMB + angA + angB;
-        if (invSum === 0) return;
-
-        const vAxcp = (velA ? (velA[0] ?? 0) : 0) + (omegaA ? ((omegaA[1] ?? 0) * rAz - (omegaA[2] ?? 0) * rAy) : 0);
-        const vAycp = (velA ? (velA[1] ?? 0) : 0) + (omegaA ? ((omegaA[2] ?? 0) * rAx - (omegaA[0] ?? 0) * rAz) : 0);
-        const vAzcp = (velA ? (velA[2] ?? 0) : 0) + (omegaA ? ((omegaA[0] ?? 0) * rAy - (omegaA[1] ?? 0) * rAx) : 0);
-        const vBxcp = (velB ? (velB[0] ?? 0) : 0) + (omegaB ? ((omegaB[1] ?? 0) * rBz - (omegaB[2] ?? 0) * rBy) : 0);
-        const vBycp = (velB ? (velB[1] ?? 0) : 0) + (omegaB ? ((omegaB[2] ?? 0) * rBx - (omegaB[0] ?? 0) * rBz) : 0);
-        const vBzcp = (velB ? (velB[2] ?? 0) : 0) + (omegaB ? ((omegaB[0] ?? 0) * rBy - (omegaB[1] ?? 0) * rBx) : 0);
-
-        const vRelX = vAxcp - vBxcp;
-        const vRelY = vAycp - vBycp;
-        const vRelZ = vAzcp - vBzcp;
+        // Velocidade relativa no ponto de contato (v_CM + ω × r)
+        const oAx = omegaA ? (omegaA[0] ?? 0) : 0;
+        const oAy = omegaA ? (omegaA[1] ?? 0) : 0;
+        const oAz = omegaA ? (omegaA[2] ?? 0) : 0;
+        const oBx = omegaB ? (omegaB[0] ?? 0) : 0;
+        const oBy = omegaB ? (omegaB[1] ?? 0) : 0;
+        const oBz = omegaB ? (omegaB[2] ?? 0) : 0;
+        const vRelX = ContactImpulseKernel.vcpX(velA ? (velA[0] ?? 0) : 0, oAy, oAz, rAy, rAz)
+                    - ContactImpulseKernel.vcpX(velB ? (velB[0] ?? 0) : 0, oBy, oBz, rBy, rBz);
+        const vRelY = ContactImpulseKernel.vcpY(velA ? (velA[1] ?? 0) : 0, oAx, oAz, rAx, rAz)
+                    - ContactImpulseKernel.vcpY(velB ? (velB[1] ?? 0) : 0, oBx, oBz, rBx, rBz);
+        const vRelZ = ContactImpulseKernel.vcpZ(velA ? (velA[2] ?? 0) : 0, oAx, oAy, rAx, rAy)
+                    - ContactImpulseKernel.vcpZ(velB ? (velB[2] ?? 0) : 0, oBx, oBy, rBx, rBy);
         const vRelN = vRelX * nx + vRelY * ny + vRelZ * nz;
 
-        const eA        = dynA ? (entryA!.body.get<number>('restitution') ?? cfg.restitution) : cfg.restitution;
-        const eB        = dynB ? (entryB!.body.get<number>('restitution') ?? cfg.restitution) : cfg.restitution;
+        const eA        = dynA ? (entryA!.body.get<number>('restitution') ?? this.restitution) : this.restitution;
+        const eB        = dynB ? (entryB!.body.get<number>('restitution') ?? this.restitution) : this.restitution;
         const e         = Math.min(eA, eB);
-        const effectiveE = Math.abs(vRelN) > cfg.restitutionThreshold ? e : 0;
+        const effectiveE = Math.abs(vRelN) > this.restitutionThreshold ? e : 0;
 
-        const j = -(1.0 + effectiveE) * vRelN / invSum * weight;
+        const j = -(1.0 + effectiveE) * vRelN / a.wSum * weight;
 
+        // ── Correção de posição (Baumgarte) ────────────────────────────────
         const invSumTrans = invMA + invMB;
         if (invSumTrans > 0) {
-            const correctionDepth = Math.max(depth - cfg.penetrationSlop, 0) * cfg.baumgarteFactor;
+            const correctionDepth = Math.max(depth - this.penetrationSlop, 0) * this.baumgarteFactor;
             if (correctionDepth > 0) {
                 if (dynA && posA) {
                     const s = (invMA / invSumTrans) * correctionDepth;
@@ -140,30 +129,8 @@ export class ImpulseResolver implements CollisionResolver {
         if (dynA && entryA!.body.get<boolean>('isSleeping')) entryA!.body.set('isSleeping', false);
         if (dynB && entryB!.body.get<boolean>('isSleeping')) entryB!.body.set('isSleeping', false);
 
-        if (dynA && velA) {
-            velA[0] = (velA[0] ?? 0) + j * invMA * nx;
-            velA[1] = (velA[1] ?? 0) + j * invMA * ny;
-            velA[2] = (velA[2] ?? 0) + j * invMA * nz;
-        }
-        if (dynB && velB) {
-            velB[0] = (velB[0] ?? 0) - j * invMB * nx;
-            velB[1] = (velB[1] ?? 0) - j * invMB * ny;
-            velB[2] = (velB[2] ?? 0) - j * invMB * nz;
-        }
-
-        const jAngular = isMultiContact ? 0 : j;
-        if (jAngular > 0) {
-            if (dynA && omegaA && IA) {
-                omegaA[0] = (omegaA[0] ?? 0) + (rAy * (jAngular * nz) - rAz * (jAngular * ny)) / Math.max(IA[0]!, 1e-6);
-                omegaA[1] = (omegaA[1] ?? 0) + (rAz * (jAngular * nx) - rAx * (jAngular * nz)) / Math.max(IA[1]!, 1e-6);
-                omegaA[2] = (omegaA[2] ?? 0) + (rAx * (jAngular * ny) - rAy * (jAngular * nx)) / Math.max(IA[2]!, 1e-6);
-            }
-            if (dynB && omegaB && IB) {
-                omegaB[0] = (omegaB[0] ?? 0) - (rBy * (jAngular * nz) - rBz * (jAngular * ny)) / Math.max(IB[0]!, 1e-6);
-                omegaB[1] = (omegaB[1] ?? 0) - (rBz * (jAngular * nx) - rBx * (jAngular * nz)) / Math.max(IB[1]!, 1e-6);
-                omegaB[2] = (omegaB[2] ?? 0) - (rBx * (jAngular * ny) - rBy * (jAngular * nx)) / Math.max(IB[2]!, 1e-6);
-            }
-        }
+        if (dynA && velA) ContactImpulseKernel.applyScalar(velA, isMultiContact ? null : omegaA, isMultiContact ? null : IA, +1, j, nx, ny, nz, a.rAxDx, a.rAxDy, a.rAxDz, invMA);
+        if (dynB && velB) ContactImpulseKernel.applyScalar(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, j, nx, ny, nz, a.rBxDx, a.rBxDy, a.rBxDz, invMB);
 
         // ── Atrito de Coulomb ────────────────────────────────────────────────
         const frX = isMultiContact ? (velA ? (velA[0] ?? 0) : 0) - (velB ? (velB[0] ?? 0) : 0) : vRelX;
@@ -180,52 +147,23 @@ export class ImpulseResolver implements CollisionResolver {
             const ty = -vRelYt / vRelTLen;
             const tz = -vRelZt / vRelTLen;
 
-            const rAxTx = rAy * tz - rAz * ty;
-            const rAxTy = rAz * tx - rAx * tz;
-            const rAxTz = rAx * ty - rAy * tx;
-            const rBxTx = rBy * tz - rBz * ty;
-            const rBxTy = rBz * tx - rBx * tz;
-            const rBxTz = rBx * ty - rBy * tx;
-
-            const angFrA = (!isMultiContact && IA)
-                ? rAxTx * rAxTx / Math.max(IA[0]!, 1e-6)
-                + rAxTy * rAxTy / Math.max(IA[1]!, 1e-6)
-                + rAxTz * rAxTz / Math.max(IA[2]!, 1e-6) : 0;
-            const angFrB = (!isMultiContact && IB)
-                ? rBxTx * rBxTx / Math.max(IB[0]!, 1e-6)
-                + rBxTy * rBxTy / Math.max(IB[1]!, 1e-6)
-                + rBxTz * rBxTz / Math.max(IB[2]!, 1e-6) : 0;
-
-            const invSumFr = invMA + invMB + angFrA + angFrB;
-            if (invSumFr > 0) {
-                const muA  = entryA ? (entryA.body.get<number>('friction') ?? cfg.friction) : cfg.friction;
-                const muB  = entryB ? (entryB.body.get<number>('friction') ?? cfg.friction) : cfg.friction;
-                const mu   = Math.min(muA, muB);
+            const af = ContactImpulseKernel.axis(
+                rAx, rAy, rAz, rBx, rBy, rBz,
+                tx, ty, tz,
+                invMA, invMB, dynA, dynB,
+                isMultiContact ? null : IA,
+                isMultiContact ? null : IB,
+            );
+            if (af.wSum > 0) {
+                const muA   = entryA ? (entryA.body.get<number>('friction') ?? this.friction) : this.friction;
+                const muB   = entryB ? (entryB.body.get<number>('friction') ?? this.friction) : this.friction;
+                const mu    = Math.min(muA, muB);
+                // jTMax usa invSumTrans (translacional) como proxy do impulso normal
                 const jTMax = mu * (-(1.0 + effectiveE) * vRelN / invSumTrans * weight);
-                const jT    = Math.min(vRelTLen / invSumFr, jTMax);
+                const jT    = Math.min(vRelTLen / af.wSum, jTMax);
 
-                if (dynA && velA) {
-                    velA[0] = (velA[0] ?? 0) + jT * invMA * tx;
-                    velA[1] = (velA[1] ?? 0) + jT * invMA * ty;
-                    velA[2] = (velA[2] ?? 0) + jT * invMA * tz;
-                }
-                if (dynB && velB) {
-                    velB[0] = (velB[0] ?? 0) - jT * invMB * tx;
-                    velB[1] = (velB[1] ?? 0) - jT * invMB * ty;
-                    velB[2] = (velB[2] ?? 0) - jT * invMB * tz;
-                }
-                if (!isMultiContact) {
-                    if (dynA && omegaA && IA) {
-                        omegaA[0] = (omegaA[0] ?? 0) + (rAy * (jT * tz) - rAz * (jT * ty)) / Math.max(IA[0]!, 1e-6);
-                        omegaA[1] = (omegaA[1] ?? 0) + (rAz * (jT * tx) - rAx * (jT * tz)) / Math.max(IA[1]!, 1e-6);
-                        omegaA[2] = (omegaA[2] ?? 0) + (rAx * (jT * ty) - rAy * (jT * tx)) / Math.max(IA[2]!, 1e-6);
-                    }
-                    if (dynB && omegaB && IB) {
-                        omegaB[0] = (omegaB[0] ?? 0) - (rBy * (jT * tz) - rBz * (jT * ty)) / Math.max(IB[0]!, 1e-6);
-                        omegaB[1] = (omegaB[1] ?? 0) - (rBz * (jT * tx) - rBx * (jT * tz)) / Math.max(IB[1]!, 1e-6);
-                        omegaB[2] = (omegaB[2] ?? 0) - (rBx * (jT * ty) - rBy * (jT * tx)) / Math.max(IB[2]!, 1e-6);
-                    }
-                }
+                if (dynA && velA) ContactImpulseKernel.applyScalar(velA, isMultiContact ? null : omegaA, isMultiContact ? null : IA, +1, jT, tx, ty, tz, af.rAxDx, af.rAxDy, af.rAxDz, invMA);
+                if (dynB && velB) ContactImpulseKernel.applyScalar(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, jT, tx, ty, tz, af.rBxDx, af.rBxDy, af.rBxDz, invMB);
             }
         }
     }

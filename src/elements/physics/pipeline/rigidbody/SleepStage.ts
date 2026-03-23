@@ -1,5 +1,5 @@
-import type { PhysicsStage }        from '../../../scene/systems/PhysicsStage';
-import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
+import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
+import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { vec3 } from 'gl-matrix';
 
 /**
@@ -67,6 +67,10 @@ export class SleepStage implements PhysicsStage {
 
             const v = body.get<vec3>('velocity');
             const w = body.get<vec3>('angularVelocity');
+
+            // Corpos sem velocity/angularVelocity no property bag (ex: SoftBody)
+            // não são gerenciados por este estágio — possuem pipeline de sono próprio.
+            if (!v && !w) continue;
 
             const v2 = v ? (v[0] ?? 0) ** 2 + (v[1] ?? 0) ** 2 + (v[2] ?? 0) ** 2 : 0;
             const w2 = w ? (w[0] ?? 0) ** 2 + (w[1] ?? 0) ** 2 + (w[2] ?? 0) ** 2 : 0;

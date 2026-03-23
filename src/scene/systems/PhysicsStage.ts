@@ -7,5 +7,7 @@ import type { PhysicsStageContext } from './PhysicsStageContext';
  * O PhysicsWorld orquestra a execução sequencial dos estágios.
  */
 export interface PhysicsStage {
+    /** Chamado uma vez por frame, antes do loop de substeps. */
+    beginFrame?(): void;
     execute(context: PhysicsStageContext, dt: number): void;
 }

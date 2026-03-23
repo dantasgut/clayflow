@@ -1,7 +1,7 @@
-import type { PhysicsStage }                  from '../../../scene/systems/PhysicsStage';
-import type { PhysicsStageContext }            from '../../../scene/systems/PhysicsStageContext';
-import type { Broadphase, ColliderEntry }      from '../../../scene/systems/Broadphase';
-import type { Transform }                      from '../../../scene/math/Transform';
+import type { PhysicsStage }                  from '../../../../scene/systems/PhysicsStage';
+import type { PhysicsStageContext }            from '../../../../scene/systems/PhysicsStageContext';
+import type { Broadphase, ColliderEntry }      from '../../../../scene/systems/Broadphase';
+import type { Transform }                      from '../../../../scene/math/Transform';
 import type { vec3, quat }                      from 'gl-matrix';
 
 /**

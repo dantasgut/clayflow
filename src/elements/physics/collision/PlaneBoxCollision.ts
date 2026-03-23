@@ -53,20 +53,13 @@ export class PlaneBoxCollision implements CollisionAlgorithm {
         const bounded = isFinite(planeShape.halfWidth) || isFinite(planeShape.halfDepth);
         const invPlane = bounded ? (mat4.invert(mat4.create(), planeMat) ?? mat4.create()) : null;
 
-        // Verificação de limite baseada no CENTRO do objeto, não em cada vértice.
-        // Margem = raio de contorno do box — assim:
-        //   - Centro dentro da borda: todos os vértices penetrantes geram contato (manifold completo).
-        //   - Centro além de (halfWidth + boundingRadius): nenhum contato — objeto caiu da borda.
-        // Evita o problema anterior de checar vértice-a-vértice, que deixava manifolds
-        // incompletos e causava tunneling quando o objeto estava parcialmente na borda.
+        // Early-exit: se o centro do objeto estiver bem além da borda (mais de um
+        // boundingRadius completo), nenhum vértice pode estar dentro do plano.
         if (invPlane) {
-            // Margem = metade do raio de contorno. O objeto perde contato com o plano
-            // quando seu centro ultrapassou ~metade da sua própria extensão além da borda —
-            // comportamento visualmente correto (metade do objeto fora = começa a cair).
             const boxBr = box.getBoundingRadius(boxMat);
             const localBoxCenter = vec3.transformMat4(vec3.create(), box.getWorldCenter(boxMat), invPlane);
-            if (Math.abs(localBoxCenter[0]!) > planeShape.halfWidth  + boxBr * 0.5 ||
-                Math.abs(localBoxCenter[2]!) > planeShape.halfDepth + boxBr * 0.5) return null;
+            if (Math.abs(localBoxCenter[0]!) > planeShape.halfWidth  + boxBr ||
+                Math.abs(localBoxCenter[2]!) > planeShape.halfDepth + boxBr) return null;
         }
 
         const negWorldN = vec3.negate(vec3.create(), worldN);
@@ -75,14 +68,23 @@ export class PlaneBoxCollision implements CollisionAlgorithm {
         const vertices = box.getWorldVertices?.(boxMat);
         if (vertices && vertices.length > 0) {
             const contactPoints: vec3[] = [];
+            const contactFeatureIds: number[] = [];
             let maxDepth = 0;
 
-            for (const v of vertices) {
+            for (let vi = 0; vi < vertices.length; vi++) {
+                const v = vertices[vi]!;
                 const d = planeOffset - vec3.dot(worldN, v);
                 if (d < -PlaneBoxCollision.CONTACT_SKIN) continue;
 
+                // Filtra vértices fora dos limites do plano finito
+                if (invPlane) {
+                    const lv = vec3.transformMat4(vec3.create(), v, invPlane);
+                    if (Math.abs(lv[0]!) > planeShape.halfWidth ||
+                        Math.abs(lv[2]!) > planeShape.halfDepth) continue;
+                }
 
                 contactPoints.push(new Float32Array(v) as unknown as vec3);
+                contactFeatureIds.push(vi);
                 if (d > maxDepth) maxDepth = d;
             }
 
@@ -90,6 +92,7 @@ export class PlaneBoxCollision implements CollisionAlgorithm {
 
             return {
                 contactPoints,
+                contactFeatureIds,
                 normal: new Float32Array(negWorldN) as unknown as vec3,
                 depth:  maxDepth,
             };

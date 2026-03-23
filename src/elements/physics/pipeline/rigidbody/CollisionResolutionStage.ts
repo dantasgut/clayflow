@@ -1,10 +1,10 @@
-import type { PhysicsStage }        from '../../../scene/systems/PhysicsStage';
-import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
-import type { CollisionResolver }   from '../../../scene/systems/resolution/CollisionResolver';
-import type { ResolutionConfig }    from '../../../scene/systems/resolution/ResolutionConfig';
-import { ResolutionType }           from '../../../scene/systems/resolution/ResolutionType';
-import { ImpulseResolver }          from '../resolution/ImpulseResolver';
-import { SequentialImpulseResolver } from '../resolution/SequentialImpulseResolver';
+import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
+import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
+import type { CollisionResolver }   from '../../../../scene/systems/resolution/CollisionResolver';
+import type { ResolutionConfig }    from '../../../../scene/systems/resolution/ResolutionConfig';
+import { ResolutionType }           from '../../../../scene/systems/resolution/ResolutionType';
+import { ImpulseResolver }          from '../../resolution/ImpulseResolver';
+import { SequentialImpulseResolver } from '../../resolution/SequentialImpulseResolver';
 
 /**
  * Estágio 4 do pipeline de física — Resolução de colisões (Strategy — GoF).
@@ -26,6 +26,10 @@ export class CollisionResolutionStage implements PhysicsStage {
             default:
                 this.resolver = new SequentialImpulseResolver(config);
         }
+    }
+
+    public beginFrame(): void {
+        this.resolver.beginFrame?.();
     }
 
     public execute(context: PhysicsStageContext, dt: number): void {

@@ -19,6 +19,11 @@ export class PlaneShape extends SDFCollider {
     /** Metade da profundidade em Z (espaço local). Infinity = sem limite. */
     public readonly halfDepth:  number;
 
+    /** Normal do plano no espaço do mundo (normalizada). */
+    public readonly normal: readonly [number, number, number];
+    /** Deslocamento ao longo da normal: p·n = offset define a superfície. */
+    public readonly offset: number;
+
     constructor(
         normal:    [number, number, number] = [0, 1, 0],
         offset:    number = 0,
@@ -33,6 +38,8 @@ export class PlaneShape extends SDFCollider {
                 : 1e6,
             shape: 'Plane',
         });
+        this.normal    = normal;
+        this.offset    = offset;
         this.halfWidth = halfWidth;
         this.halfDepth = halfDepth;
     }

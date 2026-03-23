@@ -15,4 +15,11 @@ export interface CollisionManifold {
     readonly normal: vec3;
     /** Profundidade de penetração máxima (positivo = overlap). */
     readonly depth: number;
+    /**
+     * IDs de feature para cada ponto de contato — índice do vértice, aresta ou face
+     * que gerou o contato. Quando presente, habilita Contact Persistence estável:
+     * o warm starting usa estes IDs em vez de posições em grade.
+     * Opcional — algoritmos sem rastreamento de features omitem este campo.
+     */
+    readonly contactFeatureIds?: readonly number[];
 }

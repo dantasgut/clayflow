@@ -1,5 +1,5 @@
-import type { PhysicsStage }        from '../../../scene/systems/PhysicsStage';
-import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
+import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
+import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { vec3, quat } from 'gl-matrix';
 
 /**

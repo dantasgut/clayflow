@@ -24,6 +24,13 @@ export interface CollisionContact {
      * Default: 1.0 (contato único).
      */
     weight: number;
+    /**
+     * ID estável do feature de contato (ex: índice do vértice na caixa).
+     * Quando presente, o warm starting usa este ID como chave em vez da
+     * posição em grade — sobrevive a pequenas variações geométricas entre frames.
+     * Undefined para algoritmos que não rastreiam features (esfera-esfera etc.).
+     */
+    featureId?: number;
 }
 
 /**

@@ -2,6 +2,7 @@ import type { CollisionResolver }   from '../../../scene/systems/resolution/Coll
 import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
 import type { ResolutionConfig }    from '../../../scene/systems/resolution/ResolutionConfig';
 import type { vec3 }                from 'gl-matrix';
+import { ContactImpulseKernel }     from './ContactImpulseKernel';
 
 /**
  * Resolução por Sequential Impulses (SI) — Projected Gauss-Seidel (PGS).
@@ -32,10 +33,6 @@ import type { vec3 }                from 'gl-matrix';
  *   |λT_new| ≤ μ * λN_new                   (cone de Coulomb)
  *   impulso_aplicado = λN_new - λN_old
  *
- * Isso garante que o impulso total ao final das K iterações satisfaça
- * as restrições físicas (sem separar o que já foi separado, sem atrito
- * além do normal).
- *
  * ─────────────────────────────────────────────────────────────────────────────
  * WARM STARTING
  * ─────────────────────────────────────────────────────────────────────────────
@@ -43,20 +40,19 @@ import type { vec3 }                from 'gl-matrix';
  * Ao reutilizar o λN do frame anterior como ponto de partida, o PGS precisa
  * de muito menos iterações para convergir — geralmente 2 a 3 em vez de 10+.
  *
- * O cache é indexado por par de entidades + posição de contato (grid de 5cm)
+ * O cache é indexado por par de entidades + posição de contato (grade de 5cm)
  * para sobreviver a pequenas variações de posição entre frames.
  *
- * ─────────────────────────────────────────────────────────────────────────────
- * BAUMGARTE NO SI
- * ─────────────────────────────────────────────────────────────────────────────
- * A correção de penetração é incorporada como bias de velocidade em vez de
- * mover posições diretamente:
+ * Warm start é aplicado UMA ÚNICA VEZ por frame (no primeiro substep) usando
+ * `beginFrame()` como fronteira — evita que os 8 substeps apliquem o impulso
+ * 8× sobre as velocidades.
  *
- *   bias = β * max(depth - slop, 0) / dt
- *
- * O bias é somado ao alvo de velocidade normal:  vRelN + bias ≥ 0
- * Isso mantém a estabilidade numérica do PGS sem a energia espúria do
- * Baumgarte posicional em cada iteração.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * CORREÇÃO DE PENETRAÇÃO
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Usa correção direta de posição (Baumgarte posicional) aplicada UMA VEZ por
+ * substep, após as K iterações de velocidade. Evita injetar energia cinética
+ * artificial via bias de velocidade (que cresce com 1/dt em substeps pequenos).
  */
 export class SequentialImpulseResolver implements CollisionResolver {
     private readonly restitution:          number;
@@ -66,9 +62,32 @@ export class SequentialImpulseResolver implements CollisionResolver {
     private readonly penetrationSlop:      number;
     private readonly iterations:           number;
     private readonly warmStarting:         boolean;
+    private readonly overRelaxation:       number;
+    private readonly frictionAnchors:      boolean;
+    private readonly frictionAnchorBeta:   number;
 
-    /** Cache de impulsos acumulados do frame anterior [λN, λTx, λTy, λTz]. */
-    private readonly warmCache = new Map<string, [number, number, number, number]>();
+    /**
+     * Cache de impulsos do frame ANTERIOR — snapshot feito em beginFrame().
+     * Usado como fonte de warm start no primeiro substep de cada frame.
+     */
+    private prevFrameCache = new Map<string, [number, number, number, number]>();
+
+    /**
+     * Cache dos impulsos acumulados no frame ATUAL — atualizado ao final de
+     * cada substep. Torna-se prevFrameCache no próximo beginFrame().
+     */
+    private warmCache = new Map<string, [number, number, number, number]>();
+
+    /** Controla se o warm start já foi aplicado neste frame. */
+    private warmStartApplied = false;
+
+    /**
+     * Cache de âncoras de atrito do frame ATUAL.
+     * Chave = contactKey, valor = [cpx, cpy, cpz] do ponto de contato inicial.
+     * Previne drift em rampas mantendo o objeto "travado" na posição de contato.
+     */
+    private anchorCache     = new Map<string, [number, number, number]>();
+    private prevAnchorCache = new Map<string, [number, number, number]>();
 
     constructor(config: ResolutionConfig = {}) {
         this.restitution          = config.restitution          ?? 0.3;
@@ -78,46 +97,71 @@ export class SequentialImpulseResolver implements CollisionResolver {
         this.penetrationSlop      = config.penetrationSlop      ?? 0.005;
         this.iterations           = config.iterations           ?? 10;
         this.warmStarting         = config.warmStarting         ?? true;
+        this.overRelaxation       = config.overRelaxation       ?? 1.0;
+        this.frictionAnchors      = config.frictionAnchors      ?? false;
+        this.frictionAnchorBeta   = config.frictionAnchorBeta   ?? 0.2;
+    }
+
+    /**
+     * Chamado uma vez por frame (pelo PhysicsWorld antes do loop de substeps).
+     * Salva o cache atual como fonte de warm start e reseta o flag de aplicação.
+     */
+    public beginFrame(): void {
+        const tmp           = this.prevFrameCache;
+        this.prevFrameCache = this.warmCache;
+        this.warmCache      = tmp;
+        this.warmCache.clear();
+        this.warmStartApplied = false;
+
+        // Rotate anchor caches: current becomes previous
+        const tmpA          = this.prevAnchorCache;
+        this.prevAnchorCache = this.anchorCache;
+        this.anchorCache     = tmpA;
+        this.anchorCache.clear();
     }
 
     public resolve(context: PhysicsStageContext, dt: number): void {
         const contacts = context.contacts;
         if (contacts.length === 0) return;
 
-        // Impulsos acumulados por contato neste substep [λN, λTx, λTy, λTz]
-        const accumulated: Array<[number, number, number, number]> = contacts.map((c) => {
-            if (!this.warmStarting) return [0, 0, 0, 0];
-            const cached = this.warmCache.get(this.contactKey(c));
-            // Fator 0.85: amortece o warm start para evitar sobrecorreção quando
-            // a geometria de contato mudou levemente (rotação, deslizamento)
-            return cached ? [cached[0] * 0.85, cached[1] * 0.85, cached[2] * 0.85, cached[3] * 0.85] : [0, 0, 0, 0];
-        });
+        // Impulsos acumulados neste substep [λN, λTx, λTy, λTz], iniciados em 0
+        const accumulated: Array<[number, number, number, number]> = contacts.map(() => [0, 0, 0, 0]);
 
-        // Aplica warm start nas velocidades antes da primeira iteração
-        if (this.warmStarting) {
+        // Warm start: aplicado UMA VEZ por frame (primeiro substep)
+        if (this.warmStarting && !this.warmStartApplied) {
+            this.warmStartApplied = true;
             for (let i = 0; i < contacts.length; i++) {
-                const [λN, λTx, λTy, λTz] = accumulated[i]!;
+                const cached = this.prevFrameCache.get(this.contactKey(contacts[i]!));
+                if (!cached) continue;
+                // Fator 0.85: amortece para evitar sobrecorreção quando a geometria mudou
+                const λN  = cached[0] * 0.85;
+                const λTx = cached[1] * 0.85;
+                const λTy = cached[2] * 0.85;
+                const λTz = cached[3] * 0.85;
+                accumulated[i] = [λN, λTx, λTy, λTz];
                 if (λN === 0 && λTx === 0 && λTy === 0 && λTz === 0) continue;
                 this.applyWarmStart(contacts[i]!, context, λN, λTx, λTy, λTz);
             }
         }
 
-        // ── K iterações PGS ──────────────────────────────────────────────────
+        // ── K iterações PGS (velocidade) ─────────────────────────────────────
         for (let iter = 0; iter < this.iterations; iter++) {
             for (let i = 0; i < contacts.length; i++) {
                 this.resolveContact(contacts[i]!, context, accumulated[i]!, dt);
             }
         }
 
-        // Atualiza cache para o próximo frame
-        this.warmCache.clear();
+        // ── Correção de posição (1× por substep, fora das iterações) ─────────
+        for (const contact of contacts) {
+            this.correctPenetration(contact, context);
+        }
+
+        // Salva impulsos acumulados para o próximo frame (warm start)
         for (let i = 0; i < contacts.length; i++) {
             this.warmCache.set(this.contactKey(contacts[i]!), accumulated[i]!);
         }
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Helpers internos
     // ──────────────────────────────────────────────────────────────────────────
 
     private resolveContact(
@@ -133,7 +177,7 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const dynB    = entryB != null && !entryB.body.get<boolean>('isKinematic');
         if (!dynA && !dynB) return;
 
-        const { nx, ny, nz, depth, cpx, cpy, cpz } = contact;
+        const { nx, ny, nz, cpx, cpy, cpz } = contact;
 
         const mA    = dynA ? (entryA!.body.get<number>('mass') ?? 1.0) : 0;
         const mB    = dynB ? (entryB!.body.get<number>('mass') ?? 1.0) : 0;
@@ -156,37 +200,29 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const rBy = cpy - (posB ? (posB[1] ?? 0) : 0);
         const rBz = cpz - (posB ? (posB[2] ?? 0) : 0);
 
-        const rAxNx = rAy * nz - rAz * ny;
-        const rAxNy = rAz * nx - rAx * nz;
-        const rAxNz = rAx * ny - rAy * nx;
-        const rBxNx = rBy * nz - rBz * ny;
-        const rBxNy = rBz * nx - rBx * nz;
-        const rBxNz = rBx * ny - rBy * nx;
-
         const isMultiContact = weight <= 0.25;
-        const angA = (!isMultiContact && IA)
-            ? rAxNx * rAxNx / Math.max(IA[0]!, 1e-6)
-            + rAxNy * rAxNy / Math.max(IA[1]!, 1e-6)
-            + rAxNz * rAxNz / Math.max(IA[2]!, 1e-6) : 0;
-        const angB = (!isMultiContact && IB)
-            ? rBxNx * rBxNx / Math.max(IB[0]!, 1e-6)
-            + rBxNy * rBxNy / Math.max(IB[1]!, 1e-6)
-            + rBxNz * rBxNz / Math.max(IB[2]!, 1e-6) : 0;
+        const a = ContactImpulseKernel.axis(
+            rAx, rAy, rAz, rBx, rBy, rBz,
+            nx, ny, nz,
+            invMA, invMB, dynA, dynB,
+            isMultiContact ? null : IA,
+            isMultiContact ? null : IB,
+        );
+        if (a.wSum === 0) return;
 
-        const invSum = invMA + invMB + angA + angB;
-        if (invSum === 0) return;
-
-        // Velocidade relativa no ponto de contato
-        const vAxcp = (velA ? (velA[0] ?? 0) : 0) + (omegaA ? ((omegaA[1] ?? 0) * rAz - (omegaA[2] ?? 0) * rAy) : 0);
-        const vAycp = (velA ? (velA[1] ?? 0) : 0) + (omegaA ? ((omegaA[2] ?? 0) * rAx - (omegaA[0] ?? 0) * rAz) : 0);
-        const vAzcp = (velA ? (velA[2] ?? 0) : 0) + (omegaA ? ((omegaA[0] ?? 0) * rAy - (omegaA[1] ?? 0) * rAx) : 0);
-        const vBxcp = (velB ? (velB[0] ?? 0) : 0) + (omegaB ? ((omegaB[1] ?? 0) * rBz - (omegaB[2] ?? 0) * rBy) : 0);
-        const vBycp = (velB ? (velB[1] ?? 0) : 0) + (omegaB ? ((omegaB[2] ?? 0) * rBx - (omegaB[0] ?? 0) * rBz) : 0);
-        const vBzcp = (velB ? (velB[2] ?? 0) : 0) + (omegaB ? ((omegaB[0] ?? 0) * rBy - (omegaB[1] ?? 0) * rBx) : 0);
-
-        const vRelX = vAxcp - vBxcp;
-        const vRelY = vAycp - vBycp;
-        const vRelZ = vAzcp - vBzcp;
+        // Velocidade relativa no ponto de contato (v_CM + ω × r)
+        const oAx = omegaA ? (omegaA[0] ?? 0) : 0;
+        const oAy = omegaA ? (omegaA[1] ?? 0) : 0;
+        const oAz = omegaA ? (omegaA[2] ?? 0) : 0;
+        const oBx = omegaB ? (omegaB[0] ?? 0) : 0;
+        const oBy = omegaB ? (omegaB[1] ?? 0) : 0;
+        const oBz = omegaB ? (omegaB[2] ?? 0) : 0;
+        const vRelX = ContactImpulseKernel.vcpX(velA ? (velA[0] ?? 0) : 0, oAy, oAz, rAy, rAz)
+                    - ContactImpulseKernel.vcpX(velB ? (velB[0] ?? 0) : 0, oBy, oBz, rBy, rBz);
+        const vRelY = ContactImpulseKernel.vcpY(velA ? (velA[1] ?? 0) : 0, oAx, oAz, rAx, rAz)
+                    - ContactImpulseKernel.vcpY(velB ? (velB[1] ?? 0) : 0, oBx, oBz, rBx, rBz);
+        const vRelZ = ContactImpulseKernel.vcpZ(velA ? (velA[2] ?? 0) : 0, oAx, oAy, rAx, rAy)
+                    - ContactImpulseKernel.vcpZ(velB ? (velB[2] ?? 0) : 0, oBx, oBy, rBx, rBy);
         const vRelN = vRelX * nx + vRelY * ny + vRelZ * nz;
 
         const eA         = dynA ? (entryA!.body.get<number>('restitution') ?? this.restitution) : this.restitution;
@@ -194,97 +230,80 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const e          = Math.min(eA, eB);
         const effectiveE = Math.abs(vRelN) > this.restitutionThreshold ? e : 0;
 
-        // ── Impulso normal (PGS) ─────────────────────────────────────────────
-        // Bias de Baumgarte em velocidade: "quanto de velocidade de separação
-        // é necessário para corrigir a penetração neste substep"
-        const bias      = dt > 0 ? Math.max(depth - this.penetrationSlop, 0) * this.baumgarteFactor / dt : 0;
-        const targetVel = -effectiveE * Math.min(vRelN, 0);   // restituição apenas na aproximação
-        const ΔλN       = -(vRelN - targetVel + bias) / invSum * weight;
+        // ── Impulso normal (PGS + SOR) ───────────────────────────────────────
+        const ΔλN      = -(1.0 + effectiveE) * vRelN / a.wSum * weight;
+        const λN_old   = accumulated[0];
+        const λN_new   = Math.max(λN_old + this.overRelaxation * ΔλN, 0);  // SOR + clamp
+        const jN       = λN_new - λN_old;
+        accumulated[0] = λN_new;
 
-        const λN_old    = accumulated[0];
-        const λN_new    = Math.max(λN_old + ΔλN, 0);   // clamp: sem sucção
-        const jN        = λN_new - λN_old;
-        accumulated[0]  = λN_new;
-
-        // Acorda corpos antes de aplicar qualquer impulso
         if (jN !== 0) {
             if (dynA && entryA!.body.get<boolean>('isSleeping')) entryA!.body.set('isSleeping', false);
             if (dynB && entryB!.body.get<boolean>('isSleeping')) entryB!.body.set('isSleeping', false);
         }
 
-        if (dynA && velA) {
-            velA[0] = (velA[0] ?? 0) + jN * invMA * nx;
-            velA[1] = (velA[1] ?? 0) + jN * invMA * ny;
-            velA[2] = (velA[2] ?? 0) + jN * invMA * nz;
-        }
-        if (dynB && velB) {
-            velB[0] = (velB[0] ?? 0) - jN * invMB * nx;
-            velB[1] = (velB[1] ?? 0) - jN * invMB * ny;
-            velB[2] = (velB[2] ?? 0) - jN * invMB * nz;
-        }
-        const jAngular = isMultiContact ? 0 : jN;
-        if (jAngular !== 0) {
-            if (dynA && omegaA && IA) {
-                omegaA[0] = (omegaA[0] ?? 0) + (rAy * (jAngular * nz) - rAz * (jAngular * ny)) / Math.max(IA[0]!, 1e-6);
-                omegaA[1] = (omegaA[1] ?? 0) + (rAz * (jAngular * nx) - rAx * (jAngular * nz)) / Math.max(IA[1]!, 1e-6);
-                omegaA[2] = (omegaA[2] ?? 0) + (rAx * (jAngular * ny) - rAy * (jAngular * nx)) / Math.max(IA[2]!, 1e-6);
-            }
-            if (dynB && omegaB && IB) {
-                omegaB[0] = (omegaB[0] ?? 0) - (rBy * (jAngular * nz) - rBz * (jAngular * ny)) / Math.max(IB[0]!, 1e-6);
-                omegaB[1] = (omegaB[1] ?? 0) - (rBz * (jAngular * nx) - rBx * (jAngular * nz)) / Math.max(IB[1]!, 1e-6);
-                omegaB[2] = (omegaB[2] ?? 0) - (rBx * (jAngular * ny) - rBy * (jAngular * nx)) / Math.max(IB[2]!, 1e-6);
-            }
-        }
+        if (dynA && velA) ContactImpulseKernel.applyScalar(velA, isMultiContact ? null : omegaA, isMultiContact ? null : IA, +1, jN, nx, ny, nz, a.rAxDx, a.rAxDy, a.rAxDz, invMA);
+        if (dynB && velB) ContactImpulseKernel.applyScalar(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, jN, nx, ny, nz, a.rBxDx, a.rBxDy, a.rBxDz, invMB);
 
         // ── Atrito de Coulomb (PGS) ──────────────────────────────────────────
         const frX = isMultiContact ? (velA ? (velA[0] ?? 0) : 0) - (velB ? (velB[0] ?? 0) : 0) : vRelX;
         const frY = isMultiContact ? (velA ? (velA[1] ?? 0) : 0) - (velB ? (velB[1] ?? 0) : 0) : vRelY;
         const frZ = isMultiContact ? (velA ? (velA[2] ?? 0) : 0) - (velB ? (velB[2] ?? 0) : 0) : vRelZ;
-        const frN      = frX * nx + frY * ny + frZ * nz;
-        const vRelXt   = frX - frN * nx;
-        const vRelYt   = frY - frN * ny;
-        const vRelZt   = frZ - frN * nz;
-        const vRelTLen = Math.sqrt(vRelXt ** 2 + vRelYt ** 2 + vRelZt ** 2);
+        const frN = frX * nx + frY * ny + frZ * nz;
+
+        // Friction anchor: adiciona velocidade de restauração à posição original
+        let fBiasX = 0, fBiasY = 0, fBiasZ = 0;
+        const contactKey = this.contactKey(contact);
+        if (this.frictionAnchors && dt > 0) {
+            const anchor = this.prevAnchorCache.get(contactKey);
+            if (anchor) {
+                const dx = anchor[0] - cpx;
+                const dy = anchor[1] - cpy;
+                const dz = anchor[2] - cpz;
+                // Componente tangencial do deslocamento (remove parte normal)
+                const dn = dx * nx + dy * ny + dz * nz;
+                const beta = this.frictionAnchorBeta;
+                fBiasX = (dx - dn * nx) * beta / dt;
+                fBiasY = (dy - dn * ny) * beta / dt;
+                fBiasZ = (dz - dn * nz) * beta / dt;
+            }
+        }
+
+        // Velocidade tangencial efectiva = vRel - velocidade alvo do anchor
+        const vRelXt_eff = frX - frN * nx - fBiasX;
+        const vRelYt_eff = frY - frN * ny - fBiasY;
+        const vRelZt_eff = frZ - frN * nz - fBiasZ;
+        const vRelTLen   = Math.sqrt(vRelXt_eff ** 2 + vRelYt_eff ** 2 + vRelZt_eff ** 2);
 
         if (vRelTLen > 1e-6) {
-            const tx = -vRelXt / vRelTLen;
-            const ty = -vRelYt / vRelTLen;
-            const tz = -vRelZt / vRelTLen;
+            const tx = -vRelXt_eff / vRelTLen;
+            const ty = -vRelYt_eff / vRelTLen;
+            const tz = -vRelZt_eff / vRelTLen;
 
-            const rAxTx = rAy * tz - rAz * ty;
-            const rAxTy = rAz * tx - rAx * tz;
-            const rAxTz = rAx * ty - rAy * tx;
-            const rBxTx = rBy * tz - rBz * ty;
-            const rBxTy = rBz * tx - rBx * tz;
-            const rBxTz = rBx * ty - rBy * tx;
+            const af = ContactImpulseKernel.axis(
+                rAx, rAy, rAz, rBx, rBy, rBz,
+                tx, ty, tz,
+                invMA, invMB, dynA, dynB,
+                isMultiContact ? null : IA,
+                isMultiContact ? null : IB,
+            );
+            if (af.wSum > 0) {
+                const muA   = entryA ? (entryA.body.get<number>('friction') ?? this.friction) : this.friction;
+                const muB   = entryB ? (entryB.body.get<number>('friction') ?? this.friction) : this.friction;
+                const mu    = Math.min(muA, muB);
 
-            const angFrA = (!isMultiContact && IA)
-                ? rAxTx * rAxTx / Math.max(IA[0]!, 1e-6)
-                + rAxTy * rAxTy / Math.max(IA[1]!, 1e-6)
-                + rAxTz * rAxTz / Math.max(IA[2]!, 1e-6) : 0;
-            const angFrB = (!isMultiContact && IB)
-                ? rBxTx * rBxTx / Math.max(IB[0]!, 1e-6)
-                + rBxTy * rBxTy / Math.max(IB[1]!, 1e-6)
-                + rBxTz * rBxTz / Math.max(IB[2]!, 1e-6) : 0;
-
-            const invSumFr = invMA + invMB + angFrA + angFrB;
-            if (invSumFr > 0) {
-                const muA  = entryA ? (entryA.body.get<number>('friction') ?? this.friction) : this.friction;
-                const muB  = entryB ? (entryB.body.get<number>('friction') ?? this.friction) : this.friction;
-                const mu   = Math.min(muA, muB);
-
-                // Cone de Coulomb: |λT| ≤ μ * λN (usa λN acumulado — fisicamente correto)
+                // Cone de Coulomb: |λT| ≤ μ · λN (usa λN acumulado — fisicamente correto)
                 const λTMax = mu * λN_new;
-                const ΔλT   = vRelTLen / invSumFr;
+                const ΔλT   = vRelTLen / af.wSum;
 
-                const λTx_old  = accumulated[1];
-                const λTy_old  = accumulated[2];
-                const λTz_old  = accumulated[3];
-                const λTx_new  = λTx_old + ΔλT * tx;
-                const λTy_new  = λTy_old + ΔλT * ty;
-                const λTz_new  = λTz_old + ΔλT * tz;
+                const λTx_old = accumulated[1];
+                const λTy_old = accumulated[2];
+                const λTz_old = accumulated[3];
+                // SOR aplicado ao impulso tangencial
+                const λTx_new = λTx_old + this.overRelaxation * ΔλT * tx;
+                const λTy_new = λTy_old + this.overRelaxation * ΔλT * ty;
+                const λTz_new = λTz_old + this.overRelaxation * ΔλT * tz;
 
-                // Clamp do vetor tangencial ao cone
                 const λTLen = Math.sqrt(λTx_new ** 2 + λTy_new ** 2 + λTz_new ** 2);
                 const scale = λTLen > λTMax && λTLen > 1e-10 ? λTMax / λTLen : 1;
                 accumulated[1] = λTx_new * scale;
@@ -295,29 +314,69 @@ export class SequentialImpulseResolver implements CollisionResolver {
                 const jTy = accumulated[2] - λTy_old;
                 const jTz = accumulated[3] - λTz_old;
 
-                if (dynA && velA) {
-                    velA[0] = (velA[0] ?? 0) + jTx * invMA;
-                    velA[1] = (velA[1] ?? 0) + jTy * invMA;
-                    velA[2] = (velA[2] ?? 0) + jTz * invMA;
-                }
-                if (dynB && velB) {
-                    velB[0] = (velB[0] ?? 0) - jTx * invMB;
-                    velB[1] = (velB[1] ?? 0) - jTy * invMB;
-                    velB[2] = (velB[2] ?? 0) - jTz * invMB;
-                }
-                if (!isMultiContact) {
-                    if (dynA && omegaA && IA) {
-                        omegaA[0] = (omegaA[0] ?? 0) + (rAy * jTz - rAz * jTy) / Math.max(IA[0]!, 1e-6);
-                        omegaA[1] = (omegaA[1] ?? 0) + (rAz * jTx - rAx * jTz) / Math.max(IA[1]!, 1e-6);
-                        omegaA[2] = (omegaA[2] ?? 0) + (rAx * jTy - rAy * jTx) / Math.max(IA[2]!, 1e-6);
-                    }
-                    if (dynB && omegaB && IB) {
-                        omegaB[0] = (omegaB[0] ?? 0) - (rBy * jTz - rBz * jTy) / Math.max(IB[0]!, 1e-6);
-                        omegaB[1] = (omegaB[1] ?? 0) - (rBz * jTx - rBx * jTz) / Math.max(IB[1]!, 1e-6);
-                        omegaB[2] = (omegaB[2] ?? 0) - (rBx * jTy - rBy * jTx) / Math.max(IB[2]!, 1e-6);
+                if (dynA && velA) ContactImpulseKernel.applyVec(velA, isMultiContact ? null : omegaA, isMultiContact ? null : IA, +1, jTx, jTy, jTz, rAx, rAy, rAz, invMA);
+                if (dynB && velB) ContactImpulseKernel.applyVec(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, jTx, jTy, jTz, rBx, rBy, rBz, invMB);
+
+                // Atualiza anchor: mantém se estático (scale < 1 = deslizando → reseta)
+                if (this.frictionAnchors) {
+                    if (scale < 1.0) {
+                        // Deslizando — ancora migra para posição atual
+                        this.anchorCache.set(contactKey, [cpx, cpy, cpz]);
+                    } else {
+                        // Estático — preserva ancora anterior ou inicializa
+                        const existing = this.prevAnchorCache.get(contactKey);
+                        this.anchorCache.set(contactKey, existing ?? [cpx, cpy, cpz]);
                     }
                 }
             }
+        } else if (this.frictionAnchors) {
+            // Sem velocidade tangencial — inicializa anchor se não existe
+            const existing = this.prevAnchorCache.get(contactKey);
+            this.anchorCache.set(contactKey, existing ?? [cpx, cpy, cpz]);
+        }
+    }
+
+    /**
+     * Correção direta de posição — aplicada 1× por substep, fora das iterações
+     * de velocidade. Evita a injeção de energia cinética que o bias de velocidade
+     * (Baumgarte / dt) causaria ao ser re-aplicado em cada iteração.
+     */
+    private correctPenetration(
+        contact: PhysicsStageContext['contacts'][number],
+        context: PhysicsStageContext,
+    ): void {
+        const entryA = context.entityBodies.get(contact.entityIdA);
+        const entryB = context.entityBodies.get(contact.entityIdB);
+        const dynA   = entryA != null && !entryA.body.get<boolean>('isKinematic');
+        const dynB   = entryB != null && !entryB.body.get<boolean>('isKinematic');
+        if (!dynA && !dynB) return;
+
+        const { nx, ny, nz, depth } = contact;
+        const mA    = dynA ? (entryA!.body.get<number>('mass') ?? 1.0) : 0;
+        const mB    = dynB ? (entryB!.body.get<number>('mass') ?? 1.0) : 0;
+        const invMA = dynA && mA > 0 ? 1 / mA : 0;
+        const invMB = dynB && mB > 0 ? 1 / mB : 0;
+
+        const invSumTrans = invMA + invMB;
+        if (invSumTrans <= 0) return;
+
+        const correctionDepth = Math.max(depth - this.penetrationSlop, 0) * this.baumgarteFactor;
+        if (correctionDepth <= 0) return;
+
+        const posA = dynA ? entryA!.body.get<vec3>('position') : null;
+        const posB = dynB ? entryB!.body.get<vec3>('position') : null;
+
+        if (dynA && posA) {
+            const s = (invMA / invSumTrans) * correctionDepth;
+            posA[0] = (posA[0] ?? 0) + nx * s;
+            posA[1] = (posA[1] ?? 0) + ny * s;
+            posA[2] = (posA[2] ?? 0) + nz * s;
+        }
+        if (dynB && posB) {
+            const s = (invMB / invSumTrans) * correctionDepth;
+            posB[0] = (posB[0] ?? 0) - nx * s;
+            posB[1] = (posB[1] ?? 0) - ny * s;
+            posB[2] = (posB[2] ?? 0) - nz * s;
         }
     }
 
@@ -333,7 +392,7 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const dynB   = entryB != null && !entryB.body.get<boolean>('isKinematic');
         if (!dynA && !dynB) return;
 
-        const { nx, ny, nz } = contact;
+        const { nx, ny, nz, cpx, cpy, cpz } = contact;
         const mA    = dynA ? (entryA!.body.get<number>('mass') ?? 1.0) : 0;
         const mB    = dynB ? (entryB!.body.get<number>('mass') ?? 1.0) : 0;
         const invMA = dynA && mA > 0 ? 1 / mA : 0;
@@ -348,7 +407,6 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const IA     = dynA ? entryA!.body.get<vec3>('inertiaTensor')   : null;
         const IB     = dynB ? entryB!.body.get<vec3>('inertiaTensor')   : null;
 
-        const { cpx, cpy, cpz } = contact;
         const rAx = cpx - (posA ? (posA[0] ?? 0) : 0);
         const rAy = cpy - (posA ? (posA[1] ?? 0) : 0);
         const rAz = cpz - (posA ? (posA[2] ?? 0) : 0);
@@ -356,40 +414,27 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const rBy = cpy - (posB ? (posB[1] ?? 0) : 0);
         const rBz = cpz - (posB ? (posB[2] ?? 0) : 0);
 
+        // Impulso combinado: normal (λN·n) + tangente (λT)
         const jNx = λN * nx + λTx;
         const jNy = λN * ny + λTy;
         const jNz = λN * nz + λTz;
 
-        if (dynA && velA) {
-            velA[0] = (velA[0] ?? 0) + jNx * invMA;
-            velA[1] = (velA[1] ?? 0) + jNy * invMA;
-            velA[2] = (velA[2] ?? 0) + jNz * invMA;
-        }
-        if (dynB && velB) {
-            velB[0] = (velB[0] ?? 0) - jNx * invMB;
-            velB[1] = (velB[1] ?? 0) - jNy * invMB;
-            velB[2] = (velB[2] ?? 0) - jNz * invMB;
-        }
         const isMultiContact = contact.weight <= 0.25;
-        if (!isMultiContact) {
-            if (dynA && omegaA && IA) {
-                omegaA[0] = (omegaA[0] ?? 0) + (rAy * jNz - rAz * jNy) / Math.max(IA[0]!, 1e-6);
-                omegaA[1] = (omegaA[1] ?? 0) + (rAz * jNx - rAx * jNz) / Math.max(IA[1]!, 1e-6);
-                omegaA[2] = (omegaA[2] ?? 0) + (rAx * jNy - rAy * jNx) / Math.max(IA[2]!, 1e-6);
-            }
-            if (dynB && omegaB && IB) {
-                omegaB[0] = (omegaB[0] ?? 0) - (rBy * jNz - rBz * jNy) / Math.max(IB[0]!, 1e-6);
-                omegaB[1] = (omegaB[1] ?? 0) - (rBz * jNx - rBx * jNz) / Math.max(IB[1]!, 1e-6);
-                omegaB[2] = (omegaB[2] ?? 0) - (rBx * jNy - rBy * jNx) / Math.max(IB[2]!, 1e-6);
-            }
-        }
+        if (dynA && velA) ContactImpulseKernel.applyVec(velA, isMultiContact ? null : omegaA, isMultiContact ? null : IA, +1, jNx, jNy, jNz, rAx, rAy, rAz, invMA);
+        if (dynB && velB) ContactImpulseKernel.applyVec(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, jNx, jNy, jNz, rBx, rBy, rBz, invMB);
     }
 
     /**
-     * Chave de cache para warm starting.
-     * Usa grade de 5cm para sobreviver a pequenas variações de posição entre frames.
+     * Chave de cache para warm starting e friction anchors.
+     *
+     * Quando o contato tem `featureId` (ex: índice de vértice da caixa), usa-o
+     * como chave — estável entre frames sem depender de posição.
+     * Caso contrário, cai de volta para a grade posicional de 5cm.
      */
     private contactKey(c: PhysicsStageContext['contacts'][number]): string {
+        if (c.featureId !== undefined) {
+            return `${c.entityIdA}:${c.entityIdB}:v${c.featureId}`;
+        }
         return `${c.entityIdA}:${c.entityIdB}:${Math.round(c.cpx * 20)}:${Math.round(c.cpy * 20)}:${Math.round(c.cpz * 20)}`;
     }
 }

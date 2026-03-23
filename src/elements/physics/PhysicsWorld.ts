@@ -9,16 +9,30 @@ import type { Transform }           from '../../scene/math/Transform';
 import type { PhysicsStageContext, BodyEntry, ColliderReg } from '../../scene/systems/PhysicsStageContext';
 import { CollisionDispatcher }      from './collision/CollisionDispatcher';
 import { AABBBroadphase }           from './AABBBroadphase';
-import { ForceStage }               from './pipeline/ForceStage';
-import { BroadphaseStage }          from './pipeline/BroadphaseStage';
-import { NarrowphaseStage }         from './pipeline/NarrowphaseStage';
-import { CollisionResolutionStage } from './pipeline/CollisionResolutionStage';
-import { IntegrationStage }         from './pipeline/IntegrationStage';
-import { SleepStage }               from './pipeline/SleepStage';
-import type { SleepStageOptions }   from './pipeline/SleepStage';
-import { SyncStage }                from './pipeline/SyncStage';
-import type { NarrowphaseConfig }   from '../../scene/systems/collision/NarrowphaseConfig';
-import type { ResolutionConfig }    from '../../scene/systems/resolution/ResolutionConfig';
+import { ForceStage }               from './pipeline/shared/ForceStage';
+import { BroadphaseStage }          from './pipeline/rigidbody/BroadphaseStage';
+import { NarrowphaseStage }         from './pipeline/rigidbody/NarrowphaseStage';
+import { CollisionResolutionStage } from './pipeline/rigidbody/CollisionResolutionStage';
+import { IntegrationStage }         from './pipeline/rigidbody/IntegrationStage';
+import { SleepStage }               from './pipeline/rigidbody/SleepStage';
+import type { SleepStageOptions }   from './pipeline/rigidbody/SleepStage';
+import { SyncStage }                from './pipeline/rigidbody/SyncStage';
+import { GyroscopicStage }          from './pipeline/rigidbody/GyroscopicStage';
+import { PredictiveContactStage }   from './pipeline/rigidbody/PredictiveContactStage';
+import { PBDPredictStage }          from './pipeline/rigidbody/pbd/PBDPredictStage';
+import { PBDSolveStage }            from './pipeline/rigidbody/pbd/PBDSolveStage';
+import { PBDVelocityRecoveryStage } from './pipeline/rigidbody/pbd/PBDVelocityRecoveryStage';
+import { PBDContactResponseStage }  from './pipeline/rigidbody/pbd/PBDContactResponseStage';
+import { createPBDState }           from './pipeline/rigidbody/pbd/PBDState';
+import { SoftBodyPredictStage }        from './pipeline/softbody/SoftBodyPredictStage';
+import { DistanceConstraintStage }     from './pipeline/softbody/DistanceConstraintStage';
+import { SoftBodyCollisionStage }      from './pipeline/softbody/SoftBodyCollisionStage';
+import { SoftBodyVelocityUpdateStage } from './pipeline/softbody/SoftBodyVelocityUpdateStage';
+import { SoftBodySyncStage }           from './pipeline/softbody/SoftBodySyncStage';
+import type { RigidBodySimConfig }    from '../../scene/systems/simulation/RigidBodySimConfig';
+import type { SoftBodySimConfig }     from '../../scene/systems/simulation/SoftBodySimConfig';
+import type { CollisionSimConfig }    from '../../scene/systems/simulation/CollisionSimConfig';
+import { ResolutionType }           from '../../scene/systems/resolution/ResolutionType';
 import type { PhysicsStage }        from '../../scene/systems/PhysicsStage';
 import { vec3, quat }               from 'gl-matrix';
 import { Loggable }                 from '../../core/debug/Loggable';
@@ -26,20 +40,32 @@ import { Logger }                   from '../../core/debug/Logger';
 import { LogCall }                  from '../../core/debug/LogCall';
 
 export interface PhysicsWorldOptions {
+    /** Estratégia de detecção de pares (broadphase). Default: AABBBroadphase. */
     broadphase?: Broadphase;
     /**
      * Razão máxima entre o maior e o menor componente do tensor de inércia.
-     * Limita instabilidade numérica em corpos finos/longos (ex: bastão 0.2×4×0.2
-     * tem Iy ≈ Ix/50, gerando ω 50× maior nesse eixo por qualquer torque).
-     * Default: 10. Use Infinity para desabilitar.
+     * Limita instabilidade em corpos finos/longos. Default: 10.
      */
     inertiaTensorMaxRatio?: number;
-    /** Configurações do gerenciador de sono (SleepStage). */
+    /** Configurações do gerenciador de sono. */
     sleep?: SleepStageOptions;
-    /** Configuração dos algoritmos de narrowphase (Registry pattern). */
-    narrowphase?: NarrowphaseConfig;
-    /** Configuração do método de resolução de colisões (Strategy pattern). */
-    resolution?: ResolutionConfig;
+    /**
+     * Configuração da simulação de corpos rígidos.
+     * Ausência desabilita o pipeline RigidBody (útil para cenas só com SoftBody).
+     */
+    rigidBody?: RigidBodySimConfig;
+    /**
+     * Configuração da simulação de corpos deformáveis (XPBD SoftBody).
+     * Presença deste objeto habilita o pipeline SoftBody no mesmo mundo.
+     * Exemplo: `softBody: {}` usa todos os defaults.
+     */
+    softBody?: SoftBodySimConfig;
+    /**
+     * Configuração do pipeline de detecção de colisão.
+     * Independente do tipo de corpo — aplica-se a RigidBody e SoftBody.
+     * Ausência usa os defaults de cada estágio.
+     */
+    collision?: CollisionSimConfig;
 }
 
 /**
@@ -148,16 +174,66 @@ export class PhysicsWorld extends SimulationWorld {
             contacts:     [],
         };
 
-        this.collisionDispatcher = new CollisionDispatcher(options.narrowphase);
+        const rb  = options.rigidBody;
+        const sb  = options.softBody;
+        const col = options.collision;
 
-        this.substepPipeline = [
-            new ForceStage(this.globalForces, this.solvers),
-            new BroadphaseStage(broadphase),
-            new NarrowphaseStage(this.collisionDispatcher),
-            new CollisionResolutionStage(options.resolution),
-            new IntegrationStage(),
-            new SleepStage(options.sleep),
-        ];
+        this.collisionDispatcher = new CollisionDispatcher(col?.narrowphase);
+
+        // ── Estágios de SoftBody ───────────────────────────────────────────────
+        // Acrescentados ao final de qualquer pipeline RigidBody quando `softBody`
+        // está presente. Operam exclusivamente sobre physicType='SoftBody'.
+        const softBodyStages: PhysicsStage[] = sb ? [
+            new SoftBodyPredictStage(),
+            new DistanceConstraintStage(sb.iterations ?? 10),
+            new SoftBodyCollisionStage(sb.restitution ?? 0.05),
+            new SoftBodyVelocityUpdateStage(),
+            new SoftBodySyncStage(),
+        ] : [];
+
+        // ── Pipeline RigidBody ────────────────────────────────────────────────
+        const resType      = rb?.resolution?.type ?? ResolutionType.SEQUENTIAL_IMPULSE;
+        const gyroscopicStage = rb?.gyroscopic ? [new GyroscopicStage()] : [];
+        const predictiveStage = col?.predictiveContacts
+            ? [new PredictiveContactStage(this.collisionDispatcher, col.predictiveContactsThreshold)]
+            : [];
+
+        if (!rb) {
+            // ── SoftBody exclusivo (sem RigidBody) ────────────────────────────
+            this.substepPipeline = [
+                new ForceStage(this.globalForces, this.solvers),
+                ...softBodyStages,
+            ];
+        } else if (resType === ResolutionType.XPBD) {
+            // ── XPBD RigidBody + SoftBody opcional ────────────────────────────
+            const pbdState = createPBDState();
+            this.substepPipeline = [
+                new ForceStage(this.globalForces, this.solvers),
+                ...gyroscopicStage,
+                new PBDPredictStage(pbdState),
+                new BroadphaseStage(broadphase),
+                new NarrowphaseStage(this.collisionDispatcher),
+                ...predictiveStage,
+                new PBDSolveStage(pbdState, rb.resolution),
+                new PBDVelocityRecoveryStage(pbdState),
+                new PBDContactResponseStage(pbdState, rb.resolution),
+                ...softBodyStages,
+                new SleepStage(options.sleep),
+            ];
+        } else {
+            // ── SI (Sequential Impulse — padrão) + SoftBody opcional ──────────
+            this.substepPipeline = [
+                new ForceStage(this.globalForces, this.solvers),
+                ...gyroscopicStage,
+                new BroadphaseStage(broadphase),
+                new NarrowphaseStage(this.collisionDispatcher),
+                ...predictiveStage,
+                new CollisionResolutionStage(rb.resolution),
+                new IntegrationStage(),
+                ...softBodyStages,
+                new SleepStage(options.sleep),
+            ];
+        }
 
         this.syncStage = new SyncStage();
 
@@ -235,6 +311,11 @@ export class PhysicsWorld extends SimulationWorld {
         for (const e of this.pendingAdd)    this.registerEntity(e);
         this.pendingRemove.length = 0;
         this.pendingAdd.length    = 0;
+
+        // Notifica estágios do início do frame (warm starting, caches, etc.)
+        for (const stage of this.substepPipeline) {
+            stage.beginFrame?.();
+        }
 
         // Executa pipeline N vezes com substep dt
         const substepDt = dt / this.substeps;

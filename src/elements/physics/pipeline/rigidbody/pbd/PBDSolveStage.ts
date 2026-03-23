@@ -1,0 +1,245 @@
+import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsStage';
+import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
+import type { ResolutionConfig }    from '../../../../../scene/systems/resolution/ResolutionConfig';
+import type { PBDState }            from './PBDState';
+import type { vec3, quat }          from 'gl-matrix';
+import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
+
+/**
+ * Estágio 5 do pipeline PBD — Projeção de constraints de posição.
+ *
+ * Implementa XPBD (Extended Position-Based Dynamics, Müller et al. 2020)
+ * com compliance α = 0 (rígido). Para cada contato gerado pelo NarrowphaseStage,
+ * corrige diretamente posição e rotação dos corpos para satisfazer a restrição
+ * de não-penetração.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * FORMULAÇÃO (por contato, por iteração)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Restrição de não-penetração: C = depth  (deve ser ≤ 0)
+ *
+ * Gradientes:
+ *   ∇C/∂posA = n       (normal de B para A — direção de separação de A)
+ *   ∇C/∂posB = -n
+ *   ∇C/∂rotA = rA × n  (torque ao redor do CM de A)
+ *   ∇C/∂rotB = -(rB × n)
+ *
+ * Massas generalizadas:
+ *   wA = 1/mA + (rA × n)ᵀ · IA⁻¹ · (rA × n)
+ *   wB = 1/mB + (rB × n)ᵀ · IB⁻¹ · (rB × n)
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ACCUMULATED IMPULSE (evita over-correction de iterações fixas)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * O contact.depth é fixo — gerado pelo NarrowphaseStage uma vez por substep.
+ * Sem acumulação, cada uma das K iterações aplicaria a correção completa,
+ * resultando em K× over-correction → velocidades K/dt vezes maiores.
+ *
+ * Solução: multiplicador de Lagrange acumulado λ_acc por contato por substep.
+ *
+ *   Δλ = depth/wSum - λ_acc    (residual: quanto ainda falta corrigir)
+ *   Se Δλ ≤ 0: contato já convergiu, pula.
+ *   λ_acc += Δλ
+ *
+ * Na 1ª iteração: λ_acc = 0, Δλ = depth/wSum → aplica correção completa.
+ * Na 2ª iteração: λ_acc = depth/wSum, Δλ = 0 → sem correção.
+ * Para pilhas (contato A afeta posição de B): iterações posteriores ainda
+ * detectam resíduo em outros contatos e progridem a convergência.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * COMPLIANCE (XPBD)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Com α = 0 (padrão), a constraint é perfeitamente rígida.
+ * Para corpos deformáveis, α > 0 amortece a correção:
+ *   Δλ = depth/wSum - λ_acc - (α/h²) · λ_acc / wSum   (futura extensão)
+ */
+export class PBDSolveStage implements PhysicsStage {
+    private readonly iterations:            number;
+    private readonly slop:                  number;
+    private readonly angularCorrectionScale: number;
+    private readonly compliance:            number;
+
+    constructor(
+        private readonly state: PBDState,
+        config: ResolutionConfig = {},
+    ) {
+        this.iterations = config.iterations ?? 10;
+        this.slop       = config.penetrationSlop ?? 0.001;
+        this.compliance = config.compliance ?? 0;
+        // Escala a correção ANGULAR da constraint de posição.
+        //
+        // Com scale = 1 (padrão XPBD), o contato excêntrico gera um torque
+        // restaurador forte: ωz = (rA×n)_z / I_z · Δλ. Para um bastão com
+        // contato na base (rA_z ≈ 0.6 m), esse torque equivale a ~3.6 rad/s
+        // de correção por substep, muito maior que a aceleração angular da
+        // gravidade (~0.009 rad/s/substep). O bastão fica preso vertical.
+        //
+        // Com scale = 0, a correção de posição é puramente linear (translação).
+        // A rotação evolui apenas pelo pipeline de velocidade (gravidade →
+        // predição angular, atrito), permitindo que corpos tombem naturalmente.
+        //
+        // Valores intermediários (0.1–0.3) dão alguma correção angular para
+        // estabilidade de contatos face-face, sem dominar o tombamento.
+        this.angularCorrectionScale = config.angularCorrectionScale ?? 0;
+    }
+
+    public execute(context: PhysicsStageContext, dt: number): void {
+        const contacts = context.contacts;
+        if (contacts.length === 0) return;
+
+        // Multiplicadores acumulados por contato neste substep
+        // Evita over-correction quando contact.depth é fixo entre iterações
+        const λAcc = new Float32Array(contacts.length); // inicializado em 0
+
+        // α̃ = compliance / dt² — normaliza o compliance para a escala temporal do substep.
+        // Com compliance = 0: α̃ = 0 → comportamento rígido idêntico ao anterior.
+        const αTilde = dt > 0 && this.compliance > 0 ? this.compliance / (dt * dt) : 0;
+
+        for (let iter = 0; iter < this.iterations; iter++) {
+            for (let i = 0; i < contacts.length; i++) {
+                this.solveContact(contacts[i]!, context, λAcc, i, αTilde);
+            }
+        }
+
+        // Exporta λ acumulado para o PBDVelocityUpdateStage usar como proxy
+        // do impulso normal — base para o limite de Coulomb do atrito.
+        this.state.contactLambda = Array.from(λAcc);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private solveContact(
+        contact: PhysicsStageContext['contacts'][number],
+        context: PhysicsStageContext,
+        λAcc:    Float32Array,
+        idx:     number,
+        αTilde:  number,
+    ): void {
+        const entryA = context.entityBodies.get(contact.entityIdA);
+        const entryB = context.entityBodies.get(contact.entityIdB);
+        const dynA   = entryA != null && !entryA.body.get<boolean>('isKinematic');
+        const dynB   = entryB != null && !entryB.body.get<boolean>('isKinematic');
+        if (!dynA && !dynB) return;
+
+        // contact.depth = manifold.depth / N (NarrowphaseStage já dividiu por N).
+        // Slop também dividido por N para manter a zona morta equivalente a 1 slop
+        // no nível do manifold (sem escalar, a zona morta efetiva seria N × slop,
+        // descartando contatos legítimos em face-contact com 4 pontos).
+        const depth = contact.depth - this.slop * contact.weight;
+        if (depth <= 0) return;
+
+        const { nx, ny, nz, cpx, cpy, cpz } = contact;
+
+        // Acorda corpos adormecidos atingidos pela constraint
+        if (dynA && entryA!.body.get<boolean>('isSleeping')) entryA!.body.set('isSleeping', false);
+        if (dynB && entryB!.body.get<boolean>('isSleeping')) entryB!.body.set('isSleeping', false);
+
+        const mA    = dynA ? (entryA!.body.get<number>('mass') ?? 1.0) : 0;
+        const mB    = dynB ? (entryB!.body.get<number>('mass') ?? 1.0) : 0;
+        const invMA = dynA && mA > 0 ? 1 / mA : 0;
+        const invMB = dynB && mB > 0 ? 1 / mB : 0;
+
+        const posA = dynA ? entryA!.body.get<vec3>('position') : null;
+        const posB = dynB ? entryB!.body.get<vec3>('position') : null;
+        const rotA = dynA ? entryA!.body.get<quat>('rotation') : null;
+        const rotB = dynB ? entryB!.body.get<quat>('rotation') : null;
+        const IA   = dynA ? entryA!.body.get<vec3>('inertiaTensor') : null;
+        const IB   = dynB ? entryB!.body.get<vec3>('inertiaTensor') : null;
+
+        // Vetores do CM ao ponto de contato (relidos por iteração — posições já corrigidas)
+        const rAx = cpx - (posA ? (posA[0] ?? 0) : 0);
+        const rAy = cpy - (posA ? (posA[1] ?? 0) : 0);
+        const rAz = cpz - (posA ? (posA[2] ?? 0) : 0);
+        const rBx = cpx - (posB ? (posB[0] ?? 0) : 0);
+        const rBy = cpy - (posB ? (posB[1] ?? 0) : 0);
+        const rBz = cpz - (posB ? (posB[2] ?? 0) : 0);
+
+        // Massas generalizadas — componente angular só entra quando será aplicada.
+        // Se angularCorrectionScale = 0, passe null para IA/IB: Δλ = depth/invM
+        // satisfaz a penetração inteiramente via translação, sem acumulação progressiva.
+        const useAngular = this.angularCorrectionScale > 0;
+        const a = ContactImpulseKernel.axis(
+            rAx, rAy, rAz, rBx, rBy, rBz,
+            nx, ny, nz,
+            invMA, invMB, dynA, dynB,
+            useAngular ? IA : null,
+            useAngular ? IB : null,
+        );
+        if (a.wSum <= 0) return;
+
+        // ── Accumulated impulse (XPBD) ────────────────────────────────────────
+        // Target: λ_target = depth / (wSum + α̃)
+        //   α̃ = 0 → λ_target = depth/wSum  (rígido, igual ao anterior).
+        //   α̃ > 0 → denominador maior → λ_target menor → Δpos por substep menor.
+        //
+        // Accumulated impulse: Δλ = λ_target - λ_acc
+        //   Converge em 1 iteração por contato isolado; múltiplas iterações
+        //   propagam correções entre contatos que compartilham corpos (pilhas).
+        const Δλ = depth / (a.wSum + αTilde) - (λAcc[idx] ?? 0);
+        if (Δλ <= 1e-10) return;   // já convergiu para este contato
+        λAcc[idx] = (λAcc[idx] ?? 0) + Δλ;
+
+        // ── Correção de posição ───────────────────────────────────────────────
+        if (dynA && posA) {
+            const s = invMA * Δλ;
+            posA[0] = (posA[0] ?? 0) + nx * s;
+            posA[1] = (posA[1] ?? 0) + ny * s;
+            posA[2] = (posA[2] ?? 0) + nz * s;
+        }
+        if (dynB && posB) {
+            const s = invMB * Δλ;
+            posB[0] = (posB[0] ?? 0) - nx * s;
+            posB[1] = (posB[1] ?? 0) - ny * s;
+            posB[2] = (posB[2] ?? 0) - nz * s;
+        }
+
+        // ── Correção de rotação via derivada de quaternion ────────────────────
+        // Escalonada por angularCorrectionScale (0 = sem correção angular,
+        // corpos tombam livremente; 1 = XPBD padrão, torque restaurador forte).
+        if (this.angularCorrectionScale > 0) {
+            const scΔλ = Δλ * this.angularCorrectionScale;
+            if (dynA && rotA && IA) {
+                PBDSolveStage.applyAngularCorrection(rotA,
+                    a.rAxDx / Math.max(IA[0]!, 1e-6) * scΔλ,
+                    a.rAxDy / Math.max(IA[1]!, 1e-6) * scΔλ,
+                    a.rAxDz / Math.max(IA[2]!, 1e-6) * scΔλ,
+                );
+            }
+            if (dynB && rotB && IB) {
+                PBDSolveStage.applyAngularCorrection(rotB,
+                    -a.rBxDx / Math.max(IB[0]!, 1e-6) * scΔλ,
+                    -a.rBxDy / Math.max(IB[1]!, 1e-6) * scΔλ,
+                    -a.rBxDz / Math.max(IB[2]!, 1e-6) * scΔλ,
+                );
+            }
+        }
+    }
+
+    /**
+     * Aplica correção angular ao quaternion:
+     *   q += 0.5 · [ω, 0] ⊗ q   depois normaliza
+     *
+     * Onde [ω, 0] é o quaternion puro formado pelo vetor de correção ω.
+     * A escala temporal já está embutida em Δλ via IA⁻¹ — sem fator dt aqui.
+     */
+    private static applyAngularCorrection(q: quat, ωx: number, ωy: number, ωz: number): void {
+        const qx = q[0] ?? 0;
+        const qy = q[1] ?? 0;
+        const qz = q[2] ?? 0;
+        const qw = q[3] ?? 1;
+        q[0] = qx + 0.5 * (ωx * qw + ωy * qz - ωz * qy);
+        q[1] = qy + 0.5 * (ωy * qw + ωz * qx - ωx * qz);
+        q[2] = qz + 0.5 * (ωz * qw + ωx * qy - ωy * qx);
+        q[3] = qw + 0.5 * (-ωx * qx - ωy * qy - ωz * qz);
+        const len = Math.sqrt(
+            (q[0] ?? 0) ** 2 + (q[1] ?? 0) ** 2 +
+            (q[2] ?? 0) ** 2 + (q[3] ?? 0) ** 2,
+        );
+        if (len > 1e-6) {
+            q[0] = (q[0] ?? 0) / len;
+            q[1] = (q[1] ?? 0) / len;
+            q[2] = (q[2] ?? 0) / len;
+            q[3] = (q[3] ?? 0) / len;
+        }
+    }
+}

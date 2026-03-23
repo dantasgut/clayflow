@@ -99,6 +99,9 @@ export abstract class Geometry implements Component {
         if (this.rawIndices && this.indexBufferId) {
             uploads.push(resourceManager.buffers.uploadStagedAsync(this.indexBufferId, this.rawIndices));
         }
+        if (this.rawWireframePositions && this.wireframePositionsBufferId) {
+            uploads.push(resourceManager.buffers.uploadStagedAsync(this.wireframePositionsBufferId, this.rawWireframePositions));
+        }
 
         await Promise.all(uploads);
         this.state = ResourceState.Ready;

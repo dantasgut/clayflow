@@ -1,8 +1,8 @@
-import type { PhysicsStage }        from '../../../scene/systems/PhysicsStage';
-import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
-import type { Transform }           from '../../../scene/math/Transform';
-import { CollisionDispatcher }      from '../collision/CollisionDispatcher';
-import { NULL_TRANSFORM }           from '../../../scene/math/NullTransform';
+import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
+import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
+import type { Transform }           from '../../../../scene/math/Transform';
+import { CollisionDispatcher }      from '../../collision/CollisionDispatcher';
+import { NULL_TRANSFORM }           from '../../../../scene/math/NullTransform';
 
 /**
  * Estágio 3 do pipeline de física — Detecção de colisão exata (narrowphase).
@@ -56,7 +56,7 @@ export class NarrowphaseStage implements PhysicsStage {
             const n = manifold.contactPoints.length;
             const weight = 1 / n;
             // Distribui a profundidade de penetração entre os N contatos.
-            // A soma das correções de posição (depth/N * N) é igual à profundidade máxima.
+            // A soma das correções de posição (depth/N × N) é igual à profundidade máxima.
             const depthPerContact = manifold.depth * weight;
 
             // Dispara evento de colisão uma única vez por par
@@ -64,7 +64,9 @@ export class NarrowphaseStage implements PhysicsStage {
             a.entity.dispatchEvent({ type: 'collision', other: b.entity, contactPoint: cp0, normal: manifold.normal, impulse: manifold.depth });
             b.entity.dispatchEvent({ type: 'collision', other: a.entity, contactPoint: cp0, normal: manifold.normal, impulse: manifold.depth });
 
-            for (const cp of manifold.contactPoints) {
+            for (let pi = 0; pi < manifold.contactPoints.length; pi++) {
+                const cp  = manifold.contactPoints[pi]!;
+                const fid = manifold.contactFeatureIds?.[pi];
                 context.contacts.push({
                     entityIdA: a.entity.id,
                     entityIdB: b.entity.id,
@@ -74,12 +76,13 @@ export class NarrowphaseStage implements PhysicsStage {
                     cpy: cp[1]!,
                     cpz: cp[2]!,
                     weight,
+                    ...(fid !== undefined && { featureId: fid }),
                 });
             }
         }
     }
 
-    private worldMatrix(entity: import('../../../scene/core/Entity').Entity) {
+    private worldMatrix(entity: import('../../../../scene/core/Entity').Entity) {
         const t = entity.getComponent<Transform>('Transform') ?? NULL_TRANSFORM;
         return t.worldMatrix;
     }

@@ -10,5 +10,7 @@ import type { PhysicsStageContext } from '../PhysicsStageContext';
  * exatamente como o CollisionDispatcher delega para o CollisionAlgorithm.
  */
 export interface CollisionResolver {
+    /** Chamado uma vez por frame, antes do loop de substeps. */
+    beginFrame?(): void;
     resolve(context: PhysicsStageContext, dt: number): void;
 }
