@@ -26,6 +26,13 @@ export interface SoftBodyOptions {
     mass?:       number;
     compliance?: number;   // per-constraint default compliance
     damping?:    number;
+    /**
+     * Raio virtual de colisão de cada partícula (metros).
+     * Não altera a geometria visual — apenas expande a distância de contato
+     * com os colisores (collision margin), prevenindo penetração visual.
+     * Default: 0.05.
+     */
+    particleRadius?: number;
     targetGeometry?: Geometry;
     /**
      * Deslocamento inicial aplicado a todas as partículas (e ao rawVertices),
@@ -62,8 +69,9 @@ export class SoftBody extends PhysicsBody {
 
     constructor(options: SoftBodyOptions = {}) {
         super();
-        this.set('mass',    options.mass    ?? 1.0);
-        this.set('damping', options.damping ?? 0.01);
+        this.set('mass',          options.mass          ?? 1.0);
+        this.set('damping',       options.damping       ?? 0.01);
+        this.set('particleRadius', options.particleRadius ?? 0.05);
         this.defaultCompliance = options.compliance ?? 0;
 
         if (options.targetGeometry) {

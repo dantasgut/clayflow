@@ -53,7 +53,8 @@ export class SoftBodyCollisionStage implements PhysicsStage {
 
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
-            const sb = body as unknown as SoftBody;
+            const sb     = body as unknown as SoftBody;
+            const radius = body.get<number>('particleRadius') ?? 0.05;
 
             for (const p of sb.particles) {
                 if (p.w <= 0) continue;
@@ -64,7 +65,7 @@ export class SoftBodyCollisionStage implements PhysicsStage {
                     // Posição prevista no espaço local do collider
                     const lp = vec3.transformMat4(vec3.create(), wp, invWm);
                     const d  = sdf(lp);
-                    if (d >= 0) continue;
+                    if (d >= radius) continue;   // fora do alcance — sem contato
 
                     // Gradiente do SDF no espaço local (diferenças finitas)
                     const gx = sdf(vec3.fromValues(lp[0]! + EPS, lp[1]!,       lp[2]!      )) - d;
@@ -79,10 +80,11 @@ export class SoftBodyCollisionStage implements PhysicsStage {
                     const len = Math.sqrt(wnx * wnx + wny * wny + wnz * wnz) || 1;
                     wnx /= len; wny /= len; wnz /= len;
 
-                    // Projeta posição prevista para fora da forma
-                    p.px -= d * wnx;
-                    p.py -= d * wny;
-                    p.pz -= d * wnz;
+                    // Projeta posição prevista: mantém separação de `radius`
+                    const correction = radius - d;
+                    p.px += correction * wnx;
+                    p.py += correction * wny;
+                    p.pz += correction * wnz;
 
                     // Reflexão de velocidade com restituição
                     const vn = p.vx * wnx + p.vy * wny + p.vz * wnz;
