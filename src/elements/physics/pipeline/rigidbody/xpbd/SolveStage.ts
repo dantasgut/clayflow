@@ -1,14 +1,14 @@
 import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
 import type { ResolutionConfig }    from '../../../../../scene/systems/resolution/ResolutionConfig';
-import type { PBDState }            from './PBDState';
+import type { XPBDState }           from './XPBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 import { XPBDConstraintSolver }     from '../../shared/XPBDConstraintSolver';
 
 /**
- * Estágio 5 do pipeline PBD — Projeção de constraints de posição.
+ * Estágio 5 do pipeline XPBD — Projeção de constraints de posição.
  *
  * Implementa XPBD (Extended Position-Based Dynamics, Müller et al. 2020)
  * com compliance α = 0 (rígido). Para cada contato gerado pelo NarrowphaseStage,
@@ -55,19 +55,19 @@ import { XPBDConstraintSolver }     from '../../shared/XPBDConstraintSolver';
  * Para corpos deformáveis, α > 0 amortece a correção:
  *   Δλ = depth/wSum - λ_acc - (α/h²) · λ_acc / wSum   (futura extensão)
  */
-export class PBDSolveStage extends XPBDConstraintSolver implements PhysicsStage {
+export class SolveStage extends XPBDConstraintSolver implements PhysicsStage {
     private readonly slop:                  number;
     private readonly angularCorrectionScale: number;
     // Contexto guardado durante execute() para uso em solveOne()
     private _context: PhysicsStageContext | null = null;
 
     /**
-     * @param state  - Estado compartilhado do pipeline PBD onde o array `contactLambda`
-     *                 será exportado via {@link onSolveComplete} para uso pelo `PBDContactResponseStage`.
+     * @param state  - Estado compartilhado do pipeline XPBD onde o array `contactLambda`
+     *                 será exportado via {@link onSolveComplete} para uso pelo `ContactResponseStage`.
      * @param config - Configuração de resolução de contatos (iterações, compliance, slop, escala angular).
      */
     constructor(
-        private readonly state: PBDState,
+        private readonly state: XPBDState,
         config: ResolutionConfig = {},
     ) {
         super(config.iterations ?? 10, config.compliance ?? 0);
@@ -134,14 +134,14 @@ export class PBDSolveStage extends XPBDConstraintSolver implements PhysicsStage 
     }
 
     /**
-     * Exporta o array de multiplicadores de Lagrange acumulados para {@link PBDState.contactLambda}.
-     * O `PBDContactResponseStage` usa esses valores como proxy do impulso normal
+     * Exporta o array de multiplicadores de Lagrange acumulados para {@link XPBDState.contactLambda}.
+     * O `ContactResponseStage` usa esses valores como proxy do impulso normal
      * para calcular o limite de Coulomb do atrito.
      *
      * @param lambdaAcc - Multiplicadores de Lagrange acumulados ao final do solve.
      */
     protected override onSolveComplete(lambdaAcc: Float32Array): void {
-        // Exporta λ acumulado para o PBDContactResponseStage usar como proxy
+        // Exporta λ acumulado para o ContactResponseStage usar como proxy
         // do impulso normal — base para o limite de Coulomb do atrito.
         this.state.contactLambda = Array.from(lambdaAcc);
     }
