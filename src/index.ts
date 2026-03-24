@@ -48,7 +48,7 @@ export      { CollisionAlgorithmType }    from './scene/systems/collision/Collis
 export type { ResolutionConfig }          from './scene/systems/resolution/ResolutionConfig';
 export      { ResolutionType }            from './scene/systems/resolution/ResolutionType';
 export type { RigidBodySimConfig }        from './scene/systems/simulation/RigidBodySimConfig';
-export type { SoftBodySimConfig }         from './scene/systems/simulation/SoftBodySimConfig';
+export type { SoftBodySimConfig, SoftBodyResolutionConfig }         from './scene/systems/simulation/SoftBodySimConfig';
 export type { CollisionSimConfig }        from './scene/systems/simulation/CollisionSimConfig';
 export type { PhysicsStage }              from './scene/systems/PhysicsStage';
 export type { PhysicsStageContext, BodyEntry, ColliderReg, CollisionContact } from './scene/systems/PhysicsStageContext';
