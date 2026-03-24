@@ -5,6 +5,7 @@ import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
+import { XPBDConstraintSolver }     from '../../shared/XPBDConstraintSolver';
 
 /**
  * Estágio 5 do pipeline PBD — Projeção de constraints de posição.

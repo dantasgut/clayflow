@@ -3,6 +3,7 @@ import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsSt
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
+import { BaseVelocityDerivationStage } from '../../shared/BaseVelocityDerivationStage';
 
 /**
  * Estágio 6a do pipeline PBD — Recuperação de velocidades dos RigidBodies.

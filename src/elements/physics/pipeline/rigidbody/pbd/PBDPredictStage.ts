@@ -3,6 +3,7 @@ import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsSt
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
+import { BasePredictStage }         from '../../shared/BasePredictStage';
 
 /**
  * Estágio 2 do pipeline PBD — Predição de posição e rotação dos RigidBodies.
