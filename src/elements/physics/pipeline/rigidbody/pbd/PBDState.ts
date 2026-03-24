@@ -1,7 +1,7 @@
 /**
  * Estado compartilhado entre os stages do pipeline PBD.
  *
- * Preenchido pelo PBDPredictStage e consumido pelo PBDVelocityUpdateStage.
+ * Preenchido pelo PBDPredictStage e consumido pelo PBDVelocityRecoveryStage e PBDContactResponseStage.
  * Isolado em um objeto próprio — não contamina PhysicsStageContext (que é
  * compartilhado com o pipeline SI).
  */
@@ -15,7 +15,7 @@ export interface PBDState {
     /**
      * λ acumulado por contato (índice = posição em context.contacts)
      * escrito pelo PBDSolveStage ao final de cada substep e lido pelo
-     * PBDVelocityUpdateStage para calcular o limite de Coulomb do atrito.
+     * PBDContactResponseStage para calcular o limite de Coulomb do atrito.
      */
     contactLambda: number[];
 }

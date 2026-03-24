@@ -5,28 +5,34 @@ import type { vec3, quat }          from 'gl-matrix';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 
 /**
- * Estágio 6a do pipeline PBD — Recuperação de velocidades.
+ * Estágio 6a do pipeline PBD — Recuperação de velocidades dos RigidBodies.
  *
- * Após o `PBDSolveStage` ter projetado posições e rotações para satisfazer
- * as constraints, este estágio deriva as velocidades do delta de
+ * Especialização de {@link BaseVelocityDerivationStage} para corpos rígidos.
+ * Após o {@link PBDSolveStage} ter projetado posições e rotações para satisfazer
+ * as constraints, este estágio deriva as velocidades a partir do delta de
  * posição/rotação em relação aos valores pré-solve armazenados em
- * `PBDState.posCache` / `PBDState.rotCache`:
+ * {@link PBDState.posCache} / {@link PBDState.rotCache} pelo {@link PBDPredictStage}:
  *
- *   vel   = (pos_new − pos_old) / dt   × (1 − linDamping · dt)
- *   omega = 2 · Δq.xyz / dt           × (1 − angDamping · dt)
+ * ```
+ * vel   = (pos_new − pos_old) / dt   × (1 − linDamping · dt)
+ * omega = 2 · Δq.xyz / dt           × (1 − angDamping · dt)
+ * ```
  *
- * onde Δq = q_new ⊗ conj(q_old) e o sinal de Δq.w escolhe o caminho curto.
+ * onde `Δq = q_new ⊗ conj(q_old)` e o sinal de `Δq.w` escolhe o caminho mais curto
+ * na esfera de quaternions (evita flip de 360°).
+ *
+ * O fator de amortecimento é calculado via {@link BaseVelocityDerivationStage.computeDampingFactor}.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * DAMPING
  * ─────────────────────────────────────────────────────────────────────────────
- * O ForceStage aplica damping sobre a velocidade de predição, que no PBD é
- * descartada ao se recalcular a velocidade a partir do delta de posição.
- * O fator de damping é aplicado aqui para que `linearDamping` e
+ * O {@link ForceStage} aplica damping sobre a velocidade de predição, que no PBD é
+ * descartada ao recalcular a velocidade a partir do delta de posição.
+ * O fator de amortecimento é reaplicado aqui para que `linearDamping` e
  * `angularDamping` tenham efeito real no pipeline PBD.
  *
- * Nota: o ForceStage já aplica uma vez, resultando em ~2× de dissipação —
- * pequena sobre-dissipação aceitável para manter a estabilidade.
+ * Nota: o `ForceStage` já aplica uma vez, resultando em ~2× de dissipação —
+ * sobre-dissipação pequena e aceitável para manter a estabilidade.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * SEPARAÇÃO DE RESPONSABILIDADES
@@ -35,12 +41,23 @@ import { QuaternionUtils }          from '../../../math/QuaternionUtils';
  * atrito) é responsabilidade do `PBDContactResponseStage`, que deve ser
  * posicionado imediatamente após este no pipeline.
  */
-export class PBDVelocityRecoveryStage implements PhysicsStage {
-    constructor(private readonly state: PBDState) {}
+export class PBDVelocityRecoveryStage extends BaseVelocityDerivationStage implements PhysicsStage {
+    /**
+     * @param state - Estado compartilhado do pipeline PBD com os caches de
+     *                posição e rotação pré-solve gerados pelo {@link PBDPredictStage}.
+     */
+    constructor(private readonly state: PBDState) {
+        super();
+    }
 
-    public execute(context: PhysicsStageContext, dt: number): void {
-        if (dt <= 0) return;
-
+    /**
+     * Itera todos os RigidBodies dinâmicos e recalcula velocidade linear e angular.
+     * Corpos cinemáticos (`isKinematic`) e corpos sem cache no {@link PBDState} são ignorados.
+     *
+     * @param context - Contexto do passo de física com corpos e contatos.
+     * @param dt      - Passo de tempo do substep (segundos), sempre positivo (garantido pela classe base).
+     */
+    protected deriveVelocities(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
 
@@ -54,8 +71,8 @@ export class PBDVelocityRecoveryStage implements PhysicsStage {
 
             const linDamp   = body.get<number>('linearDamping')  ?? 0;
             const angDamp   = body.get<number>('angularDamping') ?? 0;
-            const linFactor = linDamp > 0 ? Math.max(0, 1 - linDamp * dt) : 1;
-            const angFactor = angDamp > 0 ? Math.max(0, 1 - angDamp * dt) : 1;
+            const linFactor = linDamp > 0 ? this.computeDampingFactor(linDamp, dt) : 1;
+            const angFactor = angDamp > 0 ? this.computeDampingFactor(angDamp, dt) : 1;
 
             if (pos && posOld) {
                 const vx = ((pos[0] ?? 0) - posOld[0]) / dt * linFactor;

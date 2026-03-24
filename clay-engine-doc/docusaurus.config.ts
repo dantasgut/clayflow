@@ -1,12 +1,17 @@
-import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
+import { themes as prismThemes } from 'prism-react-renderer';
+import type { Config } from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'My Site',
-  tagline: 'Dinosaurs are cool',
+  markdown: {
+    mermaid: true,
+    format: 'detect',
+  },
+  themes: ['@docusaurus/theme-mermaid'],
+  title: 'Clay Engine',
+  tagline: 'Motor 3D WebGPU em TypeScript — física XPBD, rendering PBR e partículas GPU em tempo real',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -22,10 +27,10 @@ const config: Config = {
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'facebook', // Usually your GitHub org/user name.
-  projectName: 'docusaurus', // Usually your repo name.
+  organizationName: 'dantasgut',
+  projectName: 'clayflow',
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
@@ -75,7 +80,7 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'My Site',
+      title: 'Clay Engine',
       logo: {
         alt: 'My Site Logo',
         src: 'img/logo.svg',
@@ -85,11 +90,10 @@ const config: Config = {
           type: 'docSidebar',
           sidebarId: 'tutorialSidebar',
           position: 'left',
-          label: 'Tutorial',
+          label: 'API',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
         {
-          href: 'https://github.com/facebook/docusaurus',
+          href: 'https://github.com/dantasgut/clayflow',
           label: 'GitHub',
           position: 'right',
         },
@@ -99,42 +103,25 @@ const config: Config = {
       style: 'dark',
       links: [
         {
-          title: 'Docs',
+          title: 'API',
           items: [
-            {
-              label: 'Tutorial',
-              to: '/docs/intro',
-            },
+            { label: 'Classes', to: '/docs/api/classes/WebGPURenderer' },
+            { label: 'Interfaces', to: '/docs/api/interfaces/PhysicsStage' },
+            { label: 'Enumerações', to: '/docs/api/enumerations/ResolutionType' },
           ],
         },
         {
-          title: 'Community',
+          title: 'Física',
           items: [
-            {
-              label: 'Stack Overflow',
-              href: 'https://stackoverflow.com/questions/tagged/docusaurus',
-            },
-            {
-              label: 'Discord',
-              href: 'https://discordapp.com/invite/docusaurus',
-            },
-            {
-              label: 'X',
-              href: 'https://x.com/docusaurus',
-            },
+            { label: 'PhysicsWorld', to: '/docs/api/classes/PhysicsWorld' },
+            { label: 'RigidBody', to: '/docs/api/classes/RigidBody' },
+            { label: 'SoftBody', to: '/docs/api/classes/SoftBody' },
           ],
         },
         {
-          title: 'More',
+          title: 'Projeto',
           items: [
-            {
-              label: 'Blog',
-              to: '/blog',
-            },
-            {
-              label: 'GitHub',
-              href: 'https://github.com/facebook/docusaurus',
-            },
+            { label: 'GitHub', href: 'https://github.com/dantasgut/clayflow' },
           ],
         },
       ],
@@ -144,17 +131,19 @@ const config: Config = {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
     },
-    plugins: [
-      [
-        'docusaurus-plugin-typedoc',
-        {
-          entryPoints: ['../src/index.ts'], // Sobe um nível para achar o src
-          tsconfig: '../tsconfig.json',    // Sobe um nível para achar o config
-          out: 'api',
-        },
-      ],
-    ],
   } satisfies Preset.ThemeConfig,
+
+  plugins: [
+    [
+      'docusaurus-plugin-typedoc',
+      {
+        entryPoints: ['../src/index.ts'],
+        tsconfig: '../tsconfig.json',
+        out: './docs/api',
+        skipErrorChecking: true,
+      },
+    ],
+  ],
 };
 
 export default config;

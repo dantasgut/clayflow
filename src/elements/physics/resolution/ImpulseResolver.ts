@@ -133,38 +133,22 @@ export class ImpulseResolver implements CollisionResolver {
         if (dynB && velB) ContactImpulseKernel.applyScalar(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, j, nx, ny, nz, a.rBxDx, a.rBxDy, a.rBxDz, invMB);
 
         // ── Atrito de Coulomb ────────────────────────────────────────────────
+        // isMultiContact: usa velocidade linear pura (sem ω×r) para evitar
+        // sobre-estimulação rotacional em contatos face-face com 4 pontos.
         const frX = isMultiContact ? (velA ? (velA[0] ?? 0) : 0) - (velB ? (velB[0] ?? 0) : 0) : vRelX;
         const frY = isMultiContact ? (velA ? (velA[1] ?? 0) : 0) - (velB ? (velB[1] ?? 0) : 0) : vRelY;
         const frZ = isMultiContact ? (velA ? (velA[2] ?? 0) : 0) - (velB ? (velB[2] ?? 0) : 0) : vRelZ;
-        const frN      = frX * nx + frY * ny + frZ * nz;
-        const vRelXt   = frX - frN * nx;
-        const vRelYt   = frY - frN * ny;
-        const vRelZt   = frZ - frN * nz;
-        const vRelTLen = Math.sqrt(vRelXt ** 2 + vRelYt ** 2 + vRelZt ** 2);
-
-        if (vRelTLen > 1e-6) {
-            const tx = -vRelXt / vRelTLen;
-            const ty = -vRelYt / vRelTLen;
-            const tz = -vRelZt / vRelTLen;
-
-            const af = ContactImpulseKernel.axis(
-                rAx, rAy, rAz, rBx, rBy, rBz,
-                tx, ty, tz,
-                invMA, invMB, dynA, dynB,
-                isMultiContact ? null : IA,
-                isMultiContact ? null : IB,
-            );
-            if (af.wSum > 0) {
-                const muA   = entryA ? (entryA.body.get<number>('friction') ?? this.friction) : this.friction;
-                const muB   = entryB ? (entryB.body.get<number>('friction') ?? this.friction) : this.friction;
-                const mu    = Math.min(muA, muB);
-                // jTMax usa invSumTrans (translacional) como proxy do impulso normal
-                const jTMax = mu * (-(1.0 + effectiveE) * vRelN / invSumTrans * weight);
-                const jT    = Math.min(vRelTLen / af.wSum, jTMax);
-
-                if (dynA && velA) ContactImpulseKernel.applyScalar(velA, isMultiContact ? null : omegaA, isMultiContact ? null : IA, +1, jT, tx, ty, tz, af.rAxDx, af.rAxDy, af.rAxDz, invMA);
-                if (dynB && velB) ContactImpulseKernel.applyScalar(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, jT, tx, ty, tz, af.rBxDx, af.rBxDy, af.rBxDz, invMB);
-            }
-        }
+        const muA    = entryA ? (entryA.body.get<number>('friction') ?? this.friction) : this.friction;
+        const muB    = entryB ? (entryB.body.get<number>('friction') ?? this.friction) : this.friction;
+        const mu     = ContactImpulseKernel.combineMu(muA, muB);
+        const jNProxy = -(1.0 + effectiveE) * vRelN / invSumTrans * weight;
+        ContactImpulseKernel.applyFriction(
+            velA, isMultiContact ? null : omegaA, isMultiContact ? null : IA,
+            velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB,
+            rAx, rAy, rAz, rBx, rBy, rBz,
+            invMA, invMB, dynA, dynB,
+            frX, frY, frZ, nx, ny, nz,
+            jNProxy, mu,
+        );
     }
 }
