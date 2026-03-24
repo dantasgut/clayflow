@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsSt
 import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
+import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 
 /**
  * Estágio 6a do pipeline PBD — Recuperação de velocidades.
@@ -69,26 +70,20 @@ export class PBDVelocityRecoveryStage implements PhysicsStage {
             }
 
             if (rot && rotOld) {
-                const nx_ = rot[0] ?? 0;
-                const ny_ = rot[1] ?? 0;
-                const nz_ = rot[2] ?? 0;
-                const nw  = rot[3] ?? 1;
                 const [ox, oy, oz, ow] = rotOld;
-                // Δq = q_new ⊗ conj(q_old),  conj([x,y,z,w]) = [−x,−y,−z,w]
-                const dqx =  nw * (-ox!) + nx_ * ow! + ny_ * (-oz!) - nz_ * (-oy!);
-                const dqy =  nw * (-oy!) - nx_ * (-oz!) + ny_ * ow! + nz_ * (-ox!);
-                const dqz =  nw * (-oz!) + nx_ * (-oy!) - ny_ * (-ox!) + nz_ * ow!;
-                const dqw =  nw * ow!    + nx_ * ox!    + ny_ * oy!    + nz_ * oz!;
-                // omega = 2 · Δq.xyz / dt  (sinal de dqw para o caminho curto)
-                const sign = dqw >= 0 ? 1 : -1;
-                const wx   = sign * 2 * dqx / dt * angFactor;
-                const wy   = sign * 2 * dqy / dt * angFactor;
-                const wz   = sign * 2 * dqz / dt * angFactor;
+                const [wx, wy, wz] = QuaternionUtils.deltaOmega(
+                    rot[0] ?? 0, rot[1] ?? 0, rot[2] ?? 0, rot[3] ?? 1,
+                    ox!, oy!, oz!, ow!,
+                    dt,
+                );
+                const wxD = wx * angFactor;
+                const wyD = wy * angFactor;
+                const wzD = wz * angFactor;
                 const omega = body.get<vec3>('angularVelocity');
                 if (omega) {
-                    omega[0] = wx; omega[1] = wy; omega[2] = wz;
+                    omega[0] = wxD; omega[1] = wyD; omega[2] = wzD;
                 } else {
-                    body.set('angularVelocity', new Float32Array([wx, wy, wz]) as unknown as vec3);
+                    body.set('angularVelocity', new Float32Array([wxD, wyD, wzD]) as unknown as vec3);
                 }
             }
         }

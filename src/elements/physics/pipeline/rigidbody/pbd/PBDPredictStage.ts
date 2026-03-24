@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsSt
 import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
+import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 
 /**
  * Estágio 2 do pipeline PBD — Predição de posição e rotação.
@@ -56,27 +57,12 @@ export class PBDPredictStage implements PhysicsStage {
             // ── Prediz rotação: q' = normalize(q + 0.5 · Ω ⊗ q · dt) ────────
             // Mesma fórmula do IntegrationStage — Ω = [ωx, ωy, ωz, 0]
             if (rot && omega) {
-                const wx = (omega[0] ?? 0) * 0.5 * dt;
-                const wy = (omega[1] ?? 0) * 0.5 * dt;
-                const wz = (omega[2] ?? 0) * 0.5 * dt;
-                const qx = rot[0] ?? 0;
-                const qy = rot[1] ?? 0;
-                const qz = rot[2] ?? 0;
-                const qw = rot[3] ?? 1;
-                rot[0] = qx + (wx * qw + wy * qz - wz * qy);
-                rot[1] = qy + (wy * qw + wz * qx - wx * qz);
-                rot[2] = qz + (wz * qw + wx * qy - wy * qx);
-                rot[3] = qw + (-wx * qx - wy * qy - wz * qz);
-                const len = Math.sqrt(
-                    (rot[0] ?? 0) ** 2 + (rot[1] ?? 0) ** 2 +
-                    (rot[2] ?? 0) ** 2 + (rot[3] ?? 0) ** 2,
+                QuaternionUtils.integrateOmega(
+                    rot,
+                    (omega[0] ?? 0) * 0.5 * dt,
+                    (omega[1] ?? 0) * 0.5 * dt,
+                    (omega[2] ?? 0) * 0.5 * dt,
                 );
-                if (len > 1e-6) {
-                    rot[0] = (rot[0] ?? 0) / len;
-                    rot[1] = (rot[1] ?? 0) / len;
-                    rot[2] = (rot[2] ?? 0) / len;
-                    rot[3] = (rot[3] ?? 0) / len;
-                }
             }
         }
     }
