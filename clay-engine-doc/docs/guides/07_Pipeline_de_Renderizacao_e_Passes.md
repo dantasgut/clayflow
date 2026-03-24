@@ -67,6 +67,28 @@ const gpuStatePipelineOuro = device.createRenderPipeline({
 // RESULTADO PÓS-COMPILAÇÃO OBTIDO. AGORA DEVEMOS DESENHAR E USÁ-LO!
 ```
 
+```mermaid
+flowchart TD
+    VA["Input Assembler\nVertexBuffer + IndexBuffer\nstride, offset, format"]
+    VS["Vertex Shader\n@vertex fn(in: VertexInput) → @builtin(position)\nAcessa @group(0): camera, model matrix"]
+    PA["Primitive Assembly\ntopology: triangle-list\ncullMode: back / front / none\nfrontFace: ccw"]
+    RAST["Rasterização\nConverte triângulos → fragmentos\nInterpolação de atributos (barycentric)\nEarly depth test (depthCompare: less)"]
+    FS["Fragment Shader\n@fragment fn(in: FragmentInput) → @location(0)\nAcessa @group(1): texturas, samplers\nCalcula cor final (PBR, Lambertian)"]
+    BLEND["Output Merger / Blending\nsrcFactor: src-alpha\ndstFactor: one-minus-src-alpha\nEscreve em colorAttachment"]
+    DS["Depth / Stencil\ndepthStencil: { format: depth24plus\ndepthWriteEnabled: true }"]
+
+    VA --> VS --> PA --> RAST
+    RAST --> FS
+    RAST --> DS
+    DS -->|"passa depth test"| FS
+    FS --> BLEND
+
+    style VS fill:#4ecdc4
+    style FS fill:#4ecdc4
+    style RAST fill:#f38181
+    style BLEND fill:#ffe66d
+```
+
 ## 7.2 Programmable Passes (A Execução `beginRenderPass`)
 
 Pipeline criado não tem ligação com a realidade até enfiá-lo no Gravador de Comandos (Capítulo 3). Criamos os comandos gráficos englobando tudo num `GPURenderPassEncoder`.
@@ -120,6 +142,37 @@ const renderPassFísico = encoderCena.beginRenderPass(configDrawFinal);
 
 renderPassFísico.end(); // Assine a fita. Fim de Frame
 /* ENVIE TUDO VIA QUEUE!! QUEUE.SUBMIT([]) */
+```
+
+```mermaid
+sequenceDiagram
+    participant CPU as CPU (JS)
+    participant GPU as GPU Pipeline
+
+    CPU->>GPU: pass.setPipeline(renderPipeline)
+    Note right of GPU: Ativa shaders compilados\ne estado fixo
+
+    CPU->>GPU: pass.setBindGroup(0, cameraGroup)
+    Note right of GPU: Vincula UBOs de câmera\ne model matrix
+
+    CPU->>GPU: pass.setBindGroup(1, materialGroup)
+    Note right of GPU: Vincula texturas,\nsamplers, material constants
+
+    CPU->>GPU: pass.setVertexBuffer(0, mesh.vb)
+    CPU->>GPU: pass.setIndexBuffer(mesh.ib, 'uint16')
+
+    CPU->>GPU: pass.drawIndexed(indexCount)
+    Note right of GPU: Lança indexCount/3 triângulos\nem paralelo na GPU
+
+    loop Para cada objeto adicional
+        CPU->>GPU: setBindGroup(0, ..., [dynamicOffset])
+        CPU->>GPU: setBindGroup(1, material2)
+        CPU->>GPU: setVertexBuffer / setIndexBuffer
+        CPU->>GPU: drawIndexed(count)
+    end
+
+    CPU->>GPU: pass.end()
+    CPU->>GPU: queue.submit([encoder.finish()])
 ```
 
 ## 7.3 Criação Assíncrona de Pipeline

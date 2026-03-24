@@ -61,7 +61,38 @@ encoder.copyTextureToBuffer(
 const asOrdensMatadoras = encoder.finish(); 
 
 // 3. O Despacho (Submiting para a GPU de Verdade via Queue)
-device.queue.submit([ asOrdensMatadoras ]); 
+device.queue.submit([ asOrdensMatadoras ]);
+```
+
+```mermaid
+flowchart LR
+    subgraph CPU["CPU (RAM)"]
+        JS["JavaScript\nFloat32Array / Uint8Array"]
+        StagingBuf["Staging Buffer\n(MAP_WRITE | COPY_SRC)\nmappedAtCreation: true"]
+    end
+
+    subgraph GPU["GPU (VRAM)"]
+        DeviceBuf["Device Buffer\n(COPY_DST | VERTEX/UNIFORM/STORAGE)\nNão mapeável diretamente"]
+        Texture["GPUTexture\nCOPY_DST"]
+    end
+
+    JS -->|"queue.writeBuffer()\ndireto, sem staging"| DeviceBuf
+    JS -->|"queue.writeTexture()\nou createTexture + copyExternalImageToTexture"| Texture
+    JS -->|"getMappedRange() → write → unmap"| StagingBuf
+    StagingBuf -->|"encoder.copyBufferToBuffer()\nno CommandEncoder"| DeviceBuf
+
+    subgraph "Leitura GPU → CPU"
+        ReadBuf["Read Buffer\n(MAP_READ | COPY_DST)"]
+        JS2["JavaScript\nawait mapAsync(READ)\ngetMappedRange()"]
+    end
+
+    DeviceBuf -->|"encoder.copyBufferToBuffer()"| ReadBuf
+    ReadBuf -->|"await mapAsync(GPUMapMode.READ)"| JS2
+
+    style CPU fill:#4ecdc4
+    style GPU fill:#f38181
+    style JS fill:#ffe66d
+    style JS2 fill:#ffe66d
 ```
 
 ### Limpando regiões de buffer

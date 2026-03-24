@@ -27,11 +27,55 @@ Todos os objetos WebGPU herdam de `GPUObjectBase`:
 - **`label`** — string de debug; aparece em mensagens de erro do driver
 - **`destroy()`** — libera VRAM imediatamente, sem esperar o GC do JS
 
-```
-navigator.gpu
-  └── GPUAdapter          — representa o hardware físico (features, limits)
-        └── GPUDevice     — fábrica central; cria todos os outros objetos
-              └── GPUQueue — única fila padrão; submete e escreve dados
+```mermaid
+flowchart TD
+    GPU["navigator.gpu"]
+    Adapter["GPUAdapter\n(hardware físico — features, limits)"]
+    Device["GPUDevice\n(fábrica central de todos os objetos)"]
+    Queue["GPUQueue\n(única fila — submete e escreve dados)"]
+
+    subgraph "Recursos (VRAM)"
+        Buffer["GPUBuffer\n(array de bytes — VERTEX, INDEX, UNIFORM, STORAGE)"]
+        Texture["GPUTexture + GPUTextureView"]
+        Sampler["GPUSampler\n(como amostrar textura)"]
+    end
+    subgraph "Binding"
+        BGL["GPUBindGroupLayout\n(contrato abstrato)"]
+        BG["GPUBindGroup\n(instância concreta de recursos)"]
+        PL["GPUPipelineLayout"]
+    end
+    subgraph "Pipelines"
+        SM["GPUShaderModule\n(código WGSL compilado)"]
+        RP["GPURenderPipeline\n(imutável após criação)"]
+        CP["GPUComputePipeline"]
+    end
+    subgraph "Gravação de Comandos"
+        CE["GPUCommandEncoder\n(temporário, descartado após submit)"]
+        RPE["GPURenderPassEncoder"]
+        CPE["GPUComputePassEncoder"]
+        RB["GPURenderBundle\n(pré-gravado, reutilizável)"]
+    end
+
+    GPU --> Adapter --> Device --> Queue
+    Device --> Buffer
+    Device --> Texture
+    Device --> Sampler
+    Device --> BGL
+    Device --> SM
+    Device --> RP
+    Device --> CP
+    Device --> CE
+    Device --> RB
+    BGL --> PL
+    BG --> RP
+    CE --> RPE
+    CE --> CPE
+    SM --> RP
+    SM --> CP
+
+    style GPU fill:#ff6b6b
+    style Device fill:#f38181
+    style Queue fill:#ffa07a
 ```
 
 ---
@@ -247,30 +291,50 @@ device.lost.then(info => { /* recriar device */ });
 
 ## Fluxo Completo por Frame
 
-```
-JS (Content Timeline)
-│
-├─ queue.writeBuffer / writeTexture      ← atualiza dados dinâmicos (uniforms, posições)
-│
-├─ createCommandEncoder()
-│     ├─ beginComputePass()              ← física, IA, simulações
-│     │     setPipeline / setBindGroup / dispatchWorkgroups
-│     │     end()
-│     │
-│     ├─ beginRenderPass()               ← rasterização
-│     │     setPipeline / setBindGroup
-│     │     setVertexBuffer / setIndexBuffer
-│     │     setViewport / setScissorRect
-│     │     executeBundles([...])        ← geometria estática pré-gravada
-│     │     draw / drawIndexed           ← geometria dinâmica
-│     │     end()
-│     │
-│     └─ finish()  →  GPUCommandBuffer
-│
-└─ queue.submit([commandBuffer])
-         │
-         ▼
-   Queue Timeline (GPU executa)
+```mermaid
+sequenceDiagram
+    participant JS as JS (Content Timeline)
+    participant D as Device (Validação)
+    participant GPU as GPU (Queue Timeline)
+
+    JS->>D: queue.writeBuffer(uniformBuffer, transforms)
+    JS->>D: queue.writeBuffer(cameraUBO, viewProj)
+
+    JS->>JS: createCommandEncoder()
+
+    rect rgb(180, 220, 255)
+    Note over JS: Compute Pass (Física / IA)
+    JS->>JS: beginComputePass()
+    JS->>JS: setPipeline / setBindGroup
+    JS->>JS: dispatchWorkgroups(x, y, z)
+    JS->>JS: end()
+    end
+
+    rect rgb(180, 255, 200)
+    Note over JS: Render Pass (Rasterização)
+    JS->>JS: beginRenderPass()
+    loop Para cada objeto
+        JS->>JS: setBindGroup(0, cameraBindGroup)
+        JS->>JS: setBindGroup(1, materialBindGroup)
+        JS->>JS: setVertexBuffer / setIndexBuffer
+        JS->>JS: drawIndexed(count)
+    end
+    JS->>JS: executeBundles([bundles])
+    JS->>JS: end()
+    end
+
+    JS->>D: encoder.finish() → CommandBuffer
+    JS->>GPU: queue.submit([commandBuffer])
+
+    par GPU executa em paralelo
+        GPU->>GPU: Dispatch compute shaders
+        GPU->>GPU: Execute vertex shaders
+        GPU->>GPU: Rasterize fragments
+        GPU->>GPU: Execute fragment shaders
+        GPU->>GPU: Write to canvas texture
+    end
+
+    GPU-->>JS: onSubmittedWorkDone() Promise
 ```
 
 ---

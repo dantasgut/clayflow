@@ -61,6 +61,32 @@ const machadoGiganteVerdeFogo = device.createBindGroup({
 // A Espada 2 seria IDÊNTICA. Copiar/Colar o código acima, trocar só "meuBufferXYZLeste8" para "binding 0"! E assim se forma uma Hierarquia/Material gráfico reutilizável assombrosamente veloz!
 ```
 
+```mermaid
+flowchart TD
+    subgraph "Definição (Boot — uma vez)"
+        BGL["GPUBindGroupLayout\n(Contrato abstrato)\nentry 0: buffer UNIFORM\nentry 1: texture 2d float\nentry 2: sampler filtering"]
+        PL["GPUPipelineLayout\n(agrupa múltiplos BGL)"]
+        BGL --> PL
+    end
+
+    subgraph "Instanciação (por material/objeto)"
+        BG["GPUBindGroup\n(Instância concreta)\nbinding 0: cameraUBO\nbinding 1: albedoView\nbinding 2: linearSampler"]
+    end
+
+    subgraph "Consumo no Shader WGSL"
+        WGSL["@group(0) @binding(0) var<uniform> camera: CameraData\n@group(0) @binding(1) var albedo: texture_2d<f32>\n@group(0) @binding(2) var samp: sampler"]
+    end
+
+    BGL -->|"template para"| BG
+    PL -->|"usado em"| Pipeline["GPURenderPipeline"]
+    BG -->|"setBindGroup(0, bg)"| Pipeline
+    Pipeline -->|"expõe bindings ao"| WGSL
+
+    style BGL fill:#f38181
+    style BG fill:#4ecdc4
+    style WGSL fill:#ffe66d
+```
+
 ## 6.3 O Lado do WGSL (Destino)
 
 No código WGSL, a declaração refletirá rigorosamente a exata ordem abstrata para consumir e extrair os valores matemáticos puros na Física da Placa de Vídeo.
