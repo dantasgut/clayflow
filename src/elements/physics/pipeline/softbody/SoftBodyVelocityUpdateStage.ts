@@ -3,15 +3,16 @@ import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStage
 import type { SoftBody }            from '../../SoftBody';
 
 /**
- * Estágio 4 do pipeline XPBD SoftBody — Atualização de velocidade e posição.
+ * Estágio 4 do pipeline XPBD SoftBody — Derivação de velocidade.
  *
- * Após o solve de constraints, deriva velocidade a partir do deslocamento:
- *   vel = (p_pred - p_old) / dt
+ * Após o solve de constraints, deriva velocidade a partir do deslocamento
+ * entre a posição predita e a posição atual (ainda não commitada):
+ *   vel = (p_pred - p) / dt
  *
  * Aplica damping linear para dissipar energia residual:
- *   vel *= (1 - damping)
+ *   vel *= (1 - damping * dt)
  *
- * Commita a posição prevista como posição atual.
+ * A posição é commitada pelo stage seguinte: {@link SoftBodyPositionCommitStage}.
  */
 export class SoftBodyVelocityUpdateStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, dt: number): void {
@@ -30,10 +31,6 @@ export class SoftBodyVelocityUpdateStage implements PhysicsStage {
                 p.vx = (p.px - p.x) * invDt * dampFactor;
                 p.vy = (p.py - p.y) * invDt * dampFactor;
                 p.vz = (p.pz - p.z) * invDt * dampFactor;
-
-                p.x = p.px;
-                p.y = p.py;
-                p.z = p.pz;
             }
         }
     }
