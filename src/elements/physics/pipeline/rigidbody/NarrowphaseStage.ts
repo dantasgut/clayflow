@@ -25,9 +25,14 @@ import { NULL_TRANSFORM }           from '../../../../scene/math/NullTransform';
  *
  * **Convenção de normal:**
  *   O dispatcher normaliza a ordem dos argumentos (canônica: shape A ≤ shape B
- *   alfabeticamente) antes de invocar o algoritmo. O `signA` compensa a possível
- *   inversão, garantindo que a normal armazenada em `context.contacts` sempre
- *   aponte de B → A (direção de separação de A).
+ *   alfabeticamente) antes de invocar o algoritmo. A normal do manifold é sempre
+ *   no sentido canônico(A) → canônico(B). Como `entityIdA/B` seguem a ordem
+ *   do broadphase (não necessariamente canônica), `signA` compensa a possível
+ *   inversão, garantindo que a normal armazenada aponte de entityB → entityA
+ *   (direção de separação de A). Quando `a` é o shape canônico, o manifold já
+ *   aponta de B para A após negação (signA=-1). Quando `a` é não-canônico, o
+ *   dispatcher trocou os argumentos internamente, então a normal já está invertida
+ *   em relação a entityIdA/B e não precisa ser negada (signA=+1).
  *
  * **Evento de colisão:**
  *   Disparado uma única vez por par (no primeiro ponto de contato), independente
@@ -45,10 +50,12 @@ export class NarrowphaseStage implements PhysicsStage {
             const manifold = this.dispatcher.dispatch(a.collider, wma, b.collider, wmb);
             if (!manifold) continue;
 
-            // O dispatcher sempre reordena canonicamente antes de detect(),
-            // portanto a normal retornada é sempre no sentido A_canônico → B_canônico.
-            // signA = -1 inverte para a convenção armazenada: B → A (separação de A).
-            const signA = -1;
+            // O dispatcher reordena canonicamente antes de detect(), mas entityIdA/B
+            // seguem a ordem do broadphase (não necessariamente canônica).
+            // signA garante que a normal armazenada aponte de entityB → entityA
+            // (direção de separação de A), compensando a possível inversão.
+            const aIsCanonical = a.collider.colliderShape <= b.collider.colliderShape;
+            const signA = aIsCanonical ? -1 : 1;
 
             const nx = manifold.normal[0]! * signA;
             const ny = manifold.normal[1]! * signA;
