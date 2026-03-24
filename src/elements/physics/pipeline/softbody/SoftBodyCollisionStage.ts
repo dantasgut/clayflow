@@ -11,6 +11,11 @@ import type { Transform }           from '../../../../scene/math/Transform';
  * BoxShape, SphereShape, SDFCollider genérico), testa cada partícula e resolve
  * a penetração via projeção de posição e reflexão de velocidade.
  *
+ * Para `PlaneShape`, o SDF é o semiespaço infinito (`p·n - offset`): partículas
+ * em qualquer ponto abaixo do plano são corrigidas para a superfície, independente
+ * dos limites `halfWidth`/`halfDepth`. Esses limites são verificados apenas pelos
+ * algoritmos de colisão de corpo rígido (PlaneBoxCollision, PlaneSphereCollision).
+ *
  * Resolução por partícula:
  *   lp = invWorldMatrix · p_pred           (posição no espaço local do collider)
  *   d  = collider.sdf(lp)                  (distância assinalada — negativo = dentro)
@@ -68,11 +73,6 @@ export class SoftBodyCollisionStage implements PhysicsStage {
                     const lp = vec3.transformMat4(vec3.create(), wp, invWm);
                     const d  = sdf(lp);
                     if (d >= radius) continue;   // fora do alcance — sem contato
-
-                    // Rejeita partículas fora dos limites de um plano finito (duck-typing)
-                    const cs = shape.collider as unknown as { halfWidth?: number; halfDepth?: number };
-                    if (cs.halfWidth  !== undefined && Math.abs(lp[0]!) > cs.halfWidth)  continue;
-                    if (cs.halfDepth  !== undefined && Math.abs(lp[2]!) > cs.halfDepth)  continue;
 
                     // Gradiente do SDF no espaço local (diferenças finitas)
                     const gx = sdf(vec3.fromValues(lp[0]! + EPS, lp[1]!,       lp[2]!      )) - d;
