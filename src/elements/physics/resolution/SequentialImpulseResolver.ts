@@ -290,7 +290,7 @@ export class SequentialImpulseResolver implements CollisionResolver {
             if (af.wSum > 0) {
                 const muA   = entryA ? (entryA.body.get<number>('friction') ?? this.friction) : this.friction;
                 const muB   = entryB ? (entryB.body.get<number>('friction') ?? this.friction) : this.friction;
-                const mu    = Math.min(muA, muB);
+                const mu    = ContactImpulseKernel.combineMu(muA, muB);
 
                 // Cone de Coulomb: |λT| ≤ μ · λN (usa λN acumulado — fisicamente correto)
                 const λTMax = mu * λN_new;
@@ -304,8 +304,7 @@ export class SequentialImpulseResolver implements CollisionResolver {
                 const λTy_new = λTy_old + this.overRelaxation * ΔλT * ty;
                 const λTz_new = λTz_old + this.overRelaxation * ΔλT * tz;
 
-                const λTLen = Math.sqrt(λTx_new ** 2 + λTy_new ** 2 + λTz_new ** 2);
-                const scale = λTLen > λTMax && λTLen > 1e-10 ? λTMax / λTLen : 1;
+                const scale = ContactImpulseKernel.coulombVecScale(λTx_new, λTy_new, λTz_new, λTMax);
                 accumulated[1] = λTx_new * scale;
                 accumulated[2] = λTy_new * scale;
                 accumulated[3] = λTz_new * scale;

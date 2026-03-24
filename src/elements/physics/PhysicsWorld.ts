@@ -75,49 +75,27 @@ export interface PhysicsWorldOptions {
  * Orquestra o pipeline de física composto por estágios independentes
  * (Pipeline pattern). Cada estágio encapsula uma fase única da simulação.
  *
- * ═══════════════════════════════════════════════════════════════════════════
- * PIPELINE DE FÍSICA — executado a cada frame em `step(scene, dt)`
- * ═══════════════════════════════════════════════════════════════════════════
+ * ## Pipeline de Física — `step(scene, dt)`
  *
  * O frame dt é dividido em N substeps (padrão: 8) para estabilidade numérica.
  * O pipeline de substeps roda N vezes; SyncStage roda uma única vez ao final.
  *
- *  ┌─ loop substeps (N × substepDt) ──────────────────────────────────────┐
- *  │                                                                       │
- *  │  1. ForceStage          Acumula forças globais (gravidade, etc.) e   │
- *  │                         executa o solver: netForce → velocity,        │
- *  │                         aplica linearDamping e angularDamping.        │
- *  │                                                                       │
- *  │  2. BroadphaseStage     Sincroniza worldMatrix dos corpos com suas   │
- *  │                         posições físicas atuais; detecta pares de    │
- *  │                         colisores com AABBs sobrepostas (O(n²)).     │
- *  │                                                                       │
- *  │  3. NarrowphaseStage    Testa pares candidatos com o algoritmo       │
- *  │                         exato para cada par de formas (dispatcher);  │
- *  │                         gera CollisionContacts com normal, depth,    │
- *  │                         pontos de contato e weight = 1/N.            │
- *  │                                                                       │
- *  │  4. CollisionResolutionStage                                         │
- *  │                         Aplica impulso normal (restituição) e        │
- *  │                         tangencial (atrito de Coulomb) em cada       │
- *  │                         contato; corrige posição (depenetração).     │
- *  │                                                                       │
- *  │  5. IntegrationStage    Integra velocity → position (Euler) e       │
- *  │                         angularVelocity → rotation (quaternion).     │
- *  │                                                                       │
- *  │  6. SleepStage          Coloca em sono corpos cujas velocidades      │
- *  │                         ficaram abaixo dos limiares por tempo        │
- *  │                         suficiente; elimina micro-impulsos residuais. │
- *  │                                                                       │
- *  └───────────────────────────────────────────────────────────────────────┘
+ * ```mermaid
+ * flowchart TD
+ *     subgraph loop["🔁 loop substeps (N × substepDt, padrão N=8)"]
+ *         F["1. ForceStage\nAcumula forças globais\nnetForce → velocity\nlinearDamping + angularDamping"]
+ *         B["2. BroadphaseStage\nSincroniza worldMatrix\nDetecta pares AABB O(n²)"]
+ *         N["3. NarrowphaseStage\nDispatcher por par de formas\nGera CollisionContacts"]
+ *         R["4. CollisionResolutionStage\nImpulso normal + tangencial\nCorreção de penetração"]
+ *         I["5. IntegrationStage\nvelocity → position\nangularVelocity → quaternion"]
+ *         S["6. SleepStage\nCorpos lentos → sleep\nElimina micro-impulsos"]
+ *         F --> B --> N --> R --> I --> S
+ *     end
+ *     Sync["7. SyncStage — 1× por frame\nbody.position/rotation → Transform visual"]
+ *     loop --> Sync
+ * ```
  *
- *  7. SyncStage (1× por frame)
- *                         Copia body.position/rotation → Transform visual,
- *                         tornando o resultado visível ao renderer.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * REGISTRO EVENT-DRIVEN
- * ═══════════════════════════════════════════════════════════════════════════
+ * ## Registro Event-Driven
  *
  * Modificações no grafo de cena (addChild / removeChild) durante step() são
  * diferidas em filas (`pendingAdd`, `pendingRemove`) e processadas no início

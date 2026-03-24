@@ -161,4 +161,106 @@ export class ContactImpulseKernel {
     static combineMu(muA: number, muB: number): number {
         return muA > 0 && muB > 0 ? Math.sqrt(muA * muB) : Math.max(muA, muB);
     }
+
+    /**
+     * Limite de Coulomb escalar: min(jT, μ · jN).
+     *
+     * Usado pelos resolvers de 1-pass (ImpulseResolver, PBDContactResponseStage)
+     * onde o impulso tangencial é calculado diretamente sem acumulação vetorial.
+     */
+    static clampCoulombScalar(jT: number, jN: number, mu: number): number {
+        return Math.min(jT, mu * jN);
+    }
+
+    /**
+     * Retorna o fator de escala para clamp de magnitude de λT vetorial.
+     *
+     *   scale = λTMax / |λT|  se  |λT| > λTMax,  senão 1.
+     *
+     * Usado pelo SequentialImpulseResolver (PGS) onde λT é acumulado como
+     * vetor 3D entre iterações. Retorna apenas o escalar para evitar alocação
+     * de array em hot path — o chamador aplica `λT *= scale` inline.
+     */
+    static coulombVecScale(λTx: number, λTy: number, λTz: number, λTMax: number): number {
+        const len = Math.sqrt(λTx * λTx + λTy * λTy + λTz * λTz);
+        return len > λTMax && len > 1e-10 ? λTMax / len : 1;
+    }
+
+    /**
+     * Aplica impulso de atrito de Coulomb de 1-pass entre dois corpos.
+     *
+     * Encapsula a sequência completa do atrito tangencial:
+     *   1. Projeta velocidade relativa na tangente: t̂ = (vRel − (vRel·n)·n) / |...|
+     *   2. Calcula massa efetiva tangencial via axis(t̂)
+     *   3. Clampeia ao cone de Coulomb: jT = min(|vRelT|/wSum, μ·jN)
+     *   4. Aplica impulsos ±jT·t̂ a ambos os corpos
+     *
+     * Adequado para resolvers de 1-pass (ImpulseResolver, PBDContactResponseStage).
+     * O SequentialImpulseResolver mantém atrito inline por precisar de acumulação
+     * vetorial (PGS) e friction anchors entre iterações.
+     *
+     * @param rvx/rvy/rvz  Velocidade relativa no ponto de contato (vA_cp − vB_cp)
+     * @param jN           Proxy do impulso normal (limite de Coulomb = μ · jN)
+     */
+    static applyFriction(
+        velA: vec3 | null | undefined, omegaA: vec3 | null | undefined, IA: vec3 | null | undefined,
+        velB: vec3 | null | undefined, omegaB: vec3 | null | undefined, IB: vec3 | null | undefined,
+        rAx: number, rAy: number, rAz: number,
+        rBx: number, rBy: number, rBz: number,
+        invMA: number, invMB: number,
+        dynA: boolean, dynB: boolean,
+        rvx: number, rvy: number, rvz: number,
+        nx:  number, ny:  number, nz:  number,
+        jN: number, mu: number,
+    ): void {
+        const rvn  = rvx * nx + rvy * ny + rvz * nz;
+        const tx   = rvx - rvn * nx;
+        const ty   = rvy - rvn * ny;
+        const tz   = rvz - rvn * nz;
+        const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz);
+        if (tLen < 1e-8) return;
+
+        const invLen = 1 / tLen;
+        const ttx = tx * invLen;
+        const tty = ty * invLen;
+        const ttz = tz * invLen;
+
+        const af = ContactImpulseKernel.axis(
+            rAx, rAy, rAz, rBx, rBy, rBz,
+            ttx, tty, ttz,
+            invMA, invMB, dynA, dynB, IA, IB,
+        );
+        if (af.wSum <= 0) return;
+
+        const jT = ContactImpulseKernel.clampCoulombScalar(tLen / af.wSum, jN, mu);
+        if (dynA && velA) ContactImpulseKernel.applyScalar(velA, omegaA, IA, -1, jT, ttx, tty, ttz, af.rAxDx, af.rAxDy, af.rAxDz, invMA);
+        if (dynB && velB) ContactImpulseKernel.applyScalar(velB, omegaB, IB, +1, jT, ttx, tty, ttz, af.rBxDx, af.rBxDy, af.rBxDz, invMB);
+    }
+
+    /**
+     * Correção giroscópica in-place: Δω = −I⁻¹ · (ω × I·ω) · dt.
+     *
+     * Compensa o drift de energia que a integração de Euler simples introduz
+     * em corpos com tensor de inércia assimétrico girando sobre eixos
+     * não-principais (bastão, placa).
+     */
+    static gyroscopic(omega: vec3, IA: vec3, dt: number): void {
+        const wx = omega[0] ?? 0;
+        const wy = omega[1] ?? 0;
+        const wz = omega[2] ?? 0;
+        const Ix = Math.max(IA[0]!, 1e-6);
+        const Iy = Math.max(IA[1]!, 1e-6);
+        const Iz = Math.max(IA[2]!, 1e-6);
+        // I·ω no frame diagonal
+        const Iωx = Ix * wx;
+        const Iωy = Iy * wy;
+        const Iωz = Iz * wz;
+        // Torque giroscópico: ω × (I·ω)
+        const gyroX = wy * Iωz - wz * Iωy;
+        const gyroY = wz * Iωx - wx * Iωz;
+        const gyroZ = wx * Iωy - wy * Iωx;
+        omega[0] = wx - gyroX / Ix * dt;
+        omega[1] = wy - gyroY / Iy * dt;
+        omega[2] = wz - gyroZ / Iz * dt;
+    }
 }

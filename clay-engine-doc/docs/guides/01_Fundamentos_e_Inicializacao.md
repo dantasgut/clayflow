@@ -60,6 +60,31 @@ A spec W3C define três contextos de execução separados:
 
 A comunicação de volta ao JS (leitura de buffer, fim de trabalho) é sempre assíncrona via Promises.
 
+```mermaid
+sequenceDiagram
+    participant CT as Content Timeline (JS)
+    participant DT as Device Timeline (Validação)
+    participant QT as Queue Timeline (GPU)
+
+    CT->>CT: createBuffer() / createTexture()
+    CT->>DT: Envio assíncrono de descritores
+    DT->>DT: Valida formato e usage
+    DT-->>CT: GPUBuffer / GPUTexture pronto
+
+    CT->>CT: device.createCommandEncoder()
+    CT->>CT: pass.setPipeline / draw
+    CT->>CT: encoder.finish() → CommandBuffer
+
+    CT->>QT: queue.submit([commandBuffer])
+    Note over QT: Execução paralela real na GPU
+    QT->>QT: Vertex shaders
+    QT->>QT: Rasterização
+    QT->>QT: Fragment shaders
+    QT-->>CT: onSubmittedWorkDone()
+
+    Note over CT,QT: JS nunca bloqueia — todas as chamadas\nsão "fire and forget" (Promise-based)
+```
+
 ## 1.4 Errors e Debugging
 
 O `GPUDevice` isola as falhas. Se você envia comandos corrompidos para a VRAM, a página inteira não cai, mas o Objeto gerado torna-se "inválido".

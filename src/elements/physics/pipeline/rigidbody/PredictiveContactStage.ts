@@ -1,6 +1,7 @@
 import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { Transform }           from '../../../../scene/math/Transform';
+import type { Entity }              from '../../../../scene/core/Entity';
 import type { vec3 }                from 'gl-matrix';
 import { mat4 }                     from 'gl-matrix';
 import { CollisionDispatcher }      from '../../collision/CollisionDispatcher';
@@ -112,7 +113,7 @@ export class PredictiveContactStage implements PhysicsStage {
     }
 
     private predictedMatrix(
-        entity: import('../../../../scene/core/Entity').Entity,
+        entity: Entity,
         vel:    vec3 | undefined,
         dt:     number,
     ): mat4 {

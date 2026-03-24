@@ -55,9 +55,16 @@ Os atributos do vértice vivem num `GPUBuffer` com flag `VERTEX`. O layout de me
 
 **Interleaved (recomendado):** todos os atributos do mesmo vértice contíguos na memória. Melhor para o cache da GPU — um único fetch traz o vértice inteiro.
 
-```
-[ pos(12) | normal(12) | tangent(16) | uv(8) ][ pos(12) | normal(12) | ... ]
-  ←────────────── stride: 48 bytes ──────────→
+```mermaid
+flowchart LR
+    subgraph "Vertex Stride: 48 bytes"
+        direction LR
+        pos["pos\noffset 0\n12 bytes"]
+        normal["normal\noffset 12\n12 bytes"]
+        tangent["tangent\noffset 24\n16 bytes"]
+        uv["uv\noffset 40\n8 bytes"]
+        pos --- normal --- tangent --- uv
+    end
 ```
 
 **Separado (separate streams):** cada atributo em buffer próprio. Flexível para atualizar apenas posições (animação) sem reenviar normais e UVs.
@@ -245,9 +252,23 @@ A malha existe em **espaço local** — centrada em `(0,0,0)` com orientação c
 
 ### 3.1 Os Quatro Espaços
 
-```
-Local Space  →[M]→  World Space  →[V]→  View Space  →[P]→  Clip Space  →÷w→  NDC
-(objeto)             (cena)              (câmera)            (projeção)        (tela)
+```mermaid
+flowchart LR
+    LS["Local Space\n(objeto)"]
+    WS["World Space\n(cena)"]
+    VS["View Space\n(câmera)"]
+    CS["Clip Space\n(projeção)"]
+    NDC["NDC\n(÷w)"]
+    SS["Screen Space\n(viewport)"]
+
+    LS -->|"× Model Matrix M"| WS
+    WS -->|"× View Matrix V"| VS
+    VS -->|"× Projection Matrix P"| CS
+    CS -->|"÷ w (perspectiva)"| NDC
+    NDC -->|"Viewport Transform"| SS
+
+    style LS fill:#4ecdc4
+    style SS fill:#ffe66d
 ```
 
 | Espaço | Descrição |
@@ -382,40 +403,50 @@ renderPass.drawIndexed(mesh.indexCount, instanceCount);
 
 ## Como as Três Camadas se Integram por Frame
 
-```
-CPU (Content Timeline)
-│
-├─ 1. Atualiza transforms (JS calcula matrizes Model de objetos móveis)
-│      queue.writeBuffer(modelUBO, offset, newMatrix)
-│
-├─ 2. Atualiza câmera
-│      queue.writeBuffer(cameraUBO, 0, viewMatrix)
-│      queue.writeBuffer(cameraUBO, 64, projMatrix)
-│
-├─ 3. Grava Render Pass
-│      encoder.beginRenderPass(...)
-│        pass.setPipeline(pipeline)
-│
-│        // Grupo 0: câmera + dados globais de cena (troca uma vez)
-│        pass.setBindGroup(0, cameraBindGroup)
-│
-│        for each object:
-│          // Grupo 1: material do objeto (troca por material único)
-│          pass.setBindGroup(1, object.materialBindGroup)
-│
-│          // Geometria
-│          pass.setVertexBuffer(0, object.mesh.vertexBuffer)
-│          pass.setIndexBuffer(object.mesh.indexBuffer, 'uint16')
-│
-│          // Offset para a model matrix desse objeto no UBO
-│          pass.setBindGroup(0, cameraBindGroup, [object.index * 256])
-│
-│          pass.drawIndexed(object.mesh.indexCount)
-│
-│      pass.end()
-│      queue.submit([encoder.finish()])
-│
-GPU (Queue Timeline) executa tudo acima
+```mermaid
+sequenceDiagram
+    participant JS as JS (Content Timeline)
+    participant D as Device (Validação)
+    participant GPU as GPU (Queue Timeline)
+
+    JS->>D: queue.writeBuffer(uniformBuffer, transforms)
+    JS->>D: queue.writeBuffer(cameraUBO, viewProj)
+
+    JS->>JS: createCommandEncoder()
+
+    rect rgb(180, 220, 255)
+    Note over JS: Compute Pass (Física / IA)
+    JS->>JS: beginComputePass()
+    JS->>JS: setPipeline / setBindGroup
+    JS->>JS: dispatchWorkgroups(x, y, z)
+    JS->>JS: end()
+    end
+
+    rect rgb(180, 255, 200)
+    Note over JS: Render Pass (Rasterização)
+    JS->>JS: beginRenderPass()
+    loop Para cada objeto
+        JS->>JS: setBindGroup(0, cameraBindGroup)
+        JS->>JS: setBindGroup(1, materialBindGroup)
+        JS->>JS: setVertexBuffer / setIndexBuffer
+        JS->>JS: drawIndexed(count)
+    end
+    JS->>JS: executeBundles([bundles])
+    JS->>JS: end()
+    end
+
+    JS->>D: encoder.finish() → CommandBuffer
+    JS->>GPU: queue.submit([commandBuffer])
+
+    par GPU executa em paralelo
+        GPU->>GPU: Dispatch compute shaders
+        GPU->>GPU: Execute vertex shaders
+        GPU->>GPU: Rasterize fragments
+        GPU->>GPU: Execute fragment shaders
+        GPU->>GPU: Write to canvas texture
+    end
+
+    GPU-->>JS: onSubmittedWorkDone() Promise
 ```
 
 ### Custo de Cada Operação (ordem de custo crescente)
@@ -437,33 +468,39 @@ GPU (Queue Timeline) executa tudo acima
 
 ## Mapa de Relacionamentos: Malha × Material × Transform na VRAM
 
-```
-Mesh                         Material                    Transform
-──────────────────           ────────────────────        ──────────────────────
-GPUBuffer (VERTEX)           GPUTexture (albedo)         GPUBuffer (UNIFORM)
-  └─ setVertexBuffer()         └─ createView()             └─ model mat4 (64B)
-GPUBuffer (INDEX)            GPUTexture (normalMap)      GPUBuffer (UNIFORM)
-  └─ setIndexBuffer()          └─ createView()             └─ camera view+proj
-                             GPUSampler                  GPUBuffer (STORAGE)
-                               └─ filtering rules          └─ instances[N] mat4
-                             GPUBuffer (UNIFORM)
-                               └─ material constants
-                                  ↓
-                             GPUBindGroup (group 1)
-                               ├─ binding 0: albedoView
-                               ├─ binding 1: normalView
-                               ├─ binding 2: sampler
-                               └─ binding 3: materialUBO
-                                                          GPUBindGroup (group 0)
-                                                            ├─ binding 0: cameraUBO
-                                                            └─ binding 1: modelUBO
-                                                                (dynamic offset)
-                             ↓                            ↓
-                        GPURenderPipeline
-                          vertex:   @location(0..3) ← vertex buffer layout
-                          fragment: @group(1) textures + @group(0) camera
-                          primitive: triangle-list, cullMode: 'back'
-                          depthStencil: depth24plus, depthCompare: 'less'
+```mermaid
+flowchart TB
+    subgraph Mesh["Mesh (Geometria)"]
+        VB["GPUBuffer VERTEX\n└─ setVertexBuffer()"]
+        IB["GPUBuffer INDEX\n└─ setIndexBuffer()"]
+        VBL["VertexBufferLayout\nstride: 48 bytes"]
+    end
+
+    subgraph Material["Material (Aparência) → BindGroup Group 1"]
+        Albedo["GPUTexture Albedo\n└─ createView()"]
+        Normal["GPUTexture NormalMap\n└─ createView()"]
+        MatUBO["GPUBuffer UNIFORM\n└─ material constants"]
+        Samp["GPUSampler\n└─ filtering rules"]
+        MatBG["GPUBindGroup (group=1)\n├─ binding 0: albedoView\n├─ binding 1: normalView\n├─ binding 2: sampler\n└─ binding 3: materialUBO"]
+    end
+
+    subgraph Transform["Transform (Posição) → BindGroup Group 0"]
+        ModelUBO["GPUBuffer UNIFORM\n└─ model mat4 64B"]
+        CameraUBO["GPUBuffer UNIFORM\n└─ view + proj mat4"]
+        InstBuf["GPUBuffer STORAGE\n└─ instances[N] mat4"]
+        SceneBG["GPUBindGroup (group=0)\n├─ binding 0: modelUBO\n└─ binding 1: cameraUBO\n(dynamic offset)"]
+    end
+
+    Pipeline["GPURenderPipeline\nvertex: @location(0..3)\nfragment: @group(0) + @group(1)\nprimitive: triangle-list, back-cull\ndepth: depth24plus"]
+
+    Albedo & Normal & MatUBO & Samp --> MatBG
+    ModelUBO & CameraUBO & InstBuf --> SceneBG
+    VBL & MatBG & SceneBG --> Pipeline
+    VB & IB --> VBL
+
+    style Pipeline fill:#c7ceea
+    style MatBG fill:#ffe66d
+    style SceneBG fill:#95e1d3
 ```
 
 [⬅ Voltar para Computação](./09_Compute_Pass_e_Queries.md) | [**Navegar para o Índice Temático** 🏠](./WEBGPU_STUDY.md)

@@ -1,6 +1,6 @@
 # Interface: RigidBodySimConfig
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:12](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/simulation/RigidBodySimConfig.ts#L12)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:12](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/simulation/RigidBodySimConfig.ts#L12)
 
 Configuração da simulação de corpos rígidos.
 
@@ -16,7 +16,7 @@ ficam em `CollisionSimConfig`, pois são independentes do tipo de corpo.
 
 > `optional` **gyroscopic?**: `boolean`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/simulation/RigidBodySimConfig.ts#L20)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:20](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/simulation/RigidBodySimConfig.ts#L20)
 
 Habilita correção giroscópica (Δω = −I⁻¹·(ω × I·ω)·dt).
 Previne drift em corpos com tensor de inércia assimétrico girando
@@ -28,6 +28,6 @@ em alta velocidade (bastão, placa). Default: false.
 
 > `optional` **resolution?**: [`ResolutionConfig`](ResolutionConfig.md)
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:14](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/simulation/RigidBodySimConfig.ts#L14)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:14](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/simulation/RigidBodySimConfig.ts#L14)
 
 Método de resolução e seus parâmetros numéricos.

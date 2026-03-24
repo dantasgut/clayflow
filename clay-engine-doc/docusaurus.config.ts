@@ -5,6 +5,11 @@ import type * as Preset from '@docusaurus/preset-classic';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
+  markdown: {
+    mermaid: true,
+    format: 'detect',
+  },
+  themes: ['@docusaurus/theme-mermaid'],
   title: 'Clay Engine',
   tagline: 'Motor 3D WebGPU em TypeScript — física XPBD, rendering PBR e partículas GPU em tempo real',
   favicon: 'img/favicon.ico',
@@ -26,10 +31,6 @@ const config: Config = {
   projectName: 'clayflow',
 
   onBrokenLinks: 'warn',
-
-  markdown: {
-    format: 'detect',
-  },
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
