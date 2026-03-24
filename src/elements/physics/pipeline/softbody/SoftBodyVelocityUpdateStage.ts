@@ -48,10 +48,6 @@ export class SoftBodyVelocityUpdateStage extends BaseVelocityDerivationStage imp
                 p.vx = (p.px - p.x) * invDt * dampFactor;
                 p.vy = (p.py - p.y) * invDt * dampFactor;
                 p.vz = (p.pz - p.z) * invDt * dampFactor;
-
-                p.x = p.px;
-                p.y = p.py;
-                p.z = p.pz;
             }
         }
     }
