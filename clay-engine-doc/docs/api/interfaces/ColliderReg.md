@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / ColliderReg
-
 # Interface: ColliderReg
 
-Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/PhysicsStageContext.ts#L9)
+Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/PhysicsStageContext.ts#L9)
 
 Entrada de colisor — compartilhada entre estágios do pipeline.
 
@@ -16,7 +10,7 @@ Entrada de colisor — compartilhada entre estágios do pipeline.
 
 > **collider**: [`Collider`](../classes/Collider.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/PhysicsStageContext.ts#L9)
+Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/PhysicsStageContext.ts#L9)
 
 ***
 
@@ -24,4 +18,4 @@ Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgu
 
 > **entity**: [`Entity`](../classes/Entity.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/PhysicsStageContext.ts#L9)
+Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/PhysicsStageContext.ts#L9)

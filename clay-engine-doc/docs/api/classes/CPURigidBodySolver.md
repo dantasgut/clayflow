@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / CPURigidBodySolver
-
 # Class: CPURigidBodySolver
 
-Defined in: [elements/physics/solvers/CPURigidBodySolver.ts:12](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/solvers/CPURigidBodySolver.ts#L12)
+Defined in: [elements/physics/solvers/CPURigidBodySolver.ts:12](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/solvers/CPURigidBodySolver.ts#L12)
 
 Solver CPU para corpos rígidos (integrador de Euler semi-implícito).
 Lê propriedades via Property Bag — não depende de RigidBody concretamente.
@@ -34,7 +28,7 @@ Forças acumuladas pelo PhysicsWorld em 'netForce' são integradas aqui.
 
 > `readonly` **id**: `"cpu_rigid_body"` = `'cpu_rigid_body'`
 
-Defined in: [elements/physics/solvers/CPURigidBodySolver.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/solvers/CPURigidBodySolver.ts#L13)
+Defined in: [elements/physics/solvers/CPURigidBodySolver.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/solvers/CPURigidBodySolver.ts#L13)
 
 Identificador único do solver para logging e profiling.
 
@@ -48,7 +42,7 @@ Identificador único do solver para logging e profiling.
 
 > **solve**(`body`, `dt`): `void`
 
-Defined in: [elements/physics/solvers/CPURigidBodySolver.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/solvers/CPURigidBodySolver.ts#L15)
+Defined in: [elements/physics/solvers/CPURigidBodySolver.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/solvers/CPURigidBodySolver.ts#L15)
 
 Avança a simulação do corpo por um passo de tempo.
 

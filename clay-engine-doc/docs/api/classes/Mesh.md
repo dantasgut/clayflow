@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / Mesh
-
 # Class: Mesh
 
-Defined in: [scene/objects/Mesh.ts:18](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L18)
+Defined in: [scene/objects/Mesh.ts:18](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L18)
 
 Aggregate root da Camada 2 para objetos renderizáveis.
 O desenvolvedor instancia Mesh — nunca Entity vazia.
@@ -30,7 +24,7 @@ scene.add(mesh);
 
 > **new Mesh**(`geometry`, `material`): `Mesh`
 
-Defined in: [scene/objects/Mesh.ts:21](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L21)
+Defined in: [scene/objects/Mesh.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L21)
 
 #### Parameters
 
@@ -56,7 +50,7 @@ Defined in: [scene/objects/Mesh.ts:21](https://github.com/dantasgut/clayflow/blo
 
 > **children**: [`Entity`](Entity.md)[] = `[]`
 
-Defined in: [scene/core/Entity.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L20)
+Defined in: [scene/core/Entity.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L20)
 
 #### Inherited from
 
@@ -68,7 +62,7 @@ Defined in: [scene/core/Entity.ts:20](https://github.com/dantasgut/clayflow/blob
 
 > `readonly` **id**: `number` = `++Entity.nextId`
 
-Defined in: [scene/core/Entity.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L13)
+Defined in: [scene/core/Entity.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L13)
 
 #### Inherited from
 
@@ -80,7 +74,7 @@ Defined in: [scene/core/Entity.ts:13](https://github.com/dantasgut/clayflow/blob
 
 > **isEntity**: `boolean` = `true`
 
-Defined in: [scene/core/Entity.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L15)
+Defined in: [scene/core/Entity.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L15)
 
 #### Inherited from
 
@@ -92,7 +86,7 @@ Defined in: [scene/core/Entity.ts:15](https://github.com/dantasgut/clayflow/blob
 
 > **name**: `string` = `"Entity"`
 
-Defined in: [scene/core/Entity.ts:17](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L17)
+Defined in: [scene/core/Entity.ts:17](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L17)
 
 #### Inherited from
 
@@ -104,7 +98,7 @@ Defined in: [scene/core/Entity.ts:17](https://github.com/dantasgut/clayflow/blob
 
 > **parent**: [`Entity`](Entity.md) \| `null` = `null`
 
-Defined in: [scene/core/Entity.ts:19](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L19)
+Defined in: [scene/core/Entity.ts:19](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L19)
 
 #### Inherited from
 
@@ -116,7 +110,7 @@ Defined in: [scene/core/Entity.ts:19](https://github.com/dantasgut/clayflow/blob
 
 > **visible**: `boolean` = `true`
 
-Defined in: [scene/core/Entity.ts:16](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L16)
+Defined in: [scene/core/Entity.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L16)
 
 #### Inherited from
 
@@ -130,7 +124,7 @@ Defined in: [scene/core/Entity.ts:16](https://github.com/dantasgut/clayflow/blob
 
 > **get** **geometry**(): [`Geometry`](Geometry.md)
 
-Defined in: [scene/objects/Mesh.ts:38](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L38)
+Defined in: [scene/objects/Mesh.ts:38](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L38)
 
 ##### Returns
 
@@ -144,7 +138,7 @@ Defined in: [scene/objects/Mesh.ts:38](https://github.com/dantasgut/clayflow/blo
 
 > **get** **material**(): [`Material`](Material.md)
 
-Defined in: [scene/objects/Mesh.ts:42](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L42)
+Defined in: [scene/objects/Mesh.ts:42](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L42)
 
 ##### Returns
 
@@ -158,7 +152,7 @@ Defined in: [scene/objects/Mesh.ts:42](https://github.com/dantasgut/clayflow/blo
 
 > **get** **position**(): `vec3`
 
-Defined in: [scene/objects/Mesh.ts:29](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L29)
+Defined in: [scene/objects/Mesh.ts:29](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L29)
 
 ##### Returns
 
@@ -172,7 +166,7 @@ Defined in: [scene/objects/Mesh.ts:29](https://github.com/dantasgut/clayflow/blo
 
 > **get** **rotation**(): `quat`
 
-Defined in: [scene/objects/Mesh.ts:30](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L30)
+Defined in: [scene/objects/Mesh.ts:30](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L30)
 
 ##### Returns
 
@@ -186,7 +180,7 @@ Defined in: [scene/objects/Mesh.ts:30](https://github.com/dantasgut/clayflow/blo
 
 > **get** **scale**(): `vec3`
 
-Defined in: [scene/objects/Mesh.ts:31](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L31)
+Defined in: [scene/objects/Mesh.ts:31](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L31)
 
 ##### Returns
 
@@ -198,7 +192,7 @@ Defined in: [scene/objects/Mesh.ts:31](https://github.com/dantasgut/clayflow/blo
 
 > **add**(`object`): `this`
 
-Defined in: [scene/core/Entity.ts:40](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L40)
+Defined in: [scene/core/Entity.ts:40](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L40)
 
 Adiciona Entidade filha ou Componente. (Roteamento Automático ECS)
 
@@ -222,7 +216,7 @@ Adiciona Entidade filha ou Componente. (Roteamento Automático ECS)
 
 > **addEventListener**(`type`, `listener`): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:17](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L17)
+Defined in: [scene/core/EventDispatcher.ts:17](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L17)
 
 Inscreve uma função callback para escutar um evento específico.
 
@@ -250,7 +244,7 @@ Inscreve uma função callback para escutar um evento específico.
 
 > **addPhysics**(`physic`): `this`
 
-Defined in: [scene/objects/Mesh.ts:33](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/objects/Mesh.ts#L33)
+Defined in: [scene/objects/Mesh.ts:33](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/objects/Mesh.ts#L33)
 
 #### Parameters
 
@@ -268,7 +262,7 @@ Defined in: [scene/objects/Mesh.ts:33](https://github.com/dantasgut/clayflow/blo
 
 > **clearEventListeners**(): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:53](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L53)
+Defined in: [scene/core/EventDispatcher.ts:53](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L53)
 
 Remove todos os listeners (ideal para cleanup de lixo na memória).
 
@@ -286,7 +280,7 @@ Remove todos os listeners (ideal para cleanup de lixo na memória).
 
 > **dispatchEvent**(`event`): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:60](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L60)
+Defined in: [scene/core/EventDispatcher.ts:60](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L60)
 
 Despacha o evento, executando todos os callbacks inscritos para aquele tipo.
 
@@ -312,7 +306,7 @@ Despacha o evento, executando todos os callbacks inscritos para aquele tipo.
 
 > **getComponent**\<`T`\>(`type`): `T` \| `undefined`
 
-Defined in: [scene/core/Entity.ts:86](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L86)
+Defined in: [scene/core/Entity.ts:86](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L86)
 
 #### Type Parameters
 
@@ -340,7 +334,7 @@ Defined in: [scene/core/Entity.ts:86](https://github.com/dantasgut/clayflow/blob
 
 > **getComponents**(): `IterableIterator`\<[`Component`](../interfaces/Component.md)\>
 
-Defined in: [scene/core/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L90)
+Defined in: [scene/core/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L90)
 
 #### Returns
 
@@ -356,7 +350,7 @@ Defined in: [scene/core/Entity.ts:90](https://github.com/dantasgut/clayflow/blob
 
 > **getPhysics**(): `IterableIterator`\<[`Physic`](../interfaces/Physic.md)\>
 
-Defined in: [scene/core/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L94)
+Defined in: [scene/core/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L94)
 
 #### Returns
 
@@ -372,7 +366,7 @@ Defined in: [scene/core/Entity.ts:94](https://github.com/dantasgut/clayflow/blob
 
 > **hasComponent**(`type`): `boolean`
 
-Defined in: [scene/core/Entity.ts:98](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L98)
+Defined in: [scene/core/Entity.ts:98](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L98)
 
 #### Parameters
 
@@ -394,7 +388,7 @@ Defined in: [scene/core/Entity.ts:98](https://github.com/dantasgut/clayflow/blob
 
 > **hasEventListener**(`type`, `listener`): `boolean`
 
-Defined in: [scene/core/EventDispatcher.ts:32](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L32)
+Defined in: [scene/core/EventDispatcher.ts:32](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L32)
 
 Verifica se existe alguma inscrição para aquele evento e função.
 
@@ -422,7 +416,7 @@ Verifica se existe alguma inscrição para aquele evento e função.
 
 > **remove**(`object`): `this`
 
-Defined in: [scene/core/Entity.ts:63](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L63)
+Defined in: [scene/core/Entity.ts:63](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L63)
 
 #### Parameters
 
@@ -444,7 +438,7 @@ Defined in: [scene/core/Entity.ts:63](https://github.com/dantasgut/clayflow/blob
 
 > **removeEventListener**(`type`, `listener`): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:40](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L40)
+Defined in: [scene/core/EventDispatcher.ts:40](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L40)
 
 Remove uma inscrição existente.
 
@@ -472,7 +466,7 @@ Remove uma inscrição existente.
 
 > **traverse**(`callback`): `void`
 
-Defined in: [scene/core/Entity.ts:105](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L105)
+Defined in: [scene/core/Entity.ts:105](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L105)
 
 Travessia genérica na Árvore Espacial.
 

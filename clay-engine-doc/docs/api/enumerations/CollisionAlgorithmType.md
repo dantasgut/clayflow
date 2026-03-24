@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / CollisionAlgorithmType
-
 # Enumeration: CollisionAlgorithmType
 
-Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:17](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/collision/CollisionAlgorithmType.ts#L17)
+Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:17](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/CollisionAlgorithmType.ts#L17)
 
 Enum dos algoritmos de detecção de colisão narrowphase disponíveis.
 
@@ -29,7 +23,7 @@ AABB é intencionalmente excluído: pertence exclusivamente ao broadphase.
 
 > **GJK\_EPA**: `"GJK_EPA"`
 
-Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:19](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/collision/CollisionAlgorithmType.ts#L19)
+Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:19](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/CollisionAlgorithmType.ts#L19)
 
 ***
 
@@ -37,7 +31,7 @@ Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:19](https://githu
 
 > **PLANE\_ANALYTIC**: `"PLANE_ANALYTIC"`
 
-Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/collision/CollisionAlgorithmType.ts#L20)
+Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/CollisionAlgorithmType.ts#L20)
 
 ***
 
@@ -45,7 +39,7 @@ Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:20](https://githu
 
 > **SAT**: `"SAT"`
 
-Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:18](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/collision/CollisionAlgorithmType.ts#L18)
+Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:18](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/CollisionAlgorithmType.ts#L18)
 
 ***
 
@@ -53,7 +47,7 @@ Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:18](https://githu
 
 > **SDF\_GRADIENT**: `"SDF_GRADIENT"`
 
-Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:22](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/collision/CollisionAlgorithmType.ts#L22)
+Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:22](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/CollisionAlgorithmType.ts#L22)
 
 ***
 
@@ -61,4 +55,4 @@ Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:22](https://githu
 
 > **SPHERE\_ANALYTIC**: `"SPHERE_ANALYTIC"`
 
-Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:21](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/collision/CollisionAlgorithmType.ts#L21)
+Defined in: [scene/systems/collision/CollisionAlgorithmType.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/CollisionAlgorithmType.ts#L21)

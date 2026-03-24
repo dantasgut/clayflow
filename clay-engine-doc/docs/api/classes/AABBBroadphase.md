@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / AABBBroadphase
-
 # Class: AABBBroadphase
 
-Defined in: [elements/physics/AABBBroadphase.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/AABBBroadphase.ts#L20)
+Defined in: [elements/physics/AABBBroadphase.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/AABBBroadphase.ts#L20)
 
 Broadphase euclidiano via sobreposição de AABB (O(n²)).
 Implementação concreta de Broadphase para espaços com métrica euclidiana.
@@ -34,7 +28,7 @@ registrando uma nova implementação de Broadphase no PhysicsWorld.
 
 > **findCandidatePairs**(`entries`): \[`ColliderEntry`, `ColliderEntry`\][]
 
-Defined in: [elements/physics/AABBBroadphase.ts:21](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/AABBBroadphase.ts#L21)
+Defined in: [elements/physics/AABBBroadphase.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/AABBBroadphase.ts#L21)
 
 Retorna todos os pares de entradas que podem estar em colisão.
 Chamado uma vez por step, antes do narrowphase.

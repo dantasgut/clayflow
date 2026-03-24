@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / ConstantForce
-
 # Class: ConstantForce
 
-Defined in: [elements/physics/forces/ConstantForce.ts:9](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/ConstantForce.ts#L9)
+Defined in: [elements/physics/forces/ConstantForce.ts:9](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/ConstantForce.ts#L9)
 
 Força constante independente do estado do corpo.
 Caso de uso principal: gravidade uniforme, vento constante.
@@ -21,7 +15,7 @@ Caso de uso principal: gravidade uniforme, vento constante.
 
 > **new ConstantForce**(`id`, `direction`): `ConstantForce`
 
-Defined in: [elements/physics/forces/ConstantForce.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/ConstantForce.ts#L13)
+Defined in: [elements/physics/forces/ConstantForce.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/ConstantForce.ts#L13)
 
 #### Parameters
 
@@ -43,7 +37,7 @@ Defined in: [elements/physics/forces/ConstantForce.ts:13](https://github.com/dan
 
 > `readonly` **id**: `string`
 
-Defined in: [elements/physics/forces/ConstantForce.ts:10](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/ConstantForce.ts#L10)
+Defined in: [elements/physics/forces/ConstantForce.ts:10](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/ConstantForce.ts#L10)
 
 #### Implementation of
 
@@ -55,7 +49,7 @@ Defined in: [elements/physics/forces/ConstantForce.ts:10](https://github.com/dan
 
 > **compute**(`_body`, `_dt`): `vec3`
 
-Defined in: [elements/physics/forces/ConstantForce.ts:18](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/ConstantForce.ts#L18)
+Defined in: [elements/physics/forces/ConstantForce.ts:18](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/ConstantForce.ts#L18)
 
 #### Parameters
 

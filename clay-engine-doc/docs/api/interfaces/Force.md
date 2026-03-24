@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / Force
-
 # Interface: Force
 
-Defined in: [scene/systems/forces/Force.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/forces/Force.ts#L20)
+Defined in: [scene/systems/forces/Force.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/forces/Force.ts#L20)
 
 Interface para forças físicas (Strategy — GoF).
 Qualquer força — gravitacional, eletromagnética, mola, vento, campo personalizado —
@@ -32,7 +26,7 @@ world.addForce(new FunctionalForce('radial', (body) => {
 
 > `readonly` **id**: `string`
 
-Defined in: [scene/systems/forces/Force.ts:21](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/forces/Force.ts#L21)
+Defined in: [scene/systems/forces/Force.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/forces/Force.ts#L21)
 
 ## Methods
 
@@ -40,7 +34,7 @@ Defined in: [scene/systems/forces/Force.ts:21](https://github.com/dantasgut/clay
 
 > **compute**(`body`, `dt`): `vec3`
 
-Defined in: [scene/systems/forces/Force.ts:22](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/forces/Force.ts#L22)
+Defined in: [scene/systems/forces/Force.ts:22](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/forces/Force.ts#L22)
 
 #### Parameters
 

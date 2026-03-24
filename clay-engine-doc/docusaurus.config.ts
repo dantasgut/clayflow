@@ -104,17 +104,17 @@ const config: Config = {
         {
           title: 'API',
           items: [
-            { label: 'Classes', to: '/docs/classes/WebGPURenderer' },
-            { label: 'Interfaces', to: '/docs/interfaces/PhysicsStage' },
-            { label: 'Enumerações', to: '/docs/enumerations/ResolutionType' },
+            { label: 'Classes', to: '/docs/api/classes/WebGPURenderer' },
+            { label: 'Interfaces', to: '/docs/api/interfaces/PhysicsStage' },
+            { label: 'Enumerações', to: '/docs/api/enumerations/ResolutionType' },
           ],
         },
         {
           title: 'Física',
           items: [
-            { label: 'PhysicsWorld', to: '/docs/classes/PhysicsWorld' },
-            { label: 'RigidBody', to: '/docs/classes/RigidBody' },
-            { label: 'SoftBody', to: '/docs/classes/SoftBody' },
+            { label: 'PhysicsWorld', to: '/docs/api/classes/PhysicsWorld' },
+            { label: 'RigidBody', to: '/docs/api/classes/RigidBody' },
+            { label: 'SoftBody', to: '/docs/api/classes/SoftBody' },
           ],
         },
         {
@@ -138,7 +138,7 @@ const config: Config = {
       {
         entryPoints: ['../src/index.ts'],
         tsconfig: '../tsconfig.json',
-        out: './docs',
+        out: './docs/api',
         skipErrorChecking: true,
       },
     ],

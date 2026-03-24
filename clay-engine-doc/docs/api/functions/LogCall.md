@@ -1,14 +1,8 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / LogCall
-
 # Function: LogCall()
 
 > **LogCall**(`level`, `template`): (`_target`, `propertyKey`, `descriptor`) => `PropertyDescriptor`
 
-Defined in: [core/debug/LogCall.ts:42](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/LogCall.ts#L42)
+Defined in: [core/debug/LogCall.ts:42](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/LogCall.ts#L42)
 
 Decorator de método (experimentalDecorators).
 Intercepta a chamada, loga o resultado (ou erro) e o tempo de execução.

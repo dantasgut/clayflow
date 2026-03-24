@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / Camera
-
 # Abstract Class: Camera
 
-Defined in: [elements/cameras/Camera.ts:12](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L12)
+Defined in: [elements/cameras/Camera.ts:12](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L12)
 
 Aggregate root de câmera. (Camada 3)
 Empacota Entity + Transform + CameraComponent — o usuário nunca vê a entidade hospedeira.
@@ -27,7 +21,7 @@ Subclasses concretas: PerspectiveCamera, OrthographicCamera.
 
 > **new Camera**(): `Camera`
 
-Defined in: [elements/cameras/Camera.ts:16](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L16)
+Defined in: [elements/cameras/Camera.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L16)
 
 #### Returns
 
@@ -43,7 +37,7 @@ Defined in: [elements/cameras/Camera.ts:16](https://github.com/dantasgut/clayflo
 
 > `protected` `readonly` **cam**: `CameraComponent`
 
-Defined in: [elements/cameras/Camera.ts:14](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L14)
+Defined in: [elements/cameras/Camera.ts:14](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L14)
 
 ***
 
@@ -51,7 +45,7 @@ Defined in: [elements/cameras/Camera.ts:14](https://github.com/dantasgut/clayflo
 
 > **children**: [`Entity`](Entity.md)[] = `[]`
 
-Defined in: [scene/core/Entity.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L20)
+Defined in: [scene/core/Entity.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L20)
 
 #### Inherited from
 
@@ -63,7 +57,7 @@ Defined in: [scene/core/Entity.ts:20](https://github.com/dantasgut/clayflow/blob
 
 > `readonly` **id**: `number` = `++Entity.nextId`
 
-Defined in: [scene/core/Entity.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L13)
+Defined in: [scene/core/Entity.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L13)
 
 #### Inherited from
 
@@ -75,7 +69,7 @@ Defined in: [scene/core/Entity.ts:13](https://github.com/dantasgut/clayflow/blob
 
 > **isEntity**: `boolean` = `true`
 
-Defined in: [scene/core/Entity.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L15)
+Defined in: [scene/core/Entity.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L15)
 
 #### Inherited from
 
@@ -87,7 +81,7 @@ Defined in: [scene/core/Entity.ts:15](https://github.com/dantasgut/clayflow/blob
 
 > **name**: `string` = `"Entity"`
 
-Defined in: [scene/core/Entity.ts:17](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L17)
+Defined in: [scene/core/Entity.ts:17](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L17)
 
 #### Inherited from
 
@@ -99,7 +93,7 @@ Defined in: [scene/core/Entity.ts:17](https://github.com/dantasgut/clayflow/blob
 
 > **parent**: [`Entity`](Entity.md) \| `null` = `null`
 
-Defined in: [scene/core/Entity.ts:19](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L19)
+Defined in: [scene/core/Entity.ts:19](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L19)
 
 #### Inherited from
 
@@ -111,7 +105,7 @@ Defined in: [scene/core/Entity.ts:19](https://github.com/dantasgut/clayflow/blob
 
 > `protected` `readonly` **transform**: [`Transform`](Transform.md)
 
-Defined in: [elements/cameras/Camera.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L13)
+Defined in: [elements/cameras/Camera.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L13)
 
 ***
 
@@ -119,7 +113,7 @@ Defined in: [elements/cameras/Camera.ts:13](https://github.com/dantasgut/clayflo
 
 > **visible**: `boolean` = `true`
 
-Defined in: [scene/core/Entity.ts:16](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L16)
+Defined in: [scene/core/Entity.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L16)
 
 #### Inherited from
 
@@ -133,7 +127,7 @@ Defined in: [scene/core/Entity.ts:16](https://github.com/dantasgut/clayflow/blob
 
 > **get** **position**(): `vec3`
 
-Defined in: [elements/cameras/Camera.ts:25](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L25)
+Defined in: [elements/cameras/Camera.ts:25](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L25)
 
 Posição da câmera no mundo (atalho direto para transform.position).
 
@@ -149,7 +143,7 @@ Posição da câmera no mundo (atalho direto para transform.position).
 
 > **get** **projectionMatrix**(): `mat4`
 
-Defined in: [elements/cameras/Camera.ts:33](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L33)
+Defined in: [elements/cameras/Camera.ts:33](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L33)
 
 ##### Returns
 
@@ -163,7 +157,7 @@ Defined in: [elements/cameras/Camera.ts:33](https://github.com/dantasgut/clayflo
 
 > **get** **viewProjectionMatrix**(): `mat4`
 
-Defined in: [elements/cameras/Camera.ts:29](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L29)
+Defined in: [elements/cameras/Camera.ts:29](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L29)
 
 ##### Returns
 
@@ -175,7 +169,7 @@ Defined in: [elements/cameras/Camera.ts:29](https://github.com/dantasgut/clayflo
 
 > **add**(`object`): `this`
 
-Defined in: [scene/core/Entity.ts:40](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L40)
+Defined in: [scene/core/Entity.ts:40](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L40)
 
 Adiciona Entidade filha ou Componente. (Roteamento Automático ECS)
 
@@ -199,7 +193,7 @@ Adiciona Entidade filha ou Componente. (Roteamento Automático ECS)
 
 > **addEventListener**(`type`, `listener`): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:17](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L17)
+Defined in: [scene/core/EventDispatcher.ts:17](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L17)
 
 Inscreve uma função callback para escutar um evento específico.
 
@@ -227,7 +221,7 @@ Inscreve uma função callback para escutar um evento específico.
 
 > **clearEventListeners**(): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:53](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L53)
+Defined in: [scene/core/EventDispatcher.ts:53](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L53)
 
 Remove todos os listeners (ideal para cleanup de lixo na memória).
 
@@ -245,7 +239,7 @@ Remove todos os listeners (ideal para cleanup de lixo na memória).
 
 > **dispatchEvent**(`event`): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:60](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L60)
+Defined in: [scene/core/EventDispatcher.ts:60](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L60)
 
 Despacha o evento, executando todos os callbacks inscritos para aquele tipo.
 
@@ -271,7 +265,7 @@ Despacha o evento, executando todos os callbacks inscritos para aquele tipo.
 
 > **getComponent**\<`T`\>(`type`): `T` \| `undefined`
 
-Defined in: [scene/core/Entity.ts:86](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L86)
+Defined in: [scene/core/Entity.ts:86](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L86)
 
 #### Type Parameters
 
@@ -299,7 +293,7 @@ Defined in: [scene/core/Entity.ts:86](https://github.com/dantasgut/clayflow/blob
 
 > **getComponents**(): `IterableIterator`\<[`Component`](../interfaces/Component.md)\>
 
-Defined in: [scene/core/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L90)
+Defined in: [scene/core/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L90)
 
 #### Returns
 
@@ -315,7 +309,7 @@ Defined in: [scene/core/Entity.ts:90](https://github.com/dantasgut/clayflow/blob
 
 > **getPhysics**(): `IterableIterator`\<[`Physic`](../interfaces/Physic.md)\>
 
-Defined in: [scene/core/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L94)
+Defined in: [scene/core/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L94)
 
 #### Returns
 
@@ -331,7 +325,7 @@ Defined in: [scene/core/Entity.ts:94](https://github.com/dantasgut/clayflow/blob
 
 > **hasComponent**(`type`): `boolean`
 
-Defined in: [scene/core/Entity.ts:98](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L98)
+Defined in: [scene/core/Entity.ts:98](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L98)
 
 #### Parameters
 
@@ -353,7 +347,7 @@ Defined in: [scene/core/Entity.ts:98](https://github.com/dantasgut/clayflow/blob
 
 > **hasEventListener**(`type`, `listener`): `boolean`
 
-Defined in: [scene/core/EventDispatcher.ts:32](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L32)
+Defined in: [scene/core/EventDispatcher.ts:32](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L32)
 
 Verifica se existe alguma inscrição para aquele evento e função.
 
@@ -381,7 +375,7 @@ Verifica se existe alguma inscrição para aquele evento e função.
 
 > **remove**(`object`): `this`
 
-Defined in: [scene/core/Entity.ts:63](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L63)
+Defined in: [scene/core/Entity.ts:63](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L63)
 
 #### Parameters
 
@@ -403,7 +397,7 @@ Defined in: [scene/core/Entity.ts:63](https://github.com/dantasgut/clayflow/blob
 
 > **removeEventListener**(`type`, `listener`): `void`
 
-Defined in: [scene/core/EventDispatcher.ts:40](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/EventDispatcher.ts#L40)
+Defined in: [scene/core/EventDispatcher.ts:40](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/EventDispatcher.ts#L40)
 
 Remove uma inscrição existente.
 
@@ -431,7 +425,7 @@ Remove uma inscrição existente.
 
 > **traverse**(`callback`): `void`
 
-Defined in: [scene/core/Entity.ts:105](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/core/Entity.ts#L105)
+Defined in: [scene/core/Entity.ts:105](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/core/Entity.ts#L105)
 
 Travessia genérica na Árvore Espacial.
 
@@ -455,7 +449,7 @@ Travessia genérica na Árvore Espacial.
 
 > **updateMatrices**(): `void`
 
-Defined in: [elements/cameras/Camera.ts:38](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/cameras/Camera.ts#L38)
+Defined in: [elements/cameras/Camera.ts:38](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/cameras/Camera.ts#L38)
 
 Recalcula as matrizes de mundo e visão. Chamado pelo renderer a cada frame.
 

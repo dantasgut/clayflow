@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / Logger
-
 # Class: Logger
 
-Defined in: [core/debug/Logger.ts:49](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L49)
+Defined in: [core/debug/Logger.ts:49](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L49)
 
 Logger leve com saída formatada e controle de nível por canal.
 
@@ -30,7 +24,7 @@ class Foo { declare protected readonly log: Logger; }
 
 > **debug**(`msg`, ...`data`): `void`
 
-Defined in: [core/debug/Logger.ts:93](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L93)
+Defined in: [core/debug/Logger.ts:93](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L93)
 
 #### Parameters
 
@@ -52,7 +46,7 @@ Defined in: [core/debug/Logger.ts:93](https://github.com/dantasgut/clayflow/blob
 
 > **error**(`msg`, ...`data`): `void`
 
-Defined in: [core/debug/Logger.ts:105](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L105)
+Defined in: [core/debug/Logger.ts:105](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L105)
 
 #### Parameters
 
@@ -74,7 +68,7 @@ Defined in: [core/debug/Logger.ts:105](https://github.com/dantasgut/clayflow/blo
 
 > **info**(`msg`, ...`data`): `void`
 
-Defined in: [core/debug/Logger.ts:97](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L97)
+Defined in: [core/debug/Logger.ts:97](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L97)
 
 #### Parameters
 
@@ -96,7 +90,7 @@ Defined in: [core/debug/Logger.ts:97](https://github.com/dantasgut/clayflow/blob
 
 > **setLevel**(`level`): `this`
 
-Defined in: [core/debug/Logger.ts:82](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L82)
+Defined in: [core/debug/Logger.ts:82](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L82)
 
 Override de nível para este canal específico.
 
@@ -116,7 +110,7 @@ Override de nível para este canal específico.
 
 > **warn**(`msg`, ...`data`): `void`
 
-Defined in: [core/debug/Logger.ts:101](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L101)
+Defined in: [core/debug/Logger.ts:101](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L101)
 
 #### Parameters
 
@@ -138,7 +132,7 @@ Defined in: [core/debug/Logger.ts:101](https://github.com/dantasgut/clayflow/blo
 
 > `static` **create**(`channel`): `Logger`
 
-Defined in: [core/debug/Logger.ts:60](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L60)
+Defined in: [core/debug/Logger.ts:60](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L60)
 
 Retorna (ou cria) o Logger do canal. Canais são singletons por nome.
 
@@ -158,7 +152,7 @@ Retorna (ou cria) o Logger do canal. Canais são singletons por nome.
 
 > `static` **setEnabled**(`enabled`): `void`
 
-Defined in: [core/debug/Logger.ts:77](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L77)
+Defined in: [core/debug/Logger.ts:77](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L77)
 
 Silencia ou reativa globalmente. Atalho para SILENT / INFO.
 
@@ -178,7 +172,7 @@ Silencia ou reativa globalmente. Atalho para SILENT / INFO.
 
 > `static` **setGlobalLevel**(`level`): `void`
 
-Defined in: [core/debug/Logger.ts:72](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/core/debug/Logger.ts#L72)
+Defined in: [core/debug/Logger.ts:72](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/core/debug/Logger.ts#L72)
 
 Define o nível mínimo global (todos os canais sem override individual).
 

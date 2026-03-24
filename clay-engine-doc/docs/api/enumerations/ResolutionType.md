@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / ResolutionType
-
 # Enumeration: ResolutionType
 
-Defined in: [scene/systems/resolution/ResolutionType.ts:11](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/resolution/ResolutionType.ts#L11)
+Defined in: [scene/systems/resolution/ResolutionType.ts:11](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionType.ts#L11)
 
 Enum dos métodos de resolução de colisão disponíveis.
 
@@ -23,7 +17,7 @@ Enum dos métodos de resolução de colisão disponíveis.
 
 > **IMPULSE**: `"IMPULSE"`
 
-Defined in: [scene/systems/resolution/ResolutionType.ts:12](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/resolution/ResolutionType.ts#L12)
+Defined in: [scene/systems/resolution/ResolutionType.ts:12](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionType.ts#L12)
 
 ***
 
@@ -31,7 +25,7 @@ Defined in: [scene/systems/resolution/ResolutionType.ts:12](https://github.com/d
 
 > **SEQUENTIAL\_IMPULSE**: `"SEQUENTIAL_IMPULSE"`
 
-Defined in: [scene/systems/resolution/ResolutionType.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/resolution/ResolutionType.ts#L13)
+Defined in: [scene/systems/resolution/ResolutionType.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionType.ts#L13)
 
 ***
 
@@ -39,7 +33,7 @@ Defined in: [scene/systems/resolution/ResolutionType.ts:13](https://github.com/d
 
 > **XPBD**: `"XPBD"`
 
-Defined in: [scene/systems/resolution/ResolutionType.ts:14](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/resolution/ResolutionType.ts#L14)
+Defined in: [scene/systems/resolution/ResolutionType.ts:14](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionType.ts#L14)
 
 ***
 
@@ -47,4 +41,4 @@ Defined in: [scene/systems/resolution/ResolutionType.ts:14](https://github.com/d
 
 > **XPBD\_SOFT**: `"XPBD_SOFT"`
 
-Defined in: [scene/systems/resolution/ResolutionType.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/resolution/ResolutionType.ts#L15)
+Defined in: [scene/systems/resolution/ResolutionType.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionType.ts#L15)

@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / PlaneGeometry
-
 # Class: PlaneGeometry
 
-Defined in: [elements/geometry/PlaneGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/geometry/PlaneGeometry.ts#L8)
+Defined in: [elements/geometry/PlaneGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/geometry/PlaneGeometry.ts#L8)
 
 Plano no eixo XZ gerado parametricamente. (Camada 3)
 
@@ -22,7 +16,7 @@ Normal aponta para +Y. u → X, v → Z.
 
 > **new PlaneGeometry**(`width?`, `depth?`, `widthSegs?`, `depthSegs?`): `PlaneGeometry`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/geometry/PlaneGeometry.ts#L9)
+Defined in: [elements/geometry/PlaneGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/geometry/PlaneGeometry.ts#L9)
 
 #### Parameters
 
@@ -56,7 +50,7 @@ Defined in: [elements/geometry/PlaneGeometry.ts:9](https://github.com/dantasgut/
 
 > `optional` **indexBufferId?**: `string`
 
-Defined in: [scene/components/Geometry.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L20)
+Defined in: [scene/components/Geometry.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L20)
 
 #### Inherited from
 
@@ -68,7 +62,7 @@ Defined in: [scene/components/Geometry.ts:20](https://github.com/dantasgut/clayf
 
 > **instanceCount**: `number` = `1`
 
-Defined in: [scene/components/Geometry.ts:22](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L22)
+Defined in: [scene/components/Geometry.ts:22](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L22)
 
 #### Inherited from
 
@@ -80,7 +74,7 @@ Defined in: [scene/components/Geometry.ts:22](https://github.com/dantasgut/clayf
 
 > `readonly` **layer**: [`VISUAL_COMPONENT`](../enumerations/ResourceType.md#visual_component) = `ResourceType.VISUAL_COMPONENT`
 
-Defined in: [scene/components/Geometry.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L15)
+Defined in: [scene/components/Geometry.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L15)
 
 #### Inherited from
 
@@ -92,7 +86,7 @@ Defined in: [scene/components/Geometry.ts:15](https://github.com/dantasgut/clayf
 
 > **layout**: [`VertexLayout`](VertexLayout.md)
 
-Defined in: [scene/components/Geometry.ts:23](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L23)
+Defined in: [scene/components/Geometry.ts:23](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L23)
 
 #### Inherited from
 
@@ -102,9 +96,9 @@ Defined in: [scene/components/Geometry.ts:23](https://github.com/dantasgut/clayf
 
 ### rawIndices
 
-> **rawIndices**: `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\> \| `null` = `null`
+> **rawIndices**: `Uint16Array` \| `Uint32Array` \| `null` = `null`
 
-Defined in: [scene/components/Geometry.ts:26](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L26)
+Defined in: [scene/components/Geometry.ts:26](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L26)
 
 #### Inherited from
 
@@ -114,9 +108,9 @@ Defined in: [scene/components/Geometry.ts:26](https://github.com/dantasgut/clayf
 
 ### rawVertices
 
-> **rawVertices**: `Float32Array`\<`ArrayBufferLike`\> \| `null` = `null`
+> **rawVertices**: `Float32Array` \| `null` = `null`
 
-Defined in: [scene/components/Geometry.ts:25](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L25)
+Defined in: [scene/components/Geometry.ts:25](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L25)
 
 #### Inherited from
 
@@ -126,9 +120,9 @@ Defined in: [scene/components/Geometry.ts:25](https://github.com/dantasgut/clayf
 
 ### rawWireframeEdges
 
-> **rawWireframeEdges**: `Uint32Array`\<`ArrayBufferLike`\> \| `null` = `null`
+> **rawWireframeEdges**: `Uint32Array` \| `null` = `null`
 
-Defined in: [scene/components/Geometry.ts:40](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L40)
+Defined in: [scene/components/Geometry.ts:40](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L40)
 
 Lista explícita de arestas para wireframe (2 u32 por aresta: índices em rawWireframePositions).
 Definida pelo autor da geometria — contém apenas as arestas reais da malha,
@@ -142,9 +136,9 @@ sem diagonais de triangulação.
 
 ### rawWireframePositions
 
-> **rawWireframePositions**: `Float32Array`\<`ArrayBufferLike`\> \| `null` = `null`
+> **rawWireframePositions**: `Float32Array` \| `null` = `null`
 
-Defined in: [scene/components/Geometry.ts:33](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L33)
+Defined in: [scene/components/Geometry.ts:33](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L33)
 
 Lista explícita de posições de vértice para wireframe (3 floats por vértice).
 Separada do VBO principal para ser independente de stride/normal/uv.
@@ -160,7 +154,7 @@ Definida pelo autor da geometria — nunca derivada da triangulação.
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/Geometry.ts:18](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L18)
+Defined in: [scene/components/Geometry.ts:18](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L18)
 
 #### Inherited from
 
@@ -172,7 +166,7 @@ Defined in: [scene/components/Geometry.ts:18](https://github.com/dantasgut/clayf
 
 > `readonly` **type**: `string` = `'Geometry'`
 
-Defined in: [scene/components/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L16)
+Defined in: [scene/components/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L16)
 
 #### Inherited from
 
@@ -184,7 +178,7 @@ Defined in: [scene/components/Geometry.ts:16](https://github.com/dantasgut/clayf
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L13)
+Defined in: [scene/components/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L13)
 
 #### Inherited from
 
@@ -196,7 +190,7 @@ Defined in: [scene/components/Geometry.ts:13](https://github.com/dantasgut/clayf
 
 > **vertexBufferId**: `string` = `''`
 
-Defined in: [scene/components/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L19)
+Defined in: [scene/components/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L19)
 
 #### Inherited from
 
@@ -208,7 +202,7 @@ Defined in: [scene/components/Geometry.ts:19](https://github.com/dantasgut/clayf
 
 > **vertexCount**: `number` = `0`
 
-Defined in: [scene/components/Geometry.ts:21](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L21)
+Defined in: [scene/components/Geometry.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L21)
 
 #### Inherited from
 
@@ -220,7 +214,7 @@ Defined in: [scene/components/Geometry.ts:21](https://github.com/dantasgut/clayf
 
 > **wireframeEdgeCount**: `number` = `0`
 
-Defined in: [scene/components/Geometry.ts:47](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L47)
+Defined in: [scene/components/Geometry.ts:47](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L47)
 
 Número de arestas wireframe (rawWireframeEdges.length / 2).
 
@@ -234,7 +228,7 @@ Número de arestas wireframe (rawWireframeEdges.length / 2).
 
 > `optional` **wireframeEdgesBufferId?**: `string`
 
-Defined in: [scene/components/Geometry.ts:45](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L45)
+Defined in: [scene/components/Geometry.ts:45](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L45)
 
 ID do storage buffer de arestas de wireframe.
 
@@ -248,7 +242,7 @@ ID do storage buffer de arestas de wireframe.
 
 > `optional` **wireframePositionsBufferId?**: `string`
 
-Defined in: [scene/components/Geometry.ts:43](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L43)
+Defined in: [scene/components/Geometry.ts:43](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L43)
 
 ID do storage buffer de posições de wireframe.
 
@@ -262,7 +256,7 @@ ID do storage buffer de posições de wireframe.
 
 > **allocateResource**(`resourceManager`): `Promise`\<`void`\>
 
-Defined in: [scene/components/Geometry.ts:55](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L55)
+Defined in: [scene/components/Geometry.ts:55](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L55)
 
 #### Parameters
 
@@ -284,7 +278,7 @@ Defined in: [scene/components/Geometry.ts:55](https://github.com/dantasgut/clayf
 
 > **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/Geometry.ts:110](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L110)
+Defined in: [scene/components/Geometry.ts:110](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L110)
 
 #### Parameters
 
@@ -306,7 +300,7 @@ Defined in: [scene/components/Geometry.ts:110](https://github.com/dantasgut/clay
 
 > **markDirty**(): `void`
 
-Defined in: [scene/components/Geometry.ts:49](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L49)
+Defined in: [scene/components/Geometry.ts:49](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L49)
 
 #### Returns
 
@@ -322,7 +316,7 @@ Defined in: [scene/components/Geometry.ts:49](https://github.com/dantasgut/clayf
 
 > **updateResource**(`resourceManager`): `Promise`\<`void`\>
 
-Defined in: [scene/components/Geometry.ts:93](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/Geometry.ts#L93)
+Defined in: [scene/components/Geometry.ts:93](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/Geometry.ts#L93)
 
 #### Parameters
 

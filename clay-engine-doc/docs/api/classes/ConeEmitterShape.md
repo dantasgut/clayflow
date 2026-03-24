@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / ConeEmitterShape
-
 # Class: ConeEmitterShape
 
-Defined in: [elements/particles/shapes/ConeEmitterShape.ts:12](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/particles/shapes/ConeEmitterShape.ts#L12)
+Defined in: [elements/particles/shapes/ConeEmitterShape.ts:12](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/particles/shapes/ConeEmitterShape.ts#L12)
 
 Emissão em cone ao redor do eixo +Y. (Camada 3)
 
@@ -34,7 +28,7 @@ new ConeEmitterShape(Math.PI / 8, 0.2) // cone estreito, base pequena
 
 > **new ConeEmitterShape**(`angle?`, `radius?`): `ConeEmitterShape`
 
-Defined in: [elements/particles/shapes/ConeEmitterShape.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/particles/shapes/ConeEmitterShape.ts#L15)
+Defined in: [elements/particles/shapes/ConeEmitterShape.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/particles/shapes/ConeEmitterShape.ts#L15)
 
 #### Parameters
 
@@ -56,7 +50,7 @@ Defined in: [elements/particles/shapes/ConeEmitterShape.ts:15](https://github.co
 
 > **angle**: `number`
 
-Defined in: [elements/particles/shapes/ConeEmitterShape.ts:16](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/particles/shapes/ConeEmitterShape.ts#L16)
+Defined in: [elements/particles/shapes/ConeEmitterShape.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/particles/shapes/ConeEmitterShape.ts#L16)
 
 ***
 
@@ -64,7 +58,7 @@ Defined in: [elements/particles/shapes/ConeEmitterShape.ts:16](https://github.co
 
 > `readonly` **id**: `"cone"` = `'cone'`
 
-Defined in: [elements/particles/shapes/ConeEmitterShape.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/particles/shapes/ConeEmitterShape.ts#L13)
+Defined in: [elements/particles/shapes/ConeEmitterShape.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/particles/shapes/ConeEmitterShape.ts#L13)
 
 #### Implementation of
 
@@ -76,7 +70,7 @@ Defined in: [elements/particles/shapes/ConeEmitterShape.ts:13](https://github.co
 
 > **radius**: `number` = `0`
 
-Defined in: [elements/particles/shapes/ConeEmitterShape.ts:17](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/particles/shapes/ConeEmitterShape.ts#L17)
+Defined in: [elements/particles/shapes/ConeEmitterShape.ts:17](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/particles/shapes/ConeEmitterShape.ts#L17)
 
 ## Methods
 
@@ -84,7 +78,7 @@ Defined in: [elements/particles/shapes/ConeEmitterShape.ts:17](https://github.co
 
 > **sample**(): [`SpawnSample`](../interfaces/SpawnSample.md)
 
-Defined in: [elements/particles/shapes/ConeEmitterShape.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/particles/shapes/ConeEmitterShape.ts#L20)
+Defined in: [elements/particles/shapes/ConeEmitterShape.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/particles/shapes/ConeEmitterShape.ts#L20)
 
 Gera uma posição e direção inicial no espaço local do emitter.
 

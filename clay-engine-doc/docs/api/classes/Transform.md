@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / Transform
-
 # Class: Transform
 
-Defined in: [scene/math/Transform.ts:10](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L10)
+Defined in: [scene/math/Transform.ts:10](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L10)
 
 Componente Lógico responsável EXCLUSIVAMENTE pela Matemática Espacial.
 Resolve posição, rotação, escala e parentesco (Álgebra Linear Pura/Composite).
@@ -31,7 +25,7 @@ Resolve posição, rotação, escala e parentesco (Álgebra Linear Pura/Composit
 
 > **children**: `Transform`[] = `[]`
 
-Defined in: [scene/math/Transform.ts:25](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L25)
+Defined in: [scene/math/Transform.ts:25](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L25)
 
 ***
 
@@ -39,7 +33,7 @@ Defined in: [scene/math/Transform.ts:25](https://github.com/dantasgut/clayflow/b
 
 > `readonly` **layer**: [`VISUAL_COMPONENT`](../enumerations/ResourceType.md#visual_component) = `ResourceType.VISUAL_COMPONENT`
 
-Defined in: [scene/math/Transform.ts:11](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L11)
+Defined in: [scene/math/Transform.ts:11](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L11)
 
 #### Implementation of
 
@@ -51,7 +45,7 @@ Defined in: [scene/math/Transform.ts:11](https://github.com/dantasgut/clayflow/b
 
 > **localMatrix**: `mat4`
 
-Defined in: [scene/math/Transform.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L20)
+Defined in: [scene/math/Transform.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L20)
 
 ***
 
@@ -59,7 +53,7 @@ Defined in: [scene/math/Transform.ts:20](https://github.com/dantasgut/clayflow/b
 
 > **matrixWorldNeedsUpdate**: `boolean` = `true`
 
-Defined in: [scene/math/Transform.ts:28](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L28)
+Defined in: [scene/math/Transform.ts:28](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L28)
 
 ***
 
@@ -67,7 +61,7 @@ Defined in: [scene/math/Transform.ts:28](https://github.com/dantasgut/clayflow/b
 
 > **owner**: [`Entity`](Entity.md) \| `null` = `null`
 
-Defined in: [scene/math/Transform.ts:31](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L31)
+Defined in: [scene/math/Transform.ts:31](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L31)
 
 ***
 
@@ -75,7 +69,7 @@ Defined in: [scene/math/Transform.ts:31](https://github.com/dantasgut/clayflow/b
 
 > **parent**: `Transform` \| `null` = `null`
 
-Defined in: [scene/math/Transform.ts:24](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L24)
+Defined in: [scene/math/Transform.ts:24](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L24)
 
 ***
 
@@ -83,7 +77,7 @@ Defined in: [scene/math/Transform.ts:24](https://github.com/dantasgut/clayflow/b
 
 > **position**: `vec3`
 
-Defined in: [scene/math/Transform.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L15)
+Defined in: [scene/math/Transform.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L15)
 
 ***
 
@@ -91,7 +85,7 @@ Defined in: [scene/math/Transform.ts:15](https://github.com/dantasgut/clayflow/b
 
 > **rotation**: `quat`
 
-Defined in: [scene/math/Transform.ts:16](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L16)
+Defined in: [scene/math/Transform.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L16)
 
 ***
 
@@ -99,7 +93,7 @@ Defined in: [scene/math/Transform.ts:16](https://github.com/dantasgut/clayflow/b
 
 > **scale**: `vec3`
 
-Defined in: [scene/math/Transform.ts:17](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L17)
+Defined in: [scene/math/Transform.ts:17](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L17)
 
 ***
 
@@ -107,7 +101,7 @@ Defined in: [scene/math/Transform.ts:17](https://github.com/dantasgut/clayflow/b
 
 > `readonly` **type**: `"Transform"` = `'Transform'`
 
-Defined in: [scene/math/Transform.ts:12](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L12)
+Defined in: [scene/math/Transform.ts:12](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L12)
 
 #### Implementation of
 
@@ -119,7 +113,7 @@ Defined in: [scene/math/Transform.ts:12](https://github.com/dantasgut/clayflow/b
 
 > **worldMatrix**: `mat4`
 
-Defined in: [scene/math/Transform.ts:21](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L21)
+Defined in: [scene/math/Transform.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L21)
 
 ## Methods
 
@@ -127,7 +121,7 @@ Defined in: [scene/math/Transform.ts:21](https://github.com/dantasgut/clayflow/b
 
 > **add**(`childTransform`): `this`
 
-Defined in: [scene/math/Transform.ts:93](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L93)
+Defined in: [scene/math/Transform.ts:93](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L93)
 
 Adiciona um Transform filho.
 
@@ -147,7 +141,7 @@ Adiciona um Transform filho.
 
 > **onAttach**(`entity`): `void`
 
-Defined in: [scene/math/Transform.ts:46](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L46)
+Defined in: [scene/math/Transform.ts:46](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L46)
 
 #### Parameters
 
@@ -169,7 +163,7 @@ Defined in: [scene/math/Transform.ts:46](https://github.com/dantasgut/clayflow/b
 
 > **onDetach**(`entity`): `void`
 
-Defined in: [scene/math/Transform.ts:59](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L59)
+Defined in: [scene/math/Transform.ts:59](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L59)
 
 #### Parameters
 
@@ -191,7 +185,7 @@ Defined in: [scene/math/Transform.ts:59](https://github.com/dantasgut/clayflow/b
 
 > **onMatrixUpdate**(`cb`): () => `void`
 
-Defined in: [scene/math/Transform.ts:39](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L39)
+Defined in: [scene/math/Transform.ts:39](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L39)
 
 Registra um listener para quando a worldMatrix for recalculada.
 Retorna uma função de cancelamento (unsubscribe).
@@ -212,7 +206,7 @@ Retorna uma função de cancelamento (unsubscribe).
 
 > **remove**(`childTransform`): `this`
 
-Defined in: [scene/math/Transform.ts:108](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L108)
+Defined in: [scene/math/Transform.ts:108](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L108)
 
 #### Parameters
 
@@ -230,7 +224,7 @@ Defined in: [scene/math/Transform.ts:108](https://github.com/dantasgut/clayflow/
 
 > **updateWorldMatrix**(`updateParents?`, `updateChildren?`): `void`
 
-Defined in: [scene/math/Transform.ts:120](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/math/Transform.ts#L120)
+Defined in: [scene/math/Transform.ts:120](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/math/Transform.ts#L120)
 
 Calcula as matrizes correndo a árvore.
 

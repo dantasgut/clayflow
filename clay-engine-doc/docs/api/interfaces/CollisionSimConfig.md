@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / CollisionSimConfig
-
 # Interface: CollisionSimConfig
 
-Defined in: [scene/systems/simulation/CollisionSimConfig.ts:11](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/simulation/CollisionSimConfig.ts#L11)
+Defined in: [scene/systems/simulation/CollisionSimConfig.ts:11](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/simulation/CollisionSimConfig.ts#L11)
 
 Configuração do pipeline de detecção de colisão.
 
@@ -21,7 +15,7 @@ uma estratégia trocável em nível de mundo.
 
 > `optional` **narrowphase?**: [`NarrowphaseConfig`](NarrowphaseConfig.md)
 
-Defined in: [scene/systems/simulation/CollisionSimConfig.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/simulation/CollisionSimConfig.ts#L13)
+Defined in: [scene/systems/simulation/CollisionSimConfig.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/simulation/CollisionSimConfig.ts#L13)
 
 Algoritmos de narrowphase por par de formas (Registry pattern).
 
@@ -31,7 +25,7 @@ Algoritmos de narrowphase por par de formas (Registry pattern).
 
 > `optional` **predictiveContacts?**: `boolean`
 
-Defined in: [scene/systems/simulation/CollisionSimConfig.ts:20](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/simulation/CollisionSimConfig.ts#L20)
+Defined in: [scene/systems/simulation/CollisionSimConfig.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/simulation/CollisionSimConfig.ts#L20)
 
 Habilita contatos especulativos anti-tunneling.
 Testa posições previstas (pos + vel·dt) para pares sem contato atual,
@@ -44,6 +38,6 @@ Default: false.
 
 > `optional` **predictiveContactsThreshold?**: `number`
 
-Defined in: [scene/systems/simulation/CollisionSimConfig.ts:22](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/systems/simulation/CollisionSimConfig.ts#L22)
+Defined in: [scene/systems/simulation/CollisionSimConfig.ts:22](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/simulation/CollisionSimConfig.ts#L22)
 
 Velocidade relativa mínima (m/s) para ativar contatos especulativos. Default: 2.0.

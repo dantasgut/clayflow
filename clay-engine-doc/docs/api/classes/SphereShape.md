@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / SphereShape
-
 # Class: SphereShape
 
-Defined in: [elements/physics/shapes/SphereShape.ts:10](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SphereShape.ts#L10)
+Defined in: [elements/physics/shapes/SphereShape.ts:10](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SphereShape.ts#L10)
 
 Forma de colisão esférica. (Camada 3)
 
@@ -24,7 +18,7 @@ quando registrados no CollisionDispatcher.
 
 > **new SphereShape**(`radius?`): `SphereShape`
 
-Defined in: [elements/physics/shapes/SphereShape.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SphereShape.ts#L13)
+Defined in: [elements/physics/shapes/SphereShape.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SphereShape.ts#L13)
 
 #### Parameters
 
@@ -46,7 +40,7 @@ Defined in: [elements/physics/shapes/SphereShape.ts:13](https://github.com/danta
 
 > `protected` `readonly` **boundingRadiusVal**: `number`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:54](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SDFCollider.ts#L54)
+Defined in: [elements/physics/shapes/SDFCollider.ts:54](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L54)
 
 #### Inherited from
 
@@ -58,7 +52,7 @@ Defined in: [elements/physics/shapes/SDFCollider.ts:54](https://github.com/danta
 
 > `readonly` **colliderShape**: `string`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:51](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SDFCollider.ts#L51)
+Defined in: [elements/physics/shapes/SDFCollider.ts:51](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L51)
 
 Identificador da forma, usado pelo CollisionDispatcher para selecionar o teste.
 
@@ -72,7 +66,7 @@ Identificador da forma, usado pelo CollisionDispatcher para selecionar o teste.
 
 > `readonly` **layer**: [`PHYSICS_MECHANIC`](../enumerations/ResourceType.md#physics_mechanic)
 
-Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/physics/Collider.ts#L31)
+Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L31)
 
 #### Inherited from
 
@@ -84,7 +78,7 @@ Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasg
 
 > `readonly` **physicType**: `"Collider"` = `'Collider'`
 
-Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/physics/Collider.ts#L32)
+Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L32)
 
 #### Inherited from
 
@@ -96,7 +90,7 @@ Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasg
 
 > `readonly` **type**: `"Collider"` = `'Collider'`
 
-Defined in: [scene/components/physics/Collider.ts:30](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/physics/Collider.ts#L30)
+Defined in: [scene/components/physics/Collider.ts:30](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L30)
 
 Chave única no layer 1 — garante um único Collider por Entity.
 
@@ -110,7 +104,7 @@ Chave única no layer 1 — garante um único Collider por Entity.
 
 > **computeInertiaTensor**(`mass`): \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/shapes/SphereShape.ts:22](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SphereShape.ts#L22)
+Defined in: [elements/physics/shapes/SphereShape.ts:22](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SphereShape.ts#L22)
 
 Tensor de inércia diagonal para esta forma, dado uma massa.
 
@@ -134,7 +128,7 @@ Tensor de inércia diagonal para esta forma, dado uma massa.
 
 > **getAABB**(`worldMatrix`): `AABB`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:109](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SDFCollider.ts#L109)
+Defined in: [elements/physics/shapes/SDFCollider.ts:109](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L109)
 
 AABB conservador derivado da esfera circunscrita.
 
@@ -158,7 +152,7 @@ AABB conservador derivado da esfera circunscrita.
 
 > **getBoundingRadius**(`worldMatrix`): `number`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:84](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SDFCollider.ts#L84)
+Defined in: [elements/physics/shapes/SDFCollider.ts:84](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L84)
 
 Raio da esfera circunscrita no espaço de mundo.
 Esferas: radius * maxScale.
@@ -184,7 +178,7 @@ Boxes: comprimento da diagonal de halfExtents * maxScale.
 
 > **getClosestPoint**(`worldMatrix`, `queryPoint`): `vec3`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:92](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SDFCollider.ts#L92)
+Defined in: [elements/physics/shapes/SDFCollider.ts:92](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L92)
 
 Ponto mais próximo na superfície via gradient descent no SDF.
 Projeta o queryPoint (mundo) para a superfície da forma.
@@ -213,7 +207,7 @@ Projeta o queryPoint (mundo) para a superfície da forma.
 
 > `optional` **getLocalHalfExtents**(): \[`number`, `number`, `number`\]
 
-Defined in: [scene/components/physics/Collider.ts:78](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/physics/Collider.ts#L78)
+Defined in: [scene/components/physics/Collider.ts:78](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L78)
 
 Semi-extensões da forma em espaço local (antes de qualquer transformação).
 Usado pelo SATAlgorithm para extrair dimensões do OBB sem depender do tipo concreto.
@@ -233,7 +227,7 @@ Caixas: [halfWidth, halfHeight, halfDepth].
 
 > **getWorldCenter**(`worldMatrix`): `vec3`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:80](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SDFCollider.ts#L80)
+Defined in: [elements/physics/shapes/SDFCollider.ts:80](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L80)
 
 Centro do volume no espaço de mundo.
 
@@ -257,7 +251,7 @@ Centro do volume no espaço de mundo.
 
 > `optional` **getWorldVertices**(`worldMatrix`): `vec3`[]
 
-Defined in: [scene/components/physics/Collider.ts:71](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/components/physics/Collider.ts#L71)
+Defined in: [scene/components/physics/Collider.ts:71](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L71)
 
 Vértices da forma em espaço de mundo — implementado por poliedros (BoxShape).
 Usado pelo PlaneBoxCollision para manifold multi-ponto sem cast para tipo concreto.
@@ -283,7 +277,7 @@ Retorna array vazio por default; formas sem vértices explícitos não o impleme
 
 > **sdf**(`localPoint`): `number`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:76](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/shapes/SDFCollider.ts#L76)
+Defined in: [elements/physics/shapes/SDFCollider.ts:76](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L76)
 
 SDF em espaço local — disponível para testes narrowphase customizados.
 

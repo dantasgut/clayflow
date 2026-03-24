@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / VertexAttributeDescriptor
-
 # Interface: VertexAttributeDescriptor
 
-Defined in: [scene/data/VertexLayout.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/data/VertexLayout.ts#L13)
+Defined in: [scene/data/VertexLayout.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/data/VertexLayout.ts#L13)
 
 ## Properties
 
@@ -14,7 +8,7 @@ Defined in: [scene/data/VertexLayout.ts:13](https://github.com/dantasgut/clayflo
 
 > **format**: [`VertexFormatType`](../type-aliases/VertexFormatType.md)
 
-Defined in: [scene/data/VertexLayout.ts:15](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/data/VertexLayout.ts#L15)
+Defined in: [scene/data/VertexLayout.ts:15](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/data/VertexLayout.ts#L15)
 
 ***
 
@@ -22,7 +16,7 @@ Defined in: [scene/data/VertexLayout.ts:15](https://github.com/dantasgut/clayflo
 
 > **name**: `string`
 
-Defined in: [scene/data/VertexLayout.ts:14](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/data/VertexLayout.ts#L14)
+Defined in: [scene/data/VertexLayout.ts:14](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/data/VertexLayout.ts#L14)
 
 ***
 
@@ -30,4 +24,4 @@ Defined in: [scene/data/VertexLayout.ts:14](https://github.com/dantasgut/clayflo
 
 > **shaderLocation**: `number`
 
-Defined in: [scene/data/VertexLayout.ts:16](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/scene/data/VertexLayout.ts#L16)
+Defined in: [scene/data/VertexLayout.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/data/VertexLayout.ts#L16)

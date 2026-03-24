@@ -73,25 +73,25 @@ const QUICK_LINKS: QuickLink[] = [
     icon: '🏛️',
     label: 'Classes',
     sub: '44 classes documentadas',
-    to: '/docs/classes/WebGPURenderer',
+    to: '/docs/api/classes/WebGPURenderer',
   },
   {
     icon: '🔌',
     label: 'Interfaces',
     sub: '25 interfaces & contratos',
-    to: '/docs/interfaces/PhysicsStage',
+    to: '/docs/api/interfaces/PhysicsStage',
   },
   {
     icon: '🔢',
     label: 'Enumerações',
     sub: 'Enums do engine',
-    to: '/docs/enumerations/ResolutionType',
+    to: '/docs/api/enumerations/ResolutionType',
   },
   {
     icon: '📦',
     label: 'Tipos',
     sub: 'Type aliases exportados',
-    to: '/docs/type-aliases/VertexFormatType',
+    to: '/docs/api/type-aliases/VertexFormatType',
   },
 ];
 

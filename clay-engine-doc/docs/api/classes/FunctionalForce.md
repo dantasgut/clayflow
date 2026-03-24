@@ -1,12 +1,6 @@
-[**webgpu-engine**](../README.md)
-
-***
-
-[webgpu-engine](../README.md) / FunctionalForce
-
 # Class: FunctionalForce
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:9](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/FunctionalForce.ts#L9)
+Defined in: [elements/physics/forces/FunctionalForce.ts:9](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/FunctionalForce.ts#L9)
 
 Força definida por função arbitrária — para campos personalizados,
 geometria diferencial, espaços abstratos.
@@ -21,7 +15,7 @@ geometria diferencial, espaços abstratos.
 
 > **new FunctionalForce**(`id`, `fn`): `FunctionalForce`
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:13](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/FunctionalForce.ts#L13)
+Defined in: [elements/physics/forces/FunctionalForce.ts:13](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/FunctionalForce.ts#L13)
 
 #### Parameters
 
@@ -43,7 +37,7 @@ Defined in: [elements/physics/forces/FunctionalForce.ts:13](https://github.com/d
 
 > `readonly` **id**: `string`
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:10](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/FunctionalForce.ts#L10)
+Defined in: [elements/physics/forces/FunctionalForce.ts:10](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/FunctionalForce.ts#L10)
 
 #### Implementation of
 
@@ -55,7 +49,7 @@ Defined in: [elements/physics/forces/FunctionalForce.ts:10](https://github.com/d
 
 > **compute**(`body`, `dt`): `vec3`
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:18](https://github.com/dantasgut/clayflow/blob/a3b4ea2a6166599e51db22c402b4fb15c8973479/src/elements/physics/forces/FunctionalForce.ts#L18)
+Defined in: [elements/physics/forces/FunctionalForce.ts:18](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/forces/FunctionalForce.ts#L18)
 
 #### Parameters
 
