@@ -28,9 +28,10 @@ import type { Transform }           from '../../../../scene/math/Transform';
 const EPS = 1e-4;
 
 interface ShapeEntry {
-    readonly invWm: mat4;
-    readonly wm:    mat4;
-    readonly sdf:   (p: vec3) => number;
+    readonly invWm:    mat4;
+    readonly wm:       mat4;
+    readonly sdf:      (p: vec3) => number;
+    readonly collider: object;
 }
 
 export class SoftBodyCollisionStage implements PhysicsStage {
@@ -47,7 +48,7 @@ export class SoftBodyCollisionStage implements PhysicsStage {
             const invWm = mat4.invert(mat4.create(), wm);
             if (!invWm) continue;
             const sdf = collider.sdf.bind(collider);
-            shapes.push({ invWm, wm, sdf });
+            shapes.push({ invWm, wm, sdf, collider });
         }
         if (shapes.length === 0) return;
 
@@ -61,11 +62,17 @@ export class SoftBodyCollisionStage implements PhysicsStage {
 
                 const wp = vec3.fromValues(p.px, p.py, p.pz);
 
-                for (const { invWm, wm, sdf } of shapes) {
+                for (const shape of shapes) {
+                    const { invWm, wm, sdf } = shape;
                     // Posição prevista no espaço local do collider
                     const lp = vec3.transformMat4(vec3.create(), wp, invWm);
                     const d  = sdf(lp);
                     if (d >= radius) continue;   // fora do alcance — sem contato
+
+                    // Rejeita partículas fora dos limites de um plano finito (duck-typing)
+                    const cs = shape.collider as unknown as { halfWidth?: number; halfDepth?: number };
+                    if (cs.halfWidth  !== undefined && Math.abs(lp[0]!) > cs.halfWidth)  continue;
+                    if (cs.halfDepth  !== undefined && Math.abs(lp[2]!) > cs.halfDepth)  continue;
 
                     // Gradiente do SDF no espaço local (diferenças finitas)
                     const gx = sdf(vec3.fromValues(lp[0]! + EPS, lp[1]!,       lp[2]!      )) - d;
