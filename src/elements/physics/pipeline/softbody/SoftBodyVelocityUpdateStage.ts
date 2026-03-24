@@ -1,22 +1,39 @@
 import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { SoftBody }            from '../../SoftBody';
+import { BaseVelocityDerivationStage } from '../shared/BaseVelocityDerivationStage';
 
 /**
- * Estágio 4 do pipeline XPBD SoftBody — Derivação de velocidade.
+ * Estágio 4 do pipeline XPBD SoftBody — Atualização de velocidade e posição das partículas.
  *
- * Após o solve de constraints, deriva velocidade a partir do deslocamento
- * entre a posição predita e a posição atual (ainda não commitada):
- *   vel = (p_pred - p) / dt
+ * Especialização de {@link BaseVelocityDerivationStage} para corpos moles (SoftBody).
+ * Executado após {@link DistanceConstraintStage}, deriva a velocidade de cada partícula
+ * a partir do deslocamento real sofrido durante o solve de constraints:
  *
- * Aplica damping linear para dissipar energia residual:
- *   vel *= (1 - damping * dt)
+ * ```
+ * vel = (p_pred − p_old) / dt × dampFactor
+ * ```
  *
- * A posição é commitada pelo stage seguinte: {@link SoftBodyPositionCommitStage}.
+ * O fator de amortecimento é calculado via {@link BaseVelocityDerivationStage.computeDampingFactor}:
+ * ```
+ * dampFactor = max(0, 1 − damping × dt)
+ * ```
+ *
+ * Ao final, commita a posição prevista `(px, py, pz)` como posição atual `(x, y, z)`,
+ * encerrando o ciclo XPBD para o substep.
+ *
+ * A guarda `dt <= 0` é fornecida pela classe base {@link BaseVelocityDerivationStage},
+ * evitando divisão por zero sem código extra na subclasse.
  */
-export class SoftBodyVelocityUpdateStage implements PhysicsStage {
-    public execute(context: PhysicsStageContext, dt: number): void {
-        if (dt <= 0) return;
+export class SoftBodyVelocityUpdateStage extends BaseVelocityDerivationStage implements PhysicsStage {
+    /**
+     * Itera todos os SoftBodies do contexto, deriva as velocidades e commita as posições.
+     * Corpos de outros tipos físicos são ignorados.
+     *
+     * @param context - Contexto do passo de física com corpos e contatos.
+     * @param dt      - Passo de tempo do substep (segundos), sempre positivo (garantido pela classe base).
+     */
+    protected deriveVelocities(context: PhysicsStageContext, dt: number): void {
         const invDt = 1 / dt;
 
         for (const { body } of context.bodies.values()) {
@@ -25,7 +42,7 @@ export class SoftBodyVelocityUpdateStage implements PhysicsStage {
             // Damping escalado por dt: independente do número de substeps.
             // damping=0.02 → ~2% de perda por segundo, não por substep.
             const damping = sb.get<number>('damping') ?? 0.01;
-            const dampFactor = Math.max(0, 1 - damping * dt);
+            const dampFactor = this.computeDampingFactor(damping, dt);
 
             for (const p of sb.particles) {
                 p.vx = (p.px - p.x) * invDt * dampFactor;
