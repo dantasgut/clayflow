@@ -45,9 +45,10 @@ export class NarrowphaseStage implements PhysicsStage {
             const manifold = this.dispatcher.dispatch(a.collider, wma, b.collider, wmb);
             if (!manifold) continue;
 
-            // signA garante que a normal armazenada aponte de entityB → entityA.
-            const aIsCanonical = a.collider.colliderShape <= b.collider.colliderShape;
-            const signA = aIsCanonical ? -1 : 1;
+            // O dispatcher sempre reordena canonicamente antes de detect(),
+            // portanto a normal retornada é sempre no sentido A_canônico → B_canônico.
+            // signA = -1 inverte para a convenção armazenada: B → A (separação de A).
+            const signA = -1;
 
             const nx = manifold.normal[0]! * signA;
             const ny = manifold.normal[1]! * signA;
