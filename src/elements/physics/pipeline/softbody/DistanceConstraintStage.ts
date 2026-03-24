@@ -6,20 +6,27 @@ import { XPBDConstraintSolver }     from '../shared/XPBDConstraintSolver';
 /**
  * Estágio 3 do pipeline XPBD SoftBody — Solve de constraints de distância.
  *
- * Para cada constraint (aresta da malha), corrige as posições previstas
- * das duas partículas para satisfazer |pj - pi| = restLength.
+ * Especialização de {@link XPBDConstraintSolver} para corpos moles (SoftBody).
+ * Para cada constraint de aresta da malha, corrige as posições previstas
+ * `(px, py, pz)` das duas partículas para satisfazer `|pj − pi| = restLength`.
  *
- * Fórmula XPBD (Müller et al. 2020):
- *   C  = |Δp| - restLength
- *   α̃  = compliance / dt²
- *   Δλ = -C / (wi + wj + α̃)
- *   pi += +wi · Δλ · n̂
- *   pj += -wj · Δλ · n̂
+ * Formulação XPBD (Müller et al. 2020) por aresta, por iteração:
+ * ```
+ * C  = |Δp| − restLength       (violação da constraint)
+ * α̃  = compliance / dt²         (compliance normalizado para o substep)
+ * Δλ = −C / (wi + wj + α̃)      (correção do multiplicador de Lagrange)
+ * pi += +wi · Δλ · n̂            (corrige partícula i em direção à separação)
+ * pj += −wj · Δλ · n̂            (corrige partícula j em sentido oposto)
+ * ```
  *
- * Múltiplas iterações convergem constraints interdependentes (malhas densas).
+ * Múltiplas iterações convergem constraints interdependentes em malhas densas.
+ *
+ * Nota: cada aresta usa seu próprio `compliance` — o `compliance` global herdado
+ * de {@link XPBDConstraintSolver} é zerado no construtor. O `alphaTilde` passado
+ * pelo loop base é ignorado em {@link solveOne}; cada entry calcula localmente.
  */
 
-/** Constraint enriquecida com dados do SoftBody necessários em solveOne(). */
+/** Constraint enriquecida com dados do SoftBody necessários em {@link DistanceConstraintStage.solveOne}. */
 interface SolveEntry {
     readonly pA:         SoftBody['particles'][number];
     readonly pB:         SoftBody['particles'][number];
@@ -29,16 +36,35 @@ interface SolveEntry {
 }
 
 export class DistanceConstraintStage extends XPBDConstraintSolver implements PhysicsStage {
+    /**
+     * @param iterations - Número de iterações Gauss-Seidel por substep (padrão: 10).
+     *                     Valores maiores aumentam a rigidez percebida em malhas densas.
+     */
     constructor(iterations = 10) {
         // compliance = 0 na base: cada constraint usa seu próprio c.compliance via solveOne()
         super(iterations, 0);
     }
 
+    /**
+     * Ponto de entrada do estágio. Aplica guarda `dt <= 0` e delega ao loop base
+     * via {@link XPBDConstraintSolver.solve}.
+     *
+     * @param context - Contexto do passo de física com corpos e contatos.
+     * @param dt      - Passo de tempo do substep (segundos).
+     */
     public execute(context: PhysicsStageContext, dt: number): void {
         if (dt <= 0) return;
         this.solve(context, dt);
     }
 
+    /**
+     * Agrega todas as constraints de aresta de todos os SoftBodies do contexto.
+     * Corpos de outros tipos físicos são ignorados.
+     * O `invMass` por partícula é derivado da propriedade `mass` do corpo no momento da chamada.
+     *
+     * @param context - Contexto do passo de física.
+     * @returns         Lista de {@link SolveEntry} prontas para iterar em {@link solveOne}.
+     */
     protected getConstraints(context: PhysicsStageContext): readonly SolveEntry[] {
         const entries: SolveEntry[] = [];
 
@@ -68,6 +94,19 @@ export class DistanceConstraintStage extends XPBDConstraintSolver implements Phy
         return entries;
     }
 
+    /**
+     * Resolve uma constraint de distância entre duas partículas.
+     *
+     * O `alphaTilde` do loop base é ignorado — cada entry usa seu próprio `compliance`
+     * para calcular `αTilde = compliance / dt²` localmente, permitindo rigidez
+     * heterogênea na mesma malha.
+     *
+     * @param constraint  - {@link SolveEntry} com as duas partículas e metadados da aresta.
+     * @param _index      - Não utilizado (lambdaAcc não é acumulado neste estágio).
+     * @param _lambdaAcc  - Não utilizado (compliance por constraint ignora acumulação global).
+     * @param _alphaTilde - Não utilizado (ver nota acima).
+     * @param dt          - Passo de tempo do substep (segundos).
+     */
     protected solveOne(
         constraint: unknown,
         _index:     number,

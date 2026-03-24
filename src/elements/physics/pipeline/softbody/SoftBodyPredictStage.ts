@@ -4,15 +4,31 @@ import type { SoftBody }            from '../../SoftBody';
 import { BasePredictStage }         from '../shared/BasePredictStage';
 
 /**
- * Estágio 2 do pipeline XPBD SoftBody — Predição de posição.
+ * Estágio 2 do pipeline XPBD SoftBody — Predição de posição das partículas.
  *
- * Calcula posição prevista de cada partícula:
- *   p_pred = pos + vel · dt
+ * Especialização de {@link BasePredictStage} para corpos moles (SoftBody).
+ * Para cada partícula de cada SoftBody acordado, calcula a posição prevista
+ * usando integração de Euler explícita:
  *
- * A posição prevista é o ponto de partida para o solve de constraints.
- * A posição atual (x,y,z) é preservada para o cálculo de velocidade posterior.
+ * ```
+ * p_pred = (x, y, z) + (vx, vy, vz) · dt
+ * ```
+ *
+ * A posição prevista `(px, py, pz)` é o ponto de partida do solve de constraints
+ * em {@link DistanceConstraintStage}. A posição atual `(x, y, z)` é preservada
+ * para que {@link SoftBodyVelocityUpdateStage} possa derivar a velocidade após o solve:
+ * `vel = (p_pred − p_old) / dt`.
+ *
+ * Guarda: `dt <= 0` aborta a predição para evitar divisão por zero no estágio posterior.
  */
 export class SoftBodyPredictStage extends BasePredictStage implements PhysicsStage {
+    /**
+     * Itera todos os SoftBodies do contexto e calcula as posições previstas.
+     * Corpos de outros tipos físicos são ignorados.
+     *
+     * @param context - Contexto do passo de física com corpos e contatos.
+     * @param dt      - Passo de tempo do substep (segundos).
+     */
     protected predictBodies(context: PhysicsStageContext, dt: number): void {
         if (dt <= 0) return;
         for (const { body } of context.bodies.values()) {

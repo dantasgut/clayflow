@@ -60,6 +60,11 @@ export class PBDSolveStage extends XPBDConstraintSolver implements PhysicsStage 
     // Contexto guardado durante execute() para uso em solveOne()
     private _context: PhysicsStageContext | null = null;
 
+    /**
+     * @param state  - Estado compartilhado do pipeline PBD onde o array `contactLambda`
+     *                 será exportado via {@link onSolveComplete} para uso pelo `PBDContactResponseStage`.
+     * @param config - Configuração de resolução de contatos (iterações, compliance, slop, escala angular).
+     */
     constructor(
         private readonly state: PBDState,
         config: ResolutionConfig = {},
@@ -83,16 +88,38 @@ export class PBDSolveStage extends XPBDConstraintSolver implements PhysicsStage 
         this.angularCorrectionScale = config.angularCorrectionScale ?? 0;
     }
 
+    /**
+     * Ponto de entrada do estágio. Armazena o contexto para acesso em {@link solveOne}
+     * e delega ao loop iterativo via {@link XPBDConstraintSolver.solve}.
+     *
+     * @param context - Contexto do passo de física com corpos e contatos.
+     * @param dt      - Passo de tempo do substep (segundos).
+     */
     public execute(context: PhysicsStageContext, dt: number): void {
         this._context = context;
         this.solve(context, dt);
         this._context = null;
     }
 
+    /**
+     * Retorna os contatos gerados pelo NarrowphaseStage para este substep.
+     *
+     * @param context - Contexto do passo de física.
+     * @returns         Lista de contatos a iterar no loop XPBD.
+     */
     protected getConstraints(context: PhysicsStageContext): readonly PhysicsStageContext['contacts'][number][] {
         return context.contacts;
     }
 
+    /**
+     * Delega a resolução do contato para o método privado `solveContact`.
+     *
+     * @param constraint  - Contato a resolver (cast para o tipo concreto internamente).
+     * @param idx         - Índice do contato — chave em `lambdaAcc`.
+     * @param lambdaAcc   - Multiplicadores de Lagrange acumulados neste substep.
+     * @param alphaTilde  - Compliance normalizado: `compliance / dt²` (zero = rígido).
+     * @param _dt         - Não utilizado diretamente aqui (depth já está em unidades de posição).
+     */
     protected solveOne(
         constraint: unknown,
         idx:        number,
@@ -105,6 +132,13 @@ export class PBDSolveStage extends XPBDConstraintSolver implements PhysicsStage 
         this.solveContact(contact, context, lambdaAcc, idx, alphaTilde);
     }
 
+    /**
+     * Exporta o array de multiplicadores de Lagrange acumulados para {@link PBDState.contactLambda}.
+     * O `PBDContactResponseStage` usa esses valores como proxy do impulso normal
+     * para calcular o limite de Coulomb do atrito.
+     *
+     * @param lambdaAcc - Multiplicadores de Lagrange acumulados ao final do solve.
+     */
     protected override onSolveComplete(lambdaAcc: Float32Array): void {
         // Exporta λ acumulado para o PBDContactResponseStage usar como proxy
         // do impulso normal — base para o limite de Coulomb do atrito.

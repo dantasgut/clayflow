@@ -5,30 +5,42 @@ import type { vec3, quat }          from 'gl-matrix';
 import { BasePredictStage }         from '../../shared/BasePredictStage';
 
 /**
- * Estágio 2 do pipeline PBD — Predição de posição e rotação.
+ * Estágio 2 do pipeline PBD — Predição de posição e rotação dos RigidBodies.
  *
- * Inversão fundamental em relação ao pipeline SI: a integração acontece
- * ANTES da detecção de colisões, gerando posições "tentativas" (predicted).
- * O BroadphaseStage e NarrowphaseStage subsequentes usam essas posições.
+ * Especialização de {@link BasePredictStage} para corpos rígidos.
+ * A inversão fundamental do PBD: a integração ocorre ANTES da detecção de colisões,
+ * gerando posições "tentativas" que o BroadphaseStage e NarrowphaseStage usam.
+ * O {@link PBDSolveStage} posterior corrige essas posições para satisfazer as constraints.
  *
  * Para TODOS os corpos dinâmicos (incluindo adormecidos):
- *   - Salva pos_old, rot_old, vel_old no PBDState
- *     → Permite ao PBDVelocityRecoveryStage recuperar vel = (pos_new - pos_old) / dt
- *       mesmo para corpos que eram dormentes e foram acordados pelo PBDSolveStage.
+ *   - Salva `pos_old`, `rot_old`, `vel_old` no {@link PBDState}
+ *     → Permite ao {@link PBDVelocityRecoveryStage} recuperar `vel = (pos_new − pos_old) / dt`
+ *       mesmo para corpos que estavam dormentes e foram acordados pelo {@link PBDSolveStage}.
  *
- * Para corpos acordados:
- *   - Prediz posição: pos += vel * dt  (Euler explícito)
- *   - Prediz rotação: q' = normalize(q + 0.5 · Ω ⊗ q · dt)
+ * Para corpos acordados (não `isSleeping`):
+ *   - Prediz posição via Euler explícito: `pos += vel × dt`
+ *   - Prediz rotação via derivada de quaternion: `q' = normalize(q + 0.5 · Ω ⊗ q · dt)`
  *
- * Nota: linearDamping e angularDamping já foram aplicados pelo ForceStage
- * (via CPURigidBodySolver). O PBDPredictStage apenas integra as velocidades
- * resultantes, sem reaplicar damping.
+ * Nota: `linearDamping` e `angularDamping` já foram aplicados pelo {@link ForceStage}
+ * via `CPURigidBodySolver`. Este estágio apenas integra as velocidades resultantes,
+ * sem reaplicar amortecimento.
  */
 export class PBDPredictStage extends BasePredictStage implements PhysicsStage {
+    /**
+     * @param state - Estado compartilhado do pipeline PBD onde pos/rot/vel pré-predição
+     *                serão armazenados para uso posterior pelo {@link PBDVelocityRecoveryStage}.
+     */
     constructor(private readonly state: PBDState) {
         super();
     }
 
+    /**
+     * Itera todos os RigidBodies dinâmicos, salva estado no cache e aplica a predição.
+     * Corpos cinemáticos (`isKinematic`) são ignorados.
+     *
+     * @param context - Contexto do passo de física com corpos e contatos.
+     * @param dt      - Passo de tempo do substep (segundos).
+     */
     protected predictBodies(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
