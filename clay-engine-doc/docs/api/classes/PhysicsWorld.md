@@ -1,55 +1,33 @@
 # Class: PhysicsWorld
 
-Defined in: [elements/physics/PhysicsWorld.ts:135](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L135)
+Defined in: [elements/physics/PhysicsWorld.ts:114](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L114)
 
 Implementação euclidiana do SimulationWorld (Mediator — GoF).
 
 Orquestra o pipeline de física composto por estágios independentes
 (Pipeline pattern). Cada estágio encapsula uma fase única da simulação.
 
-═══════════════════════════════════════════════════════════════════════════
-PIPELINE DE FÍSICA — executado a cada frame em `step(scene, dt)`
-═══════════════════════════════════════════════════════════════════════════
+## Pipeline de Física — `step(scene, dt)`
 
 O frame dt é dividido em N substeps (padrão: 8) para estabilidade numérica.
 O pipeline de substeps roda N vezes; SyncStage roda uma única vez ao final.
 
- ┌─ loop substeps (N × substepDt) ──────────────────────────────────────┐
- │                                                                       │
- │  1. ForceStage          Acumula forças globais (gravidade, etc.) e   │
- │                         executa o solver: netForce → velocity,        │
- │                         aplica linearDamping e angularDamping.        │
- │                                                                       │
- │  2. BroadphaseStage     Sincroniza worldMatrix dos corpos com suas   │
- │                         posições físicas atuais; detecta pares de    │
- │                         colisores com AABBs sobrepostas (O(n²)).     │
- │                                                                       │
- │  3. NarrowphaseStage    Testa pares candidatos com o algoritmo       │
- │                         exato para cada par de formas (dispatcher);  │
- │                         gera CollisionContacts com normal, depth,    │
- │                         pontos de contato e weight = 1/N.            │
- │                                                                       │
- │  4. CollisionResolutionStage                                         │
- │                         Aplica impulso normal (restituição) e        │
- │                         tangencial (atrito de Coulomb) em cada       │
- │                         contato; corrige posição (depenetração).     │
- │                                                                       │
- │  5. IntegrationStage    Integra velocity → position (Euler) e       │
- │                         angularVelocity → rotation (quaternion).     │
- │                                                                       │
- │  6. SleepStage          Coloca em sono corpos cujas velocidades      │
- │                         ficaram abaixo dos limiares por tempo        │
- │                         suficiente; elimina micro-impulsos residuais. │
- │                                                                       │
- └───────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph loop["🔁 loop substeps (N × substepDt, padrão N=8)"]
+        F["1. ForceStage\nAcumula forças globais\nnetForce → velocity\nlinearDamping + angularDamping"]
+        B["2. BroadphaseStage\nSincroniza worldMatrix\nDetecta pares AABB O(n²)"]
+        N["3. NarrowphaseStage\nDispatcher por par de formas\nGera CollisionContacts"]
+        R["4. CollisionResolutionStage\nImpulso normal + tangencial\nCorreção de penetração"]
+        I["5. IntegrationStage\nvelocity → position\nangularVelocity → quaternion"]
+        S["6. SleepStage\nCorpos lentos → sleep\nElimina micro-impulsos"]
+        F --> B --> N --> R --> I --> S
+    end
+    Sync["7. SyncStage — 1× por frame\nbody.position/rotation → Transform visual"]
+    loop --> Sync
+```
 
- 7. SyncStage (1× por frame)
-                        Copia body.position/rotation → Transform visual,
-                        tornando o resultado visível ao renderer.
-
-═══════════════════════════════════════════════════════════════════════════
-REGISTRO EVENT-DRIVEN
-═══════════════════════════════════════════════════════════════════════════
+## Registro Event-Driven
 
 Modificações no grafo de cena (addChild / removeChild) durante step() são
 diferidas em filas (`pendingAdd`, `pendingRemove`) e processadas no início
@@ -77,7 +55,7 @@ world.step(scene, dt);
 
 > **new PhysicsWorld**(`options?`): `PhysicsWorld`
 
-Defined in: [elements/physics/PhysicsWorld.ts:163](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L163)
+Defined in: [elements/physics/PhysicsWorld.ts:142](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L142)
 
 #### Parameters
 
@@ -101,7 +79,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:163](https://github.com/dantasgut/
 
 > **get** **dispatcher**(): `CollisionDispatcher`
 
-Defined in: [elements/physics/PhysicsWorld.ts:244](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L244)
+Defined in: [elements/physics/PhysicsWorld.ts:224](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L224)
 
 ##### Returns
 
@@ -113,7 +91,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:244](https://github.com/dantasgut/
 
 > **addForce**(`force`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:292](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L292)
+Defined in: [elements/physics/PhysicsWorld.ts:272](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L272)
 
 Registra uma força global aplicada a todos os corpos a cada step.
 
@@ -137,7 +115,7 @@ Registra uma força global aplicada a todos os corpos a cada step.
 
 > **connectScene**(`scene`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:259](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L259)
+Defined in: [elements/physics/PhysicsWorld.ts:239](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L239)
 
 Conecta o mundo a uma cena: observa child_added e child_removed
 para registrar/remover corpos e colliders automaticamente.
@@ -163,7 +141,7 @@ Também registra todos os physics components já presentes na cena.
 
 > **disconnectScene**(`scene`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:270](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L270)
+Defined in: [elements/physics/PhysicsWorld.ts:250](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L250)
 
 Remove a observação da cena e limpa todos os registros.
 
@@ -187,7 +165,7 @@ Remove a observação da cena e limpa todos os registros.
 
 > **removeForce**(`id`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:296](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L296)
+Defined in: [elements/physics/PhysicsWorld.ts:276](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L276)
 
 #### Parameters
 
@@ -209,7 +187,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:296](https://github.com/dantasgut/
 
 > **removeSolver**(`physicType`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:288](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L288)
+Defined in: [elements/physics/PhysicsWorld.ts:268](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L268)
 
 #### Parameters
 
@@ -231,7 +209,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:288](https://github.com/dantasgut/
 
 > **setSolver**(`physicType`, `solver`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:284](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L284)
+Defined in: [elements/physics/PhysicsWorld.ts:264](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L264)
 
 Associa um solver ao tipo de corpo (Bridge).
 
@@ -259,7 +237,7 @@ Associa um solver ao tipo de corpo (Bridge).
 
 > **setSubsteps**(`n`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:248](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L248)
+Defined in: [elements/physics/PhysicsWorld.ts:228](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L228)
 
 #### Parameters
 
@@ -277,7 +255,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:248](https://github.com/dantasgut/
 
 > **step**(`scene`, `dt`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:304](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/PhysicsWorld.ts#L304)
+Defined in: [elements/physics/PhysicsWorld.ts:284](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L284)
 
 Avança a simulação por `dt` segundos.
 A implementação decide o pipeline interno (broadphase, narrowphase, integração).
