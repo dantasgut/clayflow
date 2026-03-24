@@ -27,8 +27,9 @@ import { createPBDState }           from './pipeline/rigidbody/pbd/PBDState';
 import { SoftBodyPredictStage }        from './pipeline/softbody/SoftBodyPredictStage';
 import { DistanceConstraintStage }     from './pipeline/softbody/DistanceConstraintStage';
 import { SoftBodyCollisionStage }      from './pipeline/softbody/SoftBodyCollisionStage';
-import { SoftBodyVelocityUpdateStage } from './pipeline/softbody/SoftBodyVelocityUpdateStage';
-import { SoftBodySyncStage }           from './pipeline/softbody/SoftBodySyncStage';
+import { SoftBodyVelocityUpdateStage }  from './pipeline/softbody/SoftBodyVelocityUpdateStage';
+import { SoftBodyPositionCommitStage }  from './pipeline/softbody/SoftBodyPositionCommitStage';
+import { SoftBodySyncStage }            from './pipeline/softbody/SoftBodySyncStage';
 import type { RigidBodySimConfig }    from '../../scene/systems/simulation/RigidBodySimConfig';
 import type { SoftBodySimConfig }     from '../../scene/systems/simulation/SoftBodySimConfig';
 import type { CollisionSimConfig }    from '../../scene/systems/simulation/CollisionSimConfig';
@@ -188,6 +189,7 @@ export class PhysicsWorld extends SimulationWorld {
             new DistanceConstraintStage(sb.iterations ?? 10),
             new SoftBodyCollisionStage(sb.restitution ?? 0.05),
             new SoftBodyVelocityUpdateStage(),
+            new SoftBodyPositionCommitStage(),
             new SoftBodySyncStage(),
         ] : [];
 
