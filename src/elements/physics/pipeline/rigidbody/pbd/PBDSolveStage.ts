@@ -4,7 +4,7 @@ import type { ResolutionConfig }    from '../../../../../scene/systems/resolutio
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
-import { XPBDConstraintSolver }     from '../../shared/XPBDConstraintSolver';
+import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 
 /**
  * Estágio 5 do pipeline PBD — Projeção de constraints de posição.
@@ -238,47 +238,19 @@ export class PBDSolveStage extends XPBDConstraintSolver implements PhysicsStage 
         if (this.angularCorrectionScale > 0) {
             const scΔλ = Δλ * this.angularCorrectionScale;
             if (dynA && rotA && IA) {
-                PBDSolveStage.applyAngularCorrection(rotA,
+                QuaternionUtils.applyAngularDelta(rotA,
                     a.rAxDx / Math.max(IA[0]!, 1e-6) * scΔλ,
                     a.rAxDy / Math.max(IA[1]!, 1e-6) * scΔλ,
                     a.rAxDz / Math.max(IA[2]!, 1e-6) * scΔλ,
                 );
             }
             if (dynB && rotB && IB) {
-                PBDSolveStage.applyAngularCorrection(rotB,
+                QuaternionUtils.applyAngularDelta(rotB,
                     -a.rBxDx / Math.max(IB[0]!, 1e-6) * scΔλ,
                     -a.rBxDy / Math.max(IB[1]!, 1e-6) * scΔλ,
                     -a.rBxDz / Math.max(IB[2]!, 1e-6) * scΔλ,
                 );
             }
-        }
-    }
-
-    /**
-     * Aplica correção angular ao quaternion:
-     *   q += 0.5 · [ω, 0] ⊗ q   depois normaliza
-     *
-     * Onde [ω, 0] é o quaternion puro formado pelo vetor de correção ω.
-     * A escala temporal já está embutida em Δλ via IA⁻¹ — sem fator dt aqui.
-     */
-    private static applyAngularCorrection(q: quat, ωx: number, ωy: number, ωz: number): void {
-        const qx = q[0] ?? 0;
-        const qy = q[1] ?? 0;
-        const qz = q[2] ?? 0;
-        const qw = q[3] ?? 1;
-        q[0] = qx + 0.5 * (ωx * qw + ωy * qz - ωz * qy);
-        q[1] = qy + 0.5 * (ωy * qw + ωz * qx - ωx * qz);
-        q[2] = qz + 0.5 * (ωz * qw + ωx * qy - ωy * qx);
-        q[3] = qw + 0.5 * (-ωx * qx - ωy * qy - ωz * qz);
-        const len = Math.sqrt(
-            (q[0] ?? 0) ** 2 + (q[1] ?? 0) ** 2 +
-            (q[2] ?? 0) ** 2 + (q[3] ?? 0) ** 2,
-        );
-        if (len > 1e-6) {
-            q[0] = (q[0] ?? 0) / len;
-            q[1] = (q[1] ?? 0) / len;
-            q[2] = (q[2] ?? 0) / len;
-            q[3] = (q[3] ?? 0) / len;
         }
     }
 }

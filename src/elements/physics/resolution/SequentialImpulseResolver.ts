@@ -3,6 +3,28 @@ import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageCon
 import type { ResolutionConfig }    from '../../../scene/systems/resolution/ResolutionConfig';
 import type { vec3 }                from 'gl-matrix';
 import { ContactImpulseKernel }     from './ContactImpulseKernel';
+import type { ContactCache }        from '../contact/ContactCache';
+import type { FrictionAnchorCache } from '../contact/FrictionAnchorCache';
+import type { BaumgarteCorrector }  from '../contact/BaumgarteCorrector';
+import type { ContactKeyBuilder }   from '../contact/ContactKeyBuilder';
+
+/**
+ * Dependências externas injetadas no `SequentialImpulseResolver`.
+ *
+ * Seguindo o princípio de Inversão de Dependências (DIP), o resolver não cria
+ * seus próprios caches — recebe os serviços prontos via construtor.
+ * Isso permite reusar os mesmos serviços em futuros solvers (LCP, SoftBody) sem duplicação.
+ */
+export interface SIResolverDeps {
+    /** Cache de impulsos acumulados para warm-starting. */
+    readonly contactCache:         ContactCache;
+    /** Corretor de penetração por Baumgarte posicional. */
+    readonly baumgarte:            BaumgarteCorrector;
+    /** Gerador de chaves de cache estáveis por ponto de contato. */
+    readonly keyBuilder:           ContactKeyBuilder;
+    /** Cache de âncoras de atrito (opcional — ativo apenas quando `frictionAnchors: true`). */
+    readonly frictionAnchorCache?: FrictionAnchorCache;
+}
 
 /**
  * Resolução por Sequential Impulses (SI) — Projected Gauss-Seidel (PGS).
@@ -58,43 +80,22 @@ export class SequentialImpulseResolver implements CollisionResolver {
     private readonly restitution:          number;
     private readonly restitutionThreshold: number;
     private readonly friction:             number;
-    private readonly baumgarteFactor:      number;
-    private readonly penetrationSlop:      number;
     private readonly iterations:           number;
     private readonly warmStarting:         boolean;
     private readonly overRelaxation:       number;
     private readonly frictionAnchors:      boolean;
     private readonly frictionAnchorBeta:   number;
 
-    /**
-     * Cache de impulsos do frame ANTERIOR — snapshot feito em beginFrame().
-     * Usado como fonte de warm start no primeiro substep de cada frame.
-     */
-    private prevFrameCache = new Map<string, [number, number, number, number]>();
-
-    /**
-     * Cache dos impulsos acumulados no frame ATUAL — atualizado ao final de
-     * cada substep. Torna-se prevFrameCache no próximo beginFrame().
-     */
-    private warmCache = new Map<string, [number, number, number, number]>();
-
     /** Controla se o warm start já foi aplicado neste frame. */
     private warmStartApplied = false;
 
-    /**
-     * Cache de âncoras de atrito do frame ATUAL.
-     * Chave = contactKey, valor = [cpx, cpy, cpz] do ponto de contato inicial.
-     * Previne drift em rampas mantendo o objeto "travado" na posição de contato.
-     */
-    private anchorCache     = new Map<string, [number, number, number]>();
-    private prevAnchorCache = new Map<string, [number, number, number]>();
-
-    constructor(config: ResolutionConfig = {}) {
+    constructor(
+        private readonly deps: SIResolverDeps,
+        config: ResolutionConfig = {},
+    ) {
         this.restitution          = config.restitution          ?? 0.3;
         this.restitutionThreshold = config.restitutionThreshold ?? 1.0;
         this.friction             = config.friction             ?? 0.5;
-        this.baumgarteFactor      = config.baumgarteFactor      ?? 0.4;
-        this.penetrationSlop      = config.penetrationSlop      ?? 0.005;
         this.iterations           = config.iterations           ?? 10;
         this.warmStarting         = config.warmStarting         ?? true;
         this.overRelaxation       = config.overRelaxation       ?? 1.0;
@@ -107,17 +108,9 @@ export class SequentialImpulseResolver implements CollisionResolver {
      * Salva o cache atual como fonte de warm start e reseta o flag de aplicação.
      */
     public beginFrame(): void {
-        const tmp           = this.prevFrameCache;
-        this.prevFrameCache = this.warmCache;
-        this.warmCache      = tmp;
-        this.warmCache.clear();
+        this.deps.contactCache.beginFrame();
+        this.deps.frictionAnchorCache?.beginFrame();
         this.warmStartApplied = false;
-
-        // Rotate anchor caches: current becomes previous
-        const tmpA          = this.prevAnchorCache;
-        this.prevAnchorCache = this.anchorCache;
-        this.anchorCache     = tmpA;
-        this.anchorCache.clear();
     }
 
     public resolve(context: PhysicsStageContext, dt: number): void {
@@ -131,7 +124,9 @@ export class SequentialImpulseResolver implements CollisionResolver {
         if (this.warmStarting && !this.warmStartApplied) {
             this.warmStartApplied = true;
             for (let i = 0; i < contacts.length; i++) {
-                const cached = this.prevFrameCache.get(this.contactKey(contacts[i]!));
+                const c   = contacts[i]!;
+                const key = this.deps.keyBuilder.build(c.entityIdA, c.entityIdB, c.cpx, c.cpy, c.cpz, c.featureId);
+                const cached = this.deps.contactCache.getPrev(key);
                 if (!cached) continue;
                 // Fator 0.85: amortece para evitar sobrecorreção quando a geometria mudou
                 const λN  = cached[0] * 0.85;
@@ -140,7 +135,7 @@ export class SequentialImpulseResolver implements CollisionResolver {
                 const λTz = cached[3] * 0.85;
                 accumulated[i] = [λN, λTx, λTy, λTz];
                 if (λN === 0 && λTx === 0 && λTy === 0 && λTz === 0) continue;
-                this.applyWarmStart(contacts[i]!, context, λN, λTx, λTy, λTz);
+                this.applyWarmStart(c, context, λN, λTx, λTy, λTz);
             }
         }
 
@@ -158,7 +153,9 @@ export class SequentialImpulseResolver implements CollisionResolver {
 
         // Salva impulsos acumulados para o próximo frame (warm start)
         for (let i = 0; i < contacts.length; i++) {
-            this.warmCache.set(this.contactKey(contacts[i]!), accumulated[i]!);
+            const c   = contacts[i]!;
+            const key = this.deps.keyBuilder.build(c.entityIdA, c.entityIdB, c.cpx, c.cpy, c.cpz, c.featureId);
+            this.deps.contactCache.set(key, accumulated[i]!);
         }
     }
 
@@ -253,9 +250,9 @@ export class SequentialImpulseResolver implements CollisionResolver {
 
         // Friction anchor: adiciona velocidade de restauração à posição original
         let fBiasX = 0, fBiasY = 0, fBiasZ = 0;
-        const contactKey = this.contactKey(contact);
+        const contactKey = this.deps.keyBuilder.build(contact.entityIdA, contact.entityIdB, cpx, cpy, cpz, contact.featureId);
         if (this.frictionAnchors && dt > 0) {
-            const anchor = this.prevAnchorCache.get(contactKey);
+            const anchor = this.deps.frictionAnchorCache?.getPrev(contactKey);
             if (anchor) {
                 const dx = anchor[0] - cpx;
                 const dy = anchor[1] - cpy;
@@ -320,18 +317,18 @@ export class SequentialImpulseResolver implements CollisionResolver {
                 if (this.frictionAnchors) {
                     if (scale < 1.0) {
                         // Deslizando — ancora migra para posição atual
-                        this.anchorCache.set(contactKey, [cpx, cpy, cpz]);
+                        this.deps.frictionAnchorCache?.set(contactKey, [cpx, cpy, cpz]);
                     } else {
                         // Estático — preserva ancora anterior ou inicializa
-                        const existing = this.prevAnchorCache.get(contactKey);
-                        this.anchorCache.set(contactKey, existing ?? [cpx, cpy, cpz]);
+                        const existing = this.deps.frictionAnchorCache?.getPrev(contactKey);
+                        this.deps.frictionAnchorCache?.set(contactKey, existing ?? [cpx, cpy, cpz]);
                     }
                 }
             }
         } else if (this.frictionAnchors) {
             // Sem velocidade tangencial — inicializa anchor se não existe
-            const existing = this.prevAnchorCache.get(contactKey);
-            this.anchorCache.set(contactKey, existing ?? [cpx, cpy, cpz]);
+            const existing = this.deps.frictionAnchorCache?.getPrev(contactKey);
+            this.deps.frictionAnchorCache?.set(contactKey, existing ?? [cpx, cpy, cpz]);
         }
     }
 
@@ -359,20 +356,20 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const invSumTrans = invMA + invMB;
         if (invSumTrans <= 0) return;
 
-        const correctionDepth = Math.max(depth - this.penetrationSlop, 0) * this.baumgarteFactor;
+        const correctionDepth = this.deps.baumgarte.correctionDepth(depth);
         if (correctionDepth <= 0) return;
 
         const posA = dynA ? entryA!.body.get<vec3>('position') : null;
         const posB = dynB ? entryB!.body.get<vec3>('position') : null;
 
         if (dynA && posA) {
-            const s = (invMA / invSumTrans) * correctionDepth;
+            const s = this.deps.baumgarte.scaleA(invMA, invSumTrans) * correctionDepth;
             posA[0] = (posA[0] ?? 0) + nx * s;
             posA[1] = (posA[1] ?? 0) + ny * s;
             posA[2] = (posA[2] ?? 0) + nz * s;
         }
         if (dynB && posB) {
-            const s = (invMB / invSumTrans) * correctionDepth;
+            const s = this.deps.baumgarte.scaleB(invMB, invSumTrans) * correctionDepth;
             posB[0] = (posB[0] ?? 0) - nx * s;
             posB[1] = (posB[1] ?? 0) - ny * s;
             posB[2] = (posB[2] ?? 0) - nz * s;
@@ -423,17 +420,4 @@ export class SequentialImpulseResolver implements CollisionResolver {
         if (dynB && velB) ContactImpulseKernel.applyVec(velB, isMultiContact ? null : omegaB, isMultiContact ? null : IB, -1, jNx, jNy, jNz, rBx, rBy, rBz, invMB);
     }
 
-    /**
-     * Chave de cache para warm starting e friction anchors.
-     *
-     * Quando o contato tem `featureId` (ex: índice de vértice da caixa), usa-o
-     * como chave — estável entre frames sem depender de posição.
-     * Caso contrário, cai de volta para a grade posicional de 5cm.
-     */
-    private contactKey(c: PhysicsStageContext['contacts'][number]): string {
-        if (c.featureId !== undefined) {
-            return `${c.entityIdA}:${c.entityIdB}:v${c.featureId}`;
-        }
-        return `${c.entityIdA}:${c.entityIdB}:${Math.round(c.cpx * 20)}:${Math.round(c.cpy * 20)}:${Math.round(c.cpz * 20)}`;
-    }
 }
