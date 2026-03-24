@@ -4,13 +4,17 @@ import type { CollisionResolver }   from '../../../../scene/systems/resolution/C
 import type { ResolutionConfig }    from '../../../../scene/systems/resolution/ResolutionConfig';
 import { ResolutionType }           from '../../../../scene/systems/resolution/ResolutionType';
 import { ImpulseResolver }          from '../../resolution/ImpulseResolver';
-import { SequentialImpulseResolver } from '../../resolution/SequentialImpulseResolver';
+import { SequentialImpulseResolver, type SIResolverDeps } from '../../resolution/SequentialImpulseResolver';
+import { ContactCache }             from '../../contact/ContactCache';
+import { FrictionAnchorCache }      from '../../contact/FrictionAnchorCache';
+import { BaumgarteCorrector }       from '../../contact/BaumgarteCorrector';
+import { ContactKeyBuilder }        from '../../contact/ContactKeyBuilder';
 
 /**
  * Estágio 4 do pipeline de física — Resolução de colisões (Strategy — GoF).
  *
- * Recebe `ResolutionConfig`, instancia o `CollisionResolver` adequado e
- * delega a ele a resolução de todos os contatos do frame.
+ * Recebe `ResolutionConfig`, compõe os serviços de estabilização e instancia
+ * o `CollisionResolver` adequado, delegando a ele a resolução de todos os contatos do frame.
  *
  * O resolver é um detalhe de implementação interno — não há API pública
  * que o usuário precise acessar, ao contrário do CollisionDispatcher.
@@ -23,8 +27,18 @@ export class CollisionResolutionStage implements PhysicsStage {
             case ResolutionType.IMPULSE:
                 this.resolver = new ImpulseResolver(config);
                 break;
-            default:
-                this.resolver = new SequentialImpulseResolver(config);
+            default: {
+                const keyBuilder   = new ContactKeyBuilder();
+                const baumgarte    = new BaumgarteCorrector(
+                    config.baumgarteFactor,
+                    config.penetrationSlop,
+                );
+                const contactCache = new ContactCache();
+                const deps: SIResolverDeps = config.frictionAnchors
+                    ? { contactCache, baumgarte, keyBuilder, frictionAnchorCache: new FrictionAnchorCache() }
+                    : { contactCache, baumgarte, keyBuilder };
+                this.resolver = new SequentialImpulseResolver(deps, config);
+            }
         }
     }
 
