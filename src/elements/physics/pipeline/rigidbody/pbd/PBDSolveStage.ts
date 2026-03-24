@@ -4,6 +4,7 @@ import type { ResolutionConfig }    from '../../../../../scene/systems/resolutio
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
+import { XPBDConstraintSolver }     from '../../shared/XPBDConstraintSolver';
 
 /**
  * Estágio 5 do pipeline PBD — Projeção de constraints de posição.
@@ -53,19 +54,18 @@ import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKern
  * Para corpos deformáveis, α > 0 amortece a correção:
  *   Δλ = depth/wSum - λ_acc - (α/h²) · λ_acc / wSum   (futura extensão)
  */
-export class PBDSolveStage implements PhysicsStage {
-    private readonly iterations:            number;
+export class PBDSolveStage extends XPBDConstraintSolver implements PhysicsStage {
     private readonly slop:                  number;
     private readonly angularCorrectionScale: number;
-    private readonly compliance:            number;
+    // Contexto guardado durante execute() para uso em solveOne()
+    private _context: PhysicsStageContext | null = null;
 
     constructor(
         private readonly state: PBDState,
         config: ResolutionConfig = {},
     ) {
-        this.iterations = config.iterations ?? 10;
+        super(config.iterations ?? 10, config.compliance ?? 0);
         this.slop       = config.penetrationSlop ?? 0.001;
-        this.compliance = config.compliance ?? 0;
         // Escala a correção ANGULAR da constraint de posição.
         //
         // Com scale = 1 (padrão XPBD), o contato excêntrico gera um torque
@@ -84,26 +84,31 @@ export class PBDSolveStage implements PhysicsStage {
     }
 
     public execute(context: PhysicsStageContext, dt: number): void {
-        const contacts = context.contacts;
-        if (contacts.length === 0) return;
+        this._context = context;
+        this.solve(context, dt);
+        this._context = null;
+    }
 
-        // Multiplicadores acumulados por contato neste substep
-        // Evita over-correction quando contact.depth é fixo entre iterações
-        const λAcc = new Float32Array(contacts.length); // inicializado em 0
+    protected getConstraints(context: PhysicsStageContext): readonly PhysicsStageContext['contacts'][number][] {
+        return context.contacts;
+    }
 
-        // α̃ = compliance / dt² — normaliza o compliance para a escala temporal do substep.
-        // Com compliance = 0: α̃ = 0 → comportamento rígido idêntico ao anterior.
-        const αTilde = dt > 0 && this.compliance > 0 ? this.compliance / (dt * dt) : 0;
+    protected solveOne(
+        constraint: unknown,
+        idx:        number,
+        lambdaAcc:  Float32Array,
+        alphaTilde: number,
+        _dt:        number,
+    ): void {
+        const context = this._context!;
+        const contact = constraint as PhysicsStageContext['contacts'][number];
+        this.solveContact(contact, context, lambdaAcc, idx, alphaTilde);
+    }
 
-        for (let iter = 0; iter < this.iterations; iter++) {
-            for (let i = 0; i < contacts.length; i++) {
-                this.solveContact(contacts[i]!, context, λAcc, i, αTilde);
-            }
-        }
-
-        // Exporta λ acumulado para o PBDVelocityUpdateStage usar como proxy
+    protected override onSolveComplete(lambdaAcc: Float32Array): void {
+        // Exporta λ acumulado para o PBDContactResponseStage usar como proxy
         // do impulso normal — base para o limite de Coulomb do atrito.
-        this.state.contactLambda = Array.from(λAcc);
+        this.state.contactLambda = Array.from(lambdaAcc);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

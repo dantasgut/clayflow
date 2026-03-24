@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsSt
 import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
+import { BaseVelocityDerivationStage } from '../../shared/BaseVelocityDerivationStage';
 
 /**
  * Estágio 6a do pipeline PBD — Recuperação de velocidades.
@@ -34,12 +35,12 @@ import type { vec3, quat }          from 'gl-matrix';
  * atrito) é responsabilidade do `PBDContactResponseStage`, que deve ser
  * posicionado imediatamente após este no pipeline.
  */
-export class PBDVelocityRecoveryStage implements PhysicsStage {
-    constructor(private readonly state: PBDState) {}
+export class PBDVelocityRecoveryStage extends BaseVelocityDerivationStage implements PhysicsStage {
+    constructor(private readonly state: PBDState) {
+        super();
+    }
 
-    public execute(context: PhysicsStageContext, dt: number): void {
-        if (dt <= 0) return;
-
+    protected deriveVelocities(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
 
@@ -53,8 +54,8 @@ export class PBDVelocityRecoveryStage implements PhysicsStage {
 
             const linDamp   = body.get<number>('linearDamping')  ?? 0;
             const angDamp   = body.get<number>('angularDamping') ?? 0;
-            const linFactor = linDamp > 0 ? Math.max(0, 1 - linDamp * dt) : 1;
-            const angFactor = angDamp > 0 ? Math.max(0, 1 - angDamp * dt) : 1;
+            const linFactor = linDamp > 0 ? this.computeDampingFactor(linDamp, dt) : 1;
+            const angFactor = angDamp > 0 ? this.computeDampingFactor(angDamp, dt) : 1;
 
             if (pos && posOld) {
                 const vx = ((pos[0] ?? 0) - posOld[0]) / dt * linFactor;

@@ -1,6 +1,7 @@
 import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { SoftBody }            from '../../SoftBody';
+import { BasePredictStage }         from '../shared/BasePredictStage';
 
 /**
  * Estágio 2 do pipeline XPBD SoftBody — Predição de posição.
@@ -11,8 +12,8 @@ import type { SoftBody }            from '../../SoftBody';
  * A posição prevista é o ponto de partida para o solve de constraints.
  * A posição atual (x,y,z) é preservada para o cálculo de velocidade posterior.
  */
-export class SoftBodyPredictStage implements PhysicsStage {
-    public execute(context: PhysicsStageContext, dt: number): void {
+export class SoftBodyPredictStage extends BasePredictStage implements PhysicsStage {
+    protected predictBodies(context: PhysicsStageContext, dt: number): void {
         if (dt <= 0) return;
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;

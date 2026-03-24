@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsSt
 import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
 import type { PBDState }            from './PBDState';
 import type { vec3, quat }          from 'gl-matrix';
+import { BasePredictStage }         from '../../shared/BasePredictStage';
 
 /**
  * Estágio 2 do pipeline PBD — Predição de posição e rotação.
@@ -12,7 +13,7 @@ import type { vec3, quat }          from 'gl-matrix';
  *
  * Para TODOS os corpos dinâmicos (incluindo adormecidos):
  *   - Salva pos_old, rot_old, vel_old no PBDState
- *     → Permite ao PBDVelocityUpdateStage recuperar vel = (pos_new - pos_old) / dt
+ *     → Permite ao PBDVelocityRecoveryStage recuperar vel = (pos_new - pos_old) / dt
  *       mesmo para corpos que eram dormentes e foram acordados pelo PBDSolveStage.
  *
  * Para corpos acordados:
@@ -23,10 +24,12 @@ import type { vec3, quat }          from 'gl-matrix';
  * (via CPURigidBodySolver). O PBDPredictStage apenas integra as velocidades
  * resultantes, sem reaplicar damping.
  */
-export class PBDPredictStage implements PhysicsStage {
-    constructor(private readonly state: PBDState) {}
+export class PBDPredictStage extends BasePredictStage implements PhysicsStage {
+    constructor(private readonly state: PBDState) {
+        super();
+    }
 
-    public execute(context: PhysicsStageContext, dt: number): void {
+    protected predictBodies(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
 

@@ -1,6 +1,7 @@
 import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { SoftBody }            from '../../SoftBody';
+import { BaseVelocityDerivationStage } from '../shared/BaseVelocityDerivationStage';
 
 /**
  * Estágio 4 do pipeline XPBD SoftBody — Atualização de velocidade e posição.
@@ -13,9 +14,8 @@ import type { SoftBody }            from '../../SoftBody';
  *
  * Commita a posição prevista como posição atual.
  */
-export class SoftBodyVelocityUpdateStage implements PhysicsStage {
-    public execute(context: PhysicsStageContext, dt: number): void {
-        if (dt <= 0) return;
+export class SoftBodyVelocityUpdateStage extends BaseVelocityDerivationStage implements PhysicsStage {
+    protected deriveVelocities(context: PhysicsStageContext, dt: number): void {
         const invDt = 1 / dt;
 
         for (const { body } of context.bodies.values()) {
@@ -24,7 +24,7 @@ export class SoftBodyVelocityUpdateStage implements PhysicsStage {
             // Damping escalado por dt: independente do número de substeps.
             // damping=0.02 → ~2% de perda por segundo, não por substep.
             const damping = sb.get<number>('damping') ?? 0.01;
-            const dampFactor = Math.max(0, 1 - damping * dt);
+            const dampFactor = this.computeDampingFactor(damping, dt);
 
             for (const p of sb.particles) {
                 p.vx = (p.px - p.x) * invDt * dampFactor;
