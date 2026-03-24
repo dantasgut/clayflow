@@ -1,6 +1,6 @@
 # Interface: NarrowphaseConfig
 
-Defined in: [scene/systems/collision/NarrowphaseConfig.ts:20](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/NarrowphaseConfig.ts#L20)
+Defined in: [scene/systems/collision/NarrowphaseConfig.ts:20](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/collision/NarrowphaseConfig.ts#L20)
 
 Configuração do sistema de narrowphase.
 
@@ -27,7 +27,7 @@ const world = new PhysicsWorld({
 
 > `optional` **boxBox?**: [`CollisionAlgorithmType`](../enumerations/CollisionAlgorithmType.md)
 
-Defined in: [scene/systems/collision/NarrowphaseConfig.ts:22](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/NarrowphaseConfig.ts#L22)
+Defined in: [scene/systems/collision/NarrowphaseConfig.ts:22](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/collision/NarrowphaseConfig.ts#L22)
 
 Algoritmo para Box vs Box. Default: SAT.
 
@@ -37,7 +37,7 @@ Algoritmo para Box vs Box. Default: SAT.
 
 > `optional` **boxSphere?**: [`CollisionAlgorithmType`](../enumerations/CollisionAlgorithmType.md)
 
-Defined in: [scene/systems/collision/NarrowphaseConfig.ts:26](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/NarrowphaseConfig.ts#L26)
+Defined in: [scene/systems/collision/NarrowphaseConfig.ts:26](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/collision/NarrowphaseConfig.ts#L26)
 
 Algoritmo para Box vs Sphere. Default: SAT.
 
@@ -47,7 +47,7 @@ Algoritmo para Box vs Sphere. Default: SAT.
 
 > `optional` **overrides?**: `Record`\<`string`, [`CollisionAlgorithmType`](../enumerations/CollisionAlgorithmType.md)\>
 
-Defined in: [scene/systems/collision/NarrowphaseConfig.ts:32](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/NarrowphaseConfig.ts#L32)
+Defined in: [scene/systems/collision/NarrowphaseConfig.ts:32](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/collision/NarrowphaseConfig.ts#L32)
 
 Overrides livres por par de formas.
 Chave: 'ShapeA:ShapeB' em ordem alfabética (ex: 'Box:Capsule').
@@ -59,6 +59,6 @@ Sobrescreve os campos acima e os defaults do dispatcher.
 
 > `optional` **sphereSphere?**: [`CollisionAlgorithmType`](../enumerations/CollisionAlgorithmType.md)
 
-Defined in: [scene/systems/collision/NarrowphaseConfig.ts:24](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/collision/NarrowphaseConfig.ts#L24)
+Defined in: [scene/systems/collision/NarrowphaseConfig.ts:24](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/collision/NarrowphaseConfig.ts#L24)
 
 Algoritmo para Sphere vs Sphere. Default: SPHERE_ANALYTIC.

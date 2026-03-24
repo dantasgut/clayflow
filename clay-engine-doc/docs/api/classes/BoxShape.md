@@ -1,6 +1,6 @@
 # Class: BoxShape
 
-Defined in: [elements/physics/shapes/BoxShape.ts:16](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/BoxShape.ts#L16)
+Defined in: [elements/physics/shapes/BoxShape.ts:16](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/BoxShape.ts#L16)
 
 Forma de colisão cúbica. (Camada 3)
 
@@ -22,7 +22,7 @@ Sem isso, a broadphase detecta colisões fantasma ~70% antes do contato real.
 
 > **new BoxShape**(`halfWidth?`, `halfHeight?`, `halfDepth?`): `BoxShape`
 
-Defined in: [elements/physics/shapes/BoxShape.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/BoxShape.ts#L21)
+Defined in: [elements/physics/shapes/BoxShape.ts:21](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/BoxShape.ts#L21)
 
 #### Parameters
 
@@ -52,7 +52,7 @@ Defined in: [elements/physics/shapes/BoxShape.ts:21](https://github.com/dantasgu
 
 > `protected` `readonly` **boundingRadiusVal**: `number`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:54](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L54)
+Defined in: [elements/physics/shapes/SDFCollider.ts:54](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/SDFCollider.ts#L54)
 
 #### Inherited from
 
@@ -64,7 +64,7 @@ Defined in: [elements/physics/shapes/SDFCollider.ts:54](https://github.com/danta
 
 > `readonly` **colliderShape**: `string`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:51](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L51)
+Defined in: [elements/physics/shapes/SDFCollider.ts:51](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/SDFCollider.ts#L51)
 
 Identificador da forma, usado pelo CollisionDispatcher para selecionar o teste.
 
@@ -78,7 +78,7 @@ Identificador da forma, usado pelo CollisionDispatcher para selecionar o teste.
 
 > `readonly` **layer**: [`PHYSICS_MECHANIC`](../enumerations/ResourceType.md#physics_mechanic)
 
-Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L31)
+Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/Collider.ts#L31)
 
 #### Inherited from
 
@@ -90,7 +90,7 @@ Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasg
 
 > `readonly` **physicType**: `"Collider"` = `'Collider'`
 
-Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L32)
+Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/Collider.ts#L32)
 
 #### Inherited from
 
@@ -102,7 +102,7 @@ Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasg
 
 > `readonly` **type**: `"Collider"` = `'Collider'`
 
-Defined in: [scene/components/physics/Collider.ts:30](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/Collider.ts#L30)
+Defined in: [scene/components/physics/Collider.ts:30](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/Collider.ts#L30)
 
 Chave única no layer 1 — garante um único Collider por Entity.
 
@@ -116,7 +116,7 @@ Chave única no layer 1 — garante um único Collider por Entity.
 
 > **computeInertiaTensor**(`mass`): \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/shapes/BoxShape.ts:45](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/BoxShape.ts#L45)
+Defined in: [elements/physics/shapes/BoxShape.ts:45](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/BoxShape.ts#L45)
 
 Tensor de inércia diagonal para esta forma, dado uma massa.
 
@@ -140,7 +140,7 @@ Tensor de inércia diagonal para esta forma, dado uma massa.
 
 > **getAABB**(`worldMatrix`): `AABB`
 
-Defined in: [elements/physics/shapes/BoxShape.ts:118](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/BoxShape.ts#L118)
+Defined in: [elements/physics/shapes/BoxShape.ts:118](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/BoxShape.ts#L118)
 
 AABB mínima que contém o OBB rotacionado.
 Fórmula: half_i = Σ_j |R_ij| * localHalfExtent_j
@@ -167,7 +167,7 @@ Correto para caixas com qualquer rotação.
 
 > **getBoundingRadius**(`worldMatrix`): `number`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:84](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L84)
+Defined in: [elements/physics/shapes/SDFCollider.ts:84](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/SDFCollider.ts#L84)
 
 Raio da esfera circunscrita no espaço de mundo.
 Esferas: radius * maxScale.
@@ -193,7 +193,7 @@ Boxes: comprimento da diagonal de halfExtents * maxScale.
 
 > **getClosestPoint**(`worldMatrix`, `queryPoint`): `vec3`
 
-Defined in: [elements/physics/shapes/BoxShape.ts:84](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/BoxShape.ts#L84)
+Defined in: [elements/physics/shapes/BoxShape.ts:84](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/BoxShape.ts#L84)
 
 Ponto mais próximo na superfície do OBB ao queryPoint — analítico, sem gradient descent.
 Para pontos externos: clamp aos half-extents → suporte exato (vértice mais profundo).
@@ -223,7 +223,7 @@ Para pontos internos: projeta na face mais próxima.
 
 > **getLocalHalfExtents**(): \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/shapes/BoxShape.ts:54](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/BoxShape.ts#L54)
+Defined in: [elements/physics/shapes/BoxShape.ts:54](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/BoxShape.ts#L54)
 
 Semi-extensões locais — usadas pelo SATAlgorithm para extrair dimensões do OBB.
 
@@ -241,7 +241,7 @@ Semi-extensões locais — usadas pelo SATAlgorithm para extrair dimensões do O
 
 > **getWorldCenter**(`worldMatrix`): `vec3`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:80](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L80)
+Defined in: [elements/physics/shapes/SDFCollider.ts:80](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/SDFCollider.ts#L80)
 
 Centro do volume no espaço de mundo.
 
@@ -265,7 +265,7 @@ Centro do volume no espaço de mundo.
 
 > **getWorldVertices**(`worldMatrix`): `vec3`[]
 
-Defined in: [elements/physics/shapes/BoxShape.ts:63](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/BoxShape.ts#L63)
+Defined in: [elements/physics/shapes/BoxShape.ts:63](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/BoxShape.ts#L63)
 
 Os 8 vértices do OBB em espaço de mundo.
 Implementa Collider.getWorldVertices? — usado pelo PlaneBoxCollision
@@ -291,7 +291,7 @@ para gerar manifold multi-ponto sem acoplar ao tipo concreto BoxShape.
 
 > **sdf**(`localPoint`): `number`
 
-Defined in: [elements/physics/shapes/SDFCollider.ts:76](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/shapes/SDFCollider.ts#L76)
+Defined in: [elements/physics/shapes/SDFCollider.ts:76](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/shapes/SDFCollider.ts#L76)
 
 SDF em espaço local — disponível para testes narrowphase customizados.
 

@@ -1,6 +1,7 @@
 import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { vec3 }                from 'gl-matrix';
+import { ContactImpulseKernel }     from '../../resolution/ContactImpulseKernel';
 
 /**
  * Estágio auxiliar — Correção giroscópica (Euler equations).
@@ -38,27 +39,7 @@ export class GyroscopicStage implements PhysicsStage {
             const IA    = body.get<vec3>('inertiaTensor');
             if (!omega || !IA) continue;
 
-            const wx = omega[0] ?? 0;
-            const wy = omega[1] ?? 0;
-            const wz = omega[2] ?? 0;
-            const Ix = Math.max(IA[0]!, 1e-6);
-            const Iy = Math.max(IA[1]!, 1e-6);
-            const Iz = Math.max(IA[2]!, 1e-6);
-
-            // I·ω no frame diagonal (corpo alinhado com eixos de inércia)
-            const Iωx = Ix * wx;
-            const Iωy = Iy * wy;
-            const Iωz = Iz * wz;
-
-            // Torque giroscópico: ω × (I·ω)
-            const gyroX = wy * Iωz - wz * Iωy;
-            const gyroY = wz * Iωx - wx * Iωz;
-            const gyroZ = wx * Iωy - wy * Iωx;
-
-            // Δω = −I⁻¹ · (ω × Iω) · dt
-            omega[0] = wx - gyroX / Ix * dt;
-            omega[1] = wy - gyroY / Iy * dt;
-            omega[2] = wz - gyroZ / Iz * dt;
+            ContactImpulseKernel.gyroscopic(omega, IA, dt);
         }
     }
 }

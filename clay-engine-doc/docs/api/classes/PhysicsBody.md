@@ -1,6 +1,6 @@
 # Abstract Class: PhysicsBody
 
-Defined in: [scene/components/physics/PhysicsBody.ts:29](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L29)
+Defined in: [scene/components/physics/PhysicsBody.ts:29](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L29)
 
 Base abstrata para todos os corpos físicos.
 Combina dois padrões:
@@ -42,7 +42,7 @@ const q = body.get<number>('charge') ?? 0;
 
 > **new PhysicsBody**(): `PhysicsBody`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:43](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L43)
+Defined in: [scene/components/physics/PhysicsBody.ts:43](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L43)
 
 #### Returns
 
@@ -54,7 +54,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:43](https://github.com/dant
 
 > `readonly` **layer**: [`PHYSICS_MECHANIC`](../enumerations/ResourceType.md#physics_mechanic)
 
-Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L36)
+Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L36)
 
 #### Implementation of
 
@@ -66,7 +66,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dant
 
 > `abstract` `readonly` **physicType**: `string`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:34](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L34)
+Defined in: [scene/components/physics/PhysicsBody.ts:34](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L34)
 
 #### Implementation of
 
@@ -78,7 +78,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:34](https://github.com/dant
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L38)
+Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L38)
 
 #### Implementation of
 
@@ -90,7 +90,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dant
 
 > `abstract` `readonly` **type**: `string`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:33](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L33)
+Defined in: [scene/components/physics/PhysicsBody.ts:33](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L33)
 
 #### Implementation of
 
@@ -102,7 +102,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:33](https://github.com/dant
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L31)
+Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L31)
 
 #### Implementation of
 
@@ -114,7 +114,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dant
 
 > **allocateResource**(`resourceManager`): `Promise`\<`void`\>
 
-Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L75)
+Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L75)
 
 #### Parameters
 
@@ -136,7 +136,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dant
 
 > **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L87)
+Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L87)
 
 #### Parameters
 
@@ -158,7 +158,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dant
 
 > `abstract` `protected` **doAllocate**(`resourceManager`): `Promise`\<`void`\>
 
-Defined in: [scene/components/physics/PhysicsBody.ts:68](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L68)
+Defined in: [scene/components/physics/PhysicsBody.ts:68](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L68)
 
 #### Parameters
 
@@ -176,7 +176,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:68](https://github.com/dant
 
 > `abstract` `protected` **doDispose**(`resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:69](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L69)
+Defined in: [scene/components/physics/PhysicsBody.ts:69](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L69)
 
 #### Parameters
 
@@ -194,7 +194,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:69](https://github.com/dant
 
 > **get**\<`T`\>(`key`): `T` \| `undefined`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L56)
+Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L56)
 
 #### Type Parameters
 
@@ -218,7 +218,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dant
 
 > **has**(`key`): `boolean`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L60)
+Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L60)
 
 #### Parameters
 
@@ -236,7 +236,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dant
 
 > **set**\<`T`\>(`key`, `value`): `this`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L51)
+Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L51)
 
 #### Type Parameters
 
@@ -264,7 +264,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dant
 
 > **updateResource**(`_resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/components/physics/PhysicsBody.ts#L82)
+Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L82)
 
 #### Parameters
 

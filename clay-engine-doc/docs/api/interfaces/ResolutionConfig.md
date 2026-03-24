@@ -1,6 +1,6 @@
 # Interface: ResolutionConfig
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:19](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L19)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:19](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L19)
 
 Configuração do sistema de resolução de colisões.
 
@@ -26,7 +26,7 @@ const world = new PhysicsWorld({
 
 > `optional` **angularCorrectionScale?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:60](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L60)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:60](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L60)
 
 Escala a correção angular da constraint de posição XPBD (0–1).
 0 = sem correção angular (corpos tombam livremente — recomendado).
@@ -39,7 +39,7 @@ Default: 0.
 
 > `optional` **baumgarteFactor?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:35](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L35)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:35](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L35)
 
 Fator de Baumgarte — fração da penetração corrigida por substep (0–1).
 Default: 0.4.
@@ -50,7 +50,7 @@ Default: 0.4.
 
 > `optional` **compliance?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:52](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L52)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:52](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L52)
 
 Compliance da constraint de contato (m/N — inverso da rigidez).
 α = 0 → rígido (padrão); α > 0 → suaviza a correção por substep,
@@ -65,7 +65,7 @@ Default: 0. Ignorado por IMPULSE e SEQUENTIAL_IMPULSE.
 
 > `optional` **friction?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:30](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L30)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:30](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L30)
 
 Coeficiente de atrito de Coulomb (μ). Default: 0.5.
 
@@ -75,7 +75,7 @@ Coeficiente de atrito de Coulomb (μ). Default: 0.5.
 
 > `optional` **frictionAnchorBeta?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:96](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L96)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:96](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L96)
 
 Fator de restauração do Friction Anchor (0–1).
 Controla com que intensidade o anchor puxa o objeto de volta à posição
@@ -88,7 +88,7 @@ Default: 0.2. Ignorado se frictionAnchors = false.
 
 > `optional` **frictionAnchors?**: `boolean`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:89](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L89)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:89](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L89)
 
 Habilita Friction Anchors — armazena o ponto de contato inicial e aplica
 uma velocidade de restauração para prevenir drift em superfícies inclinadas.
@@ -100,7 +100,7 @@ Default: false. Ignorado por IMPULSE e PBD.
 
 > `optional` **iterations?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:69](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L69)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:69](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L69)
 
 Número de iterações PGS por substep.
 Valores maiores convergem melhor para pilhas, mas custam mais.
@@ -112,7 +112,7 @@ Default: 10. Ignorado por IMPULSE e PBD.
 
 > `optional` **overRelaxation?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:83](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L83)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:83](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L83)
 
 Fator de sobre-relaxação do PGS (ω). Range recomendado: [1.0, 1.5].
 Valores > 1 aceleram a convergência para pilhas de objetos, reduzindo
@@ -126,7 +126,7 @@ Ignorado por IMPULSE e PBD.
 
 > `optional` **penetrationSlop?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:40](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L40)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:40](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L40)
 
 Penetração mínima (m) antes de aplicar correção de posição.
 Default: 0.005 (5 mm).
@@ -137,7 +137,7 @@ Default: 0.005 (5 mm).
 
 > `optional` **restitution?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:26](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L26)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:26](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L26)
 
 Coeficiente de restituição global. Default: 0.3.
 
@@ -147,7 +147,7 @@ Coeficiente de restituição global. Default: 0.3.
 
 > `optional` **restitutionThreshold?**: `number`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:28](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L28)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:28](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L28)
 
 Velocidade relativa mínima (m/s) para aplicar restituição. Default: 1.0.
 
@@ -157,7 +157,7 @@ Velocidade relativa mínima (m/s) para aplicar restituição. Default: 1.0.
 
 > `optional` **type?**: [`ResolutionType`](../enumerations/ResolutionType.md)
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:21](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L21)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:21](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L21)
 
 Método de resolução. Default: IMPULSE.
 
@@ -167,7 +167,7 @@ Método de resolução. Default: IMPULSE.
 
 > `optional` **warmStarting?**: `boolean`
 
-Defined in: [scene/systems/resolution/ResolutionConfig.ts:75](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/scene/systems/resolution/ResolutionConfig.ts#L75)
+Defined in: [scene/systems/resolution/ResolutionConfig.ts:75](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/resolution/ResolutionConfig.ts#L75)
 
 Reutiliza os impulsos acumulados do frame anterior como ponto de partida.
 Reduz iterações necessárias para convergência em contatos persistentes.

@@ -1,6 +1,6 @@
 # Class: XPBDSoftBodySolver
 
-Defined in: [elements/physics/solvers/XPBDSoftBodySolver.ts:24](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/solvers/XPBDSoftBodySolver.ts#L24)
+Defined in: [elements/physics/solvers/XPBDSoftBodySolver.ts:24](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/solvers/XPBDSoftBodySolver.ts#L24)
 
 Solver XPBD para corpos deformáveis.
 
@@ -42,7 +42,7 @@ world.setSolver('SoftBody', new XPBDSoftBodySolver());
 
 > `readonly` **id**: `"xpbd_soft_body"` = `'xpbd_soft_body'`
 
-Defined in: [elements/physics/solvers/XPBDSoftBodySolver.ts:25](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/solvers/XPBDSoftBodySolver.ts#L25)
+Defined in: [elements/physics/solvers/XPBDSoftBodySolver.ts:25](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/solvers/XPBDSoftBodySolver.ts#L25)
 
 Identificador único do solver para logging e profiling.
 
@@ -56,7 +56,7 @@ Identificador único do solver para logging e profiling.
 
 > **solve**(`body`, `dt`): `void`
 
-Defined in: [elements/physics/solvers/XPBDSoftBodySolver.ts:27](https://github.com/dantasgut/clayflow/blob/62a74c18505ff2106bff29f570e2b2bd3265bf95/src/elements/physics/solvers/XPBDSoftBodySolver.ts#L27)
+Defined in: [elements/physics/solvers/XPBDSoftBodySolver.ts:27](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/solvers/XPBDSoftBodySolver.ts#L27)
 
 Avança a simulação do corpo por um passo de tempo.
 
