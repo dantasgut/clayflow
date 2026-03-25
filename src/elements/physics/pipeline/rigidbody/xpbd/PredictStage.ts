@@ -45,6 +45,7 @@ export class PredictStage extends BasePredictStage implements PhysicsStage {
     protected predictBodies(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
 
             const pos   = body.get<vec3>('position');
             const rot   = body.get<quat>('rotation');

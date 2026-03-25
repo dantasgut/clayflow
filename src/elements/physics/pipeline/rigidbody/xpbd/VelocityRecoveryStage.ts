@@ -61,6 +61,7 @@ export class VelocityRecoveryStage extends BaseVelocityDerivationStage implement
     protected deriveVelocities(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
 
             const uuid   = body.uuid;
             const posOld = this.state.posCache.get(uuid);
