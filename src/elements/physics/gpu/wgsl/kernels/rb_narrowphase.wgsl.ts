@@ -9,8 +9,9 @@
  *   1. Pula se inv_mass == 0 (cinemático)
  *   2. Transforma pos_pred para espaço local do collider via inv_world_mat
  *   3. Avalia SDF e gradiente
- *   4. Se penetrando (d < 0): escreve contato ativo, preserva lambdas (warm-starting)
- *   5. Se não penetrando: marca slot inativo, zera lambdas
+ *   4. Contato especulativo: ativa se d < 0 OU d_speculative < 0 (predictive_threshold > 0)
+ *   5. Se ativo: escreve contato com depth_eff, preserva lambdas (warm-starting)
+ *   6. Se inativo: marca slot inativo, zera lambdas
  *
  * Bind groups:
  *   @group(0) @binding(0) — RBSimParams    (uniform)
@@ -68,16 +69,7 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
 
     let d = eval_sdf(local_pred, col.shape_type, col.half);
 
-    if (d >= 0.0) {
-        // Sem penetração — desativa slot e zera lambdas (sem warm-starting inválido)
-        contacts[slot].is_active = 0u;
-        contacts[slot].point.w   = 0.0;
-        contacts[slot].lambda_tx = 0.0;
-        contacts[slot].lambda_ty = 0.0;
-        return;
-    }
-
-    // Penetração detectada — calcula normal no espaço mundo
+    // Calcula normal no espaço mundo (necessário para contatos especulativos)
     let grad_local = sdf_gradient(local_pred, d, col.shape_type, col.half);
     let wn_raw     = mat4_upper3x3_transform(col.world_mat, grad_local);
     let wn_len     = length(wn_raw);
@@ -87,8 +79,26 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let wn = wn_raw / wn_len;
 
+    // Contato especulativo: ativa se penetrando (d < 0) OU se o corpo chegará à superfície no próximo substep
+    let v_along_n     = dot(bodies[rb_i].vel.xyz, wn);  // negativo = aproximando
+    let d_speculative = d + v_along_n * rb_params.gravity.w;  // gravity.w = dtSub
+
+    // Desativar se: sem penetração atual E sem contato iminente (ou predictive desativado)
+    let predictive_on = rb_params.predictive_threshold > 0.0;
+    if (d >= 0.0 && (d_speculative >= 0.0 || !predictive_on)) {
+        // Sem penetração — desativa slot e zera lambdas (sem warm-starting inválido)
+        contacts[slot].is_active = 0u;
+        contacts[slot].point.w   = 0.0;
+        contacts[slot].lambda_tx = 0.0;
+        contacts[slot].lambda_ty = 0.0;
+        return;
+    }
+
+    // Profundidade efetiva: usa d_speculative quando contato é especulativo
+    let depth_eff = select(d, d_speculative, d >= 0.0);
+
     // Ponto de contato: pos_pred projetado para a superfície do collider
-    let contact_point = world_pred - d * wn;
+    let contact_point = world_pred - depth_eff * wn;
 
     // Preserva lambdas do frame anterior se o slot estava ativo (warm-starting)
     let prev_lambda_n  = contacts[slot].point.w;
@@ -100,7 +110,7 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     let lambda_tx = select(0.0, prev_lambda_tx, was_active == 1u);
     let lambda_ty = select(0.0, prev_lambda_ty, was_active == 1u);
 
-    contacts[slot].normal     = vec4f(wn, -d);       // w=profundidade (positivo = penetração)
+    contacts[slot].normal     = vec4f(wn, -depth_eff);  // w=profundidade (positivo = penetração)
     contacts[slot].point      = vec4f(contact_point, lambda_n);
     contacts[slot].rb_idx     = rb_i;
     contacts[slot].col_idx    = col_j;
