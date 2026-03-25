@@ -174,13 +174,13 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         // ── RBSimParams ────────────────────────────────────────────────────────
         let gx = 0, gy = 0, gz = 0;
         for (const force of this.globalForces.values()) {
-            // Usa um corpo representativo para calcular aceleração gravitacional
+            // ConstantForce.compute() retorna aceleração diretamente (não força).
+            // O shader aplica gravity*dt à velocidade sem dividir por massa.
+            // Divisão por invM estava errada: para kinematic (mass=0) gerava gravity=0.
             const f = force.compute(this.gpuBodies[0]!, dtSub);
-            const mass = this.gpuBodies[0]!.get<number>('mass') ?? 1.0;
-            const invM = mass > 0 ? 1.0 / mass : 0.0;
-            gx += (f[0] ?? 0) * invM;
-            gy += (f[1] ?? 0) * invM;
-            gz += (f[2] ?? 0) * invM;
+            gx += f[0] ?? 0;
+            gy += f[1] ?? 0;
+            gz += f[2] ?? 0;
         }
 
         const K = this.solveIterations;  // declarado antes do uso em SP_SOLVE_ITERS
@@ -254,15 +254,15 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
             vrPass.end();
 
             // Encoda copyBufferToBuffer (gpu_rb_bodies → staging); mapAsync só após submit
-            const doReadback = this.encodePositionReadback(encoder, bodyCount);
-
-            // Resolve queries e agenda leitura assíncrona (Fase 2a — apenas se profiler ativo)
-            profiler.resolveAndScheduleRead(encoder);
+            const doReadback     = this.encodePositionReadback(encoder, bodyCount);
+            // Encoda resolveQuerySet + copyBufferToBuffer do profiler; mapAsync só após submit
+            const doProfileRead  = profiler.encodeResolve(encoder);
 
             core.renderPasses.submit([encoder]);
 
             // mapAsync DEVE ser chamado APÓS submit — buffer em estado 'pending' bloqueia o submit
-            if (doReadback) this.startReadbackMap();
+            if (doReadback)    this.startReadbackMap();
+            if (doProfileRead) profiler.startRead();
         } catch (err) {
             console.error('[GpuRigidBodyPipeline] encode falhou:', err);
             this.bgCache = null;  // invalida bind groups para recriar no próximo frame

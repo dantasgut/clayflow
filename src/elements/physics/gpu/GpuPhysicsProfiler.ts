@@ -29,6 +29,8 @@
  */
 
 import { WebGPUEngineCore } from '../../../core/WebGPUEngineCore';
+import { Loggable }         from '../../../core/debug/Loggable';
+import { Logger }           from '../../../core/debug/Logger';
 
 /** Índices de query para cada kernel de física rígida. */
 export const PHYS_SLOTS = {
@@ -40,10 +42,17 @@ export const PHYS_SLOTS = {
 
 export const PHYS_QUERY_COUNT = 8;
 
+@Loggable('GpuPhysicsProfiler')
 export class GpuPhysicsProfiler {
+    declare private readonly log: Logger;
 
     private readonly core     = WebGPUEngineCore.getInstance();
-    private frameCount        = 0;
+    /**
+     * Iniciado em logInterval/2 para disparar em frames alternados ao GpuSoftBodyProfiler,
+     * evitando colisão no `isMapped` compartilhado do ProfilerSystem.
+     * Padrão: RigidBody dispara em frames 30, 90, 150... ; SoftBody em 60, 120, 180...
+     */
+    private frameCount        = 30;
     private readPending       = false;
 
     constructor(private readonly logInterval: number = 60) {}
@@ -63,25 +72,31 @@ export class GpuPhysicsProfiler {
     }
 
     /**
-     * Registra resolveQuerySet + copyBufferToBuffer no encoder e agenda leitura assíncrona.
-     * Deve ser chamado UMA VEZ por frame, após todos os compute passes, antes do submit.
+     * Etapa 1/2 — encoda resolveQuerySet + copyBufferToBuffer no encoder.
+     * DEVE ser chamado antes do submit. Retorna true se encodou (e startRead() deve
+     * ser chamado após o submit).
      *
-     * A resolução e leitura ocorrem apenas a cada `logInterval` frames para minimizar overhead.
-     * O flag `readPending` evita leitura concorrente (mapAsync enquanto GPU ainda escreve).
+     * A resolução ocorre apenas a cada `logInterval` frames para minimizar overhead.
      */
-    public resolveAndScheduleRead(encoder: GPUCommandEncoder): void {
-        if (!this.isActive) return;
+    public encodeResolve(encoder: GPUCommandEncoder): boolean {
+        if (!this.isActive) return false;
 
         this.frameCount++;
-        if (this.frameCount % this.logInterval !== 0 || this.readPending) return;
+        if (this.frameCount % this.logInterval !== 0 || this.readPending) return false;
         // Guard compartilhado: evita submeter copyBufferToBuffer ao resultBuffer enquanto
         // outro profiler tem mapAsync pendente (ambos compartilham o mesmo buffer).
-        if (!this.core.profiler.canResolve) return;
+        if (!this.core.profiler.canResolve) return false;
 
-        // Grava resolução no encoder — executada pela GPU após os passes deste frame
         this.core.profiler.resolveQueries(encoder, PHYS_QUERY_COUNT);
+        return true;
+    }
 
-        // Agenda leitura assíncrona; mapAsync espera a GPU terminar o copyBufferToBuffer
+    /**
+     * Etapa 2/2 — inicia mapAsync no ResultBuffer.
+     * DEVE ser chamado APÓS queue.submit([encoder]) — chamar antes coloca o buffer
+     * em estado 'pending map', causando erro de validação no submit.
+     */
+    public startRead(): void {
         this.readPending = true;
         this.core.profiler.readResults(PHYS_QUERY_COUNT).then(ts => {
             this.readPending = false;
@@ -93,12 +108,14 @@ export class GpuPhysicsProfiler {
         const ms = (b: number, e: number) =>
             Number(ts[e]! - ts[b]!) / 1_000_000;
 
-        console.log(
-            `[GpuPhysics] kernel ms (frame ${this.frameCount}):`,
-            `predict=${ms(0, 1).toFixed(3)}`,
-            `narrowphase=${ms(2, 3).toFixed(3)}`,
-            `solve=${ms(4, 5).toFixed(3)}`,
-            `vel_recovery=${ms(6, 7).toFixed(3)}`,
+        const total = ms(0, 1) + ms(2, 3) + ms(4, 5) + ms(6, 7);
+        this.log.info(
+            `kernel ms (frame ${this.frameCount}): ` +
+            `predict=${ms(0, 1).toFixed(3)} ` +
+            `narrowphase=${ms(2, 3).toFixed(3)} ` +
+            `solve=${ms(4, 5).toFixed(3)} ` +
+            `vel_recovery=${ms(6, 7).toFixed(3)} ` +
+            `| total=${total.toFixed(3)}ms`,
         );
     }
 }
