@@ -20,6 +20,7 @@ export class SoftBodySyncStage implements PhysicsStage {
             const sb  = body as unknown as SoftBody;
             const geo = entity.getComponent<Geometry>('Geometry');
             if (!geo?.rawVertices) continue;
+            if (geo.isGpuManaged) continue; // compute shader é o dono do vertexBufferId — skip CPU sync
 
             const raw    = geo.rawVertices;
             const stride = 8;

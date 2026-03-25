@@ -42,7 +42,7 @@ interface ShapeEntry {
 export class SoftBodyCollisionStage implements PhysicsStage {
     constructor(private readonly restitution: number = 0.05) {}
 
-    public execute(context: PhysicsStageContext, _dt: number): void {
+    public execute(context: PhysicsStageContext, dt: number): void {
         // Coleta todos os colliders que expõem SDF
         const shapes: ShapeEntry[] = [];
         for (const { collider, entity } of context.colliders.values()) {
@@ -59,6 +59,7 @@ export class SoftBodyCollisionStage implements PhysicsStage {
 
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
             const sb     = body as unknown as SoftBody;
             const radius = body.get<number>('particleRadius') ?? 0.05;
 
@@ -87,19 +88,35 @@ export class SoftBodyCollisionStage implements PhysicsStage {
                     const len = Math.sqrt(wnx * wnx + wny * wny + wnz * wnz) || 1;
                     wnx /= len; wny /= len; wnz /= len;
 
-                    // Projeta posição prevista: mantém separação de `radius`
+                    // Projeta posição prevista — estratégia em dois passos para evitar
+                    // explosão de velocidade no derivador XPBD (v = (p_pred − p_old)/dt):
+                    //
+                    //  Passo 1 — Correção posicional sem geração de velocidade:
+                    //    Move AMBOS p_old e p_pred pela correção completa.
+                    //    Resultado: (p_pred − p_old)/dt não muda → velocidade preservada.
+                    //
+                    //  Passo 2 — Restituição via delta em p_pred:
+                    //    Se a partícula estava se aproximando (vn < 0), adiciona impulso
+                    //    de restituição apenas em p_pred: Δp_pred = dt · (1+e) · |vn| · n̂
+                    //    Resultado: v_nova = v_velha + (1+e)·|vn| → reflexão correta.
+                    //
                     const correction = radius - d;
+
+                    // Passo 1: move ambas as posições pela correção completa
+                    p.x  += correction * wnx;
+                    p.y  += correction * wny;
+                    p.z  += correction * wnz;
                     p.px += correction * wnx;
                     p.py += correction * wny;
                     p.pz += correction * wnz;
 
-                    // Reflexão de velocidade com restituição
+                    // Passo 2: restituição (usa p.vx/vy/vz = velocidade pré-predict)
                     const vn = p.vx * wnx + p.vy * wny + p.vz * wnz;
                     if (vn < 0) {
-                        const factor = 1 + this.restitution;
-                        p.vx -= factor * vn * wnx;
-                        p.vy -= factor * vn * wny;
-                        p.vz -= factor * vn * wnz;
+                        const dv = -(1.0 + this.restitution) * vn; // impulso ≥ 0
+                        p.px += dt * dv * wnx;
+                        p.py += dt * dv * wny;
+                        p.pz += dt * dv * wnz;
                     }
                 }
             }

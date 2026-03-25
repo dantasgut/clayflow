@@ -70,6 +70,7 @@ export class DistanceConstraintStage extends XPBDConstraintSolver implements Phy
 
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
             const sb = body as unknown as SoftBody;
             if (sb.particles.length === 0 || sb.constraints.length === 0) continue;
 
