@@ -1,6 +1,6 @@
 # Interface: CollisionContact
 
-Defined in: [scene/systems/PhysicsStageContext.ts:12](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L12)
+Defined in: [scene/systems/PhysicsStageContext.ts:12](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L12)
 
 Resultado do narrowphase para um par de entidades.
 
@@ -10,7 +10,7 @@ Resultado do narrowphase para um par de entidades.
 
 > **cpx**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L19)
+Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L19)
 
 Ponto de contato no espaço de mundo.
 
@@ -20,7 +20,7 @@ Ponto de contato no espaço de mundo.
 
 > **cpy**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L19)
+Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L19)
 
 ***
 
@@ -28,7 +28,7 @@ Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasg
 
 > **cpz**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L19)
+Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L19)
 
 ***
 
@@ -36,7 +36,7 @@ Defined in: [scene/systems/PhysicsStageContext.ts:19](https://github.com/dantasg
 
 > **depth**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:17](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L17)
+Defined in: [scene/systems/PhysicsStageContext.ts:17](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L17)
 
 ***
 
@@ -44,7 +44,7 @@ Defined in: [scene/systems/PhysicsStageContext.ts:17](https://github.com/dantasg
 
 > **entityIdA**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:13](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L13)
+Defined in: [scene/systems/PhysicsStageContext.ts:13](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L13)
 
 ***
 
@@ -52,7 +52,7 @@ Defined in: [scene/systems/PhysicsStageContext.ts:13](https://github.com/dantasg
 
 > **entityIdB**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:14](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L14)
+Defined in: [scene/systems/PhysicsStageContext.ts:14](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L14)
 
 ***
 
@@ -60,7 +60,7 @@ Defined in: [scene/systems/PhysicsStageContext.ts:14](https://github.com/dantasg
 
 > `optional` **featureId?**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:33](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L33)
+Defined in: [scene/systems/PhysicsStageContext.ts:33](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L33)
 
 ID estável do feature de contato (ex: índice do vértice na caixa).
 Quando presente, o warm starting usa este ID como chave em vez da
@@ -73,7 +73,7 @@ Undefined para algoritmos que não rastreiam features (esfera-esfera etc.).
 
 > **nx**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L16)
+Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L16)
 
 Normal apontando de B para A (direção de separação de A).
 
@@ -83,7 +83,7 @@ Normal apontando de B para A (direção de separação de A).
 
 > **ny**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L16)
+Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L16)
 
 ***
 
@@ -91,7 +91,7 @@ Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasg
 
 > **nz**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L16)
+Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L16)
 
 ***
 
@@ -99,7 +99,7 @@ Defined in: [scene/systems/PhysicsStageContext.ts:16](https://github.com/dantasg
 
 > **weight**: `number`
 
-Defined in: [scene/systems/PhysicsStageContext.ts:26](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L26)
+Defined in: [scene/systems/PhysicsStageContext.ts:26](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L26)
 
 Fator de escala para distribuição de impulso em manifolds multi-ponto.
 Para N contatos do mesmo par: weight = 1/N, garantindo que a soma dos

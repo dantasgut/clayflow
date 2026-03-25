@@ -1,6 +1,6 @@
 # Class: AABBBroadphase
 
-Defined in: [elements/physics/AABBBroadphase.ts:20](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/AABBBroadphase.ts#L20)
+Defined in: [elements/physics/AABBBroadphase.ts:20](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/AABBBroadphase.ts#L20)
 
 Broadphase euclidiano via sobreposição de AABB (O(n²)).
 Implementação concreta de Broadphase para espaços com métrica euclidiana.
@@ -28,7 +28,7 @@ registrando uma nova implementação de Broadphase no PhysicsWorld.
 
 > **findCandidatePairs**(`entries`): \[`ColliderEntry`, `ColliderEntry`\][]
 
-Defined in: [elements/physics/AABBBroadphase.ts:21](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/AABBBroadphase.ts#L21)
+Defined in: [elements/physics/AABBBroadphase.ts:21](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/AABBBroadphase.ts#L21)
 
 Retorna todos os pares de entradas que podem estar em colisão.
 Chamado uma vez por step, antes do narrowphase.

@@ -1,6 +1,6 @@
 # Interface: RigidBodyOptions
 
-Defined in: [elements/physics/RigidBody.ts:5](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L5)
+Defined in: [elements/physics/RigidBody.ts:5](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L5)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/RigidBody.ts:5](https://github.com/dantasgut/clayf
 
 > `optional` **angularDamping?**: `number`
 
-Defined in: [elements/physics/RigidBody.ts:12](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L12)
+Defined in: [elements/physics/RigidBody.ts:12](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L12)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [elements/physics/RigidBody.ts:12](https://github.com/dantasgut/clay
 
 > `optional` **friction?**: `number`
 
-Defined in: [elements/physics/RigidBody.ts:10](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L10)
+Defined in: [elements/physics/RigidBody.ts:10](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L10)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/physics/RigidBody.ts:10](https://github.com/dantasgut/clay
 
 > `optional` **isKinematic?**: `boolean`
 
-Defined in: [elements/physics/RigidBody.ts:8](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L8)
+Defined in: [elements/physics/RigidBody.ts:8](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L8)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [elements/physics/RigidBody.ts:8](https://github.com/dantasgut/clayf
 
 > `optional` **linearDamping?**: `number`
 
-Defined in: [elements/physics/RigidBody.ts:11](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L11)
+Defined in: [elements/physics/RigidBody.ts:11](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L11)
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: [elements/physics/RigidBody.ts:11](https://github.com/dantasgut/clay
 
 > `optional` **mass?**: `number`
 
-Defined in: [elements/physics/RigidBody.ts:6](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L6)
+Defined in: [elements/physics/RigidBody.ts:6](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L6)
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: [elements/physics/RigidBody.ts:6](https://github.com/dantasgut/clayf
 
 > `optional` **restitution?**: `number`
 
-Defined in: [elements/physics/RigidBody.ts:9](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L9)
+Defined in: [elements/physics/RigidBody.ts:9](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L9)
 
 ***
 
@@ -56,4 +56,4 @@ Defined in: [elements/physics/RigidBody.ts:9](https://github.com/dantasgut/clayf
 
 > `optional` **velocity?**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/RigidBody.ts:7](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L7)
+Defined in: [elements/physics/RigidBody.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L7)

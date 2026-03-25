@@ -1,6 +1,6 @@
 # Class: RigidBody
 
-Defined in: [elements/physics/RigidBody.ts:20](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L20)
+Defined in: [elements/physics/RigidBody.ts:20](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L20)
 
 Convenência pré-configurada do PhysicsBody para dinâmica rígida.
 Define as propriedades padrão via Property Bag — qualquer solver
@@ -16,7 +16,7 @@ pode ler 'mass', 'velocity', 'isKinematic' sem acoplamento a esta classe.
 
 > **new RigidBody**(`options?`): `RigidBody`
 
-Defined in: [elements/physics/RigidBody.ts:26](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L26)
+Defined in: [elements/physics/RigidBody.ts:26](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L26)
 
 #### Parameters
 
@@ -38,7 +38,7 @@ Defined in: [elements/physics/RigidBody.ts:26](https://github.com/dantasgut/clay
 
 > `readonly` **layer**: [`PHYSICS_MECHANIC`](../enumerations/ResourceType.md#physics_mechanic)
 
-Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L36)
+Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L36)
 
 #### Inherited from
 
@@ -50,7 +50,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dant
 
 > `readonly` **physicType**: `"RigidBody"` = `'RigidBody'`
 
-Defined in: [elements/physics/RigidBody.ts:22](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L22)
+Defined in: [elements/physics/RigidBody.ts:22](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L22)
 
 #### Overrides
 
@@ -62,7 +62,7 @@ Defined in: [elements/physics/RigidBody.ts:22](https://github.com/dantasgut/clay
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L38)
+Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L38)
 
 #### Inherited from
 
@@ -74,7 +74,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dant
 
 > `optional` **storageBufferId?**: `string`
 
-Defined in: [elements/physics/RigidBody.ts:24](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L24)
+Defined in: [elements/physics/RigidBody.ts:24](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L24)
 
 ***
 
@@ -82,7 +82,7 @@ Defined in: [elements/physics/RigidBody.ts:24](https://github.com/dantasgut/clay
 
 > `readonly` **type**: `"RigidBody"` = `'RigidBody'`
 
-Defined in: [elements/physics/RigidBody.ts:21](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L21)
+Defined in: [elements/physics/RigidBody.ts:21](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L21)
 
 #### Overrides
 
@@ -94,7 +94,7 @@ Defined in: [elements/physics/RigidBody.ts:21](https://github.com/dantasgut/clay
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L31)
+Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L31)
 
 #### Inherited from
 
@@ -108,7 +108,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dant
 
 > **get** **isKinematic**(): `boolean`
 
-Defined in: [elements/physics/RigidBody.ts:46](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L46)
+Defined in: [elements/physics/RigidBody.ts:46](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L46)
 
 ##### Returns
 
@@ -122,7 +122,7 @@ Defined in: [elements/physics/RigidBody.ts:46](https://github.com/dantasgut/clay
 
 > **get** **mass**(): `number`
 
-Defined in: [elements/physics/RigidBody.ts:42](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L42)
+Defined in: [elements/physics/RigidBody.ts:42](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L42)
 
 ##### Returns
 
@@ -132,7 +132,7 @@ Defined in: [elements/physics/RigidBody.ts:42](https://github.com/dantasgut/clay
 
 > **set** **mass**(`v`): `void`
 
-Defined in: [elements/physics/RigidBody.ts:43](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L43)
+Defined in: [elements/physics/RigidBody.ts:43](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L43)
 
 ##### Parameters
 
@@ -152,7 +152,7 @@ Defined in: [elements/physics/RigidBody.ts:43](https://github.com/dantasgut/clay
 
 > **get** **velocity**(): `vec3`
 
-Defined in: [elements/physics/RigidBody.ts:45](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L45)
+Defined in: [elements/physics/RigidBody.ts:45](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L45)
 
 ##### Returns
 
@@ -164,7 +164,7 @@ Defined in: [elements/physics/RigidBody.ts:45](https://github.com/dantasgut/clay
 
 > **allocateResource**(`resourceManager`): `Promise`\<`void`\>
 
-Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L75)
+Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L75)
 
 #### Parameters
 
@@ -186,7 +186,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dant
 
 > **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L87)
+Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L87)
 
 #### Parameters
 
@@ -208,7 +208,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dant
 
 > `protected` **doAllocate**(`_resourceManager`): `Promise`\<`void`\>
 
-Defined in: [elements/physics/RigidBody.ts:48](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L48)
+Defined in: [elements/physics/RigidBody.ts:48](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L48)
 
 #### Parameters
 
@@ -230,7 +230,7 @@ Defined in: [elements/physics/RigidBody.ts:48](https://github.com/dantasgut/clay
 
 > `protected` **doDispose**(`resourceManager`): `void`
 
-Defined in: [elements/physics/RigidBody.ts:52](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/RigidBody.ts#L52)
+Defined in: [elements/physics/RigidBody.ts:52](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L52)
 
 #### Parameters
 
@@ -252,7 +252,7 @@ Defined in: [elements/physics/RigidBody.ts:52](https://github.com/dantasgut/clay
 
 > **get**\<`T`\>(`key`): `T` \| `undefined`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L56)
+Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L56)
 
 #### Type Parameters
 
@@ -280,7 +280,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dant
 
 > **has**(`key`): `boolean`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L60)
+Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L60)
 
 #### Parameters
 
@@ -302,7 +302,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dant
 
 > **set**\<`T`\>(`key`, `value`): `this`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L51)
+Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L51)
 
 #### Type Parameters
 
@@ -334,7 +334,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dant
 
 > **updateResource**(`_resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/components/physics/PhysicsBody.ts#L82)
+Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L82)
 
 #### Parameters
 

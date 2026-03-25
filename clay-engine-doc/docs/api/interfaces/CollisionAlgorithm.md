@@ -1,6 +1,6 @@
 # Interface: CollisionAlgorithm
 
-Defined in: [scene/systems/collision/CollisionAlgorithm.ts:13](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/collision/CollisionAlgorithm.ts#L13)
+Defined in: [scene/systems/collision/CollisionAlgorithm.ts:13](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/collision/CollisionAlgorithm.ts#L13)
 
 Interface do algoritmo de narrowphase (Strategy — GoF).
 
@@ -15,7 +15,7 @@ O CollisionDispatcher garante a ordem canônica (alfabética por colliderShape).
 
 > **detect**(`a`, `aWorldMatrix`, `b`, `bWorldMatrix`): `CollisionManifold` \| `null`
 
-Defined in: [scene/systems/collision/CollisionAlgorithm.ts:14](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/collision/CollisionAlgorithm.ts#L14)
+Defined in: [scene/systems/collision/CollisionAlgorithm.ts:14](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/collision/CollisionAlgorithm.ts#L14)
 
 #### Parameters
 
