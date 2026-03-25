@@ -1,10 +1,15 @@
 import { WebGPUContext } from '../context/WebGPUContext';
 import type { ComputeManager } from '../interfaces/ComputeManager';
+import { Loggable } from '../debug/Loggable';
+import { Logger }   from '../debug/Logger';
+import { withErrorScope } from '../debug/GpuErrorScope';
 
 /**
  * Gerenciador focado inteiramente em processamento GPGPU e Matemática sem envolver rasterização.
  */
+@Loggable('WebGPUComputeManager')
 export class WebGPUComputeManager implements ComputeManager {
+    declare private readonly log: Logger;
     private context: WebGPUContext;
     private pipelines: Map<string, GPUComputePipeline>;
 
@@ -20,22 +25,31 @@ export class WebGPUComputeManager implements ComputeManager {
 
         const device = this.context.device;
 
-        device.pushErrorScope('validation');
-
-        const module = device.createShaderModule({ code: wgslCode, label: `ShaderModule_${id}` });
-
-        const pipeline = await device.createComputePipelineAsync({
-            label: `ComputePipeline_${id}`,
-            layout: 'auto',
-            compute: {
-                module: module,
-                entryPoint: entryPoint
-            }
+        // Escopo 1: compilação do shader module
+        let module!: GPUShaderModule;
+        const shaderError = await withErrorScope(device, 'validation', async () => {
+            module = device.createShaderModule({ code: wgslCode, label: `ShaderModule_${id}` });
         });
+        if (shaderError) {
+            this.log.error(`Falha ao compilar shader '${id}': ${shaderError.message}`);
+            throw new Error(`[WGSL] ${id}: ${shaderError.message}`);
+        }
 
-        const gpuError = await device.popErrorScope();
-        if (gpuError) {
-            throw new Error(`[WGSL compile] ${id}: ${gpuError.message}`);
+        // Escopo 2: criação do compute pipeline
+        let pipeline!: GPUComputePipeline;
+        const pipelineError = await withErrorScope(device, 'validation', async () => {
+            pipeline = await device.createComputePipelineAsync({
+                label: `ComputePipeline_${id}`,
+                layout: 'auto',
+                compute: {
+                    module: module,
+                    entryPoint: entryPoint,
+                },
+            });
+        });
+        if (pipelineError) {
+            this.log.error(`Falha ao criar pipeline '${id}': ${pipelineError.message}`);
+            throw new Error(`[Pipeline] ${id}: ${pipelineError.message}`);
         }
 
         this.pipelines.set(id, pipeline);
