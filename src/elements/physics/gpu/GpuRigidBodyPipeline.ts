@@ -141,8 +141,12 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
 
         if (newBodies.length === 0) return;
 
-        const substeps = this.getSubsteps();
-        const dtSub    = dtFrame / substeps;
+        // GPU XPBD usa 1 substep com K ampliado para equivalência:
+        // rb_predict roda antes do loop e pos_pred não é comitado entre substeps,
+        // portanto substeps>1 causaria amplificação de velocidade em velocity_recovery.
+        // Qualidade compensada: K_gpu = solveIterations * physicsSubsteps (≥ 40 iters).
+        const substeps = 1;
+        const dtSub    = dtFrame; // dtSub = dtFrame com substeps=1
 
         const core    = this.core;
         const buffers = core.resources.buffers;
@@ -184,7 +188,8 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
             gz += f[2] ?? 0;
         }
 
-        const K = this.solveIterations;  // declarado antes do uso em SP_SOLVE_ITERS
+        // K ampliado: compensa o colapso para 1 substep mantendo qualidade total de solve
+        const K = this.solveIterations * this.getSubsteps();  // ex: 10 × 4 = 40 iters
 
         this.rbSimParamsF32[SP_GRAVITY_X]      = gx;
         this.rbSimParamsF32[SP_GRAVITY_Y]      = gy;
