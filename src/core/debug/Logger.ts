@@ -2,11 +2,11 @@ import { LogLevel } from './LogLevel';
 
 // ── Estilos CSS para o console do browser ────────────────────────────────────
 const STYLES: Record<string, string> = {
-    DEBUG:   'color:#94a3b8',
+    DEBUG:   'color:#64748b',
     INFO:    'color:#38bdf8',
     WARN:    'color:#fb923c; font-weight:bold',
     ERROR:   'color:#f87171; font-weight:bold',
-    CHANNEL: 'color:#cbd5e1; font-weight:bold',
+    CHANNEL: 'color:#334155; font-weight:bold',
     RESET:   'color:inherit',
 };
 

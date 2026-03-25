@@ -94,6 +94,8 @@ export { CPURigidBodySolver }     from './elements/physics/solvers/CPURigidBodyS
 export { XPBDSoftBodySolver }     from './elements/physics/solvers/XPBDSoftBodySolver';
 export { GPUSpringMassSolver }    from './elements/physics/solvers/GPUSpringMassSolver';
 
+// GPU SoftBody Stage
+
 // Partículas
 export { CPUParticleEmitter }     from './elements/particles/CPUParticleEmitter';
 export { GPUParticleEmitter }     from './elements/particles/GPUParticleEmitter';

@@ -5,12 +5,9 @@ import { PerspectiveCamera } from './elements/cameras/PerspectiveCamera';
 async function init() {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 
-    const resizeCanvas = () => {
-        canvas.width  = window.innerWidth  * window.devicePixelRatio;
-        canvas.height = window.innerHeight * window.devicePixelRatio;
-    };
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
+    // Dimensiona o canvas antes de inicializar o renderer
+    canvas.width  = window.innerWidth  * window.devicePixelRatio;
+    canvas.height = window.innerHeight * window.devicePixelRatio;
 
     const scene  = new Scene();
     const camera = new PerspectiveCamera(Math.PI / 4, canvas.width / canvas.height, 0.1, 1000);
@@ -21,6 +18,13 @@ async function init() {
     const renderer = new WebGPURenderer();
     await renderer.initialize(canvas);
     renderer.setClearColor(0.2, 0.2, 0.25, 1.0);
+
+    // Agora que o renderer existe, o resize atualiza canvas E depth texture juntos
+    window.addEventListener('resize', () => {
+        canvas.width  = window.innerWidth  * window.devicePixelRatio;
+        canvas.height = window.innerHeight * window.devicePixelRatio;
+        renderer.setSize(canvas.width, canvas.height);
+    });
 
     console.log("WebGPU Architecture Initialized Successfully! Starting Game Loop...");
 
