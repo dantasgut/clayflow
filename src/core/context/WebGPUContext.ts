@@ -11,6 +11,9 @@ export class WebGPUContext {
     private contextRef!: GPUCanvasContext;
     private formatRef!: GPUTextureFormat;
 
+    /** Promise de inicialização — garante idempotência mesmo sob chamadas concorrentes. */
+    private initPromise: Promise<void> | null = null;
+
     private constructor() {}
 
     public static getInstance(): WebGPUContext {
@@ -26,7 +29,12 @@ export class WebGPUContext {
     public get format(): GPUTextureFormat { return this.formatRef; }
 
     public async initialize(canvas: HTMLCanvasElement): Promise<void> {
-        if (this.deviceRef) return; // já inicializado
+        if (this.initPromise) return this.initPromise;
+        this.initPromise = this.doInitialize(canvas);
+        return this.initPromise;
+    }
+
+    private async doInitialize(canvas: HTMLCanvasElement): Promise<void> {
 
         if (!navigator.gpu) {
             throw new Error("WebGPU is not supported on this browser.");
@@ -48,6 +56,10 @@ export class WebGPUContext {
 
         this.deviceRef = await adapter.requestDevice({ requiredFeatures });
 
+        this.deviceRef.addEventListener('uncapturederror', (event: GPUUncapturedErrorEvent) => {
+            this.log.error(`GPU uncaptured error: ${event.error.message}`);
+        });
+
         this.log.info('Device criado');
 
         this.deviceRef.lost.then((info) => {
@@ -63,6 +75,11 @@ export class WebGPUContext {
             format: this.formatRef,
             alphaMode: "premultiplied",
         });
+    }
+
+    /** Reseta a instância singleton e a promise de init (usado em testes/destroy). */
+    public static reset(): void {
+        (WebGPUContext as any).instance = undefined;
     }
 
     public get queue(): GPUQueue {

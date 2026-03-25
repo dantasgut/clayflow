@@ -26,23 +26,29 @@ export class CPURigidBodySolver implements PhysicsSolver {
             velocity[2] = (velocity[2] ?? 0) + (netForce[2]! / mass) * dt;
         }
 
-        // Amortecimento linear — decaimento exponencial da velocidade.
-        // 'linearDamping' é uma taxa por segundo (default 0.05).
-        // Aplicado por substep com dt correto para evitar over-damping.
-        const damping = body.get<number>('linearDamping') ?? 0.05;
-        const decay = Math.max(0, 1 - damping * dt);
-        velocity[0] = (velocity[0] ?? 0) * decay;
-        velocity[1] = (velocity[1] ?? 0) * decay;
-        velocity[2] = (velocity[2] ?? 0) * decay;
+        // Bug P2-C — Duplo Damping: corpos XPBD pulam o damping aqui.
+        // A velocidade de predição é descartada pelo VelocityRecoveryStage, que
+        // recalcula vel = (pos_new − pos_old)/dt e reaplicará o damping lá.
+        // Aplicar aqui causaria ~2× de dissipação por substep.
+        if (!body.get<boolean>('xpbdManaged')) {
+            // Amortecimento linear — decaimento exponencial da velocidade.
+            // 'linearDamping' é uma taxa por segundo (default 0.05).
+            // Aplicado por substep com dt correto para evitar over-damping.
+            const damping = body.get<number>('linearDamping') ?? 0.05;
+            const decay = Math.max(0, 1 - damping * dt);
+            velocity[0] = (velocity[0] ?? 0) * decay;
+            velocity[1] = (velocity[1] ?? 0) * decay;
+            velocity[2] = (velocity[2] ?? 0) * decay;
 
-        // Angular damping
-        const angularDamping = body.get<number>('angularDamping') ?? 0.1;
-        const angDecay = Math.max(0, 1 - angularDamping * dt);
-        const omega = body.get<vec3>('angularVelocity');
-        if (omega) {
-            omega[0] = (omega[0] ?? 0) * angDecay;
-            omega[1] = (omega[1] ?? 0) * angDecay;
-            omega[2] = (omega[2] ?? 0) * angDecay;
+            // Angular damping
+            const angularDamping = body.get<number>('angularDamping') ?? 0.1;
+            const angDecay = Math.max(0, 1 - angularDamping * dt);
+            const omega = body.get<vec3>('angularVelocity');
+            if (omega) {
+                omega[0] = (omega[0] ?? 0) * angDecay;
+                omega[1] = (omega[1] ?? 0) * angDecay;
+                omega[2] = (omega[2] ?? 0) * angDecay;
+            }
         }
     }
 }

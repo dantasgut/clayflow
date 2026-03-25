@@ -38,6 +38,7 @@ export class SoftBodyVelocityUpdateStage extends BaseVelocityDerivationStage imp
 
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
             const sb = body as unknown as SoftBody;
             // Damping escalado por dt: independente do número de substeps.
             // damping=0.02 → ~2% de perda por segundo, não por substep.
@@ -48,6 +49,18 @@ export class SoftBodyVelocityUpdateStage extends BaseVelocityDerivationStage imp
                 p.vx = (p.px - p.x) * invDt * dampFactor;
                 p.vy = (p.py - p.y) * invDt * dampFactor;
                 p.vz = (p.pz - p.z) * invDt * dampFactor;
+
+                // Clamp speed to prevent velocity explosion caused by large collision
+                // corrections. A correction of Δ at substep dt derives v = Δ/dt, which
+                // becomes unbounded for deep penetrations. 30 m/s is well above any
+                // realistic cloth motion and covers free-fall from ~45 m.
+                const speed2 = p.vx * p.vx + p.vy * p.vy + p.vz * p.vz;
+                if (speed2 > 900 /* 30² */) {
+                    const inv = 30 / Math.sqrt(speed2);
+                    p.vx *= inv;
+                    p.vy *= inv;
+                    p.vz *= inv;
+                }
             }
         }
     }

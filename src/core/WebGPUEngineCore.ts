@@ -62,8 +62,12 @@ export class WebGPUEngineCore implements EngineCore {
 
     @LogCall('info', 'Camada 1 online em {duration}')
     public async initialize(canvas: HTMLCanvasElement): Promise<void> {
+        // initialize() é idempotente — WebGPUContext.initialize() serializa chamadas concorrentes.
+        // ProfilerSystem é criado apenas na primeira chamada (quando profilerRef ainda é null).
         await this.contextRef.initialize(canvas);
-        this.profilerRef = new ProfilerSystem();
+        if (!this.profilerRef) {
+            this.profilerRef = new ProfilerSystem();
+        }
     }
 
     @LogCall('info', 'Recursos da Camada 1 destruídos em {duration}')

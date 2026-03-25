@@ -1,6 +1,6 @@
 # Interface: BodyEntry
 
-Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L7)
+Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L7)
 
 Entrada de corpo físico — compartilhada entre estágios do pipeline.
 
@@ -10,7 +10,7 @@ Entrada de corpo físico — compartilhada entre estágios do pipeline.
 
 > **body**: [`PhysicsBody`](../classes/PhysicsBody.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L7)
+Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L7)
 
 ***
 
@@ -18,4 +18,4 @@ Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgu
 
 > **entity**: [`Entity`](../classes/Entity.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/systems/PhysicsStageContext.ts#L7)
+Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L7)

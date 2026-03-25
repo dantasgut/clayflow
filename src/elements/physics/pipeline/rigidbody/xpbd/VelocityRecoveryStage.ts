@@ -27,13 +27,14 @@ import { BaseVelocityDerivationStage } from '../../shared/BaseVelocityDerivation
  * ─────────────────────────────────────────────────────────────────────────────
  * DAMPING
  * ─────────────────────────────────────────────────────────────────────────────
- * O {@link ForceStage} aplica damping sobre a velocidade de predição, que no XPBD é
- * descartada ao recalcular a velocidade a partir do delta de posição.
- * O fator de amortecimento é reaplicado aqui para que `linearDamping` e
- * `angularDamping` tenham efeito real no pipeline XPBD.
+ * No pipeline XPBD, a velocidade de predição do {@link ForceStage} é descartada
+ * ao recalcular a velocidade a partir do delta de posição `(pos_new − pos_old)/dt`.
+ * O fator de amortecimento é aplicado AQUI — uma única vez — sobre a velocidade
+ * recuperada, para que `linearDamping` e `angularDamping` tenham efeito real.
  *
- * Nota: o `ForceStage` já aplica uma vez, resultando em ~2× de dissipação —
- * sobre-dissipação pequena e aceitável para manter a estabilidade.
+ * Bug P2-C: O {@link CPURigidBodySolver} detecta corpos marcados com `xpbdManaged=true`
+ * (flag definida pelo {@link PredictStage}) e PULA o damping na fase de predição,
+ * evitando a ~2× de dissipação que existia antes desta correção.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * SEPARAÇÃO DE RESPONSABILIDADES
@@ -61,6 +62,7 @@ export class VelocityRecoveryStage extends BaseVelocityDerivationStage implement
     protected deriveVelocities(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
 
             const uuid   = body.uuid;
             const posOld = this.state.posCache.get(uuid);

@@ -26,8 +26,12 @@ export class PlaneBoxCollision implements CollisionAlgorithm {
      * em contato, mesmo sem penetração real. Isso mantém o manifold ativo
      * entre substeps após a depenetração (quando o vértice fica exatamente
      * em d=0), garantindo que atrito seja aplicado continuamente.
+     *
+     * 0.02m (2 cm): suficiente para estabilizar o manifold durante tombamentos
+     * rápidos (bastão com ω alto). Com 0.005 os vértices alternavam entre
+     * "dentro" e "fora" a cada substep → contact flickering → descontinuidade.
      */
-    private static readonly CONTACT_SKIN = 0.005;
+    private static readonly CONTACT_SKIN = 0.02;
 
     public detect(
         box:   Collider, boxMat:   mat4,

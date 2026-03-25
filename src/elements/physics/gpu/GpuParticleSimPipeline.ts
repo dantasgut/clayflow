@@ -92,7 +92,7 @@ export class GpuParticleSimPipeline implements PhysicsStage {
     private readonly core         = WebGPUEngineCore.getInstance();
     private readonly allocator    = new SimBodyBufferAllocator();
     private readonly uploader     = new ColliderDescriptorUploader();
-    private readonly softProfiler = new GpuSoftBodyProfiler();
+    private readonly softProfiler: GpuSoftBodyProfiler;
 
     private ready        = false;
     private initPromise: Promise<void> | null = null;
@@ -109,7 +109,10 @@ export class GpuParticleSimPipeline implements PhysicsStage {
         private readonly getSubsteps:       () => number,
         private readonly restitution:       number = 0.05,
         private readonly constraintIters:   number = 10,
-    ) {}
+        logInterval:                        number = 60,
+    ) {
+        this.softProfiler = new GpuSoftBodyProfiler(logInterval);
+    }
 
     // ── PhysicsStage ──────────────────────────────────────────────────────────
 
@@ -137,7 +140,8 @@ export class GpuParticleSimPipeline implements PhysicsStage {
 
         // Otimização 1c: acumula encoders de todos os corpos e faz 1 submit total
         const encoders: GPUCommandEncoder[] = [];
-        let firstBodyEncoded = false;  // flag de profiling: mede apenas o primeiro body
+        let firstBodyEncoded   = false;  // flag de profiling: mede apenas o primeiro body
+        let doSoftProfileRead  = false;  // true se encodeResolve encodou — startRead após submit
 
         for (const { body, entity } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
@@ -330,7 +334,8 @@ export class GpuParticleSimPipeline implements PhysicsStage {
                 compute.dispatchOnPass(vwPass, PIPELINE_IDS.VERTEX_WRITE, [bg.vertexWrite], wg);
                 vwPass.end();
 
-                if (shouldProfile) this.softProfiler.resolveAndScheduleRead(encoder);
+                // Encoda resolveQueriesRange + copyBufferToBuffer; mapAsync só após submit
+                if (shouldProfile) doSoftProfileRead = this.softProfiler.encodeResolve(encoder);
 
                 encoders.push(encoder);
                 firstBodyEncoded = true;
@@ -343,6 +348,8 @@ export class GpuParticleSimPipeline implements PhysicsStage {
         // Submit único para todos os corpos do frame (Otimização 1c)
         if (encoders.length > 0) {
             core.renderPasses.submit(encoders);
+            // mapAsync DEVE ser chamado APÓS submit — buffer em estado 'pending' bloqueia o submit
+            if (doSoftProfileRead) this.softProfiler.startRead();
         }
     }
 
@@ -351,7 +358,8 @@ export class GpuParticleSimPipeline implements PhysicsStage {
     private kickInit(): void {
         if (this.initPromise) return;
         this.initPromise = ensurePhysicsPipelinesInitialized(this.core)
-            .then(() => { this.ready = true; });
+            .then(() => { this.ready = true; })
+            .catch(err => { console.error('[GpuParticleSimPipeline] pipeline init falhou:', err); });
     }
 
     private buildBindGroups(

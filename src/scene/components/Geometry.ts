@@ -46,7 +46,44 @@ export abstract class Geometry implements Component {
     /** Número de arestas wireframe (rawWireframeEdges.length / 2). */
     public wireframeEdgeCount: number = 0;
 
+    // ── Contrato de escrita de vértice GPU ──────────────────────────────────
+    //
+    // Caminho CPU: rawVertices → markDirty() → ResourceLoader → vertexBufferId
+    // Caminho GPU: compute shader escreve diretamente em vertexBufferId
+    //
+    // Ambos os caminhos usam o mesmo vertexBufferId como destino — o estado
+    // determina qual caminho está ativo. wireframePositionsBufferId segue a
+    // mesma regra: compute shader também pode escrever nele diretamente.
+
+    /**
+     * Retorna true quando o compute shader é o escritor ativo do vertex buffer.
+     * Enquanto true, markDirty() é no-op e o ResourceLoader suprime uploads.
+     */
+    public get isGpuManaged(): boolean {
+        return this.state === ResourceState.GpuManaged;
+    }
+
+    /**
+     * Transfere a propriedade do vertex buffer para o pipeline GPU.
+     * Pré-condição: state === Ready (geometry já alocada na VRAM).
+     * Após a chamada, markDirty() é ignorado até exitGpuManagedMode().
+     */
+    public enterGpuManagedMode(): void {
+        if (this.state !== ResourceState.Ready) return;
+        this.state = ResourceState.GpuManaged;
+    }
+
+    /**
+     * Devolve a propriedade do vertex buffer ao pipeline CPU.
+     * Transiciona para Dirty, forçando re-upload de rawVertices no próximo frame.
+     */
+    public exitGpuManagedMode(): void {
+        if (this.state !== ResourceState.GpuManaged) return;
+        this.state = ResourceState.Dirty;
+    }
+
     public markDirty(): void {
+        if (this.state === ResourceState.GpuManaged) return; // compute shader é o dono
         if (this.state === ResourceState.Ready) {
             this.state = ResourceState.Dirty;
         }

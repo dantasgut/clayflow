@@ -43,9 +43,9 @@ export interface SoftBodySimConfig {
      */
     resolution?: SoftBodyResolutionConfig;
     /**
-     * Número de iterações do solver XPBD por substep.
+     * Número de iterações do solver XPBD por substep (backend='gpu').
      * Valores maiores convergem melhor em malhas densas, com custo proporcional.
-     * Default: 10.
+     * Default: 15. (Otimização 3c — compensa substeps=4 vs. substeps=8 anteriores)
      */
     iterations?: number;
     /**
@@ -53,4 +53,48 @@ export interface SoftBodySimConfig {
      * Default: 0.05.
      */
     restitution?: number;
+    /**
+     * Backend de simulação SoftBody.
+     * 'cpu' — pipeline XPBD em JavaScript (padrão, estável).
+     * 'gpu' — pipeline XPBD em compute shaders WGSL (Fase 2).
+     * Default: 'cpu'.
+     */
+    backend?: 'cpu' | 'gpu';
+    /**
+     * Ativa Shape Matching (apenas para backend='gpu').
+     * Adiciona um estágio de restauração de forma por substep:
+     * cada partícula é puxada em direção à posição-meta R·r_i + cm,
+     * onde R é extraída da decomposição polar do gradiente de deformação.
+     * Default: false.
+     */
+    useShapeMatching?: boolean;
+    /**
+     * Coeficiente de rigidez do Shape Matching [0..1].
+     * 0 = sem restauração, 1 = corpo rígido aproximado.
+     * Só tem efeito se useShapeMatching=true.
+     * Default: 0.5.
+     */
+    shapeStiffness?: number;
+    /**
+     * Ativa o solver Jacobi XPBD em vez do graph coloring (apenas backend='gpu').
+     *
+     * Jacobi: todas as constraints resolvem em paralelo por iteração via acúmulo
+     * de correções em atomic<i32>. Requer 2 compute passes por iteração (solve + apply),
+     * mas elimina a necessidade de graph coloring e reordenação de constraints.
+     *
+     * Trade-off:
+     *   - Prós: máximo paralelismo, sem CPU graph-coloring, ~50% menos dispatches
+     *     que graph coloring com 4 cores.
+     *   - Contras: pode precisar de ~10–20% mais iterações para convergência igual;
+     *     não é compatível com warm-starting de λ nesta versão.
+     *
+     * Default: false (usa graph coloring quando disponível).
+     */
+    useJacobiSolve?: boolean;
+    /**
+     * Intervalo de frames entre leituras do profiler GPU (backend='gpu').
+     * Valores menores aumentam a frequência dos logs de tempo de kernel.
+     * Default: 60 (≈1 log/s a 60fps).
+     */
+    profilerLogInterval?: number;
 }

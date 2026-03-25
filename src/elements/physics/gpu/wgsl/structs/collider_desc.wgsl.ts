@@ -5,8 +5,9 @@
  *   offset   0: world_mat     (mat4x4f, 64 bytes) — world matrix do collider
  *   offset  64: inv_world_mat (mat4x4f, 64 bytes) — inversa da world matrix
  *   offset 128: half          (vec4f,   16 bytes) — parâmetros de forma (ver shape_type)
- *   offset 144: shape_type    (u32,      4 bytes)
- *   offset 148: _pad          (vec3u,   12 bytes) — alinha struct a 160 bytes
+ *   offset 144: shape_type     (u32,      4 bytes)
+ *   offset 148: body_owner_idx (u32,      4 bytes) — gpuRbIndex do corpo dono (0xFFFFFFFF = nenhum)
+ *   offset 152: _pad2          (vec2u,    8 bytes) — alinha struct a 160 bytes
  *
  * shape_type e campo `half`:
  *   0 = Sphere  → half.x = radius
@@ -24,7 +25,8 @@ struct ColliderDesc {
     world_mat:     mat4x4f,  // world matrix (local → world)
     inv_world_mat: mat4x4f,  // inversa (world → local) — pré-calculada na CPU
     half:          vec4f,    // parâmetros de forma (ver shape_type)
-    shape_type:    u32,      // 0=sphere  1=box  2=plane
-    _pad:          vec3u,    // padding até 160 bytes
+    shape_type:     u32,      // 0=sphere  1=box  2=plane
+    body_owner_idx: u32,     // gpuRbIndex do corpo que possui este collider (0xFFFFFFFFu = nenhum)
+    _pad2:          vec2u,   // padding até 160 bytes
 }
 `;

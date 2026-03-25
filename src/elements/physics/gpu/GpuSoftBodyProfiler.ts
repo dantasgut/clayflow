@@ -36,6 +36,8 @@
  */
 
 import { WebGPUEngineCore } from '../../../core/WebGPUEngineCore';
+import { Loggable }         from '../../../core/debug/Loggable';
+import { Logger }           from '../../../core/debug/Logger';
 
 /** Índices de query para cada estágio do pipeline SoftBody (slots 8–17). */
 export const SB_SLOTS = {
@@ -49,7 +51,9 @@ export const SB_SLOTS = {
 const SB_FIRST_QUERY = 8;
 const SB_QUERY_COUNT = 10;  // 5 kernels × 2 slots
 
+@Loggable('GpuSoftBodyProfiler')
 export class GpuSoftBodyProfiler {
+    declare private readonly log: Logger;
 
     private readonly core  = WebGPUEngineCore.getInstance();
     private frameCount     = 0;
@@ -72,23 +76,31 @@ export class GpuSoftBodyProfiler {
     }
 
     /**
-     * Registra resolveQueriesRange + agenda leitura dos slots 8–17.
-     * Deve ser chamado UMA VEZ por frame, no encoder do primeiro body, após vertex_write.
+     * Etapa 1/2 — encoda resolveQueriesRange + copyBufferToBuffer no encoder (slots 8–17).
+     * DEVE ser chamado antes do submit. Retorna true se encodou (e startRead() deve
+     * ser chamado após o submit).
      *
      * A resolução ocorre apenas a cada `logInterval` frames para minimizar overhead.
-     * O flag `readPending` evita mapeamento concorrente com o profiler RigidBody.
      */
-    public resolveAndScheduleRead(encoder: GPUCommandEncoder): void {
-        if (!this.isActive) return;
+    public encodeResolve(encoder: GPUCommandEncoder): boolean {
+        if (!this.isActive) return false;
 
         this.frameCount++;
-        if (this.frameCount % this.logInterval !== 0 || this.readPending) return;
+        if (this.frameCount % this.logInterval !== 0 || this.readPending) return false;
         // Guard compartilhado: evita submeter copyBufferToBuffer ao resultBuffer enquanto
         // outro profiler tem mapAsync pendente (ambos compartilham o mesmo buffer).
-        if (!this.core.profiler.canResolve) return;
+        if (!this.core.profiler.canResolve) return false;
 
         this.core.profiler.resolveQueriesRange(encoder, SB_FIRST_QUERY, SB_QUERY_COUNT);
+        return true;
+    }
 
+    /**
+     * Etapa 2/2 — inicia mapAsync no ResultBuffer.
+     * DEVE ser chamado APÓS queue.submit([encoder]) — chamar antes coloca o buffer
+     * em estado 'pending map', causando erro de validação no submit.
+     */
+    public startRead(): void {
         this.readPending = true;
         this.core.profiler.readResultsRange(SB_FIRST_QUERY, SB_QUERY_COUNT).then(ts => {
             this.readPending = false;
@@ -102,14 +114,13 @@ export class GpuSoftBodyProfiler {
             Number(ts[e]! - ts[b]!) / 1_000_000;
 
         const total = ms(0, 1) + ms(2, 3) + ms(4, 5) + ms(6, 7) + ms(8, 9);
-
-        console.log(
-            `[GpuSoftBody] kernel ms (frame ${this.frameCount}):`,
-            `predict=${ms(0, 1).toFixed(3)}`,
-            `constraints=${ms(2, 3).toFixed(3)}`,
-            `collision=${ms(4, 5).toFixed(3)}`,
-            `velocity=${ms(6, 7).toFixed(3)}`,
-            `vertex_write=${ms(8, 9).toFixed(3)}`,
+        this.log.info(
+            `kernel ms (frame ${this.frameCount}): ` +
+            `predict=${ms(0, 1).toFixed(3)} ` +
+            `constraints=${ms(2, 3).toFixed(3)} ` +
+            `collision=${ms(4, 5).toFixed(3)} ` +
+            `velocity=${ms(6, 7).toFixed(3)} ` +
+            `vertex_write=${ms(8, 9).toFixed(3)} ` +
             `| total_sub0=${total.toFixed(3)}ms`,
         );
     }

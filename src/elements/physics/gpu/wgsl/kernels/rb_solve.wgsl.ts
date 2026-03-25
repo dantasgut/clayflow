@@ -59,7 +59,10 @@ fn rb_solve_main(@builtin(global_invocation_id) _gid: vec3u) {
         let alpha_tilde = 0.0;  // contato rígido, sem compliance
         let lambda_old  = contacts[ci].point.w;
 
-        let delta_lambda_unclamped = xpbd_delta_lambda(-depth, w_rb, alpha_tilde);
+        // Bug P1-B — Penetration Slop: subtrai tolerância antes de aplicar correção
+        let slop      = rb_params.penetration_slop;
+        let depth_eff = max(depth - slop, 0.0);
+        let delta_lambda_unclamped = xpbd_delta_lambda(-depth_eff, w_rb, alpha_tilde);
         let new_lambda = max(lambda_old + delta_lambda_unclamped, 0.0);
         let d_lambda   = new_lambda - lambda_old;
 
@@ -107,12 +110,14 @@ fn rb_solve_main(@builtin(global_invocation_id) _gid: vec3u) {
         let w_t1  = rigid_generalized_mass(r, t1, inv_mass, I_inv);
         let w_t2  = rigid_generalized_mass(r, t2, inv_mass, I_inv);
 
+        // Bug P1-A — Coulomb Clamp Circular: max_t calculado UMA VEZ, compartilhado por t1 e t2
+        let max_t = mu * new_lambda;
+
         // Impulso tangencial 1
         let lambda_tx_old  = contacts[ci].lambda_tx;
         let d_lambda_tx_u  = xpbd_delta_lambda(dot(v_tan, t1) * dt, w_t1, 0.0);
         let lambda_tx_new  = lambda_tx_old + d_lambda_tx_u;
-        let lambda_tx_clamped = clamp(lambda_tx_new, -coulomb_clamp(abs(lambda_tx_new), new_lambda, mu),
-                                                      coulomb_clamp(abs(lambda_tx_new), new_lambda, mu));
+        let lambda_tx_clamped = clamp(lambda_tx_new, -max_t, max_t);
         let d_tx = lambda_tx_clamped - lambda_tx_old;
         contacts[ci].lambda_tx = lambda_tx_clamped;
 
@@ -120,8 +125,7 @@ fn rb_solve_main(@builtin(global_invocation_id) _gid: vec3u) {
         let lambda_ty_old  = contacts[ci].lambda_ty;
         let d_lambda_ty_u  = xpbd_delta_lambda(dot(v_tan, t2) * dt, w_t2, 0.0);
         let lambda_ty_new  = lambda_ty_old + d_lambda_ty_u;
-        let lambda_ty_clamped = clamp(lambda_ty_new, -coulomb_clamp(abs(lambda_ty_new), new_lambda, mu),
-                                                      coulomb_clamp(abs(lambda_ty_new), new_lambda, mu));
+        let lambda_ty_clamped = clamp(lambda_ty_new, -max_t, max_t);
         let d_ty = lambda_ty_clamped - lambda_ty_old;
         contacts[ci].lambda_ty = lambda_ty_clamped;
 

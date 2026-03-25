@@ -160,8 +160,9 @@ export class WebGPURenderer implements Renderer {
 
         // [PASSO 5a] FÍSICA
         DebugMarker.push(commandEncoder, 'Physics');
-        const now = performance.now();
-        const dt  = this.lastTime === 0 ? 0 : (now - this.lastTime) / 1000;
+        const now    = performance.now();
+        const rawDt  = this.lastTime === 0 ? 0 : (now - this.lastTime) / 1000;
+        const dt     = Math.min(rawDt, 1 / 20);  // clamp a 50 ms — evita explosão após tab em background
         this.lastTime = now;
         this.world.step(scene, dt);
         DebugMarker.pop(commandEncoder);

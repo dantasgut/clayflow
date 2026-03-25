@@ -45,6 +45,7 @@ export class PredictStage extends BasePredictStage implements PhysicsStage {
     protected predictBodies(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic')) continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
 
             const pos   = body.get<vec3>('position');
             const rot   = body.get<quat>('rotation');
@@ -58,6 +59,11 @@ export class PredictStage extends BasePredictStage implements PhysicsStage {
             if (pos) this.state.posCache.set(uuid, [pos[0] ?? 0, pos[1] ?? 0, pos[2] ?? 0]);
             if (rot) this.state.rotCache.set(uuid, [rot[0] ?? 0, rot[1] ?? 0, rot[2] ?? 0, rot[3] ?? 1]);
             if (vel) this.state.velCache.set(uuid, [vel[0] ?? 0, vel[1] ?? 0, vel[2] ?? 0]);
+
+            // Marca corpo como gerenciado pelo pipeline XPBD para que CPURigidBodySolver
+            // pule o damping na fase de predição — VelocityRecoveryStage reaplicará
+            // o damping sobre a velocidade derivada (pos_new − pos_old)/dt.
+            body.set('xpbdManaged', true);
 
             // Corpos adormecidos não são preditos (posição não muda antes do solve)
             if (body.get<boolean>('isSleeping')) continue;

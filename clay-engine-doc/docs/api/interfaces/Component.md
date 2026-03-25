@@ -1,6 +1,6 @@
 # Interface: Component
 
-Defined in: [scene/core/Component.ts:9](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Component.ts#L9)
+Defined in: [scene/core/Component.ts:9](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Component.ts#L9)
 
 Interface base para qualquer Componente Visual/Lógico estrito
 ancorado a uma Entidade.
@@ -15,7 +15,7 @@ ancorado a uma Entidade.
 
 > `readonly` **layer**: [`VISUAL_COMPONENT`](../enumerations/ResourceType.md#visual_component)
 
-Defined in: [scene/core/Component.ts:10](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Component.ts#L10)
+Defined in: [scene/core/Component.ts:10](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Component.ts#L10)
 
 ***
 
@@ -23,7 +23,7 @@ Defined in: [scene/core/Component.ts:10](https://github.com/dantasgut/clayflow/b
 
 > `optional` **state?**: [`ResourceState`](../enumerations/ResourceState.md)
 
-Defined in: [scene/core/Resource.ts:13](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Resource.ts#L13)
+Defined in: [scene/core/Resource.ts:13](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Resource.ts#L13)
 
 #### Inherited from
 
@@ -35,7 +35,7 @@ Defined in: [scene/core/Resource.ts:13](https://github.com/dantasgut/clayflow/bl
 
 > `readonly` **type**: `string`
 
-Defined in: [scene/core/Resource.ts:11](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Resource.ts#L11)
+Defined in: [scene/core/Resource.ts:11](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Resource.ts#L11)
 
 #### Inherited from
 
@@ -47,7 +47,7 @@ Defined in: [scene/core/Resource.ts:11](https://github.com/dantasgut/clayflow/bl
 
 > `readonly` `optional` **uuid?**: `string`
 
-Defined in: [scene/core/Resource.ts:12](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Resource.ts#L12)
+Defined in: [scene/core/Resource.ts:12](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Resource.ts#L12)
 
 #### Inherited from
 
@@ -59,7 +59,7 @@ Defined in: [scene/core/Resource.ts:12](https://github.com/dantasgut/clayflow/bl
 
 > `optional` **allocateResource**(`resourceManager`): `void` \| `Promise`\<`void`\>
 
-Defined in: [scene/core/Resource.ts:15](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Resource.ts#L15)
+Defined in: [scene/core/Resource.ts:15](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Resource.ts#L15)
 
 #### Parameters
 
@@ -81,7 +81,7 @@ Defined in: [scene/core/Resource.ts:15](https://github.com/dantasgut/clayflow/bl
 
 > `optional` **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/core/Resource.ts:17](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Resource.ts#L17)
+Defined in: [scene/core/Resource.ts:17](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Resource.ts#L17)
 
 #### Parameters
 
@@ -103,7 +103,7 @@ Defined in: [scene/core/Resource.ts:17](https://github.com/dantasgut/clayflow/bl
 
 > `optional` **onAttach**(`entity`): `void`
 
-Defined in: [scene/core/Component.ts:12](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Component.ts#L12)
+Defined in: [scene/core/Component.ts:12](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Component.ts#L12)
 
 #### Parameters
 
@@ -121,7 +121,7 @@ Defined in: [scene/core/Component.ts:12](https://github.com/dantasgut/clayflow/b
 
 > `optional` **onDetach**(`entity`): `void`
 
-Defined in: [scene/core/Component.ts:13](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Component.ts#L13)
+Defined in: [scene/core/Component.ts:13](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Component.ts#L13)
 
 #### Parameters
 
@@ -139,7 +139,7 @@ Defined in: [scene/core/Component.ts:13](https://github.com/dantasgut/clayflow/b
 
 > `optional` **updateResource**(`resourceManager`): `void` \| `Promise`\<`void`\>
 
-Defined in: [scene/core/Resource.ts:16](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/scene/core/Resource.ts#L16)
+Defined in: [scene/core/Resource.ts:16](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/core/Resource.ts#L16)
 
 #### Parameters
 

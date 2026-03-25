@@ -33,6 +33,7 @@
  */
 
 import { WebGPUEngineCore }          from '../../../core/WebGPUEngineCore';
+import { WebGPUContext }             from '../../../core/context/WebGPUContext';
 import type { PhysicsStage }          from '../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext }   from '../../../scene/systems/PhysicsStageContext';
 import type { Force }                 from '../../../scene/systems/forces/Force';
@@ -52,17 +53,23 @@ import {
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
 
 // RBSimParams layout (float/u32 indices into the 64-byte uniform buffer)
-// gravity (vec4f): indices 0-3 (xyz=accel, w=dt)
+// gravity (vec4f): indices 0-3 (xyz=accel, w=dt_substep)
 // body_count: u32 index 4 | collider_count: u32 index 5 | max_contacts: u32 index 6 | solve_iters: u32 index 7
-// _pad1 (vec4f): indices 8-11
-const SP_GRAVITY_X      = 0;
-const SP_GRAVITY_Y      = 1;
-const SP_GRAVITY_Z      = 2;
-const SP_DT             = 3;
-const SP_BODY_COUNT     = 4;   // u32 view index
-const SP_COLLIDER_COUNT = 5;   // u32 view index
-const SP_MAX_CONTACTS   = 6;   // u32 view index
-const SP_SOLVE_ITERS    = 7;   // u32 view index
+// dt_frame: f32 index 8 | restitution: f32 index 9
+// penetration_slop: f32 index 10 | linear_damping: f32 index 11 | angular_damping: f32 index 12 | _pad1d: f32 index 13
+const SP_GRAVITY_X         = 0;
+const SP_GRAVITY_Y         = 1;
+const SP_GRAVITY_Z         = 2;
+const SP_DT                = 3;   // dtSub = dt_frame / substeps
+const SP_BODY_COUNT        = 4;   // u32 view index
+const SP_COLLIDER_COUNT    = 5;   // u32 view index
+const SP_MAX_CONTACTS      = 6;   // u32 view index
+const SP_SOLVE_ITERS       = 7;   // u32 view index
+const SP_DT_FRAME          = 8;   // f32: dt do frame inteiro (= dtSub * substeps)
+const SP_RESTITUTION       = 9;   // f32: coeficiente de restituição [0, 1]
+const SP_PENETRATION_SLOP  = 10;  // f32: margem de tolerância de penetração (5 mm)
+const SP_LINEAR_DAMPING    = 11;  // f32: taxa de amortecimento linear por substep (1/s)
+const SP_ANGULAR_DAMPING   = 12;  // f32: taxa de amortecimento angular por substep (1/s)
 
 type RbBindGroups = {
     predict:          GPUBindGroup;
@@ -77,10 +84,15 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
     private readonly core      = WebGPUEngineCore.getInstance();
     private readonly allocator = new RigidBodyBufferAllocator();
     private readonly uploader  = new ColliderDescriptorUploader();
-    private readonly phyProfiler = new GpuPhysicsProfiler();
+    private readonly phyProfiler: GpuPhysicsProfiler;
 
     private ready        = false;
     private initPromise: Promise<void> | null = null;
+
+    /** Buffer de staging MAP_READ para leitura assíncrona das posições GPU → CPU. */
+    private readbackBuffer: GPUBuffer | null = null;
+    private readbackBodyCount = 0;
+    private readbackPending   = false;
 
     /** Bind groups cacheados (um conjunto global — todos os corpos num buffer único). */
     private bgCache: RbBindGroups | null = null;
@@ -111,7 +123,10 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         private readonly globalForces:    Map<string, Force>,
         private readonly getSubsteps:     () => number,
         private readonly solveIterations: number = 10,
-    ) {}
+        logInterval:                      number = 60,
+    ) {
+        this.phyProfiler = new GpuPhysicsProfiler(logInterval);
+    }
 
     // ── PhysicsStage ──────────────────────────────────────────────────────────
 
@@ -134,12 +149,23 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
 
         if (newBodies.length === 0) return;
 
-        const substeps = this.getSubsteps();
-        const dtSub    = dtFrame / substeps;
+        // GPU XPBD usa 1 substep com K ampliado para equivalência:
+        // rb_predict roda antes do loop e pos_pred não é comitado entre substeps,
+        // portanto substeps>1 causaria amplificação de velocidade em velocity_recovery.
+        // Qualidade compensada: K_gpu = solveIterations * physicsSubsteps (≥ 40 iters).
+        const substeps = 1;
+        const dtSub    = dtFrame; // dtSub = dtFrame com substeps=1
 
         const core    = this.core;
         const buffers = core.resources.buffers;
         const compute = core.compute;
+
+        // Pré-atribui gpuRbIndex antes do upload de colliders para que
+        // ColliderDescriptorUploader possa preencher body_owner_idx corretamente
+        // (evita auto-colisão no narrowphase desde o primeiro frame).
+        for (let i = 0; i < newBodies.length; i++) {
+            newBodies[i]!.set('gpuRbIndex', i);
+        }
 
         // Empacota e envia ColliderDescs (uma vez por frame)
         const colliderCount = this.uploader.upload(context);
@@ -168,16 +194,17 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         // ── RBSimParams ────────────────────────────────────────────────────────
         let gx = 0, gy = 0, gz = 0;
         for (const force of this.globalForces.values()) {
-            // Usa um corpo representativo para calcular aceleração gravitacional
+            // ConstantForce.compute() retorna aceleração diretamente (não força).
+            // O shader aplica gravity*dt à velocidade sem dividir por massa.
+            // Divisão por invM estava errada: para kinematic (mass=0) gerava gravity=0.
             const f = force.compute(this.gpuBodies[0]!, dtSub);
-            const mass = this.gpuBodies[0]!.get<number>('mass') ?? 1.0;
-            const invM = mass > 0 ? 1.0 / mass : 0.0;
-            gx += (f[0] ?? 0) * invM;
-            gy += (f[1] ?? 0) * invM;
-            gz += (f[2] ?? 0) * invM;
+            gx += f[0] ?? 0;
+            gy += f[1] ?? 0;
+            gz += f[2] ?? 0;
         }
 
-        const K = this.solveIterations;  // declarado antes do uso em SP_SOLVE_ITERS
+        // K ampliado: compensa o colapso para 1 substep mantendo qualidade total de solve
+        const K = this.solveIterations * this.getSubsteps();  // ex: 10 × 4 = 40 iters
 
         this.rbSimParamsF32[SP_GRAVITY_X]      = gx;
         this.rbSimParamsF32[SP_GRAVITY_Y]      = gy;
@@ -187,6 +214,11 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         this.rbSimParamsU32[SP_COLLIDER_COUNT] = colliderCount;
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
+        this.rbSimParamsF32[SP_DT_FRAME]          = dtFrame;  // dt_frame para velocity_recovery
+        this.rbSimParamsF32[SP_RESTITUTION]       = 0.3;    // coeficiente de restituição
+        this.rbSimParamsF32[SP_PENETRATION_SLOP]  = 0.005;  // 5 mm — margem de tolerância de penetração
+        this.rbSimParamsF32[SP_LINEAR_DAMPING]    = 0.5;    // 0.5/s — amortecimento linear
+        this.rbSimParamsF32[SP_ANGULAR_DAMPING]   = 1.0;    // 1.0/s — amortecimento angular
 
         // Otimização 3e: só envia SimParams se algo mudou em relação ao frame anterior
         let simParamsDirty = false;
@@ -247,10 +279,16 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
             compute.dispatchOnPass(vrPass, PIPELINE_IDS.RB_VELOCITY_RECOVERY, [bg.velocityRecovery], wgBodies);
             vrPass.end();
 
-            // Resolve queries e agenda leitura assíncrona (Fase 2a — apenas se profiler ativo)
-            profiler.resolveAndScheduleRead(encoder);
+            // Encoda copyBufferToBuffer (gpu_rb_bodies → staging); mapAsync só após submit
+            const doReadback     = this.encodePositionReadback(encoder, bodyCount);
+            // Encoda resolveQuerySet + copyBufferToBuffer do profiler; mapAsync só após submit
+            const doProfileRead  = profiler.encodeResolve(encoder);
 
             core.renderPasses.submit([encoder]);
+
+            // mapAsync DEVE ser chamado APÓS submit — buffer em estado 'pending' bloqueia o submit
+            if (doReadback)    this.startReadbackMap();
+            if (doProfileRead) profiler.startRead();
         } catch (err) {
             console.error('[GpuRigidBodyPipeline] encode falhou:', err);
             this.bgCache = null;  // invalida bind groups para recriar no próximo frame
@@ -262,7 +300,78 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
     private kickInit(): void {
         if (this.initPromise) return;
         this.initPromise = ensurePhysicsPipelinesInitialized(this.core)
-            .then(() => { this.ready = true; });
+            .then(() => {
+                this.ready = true;
+                console.info('[GpuRigidBodyPipeline] pipelines prontos — ready=true');
+            })
+            .catch(err => {
+                console.error('[GpuRigidBodyPipeline] pipeline init falhou:', err);
+                this.initPromise = null;  // permite retry no próximo frame
+            });
+    }
+
+    /**
+     * Etapa 1 de 2 do readback assíncrono.
+     *
+     * Apenas encoda `copyBufferToBuffer` (gpu_rb_bodies → staging MAP_READ) no encoder
+     * fornecido. Não chama `mapAsync` — isso deve acontecer APÓS `queue.submit()`.
+     *
+     * @returns `true` se o copy foi encodado e `startReadbackMap()` deve ser chamado
+     *          após o submit; `false` se já há um readback pendente (skip).
+     */
+    private encodePositionReadback(encoder: GPUCommandEncoder, bodyCount: number): boolean {
+        if (this.readbackPending) return false;
+
+        const device    = WebGPUContext.getInstance().device;
+        const bodiesBuf = this.core.resources.buffers.getBuffer(RB_BODIES_BUFFER_ID)!.native;
+        const byteSize  = bodyCount * 128;  // 32 floats × 4 bytes por corpo
+
+        // Recria o staging buffer apenas se o número de corpos cresceu
+        if (!this.readbackBuffer || this.readbackBodyCount !== bodyCount) {
+            this.readbackBuffer?.destroy();
+            this.readbackBuffer = device.createBuffer({
+                label: 'rb_readback_staging',
+                size:  byteSize,
+                usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+            });
+            this.readbackBodyCount = bodyCount;
+        }
+
+        encoder.copyBufferToBuffer(bodiesBuf, 0, this.readbackBuffer, 0, byteSize);
+        this.readbackPending = true;
+
+        return true;
+    }
+
+    /**
+     * Etapa 2 de 2 do readback assíncrono.
+     *
+     * Chama `mapAsync` no staging buffer e, quando a Promise resolve, atualiza
+     * `body.position` e `body.rotation` para todos os corpos dinâmicos — permitindo
+     * que BroadphaseStage sincronize os Transforms e ColliderDescriptorUploader envie
+     * posições corretas no próximo frame.
+     *
+     * DEVE ser chamado APÓS `queue.submit([encoder])` — chamar antes coloca o buffer
+     * em estado 'pending map', causando erro de validação WebGPU no submit.
+     *
+     * Latência: ~1 frame (resolve antes do próximo rAF).
+     */
+    private startReadbackMap(): void {
+        const snapshot = this.gpuBodies.slice();  // snapshot para closure segura
+
+        this.readbackBuffer!.mapAsync(GPUMapMode.READ).then(() => {
+            const raw = new Float32Array(this.readbackBuffer!.getMappedRange());
+            for (let i = 0; i < snapshot.length; i++) {
+                const body = snapshot[i]!;
+                if (body.get<boolean>('isKinematic')) continue;  // corpos cinemáticos não são movidos pela GPU
+                const off = i * 32;
+                // Layout: [0..2]=pos.xyz  [12..15]=rot.xyzw
+                body.set('position', [raw[off]!,      raw[off + 1]!,  raw[off + 2]!]);
+                body.set('rotation', [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!]);
+            }
+            this.readbackBuffer!.unmap();
+            this.readbackPending = false;
+        }).catch(() => { this.readbackPending = false; });
     }
 
     /**

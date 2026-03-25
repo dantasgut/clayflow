@@ -224,7 +224,13 @@ export async function ensurePhysicsPipelinesInitialized(core: WebGPUEngineCore):
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SOLVE,              SHADER_RB_SOLVE,              'rb_solve_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_VELOCITY_RECOVERY,  SHADER_RB_VELOCITY_RECOVERY,  'rb_velocity_recovery_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SYNC_TRANSFORM,     SHADER_RB_SYNC_TRANSFORM,     'rb_sync_transform_main'),
-    ]).then(() => undefined);
+    ])
+        .then(() => undefined)
+        .catch((err) => {
+            console.error('[PhysicsShaderLibrary] falha na compilação de pipeline:', err);
+            _initPromise = null;  // permite retry no próximo frame
+            throw err;
+        });
 
     return _initPromise;
 }

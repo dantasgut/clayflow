@@ -80,6 +80,7 @@
 - [RigidBodyOptions](interfaces/RigidBodyOptions.md)
 - [RigidBodySimConfig](interfaces/RigidBodySimConfig.md)
 - [SimulationWorld](interfaces/SimulationWorld.md)
+- [SoftBodyResolutionConfig](interfaces/SoftBodyResolutionConfig.md)
 - [SoftBodySimConfig](interfaces/SoftBodySimConfig.md)
 - [SpawnSample](interfaces/SpawnSample.md)
 - [VertexAttributeDescriptor](interfaces/VertexAttributeDescriptor.md)

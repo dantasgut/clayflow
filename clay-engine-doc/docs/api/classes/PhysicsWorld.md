@@ -1,6 +1,6 @@
 # Class: PhysicsWorld
 
-Defined in: [elements/physics/PhysicsWorld.ts:114](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L114)
+Defined in: [elements/physics/PhysicsWorld.ts:132](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L132)
 
 Implementação euclidiana do SimulationWorld (Mediator — GoF).
 
@@ -55,7 +55,7 @@ world.step(scene, dt);
 
 > **new PhysicsWorld**(`options?`): `PhysicsWorld`
 
-Defined in: [elements/physics/PhysicsWorld.ts:142](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L142)
+Defined in: [elements/physics/PhysicsWorld.ts:168](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L168)
 
 #### Parameters
 
@@ -79,7 +79,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:142](https://github.com/dantasgut/
 
 > **get** **dispatcher**(): `CollisionDispatcher`
 
-Defined in: [elements/physics/PhysicsWorld.ts:224](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L224)
+Defined in: [elements/physics/PhysicsWorld.ts:285](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L285)
 
 ##### Returns
 
@@ -91,7 +91,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:224](https://github.com/dantasgut/
 
 > **addForce**(`force`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:272](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L272)
+Defined in: [elements/physics/PhysicsWorld.ts:345](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L345)
 
 Registra uma força global aplicada a todos os corpos a cada step.
 
@@ -115,7 +115,7 @@ Registra uma força global aplicada a todos os corpos a cada step.
 
 > **connectScene**(`scene`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:239](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L239)
+Defined in: [elements/physics/PhysicsWorld.ts:312](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L312)
 
 Conecta o mundo a uma cena: observa child_added e child_removed
 para registrar/remover corpos e colliders automaticamente.
@@ -141,7 +141,7 @@ Também registra todos os physics components já presentes na cena.
 
 > **disconnectScene**(`scene`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:250](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L250)
+Defined in: [elements/physics/PhysicsWorld.ts:323](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L323)
 
 Remove a observação da cena e limpa todos os registros.
 
@@ -161,11 +161,44 @@ Remove a observação da cena e limpa todos os registros.
 
 ***
 
+### encodeSyncPasses()
+
+> **encodeSyncPasses**(`commandEncoder`, `entityIdToSlot`, `objectUboBuffer`): `void`
+
+Defined in: [elements/physics/PhysicsWorld.ts:293](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L293)
+
+Despacha passes compute de sincronização GPU→UBO no encoder do renderer.
+Chamado pelo renderer APÓS uploadObjectMatrices e ANTES do render pass.
+
+#### Parameters
+
+##### commandEncoder
+
+`GPUCommandEncoder`
+
+##### entityIdToSlot
+
+`Map`\<`number`, `number`\>
+
+##### objectUboBuffer
+
+`GPUBuffer`
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`SimulationWorld`](../interfaces/SimulationWorld.md).[`encodeSyncPasses`](../interfaces/SimulationWorld.md#encodesyncpasses)
+
+***
+
 ### removeForce()
 
 > **removeForce**(`id`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:276](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L276)
+Defined in: [elements/physics/PhysicsWorld.ts:349](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L349)
 
 #### Parameters
 
@@ -187,7 +220,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:276](https://github.com/dantasgut/
 
 > **removeSolver**(`physicType`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:268](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L268)
+Defined in: [elements/physics/PhysicsWorld.ts:341](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L341)
 
 #### Parameters
 
@@ -209,7 +242,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:268](https://github.com/dantasgut/
 
 > **setSolver**(`physicType`, `solver`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:264](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L264)
+Defined in: [elements/physics/PhysicsWorld.ts:337](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L337)
 
 Associa um solver ao tipo de corpo (Bridge).
 
@@ -237,7 +270,7 @@ Associa um solver ao tipo de corpo (Bridge).
 
 > **setSubsteps**(`n`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:228](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L228)
+Defined in: [elements/physics/PhysicsWorld.ts:301](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L301)
 
 #### Parameters
 
@@ -255,7 +288,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:228](https://github.com/dantasgut/
 
 > **step**(`scene`, `dt`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:284](https://github.com/dantasgut/clayflow/blob/a1666043080ae3b3e0982d5e31ab5afdc5a5a4a4/src/elements/physics/PhysicsWorld.ts#L284)
+Defined in: [elements/physics/PhysicsWorld.ts:357](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/PhysicsWorld.ts#L357)
 
 Avança a simulação por `dt` segundos.
 A implementação decide o pipeline interno (broadphase, narrowphase, integração).

@@ -15,6 +15,7 @@ export class SoftBodyPositionCommitStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, _dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
             const sb = body as unknown as SoftBody;
 
             for (const p of sb.particles) {

@@ -29,6 +29,7 @@ export class IntegrationStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
             const velocity = body.get<vec3>('velocity');
             const position = body.get<vec3>('position');
             if (velocity && position) {

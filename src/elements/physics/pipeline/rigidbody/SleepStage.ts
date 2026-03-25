@@ -64,6 +64,7 @@ export class SleepStage implements PhysicsStage {
 
         for (const { body } of context.bodies.values()) {
             if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
+            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia sono
 
             const v = body.get<vec3>('velocity');
             const w = body.get<vec3>('angularVelocity');
