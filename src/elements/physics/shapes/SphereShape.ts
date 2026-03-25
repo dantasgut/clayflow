@@ -8,7 +8,7 @@ import { SDFCollider } from './SDFCollider';
  * quando registrados no CollisionDispatcher.
  */
 export class SphereShape extends SDFCollider {
-    private readonly radius: number;
+    public readonly radius: number;
 
     constructor(radius: number = 0.5) {
         super({

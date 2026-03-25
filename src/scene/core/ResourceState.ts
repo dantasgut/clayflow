@@ -19,5 +19,13 @@ export enum ResourceState {
     Disposed = 4,
 
     /** Estado terminal após disposeResource. O ResourceLoader ignora este estado. */
-    Destroyed = 5
+    Destroyed = 5,
+
+    /**
+     * O buffer de vértices é gerenciado por um compute shader GPU.
+     * O ResourceLoader suprime qualquer upload CPU→GPU enquanto neste estado.
+     * Transição: Ready → GpuManaged via Geometry.enterGpuManagedMode().
+     * Saída:      GpuManaged → Dirty   via Geometry.exitGpuManagedMode().
+     */
+    GpuManaged = 6,
 }

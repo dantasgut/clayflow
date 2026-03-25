@@ -18,4 +18,22 @@ export interface RigidBodySimConfig {
      * em alta velocidade (bastão, placa). Default: false.
      */
     gyroscopic?: boolean;
+    /**
+     * Backend de simulação RigidBody.
+     * 'cpu' — pipeline XPBD/SI em JavaScript (padrão, estável).
+     * 'gpu' — pipeline XPBD em compute shaders WGSL (Fase 3).
+     * Default: 'cpu'.
+     */
+    backend?: 'cpu' | 'gpu';
+    /**
+     * Número de iterações do solver PGS por substep (backend='gpu').
+     * Default: 15. (Otimização 3c — compensa substeps=4 vs. substeps=8 anteriores)
+     */
+    iterations?: number;
+    /**
+     * Intervalo de frames entre leituras do profiler GPU (backend='gpu').
+     * Valores menores aumentam a frequência dos logs de tempo de kernel.
+     * Default: 60 (≈1 log/s a 60fps).
+     */
+    profilerLogInterval?: number;
 }
