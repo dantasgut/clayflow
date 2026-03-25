@@ -26,13 +26,15 @@ import { BoxShape }                 from '../shapes/BoxShape';
 import { PlaneShape }               from '../shapes/PlaneShape';
 
 // ColliderDesc layout: 160 bytes
-//   offset   0: world_mat     (mat4x4f, 64 bytes)
-//   offset  64: inv_world_mat (mat4x4f, 64 bytes)
-//   offset 128: half          (vec4f,   16 bytes)
-//   offset 144: shape_type    (u32,      4 bytes)
-//   offset 148: _pad          (vec3u,   12 bytes)
+//   offset   0: world_mat      (mat4x4f, 64 bytes)
+//   offset  64: inv_world_mat  (mat4x4f, 64 bytes)
+//   offset 128: half           (vec4f,   16 bytes)
+//   offset 144: shape_type     (u32,      4 bytes)
+//   offset 148: body_owner_idx (u32,      4 bytes) — gpuRbIndex do corpo dono
+//   offset 152: _pad2          (vec2u,    8 bytes)
 const COLLIDER_STRIDE_BYTES  = 160;
 const COLLIDER_STRIDE_FLOATS = 40;   // 160 / 4
+const NO_OWNER = 0xFFFFFFFF;         // corpo sem dono (kinematic sem gpuRbIndex)
 
 const SHAPE_SPHERE = 0;
 const SHAPE_BOX    = 1;
@@ -113,8 +115,9 @@ export class ColliderDescriptorUploader {
             for (let k = 0; k < 16; k++) f32View[base + 16 + k] = inv[k]!;
 
             // half + shape_type (floats 32..36 = bytes 128..144)
-            const halfBase      = base + 32;  // float index for `half`
-            const shapeTypeBase = base + 36;  // float index for shape_type (u32)
+            const halfBase        = base + 32;  // float index for `half`
+            const shapeTypeBase   = base + 36;  // float index for shape_type (u32)
+            const ownerIdxBase    = base + 37;  // float index for body_owner_idx (u32)
 
             if (collider instanceof SphereShape) {
                 f32View[halfBase]     = collider.radius;
@@ -141,7 +144,13 @@ export class ColliderDescriptorUploader {
                 u32View[shapeTypeBase] = SHAPE_PLANE;
                 f32View[halfBase + 3]  = -1e6;  // offset muito negativo = sem colisão
             }
-            // _pad (vec3u, 3 u32 em bytes 148-159) — zero por padrão (ArrayBuffer zero-inicializado)
+
+            // body_owner_idx — gpuRbIndex do corpo que possui este collider.
+            // Evita auto-colisão no narrowphase: o CM de um corpo dinâmico está sempre
+            // dentro da sua própria forma SDF (d < 0), gerando contatos falsos.
+            const ownerBody = context.entityBodies.get(entity.id);
+            const ownerIdx  = ownerBody?.body.get<number>('gpuRbIndex') ?? NO_OWNER;
+            u32View[ownerIdxBase] = ownerIdx;
 
             written++;
         }

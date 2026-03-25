@@ -54,6 +54,14 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
 
     let col = colliders[col_j];
 
+    // Auto-colisão: o CM de um corpo dinâmico está sempre dentro da sua própria forma
+    // (eval_sdf = -min(halfExtents) < 0), gerando contatos falsos que interferem com
+    // a resposta de colisão real. Filtra pares onde o collider pertence ao mesmo corpo.
+    if (col.body_owner_idx == rb_i) {
+        contacts[slot].is_active = 0u;
+        return;
+    }
+
     // Transforma pos_pred para espaço local do collider
     let world_pred = bodies[rb_i].pos_pred.xyz;
     let local_pred = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;
