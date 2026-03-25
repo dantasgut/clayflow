@@ -58,4 +58,21 @@ export abstract class SimulationWorld {
      * A implementação decide o pipeline interno (broadphase, narrowphase, integração).
      */
     public abstract step(scene: Entity, dt: number): void;
+
+    /**
+     * Opcional — despachado pelo renderer no seu próprio encoder, APÓS uploadObjectMatrices
+     * e ANTES do render pass. Permite que pipelines GPU sobrescrevam os slots UBO dos
+     * corpos simulados com matrizes calculadas na GPU, sem CPU readback.
+     *
+     * Implementado apenas por mundos que possuem estágios GPU (ex: GpuRigidBodyPipeline).
+     *
+     * @param commandEncoder   Encoder do renderer (sem render pass aberto).
+     * @param entityIdToSlot   Mapa entityId → slot no UBO dinâmico de modelo.
+     * @param objectUboBuffer  GPUBuffer do renderer_object_dyn_ubo (UNIFORM|STORAGE).
+     */
+    public encodeSyncPasses?(
+        commandEncoder:  GPUCommandEncoder,
+        entityIdToSlot:  Map<number, number>,
+        objectUboBuffer: GPUBuffer,
+    ): void;
 }

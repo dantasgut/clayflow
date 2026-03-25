@@ -30,6 +30,8 @@ import { SoftBodyCollisionStage }      from './pipeline/softbody/SoftBodyCollisi
 import { SoftBodyVelocityUpdateStage }  from './pipeline/softbody/SoftBodyVelocityUpdateStage';
 import { SoftBodyPositionCommitStage }  from './pipeline/softbody/SoftBodyPositionCommitStage';
 import { SoftBodySyncStage }            from './pipeline/softbody/SoftBodySyncStage';
+import { GpuParticleSimPipeline }       from './gpu/GpuParticleSimPipeline';
+import { GpuRigidBodyPipeline }         from './gpu/GpuRigidBodyPipeline';
 import type { RigidBodySimConfig }    from '../../scene/systems/simulation/RigidBodySimConfig';
 import type { SoftBodySimConfig }     from '../../scene/systems/simulation/SoftBodySimConfig';
 import type { CollisionSimConfig }    from '../../scene/systems/simulation/CollisionSimConfig';
@@ -43,6 +45,22 @@ import { LogCall }                  from '../../core/debug/LogCall';
 export interface PhysicsWorldOptions {
     /** Estratégia de detecção de pares (broadphase). Default: AABBBroadphase. */
     broadphase?: Broadphase;
+    /**
+     * Número de substeps por frame de física.
+     *
+     * XPBD é teoricamente invariante ao número de substeps (compliance correto
+     * escala com dt²), então reduzir substeps e compensar com mais iterações de
+     * constraint é uma troca válida: menos overhead de predict/collision/velocity_update
+     * por frame, com mesma qualidade de resolução de constraints.
+     *
+     * Regra prática:
+     *   - substeps=4 + iterations=15 → equivalente a substeps=8 + iterations=10
+     *     em qualidade, com ~30% menos dispatches totais por frame.
+     *   - substeps=2 pode introduzir tunneling em colisões rápidas.
+     *
+     * Default: 4. (Anteriormente 8 — Otimização 3c)
+     */
+    substeps?: number;
     /**
      * Razão máxima entre o maior e o menor componente do tensor de inércia.
      * Limita instabilidade em corpos finos/longos. Default: 10.
@@ -124,8 +142,11 @@ export class PhysicsWorld extends SimulationWorld {
     // Contexto compartilhado entre estágios
     private readonly context: PhysicsStageContext;
 
-    // Pipeline de substeps e sincronização
+    // Pipeline de substeps, frame e sincronização
     private readonly substepPipeline: PhysicsStage[];
+    private readonly framePipeline:   PhysicsStage[] = [];
+    /** Referência direta ao pipeline GPU de RigidBody (null se backend=cpu). */
+    private gpuRbPipeline: GpuRigidBodyPipeline | null = null;
     private readonly syncStage:       SyncStage;
     private readonly collisionDispatcher: CollisionDispatcher;
 
@@ -138,12 +159,24 @@ export class PhysicsWorld extends SimulationWorld {
 
     private substeps: number = 8;
     private readonly inertiaTensorMaxRatio: number;
+    private readonly softBodyBackend: 'cpu' | 'gpu';
+    private readonly softBodyUseShapeMatching: boolean;
+    private readonly softBodyShapeStiffness: number;
+    private readonly softBodyUseJacobiSolve: boolean;
+    private readonly rigidBodyBackend: 'cpu' | 'gpu';
 
     constructor(options: PhysicsWorldOptions = {}) {
         super();
 
         const broadphase = options.broadphase ?? new AABBBroadphase();
-        this.inertiaTensorMaxRatio = options.inertiaTensorMaxRatio ?? 10;
+        this.inertiaTensorMaxRatio      = options.inertiaTensorMaxRatio ?? 10;
+        this.softBodyBackend            = options.softBody?.backend            ?? 'cpu';
+        this.softBodyUseShapeMatching   = options.softBody?.useShapeMatching   ?? false;
+        this.softBodyShapeStiffness     = options.softBody?.shapeStiffness     ?? 0.5;
+        this.softBodyUseJacobiSolve     = options.softBody?.useJacobiSolve     ?? false;
+        this.rigidBodyBackend           = options.rigidBody?.backend           ?? 'cpu';
+        // Otimização 3c: substeps 8→4, compensado por mais iterações de constraint nos pipelines GPU
+        this.substeps = options.substeps ?? 4;
 
         this.context = {
             bodies:       this.bodies,
@@ -217,12 +250,50 @@ export class PhysicsWorld extends SimulationWorld {
 
         this.syncStage = new SyncStage();
 
+        // ── Pipeline GPU (frame-level, não por substep) ───────────────────────
+        // GpuParticleSimPipeline executa uma vez por frame e manuseia internamente
+        // todos os substeps via compute shaders. Ativo apenas quando backend='gpu'.
+        if (sb?.backend === 'gpu') {
+            this.framePipeline.push(
+                new GpuParticleSimPipeline(
+                    this.globalForces,
+                    () => this.substeps,
+                    sb.restitution  ?? 0.05,
+                    sb.iterations   ?? 15,  // Otimização 3c: 10→15 (compensa substeps 8→4)
+                ),
+            );
+        }
+
+        // GpuRigidBodyPipeline executa uma vez por frame e manuseia internamente
+        // rb_predict + N substeps (narrowphase + PGS) + velocity_recovery via compute shaders.
+        // Ativo apenas quando rigidBody.backend='gpu'.
+        if (rb?.backend === 'gpu') {
+            this.gpuRbPipeline = new GpuRigidBodyPipeline(
+                this.globalForces,
+                () => this.substeps,
+                rb.iterations ?? 15,  // Otimização 3c: 10→15 (compensa substeps 8→4)
+            );
+            this.framePipeline.push(this.gpuRbPipeline);
+        }
+
         this.onChildAdded   = (e: { child: Entity }) => this.pendingAdd.push(e.child);
         this.onChildRemoved = (e: { child: Entity }) => this.pendingRemove.push(e.child);
     }
 
     public get dispatcher(): CollisionDispatcher {
         return this.collisionDispatcher;
+    }
+
+    /**
+     * Despacha passes compute de sincronização GPU→UBO no encoder do renderer.
+     * Chamado pelo renderer APÓS uploadObjectMatrices e ANTES do render pass.
+     */
+    public override encodeSyncPasses(
+        commandEncoder:  GPUCommandEncoder,
+        entityIdToSlot:  Map<number, number>,
+        objectUboBuffer: GPUBuffer,
+    ): void {
+        this.gpuRbPipeline?.syncToRenderer(commandEncoder, entityIdToSlot, objectUboBuffer);
     }
 
     public setSubsteps(n: number): void {
@@ -297,6 +368,12 @@ export class PhysicsWorld extends SimulationWorld {
             stage.beginFrame?.();
         }
 
+        // Pipeline de frame (GPU) — executa antes do loop de substeps CPU
+        // GpuParticleSimPipeline manuseia internamente os substeps e o vertex write
+        for (const stage of this.framePipeline) {
+            stage.execute(this.context, dt);
+        }
+
         // Executa pipeline N vezes com substep dt
         const substepDt = dt / this.substeps;
         for (let i = 0; i < this.substeps; i++) {
@@ -326,6 +403,21 @@ export class PhysicsWorld extends SimulationWorld {
                 }
                 if (transform && !body.has('rotation')) {
                     body.set('rotation', quat.clone(transform.rotation));
+                }
+                // Marca SoftBodies para o pipeline GPU quando backend='gpu'
+                if (this.softBodyBackend === 'gpu' && body.physicType === 'SoftBody') {
+                    body.set('gpuSimulated', true);
+                    if (this.softBodyUseShapeMatching) {
+                        body.set('useShapeMatching', true);
+                        body.set('shapeStiffness',   this.softBodyShapeStiffness);
+                    }
+                    if (this.softBodyUseJacobiSolve) {
+                        body.set('useJacobiSolve', true);
+                    }
+                }
+                // Marca RigidBodies para o pipeline GPU quando backend='gpu'
+                if (this.rigidBodyBackend === 'gpu' && body.physicType === 'RigidBody') {
+                    body.set('gpuSimulated', true);
                 }
                 this.bodies.set(body.uuid, entry);
                 this.entityBodies.set(entity.id, entry);

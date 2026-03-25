@@ -47,6 +47,7 @@ export class MeshExtractionStrategy implements ExtractionStrategy {
             materialBindGroupIds: material.bindGroupIds.slice(),
             worldMatrix,
             distanceToCamera: 0,
+            entityId:          entity.id,
             ...(material.useVertexPulling ? { useVertexPulling: true } : {}),
             ...(geometry.wireframePositionsBufferId ? { wireframePositionsBufferId: geometry.wireframePositionsBufferId } : {}),
             ...(geometry.wireframeEdgesBufferId     ? { wireframeEdgesBufferId:     geometry.wireframeEdgesBufferId     } : {}),
