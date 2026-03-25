@@ -173,6 +173,17 @@ export class WebGPURenderer implements Renderer {
         const allCommands = this.collectAllCommands();
         this.uploadObjectMatrices(allCommands);
 
+        // [PASSO 5c+] SINCRONIZAÇÃO GPU→UBO (apenas se há estágios GPU no mundo)
+        // Sobrescreve os slots dos corpos GPU-simulados com a mat4 calculada pelo kernel.
+        // A barreira entre compute e render pass é implícita (mesmo encoder, passes sequenciais).
+        if (this.world.encodeSyncPasses) {
+            const objectBufNative = this.engine.resources.buffers.getBuffer(this.objectUboId)?.native;
+            if (objectBufNative) {
+                const entityIdToSlot = this.buildEntityIdToSlot(allCommands);
+                this.world.encodeSyncPasses(commandEncoder, entityIdToSlot, objectBufNative);
+            }
+        }
+
         // [PASSO 5d] RENDER PASS
         DebugMarker.push(commandEncoder, 'ForwardPass');
         const textureView = this.engine.getCurrentCanvasTextureView();
@@ -248,9 +259,13 @@ export class WebGPURenderer implements Renderer {
         // UBO frame globals (group 0) — 128 bytes = mat4x4f + 4×vec4f (viewProj + luzes + screen)
         rm.buffers.createUniformBuffer(this.frameUboId, 128);
 
-        // UBO dinâmico de modelo (group 1) — MAX_OBJECTS × 256 bytes
+        // UBO dinâmico de modelo (group 1) — MAX_OBJECTS × 256 bytes.
+        // Inclui STORAGE para que rb_sync_transform possa escrever nele via compute.
         const objectUboBytes = this.MAX_OBJECTS * this.OBJECT_SLOT_FLOATS * 4;
-        rm.buffers.createUniformBuffer(this.objectUboId, objectUboBytes);
+        rm.buffers.createUniformBuffer(
+            this.objectUboId, objectUboBytes,
+            GPUBufferUsage.UNIFORM | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        );
         this.objectUboData = new Float32Array(this.MAX_OBJECTS * this.OBJECT_SLOT_FLOATS);
 
         // Layouts explícitos dos bind groups globais
@@ -372,6 +387,19 @@ export class WebGPURenderer implements Renderer {
     }
 
     // ── Draw ────────────────────────────────────────────────────────────────
+
+    /**
+     * Constrói um mapa de entityId → slot no UBO dinâmico (índice em allCommands).
+     * Usado por encodeSyncPasses para informar ao pipeline GPU em qual slot escrever.
+     */
+    private buildEntityIdToSlot(commands: RenderCommand[]): Map<number, number> {
+        const map = new Map<number, number>();
+        for (let i = 0; i < commands.length && i < this.MAX_OBJECTS; i++) {
+            const id = commands[i]!.entityId;
+            if (id !== undefined) map.set(id, i);
+        }
+        return map;
+    }
 
     /** Lineariza opaque + transparent em uma única lista indexável. */
     private collectAllCommands(): RenderCommand[] {

@@ -34,6 +34,9 @@ export interface RenderCommand {
     // A matriz isolada, pronta para upload
     worldMatrix: Float32Array;  // Exatos 16 floats continuos.
 
+    /** ID da entidade de origem — usado pelo renderer para sincronização GPU→UBO. */
+    entityId?: number;
+
     // Para z-sorting translúcido
     distanceToCamera: number;
 
