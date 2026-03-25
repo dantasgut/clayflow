@@ -4,7 +4,7 @@
  * Responsabilidades:
  *   1. Aloca um único storage buffer global `gpu_rb_bodies` (todos os corpos juntos).
  *   2. Faz upload inicial de pos, vel, omega, rot, I_inv, mat_props para cada corpo.
- *   3. Aloca o uniform buffer `gpu_rb_simparams` (RBSimParams, 64 bytes).
+ *   3. Aloca o uniform buffer `gpu_rb_simparams` (RBSimParams, 80 bytes).
  *   4. Aloca o storage buffer `gpu_rb_contacts` pré-dimensionado para N×C slots.
  *   5. Registra `gpuRbIndex` em cada corpo (posição no buffer global).
  *
@@ -28,7 +28,7 @@ import type { quat, vec3 }   from 'gl-matrix';
 
 // Tamanhos em bytes derivados dos WGSL structs
 const RIGID_BODY_STRIDE  = 128;  // 8 × vec4f
-const RB_SIM_PARAMS_SIZE =  64;  // 4 × vec4f (uniform)
+const RB_SIM_PARAMS_SIZE =  80;  // 5 × vec4f (uniform)
 const RB_CONTACT_STRIDE  =  64;  // 4 × vec4f
 
 export const RB_BODIES_BUFFER_ID     = 'gpu_rb_bodies';
