@@ -18,9 +18,13 @@ export class WebGPUComputeManager implements ComputeManager {
             return this.pipelines.get(id)!;
         }
 
-        const module = this.context.device.createShaderModule({ code: wgslCode, label: `ShaderModule_${id}` });
+        const device = this.context.device;
 
-        const pipeline = await this.context.device.createComputePipelineAsync({
+        device.pushErrorScope('validation');
+
+        const module = device.createShaderModule({ code: wgslCode, label: `ShaderModule_${id}` });
+
+        const pipeline = await device.createComputePipelineAsync({
             label: `ComputePipeline_${id}`,
             layout: 'auto',
             compute: {
@@ -29,12 +33,58 @@ export class WebGPUComputeManager implements ComputeManager {
             }
         });
 
+        const gpuError = await device.popErrorScope();
+        if (gpuError) {
+            throw new Error(`[WGSL compile] ${id}: ${gpuError.message}`);
+        }
+
         this.pipelines.set(id, pipeline);
         return pipeline;
     }
 
     public getComputePipeline(id: string): GPUComputePipeline | undefined {
         return this.pipelines.get(id);
+    }
+
+    public beginComputePassExplicit(
+        encoder:         GPUCommandEncoder,
+        label?:          string,
+        timestampWrites?: GPUComputePassTimestampWrites,
+    ): GPUComputePassEncoder {
+        return encoder.beginComputePass({
+            ...(label           !== undefined && { label }),
+            ...(timestampWrites !== undefined && { timestampWrites }),
+        });
+    }
+
+    public dispatchOnPass(
+        pass:            GPUComputePassEncoder,
+        pipelineId:      string,
+        bindGroups:      GPUBindGroup[],
+        workgroupsX:     number,
+        workgroupsY:     number = 1,
+        workgroupsZ:     number = 1,
+    ): void {
+        const pipeline = this.pipelines.get(pipelineId);
+        if (!pipeline) throw new Error(`Pipeline de Compute '${pipelineId}' não encontrado.`);
+        pass.setPipeline(pipeline);
+        bindGroups.forEach((bg, index) => pass.setBindGroup(index, bg));
+        pass.dispatchWorkgroups(workgroupsX, workgroupsY, workgroupsZ);
+    }
+
+    public createBindGroupFromPipeline(
+        pipelineId: string,
+        groupIndex: number,
+        entries:    GPUBindGroupEntry[],
+        label?:     string,
+    ): GPUBindGroup {
+        const pipeline = this.pipelines.get(pipelineId);
+        if (!pipeline) throw new Error(`Pipeline '${pipelineId}' não encontrado.`);
+        return this.context.device.createBindGroup({
+            label:   label ?? `BindGroup_${pipelineId}_group${groupIndex}`,
+            layout:  pipeline.getBindGroupLayout(groupIndex),
+            entries,
+        });
     }
 
     public beginComputePass(encoder: GPUCommandEncoder, label?: string): GPUComputePassEncoder {

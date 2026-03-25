@@ -33,6 +33,7 @@
  */
 
 import { WebGPUEngineCore }          from '../../../core/WebGPUEngineCore';
+import { WebGPUContext }             from '../../../core/context/WebGPUContext';
 import type { PhysicsStage }          from '../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext }   from '../../../scene/systems/PhysicsStageContext';
 import type { Force }                 from '../../../scene/systems/forces/Force';
@@ -81,6 +82,11 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
 
     private ready        = false;
     private initPromise: Promise<void> | null = null;
+
+    /** Buffer de staging MAP_READ para leitura assíncrona das posições GPU → CPU. */
+    private readbackBuffer: GPUBuffer | null = null;
+    private readbackBodyCount = 0;
+    private readbackPending   = false;
 
     /** Bind groups cacheados (um conjunto global — todos os corpos num buffer único). */
     private bgCache: RbBindGroups | null = null;
@@ -247,6 +253,9 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
             compute.dispatchOnPass(vrPass, PIPELINE_IDS.RB_VELOCITY_RECOVERY, [bg.velocityRecovery], wgBodies);
             vrPass.end();
 
+            // Copia posições GPU → staging buffer para readback assíncrono (atualiza body.position/rotation)
+            this.schedulePositionReadback(encoder, bodyCount);
+
             // Resolve queries e agenda leitura assíncrona (Fase 2a — apenas se profiler ativo)
             profiler.resolveAndScheduleRead(encoder);
 
@@ -262,7 +271,60 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
     private kickInit(): void {
         if (this.initPromise) return;
         this.initPromise = ensurePhysicsPipelinesInitialized(this.core)
-            .then(() => { this.ready = true; });
+            .then(() => {
+                this.ready = true;
+                console.info('[GpuRigidBodyPipeline] pipelines prontos — ready=true');
+            })
+            .catch(err => {
+                console.error('[GpuRigidBodyPipeline] pipeline init falhou:', err);
+                this.initPromise = null;  // permite retry no próximo frame
+            });
+    }
+
+    /**
+     * Encoda copyBufferToBuffer (gpu_rb_bodies → staging MAP_READ) e agenda
+     * mapAsync. Quando a Promise resolve, atualiza body.position e body.rotation
+     * para todos os corpos dinâmicos — permitindo que BroadphaseStage sincronize
+     * os Transforms e ColliderDescriptorUploader envie posições corretas no próximo frame.
+     *
+     * Latência: ~1 frame (resolve antes do próximo rAF).
+     */
+    private schedulePositionReadback(encoder: GPUCommandEncoder, bodyCount: number): void {
+        if (this.readbackPending) return;
+
+        const device    = WebGPUContext.getInstance().device;
+        const bodiesBuf = this.core.resources.buffers.getBuffer(RB_BODIES_BUFFER_ID)!.native;
+        const byteSize  = bodyCount * 128;  // 32 floats × 4 bytes por corpo
+
+        // Recria o staging buffer apenas se o número de corpos cresceu
+        if (!this.readbackBuffer || this.readbackBodyCount !== bodyCount) {
+            this.readbackBuffer?.destroy();
+            this.readbackBuffer = device.createBuffer({
+                label: 'rb_readback_staging',
+                size:  byteSize,
+                usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+            });
+            this.readbackBodyCount = bodyCount;
+        }
+
+        encoder.copyBufferToBuffer(bodiesBuf, 0, this.readbackBuffer, 0, byteSize);
+
+        this.readbackPending = true;
+        const snapshot = this.gpuBodies.slice();  // snapshot para closure segura
+
+        this.readbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
+            const raw = new Float32Array(this.readbackBuffer!.getMappedRange());
+            for (let i = 0; i < snapshot.length; i++) {
+                const body = snapshot[i]!;
+                if (body.get<boolean>('isKinematic')) continue;  // corpos cinemáticos não são movidos pela GPU
+                const off = i * 32;
+                // Layout: [0..2]=pos.xyz  [12..15]=rot.xyzw
+                body.set('position', [raw[off]!,      raw[off + 1]!,  raw[off + 2]!]);
+                body.set('rotation', [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!]);
+            }
+            this.readbackBuffer!.unmap();
+            this.readbackPending = false;
+        }).catch(() => { this.readbackPending = false; });
     }
 
     /**
