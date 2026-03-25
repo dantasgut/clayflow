@@ -55,16 +55,21 @@ import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
 // RBSimParams layout (float/u32 indices into the 64-byte uniform buffer)
 // gravity (vec4f): indices 0-3 (xyz=accel, w=dt_substep)
 // body_count: u32 index 4 | collider_count: u32 index 5 | max_contacts: u32 index 6 | solve_iters: u32 index 7
-// dt_frame: f32 index 8 | _pad1a..c: f32 indices 9-11
-const SP_GRAVITY_X      = 0;
-const SP_GRAVITY_Y      = 1;
-const SP_GRAVITY_Z      = 2;
-const SP_DT             = 3;   // dtSub = dt_frame / substeps
-const SP_BODY_COUNT     = 4;   // u32 view index
-const SP_COLLIDER_COUNT = 5;   // u32 view index
-const SP_MAX_CONTACTS   = 6;   // u32 view index
-const SP_SOLVE_ITERS    = 7;   // u32 view index
-const SP_DT_FRAME       = 8;   // f32: dt do frame inteiro (= dtSub * substeps)
+// dt_frame: f32 index 8 | restitution: f32 index 9
+// penetration_slop: f32 index 10 | linear_damping: f32 index 11 | angular_damping: f32 index 12 | _pad1d: f32 index 13
+const SP_GRAVITY_X         = 0;
+const SP_GRAVITY_Y         = 1;
+const SP_GRAVITY_Z         = 2;
+const SP_DT                = 3;   // dtSub = dt_frame / substeps
+const SP_BODY_COUNT        = 4;   // u32 view index
+const SP_COLLIDER_COUNT    = 5;   // u32 view index
+const SP_MAX_CONTACTS      = 6;   // u32 view index
+const SP_SOLVE_ITERS       = 7;   // u32 view index
+const SP_DT_FRAME          = 8;   // f32: dt do frame inteiro (= dtSub * substeps)
+const SP_RESTITUTION       = 9;   // f32: coeficiente de restituição [0, 1]
+const SP_PENETRATION_SLOP  = 10;  // f32: margem de tolerância de penetração (5 mm)
+const SP_LINEAR_DAMPING    = 11;  // f32: taxa de amortecimento linear por substep (1/s)
+const SP_ANGULAR_DAMPING   = 12;  // f32: taxa de amortecimento angular por substep (1/s)
 
 type RbBindGroups = {
     predict:          GPUBindGroup;
@@ -79,7 +84,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
     private readonly core      = WebGPUEngineCore.getInstance();
     private readonly allocator = new RigidBodyBufferAllocator();
     private readonly uploader  = new ColliderDescriptorUploader();
-    private readonly phyProfiler = new GpuPhysicsProfiler();
+    private readonly phyProfiler: GpuPhysicsProfiler;
 
     private ready        = false;
     private initPromise: Promise<void> | null = null;
@@ -118,7 +123,10 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         private readonly globalForces:    Map<string, Force>,
         private readonly getSubsteps:     () => number,
         private readonly solveIterations: number = 10,
-    ) {}
+        logInterval:                      number = 60,
+    ) {
+        this.phyProfiler = new GpuPhysicsProfiler(logInterval);
+    }
 
     // ── PhysicsStage ──────────────────────────────────────────────────────────
 
@@ -151,6 +159,13 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         const core    = this.core;
         const buffers = core.resources.buffers;
         const compute = core.compute;
+
+        // Pré-atribui gpuRbIndex antes do upload de colliders para que
+        // ColliderDescriptorUploader possa preencher body_owner_idx corretamente
+        // (evita auto-colisão no narrowphase desde o primeiro frame).
+        for (let i = 0; i < newBodies.length; i++) {
+            newBodies[i]!.set('gpuRbIndex', i);
+        }
 
         // Empacota e envia ColliderDescs (uma vez por frame)
         const colliderCount = this.uploader.upload(context);
@@ -199,7 +214,11 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         this.rbSimParamsU32[SP_COLLIDER_COUNT] = colliderCount;
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
-        this.rbSimParamsF32[SP_DT_FRAME]       = dtFrame;  // dt_frame para velocity_recovery
+        this.rbSimParamsF32[SP_DT_FRAME]          = dtFrame;  // dt_frame para velocity_recovery
+        this.rbSimParamsF32[SP_RESTITUTION]       = 0.3;    // coeficiente de restituição
+        this.rbSimParamsF32[SP_PENETRATION_SLOP]  = 0.005;  // 5 mm — margem de tolerância de penetração
+        this.rbSimParamsF32[SP_LINEAR_DAMPING]    = 0.5;    // 0.5/s — amortecimento linear
+        this.rbSimParamsF32[SP_ANGULAR_DAMPING]   = 1.0;    // 1.0/s — amortecimento angular
 
         // Otimização 3e: só envia SimParams se algo mudou em relação ao frame anterior
         let simParamsDirty = false;
