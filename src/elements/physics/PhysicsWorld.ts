@@ -19,11 +19,11 @@ import type { SleepStageOptions }   from './pipeline/rigidbody/SleepStage';
 import { SyncStage }                from './pipeline/rigidbody/SyncStage';
 import { GyroscopicStage }          from './pipeline/rigidbody/GyroscopicStage';
 import { PredictiveContactStage }   from './pipeline/rigidbody/PredictiveContactStage';
-import { PBDPredictStage }          from './pipeline/rigidbody/pbd/PBDPredictStage';
-import { PBDSolveStage }            from './pipeline/rigidbody/pbd/PBDSolveStage';
-import { PBDVelocityRecoveryStage } from './pipeline/rigidbody/pbd/PBDVelocityRecoveryStage';
-import { PBDContactResponseStage }  from './pipeline/rigidbody/pbd/PBDContactResponseStage';
-import { createPBDState }           from './pipeline/rigidbody/pbd/PBDState';
+import { PredictStage }             from './pipeline/rigidbody/xpbd/PredictStage';
+import { SolveStage }               from './pipeline/rigidbody/xpbd/SolveStage';
+import { VelocityRecoveryStage }    from './pipeline/rigidbody/xpbd/VelocityRecoveryStage';
+import { ContactResponseStage }     from './pipeline/rigidbody/xpbd/ContactResponseStage';
+import { createXPBDState }          from './pipeline/rigidbody/xpbd/XPBDState';
 import { SoftBodyPredictStage }        from './pipeline/softbody/SoftBodyPredictStage';
 import { DistanceConstraintStage }     from './pipeline/softbody/DistanceConstraintStage';
 import { SoftBodyCollisionStage }      from './pipeline/softbody/SoftBodyCollisionStage';
@@ -186,17 +186,17 @@ export class PhysicsWorld extends SimulationWorld {
             ];
         } else if (resType === ResolutionType.XPBD) {
             // ── XPBD RigidBody + SoftBody opcional ────────────────────────────
-            const pbdState = createPBDState();
+            const xpbdState = createXPBDState();
             this.substepPipeline = [
                 new ForceStage(this.globalForces, this.solvers),
                 ...gyroscopicStage,
-                new PBDPredictStage(pbdState),
+                new PredictStage(xpbdState),
                 new BroadphaseStage(broadphase),
                 new NarrowphaseStage(this.collisionDispatcher),
                 ...predictiveStage,
-                new PBDSolveStage(pbdState, rb.resolution),
-                new PBDVelocityRecoveryStage(pbdState),
-                new PBDContactResponseStage(pbdState, rb.resolution),
+                new SolveStage(xpbdState, rb.resolution),
+                new VelocityRecoveryStage(xpbdState),
+                new ContactResponseStage(xpbdState, rb.resolution),
                 ...softBodyStages,
                 new SleepStage(options.sleep),
             ];

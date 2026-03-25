@@ -1,14 +1,14 @@
 import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
 import type { ResolutionConfig }    from '../../../../../scene/systems/resolution/ResolutionConfig';
-import type { PBDState }            from './PBDState';
+import type { XPBDState }           from './XPBDState';
 import type { vec3 }                from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
 
 /**
- * Estágio 6b do pipeline PBD — Resposta a contatos: restituição + atrito.
+ * Estágio 6b do pipeline XPBD — Resposta a contatos: restituição + atrito.
  *
- * Executa após `PBDVelocityRecoveryStage`, que já derivou as velocidades
+ * Executa após `VelocityRecoveryStage`, que já derivou as velocidades
  * do delta de posição/rotação. Itera uma única vez sobre os contatos e,
  * para cada um, aplica restituição e atrito de Coulomb usando as propriedades
  * de corpo extraídas uma única vez por contato.
@@ -19,13 +19,13 @@ import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKern
  *   jN_equiv   = contactLambda[i] / dt             (proxy do impulso normal)
  *   jT         = clamp(|vRelT| / wSum_t, μ · jN_equiv)
  */
-export class PBDContactResponseStage implements PhysicsStage {
+export class ContactResponseStage implements PhysicsStage {
     private readonly restitution:          number;
     private readonly restitutionThreshold: number;
     private readonly friction:             number;
 
     constructor(
-        private readonly state: PBDState,
+        private readonly state: XPBDState,
         config: ResolutionConfig = {},
     ) {
         this.restitution          = config.restitution          ?? 0.3;

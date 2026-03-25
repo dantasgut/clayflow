@@ -1,18 +1,18 @@
 import type { PhysicsStage }        from '../../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../../scene/systems/PhysicsStageContext';
-import type { PBDState }            from './PBDState';
+import type { XPBDState }           from './XPBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 import { BaseVelocityDerivationStage } from '../../shared/BaseVelocityDerivationStage';
 
 /**
- * Estágio 6a do pipeline PBD — Recuperação de velocidades dos RigidBodies.
+ * Estágio 6a do pipeline XPBD — Recuperação de velocidades dos RigidBodies.
  *
  * Especialização de {@link BaseVelocityDerivationStage} para corpos rígidos.
- * Após o {@link PBDSolveStage} ter projetado posições e rotações para satisfazer
+ * Após o {@link SolveStage} ter projetado posições e rotações para satisfazer
  * as constraints, este estágio deriva as velocidades a partir do delta de
  * posição/rotação em relação aos valores pré-solve armazenados em
- * {@link PBDState.posCache} / {@link PBDState.rotCache} pelo {@link PBDPredictStage}:
+ * {@link XPBDState.posCache} / {@link XPBDState.rotCache} pelo {@link PredictStage}:
  *
  * ```
  * vel   = (pos_new − pos_old) / dt   × (1 − linDamping · dt)
@@ -27,10 +27,10 @@ import { BaseVelocityDerivationStage } from '../../shared/BaseVelocityDerivation
  * ─────────────────────────────────────────────────────────────────────────────
  * DAMPING
  * ─────────────────────────────────────────────────────────────────────────────
- * O {@link ForceStage} aplica damping sobre a velocidade de predição, que no PBD é
+ * O {@link ForceStage} aplica damping sobre a velocidade de predição, que no XPBD é
  * descartada ao recalcular a velocidade a partir do delta de posição.
  * O fator de amortecimento é reaplicado aqui para que `linearDamping` e
- * `angularDamping` tenham efeito real no pipeline PBD.
+ * `angularDamping` tenham efeito real no pipeline XPBD.
  *
  * Nota: o `ForceStage` já aplica uma vez, resultando em ~2× de dissipação —
  * sobre-dissipação pequena e aceitável para manter a estabilidade.
@@ -39,21 +39,21 @@ import { BaseVelocityDerivationStage } from '../../shared/BaseVelocityDerivation
  * SEPARAÇÃO DE RESPONSABILIDADES
  * ─────────────────────────────────────────────────────────────────────────────
  * Este estágio NÃO resolve contatos. A resposta a colisões (restituição +
- * atrito) é responsabilidade do `PBDContactResponseStage`, que deve ser
+ * atrito) é responsabilidade do `ContactResponseStage`, que deve ser
  * posicionado imediatamente após este no pipeline.
  */
-export class PBDVelocityRecoveryStage extends BaseVelocityDerivationStage implements PhysicsStage {
+export class VelocityRecoveryStage extends BaseVelocityDerivationStage implements PhysicsStage {
     /**
-     * @param state - Estado compartilhado do pipeline PBD com os caches de
-     *                posição e rotação pré-solve gerados pelo {@link PBDPredictStage}.
+     * @param state - Estado compartilhado do pipeline XPBD com os caches de
+     *                posição e rotação pré-solve gerados pelo {@link PredictStage}.
      */
-    constructor(private readonly state: PBDState) {
+    constructor(private readonly state: XPBDState) {
         super();
     }
 
     /**
      * Itera todos os RigidBodies dinâmicos e recalcula velocidade linear e angular.
-     * Corpos cinemáticos (`isKinematic`) e corpos sem cache no {@link PBDState} são ignorados.
+     * Corpos cinemáticos (`isKinematic`) e corpos sem cache no {@link XPBDState} são ignorados.
      *
      * @param context - Contexto do passo de física com corpos e contatos.
      * @param dt      - Passo de tempo do substep (segundos), sempre positivo (garantido pela classe base).
