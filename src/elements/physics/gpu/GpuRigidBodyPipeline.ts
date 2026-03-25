@@ -53,17 +53,18 @@ import {
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
 
 // RBSimParams layout (float/u32 indices into the 64-byte uniform buffer)
-// gravity (vec4f): indices 0-3 (xyz=accel, w=dt)
+// gravity (vec4f): indices 0-3 (xyz=accel, w=dt_substep)
 // body_count: u32 index 4 | collider_count: u32 index 5 | max_contacts: u32 index 6 | solve_iters: u32 index 7
-// _pad1 (vec4f): indices 8-11
+// dt_frame: f32 index 8 | _pad1a..c: f32 indices 9-11
 const SP_GRAVITY_X      = 0;
 const SP_GRAVITY_Y      = 1;
 const SP_GRAVITY_Z      = 2;
-const SP_DT             = 3;
+const SP_DT             = 3;   // dtSub = dt_frame / substeps
 const SP_BODY_COUNT     = 4;   // u32 view index
 const SP_COLLIDER_COUNT = 5;   // u32 view index
 const SP_MAX_CONTACTS   = 6;   // u32 view index
 const SP_SOLVE_ITERS    = 7;   // u32 view index
+const SP_DT_FRAME       = 8;   // f32: dt do frame inteiro (= dtSub * substeps)
 
 type RbBindGroups = {
     predict:          GPUBindGroup;
@@ -193,6 +194,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         this.rbSimParamsU32[SP_COLLIDER_COUNT] = colliderCount;
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
+        this.rbSimParamsF32[SP_DT_FRAME]       = dtFrame;  // dt_frame para velocity_recovery
 
         // Otimização 3e: só envia SimParams se algo mudou em relação ao frame anterior
         let simParamsDirty = false;

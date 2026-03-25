@@ -31,11 +31,13 @@ fn rb_velocity_recovery_main(@builtin(global_invocation_id) gid: vec3u) {
     let inv_mass = bodies[i].pos.w;
     if (inv_mass == 0.0) { return; }  // cinemático — ignora
 
-    let dt = rb_params.gravity.w;
+    // Usa dt_frame (não dtSub) — pos_pred acumulou correções de N substeps;
+    // dividir por dtSub amplificaria velocidades em fator N (arremesso/velocity explosion).
+    let dt = rb_params.dt_frame;
     if (dt < 1e-12) { return; }
     let inv_dt = 1.0 / dt;
 
-    // Recupera velocidade linear: (pos_pred - pos) / dt
+    // Recupera velocidade linear: (pos_pred - pos) / dt_frame
     let new_vel = (bodies[i].pos_pred.xyz - bodies[i].pos.xyz) * inv_dt;
 
     // Recupera velocidade angular a partir da variação de quaternion

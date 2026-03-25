@@ -8,7 +8,8 @@
  *   offset 20: collider_count (u32)   — número de ColliderDesc no buffer
  *   offset 24: max_contacts   (u32)   — slots pré-alocados = body_count * collider_count
  *   offset 28: solve_iters     (u32)   — iterações Gauss-Seidel por substep (K)
- *   offset 32: _pad1          (vec4f) — padding para 64 bytes
+ *   offset 32: dt_frame       (f32)   — dt do frame inteiro (= dtSub * substeps)
+ *   offset 36: _pad1a..c     (f32×3) — padding restante
  *   Total: 64 bytes
  *
  * Escrito pela CPU (GpuRigidBodyPipeline) uma vez por frame antes dos dispatches.
@@ -24,6 +25,9 @@ struct RBSimParams {
     collider_count: u32,
     max_contacts:   u32,    // = body_count * collider_count (slots pré-alocados)
     solve_iters:    u32,    // iterações Gauss-Seidel por substep (K)
-    _pad1:          vec4f,  // padding para 64 bytes
+    dt_frame:       f32,    // dt do frame inteiro (= gravity.w * substeps)
+    _pad1a:         f32,
+    _pad1b:         f32,
+    _pad1c:         f32,
 }
 `;
