@@ -60,6 +60,11 @@ export class PredictStage extends BasePredictStage implements PhysicsStage {
             if (rot) this.state.rotCache.set(uuid, [rot[0] ?? 0, rot[1] ?? 0, rot[2] ?? 0, rot[3] ?? 1]);
             if (vel) this.state.velCache.set(uuid, [vel[0] ?? 0, vel[1] ?? 0, vel[2] ?? 0]);
 
+            // Marca corpo como gerenciado pelo pipeline XPBD para que CPURigidBodySolver
+            // pule o damping na fase de predição — VelocityRecoveryStage reaplicará
+            // o damping sobre a velocidade derivada (pos_new − pos_old)/dt.
+            body.set('xpbdManaged', true);
+
             // Corpos adormecidos não são preditos (posição não muda antes do solve)
             if (body.get<boolean>('isSleeping')) continue;
 

@@ -260,6 +260,7 @@ export class PhysicsWorld extends SimulationWorld {
                     () => this.substeps,
                     sb.restitution  ?? 0.05,
                     sb.iterations   ?? 15,  // Otimização 3c: 10→15 (compensa substeps 8→4)
+                    sb.profilerLogInterval ?? 60,
                 ),
             );
         }
@@ -272,6 +273,7 @@ export class PhysicsWorld extends SimulationWorld {
                 this.globalForces,
                 () => this.substeps,
                 rb.iterations ?? 15,  // Otimização 3c: 10→15 (compensa substeps 8→4)
+                rb.profilerLogInterval ?? 60,
             );
             this.framePipeline.push(this.gpuRbPipeline);
         }

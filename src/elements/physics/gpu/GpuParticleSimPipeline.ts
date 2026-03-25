@@ -92,7 +92,7 @@ export class GpuParticleSimPipeline implements PhysicsStage {
     private readonly core         = WebGPUEngineCore.getInstance();
     private readonly allocator    = new SimBodyBufferAllocator();
     private readonly uploader     = new ColliderDescriptorUploader();
-    private readonly softProfiler = new GpuSoftBodyProfiler();
+    private readonly softProfiler: GpuSoftBodyProfiler;
 
     private ready        = false;
     private initPromise: Promise<void> | null = null;
@@ -109,7 +109,10 @@ export class GpuParticleSimPipeline implements PhysicsStage {
         private readonly getSubsteps:       () => number,
         private readonly restitution:       number = 0.05,
         private readonly constraintIters:   number = 10,
-    ) {}
+        logInterval:                        number = 60,
+    ) {
+        this.softProfiler = new GpuSoftBodyProfiler(logInterval);
+    }
 
     // ── PhysicsStage ──────────────────────────────────────────────────────────
 
