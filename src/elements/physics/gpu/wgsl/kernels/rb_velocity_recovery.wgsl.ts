@@ -38,15 +38,49 @@ fn rb_velocity_recovery_main(@builtin(global_invocation_id) gid: vec3u) {
     let inv_dt = 1.0 / dt;
 
     // Recupera velocidade linear: (pos_pred - pos) / dt_frame
-    let new_vel = (bodies[i].pos_pred.xyz - bodies[i].pos.xyz) * inv_dt;
+    let raw_vel = (bodies[i].pos_pred.xyz - bodies[i].pos.xyz) * inv_dt;
+
+    // ── Correção anti-arremesso (velocity clamping) ───────────────────────────
+    // Decompõe a correção de velocidade na direção da gravidade e na perpendicular.
+    // Clampeia apenas o componente ao longo da gravidade para evitar que correções
+    // posicionais (rb_solve) gerem velocidades explosivas no contato.
+    let g_xyz = rb_params.gravity.xyz;
+    let g_len = length(g_xyz);
+    var new_vel = raw_vel;
+
+    if (g_len > 1e-6) {
+        let g_dir       = g_xyz / g_len;
+        let vel_old     = bodies[i].vel.xyz;
+        let expected    = vel_old + g_xyz * dt;          // velocidade esperada sem contato
+        let correction  = raw_vel - expected;            // quanto rb_solve acrescentou
+
+        let corr_g      = dot(correction, g_dir);        // componente na direção da gravidade
+        let approach_g  = dot(expected, g_dir);          // >0 se caindo na direção de g
+
+        // Clampeia a componente de correção ao longo de g:
+        // não pode reverter mais do que a velocidade de aproximação × (1 + restitution).
+        var corr_g_clamped = corr_g;
+        if (approach_g > 1e-6) {
+            let max_bounce  = approach_g * (1.0 + rb_params.restitution);
+            corr_g_clamped  = max(corr_g, -max_bounce);
+        }
+
+        let corr_perp   = correction - corr_g * g_dir;   // mantém correções laterais intactas
+        new_vel         = expected + corr_g_clamped * g_dir + corr_perp;
+    }
 
     // Recupera velocidade angular a partir da variação de quaternion
     let rot_pred_n = quat_normalize(bodies[i].rot_pred);
     let new_omega  = quat_delta_omega(rot_pred_n, bodies[i].rot, inv_dt);
 
-    // Copia estado previsto → estado atual
-    bodies[i].vel   = vec4f(new_vel,  0.0);
-    bodies[i].omega = vec4f(new_omega, 0.0);
+    // Bug P2-D — Global Damping: aplica amortecimento linear e angular por substep
+    let dtSub    = rb_params.gravity.w;  // dtSub está em gravity.w
+    let lin_damp = 1.0 - rb_params.linear_damping  * dtSub;
+    let ang_damp = 1.0 - rb_params.angular_damping * dtSub;
+
+    // Copia estado previsto → estado atual (preserva .w em vez de escrever 0.0 fixo)
+    bodies[i].vel   = vec4f(new_vel   * lin_damp, bodies[i].vel.w);
+    bodies[i].omega = vec4f(new_omega * ang_damp, bodies[i].omega.w);
     bodies[i].pos   = vec4f(bodies[i].pos_pred.xyz, bodies[i].pos.w);
     bodies[i].rot   = rot_pred_n;
 }
