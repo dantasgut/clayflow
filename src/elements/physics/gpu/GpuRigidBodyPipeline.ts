@@ -253,13 +253,16 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
             compute.dispatchOnPass(vrPass, PIPELINE_IDS.RB_VELOCITY_RECOVERY, [bg.velocityRecovery], wgBodies);
             vrPass.end();
 
-            // Copia posições GPU → staging buffer para readback assíncrono (atualiza body.position/rotation)
-            this.schedulePositionReadback(encoder, bodyCount);
+            // Encoda copyBufferToBuffer (gpu_rb_bodies → staging); mapAsync só após submit
+            const doReadback = this.encodePositionReadback(encoder, bodyCount);
 
             // Resolve queries e agenda leitura assíncrona (Fase 2a — apenas se profiler ativo)
             profiler.resolveAndScheduleRead(encoder);
 
             core.renderPasses.submit([encoder]);
+
+            // mapAsync DEVE ser chamado APÓS submit — buffer em estado 'pending' bloqueia o submit
+            if (doReadback) this.startReadbackMap();
         } catch (err) {
             console.error('[GpuRigidBodyPipeline] encode falhou:', err);
             this.bgCache = null;  // invalida bind groups para recriar no próximo frame
@@ -282,15 +285,16 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
     }
 
     /**
-     * Encoda copyBufferToBuffer (gpu_rb_bodies → staging MAP_READ) e agenda
-     * mapAsync. Quando a Promise resolve, atualiza body.position e body.rotation
-     * para todos os corpos dinâmicos — permitindo que BroadphaseStage sincronize
-     * os Transforms e ColliderDescriptorUploader envie posições corretas no próximo frame.
+     * Etapa 1 de 2 do readback assíncrono.
      *
-     * Latência: ~1 frame (resolve antes do próximo rAF).
+     * Apenas encoda `copyBufferToBuffer` (gpu_rb_bodies → staging MAP_READ) no encoder
+     * fornecido. Não chama `mapAsync` — isso deve acontecer APÓS `queue.submit()`.
+     *
+     * @returns `true` se o copy foi encodado e `startReadbackMap()` deve ser chamado
+     *          após o submit; `false` se já há um readback pendente (skip).
      */
-    private schedulePositionReadback(encoder: GPUCommandEncoder, bodyCount: number): void {
-        if (this.readbackPending) return;
+    private encodePositionReadback(encoder: GPUCommandEncoder, bodyCount: number): boolean {
+        if (this.readbackPending) return false;
 
         const device    = WebGPUContext.getInstance().device;
         const bodiesBuf = this.core.resources.buffers.getBuffer(RB_BODIES_BUFFER_ID)!.native;
@@ -308,11 +312,28 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         }
 
         encoder.copyBufferToBuffer(bodiesBuf, 0, this.readbackBuffer, 0, byteSize);
-
         this.readbackPending = true;
+
+        return true;
+    }
+
+    /**
+     * Etapa 2 de 2 do readback assíncrono.
+     *
+     * Chama `mapAsync` no staging buffer e, quando a Promise resolve, atualiza
+     * `body.position` e `body.rotation` para todos os corpos dinâmicos — permitindo
+     * que BroadphaseStage sincronize os Transforms e ColliderDescriptorUploader envie
+     * posições corretas no próximo frame.
+     *
+     * DEVE ser chamado APÓS `queue.submit([encoder])` — chamar antes coloca o buffer
+     * em estado 'pending map', causando erro de validação WebGPU no submit.
+     *
+     * Latência: ~1 frame (resolve antes do próximo rAF).
+     */
+    private startReadbackMap(): void {
         const snapshot = this.gpuBodies.slice();  // snapshot para closure segura
 
-        this.readbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
+        this.readbackBuffer!.mapAsync(GPUMapMode.READ).then(() => {
             const raw = new Float32Array(this.readbackBuffer!.getMappedRange());
             for (let i = 0; i < snapshot.length; i++) {
                 const body = snapshot[i]!;
