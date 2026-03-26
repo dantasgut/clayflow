@@ -32,6 +32,8 @@ import { SoftBodyPositionCommitStage }  from './pipeline/softbody/SoftBodyPositi
 import { SoftBodySyncStage }            from './pipeline/softbody/SoftBodySyncStage';
 import { GpuParticleSimPipeline }       from './gpu/GpuParticleSimPipeline';
 import { GpuRigidBodyPipeline }         from './gpu/GpuRigidBodyPipeline';
+import { GpuLcpPipeline }               from './gpu/GpuLcpPipeline';
+import { registerAllSolvers }            from './solvers/SolverRegistrations';
 import type { RigidBodySimConfig }    from '../../scene/systems/simulation/RigidBodySimConfig';
 import type { SoftBodySimConfig }     from '../../scene/systems/simulation/SoftBodySimConfig';
 import type { CollisionSimConfig }    from '../../scene/systems/simulation/CollisionSimConfig';
@@ -145,8 +147,10 @@ export class PhysicsWorld extends SimulationWorld {
     // Pipeline de substeps, frame e sincronização
     private readonly substepPipeline: PhysicsStage[];
     private readonly framePipeline:   PhysicsStage[] = [];
-    /** Referência direta ao pipeline GPU de RigidBody (null se backend=cpu). */
+    /** Referência direta ao pipeline GPU de RigidBody SI/XPBD (null se backend!=gpu/si). */
     private gpuRbPipeline: GpuRigidBodyPipeline | null = null;
+    /** Referência direta ao pipeline GPU LCP (null se resolutionType!=LCP). */
+    private gpuLcpPipeline: GpuLcpPipeline | null = null;
     private readonly syncStage:       SyncStage;
     private readonly collisionDispatcher: CollisionDispatcher;
 
@@ -167,6 +171,8 @@ export class PhysicsWorld extends SimulationWorld {
 
     constructor(options: PhysicsWorldOptions = {}) {
         super();
+        // Registra todos os solvers disponíveis no SolverRegistry (idempotente)
+        registerAllSolvers();
 
         const broadphase = options.broadphase ?? new AABBBroadphase();
         this.inertiaTensorMaxRatio      = options.inertiaTensorMaxRatio ?? 10;
@@ -267,8 +273,8 @@ export class PhysicsWorld extends SimulationWorld {
 
         // GpuRigidBodyPipeline executa uma vez por frame e manuseia internamente
         // rb_predict + N substeps (narrowphase + PGS) + velocity_recovery via compute shaders.
-        // Ativo apenas quando rigidBody.backend='gpu'.
-        if (rb?.backend === 'gpu') {
+        // Ativo apenas quando rigidBody.backend='gpu' e ResolutionType != LCP.
+        if (rb?.backend === 'gpu' && resType !== ResolutionType.LCP) {
             this.gpuRbPipeline = new GpuRigidBodyPipeline(
                 this.globalForces,
                 () => this.substeps,
@@ -277,6 +283,19 @@ export class PhysicsWorld extends SimulationWorld {
                 rb,
             );
             this.framePipeline.push(this.gpuRbPipeline);
+        }
+
+        // GpuLcpPipeline — pipeline LCP/PGS separado.
+        // Ativo apenas quando rigidBody.backend='gpu' e ResolutionType === LCP.
+        if (rb?.backend === 'gpu' && resType === ResolutionType.LCP) {
+            this.gpuLcpPipeline = new GpuLcpPipeline(
+                this.globalForces,
+                () => this.substeps,
+                rb.iterations ?? 15,
+                rb.profilerLogInterval ?? 60,
+                rb,
+            );
+            this.framePipeline.push(this.gpuLcpPipeline);
         }
 
         this.onChildAdded   = (e: { child: Entity }) => this.pendingAdd.push(e.child);
@@ -297,6 +316,7 @@ export class PhysicsWorld extends SimulationWorld {
         objectUboBuffer: GPUBuffer,
     ): void {
         this.gpuRbPipeline?.syncToRenderer(commandEncoder, entityIdToSlot, objectUboBuffer);
+        this.gpuLcpPipeline?.syncToRenderer(commandEncoder, entityIdToSlot, objectUboBuffer);
     }
 
     public setSubsteps(n: number): void {
