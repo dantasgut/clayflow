@@ -127,7 +127,7 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
             // Reconstrói velocidade no ponto de contato após impulso normal
             let v_cp2 = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, r);
 
-            let t1    = rb_solve_lcp_tangent1(n);
+            let t1    = tangent_orthogonal(n);
             let t2    = cross(n, t1);
             let j_v_t = vec2f(dot(v_cp2, t1), dot(v_cp2, t2));
 
