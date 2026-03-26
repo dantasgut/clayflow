@@ -53,8 +53,9 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
     let ra = contacts[ci].point.xyz - bodies[rb_i].pos_pred.xyz;
 
     let n   = contacts[ci].normal.xyz;
-    // normal.w = -depth_eff (negativo = penetração)
-    let gap = contacts[ci].normal.w;
+    // normal.w armazena -depth_eff. Para penetração real, depth_eff < 0 → normal.w > 0.
+    // lcp_bias espera gap < 0 = penetração (signed distance), então negamos para recuperar depth_eff.
+    let gap = -contacts[ci].normal.w;  // = depth_eff: < 0 quando penetrando
 
     // ── Diagonais de Delassus ──────────────────────────────────────────────
     // Para contato corpo rígido × collider estático, o collider tem massa infinita
