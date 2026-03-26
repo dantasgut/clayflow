@@ -5,6 +5,7 @@ import type { PhysicsResource } from '../../core/physics/PhysicsResource';
 import { ResourceType } from '../../core/ResourceType';
 import { ResourceState } from '../../core/ResourceState';
 import { PhysicsDirtyFlag } from '../../core/physics/PhysicsDirtyFlag';
+import { PhysicsBodyState } from '../../core/physics/PhysicsBodyState';
 
 /**
  * Base abstrata para todos os corpos físicos.
@@ -38,6 +39,9 @@ export abstract class PhysicsBody implements Resource, Physic, PhysicsResource {
     public readonly layer = ResourceType.PHYSICS_MECHANIC as const;
 
     public state: ResourceState = ResourceState.Uninitialized;
+
+    /** Estado do ciclo de vida do corpo no mundo físico. */
+    public bodyState: PhysicsBodyState = PhysicsBodyState.Inactive;
 
     /** Bitmask de PhysicsDirtyFlag — indica quais aspectos físicos mudaram. */
     public dirtyFlags: number = PhysicsDirtyFlag.None;

@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { SoftBody }            from '../../SoftBody';
 import { BasePredictStage }         from '../shared/BasePredictStage';
+import { PhysicsBodyState }         from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 2 do pipeline XPBD SoftBody — Predição de posição das partículas.
@@ -33,7 +34,7 @@ export class SoftBodyPredictStage extends BasePredictStage implements PhysicsSta
         if (dt <= 0) return;
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
-            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
+            if (body.bodyState === PhysicsBodyState.Active && body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
             const sb = body as unknown as SoftBody;
             for (const p of sb.particles) {
                 p.px = p.x + p.vx * dt;

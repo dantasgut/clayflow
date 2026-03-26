@@ -7,6 +7,7 @@ import type { ContactCache }        from '../contact/ContactCache';
 import type { FrictionAnchorCache } from '../contact/FrictionAnchorCache';
 import type { BaumgarteCorrector }  from '../contact/BaumgarteCorrector';
 import type { ContactKeyBuilder }   from '../contact/ContactKeyBuilder';
+import { PhysicsBodyState }         from '../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Dependências externas injetadas no `SequentialImpulseResolver`.
@@ -170,8 +171,8 @@ export class SequentialImpulseResolver implements CollisionResolver {
         const weight  = contact.weight;
         const entryA  = context.entityBodies.get(contact.entityIdA);
         const entryB  = context.entityBodies.get(contact.entityIdB);
-        const dynA    = entryA != null && !entryA.body.get<boolean>('isKinematic') && !entryA.body.get<boolean>('gpuSimulated');
-        const dynB    = entryB != null && !entryB.body.get<boolean>('isKinematic') && !entryB.body.get<boolean>('gpuSimulated');
+        const dynA    = entryA != null && entryA.body.bodyState !== PhysicsBodyState.Kinematic && !(entryA.body.bodyState === PhysicsBodyState.Active && entryA.body.get<boolean>('gpuSimulated'));
+        const dynB    = entryB != null && entryB.body.bodyState !== PhysicsBodyState.Kinematic && !(entryB.body.bodyState === PhysicsBodyState.Active && entryB.body.get<boolean>('gpuSimulated'));
         if (!dynA && !dynB) return;
 
         const { nx, ny, nz, cpx, cpy, cpz } = contact;
@@ -343,8 +344,8 @@ export class SequentialImpulseResolver implements CollisionResolver {
     ): void {
         const entryA = context.entityBodies.get(contact.entityIdA);
         const entryB = context.entityBodies.get(contact.entityIdB);
-        const dynA   = entryA != null && !entryA.body.get<boolean>('isKinematic') && !entryA.body.get<boolean>('gpuSimulated');
-        const dynB   = entryB != null && !entryB.body.get<boolean>('isKinematic') && !entryB.body.get<boolean>('gpuSimulated');
+        const dynA   = entryA != null && entryA.body.bodyState !== PhysicsBodyState.Kinematic && !(entryA.body.bodyState === PhysicsBodyState.Active && entryA.body.get<boolean>('gpuSimulated'));
+        const dynB   = entryB != null && entryB.body.bodyState !== PhysicsBodyState.Kinematic && !(entryB.body.bodyState === PhysicsBodyState.Active && entryB.body.get<boolean>('gpuSimulated'));
         if (!dynA && !dynB) return;
 
         const { nx, ny, nz, depth } = contact;
@@ -384,8 +385,8 @@ export class SequentialImpulseResolver implements CollisionResolver {
     ): void {
         const entryA = context.entityBodies.get(contact.entityIdA);
         const entryB = context.entityBodies.get(contact.entityIdB);
-        const dynA   = entryA != null && !entryA.body.get<boolean>('isKinematic') && !entryA.body.get<boolean>('gpuSimulated');
-        const dynB   = entryB != null && !entryB.body.get<boolean>('isKinematic') && !entryB.body.get<boolean>('gpuSimulated');
+        const dynA   = entryA != null && entryA.body.bodyState !== PhysicsBodyState.Kinematic && !(entryA.body.bodyState === PhysicsBodyState.Active && entryA.body.get<boolean>('gpuSimulated'));
+        const dynB   = entryB != null && entryB.body.bodyState !== PhysicsBodyState.Kinematic && !(entryB.body.bodyState === PhysicsBodyState.Active && entryB.body.get<boolean>('gpuSimulated'));
         if (!dynA && !dynB) return;
 
         const { nx, ny, nz, cpx, cpy, cpz } = contact;

@@ -4,6 +4,7 @@ import type { XPBDState }           from './XPBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 import { BasePredictStage }         from '../../shared/BasePredictStage';
+import { PhysicsBodyState }         from '../../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 2 do pipeline XPBD — Predição de posição e rotação dos RigidBodies.
@@ -44,8 +45,8 @@ export class PredictStage extends BasePredictStage implements PhysicsStage {
      */
     protected predictBodies(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic')) continue;
-            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
+            if (body.bodyState === PhysicsBodyState.Kinematic) continue;
+            if (body.bodyState === PhysicsBodyState.Active && body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
 
             const pos   = body.get<vec3>('position');
             const rot   = body.get<quat>('rotation');

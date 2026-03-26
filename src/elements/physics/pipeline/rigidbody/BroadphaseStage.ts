@@ -3,6 +3,7 @@ import type { PhysicsStageContext }            from '../../../../scene/systems/P
 import type { Broadphase, ColliderEntry }      from '../../../../scene/systems/Broadphase';
 import type { Transform }                      from '../../../../scene/math/Transform';
 import type { vec3, quat }                      from 'gl-matrix';
+import { PhysicsBodyState }                    from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 2 do pipeline de física — Detecção de pares candidatos (broadphase).
@@ -35,7 +36,7 @@ export class BroadphaseStage implements PhysicsStage {
 
     public execute(context: PhysicsStageContext, _dt: number): void {
         for (const { body, entity } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
+            if (body.bodyState === PhysicsBodyState.Kinematic || body.get<boolean>('isSleeping')) continue;
             const pos = body.get<vec3>('position');
             const rot = body.get<quat>('rotation');
             const transform = entity.getComponent<Transform>('Transform');

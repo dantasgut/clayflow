@@ -6,6 +6,7 @@ import type { vec3 }                from 'gl-matrix';
 import { mat4 }                     from 'gl-matrix';
 import { CollisionDispatcher }      from '../../collision/CollisionDispatcher';
 import { NULL_TRANSFORM }           from '../../../../scene/math/NullTransform';
+import { PhysicsBodyState }         from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio pós-narrowphase — Contatos especulativos (anti-tunneling).
@@ -63,7 +64,8 @@ export class PredictiveContactStage implements PhysicsStage {
             if (!entryA && !entryB) continue;
 
             // Pares com corpos GPU-simulados não precisam de detecção preditiva CPU
-            if (entryA?.body.get<boolean>('gpuSimulated') || entryB?.body.get<boolean>('gpuSimulated')) continue;
+            if ((entryA?.body.bodyState === PhysicsBodyState.Active && entryA.body.get<boolean>('gpuSimulated')) ||
+                (entryB?.body.bodyState === PhysicsBodyState.Active && entryB.body.get<boolean>('gpuSimulated'))) continue;
 
             const velA = entryA?.body.get<vec3>('velocity');
             const velB = entryB?.body.get<vec3>('velocity');

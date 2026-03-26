@@ -3,6 +3,7 @@ import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStage
 import type { Transform }           from '../../../../scene/math/Transform';
 import { CollisionDispatcher }      from '../../collision/CollisionDispatcher';
 import { NULL_TRANSFORM }           from '../../../../scene/math/NullTransform';
+import { PhysicsBodyState }         from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 3 do pipeline de física — Detecção de colisão exata (narrowphase).
@@ -47,8 +48,10 @@ export class NarrowphaseStage implements PhysicsStage {
         for (const [a, b] of context.candidatePairs) {
             // Pares com corpos GPU-simulados não precisam de detecção CPU —
             // a GPU já resolve colisões e posições para esses corpos.
-            const aGpu = context.entityBodies.get(a.entity.id)?.body.get<boolean>('gpuSimulated');
-            const bGpu = context.entityBodies.get(b.entity.id)?.body.get<boolean>('gpuSimulated');
+            const aEntry = context.entityBodies.get(a.entity.id);
+            const bEntry = context.entityBodies.get(b.entity.id);
+            const aGpu = aEntry?.body.bodyState === PhysicsBodyState.Active && aEntry.body.get<boolean>('gpuSimulated');
+            const bGpu = bEntry?.body.bodyState === PhysicsBodyState.Active && bEntry.body.get<boolean>('gpuSimulated');
             if (aGpu || bGpu) continue;
 
             const wma = this.worldMatrix(a.entity);

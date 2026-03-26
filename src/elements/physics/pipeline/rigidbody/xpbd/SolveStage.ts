@@ -6,6 +6,7 @@ import type { vec3, quat }          from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 import { XPBDConstraintSolver }     from '../../shared/XPBDConstraintSolver';
+import { PhysicsBodyState }         from '../../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 5 do pipeline XPBD — Projeção de constraints de posição.
@@ -157,8 +158,8 @@ export class SolveStage extends XPBDConstraintSolver implements PhysicsStage {
     ): void {
         const entryA = context.entityBodies.get(contact.entityIdA);
         const entryB = context.entityBodies.get(contact.entityIdB);
-        const dynA   = entryA != null && !entryA.body.get<boolean>('isKinematic');
-        const dynB   = entryB != null && !entryB.body.get<boolean>('isKinematic');
+        const dynA   = entryA != null && entryA.body.bodyState !== PhysicsBodyState.Kinematic;
+        const dynB   = entryB != null && entryB.body.bodyState !== PhysicsBodyState.Kinematic;
         if (!dynA && !dynB) return;
 
         // contact.depth = manifold.depth / N (NarrowphaseStage já dividiu por N).

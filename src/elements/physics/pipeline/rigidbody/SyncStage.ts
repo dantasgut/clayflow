@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { Transform }           from '../../../../scene/math/Transform';
 import type { vec3, quat }          from 'gl-matrix';
+import { PhysicsBodyState }         from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio de sincronização — Copia estado físico → Transform visual.
@@ -29,7 +30,7 @@ import type { vec3, quat }          from 'gl-matrix';
 export class SyncStage implements PhysicsStage {
     public execute(context: PhysicsStageContext, _dt: number): void {
         for (const { body, entity } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
+            if (body.bodyState === PhysicsBodyState.Kinematic || body.get<boolean>('isSleeping')) continue;
             const position  = body.get<vec3>('position');
             const transform = entity.getComponent<Transform>('Transform');
             if (position && transform) {

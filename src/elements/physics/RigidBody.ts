@@ -1,6 +1,7 @@
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { PhysicsBody } from '../../scene/components/physics/PhysicsBody';
 import { PhysicsDirtyFlag } from '../../scene/core/physics/PhysicsDirtyFlag';
+import { PhysicsBodyState } from '../../scene/core/physics/PhysicsBodyState';
 import { ResourceState } from '../../scene/core/ResourceState';
 import { vec3 } from 'gl-matrix';
 
@@ -49,7 +50,7 @@ export class RigidBody extends PhysicsBody {
     }
 
     public get velocity(): vec3       { return this.get<vec3>('velocity')!; }
-    public get isKinematic(): boolean { return this.get<boolean>('isKinematic') ?? false; }
+    public get isKinematic(): boolean { return this.bodyState === PhysicsBodyState.Kinematic; }
 
     protected async doAllocate(_resourceManager: ResourceManager): Promise<void> {
         // Buffer de estado GPU — aguarda integração com PhysicsSolver GPU

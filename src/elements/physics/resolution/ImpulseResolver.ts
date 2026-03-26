@@ -3,6 +3,7 @@ import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageCon
 import type { ResolutionConfig }    from '../../../scene/systems/resolution/ResolutionConfig';
 import type { vec3 }                from 'gl-matrix';
 import { ContactImpulseKernel }     from './ContactImpulseKernel';
+import { PhysicsBodyState }         from '../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Resolução de colisões por impulso direto — 1 pass por substep.
@@ -43,8 +44,8 @@ export class ImpulseResolver implements CollisionResolver {
         const weight  = contact.weight;
         const entryA  = context.entityBodies.get(contact.entityIdA);
         const entryB  = context.entityBodies.get(contact.entityIdB);
-        const dynA    = entryA != null && !entryA.body.get<boolean>('isKinematic') && !entryA.body.get<boolean>('gpuSimulated');
-        const dynB    = entryB != null && !entryB.body.get<boolean>('isKinematic') && !entryB.body.get<boolean>('gpuSimulated');
+        const dynA    = entryA != null && entryA.body.bodyState !== PhysicsBodyState.Kinematic && !(entryA.body.bodyState === PhysicsBodyState.Active && entryA.body.get<boolean>('gpuSimulated'));
+        const dynB    = entryB != null && entryB.body.bodyState !== PhysicsBodyState.Kinematic && !(entryB.body.bodyState === PhysicsBodyState.Active && entryB.body.get<boolean>('gpuSimulated'));
         if (!dynA && !dynB) return;
 
         const { nx, ny, nz, depth, cpx, cpy, cpz } = contact;

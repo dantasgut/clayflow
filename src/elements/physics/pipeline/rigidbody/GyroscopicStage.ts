@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { vec3 }                from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../resolution/ContactImpulseKernel';
+import { PhysicsBodyState }         from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio auxiliar — Correção giroscópica (Euler equations).
@@ -33,7 +34,7 @@ export class GyroscopicStage implements PhysicsStage {
         if (dt <= 0) return;
 
         for (const { body } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
+            if (body.bodyState === PhysicsBodyState.Kinematic || body.get<boolean>('isSleeping')) continue;
 
             const omega = body.get<vec3>('angularVelocity');
             const IA    = body.get<vec3>('inertiaTensor');

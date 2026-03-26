@@ -54,6 +54,7 @@ import {
     ensurePhysicsPipelinesInitialized,
 } from './PhysicsShaderLibrary';
 import { GpuSoftBodyProfiler, SB_SLOTS } from './GpuSoftBodyProfiler';
+import { PhysicsBodyState }               from '../../../scene/core/physics/PhysicsBodyState';
 
 // SimParams layout offset map (float indices into the 48-byte uniform buffer)
 const SP_GRAVITY_X        = 0;
@@ -145,7 +146,7 @@ export class GpuParticleSimPipeline implements PhysicsStage {
 
         for (const { body, entity } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
-            if (!body.get<boolean>('gpuSimulated')) continue;
+            if (body.bodyState === PhysicsBodyState.Inactive) continue;
 
             const sb  = body as unknown as SoftBody;
             const geo = entity.getComponent<Geometry>('Geometry');

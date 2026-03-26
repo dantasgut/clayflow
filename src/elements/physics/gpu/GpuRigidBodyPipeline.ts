@@ -53,6 +53,7 @@ import {
 } from './PhysicsShaderLibrary';
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
 import type { GpuPipelineEventBus }       from '../../../scene/systems/gpu/GpuPipelineEventBus';
+import { PhysicsBodyState }               from '../../../scene/core/physics/PhysicsBodyState';
 
 // RBSimParams layout (float/u32 indices into the 80-byte uniform buffer)
 // gravity (vec4f): indices 0-3 (xyz=accel, w=dt_substep)
@@ -151,7 +152,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         const newEntityIds: number[]    = [];
         for (const { body, entity } of context.bodies.values()) {
             if (body.physicType !== 'RigidBody') continue;
-            if (!body.get<boolean>('gpuSimulated')) continue;
+            if (body.bodyState === PhysicsBodyState.Inactive) continue;
             newBodies.push(body as unknown as RigidBody);
             newEntityIds.push(entity.id);
         }
@@ -385,7 +386,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
 
             for (let i = 0; i < snapshot.length; i++) {
                 const body = snapshot[i]!;
-                if (body.get<boolean>('isKinematic')) continue;  // corpos cinemáticos não são movidos pela GPU
+                if (body.bodyState === PhysicsBodyState.Kinematic) continue;  // corpos cinemáticos não são movidos pela GPU
                 const off = i * 40;  // RIGID_BODY_STRIDE=160 bytes = 40 floats
                 // Layout: [0..2]=pos.xyz  [12..15]=rot.xyzw
                 // mantém comportamento existente

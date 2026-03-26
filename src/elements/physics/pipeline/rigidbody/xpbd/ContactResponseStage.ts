@@ -4,6 +4,7 @@ import type { ResolutionConfig }    from '../../../../../scene/systems/resolutio
 import type { XPBDState }           from './XPBDState';
 import type { vec3 }                from 'gl-matrix';
 import { ContactImpulseKernel }     from '../../../resolution/ContactImpulseKernel';
+import { PhysicsBodyState }         from '../../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 6b do pipeline XPBD — Resposta a contatos: restituição + atrito.
@@ -50,8 +51,8 @@ export class ContactResponseStage implements PhysicsStage {
     ): void {
         const entryA = context.entityBodies.get(contact.entityIdA);
         const entryB = context.entityBodies.get(contact.entityIdB);
-        const dynA   = entryA != null && !entryA.body.get<boolean>('isKinematic');
-        const dynB   = entryB != null && !entryB.body.get<boolean>('isKinematic');
+        const dynA   = entryA != null && entryA.body.bodyState !== PhysicsBodyState.Kinematic;
+        const dynB   = entryB != null && entryB.body.bodyState !== PhysicsBodyState.Kinematic;
         if (!dynA && !dynB) return;
 
         const { nx, ny, nz, cpx, cpy, cpz } = contact;

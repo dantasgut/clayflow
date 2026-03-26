@@ -49,6 +49,7 @@ import { LogCall }                  from '../../core/debug/LogCall';
 import type { GpuPipelineEventBus } from '../../scene/systems/gpu/GpuPipelineEventBus';
 import { DefaultGpuPipelineEventBus } from '../../scene/systems/gpu/DefaultGpuPipelineEventBus';
 import { PhysicsResourceLoader }     from '../../scene/rendering/PhysicsResourceLoader';
+import { PhysicsBodyState }          from '../../scene/core/physics/PhysicsBodyState';
 
 export interface PhysicsWorldOptions {
     /** Estratégia de detecção de pares (broadphase). Default: AABBBroadphase. */
@@ -455,6 +456,7 @@ export class PhysicsWorld extends SimulationWorld {
                 // Marca SoftBodies para o pipeline GPU quando backend='gpu'
                 if (this.softBodyBackend === 'gpu' && body.physicType === 'SoftBody') {
                     body.set('gpuSimulated', true);
+                    body.bodyState = PhysicsBodyState.Active;
                     if (this.softBodyUseShapeMatching) {
                         body.set('useShapeMatching', true);
                         body.set('shapeStiffness',   this.softBodyShapeStiffness);
@@ -466,6 +468,15 @@ export class PhysicsWorld extends SimulationWorld {
                 // Marca RigidBodies para o pipeline GPU quando backend='gpu'
                 if (this.rigidBodyBackend === 'gpu' && body.physicType === 'RigidBody') {
                     body.set('gpuSimulated', true);
+                    body.bodyState = body.get<boolean>('isKinematic')
+                        ? PhysicsBodyState.Kinematic
+                        : PhysicsBodyState.Active;
+                }
+                // Corpos CPU também recebem estado inicial
+                if (body.bodyState === PhysicsBodyState.Inactive) {
+                    body.bodyState = body.get<boolean>('isKinematic')
+                        ? PhysicsBodyState.Kinematic
+                        : PhysicsBodyState.Active;
                 }
                 this.bodies.set(body.uuid, entry);
                 this.entityBodies.set(entity.id, entry);
@@ -474,7 +485,7 @@ export class PhysicsWorld extends SimulationWorld {
         // Seed inertia tensor from collider shape (needs both body and collider registered)
         const bodyEntry     = this.entityBodies.get(entity.id);
         const colliderEntry = this.colliders.get(entity.id);
-        if (bodyEntry && colliderEntry && !bodyEntry.body.get<boolean>('isKinematic')) {
+        if (bodyEntry && colliderEntry && bodyEntry.body.bodyState !== PhysicsBodyState.Kinematic) {
             const mass = bodyEntry.body.get<number>('mass') ?? 1.0;
             const [Ix, Iy, Iz] = colliderEntry.collider.computeInertiaTensor(mass);
             // Limita a razão máxima entre componentes do tensor de inércia.
@@ -493,6 +504,10 @@ export class PhysicsWorld extends SimulationWorld {
 
     public unregisterEntity(entity: Entity): void {
         this.colliders.delete(entity.id);
+        const bodyEntry = this.entityBodies.get(entity.id);
+        if (bodyEntry) {
+            bodyEntry.body.bodyState = PhysicsBodyState.Inactive;
+        }
         this.entityBodies.delete(entity.id);
         for (const physic of entity.getPhysics()) {
             if (physic.physicType !== 'Collider') {
@@ -512,7 +527,7 @@ export class PhysicsWorld extends SimulationWorld {
         for (const [, entry] of this.entityBodies) {
             if (entry.body === body) {
                 const colliderEntry = this.colliders.get(entry.entity.id);
-                if (colliderEntry && !body.get<boolean>('isKinematic')) {
+                if (colliderEntry && body.bodyState !== PhysicsBodyState.Kinematic) {
                     const mass = body.get<number>('mass') ?? 1.0;
                     const [Ix, Iy, Iz] = colliderEntry.collider.computeInertiaTensor(mass);
                     const maxI = Math.max(Ix, Iy, Iz, 1e-6);

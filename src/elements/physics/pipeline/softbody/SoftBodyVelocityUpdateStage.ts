@@ -2,6 +2,7 @@ import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { SoftBody }            from '../../SoftBody';
 import { BaseVelocityDerivationStage } from '../shared/BaseVelocityDerivationStage';
+import { PhysicsBodyState }         from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 4 do pipeline XPBD SoftBody — Atualização de velocidade e posição das partículas.
@@ -38,7 +39,7 @@ export class SoftBodyVelocityUpdateStage extends BaseVelocityDerivationStage imp
 
         for (const { body } of context.bodies.values()) {
             if (body.physicType !== 'SoftBody') continue;
-            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
+            if (body.bodyState === PhysicsBodyState.Active && body.get<boolean>('gpuSimulated')) continue; // pipeline GPU ativo — skip CPU
             const sb = body as unknown as SoftBody;
             // Damping escalado por dt: independente do número de substeps.
             // damping=0.02 → ~2% de perda por segundo, não por substep.

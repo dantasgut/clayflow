@@ -1,6 +1,7 @@
 import type { PhysicsSolver } from '../../../scene/systems/solvers/PhysicsSolver';
 import type { PhysicsBody } from '../../../scene/components/physics/PhysicsBody';
 import { vec3 } from 'gl-matrix';
+import { PhysicsBodyState } from '../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Solver CPU para corpos rígidos (integrador de Euler semi-implícito).
@@ -13,7 +14,7 @@ export class CPURigidBodySolver implements PhysicsSolver {
     public readonly id = 'cpu_rigid_body';
 
     public solve(body: PhysicsBody, dt: number): void {
-        if (body.get<boolean>('isKinematic')) return;
+        if (body.bodyState === PhysicsBodyState.Kinematic) return;
 
         const mass     = body.get<number>('mass') ?? 1.0;
         const velocity = body.get<vec3>('velocity');

@@ -55,6 +55,7 @@ import {
 } from './PhysicsShaderLibrary';
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
 import type { GpuPipelineEventBus }       from '../../../scene/systems/gpu/GpuPipelineEventBus';
+import { PhysicsBodyState }               from '../../../scene/core/physics/PhysicsBodyState';
 
 // ── RBSimParams layout — índices f32/u32 no buffer de 80 bytes ────────────────
 // Documentado em rb_sim_params.wgsl.ts. Apenas os índices usados aqui:
@@ -147,7 +148,7 @@ export class GpuLcpPipeline implements PhysicsStage {
         const newEntityIds: number[]    = [];
         for (const { body, entity } of context.bodies.values()) {
             if (body.physicType !== 'RigidBody') continue;
-            if (!body.get<boolean>('gpuSimulated')) continue;
+            if (body.bodyState === PhysicsBodyState.Inactive) continue;
             newBodies.push(body as unknown as RigidBody);
             newEntityIds.push(entity.id);
         }
@@ -357,7 +358,7 @@ export class GpuLcpPipeline implements PhysicsStage {
 
             for (let i = 0; i < snapshot.length; i++) {
                 const body = snapshot[i]!;
-                if (body.get<boolean>('isKinematic')) continue;
+                if (body.bodyState === PhysicsBodyState.Kinematic) continue;
                 const off = i * 40;  // RIGID_BODY_STRIDE=160 bytes = 40 floats
                 // mantém comportamento existente
                 body.set('position', [raw[off]!,      raw[off + 1]!,  raw[off + 2]!]);

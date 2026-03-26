@@ -26,8 +26,9 @@ import { WebGPUEngineCore }  from '../../../core/WebGPUEngineCore';
 import type { RigidBody }    from '../RigidBody';
 import type { quat, vec3 }   from 'gl-matrix';
 import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
-import { SphereShape } from '../shapes/SphereShape';
-import { BoxShape }    from '../shapes/BoxShape';
+import { SphereShape }       from '../shapes/SphereShape';
+import { BoxShape }           from '../shapes/BoxShape';
+import { PhysicsBodyState }   from '../../../scene/core/physics/PhysicsBodyState';
 
 // Tamanhos em bytes derivados dos WGSL structs
 const RIGID_BODY_STRIDE  = 160;  // 10 × vec4f
@@ -115,7 +116,7 @@ export class RigidBodyBufferAllocator {
             const body   = bodies[i]!;
             const base   = i * 40;  // 40 floats por corpo (160 bytes)
             const mass   = body.get<number>('mass') ?? 1.0;
-            const isKin  = body.get<boolean>('isKinematic') ?? false;
+            const isKin  = body.bodyState === PhysicsBodyState.Kinematic;
             const invM   = (isKin || mass <= 0) ? 0.0 : 1.0 / mass;
 
             const pos    = body.get<vec3>('position') ?? [0, 0, 0];

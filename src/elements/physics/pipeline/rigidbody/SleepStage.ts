@@ -1,6 +1,7 @@
 import type { PhysicsStage }        from '../../../../scene/systems/PhysicsStage';
 import type { PhysicsStageContext } from '../../../../scene/systems/PhysicsStageContext';
 import type { vec3 } from 'gl-matrix';
+import { PhysicsBodyState }         from '../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 6 do pipeline de física — Gerenciamento de sono (sleeping).
@@ -63,8 +64,8 @@ export class SleepStage implements PhysicsStage {
         const snapAngular = angThresh2  * 0.01;
 
         for (const { body } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic') || body.get<boolean>('isSleeping')) continue;
-            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia sono
+            if (body.bodyState === PhysicsBodyState.Kinematic || body.get<boolean>('isSleeping')) continue;
+            if (body.bodyState === PhysicsBodyState.Active && body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia sono
 
             const v = body.get<vec3>('velocity');
             const w = body.get<vec3>('angularVelocity');

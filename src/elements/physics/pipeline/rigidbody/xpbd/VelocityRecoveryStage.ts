@@ -4,6 +4,7 @@ import type { XPBDState }           from './XPBDState';
 import type { vec3, quat }          from 'gl-matrix';
 import { QuaternionUtils }          from '../../../math/QuaternionUtils';
 import { BaseVelocityDerivationStage } from '../../shared/BaseVelocityDerivationStage';
+import { PhysicsBodyState }         from '../../../../../scene/core/physics/PhysicsBodyState';
 
 /**
  * Estágio 6a do pipeline XPBD — Recuperação de velocidades dos RigidBodies.
@@ -61,8 +62,8 @@ export class VelocityRecoveryStage extends BaseVelocityDerivationStage implement
      */
     protected deriveVelocities(context: PhysicsStageContext, dt: number): void {
         for (const { body } of context.bodies.values()) {
-            if (body.get<boolean>('isKinematic')) continue;
-            if (body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
+            if (body.bodyState === PhysicsBodyState.Kinematic) continue;
+            if (body.bodyState === PhysicsBodyState.Active && body.get<boolean>('gpuSimulated')) continue; // pipeline GPU gerencia integração
 
             const uuid   = body.uuid;
             const posOld = this.state.posCache.get(uuid);
