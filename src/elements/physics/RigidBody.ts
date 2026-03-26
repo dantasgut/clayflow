@@ -1,5 +1,7 @@
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { PhysicsBody } from '../../scene/components/physics/PhysicsBody';
+import { PhysicsDirtyFlag } from '../../scene/core/physics/PhysicsDirtyFlag';
+import { ResourceState } from '../../scene/core/ResourceState';
 import { vec3 } from 'gl-matrix';
 
 export interface RigidBodyOptions {
@@ -40,7 +42,11 @@ export class RigidBody extends PhysicsBody {
 
     // Acessores tipados para DX — delegam ao Property Bag
     public get mass(): number         { return this.get<number>('mass') ?? 1.0; }
-    public set mass(v: number)        { this.set('mass', v); }
+    public set mass(v: number) {
+        this.set('mass', v);
+        this.dirtyFlags |= PhysicsDirtyFlag.Mass;
+        if (this.state === ResourceState.Ready) this.state = ResourceState.Dirty;
+    }
 
     public get velocity(): vec3       { return this.get<vec3>('velocity')!; }
     public get isKinematic(): boolean { return this.get<boolean>('isKinematic') ?? false; }

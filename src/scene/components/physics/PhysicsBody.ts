@@ -1,8 +1,10 @@
 import type { Resource } from '../../core/Resource';
 import type { Physic } from '../../core/Physic';
 import type { ResourceManager } from '../../../core/interfaces/ResourceManager';
+import type { PhysicsResource } from '../../core/physics/PhysicsResource';
 import { ResourceType } from '../../core/ResourceType';
 import { ResourceState } from '../../core/ResourceState';
+import { PhysicsDirtyFlag } from '../../core/physics/PhysicsDirtyFlag';
 
 /**
  * Base abstrata para todos os corpos físicos.
@@ -26,7 +28,7 @@ import { ResourceState } from '../../core/ResourceState';
  * // Força de Lorentz lê as propriedades sem saber o tipo do corpo
  * const q = body.get<number>('charge') ?? 0;
  */
-export abstract class PhysicsBody implements Resource, Physic {
+export abstract class PhysicsBody implements Resource, Physic, PhysicsResource {
     private static nextUuid: number = 0;
     public readonly uuid: string;
 
@@ -36,6 +38,9 @@ export abstract class PhysicsBody implements Resource, Physic {
     public readonly layer = ResourceType.PHYSICS_MECHANIC as const;
 
     public state: ResourceState = ResourceState.Uninitialized;
+
+    /** Bitmask de PhysicsDirtyFlag — indica quais aspectos físicos mudaram. */
+    public dirtyFlags: number = PhysicsDirtyFlag.None;
 
     /** Propriedades físicas abertas — não há campos fixos na base. */
     private readonly props = new Map<string, unknown>();
@@ -60,6 +65,14 @@ export abstract class PhysicsBody implements Resource, Physic {
     public has(key: string): boolean {
         return this.props.has(key);
     }
+
+    // ------------------------------------------------------------------
+    // PhysicsResource — stubs; subclasses sobrescrevem se necessário
+    // ------------------------------------------------------------------
+
+    public registerInWorld(_world: unknown): void {}
+    public updateInWorld(_world: unknown): void {}
+    public unregisterFromWorld(_world: unknown): void {}
 
     // ------------------------------------------------------------------
     // Template Method hooks — subclasses implementam apenas estes

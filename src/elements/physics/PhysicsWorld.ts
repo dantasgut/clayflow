@@ -191,8 +191,8 @@ export class PhysicsWorld extends SimulationWorld {
         // adicionais são injetados via closure aqui, antes de qualquer registry.create().
         // Executado após registerAllSolvers() para sobrescrever as factories default.
         const registry = SolverRegistry.getInstance();
-        registry.register('gpu_si',  (cfg) => new GpuSolverAdapter(cfg, this.globalForces, () => this.substeps));
-        registry.register('gpu_lcp', (cfg) => new GpuLcpAdapter(cfg,    this.globalForces, () => this.substeps));
+        registry.register('gpu_si',  (cfg) => new GpuSolverAdapter(cfg, this.globalForces, () => this.substeps, this.eventBus));
+        registry.register('gpu_lcp', (cfg) => new GpuLcpAdapter(cfg,    this.globalForces, () => this.substeps, this.eventBus));
 
         const broadphase = options.broadphase ?? new AABBBroadphase();
         this.inertiaTensorMaxRatio      = options.inertiaTensorMaxRatio ?? 10;
