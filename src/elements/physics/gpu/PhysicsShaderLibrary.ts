@@ -27,10 +27,11 @@ import { WGSL_STRUCT_RB_SIM_PARAMS }        from './wgsl/structs/rb_sim_params.w
 import { WGSL_STRUCT_RB_CONTACT }           from './wgsl/structs/rb_contact.wgsl';
 
 // ── Math modules ──────────────────────────────────────────────────────────────
-import { WGSL_XPBD }    from './wgsl/math/xpbd.wgsl';
-import { WGSL_SDF }     from './wgsl/math/sdf.wgsl';
-import { WGSL_MAT }     from './wgsl/math/mat.wgsl';
-import { WGSL_IMPULSE } from './wgsl/math/impulse.wgsl';
+import { WGSL_XPBD }         from './wgsl/math/xpbd.wgsl';
+import { WGSL_SDF }          from './wgsl/math/sdf.wgsl';
+import { WGSL_MAT }          from './wgsl/math/mat.wgsl';
+import { WGSL_IMPULSE }      from './wgsl/math/impulse.wgsl';
+import { WGSL_CONTACT_MATH } from './wgsl/math/contact_math.wgsl';
 
 // ── Math modules (shape matching) ─────────────────────────────────────────────
 import { WGSL_QUAT }           from './wgsl/math/quat.wgsl';
@@ -210,6 +211,7 @@ const SHADER_RB_BUILD_LCP = WgslComposer.compose(
     WGSL_XPBD,
     WGSL_IMPULSE,
     WGSL_LCP,
+    WGSL_CONTACT_MATH,
     WGSL_KERNEL_RB_BUILD_LCP,
 );
 
@@ -221,6 +223,7 @@ const SHADER_RB_SOLVE_LCP = WgslComposer.compose(
     WGSL_XPBD,
     WGSL_IMPULSE,
     WGSL_LCP,
+    WGSL_CONTACT_MATH,
     WGSL_KERNEL_RB_SOLVE_LCP,
 );
 

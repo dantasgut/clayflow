@@ -22,7 +22,8 @@
  * Depende de: RBSimParams, RigidBody, RBContact,
  *             lcp.wgsl (lcp_bias),
  *             impulse.wgsl (contact_point_velocity),
- *             xpbd.wgsl (rigid_generalized_mass).
+ *             xpbd.wgsl (rigid_generalized_mass),
+ *             contact_math.wgsl (tangent_orthogonal).
  */
 export const WGSL_KERNEL_RB_BUILD_LCP = /* wgsl */`
 
@@ -61,7 +62,7 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
     contacts[ci].diagonal_n = rigid_generalized_mass(ra, n, inv_mass, I_inv);
 
     // Constrói uma tangente ortogonal à normal e calcula diagonal tangencial
-    let t = rb_build_lcp_tangent(n);
+    let t = tangent_orthogonal(n);
     contacts[ci].diagonal_t = rigid_generalized_mass(ra, t, inv_mass, I_inv);
 
     // ── Velocidade relativa na normal ──────────────────────────────────────
@@ -70,13 +71,5 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
 
     // ── Bias b[i] ─────────────────────────────────────────────────────────
     b_vec[ci] = lcp_bias(gap, v_rel_n, contacts[ci].restitution, rb_params);
-}
-
-// Constrói um vetor tangente perpendicular a n (método de Frisvad simplificado).
-fn rb_build_lcp_tangent(n: vec3f) -> vec3f {
-    if (abs(n.x) > 0.57735) {
-        return normalize(vec3f(n.y, -n.x, 0.0));
-    }
-    return normalize(vec3f(0.0, n.z, -n.y));
 }
 `;

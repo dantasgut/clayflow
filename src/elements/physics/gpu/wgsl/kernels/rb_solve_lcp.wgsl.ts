@@ -33,6 +33,7 @@
  *             lcp.wgsl (lcp_pgs_step, lcp_pgs_step_friction),
  *             impulse.wgsl (contact_point_velocity),
  *             xpbd.wgsl (rigid_generalized_mass),
+ *             contact_math.wgsl (tangent_orthogonal),
  *             quat.wgsl (não necessário — opera em velocidades, não em posições).
  */
 export const WGSL_KERNEL_RB_SOLVE_LCP = /* wgsl */`
@@ -63,7 +64,7 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
             let lambda_ty = contacts[ci].lambda_ty * wsf;
 
             // Tangentes ortogonais para aplicar impulso de warm-start tangencial
-            let t1 = rb_solve_lcp_tangent1(n);
+            let t1 = tangent_orthogonal(n);
             let t2 = cross(n, t1);
 
             let I_inv = bodies[rb_i].I_inv.xyz;
@@ -149,12 +150,4 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
     } // fim loop k
 }
 
-// Constrói a primeira tangente ortogonal a n (método de Frisvad simplificado).
-// Idêntico ao usado em rb_build_lcp_tangent, duplicado aqui para independência de módulo.
-fn rb_solve_lcp_tangent1(n: vec3f) -> vec3f {
-    if (abs(n.x) > 0.57735) {
-        return normalize(vec3f(n.y, -n.x, 0.0));
-    }
-    return normalize(vec3f(0.0, n.z, -n.y));
-}
 `;
