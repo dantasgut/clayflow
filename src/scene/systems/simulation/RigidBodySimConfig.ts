@@ -36,4 +36,23 @@ export interface RigidBodySimConfig {
      * Default: 60 (≈1 log/s a 60fps).
      */
     profilerLogInterval?: number;
+    /**
+     * Margem especulativa para detecção de contatos iminentes (backend='gpu').
+     * 0 = desativado (padrão). Valores > 0 ativam contatos especulativos para prevenir
+     * tunelamento em corpos velozes. Valor sugerido: 0.05 (5 cm).
+     * Default: 0 (desativado).
+     */
+    predictiveThreshold?: number;
+    /**
+     * Velocidade de aproximação (m/s) abaixo da qual o coeficiente de restituição é
+     * forçado a zero, eliminando quique em colisões de baixa energia (backend='gpu').
+     * Default: 2.0 (m/s — queda de ~20 cm já não quica).
+     */
+    restitutionThreshold?: number;
+    /**
+     * Velocidade linear (m/s) abaixo da qual o corpo é considerado em repouso e tem
+     * vel/omega zerados (pseudo-sleep) para evitar vibração residual (backend='gpu').
+     * 0 = desativado. Default: 0.01 (1 cm/s).
+     */
+    sleepLinThreshold?: number;
 }

@@ -61,8 +61,11 @@ fn rb_velocity_recovery_main(@builtin(global_invocation_id) gid: vec3u) {
         // não pode reverter mais do que a velocidade de aproximação × (1 + restitution).
         var corr_g_clamped = corr_g;
         if (approach_g > 1e-6) {
-            let max_bounce  = approach_g * (1.0 + rb_params.restitution);
-            corr_g_clamped  = max(corr_g, -max_bounce);
+            // Restitution threshold: abaixo da velocidade de aproximação, não aplicar bounce
+            let rest_threshold       = rb_params.restitution_threshold;
+            let effective_restitution = select(rb_params.restitution, 0.0, approach_g <= rest_threshold);
+            let max_bounce           = approach_g * (1.0 + effective_restitution);
+            corr_g_clamped           = max(corr_g, -max_bounce);
         }
 
         let corr_perp   = correction - corr_g * g_dir;   // mantém correções laterais intactas
@@ -78,9 +81,22 @@ fn rb_velocity_recovery_main(@builtin(global_invocation_id) gid: vec3u) {
     let lin_damp = 1.0 - rb_params.linear_damping  * dtSub;
     let ang_damp = 1.0 - rb_params.angular_damping * dtSub;
 
+    var final_vel   = new_vel   * lin_damp;
+    var final_omega = new_omega * ang_damp;
+
+    // Pseudo-sleep: zera velocidade abaixo do threshold (desativado quando threshold = 0.0)
+    // Fator 25.0 para omega: (5 rad/s)² / (1 cm/s)² — threshold angular ~5× maior
+    let sleep_sq  = rb_params.sleep_lin_threshold * rb_params.sleep_lin_threshold;
+    let speed_sq  = dot(final_vel, final_vel);
+    let omega_sq  = dot(final_omega, final_omega);
+    if (sleep_sq > 0.0 && speed_sq < sleep_sq && omega_sq < sleep_sq * 25.0) {
+        final_vel   = vec3f(0.0);
+        final_omega = vec3f(0.0);
+    }
+
     // Copia estado previsto → estado atual (preserva .w em vez de escrever 0.0 fixo)
-    bodies[i].vel   = vec4f(new_vel   * lin_damp, bodies[i].vel.w);
-    bodies[i].omega = vec4f(new_omega * ang_damp, bodies[i].omega.w);
+    bodies[i].vel   = vec4f(final_vel,   bodies[i].vel.w);
+    bodies[i].omega = vec4f(final_omega, bodies[i].omega.w);
     bodies[i].pos   = vec4f(bodies[i].pos_pred.xyz, bodies[i].pos.w);
     bodies[i].rot   = rot_pred_n;
 }

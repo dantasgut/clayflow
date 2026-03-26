@@ -38,6 +38,7 @@ import type { PhysicsStage }          from '../../../scene/systems/PhysicsStage'
 import type { PhysicsStageContext }   from '../../../scene/systems/PhysicsStageContext';
 import type { Force }                 from '../../../scene/systems/forces/Force';
 import type { RigidBody }             from '../RigidBody';
+import type { RigidBodySimConfig }    from '../../../scene/systems/simulation/RigidBodySimConfig';
 import { ColliderDescriptorUploader, COLLIDERS_BUFFER_ID } from './ColliderDescriptorUploader';
 import {
     RigidBodyBufferAllocator,
@@ -52,24 +53,29 @@ import {
 } from './PhysicsShaderLibrary';
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
 
-// RBSimParams layout (float/u32 indices into the 64-byte uniform buffer)
+// RBSimParams layout (float/u32 indices into the 80-byte uniform buffer)
 // gravity (vec4f): indices 0-3 (xyz=accel, w=dt_substep)
 // body_count: u32 index 4 | collider_count: u32 index 5 | max_contacts: u32 index 6 | solve_iters: u32 index 7
 // dt_frame: f32 index 8 | restitution: f32 index 9
 // penetration_slop: f32 index 10 | linear_damping: f32 index 11 | angular_damping: f32 index 12 | _pad1d: f32 index 13
-const SP_GRAVITY_X         = 0;
-const SP_GRAVITY_Y         = 1;
-const SP_GRAVITY_Z         = 2;
-const SP_DT                = 3;   // dtSub = dt_frame / substeps
-const SP_BODY_COUNT        = 4;   // u32 view index
-const SP_COLLIDER_COUNT    = 5;   // u32 view index
-const SP_MAX_CONTACTS      = 6;   // u32 view index
-const SP_SOLVE_ITERS       = 7;   // u32 view index
-const SP_DT_FRAME          = 8;   // f32: dt do frame inteiro (= dtSub * substeps)
-const SP_RESTITUTION       = 9;   // f32: coeficiente de restituição [0, 1]
-const SP_PENETRATION_SLOP  = 10;  // f32: margem de tolerância de penetração (5 mm)
-const SP_LINEAR_DAMPING    = 11;  // f32: taxa de amortecimento linear por substep (1/s)
-const SP_ANGULAR_DAMPING   = 12;  // f32: taxa de amortecimento angular por substep (1/s)
+// predictive_threshold: f32 index 14 | restitution_threshold: f32 index 15 | sleep_lin_threshold: f32 index 16 | _pad2a: f32 index 17 (total=18 u32=20)
+const SP_GRAVITY_X             = 0;
+const SP_GRAVITY_Y             = 1;
+const SP_GRAVITY_Z             = 2;
+const SP_DT                    = 3;   // dtSub = dt_frame / substeps
+const SP_BODY_COUNT            = 4;   // u32 view index
+const SP_COLLIDER_COUNT        = 5;   // u32 view index
+const SP_MAX_CONTACTS          = 6;   // u32 view index
+const SP_SOLVE_ITERS           = 7;   // u32 view index
+const SP_DT_FRAME              = 8;   // f32: dt do frame inteiro (= dtSub * substeps)
+const SP_RESTITUTION           = 9;   // f32: coeficiente de restituição [0, 1]
+const SP_PENETRATION_SLOP      = 10;  // f32: margem de tolerância de penetração (5 mm)
+const SP_LINEAR_DAMPING        = 11;  // f32: taxa de amortecimento linear por substep (1/s)
+const SP_ANGULAR_DAMPING       = 12;  // f32: taxa de amortecimento angular por substep (1/s)
+// índice 13: _pad1d (padding — não escrever)
+const SP_PREDICTIVE_THRESHOLD  = 14;  // f32: margem especulativa (m), 0=desativado
+const SP_RESTITUTION_THRESHOLD = 15;  // f32: velocidade (m/s) abaixo da qual e=0
+const SP_SLEEP_LIN_THRESHOLD   = 16;  // f32: velocidade (m/s) para pseudo-sleep, 0=desativado
 
 type RbBindGroups = {
     predict:          GPUBindGroup;
@@ -109,12 +115,12 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
     /** Número de corpos na última alocação — detecta necessidade de realocação. */
     private lastBodyCount = -1;
 
-    private readonly rbSimParamsBuf = new ArrayBuffer(64);
+    private readonly rbSimParamsBuf = new ArrayBuffer(80);
     private readonly rbSimParamsF32 = new Float32Array(this.rbSimParamsBuf);
     private readonly rbSimParamsU32 = new Uint32Array(this.rbSimParamsBuf);
 
     /** Cache do frame anterior para detecção de mudanças nos SimParams (Otimização 3e). */
-    private readonly prevSimParamsF32 = new Float32Array(16);
+    private readonly prevSimParamsF32 = new Float32Array(20);
 
     /** Buffer temporário para upload do mapeamento gpuRbIndex→uboSlot. */
     private readonly uboMapData = new Uint32Array(256);  // realloca se necessário
@@ -124,6 +130,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         private readonly getSubsteps:     () => number,
         private readonly solveIterations: number = 10,
         logInterval:                      number = 60,
+        private readonly config?:         RigidBodySimConfig,
     ) {
         this.phyProfiler = new GpuPhysicsProfiler(logInterval);
     }
@@ -214,15 +221,18 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         this.rbSimParamsU32[SP_COLLIDER_COUNT] = colliderCount;
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
-        this.rbSimParamsF32[SP_DT_FRAME]          = dtFrame;  // dt_frame para velocity_recovery
-        this.rbSimParamsF32[SP_RESTITUTION]       = 0.3;    // coeficiente de restituição
-        this.rbSimParamsF32[SP_PENETRATION_SLOP]  = 0.005;  // 5 mm — margem de tolerância de penetração
-        this.rbSimParamsF32[SP_LINEAR_DAMPING]    = 0.5;    // 0.5/s — amortecimento linear
-        this.rbSimParamsF32[SP_ANGULAR_DAMPING]   = 1.0;    // 1.0/s — amortecimento angular
+        this.rbSimParamsF32[SP_DT_FRAME]              = dtFrame;  // dt_frame para velocity_recovery
+        this.rbSimParamsF32[SP_RESTITUTION]           = 0.1;      // reduzido para evitar quique excessivo
+        this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;    // 5 mm — margem de tolerância de penetração
+        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 4.0;      // aumentado para convergência em ~1s
+        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 4.0;      // aumentado para convergência em ~1s
+        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.0;   // desativado por padrão (tunelamento: usar 0.05)
+        this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;   // m/s — queda de 20 cm já não quica
+        this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;  // 1 cm/s para pseudo-sleep
 
         // Otimização 3e: só envia SimParams se algo mudou em relação ao frame anterior
         let simParamsDirty = false;
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 20; i++) {
             if (this.rbSimParamsF32[i] !== this.prevSimParamsF32[i]) {
                 simParamsDirty = true;
                 break;
