@@ -54,6 +54,7 @@ import {
     ensurePhysicsPipelinesInitialized,
 } from './PhysicsShaderLibrary';
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
+import type { GpuPipelineEventBus }       from '../../../scene/systems/gpu/GpuPipelineEventBus';
 
 // ── RBSimParams layout — índices f32/u32 no buffer de 80 bytes ────────────────
 // Documentado em rb_sim_params.wgsl.ts. Apenas os índices usados aqui:
@@ -128,6 +129,7 @@ export class GpuLcpPipeline implements PhysicsStage {
         private readonly solveIterations: number = 15,
         logInterval:                      number = 60,
         private readonly config?:         RigidBodySimConfig,
+        private readonly eventBus?:       GpuPipelineEventBus,
     ) {
         this.phyProfiler = new GpuPhysicsProfiler(logInterval);
     }
@@ -255,6 +257,7 @@ export class GpuLcpPipeline implements PhysicsStage {
                 encoder, 'lcp_rb_predict', profiler.timestampWritesFor(PHYS_SLOTS.predict));
             compute.dispatchOnPass(predictPass, PIPELINE_IDS.RB_PREDICT, [bg.predict], wgBodies);
             predictPass.end();
+            this.eventBus?.emit('physics:bodies:integrated', { bodyCount });
 
             for (let s = 0; s < substeps; s++) {
                 const isFirstSub = s === 0;
@@ -265,6 +268,7 @@ export class GpuLcpPipeline implements PhysicsStage {
                     isFirstSub ? profiler.timestampWritesFor(PHYS_SLOTS.narrowphase) : undefined);
                 compute.dispatchOnPass(npPass, PIPELINE_IDS.RB_NARROWPHASE, [bg.narrowphase], wgContacts);
                 npPass.end();
+                this.eventBus?.emit('physics:contacts:detected', { maxContacts });
 
                 // rb_build_lcp — pré-computa bias + diagonais
                 const buildPass = compute.beginComputePassExplicit(
@@ -291,6 +295,7 @@ export class GpuLcpPipeline implements PhysicsStage {
             const doProfileRead = profiler.encodeResolve(encoder);
 
             core.renderPasses.submit([encoder]);
+            this.eventBus?.emit('physics:frame:submitted', { bodyCount, submitTime: performance.now() });
 
             if (doReadback)    this.startReadbackMap();
             if (doProfileRead) profiler.startRead();
@@ -343,13 +348,34 @@ export class GpuLcpPipeline implements PhysicsStage {
 
         this.readbackBuffer!.mapAsync(GPUMapMode.READ).then(() => {
             const raw = new Float32Array(this.readbackBuffer!.getMappedRange());
+
+            const transformsSnapshot: Array<{
+                gpuRbIndex: number;
+                position:   readonly [number, number, number];
+                rotation:   readonly [number, number, number, number];
+            }> = [];
+
             for (let i = 0; i < snapshot.length; i++) {
                 const body = snapshot[i]!;
                 if (body.get<boolean>('isKinematic')) continue;
                 const off = i * 40;  // RIGID_BODY_STRIDE=160 bytes = 40 floats
+                // mantém comportamento existente
                 body.set('position', [raw[off]!,      raw[off + 1]!,  raw[off + 2]!]);
                 body.set('rotation', [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!]);
+                // acumula para o evento
+                transformsSnapshot.push({
+                    gpuRbIndex: i,
+                    position:   [raw[off]!, raw[off + 1]!, raw[off + 2]!] as const,
+                    rotation:   [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!] as const,
+                });
             }
+
+            // adiciona evento (eventBus é opcional)
+            this.eventBus?.emit('physics:transforms:ready', {
+                pipelineId: 'lcp',
+                transforms: transformsSnapshot,
+            });
+
             this.readbackBuffer!.unmap();
             this.readbackPending = false;
         }).catch(() => { this.readbackPending = false; });

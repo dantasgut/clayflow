@@ -52,6 +52,7 @@ import {
     ensurePhysicsPipelinesInitialized,
 } from './PhysicsShaderLibrary';
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './GpuPhysicsProfiler';
+import type { GpuPipelineEventBus }       from '../../../scene/systems/gpu/GpuPipelineEventBus';
 
 // RBSimParams layout (float/u32 indices into the 80-byte uniform buffer)
 // gravity (vec4f): indices 0-3 (xyz=accel, w=dt_substep)
@@ -131,6 +132,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
         private readonly solveIterations: number = 10,
         logInterval:                      number = 60,
         private readonly config?:         RigidBodySimConfig,
+        private readonly eventBus?:       GpuPipelineEventBus,
     ) {
         this.phyProfiler = new GpuPhysicsProfiler(logInterval);
     }
@@ -263,6 +265,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
                 encoder, 'rb_predict', profiler.timestampWritesFor(PHYS_SLOTS.predict));
             compute.dispatchOnPass(predictPass, PIPELINE_IDS.RB_PREDICT, [bg.predict], wgBodies);
             predictPass.end();
+            this.eventBus?.emit('physics:bodies:integrated', { bodyCount });
 
             // Substep loop — narrowphase e solve são cronometrados apenas no substep 0 (amostra representativa)
             for (let s = 0; s < substeps; s++) {
@@ -274,6 +277,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
                     isFirstSub ? profiler.timestampWritesFor(PHYS_SLOTS.narrowphase) : undefined);
                 compute.dispatchOnPass(npPass, PIPELINE_IDS.RB_NARROWPHASE, [bg.narrowphase], wgContacts);
                 npPass.end();
+                this.eventBus?.emit('physics:contacts:detected', { maxContacts });
 
                 // rb_solve — 1 dispatch por substep; loop K está dentro do shader (Otimização 1a+)
                 const solvePass = compute.beginComputePassExplicit(
@@ -295,6 +299,7 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
             const doProfileRead  = profiler.encodeResolve(encoder);
 
             core.renderPasses.submit([encoder]);
+            this.eventBus?.emit('physics:frame:submitted', { bodyCount, submitTime: performance.now() });
 
             // mapAsync DEVE ser chamado APÓS submit — buffer em estado 'pending' bloqueia o submit
             if (doReadback)    this.startReadbackMap();
@@ -371,14 +376,35 @@ export class GpuRigidBodyPipeline implements PhysicsStage {
 
         this.readbackBuffer!.mapAsync(GPUMapMode.READ).then(() => {
             const raw = new Float32Array(this.readbackBuffer!.getMappedRange());
+
+            const transformsSnapshot: Array<{
+                gpuRbIndex: number;
+                position:   readonly [number, number, number];
+                rotation:   readonly [number, number, number, number];
+            }> = [];
+
             for (let i = 0; i < snapshot.length; i++) {
                 const body = snapshot[i]!;
                 if (body.get<boolean>('isKinematic')) continue;  // corpos cinemáticos não são movidos pela GPU
                 const off = i * 40;  // RIGID_BODY_STRIDE=160 bytes = 40 floats
                 // Layout: [0..2]=pos.xyz  [12..15]=rot.xyzw
+                // mantém comportamento existente
                 body.set('position', [raw[off]!,      raw[off + 1]!,  raw[off + 2]!]);
                 body.set('rotation', [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!]);
+                // acumula para o evento
+                transformsSnapshot.push({
+                    gpuRbIndex: i,
+                    position:   [raw[off]!, raw[off + 1]!, raw[off + 2]!] as const,
+                    rotation:   [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!] as const,
+                });
             }
+
+            // adiciona evento (eventBus é opcional)
+            this.eventBus?.emit('physics:transforms:ready', {
+                pipelineId: 'rb',
+                transforms: transformsSnapshot,
+            });
+
             this.readbackBuffer!.unmap();
             this.readbackPending = false;
         }).catch(() => { this.readbackPending = false; });

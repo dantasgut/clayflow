@@ -13,6 +13,7 @@
 import type { ISolver }            from './ISolver';
 import type { RigidBodySimConfig } from '../../../scene/systems/simulation/RigidBodySimConfig';
 import type { Force }              from '../../../scene/systems/forces/Force';
+import type { GpuPipelineEventBus } from '../../../scene/systems/gpu/GpuPipelineEventBus';
 import { GpuLcpPipeline }          from '../gpu/GpuLcpPipeline';
 
 /**
@@ -32,6 +33,7 @@ export class GpuLcpAdapter implements ISolver {
         private readonly config:       RigidBodySimConfig,
         private readonly globalForces: Map<string, Force> = new Map(),
         private readonly getSubsteps:  () => number       = () => 4,
+        private readonly eventBus?:    GpuPipelineEventBus,
     ) {
         this.pipeline = new GpuLcpPipeline(
             this.globalForces,
@@ -39,6 +41,7 @@ export class GpuLcpAdapter implements ISolver {
             this.config.iterations          ?? 15,
             this.config.profilerLogInterval ?? 60,
             this.config,
+            this.eventBus,
         );
     }
 
