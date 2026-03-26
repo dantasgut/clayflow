@@ -46,6 +46,9 @@ import { vec3, quat }               from 'gl-matrix';
 import { Loggable }                 from '../../core/debug/Loggable';
 import { Logger }                   from '../../core/debug/Logger';
 import { LogCall }                  from '../../core/debug/LogCall';
+import type { GpuPipelineEventBus } from '../../scene/systems/gpu/GpuPipelineEventBus';
+import { DefaultGpuPipelineEventBus } from '../../scene/systems/gpu/DefaultGpuPipelineEventBus';
+import { PhysicsResourceLoader }     from '../../scene/rendering/PhysicsResourceLoader';
 
 export interface PhysicsWorldOptions {
     /** Estratégia de detecção de pares (broadphase). Default: AABBBroadphase. */
@@ -136,6 +139,12 @@ export interface PhysicsWorldOptions {
 @Loggable('PhysicsWorld')
 export class PhysicsWorld extends SimulationWorld {
     declare private readonly log: Logger;
+
+    /** Barramento de eventos do pipeline GPU — exposto para PhysicsResourceLoader e adapters. */
+    public readonly eventBus: GpuPipelineEventBus = new DefaultGpuPipelineEventBus();
+
+    /** Loader de ciclo de vida de PhysicsResource — roda no início de step(). */
+    private readonly physicsResourceLoader = new PhysicsResourceLoader<PhysicsWorld>(this.eventBus);
 
     // Estado de simulação
     private readonly bodies:       Map<string, BodyEntry>   = new Map();
@@ -398,6 +407,10 @@ export class PhysicsWorld extends SimulationWorld {
         this.pendingRemove.length = 0;
         this.pendingAdd.length    = 0;
 
+        // Processa ciclo de vida dos PhysicsResources (Uninitialized/Dirty/Disposed)
+        // antes do framePipeline — garante buffers GPU sincronizados na mesma frame.
+        this.physicsResourceLoader.load(scene, this);
+
         // Notifica estágios do início do frame (warm starting, caches, etc.)
         for (const stage of this.substepPipeline) {
             stage.beginFrame?.();
@@ -425,7 +438,7 @@ export class PhysicsWorld extends SimulationWorld {
     // Privado — registro por entidade
     // ------------------------------------------------------------------
 
-    private registerEntity(entity: Entity): void {
+    public registerEntity(entity: Entity): void {
         for (const physic of entity.getPhysics()) {
             if (physic.physicType === 'Collider') {
                 this.colliders.set(entity.id, { entity, collider: physic as unknown as Collider });
@@ -478,12 +491,39 @@ export class PhysicsWorld extends SimulationWorld {
         }
     }
 
-    private unregisterEntity(entity: Entity): void {
+    public unregisterEntity(entity: Entity): void {
         this.colliders.delete(entity.id);
         this.entityBodies.delete(entity.id);
         for (const physic of entity.getPhysics()) {
             if (physic.physicType !== 'Collider') {
                 this.bodies.delete((physic as unknown as PhysicsBody).uuid);
+            }
+        }
+    }
+
+    /**
+     * Recalcula o tensor de inércia de um PhysicsBody a partir do collider registrado
+     * para a mesma entidade. Extraído da lógica interna de registerEntity.
+     *
+     * Deve ser chamado após alterações de forma (Shape) ou massa (Mass) no mundo físico.
+     */
+    public recomputeInertiaTensor(body: PhysicsBody): void {
+        // Encontra a entrada da entidade pelo uuid do body
+        for (const [, entry] of this.entityBodies) {
+            if (entry.body === body) {
+                const colliderEntry = this.colliders.get(entry.entity.id);
+                if (colliderEntry && !body.get<boolean>('isKinematic')) {
+                    const mass = body.get<number>('mass') ?? 1.0;
+                    const [Ix, Iy, Iz] = colliderEntry.collider.computeInertiaTensor(mass);
+                    const maxI = Math.max(Ix, Iy, Iz, 1e-6);
+                    const minI = maxI / this.inertiaTensorMaxRatio;
+                    body.set('inertiaTensor', vec3.fromValues(
+                        Math.max(Ix, minI),
+                        Math.max(Iy, minI),
+                        Math.max(Iz, minI),
+                    ));
+                }
+                return;
             }
         }
     }
