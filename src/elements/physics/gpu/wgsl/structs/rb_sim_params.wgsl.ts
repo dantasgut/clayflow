@@ -17,7 +17,9 @@
  *   offset 56: predictive_threshold   (f32)   — margem especulativa: d_proj < 0 ativa contato iminente
  *   offset 60: restitution_threshold  (f32)   — abaixo desta velocidade de aproximação (m/s), e = 0
  *   offset 64: sleep_lin_threshold    (f32)   — vel abaixo deste valor (m/s) → zerar (pseudo-sleep, 0=off)
- *   offset 68: _pad2a                 (f32)   — padding para alinhamento a 80 bytes
+ *   offset 68: _pad2a                 (f32)   — padding (reservado)
+ *   offset 72: baumgarte_beta         (f32)   — fator de correção Baumgarte [0.1–0.3] (LCP)
+ *   offset 76: warm_start_factor      (f32)   — escala warm-start [0.8–1.0] (LCP)
  *   Total: 80 bytes
  *
  * Escrito pela CPU (GpuRigidBodyPipeline) uma vez por frame antes dos dispatches.
@@ -42,6 +44,8 @@ struct RBSimParams {
     predictive_threshold:   f32,    // margem especulativa: d_proj < 0 ativa contato iminente
     restitution_threshold:  f32,    // abaixo desta velocidade de aproximação (m/s), e = 0
     sleep_lin_threshold:    f32,    // vel abaixo deste valor (m/s) → zerar (pseudo-sleep, 0=off)
-    _pad2a:                 f32,    // padding para alinhamento a 80 bytes
+    _pad2a:                 f32,    // padding (reservado)
+    baumgarte_beta:         f32,    // fator de correção Baumgarte [0.1–0.3] (LCP/PGS)
+    warm_start_factor:      f32,    // escala warm-start [0.8–1.0] (LCP/PGS)
 }
 `;

@@ -23,6 +23,7 @@
  *
  * Depende de: RBSimParams, RigidBody, ColliderDesc, RBContact,
  *             sdf.wgsl (eval_sdf, sdf_gradient), mat.wgsl (mat4_upper3x3_transform).
+ * Define: combine_restitution (auxiliar local).
  */
 export const WGSL_KERNEL_RB_NARROWPHASE = /* wgsl */`
 
@@ -116,9 +117,16 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     contacts[slot].col_idx    = col_j;
     contacts[slot].is_active  = 1u;
     contacts[slot].feature_id = 0u;
-    contacts[slot].lambda_tx  = lambda_tx;
-    contacts[slot].lambda_ty  = lambda_ty;
-    contacts[slot]._pad0      = 0.0;
-    contacts[slot]._pad1      = 0.0;
+    contacts[slot].lambda_tx   = lambda_tx;
+    contacts[slot].lambda_ty   = lambda_ty;
+    contacts[slot].restitution = combine_restitution(rb_params.restitution, rb_params.restitution);
+    contacts[slot]._pad2       = 0.0;
+    contacts[slot]._pad3       = 0.0;
+    contacts[slot]._pad4       = 0.0;
+}
+
+// Restituição combinada do par de contato: usa max (padrão Bullet/Box2D).
+fn combine_restitution(a: f32, b: f32) -> f32 {
+    return max(a, b);
 }
 `;
