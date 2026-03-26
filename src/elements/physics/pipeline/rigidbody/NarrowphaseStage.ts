@@ -45,6 +45,12 @@ export class NarrowphaseStage implements PhysicsStage {
         context.contacts = [];
 
         for (const [a, b] of context.candidatePairs) {
+            // Pares com corpos GPU-simulados não precisam de detecção CPU —
+            // a GPU já resolve colisões e posições para esses corpos.
+            const aGpu = context.entityBodies.get(a.entity.id)?.body.get<boolean>('gpuSimulated');
+            const bGpu = context.entityBodies.get(b.entity.id)?.body.get<boolean>('gpuSimulated');
+            if (aGpu || bGpu) continue;
+
             const wma = this.worldMatrix(a.entity);
             const wmb = this.worldMatrix(b.entity);
             const manifold = this.dispatcher.dispatch(a.collider, wma, b.collider, wmb);
