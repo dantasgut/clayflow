@@ -33,6 +33,13 @@ export interface PhysicsTransformsReadyPayload {
     }>;
 }
 
+export interface PhysicsRbReallocatedPayload {
+    /** Número de RigidBodies no novo buffer global. */
+    bodyCount:     number;
+    /** Número de colliders na cena no momento da alocação. */
+    colliderCount: number;
+}
+
 // ── Mapa de eventos ───────────────────────────────────────────────────────────
 
 export interface GpuPipelineEventMap {
@@ -42,6 +49,7 @@ export interface GpuPipelineEventMap {
     'physics:contacts:detected':  PhysicsContactsDetectedPayload;
     'physics:frame:submitted':    PhysicsFrameSubmittedPayload;
     'physics:transforms:ready':   PhysicsTransformsReadyPayload;
+    'physics:rb:reallocated':     PhysicsRbReallocatedPayload;
 }
 
 export type GpuPipelineEventType = keyof GpuPipelineEventMap;

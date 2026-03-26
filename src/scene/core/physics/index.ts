@@ -15,4 +15,8 @@ export type { ColliderGpuData }     from './ColliderGpuData';
 export type { RBSimParamsData }     from './RBSimParamsData';
 
 // Contrato de ciclo de vida físico
-export type { PhysicsResource } from './PhysicsResource';
+export type { PhysicsResource }  from './PhysicsResource';
+
+// State pattern — handler de estado de simulação
+export type { BodyStateHandler } from './BodyStateHandler';
+export { BodyStateHandlerRegistry } from './BodyStateHandlerRegistry';

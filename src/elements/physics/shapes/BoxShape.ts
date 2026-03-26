@@ -55,6 +55,10 @@ export class BoxShape extends SDFCollider {
         return [this.hw, this.hh, this.hd];
     }
 
+    public override packDescriptor(): { shapeType: number; half: [number, number, number, number] } {
+        return { shapeType: 1, half: [this.hw, this.hh, this.hd, 0] };
+    }
+
     /**
      * Os 8 vértices do OBB em espaço de mundo.
      * Implementa Collider.getWorldVertices? — usado pelo PlaneBoxCollision

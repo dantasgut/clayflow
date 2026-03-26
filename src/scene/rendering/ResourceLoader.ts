@@ -11,6 +11,12 @@ function isResource(value: unknown): value is Resource {
     return typeof value === 'object' && value !== null && 'state' in value;
 }
 
+/** PhysicsResource são gerenciados exclusivamente pelo PhysicsResourceLoader. */
+function isPhysicsResource(value: unknown): boolean {
+    return typeof value === 'object' && value !== null &&
+           'state' in value && 'physicType' in value && 'dirtyFlags' in value;
+}
+
 /**
  * Sistema focado na Camada 2 (Unified ResourceLoader).
  * Itera todas as Entidades da Cena e processa qualquer objeto que implemente
@@ -45,7 +51,7 @@ export class ResourceLoader extends SceneLoader<ResourceManager> {
             }
 
             for (const physic of entity.getPhysics()) {
-                if (isResource(physic)) {
+                if (isResource(physic) && !isPhysicsResource(physic)) {
                     this._processResource(physic);
                 }
             }
@@ -68,7 +74,7 @@ export class ResourceLoader extends SceneLoader<ResourceManager> {
         if (isResource(entity)) resources.push(entity);
         for (const component of entity.getComponents()) resources.push(component);
         for (const physic of entity.getPhysics()) {
-            if (isResource(physic)) resources.push(physic);
+            if (isResource(physic) && !isPhysicsResource(physic)) resources.push(physic);
         }
         return resources;
     }

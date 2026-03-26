@@ -4,8 +4,10 @@ import type { ResourceManager } from '../../../core/interfaces/ResourceManager';
 import type { PhysicsResource } from '../../core/physics/PhysicsResource';
 import { ResourceType } from '../../core/ResourceType';
 import { ResourceState } from '../../core/ResourceState';
-import { PhysicsDirtyFlag } from '../../core/physics/PhysicsDirtyFlag';
-import { PhysicsBodyState } from '../../core/physics/PhysicsBodyState';
+import { PhysicsDirtyFlag }          from '../../core/physics/PhysicsDirtyFlag';
+import { PhysicsBodyState }          from '../../core/physics/PhysicsBodyState';
+import type { BodyStateHandler }     from '../../core/physics/BodyStateHandler';
+import { BodyStateHandlerRegistry }  from '../../core/physics/BodyStateHandlerRegistry';
 
 /**
  * Base abstrata para todos os corpos físicos.
@@ -40,11 +42,46 @@ export abstract class PhysicsBody implements Resource, Physic, PhysicsResource {
 
     public state: ResourceState = ResourceState.Uninitialized;
 
-    /** Estado do ciclo de vida do corpo no mundo físico. */
+    /** Estado de simulação do corpo no mundo físico. */
     public bodyState: PhysicsBodyState = PhysicsBodyState.Inactive;
 
     /** Bitmask de PhysicsDirtyFlag — indica quais aspectos físicos mudaram. */
     public dirtyFlags: number = PhysicsDirtyFlag.None;
+
+    // ------------------------------------------------------------------
+    // State pattern — handler encapsula comportamento por estado
+    // ------------------------------------------------------------------
+
+    /** Handler do estado atual — consulta de capacidades pelos stages. */
+    public get currentState(): BodyStateHandler {
+        return BodyStateHandlerRegistry.get(this.bodyState);
+    }
+
+    /**
+     * Transita para um novo estado de simulação.
+     * Em modo DEV emite warning se a transição não for válida.
+     */
+    public transitionTo(next: PhysicsBodyState): void {
+        if (process.env.NODE_ENV !== 'production') {
+            const valid = this.currentState.validTransitions();
+            if (!valid.includes(next)) {
+                console.warn(
+                    `[PhysicsBody] Transição inválida: ` +
+                    `${PhysicsBodyState[this.bodyState]} → ${PhysicsBodyState[next]} ` +
+                    `(uuid=${this.uuid})`,
+                );
+            }
+        }
+        this.bodyState = next;
+    }
+
+    /**
+     * Atalho de compatibilidade — equivale a `bodyState === Sleeping`.
+     * Substitui `body.get<boolean>('isSleeping')` nos stages migrados.
+     */
+    public get isSleeping(): boolean {
+        return this.bodyState === PhysicsBodyState.Sleeping;
+    }
 
     /** Propriedades físicas abertas — não há campos fixos na base. */
     private readonly props = new Map<string, unknown>();

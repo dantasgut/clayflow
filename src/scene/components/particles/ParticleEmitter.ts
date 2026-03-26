@@ -2,6 +2,8 @@ import type { Component } from '../../core/Component';
 import type { ResourceManager } from '../../../core/interfaces/ResourceManager';
 import { ResourceState } from '../../core/ResourceState';
 import { ResourceType } from '../../core/ResourceType';
+import type { ResourceStateHandler } from '../../core/resource/ResourceStateHandler';
+import { ResourceStateHandlerRegistry } from '../../core/resource/ResourceStateHandlerRegistry';
 
 /**
  * Componente abstrato de emissor de partículas. (Camada 2)
@@ -24,6 +26,11 @@ export abstract class ParticleEmitter implements Component {
     public readonly layer = ResourceType.VISUAL_COMPONENT;
     public readonly type  = 'ParticleEmitter';
     public state: ResourceState = ResourceState.Uninitialized;
+
+    /** Handler do estado atual — encapsula capacidades do ciclo de vida GPU. */
+    public get currentResourceState(): ResourceStateHandler {
+        return ResourceStateHandlerRegistry.get(this.state);
+    }
 
     // Property Bag — configuração aberta para qualquer domínio
     private readonly props = new Map<string, unknown>();
@@ -64,7 +71,8 @@ export abstract class ParticleEmitter implements Component {
     }
 
     public markDirty(): void {
-        if (this.state === ResourceState.Ready) this.state = ResourceState.Dirty;
+        if (this.currentResourceState.ignoreDirtyMark()) return;
+        this.state = ResourceState.Dirty;
     }
 
     /** Avança a simulação: spawn + integração. Chamado por ParticleSystem.step(). */

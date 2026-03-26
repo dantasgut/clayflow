@@ -13,7 +13,7 @@
  *   vel.w    ↔ (reservado)
  *
  * Nota: invMass substitui o campo booleano `w` do SoftParticle CPU. O valor
- * real (float) é pré-calculado na CPU pelo SimBodyBufferAllocator antes do
+ * real (float) é pré-calculado na CPU por SoftBody.doAllocate() antes do
  * primeiro upload, eliminando a divisão `particleCount/mass` dentro do shader.
  */
 export const WGSL_STRUCT_PARTICLE = /* wgsl */`

@@ -1,30 +1,10 @@
-import type { ResolutionConfig } from '../resolution/ResolutionConfig';
-
 /**
- * Configuração da simulação de corpos rígidos.
+ * Configuração da simulação de corpos rígidos GPU.
  *
- * Agrupa exclusivamente os parâmetros do pipeline RigidBody:
- * método de resolução (SI / XPBD) e estágios opcionais de estabilização.
- *
- * Parâmetros de detecção de colisão (narrowphase, contatos especulativos)
- * ficam em `CollisionSimConfig`, pois são independentes do tipo de corpo.
+ * Parâmetros do pipeline GPU (XPBD / LCP): iterações, damping, thresholds.
+ * Campos de pipeline CPU (resolution, gyroscopic) foram removidos (GPU-only).
  */
 export interface RigidBodySimConfig {
-    /** Método de resolução e seus parâmetros numéricos. */
-    resolution?: ResolutionConfig;
-    /**
-     * Habilita correção giroscópica (Δω = −I⁻¹·(ω × I·ω)·dt).
-     * Previne drift em corpos com tensor de inércia assimétrico girando
-     * em alta velocidade (bastão, placa). Default: false.
-     */
-    gyroscopic?: boolean;
-    /**
-     * Backend de simulação RigidBody.
-     * 'cpu' — pipeline XPBD/SI em JavaScript (padrão, estável).
-     * 'gpu' — pipeline XPBD em compute shaders WGSL (Fase 3).
-     * Default: 'cpu'.
-     */
-    backend?: 'cpu' | 'gpu';
     /**
      * Número de iterações do solver PGS por substep (backend='gpu').
      * Default: 15. (Otimização 3c — compensa substeps=4 vs. substeps=8 anteriores)
@@ -56,14 +36,14 @@ export interface RigidBodySimConfig {
      */
     sleepLinThreshold?: number;
     /**
-     * Fator de correção de Baumgarte [0.1–0.3] para o solver LCP/PGS (backend='gpu', ResolutionType.LCP).
+     * Fator de correção de Baumgarte [0.1–0.3] para o solver LCP/PGS.
      * Controla a velocidade de correção de penetração por bias do constraint.
      * Valores altos convergem mais rápido mas podem introduzir instabilidade.
      * Default: 0.2.
      */
     baumgarteBeta?: number;
     /**
-     * Fator de escala para warm starting do solver LCP/PGS [0.8–1.0] (backend='gpu', ResolutionType.LCP).
+     * Fator de escala para warm starting do solver LCP/PGS [0.8–1.0].
      * Escala os impulsos acumulados do frame anterior usados como solução inicial.
      * 1.0 = warm start completo; 0.0 = desativado.
      * Default: 0.85.

@@ -42,16 +42,18 @@ export type { SimulationWorld }   from './scene/systems/SimulationWorld';
 export type { Force }             from './scene/systems/forces/Force';
 export type { PhysicsSolver }     from './scene/systems/solvers/PhysicsSolver';
 export type { EmitterShape, SpawnSample } from './scene/systems/particles/EmitterShape';
-export type { CollisionAlgorithm }        from './scene/systems/collision/CollisionAlgorithm';
-export type { NarrowphaseConfig }         from './scene/systems/collision/NarrowphaseConfig';
-export      { CollisionAlgorithmType }    from './scene/systems/collision/CollisionAlgorithmType';
-export type { ResolutionConfig }          from './scene/systems/resolution/ResolutionConfig';
-export      { ResolutionType }            from './scene/systems/resolution/ResolutionType';
 export type { RigidBodySimConfig }        from './scene/systems/simulation/RigidBodySimConfig';
-export type { SoftBodySimConfig, SoftBodyResolutionConfig }         from './scene/systems/simulation/SoftBodySimConfig';
+export type { SoftBodySimConfig, SoftBodyResolutionConfig } from './scene/systems/simulation/SoftBodySimConfig';
 export type { CollisionSimConfig }        from './scene/systems/simulation/CollisionSimConfig';
-export type { PhysicsStage }              from './scene/systems/PhysicsStage';
-export type { PhysicsStageContext, BodyEntry, ColliderReg, CollisionContact } from './scene/systems/PhysicsStageContext';
+export type { BodyEntry, ColliderReg }    from './scene/systems/GpuSimContext';
+export type { GpuSimContext }             from './scene/systems/GpuSimContext';
+export type { PhysicsComputePass }        from './scene/systems/PhysicsComputePass';
+export type { PhysicsSceneConfig, RigidBodyGpuConfig, SoftBodyGpuConfig } from './scene/systems/PhysicsSceneConfig';
+export { GpuComputePassRegistry }         from './scene/systems/gpu/GpuComputePassRegistry';
+export { GpuPhysicsOrchestrator }         from './scene/rendering/GpuPhysicsOrchestrator';
+export type { GpuPipelineEventBus }       from './scene/systems/gpu/GpuPipelineEventBus';
+export { DefaultGpuPipelineEventBus }     from './scene/systems/gpu/DefaultGpuPipelineEventBus';
+export { PhysicsBodyState }               from './scene/core/physics/PhysicsBodyState';
 export type { ExtractionStrategy } from './scene/rendering/strategies/ExtractionStrategy';
 export type { RenderCommand, RenderQueue, RenderLight } from './scene/rendering/RenderQueue';
 
@@ -68,8 +70,8 @@ export { StandardMaterial }       from './elements/materials/StandardMaterial';
 export { WireframeMaterial }      from './elements/materials/WireframeMaterial';
 
 // Mundo físico
-export { PhysicsWorld }           from './elements/physics/PhysicsWorld';
-export type { PhysicsWorldOptions } from './elements/physics/PhysicsWorld';
+export { PhysicsWorld }                       from './elements/physics/PhysicsWorld';
+export type { PhysicsWorldOptions }           from './elements/physics/PhysicsWorld';
 
 // Corpos físicos
 export { RigidBody }              from './elements/physics/RigidBody';
@@ -81,20 +83,15 @@ export { SphereShape }            from './elements/physics/shapes/SphereShape';
 export { BoxShape }               from './elements/physics/shapes/BoxShape';
 export { PlaneShape }             from './elements/physics/shapes/PlaneShape';
 
-// Colisores e broadphase
+// Colisores SDF
 export { SDFCollider }            from './elements/physics/shapes/SDFCollider';
-export { AABBBroadphase }         from './elements/physics/AABBBroadphase';
 
 // Forças
 export { ConstantForce }          from './elements/physics/forces/ConstantForce';
 export { FunctionalForce }        from './elements/physics/forces/FunctionalForce';
 
-// Solvers
-export { CPURigidBodySolver }     from './elements/physics/solvers/CPURigidBodySolver';
-export { XPBDSoftBodySolver }     from './elements/physics/solvers/XPBDSoftBodySolver';
+// Solvers GPU
 export { GPUSpringMassSolver }    from './elements/physics/solvers/GPUSpringMassSolver';
-
-// GPU SoftBody Stage
 
 // Partículas
 export { CPUParticleEmitter }     from './elements/particles/CPUParticleEmitter';
