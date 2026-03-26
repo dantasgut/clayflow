@@ -320,7 +320,7 @@ export class GpuLcpPipeline implements PhysicsStage {
 
         const device    = WebGPUContext.getInstance().device;
         const bodiesBuf = this.core.resources.buffers.getBuffer(RB_BODIES_BUFFER_ID)!.native;
-        const byteSize  = bodyCount * 128;
+        const byteSize  = bodyCount * 160;  // 40 floats × 4 bytes por corpo (RIGID_BODY_STRIDE=160)
 
         if (!this.readbackBuffer || this.readbackBodyCount !== bodyCount) {
             this.readbackBuffer?.destroy();
@@ -346,7 +346,7 @@ export class GpuLcpPipeline implements PhysicsStage {
             for (let i = 0; i < snapshot.length; i++) {
                 const body = snapshot[i]!;
                 if (body.get<boolean>('isKinematic')) continue;
-                const off = i * 32;
+                const off = i * 40;  // RIGID_BODY_STRIDE=160 bytes = 40 floats
                 body.set('position', [raw[off]!,      raw[off + 1]!,  raw[off + 2]!]);
                 body.set('rotation', [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!]);
             }
