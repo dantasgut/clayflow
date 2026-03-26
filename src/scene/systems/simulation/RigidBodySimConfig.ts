@@ -55,4 +55,18 @@ export interface RigidBodySimConfig {
      * 0 = desativado. Default: 0.01 (1 cm/s).
      */
     sleepLinThreshold?: number;
+    /**
+     * Fator de correção de Baumgarte [0.1–0.3] para o solver LCP/PGS (backend='gpu', ResolutionType.LCP).
+     * Controla a velocidade de correção de penetração por bias do constraint.
+     * Valores altos convergem mais rápido mas podem introduzir instabilidade.
+     * Default: 0.2.
+     */
+    baumgarteBeta?: number;
+    /**
+     * Fator de escala para warm starting do solver LCP/PGS [0.8–1.0] (backend='gpu', ResolutionType.LCP).
+     * Escala os impulsos acumulados do frame anterior usados como solução inicial.
+     * 1.0 = warm start completo; 0.0 = desativado.
+     * Default: 0.85.
+     */
+    warmStartFactor?: number;
 }

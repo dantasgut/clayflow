@@ -13,4 +13,6 @@ export enum ResolutionType {
     SEQUENTIAL_IMPULSE = 'SEQUENTIAL_IMPULSE',
     XPBD               = 'XPBD',
     XPBD_SOFT          = 'XPBD_SOFT',
+    /** LCP/PGS com warm start — executa no pipeline GPU GpuLcpPipeline. */
+    LCP                = 'LCP',
 }
