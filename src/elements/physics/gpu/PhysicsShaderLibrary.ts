@@ -55,6 +55,7 @@ import { WGSL_KERNEL_RB_VELOCITY_RECOVERY }   from './wgsl/kernels/rb_velocity_r
 import { WGSL_KERNEL_RB_SYNC_TRANSFORM }     from './wgsl/kernels/rb_sync_transform.wgsl';
 import { WGSL_KERNEL_RB_BUILD_LCP }          from './wgsl/kernels/rb_build_lcp.wgsl';
 import { WGSL_KERNEL_RB_SOLVE_LCP }          from './wgsl/kernels/rb_solve_lcp.wgsl';
+import { WGSL_KERNEL_RB_LCP_COMMIT }         from './wgsl/kernels/rb_lcp_commit.wgsl';
 import { WGSL_LCP }                          from './wgsl/math/lcp.wgsl';
 
 // ── Pipeline IDs ──────────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ export const PIPELINE_IDS = Object.freeze({
     RB_SYNC_TRANSFORM:       'physics_rb_sync_transform',
     RB_BUILD_LCP:            'physics_rb_build_lcp',
     RB_SOLVE_LCP:            'physics_rb_solve_lcp',
+    RB_LCP_COMMIT:           'rb_lcp_commit_pipeline',
 } as const);
 
 // ── Shaders compostos ─────────────────────────────────────────────────────────
@@ -227,6 +229,14 @@ const SHADER_RB_SOLVE_LCP = WgslComposer.compose(
     WGSL_KERNEL_RB_SOLVE_LCP,
 );
 
+// rb_lcp_commit: avança pos pela vel corrigida pelo LCP solver (substitui rb_velocity_recovery no pipeline LCP)
+const SHADER_RB_LCP_COMMIT = WgslComposer.compose(
+    WGSL_STRUCT_RB_SIM_PARAMS,
+    WGSL_STRUCT_RIGID_BODY,
+    WGSL_QUAT,
+    WGSL_KERNEL_RB_LCP_COMMIT,
+);
+
 // ── Registro de pipelines ─────────────────────────────────────────────────────
 
 let _initPromise: Promise<void> | null = null;
@@ -256,6 +266,7 @@ export async function ensurePhysicsPipelinesInitialized(core: WebGPUEngineCore):
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SYNC_TRANSFORM,     SHADER_RB_SYNC_TRANSFORM,     'rb_sync_transform_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_BUILD_LCP,          SHADER_RB_BUILD_LCP,          'rb_build_lcp'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SOLVE_LCP,          SHADER_RB_SOLVE_LCP,          'rb_solve_lcp_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.RB_LCP_COMMIT,         SHADER_RB_LCP_COMMIT,         'rb_lcp_commit_main'),
     ])
         .then(() => undefined)
         .catch((err) => {

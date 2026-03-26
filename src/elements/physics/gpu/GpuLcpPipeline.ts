@@ -86,7 +86,8 @@ type LcpBindGroups = {
     narrowphase:      GPUBindGroup;
     buildLcp:         GPUBindGroup;
     solveLcp:         GPUBindGroup;
-    velocityRecovery: GPUBindGroup;
+    velocityRecovery: GPUBindGroup;  // mantém para compatibilidade (não usado no execute LCP)
+    lcpCommit:        GPUBindGroup;  // substitui velocityRecovery no pipeline LCP
     syncTransform:    GPUBindGroup | null;
 };
 
@@ -279,11 +280,12 @@ export class GpuLcpPipeline implements PhysicsStage {
                 solvePass.end();
             }
 
-            // rb_velocity_recovery — 1× por frame
-            const vrPass = compute.beginComputePassExplicit(
-                encoder, 'lcp_rb_velocity_recovery', profiler.timestampWritesFor(PHYS_SLOTS.velocityRecovery));
-            compute.dispatchOnPass(vrPass, PIPELINE_IDS.RB_VELOCITY_RECOVERY, [bg.velocityRecovery], wgBodies);
-            vrPass.end();
+            // rb_lcp_commit — 1× por frame (substitui rb_velocity_recovery para pipeline LCP)
+            // Avança posição pela velocidade corrigida pelo solver, sem re-derivar vel de (pos_pred-pos)/dt
+            const commitPass = compute.beginComputePassExplicit(
+                encoder, 'lcp_rb_commit', profiler.timestampWritesFor(PHYS_SLOTS.velocityRecovery));
+            compute.dispatchOnPass(commitPass, PIPELINE_IDS.RB_LCP_COMMIT, [bg.lcpCommit], wgBodies);
+            commitPass.end();
 
             const doReadback    = this.encodePositionReadback(encoder, bodyCount);
             const doProfileRead = profiler.encodeResolve(encoder);
@@ -461,6 +463,11 @@ export class GpuLcpPipeline implements PhysicsStage {
             { binding: 1, resource: { buffer: bodiesBuf   } },
         ]);
 
-        return { predict, narrowphase, buildLcp, solveLcp, velocityRecovery, syncTransform: null };
+        const lcpCommit = bg(PIPELINE_IDS.RB_LCP_COMMIT, [
+            { binding: 0, resource: { buffer: rbParamsBuf } },
+            { binding: 1, resource: { buffer: bodiesBuf   } },
+        ]);
+
+        return { predict, narrowphase, buildLcp, solveLcp, velocityRecovery, lcpCommit, syncTransform: null };
     }
 }
