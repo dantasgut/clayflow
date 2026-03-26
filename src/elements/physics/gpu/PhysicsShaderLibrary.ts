@@ -177,6 +177,7 @@ const SHADER_RB_NARROWPHASE = WgslComposer.compose(
     WGSL_STRUCT_RB_CONTACT,
     WGSL_SDF,
     WGSL_MAT,
+    WGSL_QUAT,
     WGSL_KERNEL_RB_NARROWPHASE,
 );
 
