@@ -25,9 +25,12 @@
 import { WebGPUEngineCore }  from '../../../core/WebGPUEngineCore';
 import type { RigidBody }    from '../RigidBody';
 import type { quat, vec3 }   from 'gl-matrix';
+import type { PhysicsStageContext } from '../../../scene/systems/PhysicsStageContext';
+import { SphereShape } from '../shapes/SphereShape';
+import { BoxShape }    from '../shapes/BoxShape';
 
 // Tamanhos em bytes derivados dos WGSL structs
-const RIGID_BODY_STRIDE  = 128;  // 8 × vec4f
+const RIGID_BODY_STRIDE  = 160;  // 10 × vec4f
 const RB_SIM_PARAMS_SIZE =  80;  // 5 × vec4f (uniform)
 const RB_CONTACT_STRIDE  =  80;  // 5 × vec4f (campos diagonal_n/t, restitution, feature_id adicionados)
 
@@ -45,8 +48,10 @@ export class RigidBodyBufferAllocator {
      *
      * @param bodies - Lista ordenada de todos os RigidBodies GPU-simulados.
      * @param colliderCount - Número de colliders no buffer global (para dimensionar contacts).
+     * @param context - Contexto do estágio de física (opcional). Quando fornecido, permite
+     *                  extrair o shape primário de cada corpo para preencher body_shape na GPU.
      */
-    public allocate(bodies: RigidBody[], colliderCount: number): void {
+    public allocate(bodies: RigidBody[], colliderCount: number, context?: PhysicsStageContext): void {
         const core    = WebGPUEngineCore.getInstance();
         const buffers = core.resources.buffers;
         const n       = bodies.length;
@@ -72,8 +77,27 @@ export class RigidBodyBufferAllocator {
 
         if (n === 0) return;
 
+        // ── Monta mapa bodyIdentity → shape primário a partir do contexto ──
+        // Itera context.colliders e associa cada body ao seu collider via entityBodies.
+        // Usado para preencher body_shape (shape_type + half_extents) na GPU.
+        const bodyShapeMap = new Map<RigidBody, { shapeType: number; he: [number, number, number] }>();
+        if (context) {
+            for (const { entity, collider } of context.colliders.values()) {
+                const entry = context.entityBodies.get(entity.id);
+                if (!entry) continue;
+                const rb = entry.body as unknown as RigidBody;
+                if (bodyShapeMap.has(rb)) continue;  // usa o primeiro collider encontrado
+                if (collider instanceof SphereShape) {
+                    bodyShapeMap.set(rb, { shapeType: 0, he: [collider.radius, 0, 0] });
+                } else if (collider instanceof BoxShape) {
+                    const [hw, hh, hd] = collider.getLocalHalfExtents();
+                    bodyShapeMap.set(rb, { shapeType: 1, he: [hw!, hh!, hd!] });
+                }
+            }
+        }
+
         // ── Upload inicial dos corpos ───────────────────────────────────────
-        // Layout por corpo (32 floats = 128 bytes):
+        // Layout por corpo (40 floats = 160 bytes):
         //   [0..3]   pos.xyz, pos.w=inv_mass
         //   [4..7]   vel.xyz, vel.w=0
         //   [8..11]  omega.xyz, omega.w=0
@@ -82,12 +106,14 @@ export class RigidBodyBufferAllocator {
         //   [20..23] pos_pred.xyzw (cópia inicial de pos)
         //   [24..27] rot_pred.xyzw (cópia inicial de rot)
         //   [28..31] mat_props: restitution, friction, lin_damping, ang_damping
+        //   [32..35] body_shape: shape_type(f32), half_x, half_y, half_z
+        //   [36..39] _rb_pad: 0, 0, 0, 0
         const rawBuffer = new ArrayBuffer(n * RIGID_BODY_STRIDE);
         const f32       = new Float32Array(rawBuffer);
 
         for (let i = 0; i < n; i++) {
             const body   = bodies[i]!;
-            const base   = i * 32;  // 32 floats por corpo
+            const base   = i * 40;  // 40 floats por corpo (160 bytes)
             const mass   = body.get<number>('mass') ?? 1.0;
             const isKin  = body.get<boolean>('isKinematic') ?? false;
             const invM   = (isKin || mass <= 0) ? 0.0 : 1.0 / mass;
@@ -147,6 +173,17 @@ export class RigidBodyBufferAllocator {
             f32[base + 29] = friction;
             f32[base + 30] = linDamping;
             f32[base + 31] = angDamping;
+            // body_shape: x=shape_type (0=Sphere, 1=Box), yzw=half_extents
+            const shapeInfo = bodyShapeMap.get(body);
+            f32[base + 32] = shapeInfo ? shapeInfo.shapeType : 0.0;
+            f32[base + 33] = shapeInfo ? shapeInfo.he[0] : 0.0;
+            f32[base + 34] = shapeInfo ? shapeInfo.he[1] : 0.0;
+            f32[base + 35] = shapeInfo ? shapeInfo.he[2] : 0.0;
+            // _rb_pad
+            f32[base + 36] = 0.0;
+            f32[base + 37] = 0.0;
+            f32[base + 38] = 0.0;
+            f32[base + 39] = 0.0;
 
             // Registra o índice GPU no property bag do corpo
             body.set('gpuRbIndex', i);

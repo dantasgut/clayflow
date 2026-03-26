@@ -173,7 +173,7 @@ export class GpuLcpPipeline implements PhysicsStage {
         if (bodyCountChanged || colliderCountChanged) {
             this.gpuBodies    = newBodies;
             this.gpuEntityIds = newEntityIds;
-            this.allocator.allocate(this.gpuBodies, colliderCount);
+            this.allocator.allocate(this.gpuBodies, colliderCount, context);
             this.lastBodyCount     = newBodies.length;
             this.lastColliderCount = colliderCount;
             this.bgCache = null;
