@@ -282,19 +282,30 @@ export class PhysicsWorld extends SimulationWorld {
             );
         }
 
+        // Mescla predictiveThreshold do CollisionSimConfig no RigidBodySimConfig para
+        // que os pipelines GPU leiam de um único lugar (RigidBodySimConfig). O campo
+        // CollisionSimConfig.predictiveContacts/Threshold é para o pipeline CPU; o GPU
+        // usa RigidBodySimConfig.predictiveThreshold. Sem essa mesclagem, o GPU sempre
+        // usa 0.0 (desativado) mesmo quando o usuário habilitou contatos especulativos.
+        const rbGpu: RigidBodySimConfig | undefined = rb ? {
+            ...rb,
+            predictiveThreshold: rb.predictiveThreshold
+                ?? (col?.predictiveContacts ? (col.predictiveContactsThreshold ?? 2.0) : 0.0),
+        } : undefined;
+
         // GpuRigidBodyPipeline — pipeline GPU SI/XPBD, frame-level.
         // Criado via SolverRegistry para encapsular a instanciação e permitir
         // substituição/mock em testes. Ativo quando backend='gpu' e tipo != LCP.
-        if (rb?.backend === 'gpu' && resType !== ResolutionType.LCP) {
-            const adapter = registry.create('gpu_si', rb) as GpuSolverAdapter;
+        if (rbGpu?.backend === 'gpu' && resType !== ResolutionType.LCP) {
+            const adapter = registry.create('gpu_si', rbGpu) as GpuSolverAdapter;
             this.gpuRbPipeline = adapter.getPipeline();
             this.framePipeline.push(this.gpuRbPipeline);
         }
 
         // GpuLcpPipeline — pipeline LCP/PGS separado, frame-level.
         // Criado via SolverRegistry. Ativo quando backend='gpu' e tipo === LCP.
-        if (rb?.backend === 'gpu' && resType === ResolutionType.LCP) {
-            const adapter = registry.create('gpu_lcp', rb) as GpuLcpAdapter;
+        if (rbGpu?.backend === 'gpu' && resType === ResolutionType.LCP) {
+            const adapter = registry.create('gpu_lcp', rbGpu) as GpuLcpAdapter;
             this.gpuLcpPipeline = adapter.getPipeline();
             this.framePipeline.push(this.gpuLcpPipeline);
         }
