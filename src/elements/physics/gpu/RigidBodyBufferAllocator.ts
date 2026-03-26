@@ -29,7 +29,7 @@ import type { quat, vec3 }   from 'gl-matrix';
 // Tamanhos em bytes derivados dos WGSL structs
 const RIGID_BODY_STRIDE  = 128;  // 8 × vec4f
 const RB_SIM_PARAMS_SIZE =  80;  // 5 × vec4f (uniform)
-const RB_CONTACT_STRIDE  =  64;  // 4 × vec4f
+const RB_CONTACT_STRIDE  =  80;  // 5 × vec4f (campos diagonal_n/t, restitution, feature_id adicionados)
 
 export const RB_BODIES_BUFFER_ID     = 'gpu_rb_bodies';
 export const RB_SIM_PARAMS_BUFFER_ID = 'gpu_rb_simparams';

@@ -52,6 +52,9 @@ import { WGSL_KERNEL_RB_NARROWPHASE }         from './wgsl/kernels/rb_narrowphas
 import { WGSL_KERNEL_RB_SOLVE }               from './wgsl/kernels/rb_solve.wgsl';
 import { WGSL_KERNEL_RB_VELOCITY_RECOVERY }   from './wgsl/kernels/rb_velocity_recovery.wgsl';
 import { WGSL_KERNEL_RB_SYNC_TRANSFORM }     from './wgsl/kernels/rb_sync_transform.wgsl';
+import { WGSL_KERNEL_RB_BUILD_LCP }          from './wgsl/kernels/rb_build_lcp.wgsl';
+import { WGSL_KERNEL_RB_SOLVE_LCP }          from './wgsl/kernels/rb_solve_lcp.wgsl';
+import { WGSL_LCP }                          from './wgsl/math/lcp.wgsl';
 
 // ── Pipeline IDs ──────────────────────────────────────────────────────────────
 
@@ -72,6 +75,8 @@ export const PIPELINE_IDS = Object.freeze({
     RB_SOLVE:                'physics_rb_solve',
     RB_VELOCITY_RECOVERY:    'physics_rb_velocity_recovery',
     RB_SYNC_TRANSFORM:       'physics_rb_sync_transform',
+    RB_BUILD_LCP:            'physics_rb_build_lcp',
+    RB_SOLVE_LCP:            'physics_rb_solve_lcp',
 } as const);
 
 // ── Shaders compostos ─────────────────────────────────────────────────────────
@@ -197,6 +202,28 @@ const SHADER_RB_SYNC_TRANSFORM = WgslComposer.compose(
     WGSL_KERNEL_RB_SYNC_TRANSFORM,
 );
 
+// rb_build_lcp: pré-computa bias b[i] + diagonais de Delassus por contato ativo
+const SHADER_RB_BUILD_LCP = WgslComposer.compose(
+    WGSL_STRUCT_RB_SIM_PARAMS,
+    WGSL_STRUCT_RIGID_BODY,
+    WGSL_STRUCT_RB_CONTACT,
+    WGSL_XPBD,
+    WGSL_IMPULSE,
+    WGSL_LCP,
+    WGSL_KERNEL_RB_BUILD_LCP,
+);
+
+// rb_solve_lcp: PGS-LCP serial com warm start — pipeline LCP separado do SI
+const SHADER_RB_SOLVE_LCP = WgslComposer.compose(
+    WGSL_STRUCT_RB_SIM_PARAMS,
+    WGSL_STRUCT_RIGID_BODY,
+    WGSL_STRUCT_RB_CONTACT,
+    WGSL_XPBD,
+    WGSL_IMPULSE,
+    WGSL_LCP,
+    WGSL_KERNEL_RB_SOLVE_LCP,
+);
+
 // ── Registro de pipelines ─────────────────────────────────────────────────────
 
 let _initPromise: Promise<void> | null = null;
@@ -224,6 +251,8 @@ export async function ensurePhysicsPipelinesInitialized(core: WebGPUEngineCore):
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SOLVE,              SHADER_RB_SOLVE,              'rb_solve_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_VELOCITY_RECOVERY,  SHADER_RB_VELOCITY_RECOVERY,  'rb_velocity_recovery_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SYNC_TRANSFORM,     SHADER_RB_SYNC_TRANSFORM,     'rb_sync_transform_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.RB_BUILD_LCP,          SHADER_RB_BUILD_LCP,          'rb_build_lcp'),
+        core.compute.createComputePipeline(PIPELINE_IDS.RB_SOLVE_LCP,          SHADER_RB_SOLVE_LCP,          'rb_solve_lcp_main'),
     ])
         .then(() => undefined)
         .catch((err) => {
