@@ -31,8 +31,11 @@ import { SoftBodyVelocityUpdateStage }  from './pipeline/softbody/SoftBodyVeloci
 import { SoftBodyPositionCommitStage }  from './pipeline/softbody/SoftBodyPositionCommitStage';
 import { SoftBodySyncStage }            from './pipeline/softbody/SoftBodySyncStage';
 import { GpuParticleSimPipeline }       from './gpu/GpuParticleSimPipeline';
-import { GpuRigidBodyPipeline }         from './gpu/GpuRigidBodyPipeline';
-import { GpuLcpPipeline }               from './gpu/GpuLcpPipeline';
+import type { GpuRigidBodyPipeline }    from './gpu/GpuRigidBodyPipeline';
+import type { GpuLcpPipeline }          from './gpu/GpuLcpPipeline';
+import { GpuSolverAdapter }             from './solvers/GpuSolverAdapter';
+import { GpuLcpAdapter }                from './solvers/GpuLcpAdapter';
+import { SolverRegistry }               from './solvers/SolverRegistry';
 import { registerAllSolvers }            from './solvers/SolverRegistrations';
 import type { RigidBodySimConfig }    from '../../scene/systems/simulation/RigidBodySimConfig';
 import type { SoftBodySimConfig }     from '../../scene/systems/simulation/SoftBodySimConfig';
@@ -174,6 +177,14 @@ export class PhysicsWorld extends SimulationWorld {
         // Registra todos os solvers disponíveis no SolverRegistry (idempotente)
         registerAllSolvers();
 
+        // Re-registra as factories GPU com closures que capturam globalForces e getSubsteps.
+        // Necessário porque SolverFactory recebe apenas RigidBodySimConfig; os parâmetros
+        // adicionais são injetados via closure aqui, antes de qualquer registry.create().
+        // Executado após registerAllSolvers() para sobrescrever as factories default.
+        const registry = SolverRegistry.getInstance();
+        registry.register('gpu_si',  (cfg) => new GpuSolverAdapter(cfg, this.globalForces, () => this.substeps));
+        registry.register('gpu_lcp', (cfg) => new GpuLcpAdapter(cfg,    this.globalForces, () => this.substeps));
+
         const broadphase = options.broadphase ?? new AABBBroadphase();
         this.inertiaTensorMaxRatio      = options.inertiaTensorMaxRatio ?? 10;
         this.softBodyBackend            = options.softBody?.backend            ?? 'cpu';
@@ -271,30 +282,20 @@ export class PhysicsWorld extends SimulationWorld {
             );
         }
 
-        // GpuRigidBodyPipeline executa uma vez por frame e manuseia internamente
-        // rb_predict + N substeps (narrowphase + PGS) + velocity_recovery via compute shaders.
-        // Ativo apenas quando rigidBody.backend='gpu' e ResolutionType != LCP.
+        // GpuRigidBodyPipeline — pipeline GPU SI/XPBD, frame-level.
+        // Criado via SolverRegistry para encapsular a instanciação e permitir
+        // substituição/mock em testes. Ativo quando backend='gpu' e tipo != LCP.
         if (rb?.backend === 'gpu' && resType !== ResolutionType.LCP) {
-            this.gpuRbPipeline = new GpuRigidBodyPipeline(
-                this.globalForces,
-                () => this.substeps,
-                rb.iterations ?? 15,  // Otimização 3c: 10→15 (compensa substeps 8→4)
-                rb.profilerLogInterval ?? 60,
-                rb,
-            );
+            const adapter = registry.create('gpu_si', rb) as GpuSolverAdapter;
+            this.gpuRbPipeline = adapter.getPipeline();
             this.framePipeline.push(this.gpuRbPipeline);
         }
 
-        // GpuLcpPipeline — pipeline LCP/PGS separado.
-        // Ativo apenas quando rigidBody.backend='gpu' e ResolutionType === LCP.
+        // GpuLcpPipeline — pipeline LCP/PGS separado, frame-level.
+        // Criado via SolverRegistry. Ativo quando backend='gpu' e tipo === LCP.
         if (rb?.backend === 'gpu' && resType === ResolutionType.LCP) {
-            this.gpuLcpPipeline = new GpuLcpPipeline(
-                this.globalForces,
-                () => this.substeps,
-                rb.iterations ?? 15,
-                rb.profilerLogInterval ?? 60,
-                rb,
-            );
+            const adapter = registry.create('gpu_lcp', rb) as GpuLcpAdapter;
+            this.gpuLcpPipeline = adapter.getPipeline();
             this.framePipeline.push(this.gpuLcpPipeline);
         }
 

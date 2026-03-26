@@ -4,7 +4,8 @@
  * NÃO modifica GpuLcpPipeline. Apenas expõe o contrato ISolver para que
  * SolverRegistry possa criar e gerenciar instâncias GPU LCP de forma uniforme.
  *
- * Análogo ao GpuSolverAdapter, mas envolve GpuLcpPipeline em vez de GpuRigidBodyPipeline.
+ * O GpuLcpPipeline é criado no construtor de forma síncrona, pois ele
+ * acede ao WebGPUEngineCore de forma lazy internamente (apenas no primeiro execute()).
  *
  * Arquitetura: Layer 3 (elements/physics/solvers).
  */
@@ -12,29 +13,26 @@
 import type { ISolver }            from './ISolver';
 import type { RigidBodySimConfig } from '../../../scene/systems/simulation/RigidBodySimConfig';
 import type { Force }              from '../../../scene/systems/forces/Force';
+import { GpuLcpPipeline }          from '../gpu/GpuLcpPipeline';
 
 /**
- * Adapter GPU LCP: envolve GpuLcpPipeline em ISolver.
+ * Adapter GPU LCP/PGS: envolve GpuLcpPipeline em ISolver.
  *
- * A criação do GpuLcpPipeline é lazy (no initialize()) porque o
- * WebGPUEngineCore pode não estar disponível no momento da construção.
+ * O pipeline é criado no construtor para que getPipeline() esteja disponível
+ * imediatamente após registry.create(), permitindo ao PhysicsWorld inserir
+ * o pipeline no framePipeline sem await.
  */
 export class GpuLcpAdapter implements ISolver {
-    public readonly name    = 'gpu_lcp_pgs';
+    public readonly name    = 'gpu_lcp';
     public readonly backend = 'gpu' as const;
 
-    private pipeline: import('../gpu/GpuLcpPipeline').GpuLcpPipeline | null = null;
-    private initialized = false;
+    private readonly pipeline: GpuLcpPipeline;
 
     constructor(
         private readonly config:       RigidBodySimConfig,
         private readonly globalForces: Map<string, Force> = new Map(),
         private readonly getSubsteps:  () => number       = () => 4,
-    ) {}
-
-    public async initialize(_device?: GPUDevice): Promise<void> {
-        if (this.initialized) return;
-        const { GpuLcpPipeline } = await import('../gpu/GpuLcpPipeline');
+    ) {
         this.pipeline = new GpuLcpPipeline(
             this.globalForces,
             this.getSubsteps,
@@ -42,7 +40,11 @@ export class GpuLcpAdapter implements ISolver {
             this.config.profilerLogInterval ?? 60,
             this.config,
         );
-        this.initialized = true;
+    }
+
+    public async initialize(_device?: GPUDevice): Promise<void> {
+        // Pipeline já criado no construtor; inicialização lazy é gerida internamente
+        // por GpuLcpPipeline no primeiro execute().
     }
 
     public async step(_dt: number): Promise<void> {
@@ -51,12 +53,11 @@ export class GpuLcpAdapter implements ISolver {
     }
 
     public dispose(): void {
-        this.pipeline = null;
-        this.initialized = false;
+        // GpuLcpPipeline não expõe dispose(); recursos são geridos pelo WebGPUEngineCore.
     }
 
-    /** Retorna o pipeline subjacente (para uso pelo PhysicsWorld). */
-    public getPipeline(): import('../gpu/GpuLcpPipeline').GpuLcpPipeline | null {
+    /** Retorna o pipeline subjacente (para uso pelo PhysicsWorld no framePipeline). */
+    public getPipeline(): GpuLcpPipeline {
         return this.pipeline;
     }
 }
