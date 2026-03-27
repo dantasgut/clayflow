@@ -17,23 +17,24 @@ import { RB_SIM_PARAMS_BYTE_SIZE }  from '../../elements/physics/rigidbody/SimPa
 import { RIGID_BODY_GLOBAL_BUFFER_SET } from '../../elements/physics/rigidbody/RigidBodyGlobalBufferSet';
 import { SoftBody }                 from '../../elements/physics/SoftBody';
 import { graphColorConstraints }    from '../../elements/physics/gpu/GraphColorSolver';
-import { PARTICLE_STRIDE_BYTES as PARTICLE_STRIDE,
-         PARTICLE_STRIDE_FLOATS,
-         P_POS_X, P_POS_Y, P_POS_Z, P_INV_MASS,
-         P_PRED_X, P_PRED_Y, P_PRED_Z,
-         P_VEL_X, P_VEL_Y, P_VEL_Z } from '../../elements/physics/softbody/ParticleLayout';
-import { CONSTRAINT_STRIDE_BYTES as CONSTRAINT_STRIDE,
-         CONSTRAINT_STRIDE_WORDS,
-         C_IDX_A, C_IDX_B, C_REST_LENGTH, C_COMPLIANCE } from '../../elements/physics/softbody/ConstraintLayout';
-
-// Tamanhos em bytes de buffers auxiliares de SoftBody (sem struct WGSL espelhado)
-const SIM_PARAMS_SIZE     = 48;
-const COLOR_RANGE_SIZE    = 16;
-const LAMBDA_STRIDE       = 4;
-const JACOBI_ACCUM_STRIDE = 16;
-const REST_POS_STRIDE     = 16;
-const GOAL_POS_STRIDE     = 16;
-const SHAPE_STATE_SIZE    = 16;
+import { PARTICLE_STRIDE_FLOATS }   from '../../elements/physics/softbody/ParticleLayout';
+import { CONSTRAINT_STRIDE_BYTES }  from '../../elements/physics/softbody/ConstraintLayout';
+import {
+    buildSoftBodyBufferSet,
+    buildColorRangeId,
+    buildRestPosId,
+    buildGoalPosId,
+    buildShapeStateId,
+    softBodyBufferSizes,
+    SB_SIM_PARAMS_SIZE,
+    SB_COLOR_RANGE_SIZE,
+    SB_SHAPE_STATE_SIZE,
+    packSoftBodyParticles,
+    packSoftBodyConstraints,
+    packColorRange,
+    packRestPositions,
+} from '../../elements/physics/softbody/SoftBodyBufferLayout';
+import { GpuBufferRegistry }        from '../systems/gpu/GpuBufferRegistry';
 
 function isPhysicsResource(value: unknown): value is PhysicsResource {
     return typeof value === 'object' && value !== null &&
@@ -62,7 +63,8 @@ export class PhysicsResourceLoader<TWorld extends { getContext(): Readonly<GpuSi
 
     declare private readonly log: Logger;
 
-    private readonly eventBus: GpuPipelineEventBus;
+    private readonly eventBus:  GpuPipelineEventBus;
+    private readonly _registry: GpuBufferRegistry;
 
     /** Injetado via `setResourceManager` — usado para alocar buffers GPU. */
     private _resourceManager?: ResourceManager;
@@ -82,7 +84,8 @@ export class PhysicsResourceLoader<TWorld extends { getContext(): Readonly<GpuSi
 
     constructor(eventBus: GpuPipelineEventBus) {
         super();
-        this.eventBus = eventBus;
+        this.eventBus  = eventBus;
+        this._registry = new GpuBufferRegistry();
     }
 
     /**
@@ -92,6 +95,14 @@ export class PhysicsResourceLoader<TWorld extends { getContext(): Readonly<GpuSi
     public setResourceManager(rm: ResourceManager): void {
         this._resourceManager = rm;
         this._needsInitialAllocation = true;
+    }
+
+    /**
+     * Livro de registros de buffers GPU alocados por este loader.
+     * Útil para debugging, profiling e acesso a entradas por proprietário.
+     */
+    public get bufferRegistry(): GpuBufferRegistry {
+        return this._registry;
     }
 
     /**
@@ -208,131 +219,102 @@ export class PhysicsResourceLoader<TWorld extends { getContext(): Readonly<GpuSi
     // ------------------------------------------------------------------
 
     private _allocateSoftBodyBuffers(body: SoftBody, rm: ResourceManager): void {
-        const buffers  = rm.buffers;
-        const uuid     = body.uuid;
         const pCount   = body.particles.length;
         const cCount   = body.constraints.length;
         const mass     = body.get<number>('mass') ?? 1.0;
         const invMassF = pCount > 0 ? pCount / mass : 0.0;
+        const uuid     = body.uuid;
 
-        // ── Particles ──────────────────────────────────────────────────────
-        const particlesId = `gpu_particles_${uuid}`;
-        buffers.createStorageBuffer(particlesId, Math.max(pCount, 1) * PARTICLE_STRIDE);
+        const bufferSet = buildSoftBodyBufferSet(uuid);
+        const sizes     = softBodyBufferSizes(pCount, cCount);
+        const buffers   = rm.buffers;
+
+        // ── Fase 1: Alocação (reserva espaço, sem dados) ─────────────────────
+        buffers.createStorageBuffer(bufferSet.particlesId,   sizes.particlesBytes);
+        buffers.createStorageBuffer(bufferSet.constraintsId, sizes.constraintsBytes);
+        buffers.createUniformBuffer(bufferSet.simParamsId,   SB_SIM_PARAMS_SIZE);
+        buffers.createStorageBuffer(bufferSet.lambdaBufId,   sizes.lambdaBytes);
+        buffers.createStorageBuffer(bufferSet.lambdaWarmId,  sizes.lambdaWarmBytes);
+        buffers.createStorageBuffer(bufferSet.jacobiAccumId, sizes.jacobiAccumBytes);
+
+        this._registry.register({ id: bufferSet.particlesId,   type: 'storage', byteSize: sizes.particlesBytes,   domain: 'softbody', ownerUuid: uuid });
+        this._registry.register({ id: bufferSet.constraintsId, type: 'storage', byteSize: sizes.constraintsBytes, domain: 'softbody', ownerUuid: uuid });
+        this._registry.register({ id: bufferSet.simParamsId,   type: 'uniform', byteSize: SB_SIM_PARAMS_SIZE,     domain: 'softbody', ownerUuid: uuid });
+        this._registry.register({ id: bufferSet.lambdaBufId,   type: 'storage', byteSize: sizes.lambdaBytes,      domain: 'softbody', ownerUuid: uuid });
+        this._registry.register({ id: bufferSet.lambdaWarmId,  type: 'storage', byteSize: sizes.lambdaWarmBytes,  domain: 'softbody', ownerUuid: uuid });
+        this._registry.register({ id: bufferSet.jacobiAccumId, type: 'storage', byteSize: sizes.jacobiAccumBytes, domain: 'softbody', ownerUuid: uuid });
+
+        // ── Fase 2: Pack + Write (dados iniciais) ────────────────────────────
         if (pCount > 0) {
-            const data = new Float32Array(pCount * PARTICLE_STRIDE_FLOATS);
-            for (let i = 0; i < pCount; i++) {
-                const p = body.particles[i]!;
-                const b = i * PARTICLE_STRIDE_FLOATS;
-                data[b + P_POS_X]    = p.x;  data[b + P_POS_Y]  = p.y;  data[b + P_POS_Z]  = p.z;
-                data[b + P_INV_MASS] = p.w > 0 ? invMassF : 0.0;
-                data[b + P_PRED_X]   = p.px; data[b + P_PRED_Y] = p.py; data[b + P_PRED_Z] = p.pz;
-                data[b + P_VEL_X]    = p.vx; data[b + P_VEL_Y]  = p.vy; data[b + P_VEL_Z]  = p.vz;
-            }
-            buffers.writeBuffer(particlesId, data);
+            const f32 = new Float32Array(pCount * PARTICLE_STRIDE_FLOATS);
+            packSoftBodyParticles(body.particles, invMassF, f32);
+            buffers.writeBuffer(bufferSet.particlesId, f32);
         }
 
-        // ── Constraints + Graph Coloring ───────────────────────────────────
-        const constraintsId = `gpu_constraints_${uuid}`;
-        const colorRangeIds: string[] = [];
-        const colorCounts:   number[] = [];
-        buffers.createStorageBuffer(constraintsId, Math.max(cCount, 1) * CONSTRAINT_STRIDE);
         if (cCount > 0) {
             const { sortedConstraints, colorRanges } = graphColorConstraints(body.constraints, pCount);
-            const raw = new ArrayBuffer(cCount * CONSTRAINT_STRIDE);
+            const raw = new ArrayBuffer(cCount * CONSTRAINT_STRIDE_BYTES);
             const f32 = new Float32Array(raw);
             const u32 = new Uint32Array(raw);
-            for (let k = 0; k < cCount; k++) {
-                const c    = sortedConstraints[k]!;
-                const base = k * CONSTRAINT_STRIDE_WORDS;
-                u32[base + C_IDX_A]       = c.i;
-                u32[base + C_IDX_B]       = c.j;
-                f32[base + C_REST_LENGTH] = c.restLength;
-                f32[base + C_COMPLIANCE]  = c.compliance;
-            }
-            buffers.writeBuffer(constraintsId, f32);
+            packSoftBodyConstraints(sortedConstraints, f32, u32);
+            buffers.writeBuffer(bufferSet.constraintsId, f32);
+
             const crBuf = new Uint32Array(4);
             for (let c = 0; c < colorRanges.length; c++) {
-                const rangeId = `gpu_color_range_${uuid}_${c}`;
-                buffers.createUniformBuffer(rangeId, COLOR_RANGE_SIZE);
-                crBuf[0] = colorRanges[c]!.offset; crBuf[1] = colorRanges[c]!.count;
-                crBuf[2] = 0; crBuf[3] = 0;
+                const rangeId = buildColorRangeId(uuid, c);
+                buffers.createUniformBuffer(rangeId, SB_COLOR_RANGE_SIZE);
+                packColorRange(colorRanges[c]!.offset, colorRanges[c]!.count, crBuf);
                 buffers.writeBuffer(rangeId, crBuf);
-                colorRangeIds.push(rangeId);
-                colorCounts.push(colorRanges[c]!.count);
+                bufferSet.colorRangeIds.push(rangeId);
+                bufferSet.colorCounts.push(colorRanges[c]!.count);
+                this._registry.register({ id: rangeId, type: 'uniform', byteSize: SB_COLOR_RANGE_SIZE, domain: 'softbody', ownerUuid: uuid });
             }
         }
 
-        // ── SimParams + Lambda + Jacobi ────────────────────────────────────
-        const simParamsId   = `gpu_simparams_${uuid}`;
-        const lambdaBufId   = `gpu_lambda_${uuid}`;
-        const lambdaWarmId  = `gpu_lambda_warm_${uuid}`;
-        const jacobiAccumId = `gpu_jacobi_accum_${uuid}`;
-        buffers.createUniformBuffer(simParamsId,  SIM_PARAMS_SIZE);
-        buffers.createStorageBuffer(lambdaBufId,   Math.max(cCount, 1) * LAMBDA_STRIDE);
-        buffers.createStorageBuffer(lambdaWarmId,  Math.max(cCount, 1) * LAMBDA_STRIDE);
-        buffers.createStorageBuffer(jacobiAccumId, Math.max(pCount, 1) * JACOBI_ACCUM_STRIDE);
-
-        body.bufferSet = {
-            particlesId, constraintsId, simParamsId,
-            lambdaBufId, lambdaWarmId, jacobiAccumId,
-            colorRangeIds, colorCounts,
-        };
+        body.bufferSet = bufferSet;
 
         if (body.get<boolean>('useShapeMatching')) {
-            this._allocateSoftBodyShapeMatchingBuffers(body, rm, uuid, pCount);
+            this._allocateShapeMatchingBuffers(body, rm);
         }
 
-        this.log.debug(`SoftBody buffers alocados — particles:${pCount} constraints:${cCount} (uuid=${uuid})`);
+        this.log.debug(`SoftBody alocado — particles:${pCount} constraints:${cCount} (uuid=${uuid})`);
     }
 
-    private _allocateSoftBodyShapeMatchingBuffers(
-        body:   SoftBody,
-        rm:     ResourceManager,
-        uuid:   string,
-        pCount: number,
-    ): void {
+    private _allocateShapeMatchingBuffers(body: SoftBody, rm: ResourceManager): void {
+        const pCount  = body.particles.length;
+        const uuid    = body.uuid;
         const buffers = rm.buffers;
-        let cmx = 0, cmy = 0, cmz = 0, freeCount = 0;
-        for (const p of body.particles) {
-            if (p.w > 0) { cmx += p.x; cmy += p.y; cmz += p.z; freeCount++; }
-        }
-        if (freeCount > 0) { cmx /= freeCount; cmy /= freeCount; cmz /= freeCount; }
+        const sizes   = softBodyBufferSizes(pCount, 0);
 
-        const restData = new Float32Array(Math.max(pCount, 1) * 4);
-        for (let i = 0; i < pCount; i++) {
-            const p = body.particles[i]!;
-            restData[i * 4]     = p.x - cmx;
-            restData[i * 4 + 1] = p.y - cmy;
-            restData[i * 4 + 2] = p.z - cmz;
-            restData[i * 4 + 3] = p.w > 0 ? 1.0 : 0.0;
+        const restPosId    = buildRestPosId(uuid);
+        const goalPosId    = buildGoalPosId(uuid);
+        const shapeStateId = buildShapeStateId(uuid);
+
+        // ── Fase 1: Alocação ─────────────────────────────────────────────────
+        buffers.createStorageBuffer(restPosId,    sizes.restPosBytes);
+        buffers.createStorageBuffer(goalPosId,    sizes.goalPosBytes);
+        buffers.createStorageBuffer(shapeStateId, SB_SHAPE_STATE_SIZE);
+
+        this._registry.register({ id: restPosId,    type: 'storage', byteSize: sizes.restPosBytes,  domain: 'softbody', ownerUuid: uuid });
+        this._registry.register({ id: goalPosId,    type: 'storage', byteSize: sizes.goalPosBytes,  domain: 'softbody', ownerUuid: uuid });
+        this._registry.register({ id: shapeStateId, type: 'storage', byteSize: SB_SHAPE_STATE_SIZE, domain: 'softbody', ownerUuid: uuid });
+
+        // ── Fase 2: Pack + Write ─────────────────────────────────────────────
+        if (pCount > 0) {
+            const restData = new Float32Array(Math.max(pCount, 1) * 4);
+            packRestPositions(body.particles, restData);
+            buffers.writeBuffer(restPosId, restData);
         }
-        const restPosId    = `gpu_rest_pos_${uuid}`;
-        const goalPosId    = `gpu_goal_pos_${uuid}`;
-        const shapeStateId = `gpu_shape_state_${uuid}`;
-        buffers.createStorageBuffer(restPosId,    Math.max(pCount, 1) * REST_POS_STRIDE);
-        buffers.createStorageBuffer(goalPosId,    Math.max(pCount, 1) * GOAL_POS_STRIDE);
-        buffers.createStorageBuffer(shapeStateId, SHAPE_STATE_SIZE);
-        if (pCount > 0) buffers.writeBuffer(restPosId, restData);
         buffers.writeBuffer(shapeStateId, new Float32Array([0, 0, 0, 1]));
+
         body.bufferSet!.restPosId    = restPosId;
         body.bufferSet!.goalPosId    = goalPosId;
         body.bufferSet!.shapeStateId = shapeStateId;
     }
 
     private _disposeSoftBodyBuffers(body: SoftBody, rm: ResourceManager): void {
-        if (!body.bufferSet) return;
-        const buffers = rm.buffers;
-        const s = body.bufferSet;
-        buffers.destroyBuffer(s.particlesId);
-        buffers.destroyBuffer(s.constraintsId);
-        buffers.destroyBuffer(s.simParamsId);
-        buffers.destroyBuffer(s.lambdaBufId);
-        buffers.destroyBuffer(s.lambdaWarmId);
-        buffers.destroyBuffer(s.jacobiAccumId);
-        for (const id of s.colorRangeIds) buffers.destroyBuffer(id);
-        if (s.restPosId)    buffers.destroyBuffer(s.restPosId);
-        if (s.goalPosId)    buffers.destroyBuffer(s.goalPosId);
-        if (s.shapeStateId) buffers.destroyBuffer(s.shapeStateId);
+        const ids = this._registry.unregisterByOwner(body.uuid);
+        for (const id of ids) rm.buffers.destroyBuffer(id);
         delete body.bufferSet;
         body.particles   = [];
         body.constraints = [];
@@ -354,26 +336,37 @@ export class PhysicsResourceLoader<TWorld extends { getContext(): Readonly<GpuSi
             .filter(e => e.body.physicType === 'RigidBody' && e.body.currentState.canParticipateInGpuBatch())
             .map(e => e.body as unknown as RigidBody);
 
-        const buffers      = rm.buffers;
-        const n            = rigidBodies.length;
-        const rbCount      = Math.max(n, 1);
+        const buffers       = rm.buffers;
+        const n             = rigidBodies.length;
+        const rbCount       = Math.max(n, 1);
         const colliderCount = ctx.colliders.size;
         const contactSlots  = Math.max(n * Math.max(colliderCount, 1), 1);
         const set           = RIGID_BODY_GLOBAL_BUFFER_SET;
 
-        if (buffers.getBuffer(set.bodiesId))   buffers.destroyBuffer(set.bodiesId);
-        if (buffers.getBuffer(set.contactsId)) buffers.destroyBuffer(set.contactsId);
-        if (buffers.getBuffer(set.toUboMapId)) buffers.destroyBuffer(set.toUboMapId);
+        // Destrói buffers redimensionáveis e remove entradas antigas do registro
+        if (buffers.getBuffer(set.bodiesId))   { buffers.destroyBuffer(set.bodiesId);   this._registry.unregister(set.bodiesId); }
+        if (buffers.getBuffer(set.contactsId)) { buffers.destroyBuffer(set.contactsId); this._registry.unregister(set.contactsId); }
+        if (buffers.getBuffer(set.toUboMapId)) { buffers.destroyBuffer(set.toUboMapId); this._registry.unregister(set.toUboMapId); }
+
+        // SimParams é estável — cria apenas uma vez
         if (!buffers.getBuffer(set.simParamsId)) {
             buffers.createUniformBuffer(set.simParamsId, RB_SIM_PARAMS_BYTE_SIZE);
+            this._registry.register({ id: set.simParamsId, type: 'uniform', byteSize: RB_SIM_PARAMS_BYTE_SIZE, domain: 'rigidbody' });
         }
 
-        buffers.createStorageBuffer(set.bodiesId,   rbCount      * RB_STRIDE_BYTES);
-        buffers.createStorageBuffer(set.contactsId, contactSlots * RB_CONTACT_STRIDE_BYTES);
-        buffers.createStorageBuffer(set.toUboMapId, rbCount      * 4);
+        const bodiesByte   = rbCount      * RB_STRIDE_BYTES;
+        const contactsByte = contactSlots * RB_CONTACT_STRIDE_BYTES;
+        const mapByte      = rbCount      * 4;
+
+        buffers.createStorageBuffer(set.bodiesId,   bodiesByte);
+        buffers.createStorageBuffer(set.contactsId, contactsByte);
+        buffers.createStorageBuffer(set.toUboMapId, mapByte);
+
+        this._registry.register({ id: set.bodiesId,   type: 'storage', byteSize: bodiesByte,   domain: 'rigidbody' });
+        this._registry.register({ id: set.contactsId, type: 'storage', byteSize: contactsByte, domain: 'rigidbody' });
+        this._registry.register({ id: set.toUboMapId, type: 'storage', byteSize: mapByte,      domain: 'rigidbody' });
 
         if (n > 0) {
-            // Monta mapa body → shape primário a partir dos colliders registrados
             const bodyShapeMap = new Map<RigidBody, RigidBodyShapeInfo>();
             for (const { entity, collider } of ctx.colliders.values()) {
                 const entry = ctx.entityBodies.get(entity.id);

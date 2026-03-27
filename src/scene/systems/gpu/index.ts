@@ -11,3 +11,5 @@ export type {
 } from './GpuPipelineEventBus';
 
 export { DefaultGpuPipelineEventBus } from './DefaultGpuPipelineEventBus';
+export { GpuBufferRegistry }          from './GpuBufferRegistry';
+export type { GpuBufferEntry, GpuBufferType } from './GpuBufferRegistry';
