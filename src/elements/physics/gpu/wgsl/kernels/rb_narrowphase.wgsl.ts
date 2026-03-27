@@ -88,11 +88,13 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     let rot_pred   = bodies[rb_i].rot_pred;
 
     // ── Escolha do ponto de teste ─────────────────────────────────────────────
-    // Sphere: testa apenas o CM (caminho original)
+    // Sphere: testa o CM e subtrai o raio para obter distância de superfície
     // Box:    varre os 8 cantos e usa o mais penetrante
-    var test_world: vec3f;   // ponto de teste em world space
-    var test_local: vec3f;   // mesmo ponto em espaço local do collider
-    var test_d:     f32;     // SDF nesse ponto
+    var test_world:           vec3f;  // ponto de teste em world space
+    var test_local:           vec3f;  // mesmo ponto em espaço local do collider
+    var test_d:               f32;    // SDF a partir da superfície do corpo
+    var sdf_raw:              f32;    // SDF bruto em test_local (sem subtração de raio)
+    var sphere_radius_offset: f32 = 0.0;  // raio da esfera (0 para outros tipos)
 
     if (body_shape_type == 1u) {
         // BoxShape — varrer 8 cantos
@@ -117,19 +119,28 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
 
         test_world = best_world;
         test_local = best_local;
+        sdf_raw    = best_d;
         test_d     = best_d;
     } else {
-        // SphereShape (ou padrão) — testa apenas o CM
-        let local_pred = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;
-        test_world = world_pred;
-        test_local = local_pred;
-        test_d     = eval_sdf(local_pred, col.shape_type, col.half);
+        // SphereShape — testa o CM e subtrai o raio para detectar contato na superfície.
+        // Sem subtração, o CM precisaria cruzar o collider antes do contato ser detectado.
+        // sdf_raw preserva o valor bruto (sem raio) para o cálculo do gradiente, que usa
+        // diferenças finitas e seria corrompido pelo offset do raio.
+        let sphere_radius = bodies[rb_i].body_shape.y;  // half_x == raio da esfera
+        let local_pred    = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;
+        let raw           = eval_sdf(local_pred, col.shape_type, col.half);
+        test_world            = world_pred;
+        test_local            = local_pred;
+        sdf_raw               = raw;
+        sphere_radius_offset  = sphere_radius;
+        test_d                = raw - sphere_radius;
     }
 
     let d = test_d;
 
-    // Calcula normal no espaço mundo (necessário para contatos especulativos)
-    let grad_local = sdf_gradient(test_local, d, col.shape_type, col.half);
+    // Calcula normal no espaço mundo (necessário para contatos especulativos).
+    // Usa sdf_raw (valor bruto do collider em test_local) para diferenças finitas corretas.
+    let grad_local = sdf_gradient(test_local, sdf_raw, col.shape_type, col.half);
     let wn_raw     = mat4_upper3x3_transform(col.world_mat, grad_local);
     let wn_len     = length(wn_raw);
     if (wn_len < 1e-8) {
@@ -166,8 +177,10 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     // Profundidade efetiva: usa d_speculative quando contato é especulativo
     let depth_eff = select(d, d_speculative, d >= 0.0);
 
-    // Ponto de contato: ponto de teste projetado para a superfície do collider
-    let contact_point = test_world - depth_eff * wn;
+    // Ponto de contato: ponto de teste projetado para a superfície do collider.
+    // Para esfera: usa (depth_eff + raio) para projetar do CM até a superfície do collider,
+    // em vez de projetar da superfície da esfera (que daria o ponto no topo da esfera).
+    let contact_point = test_world - (depth_eff + sphere_radius_offset) * wn;
 
     // Preserva lambdas do frame anterior se o slot estava ativo (warm-starting)
     let prev_lambda_n  = contacts[slot].point.w;

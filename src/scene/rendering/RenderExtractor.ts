@@ -62,7 +62,9 @@ export class RenderExtractor implements RenderQueue {
         // Garante que a matemática global está 100% calculada
         scene.preRenderUpdate();
 
+        let entityCount = 0;
         scene.traverse((entity: Entity) => {
+            entityCount++;
             if (!entity.visible) return;
 
             // O Extrator simplesmente cede a Entidade para todos os especialistas registrados
@@ -77,6 +79,6 @@ export class RenderExtractor implements RenderQueue {
         }
 
         const opaque = [...this.opaqueGroups.values()].reduce((s, g) => s + g.length, 0);
-        this.log.debug(`Extração — opaque:${opaque} transparent:${this.transparentList.length} lights:${this.lights.length}`);
+        this.log.debug(`Extração — entidades:${entityCount} opaque:${opaque} transparent:${this.transparentList.length} lights:${this.lights.length}`);
     }
 }
