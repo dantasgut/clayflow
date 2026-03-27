@@ -93,7 +93,6 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
             gz += f[2] ?? 0;
         }
 
-        // K ampliado: compensa o colapso para 1 substep mantendo qualidade total de solve
         const K = this.solveIterations * this.getSubsteps();
 
         this.rbSimParamsF32[SP_GRAVITY_X]      = gx;
@@ -109,7 +108,7 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
         this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
         this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 4.0;
         this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 4.0;
-        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.0;
+        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.1;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
         this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;
 
@@ -195,7 +194,6 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
             encoder, 'rb_predict', shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.predict) : undefined);
         compute.dispatchOnPass(predictPass, PIPELINE_IDS.RB_PREDICT, [bg.predict], wgBodies);
         predictPass.end();
-        this.eventBus?.emit('physics:bodies:integrated', { bodyCount });
 
         // rb_update_colliders — 1× por frame
         const updateCollidersPass = compute.beginComputePassExplicit(encoder, 'rb_update_colliders');
@@ -210,7 +208,6 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
                 isFirstSub && shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.narrowphase) : undefined);
             compute.dispatchOnPass(npPass, PIPELINE_IDS.RB_NARROWPHASE, [bg.narrowphase], wgContacts);
             npPass.end();
-            this.eventBus?.emit('physics:contacts:detected', { maxContacts });
 
             const solvePass = compute.beginComputePassExplicit(
                 encoder, `rb_solve_${s}`,
