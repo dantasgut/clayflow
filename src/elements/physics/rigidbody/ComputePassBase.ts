@@ -49,9 +49,18 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
     protected ready        = false;
     protected initPromise: Promise<void> | null = null;
 
-    protected readbackBuffer: GPUBuffer | null = null;
-    protected readbackBodyCount = 0;
-    protected readbackPending   = false;
+    // Double-buffer readback: alterna entre dois staging buffers para eliminar gap de 2–4 frames
+    private readbackBuffers: [GPUBuffer | null, GPUBuffer | null] = [null, null];
+    private readbackActiveIndex = 0;
+    private readbackBodyCounts: [number, number] = [0, 0];
+    private readbackPendingFlags: [boolean, boolean] = [false, false];
+
+    /** @deprecated Use readbackBuffers[readbackActiveIndex] internamente. */
+    protected get readbackBuffer(): GPUBuffer | null { return this.readbackBuffers[this.readbackActiveIndex] ?? null; }
+    protected get readbackBodyCount(): number { return this.readbackBodyCounts[this.readbackActiveIndex] ?? 0; }
+    protected set readbackBodyCount(v: number) { this.readbackBodyCounts[this.readbackActiveIndex] = v; }
+    protected get readbackPending(): boolean { return this.readbackPendingFlags[this.readbackActiveIndex] ?? false; }
+    protected set readbackPending(v: boolean) { this.readbackPendingFlags[this.readbackActiveIndex] = v; }
 
     /** Bind groups cacheados — invalidados quando o buffer de colliders é recriado. */
     protected bgCache: TBG | null = null;
@@ -96,10 +105,10 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
 
     public dispose(): void {
         this.bgCache = null;
-        if (this.readbackBuffer) {
-            this.readbackBuffer.destroy();
-            this.readbackBuffer = null;
-        }
+        this.readbackBuffers[0]?.destroy();
+        this.readbackBuffers[1]?.destroy();
+        this.readbackBuffers = [null, null];
+        this.readbackPendingFlags = [false, false];
     }
 
     public execute(context: GpuSimContext, dtFrame: number): void {
@@ -121,8 +130,8 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
 
         if (newBodies.length === 0) return;
 
-        const substeps = 1;
-        const dtSub    = dtFrame;
+        const substeps = Math.max(this.getSubsteps(), 1);
+        const dtSub    = dtFrame; // rb_velocity_recovery usa dt_frame; rb_predict usa dtSub (gravity.w)
 
         const core    = this.core;
         const buffers = core.resources.buffers;
@@ -325,24 +334,30 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
      * Retorna true se o copy foi encodado e startReadbackMap() deve ser chamado após submit.
      */
     protected encodePositionReadback(encoder: GPUCommandEncoder, bodyCount: number): boolean {
-        if (this.readbackPending) return false;
+        // Avança para o próximo slot do double-buffer
+        const nextIndex = (this.readbackActiveIndex + 1) % 2 as 0 | 1;
+
+        // Se o próximo slot ainda está mapeando, aguarda — não há slot livre
+        if (this.readbackPendingFlags[nextIndex]) return false;
+
+        this.readbackActiveIndex = nextIndex;
 
         const device    = WebGPUContext.getInstance().device;
         const bodiesBuf = this.core.resources.buffers.getBuffer(RIGID_BODY_GLOBAL_BUFFER_SET.bodiesId)!.native;
         const byteSize  = bodyCount * 160;  // 40 floats × 4 bytes (RIGID_BODY_STRIDE=160)
 
-        if (!this.readbackBuffer || this.readbackBodyCount !== bodyCount) {
-            this.readbackBuffer?.destroy();
-            this.readbackBuffer = device.createBuffer({
-                label: `${this.passId}_rb_readback_staging`,
+        if (!this.readbackBuffers[nextIndex] || this.readbackBodyCounts[nextIndex] !== bodyCount) {
+            this.readbackBuffers[nextIndex]?.destroy();
+            this.readbackBuffers[nextIndex] = device.createBuffer({
+                label: `${this.passId}_rb_readback_staging_${nextIndex}`,
                 size:  byteSize,
                 usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
             });
-            this.readbackBodyCount = bodyCount;
+            this.readbackBodyCounts[nextIndex] = bodyCount;
         }
 
-        encoder.copyBufferToBuffer(bodiesBuf, 0, this.readbackBuffer, 0, byteSize);
-        this.readbackPending = true;
+        encoder.copyBufferToBuffer(bodiesBuf, 0, this.readbackBuffers[nextIndex]!, 0, byteSize);
+        this.readbackPendingFlags[nextIndex] = true;
 
         return true;
     }
@@ -353,11 +368,13 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
      * DEVE ser chamado APÓS queue.submit([encoder]).
      */
     protected startReadbackMap(): void {
-        const snapshot   = this.gpuBodies.slice();
-        const pipelineId = this.passId;
+        const snapshot    = this.gpuBodies.slice();
+        const pipelineId  = this.passId;
+        const slotIndex   = this.readbackActiveIndex;
+        const stagingBuf  = this.readbackBuffers[slotIndex]!;
 
-        this.readbackBuffer!.mapAsync(GPUMapMode.READ).then(() => {
-            const raw = new Float32Array(this.readbackBuffer!.getMappedRange());
+        stagingBuf.mapAsync(GPUMapMode.READ).then(() => {
+            const raw = new Float32Array(stagingBuf.getMappedRange());
 
             const transformsSnapshot: Array<{
                 gpuRbIndex: number;
@@ -370,13 +387,19 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
                 if (!body.currentState.canIntegrate()) continue;
                 const off = i * 40;  // RIGID_BODY_STRIDE=160 bytes = 40 floats
                 if (body.simState) {
-                    body.simState.position[0] = raw[off]!;
-                    body.simState.position[1] = raw[off + 1]!;
-                    body.simState.position[2] = raw[off + 2]!;
-                    body.simState.rotation[0] = raw[off + 12]!;
-                    body.simState.rotation[1] = raw[off + 13]!;
-                    body.simState.rotation[2] = raw[off + 14]!;
-                    body.simState.rotation[3] = raw[off + 15]!;
+                    body.simState.position[0]        = raw[off]!;
+                    body.simState.position[1]        = raw[off + 1]!;
+                    body.simState.position[2]        = raw[off + 2]!;
+                    body.simState.velocity[0]        = raw[off + 4]!;
+                    body.simState.velocity[1]        = raw[off + 5]!;
+                    body.simState.velocity[2]        = raw[off + 6]!;
+                    body.simState.angularVelocity[0] = raw[off + 8]!;
+                    body.simState.angularVelocity[1] = raw[off + 9]!;
+                    body.simState.angularVelocity[2] = raw[off + 10]!;
+                    body.simState.rotation[0]        = raw[off + 12]!;
+                    body.simState.rotation[1]        = raw[off + 13]!;
+                    body.simState.rotation[2]        = raw[off + 14]!;
+                    body.simState.rotation[3]        = raw[off + 15]!;
                 }
                 transformsSnapshot.push({
                     gpuRbIndex: i,
@@ -390,8 +413,8 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
                 transforms: transformsSnapshot,
             });
 
-            this.readbackBuffer!.unmap();
-            this.readbackPending = false;
-        }).catch(() => { this.readbackPending = false; });
+            stagingBuf.unmap();
+            this.readbackPendingFlags[slotIndex] = false;
+        }).catch(() => { this.readbackPendingFlags[slotIndex] = false; });
     }
 }

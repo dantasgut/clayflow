@@ -225,7 +225,6 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
             encoder, 'lcp_rb_predict', shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.predict) : undefined);
         compute.dispatchOnPass(predictPass, PIPELINE_IDS.RB_PREDICT, [bg.predict], wgBodies);
         predictPass.end();
-        this.eventBus?.emit('physics:bodies:integrated', { bodyCount });
 
         // rb_update_colliders — 1× por frame
         const updateCollidersPass = compute.beginComputePassExplicit(encoder, 'lcp_rb_update_colliders');
@@ -240,7 +239,6 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
                 isFirstSub && shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.narrowphase) : undefined);
             compute.dispatchOnPass(npPass, PIPELINE_IDS.RB_NARROWPHASE, [bg.narrowphase], wgContacts);
             npPass.end();
-            this.eventBus?.emit('physics:contacts:detected', { maxContacts });
 
             const buildPass = compute.beginComputePassExplicit(encoder, `lcp_rb_build_lcp_${s}`);
             compute.dispatchOnPass(buildPass, PIPELINE_IDS.RB_BUILD_LCP, [bg.buildLcp], wgContacts);
