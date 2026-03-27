@@ -31,6 +31,8 @@ export const SP_PARTICLE_COUNT   = 7;   // u32 view index
 export const SP_CONSTRAINT_COUNT = 8;   // u32 view index
 export const SP_COLLIDER_COUNT   = 9;   // u32 view index
 export const SP_SHAPE_STIFFNESS  = 10;
+/** Raio de contato com colliders externos (0 = toca na superfície; era _pad). */
+export const SP_COLLISION_RADIUS = 11;
 
 /** Tamanho total do buffer em bytes. */
 export const SOFT_SIM_PARAMS_BYTE_SIZE = 48;

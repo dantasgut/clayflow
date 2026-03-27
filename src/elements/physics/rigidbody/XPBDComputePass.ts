@@ -104,13 +104,17 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
         this.rbSimParamsF32[SP_DT_FRAME]              = dtFrame;
-        this.rbSimParamsF32[SP_RESTITUTION]           = 0.1;
+        // Restitution=0: XPBD posicional já produz bounce natural via correção de posição.
+        // Bounce explícito adiciona energia ao sistema e impede convergência rápida.
+        this.rbSimParamsF32[SP_RESTITUTION]           = 0.0;
         this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
         this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 4.0;
         this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 4.0;
         this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.1;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
-        this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;
+        // sleep_lin_threshold deve cobrir a deriva de gravidade em repouso (~g*dt ≈ 0.16 m/s).
+        // Valor 0.01 era menor que essa deriva, impedindo o sleep em corpos em repouso.
+        this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.2;
 
         let simParamsDirty = false;
         for (let i = 0; i < 20; i++) {

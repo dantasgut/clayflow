@@ -138,6 +138,17 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
 
     let d = test_d;
 
+    // Limites finitos do plano (bounds.xy = halfWidth, halfDepth em espaço local do collider).
+    // (0,0) = ilimitado. Ponto de teste fora dos limites → sem contato (corpo cai no abismo).
+    if (col.shape_type == 2u) {
+        let bw = col.bounds.x;
+        let bd = col.bounds.y;
+        if (bw > 0.0 && (abs(test_local.x) > bw || abs(test_local.z) > bd)) {
+            contacts[slot].is_active = 0u;
+            return;
+        }
+    }
+
     // Calcula normal no espaço mundo (necessário para contatos especulativos).
     // Usa sdf_raw (valor bruto do collider em test_local) para diferenças finitas corretas.
     let grad_local = sdf_gradient(test_local, sdf_raw, col.shape_type, col.half);

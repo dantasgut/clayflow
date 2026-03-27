@@ -119,6 +119,11 @@ export class ColliderDescriptorUploader {
             f32View[halfBase + 3]  = desc.half[3];
             u32View[shapeTypeBase] = desc.shapeType;
 
+            // bounds (halfWidth, halfDepth) — reutiliza os bytes que eram _pad2
+            // Offset 38-39 em float32 = bytes 152-159 do struct ColliderDesc
+            f32View[base + 38] = desc.bounds[0];
+            f32View[base + 39] = desc.bounds[1];
+
             // body_owner_idx — gpuRbIndex do corpo que possui este collider.
             // Evita auto-colisão no narrowphase: o CM de um corpo dinâmico está sempre
             // dentro da sua própria forma SDF (d < 0), gerando contatos falsos.

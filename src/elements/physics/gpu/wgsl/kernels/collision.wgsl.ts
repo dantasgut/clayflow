@@ -36,7 +36,9 @@ fn collision_main(@builtin(global_invocation_id) gid: vec3u) {
     let inv_mass = particles[i].pos.w;
     if (inv_mass == 0.0) { return; }  // partícula fixada — ignora
 
-    let radius = params.particle_radius;
+    // collision_radius: margem de contato com colliders externos (tipicamente 0 — toca na superfície).
+    // Usar particle_radius criaria uma folga de ~12 cm entre o pano e os colliders.
+    let radius = params.collision_radius;
 
     for (var ci = 0u; ci < params.collider_count; ci++) {
         let col = colliders[ci];
@@ -46,6 +48,15 @@ fn collision_main(@builtin(global_invocation_id) gid: vec3u) {
         let local_pred = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;
 
         let d = eval_sdf(local_pred, col.shape_type, col.half);
+
+        // Limites finitos do plano (bounds.xy = halfWidth, halfDepth em espaço local).
+        // (0,0) significa sem limite. Partícula fora dos limites não colide com este collider.
+        if (col.shape_type == 2u) {
+            let bw = col.bounds.x;
+            let bd = col.bounds.y;
+            if (bw > 0.0 && (abs(local_pred.x) > bw || abs(local_pred.z) > bd)) { continue; }
+        }
+
         if (d >= radius) { continue; }  // sem penetração — próxima iteração
 
         // Gradiente local → normal no espaço mundo via parte superior 3×3 da world_mat

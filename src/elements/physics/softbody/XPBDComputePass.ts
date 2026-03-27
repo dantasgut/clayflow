@@ -45,7 +45,7 @@ import type { GpuSimContext }             from '../../../scene/systems/GpuSimCon
 import type { EngineCore }               from '../../../core/interfaces/EngineCore';
 import {
     SP_GRAVITY_X, SP_GRAVITY_Y, SP_GRAVITY_Z, SP_DT,
-    SP_RESTITUTION, SP_DAMPING, SP_PARTICLE_RADIUS,
+    SP_RESTITUTION, SP_DAMPING, SP_PARTICLE_RADIUS, SP_COLLISION_RADIUS,
     SP_PARTICLE_COUNT, SP_CONSTRAINT_COUNT, SP_COLLIDER_COUNT,
     SP_SHAPE_STIFFNESS,
 } from './SimParamsLayout';
@@ -174,7 +174,8 @@ export class SoftBodyXPBDComputePass implements PhysicsComputePass {
             this.simParamsU32[SP_PARTICLE_COUNT]  = pCount;
             this.simParamsU32[SP_CONSTRAINT_COUNT] = cCount;
             this.simParamsU32[SP_COLLIDER_COUNT]   = colliderCount;
-            this.simParamsF32[SP_SHAPE_STIFFNESS]  = body.get<number>('shapeStiffness') ?? 0.0;
+            this.simParamsF32[SP_SHAPE_STIFFNESS]   = body.get<number>('shapeStiffness') ?? 0.0;
+            this.simParamsF32[SP_COLLISION_RADIUS]  = 0.0;  // partículas tocam a superfície do collider
 
             buffers.writeBuffer(simParamsId, this.simParamsF32);
 

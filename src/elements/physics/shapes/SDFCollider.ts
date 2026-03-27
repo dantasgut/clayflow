@@ -76,8 +76,8 @@ export class SDFCollider extends Collider {
      * Fallback para formas SDF arbitrárias — descreve uma esfera circunscrita (shapeType=0).
      * Formas concretas (SphereShape, BoxShape, PlaneShape) sobrescrevem com descritores exatos.
      */
-    public packDescriptor(): { shapeType: number; half: [number, number, number, number] } {
-        return { shapeType: 0, half: [this.boundingRadiusVal, 0, 0, 0] };
+    public packDescriptor(): { shapeType: number; half: [number, number, number, number]; bounds: [number, number] } {
+        return { shapeType: 0, half: [this.boundingRadiusVal, 0, 0, 0], bounds: [0, 0] };
     }
 
     /** SDF em espaço local — disponível para testes narrowphase customizados. */
