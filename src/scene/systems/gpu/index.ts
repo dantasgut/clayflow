@@ -4,7 +4,9 @@ export type {
     GpuPipelineEventType,
     PhysicsBodiesChangedPayload,
     PhysicsCollidersChangedPayload,
-PhysicsFrameSubmittedPayload,
+    PhysicsBodiesIntegratedPayload,
+    PhysicsContactsDetectedPayload,
+    PhysicsFrameSubmittedPayload,
     PhysicsTransformsReadyPayload,
 } from './GpuPipelineEventBus';
 
