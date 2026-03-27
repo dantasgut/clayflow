@@ -130,8 +130,8 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
 
         if (newBodies.length === 0) return;
 
-        const substeps = Math.max(this.getSubsteps(), 1);
-        const dtSub    = dtFrame; // rb_velocity_recovery usa dt_frame; rb_predict usa dtSub (gravity.w)
+        const substeps = 1;
+        const dtSub    = dtFrame;
 
         const core    = this.core;
         const buffers = core.resources.buffers;

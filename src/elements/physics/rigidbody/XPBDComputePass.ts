@@ -93,7 +93,7 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
             gz += f[2] ?? 0;
         }
 
-        const K = this.solveIterations;
+        const K = this.solveIterations * this.getSubsteps();
 
         this.rbSimParamsF32[SP_GRAVITY_X]      = gx;
         this.rbSimParamsF32[SP_GRAVITY_Y]      = gy;
