@@ -128,7 +128,7 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.05;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
         this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;
-        this.rbSimParamsF32[SP_BAUMGARTE_BETA]        = this.config?.baumgarteBeta        ?? 0.5;
+        this.rbSimParamsF32[SP_BAUMGARTE_BETA]        = this.config?.baumgarteBeta        ?? 0.2;
         this.rbSimParamsF32[SP_WARM_START_FACTOR]     = this.config?.warmStartFactor      ?? 0.85;
 
         let simParamsDirty = false;
@@ -234,7 +234,12 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         compute.dispatchOnPass(updateCollidersPass, PIPELINE_IDS.RB_UPDATE_COLLIDERS, [bg.updateColliders], wgColliders);
         updateCollidersPass.end();
 
-        for (let s = 0; s < substeps; s++) {
+        // LCP/PGS: rb_predict não atualiza pos_pred entre iterações, portanto
+        // rodar narrowphase + build_lcp + solve_lcp mais de 1× por frame aplicaria
+        // o mesmo bias Baumgarte N× sobre o mesmo gap → explosão de velocidade.
+        // As K iterações internas do solve_lcp (SP_SOLVE_ITERS) são a fonte de
+        // convergência; o loop externo de substeps não faz sentido para LCP.
+        for (let s = 0; s < 1; s++) {
             const isFirstSub = s === 0;
 
             const npPass = compute.beginComputePassExplicit(

@@ -80,7 +80,7 @@ fn rb_lcp_commit_main(@builtin(global_invocation_id) gid: vec3u) {
         let slop     = rb_params.penetration_slop;
         if (actual_d >= -slop) { continue; }            // especulativo ou dentro do slop — não precisa
         let corr_depth = -(actual_d + slop);            // profundidade além do slop
-        pos_correction += contacts[slot].normal.xyz * corr_depth * 0.3;
+        pos_correction += contacts[slot].normal.xyz * corr_depth * 0.1;
     }
     new_pos += pos_correction;
 
