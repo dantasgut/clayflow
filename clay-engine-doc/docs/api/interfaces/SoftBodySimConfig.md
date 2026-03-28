@@ -1,51 +1,30 @@
 # Interface: SoftBodySimConfig
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:38](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L38)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:20](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L20)
 
-Configuração da simulação de corpos deformáveis (XPBD SoftBody).
+Configuração da simulação de corpos deformáveis (XPBD SoftBody GPU).
 
-Presença deste objeto em `PhysicsWorldOptions.softBody` habilita o
-pipeline XPBD SoftBody no mundo. Todos os campos são opcionais —
-`softBody: {}` usa os defaults e já ativa o pipeline.
-
-Forças globais (gravidade, vento) são registradas via `world.addForce()`
-e aplicadas pelo XPBDSoftBodySolver — mesmo padrão do RigidBody.
-Parâmetros por corpo (compliance, damping) são configurados em SoftBodyOptions.
+Todos os campos são opcionais — `softBody: {}` usa os defaults.
+Forças globais (gravidade, vento) são registradas via `world.addForce()`.
 
 ## Example
 
 ```ts
-// Pipeline explícito para cada tipo de corpo:
-const world = new PhysicsWorld({
-  rigidBody: { resolution: { type: ResolutionType.SEQUENTIAL_IMPULSE } },
-  softBody:  { resolution: { type: ResolutionType.XPBD }, iterations: 15 },
-});
+const world = new PhysicsWorld();
+world.addForce(new ConstantForce('gravity', vec3.fromValues(0, -9.81, 0)));
 ```
 
 ## Properties
-
-### backend?
-
-> `optional` **backend?**: `"cpu"` \| `"gpu"`
-
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:62](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L62)
-
-Backend de simulação SoftBody.
-'cpu' — pipeline XPBD em JavaScript (padrão, estável).
-'gpu' — pipeline XPBD em compute shaders WGSL (Fase 2).
-Default: 'cpu'.
-
-***
 
 ### iterations?
 
 > `optional` **iterations?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:50](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L50)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:31](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L31)
 
-Número de iterações do solver XPBD por substep (backend='gpu').
+Número de iterações do solver XPBD por substep.
 Valores maiores convergem melhor em malhas densas, com custo proporcional.
-Default: 15. (Otimização 3c — compensa substeps=4 vs. substeps=8 anteriores)
+Default: 15.
 
 ***
 
@@ -53,10 +32,9 @@ Default: 15. (Otimização 3c — compensa substeps=4 vs. substeps=8 anteriores)
 
 > `optional` **profilerLogInterval?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:99](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L99)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:63](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L63)
 
-Intervalo de frames entre leituras do profiler GPU (backend='gpu').
-Valores menores aumentam a frequência dos logs de tempo de kernel.
+Intervalo de frames entre leituras do profiler GPU.
 Default: 60 (≈1 log/s a 60fps).
 
 ***
@@ -65,11 +43,10 @@ Default: 60 (≈1 log/s a 60fps).
 
 > `optional` **resolution?**: [`SoftBodyResolutionConfig`](SoftBodyResolutionConfig.md)
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:44](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L44)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:25](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L25)
 
-Seleção explícita de pipeline para corpos deformáveis.
-Permite declarar o tipo de resolução SoftBody independentemente do RigidBody.
-Default implícito: `ResolutionType.XPBD`.
+Seleção explícita de algoritmo de resolução.
+Default: XPBD (único suportado atualmente).
 
 ***
 
@@ -77,7 +54,7 @@ Default implícito: `ResolutionType.XPBD`.
 
 > `optional` **restitution?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:55](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L55)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:36](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L36)
 
 Coeficiente de restituição na colisão partícula-colissor (0–1).
 Default: 0.05.
@@ -88,12 +65,11 @@ Default: 0.05.
 
 > `optional` **shapeStiffness?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:77](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L77)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:49](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L49)
 
 Coeficiente de rigidez do Shape Matching [0..1].
 0 = sem restauração, 1 = corpo rígido aproximado.
-Só tem efeito se useShapeMatching=true.
-Default: 0.5.
+Só tem efeito se useShapeMatching=true. Default: 0.5.
 
 ***
 
@@ -101,21 +77,14 @@ Default: 0.5.
 
 > `optional` **useJacobiSolve?**: `boolean`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:93](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L93)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:58](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L58)
 
-Ativa o solver Jacobi XPBD em vez do graph coloring (apenas backend='gpu').
+Ativa o solver Jacobi XPBD em vez do graph coloring.
 
-Jacobi: todas as constraints resolvem em paralelo por iteração via acúmulo
-de correções em atomic<i32>. Requer 2 compute passes por iteração (solve + apply),
-mas elimina a necessidade de graph coloring e reordenação de constraints.
-
-Trade-off:
-  - Prós: máximo paralelismo, sem CPU graph-coloring, ~50% menos dispatches
-    que graph coloring com 4 cores.
-  - Contras: pode precisar de ~10–20% mais iterações para convergência igual;
-    não é compatível com warm-starting de λ nesta versão.
-
-Default: false (usa graph coloring quando disponível).
+Jacobi: todas as constraints resolvem em paralelo via acúmulo em atomic<i32>.
+Prós: máximo paralelismo, sem graph-coloring.
+Contras: pode precisar de ~10–20% mais iterações; sem warm-starting de λ.
+Default: false.
 
 ***
 
@@ -123,10 +92,9 @@ Default: false (usa graph coloring quando disponível).
 
 > `optional` **useShapeMatching?**: `boolean`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:70](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/simulation/SoftBodySimConfig.ts#L70)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:43](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/simulation/SoftBodySimConfig.ts#L43)
 
-Ativa Shape Matching (apenas para backend='gpu').
-Adiciona um estágio de restauração de forma por substep:
-cada partícula é puxada em direção à posição-meta R·r_i + cm,
+Ativa Shape Matching.
+Cada partícula é puxada em direção à posição-meta R·r_i + cm,
 onde R é extraída da decomposição polar do gradiente de deformação.
 Default: false.

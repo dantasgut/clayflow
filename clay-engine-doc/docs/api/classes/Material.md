@@ -1,6 +1,6 @@
 # Abstract Class: Material
 
-Defined in: [scene/components/Material.ts:10](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L10)
+Defined in: [scene/components/Material.ts:12](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L12)
 
 Componente Lógico (ECS) representando a aparência (Shader + Material Data) do Nó.
 Componente puro — não é um nó da cena. Deve ser adicionado a um Mesh.
@@ -30,7 +30,7 @@ Componente puro — não é um nó da cena. Deve ser adicionado a um Mesh.
 
 > **bindGroupIds**: `string`[] = `[]`
 
-Defined in: [scene/components/Material.ts:22](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L22)
+Defined in: [scene/components/Material.ts:29](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L29)
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: [scene/components/Material.ts:22](https://github.com/dantasgut/clayf
 
 > **bindGroupSchema**: `GPUBindGroupLayoutEntry`[] = `[]`
 
-Defined in: [scene/components/Material.ts:23](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L23)
+Defined in: [scene/components/Material.ts:30](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L30)
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: [scene/components/Material.ts:23](https://github.com/dantasgut/clayf
 
 > **doubleSided**: `boolean` = `false`
 
-Defined in: [scene/components/Material.ts:24](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L24)
+Defined in: [scene/components/Material.ts:31](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L31)
 
 ***
 
@@ -54,7 +54,7 @@ Defined in: [scene/components/Material.ts:24](https://github.com/dantasgut/clayf
 
 > `readonly` **layer**: [`VISUAL_COMPONENT`](../enumerations/ResourceType.md#visual_component) = `ResourceType.VISUAL_COMPONENT`
 
-Defined in: [scene/components/Material.ts:14](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L14)
+Defined in: [scene/components/Material.ts:16](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L16)
 
 #### Implementation of
 
@@ -66,7 +66,7 @@ Defined in: [scene/components/Material.ts:14](https://github.com/dantasgut/clayf
 
 > **rawUniforms**: `Map`\<`string`, `Float32Array`\>
 
-Defined in: [scene/components/Material.ts:26](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L26)
+Defined in: [scene/components/Material.ts:33](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L33)
 
 ***
 
@@ -74,7 +74,7 @@ Defined in: [scene/components/Material.ts:26](https://github.com/dantasgut/clayf
 
 > **shaderId**: `string` = `''`
 
-Defined in: [scene/components/Material.ts:18](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L18)
+Defined in: [scene/components/Material.ts:25](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L25)
 
 ***
 
@@ -82,7 +82,7 @@ Defined in: [scene/components/Material.ts:18](https://github.com/dantasgut/clayf
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/Material.ts:17](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L17)
+Defined in: [scene/components/Material.ts:19](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L19)
 
 #### Implementation of
 
@@ -94,7 +94,7 @@ Defined in: [scene/components/Material.ts:17](https://github.com/dantasgut/clayf
 
 > **topology**: `GPUPrimitiveTopology` = `'triangle-list'`
 
-Defined in: [scene/components/Material.ts:25](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L25)
+Defined in: [scene/components/Material.ts:32](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L32)
 
 ***
 
@@ -102,7 +102,7 @@ Defined in: [scene/components/Material.ts:25](https://github.com/dantasgut/clayf
 
 > **transparent**: `boolean` = `false`
 
-Defined in: [scene/components/Material.ts:19](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L19)
+Defined in: [scene/components/Material.ts:26](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L26)
 
 ***
 
@@ -110,7 +110,7 @@ Defined in: [scene/components/Material.ts:19](https://github.com/dantasgut/clayf
 
 > `readonly` **type**: `string` = `'Material'`
 
-Defined in: [scene/components/Material.ts:15](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L15)
+Defined in: [scene/components/Material.ts:17](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L17)
 
 #### Implementation of
 
@@ -122,7 +122,7 @@ Defined in: [scene/components/Material.ts:15](https://github.com/dantasgut/clayf
 
 > **useVertexPulling**: `boolean` = `false`
 
-Defined in: [scene/components/Material.ts:21](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L21)
+Defined in: [scene/components/Material.ts:28](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L28)
 
 Quando true, o renderer usa vertex pulling (lê VBO/IBO como storage buffers).
 
@@ -132,11 +132,33 @@ Quando true, o renderer usa vertex pulling (lê VBO/IBO como storage buffers).
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/Material.ts:12](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L12)
+Defined in: [scene/components/Material.ts:14](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L14)
 
 #### Implementation of
 
 [`Component`](../interfaces/Component.md).[`uuid`](../interfaces/Component.md#uuid)
+
+## Accessors
+
+### currentResourceState
+
+#### Get Signature
+
+> **get** **currentResourceState**(): `ResourceStateHandler`
+
+Defined in: [scene/components/Material.ts:22](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L22)
+
+Handler do estado atual — encapsula capacidades do ciclo de vida GPU.
+
+##### Returns
+
+`ResourceStateHandler`
+
+Handler do estado atual — consulta de capacidades pelos consumidores.
+
+#### Implementation of
+
+[`Component`](../interfaces/Component.md).[`currentResourceState`](../interfaces/Component.md#currentresourcestate)
 
 ## Methods
 
@@ -144,7 +166,7 @@ Defined in: [scene/components/Material.ts:12](https://github.com/dantasgut/clayf
 
 > **allocateResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/Material.ts:34](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L34)
+Defined in: [scene/components/Material.ts:40](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L40)
 
 #### Parameters
 
@@ -166,7 +188,7 @@ Defined in: [scene/components/Material.ts:34](https://github.com/dantasgut/clayf
 
 > **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/Material.ts:66](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L66)
+Defined in: [scene/components/Material.ts:72](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L72)
 
 #### Parameters
 
@@ -188,7 +210,7 @@ Defined in: [scene/components/Material.ts:66](https://github.com/dantasgut/clayf
 
 > **markDirty**(): `void`
 
-Defined in: [scene/components/Material.ts:28](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L28)
+Defined in: [scene/components/Material.ts:35](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L35)
 
 #### Returns
 
@@ -200,7 +222,7 @@ Defined in: [scene/components/Material.ts:28](https://github.com/dantasgut/clayf
 
 > **updateResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/Material.ts:58](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/Material.ts#L58)
+Defined in: [scene/components/Material.ts:64](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/Material.ts#L64)
 
 #### Parameters
 

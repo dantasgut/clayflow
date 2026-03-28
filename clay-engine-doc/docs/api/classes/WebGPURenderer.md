@@ -1,6 +1,6 @@
 # Class: WebGPURenderer
 
-Defined in: [presentation/renderers/WebGPURenderer.ts:33](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/presentation/renderers/WebGPURenderer.ts#L33)
+Defined in: [presentation/renderers/WebGPURenderer.ts:32](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/presentation/renderers/WebGPURenderer.ts#L32)
 
 O Renderizador Final WebGPU (Camada 4).
 Orquestra o Carregador (C2->C1), o Extrator (C2->C4) e usa a Camada 1 para despachar Comandos.
@@ -20,7 +20,7 @@ Layout de bind groups padrão (std_pipeline_hash):
 
 > **new WebGPURenderer**(`world?`): `WebGPURenderer`
 
-Defined in: [presentation/renderers/WebGPURenderer.ts:97](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/presentation/renderers/WebGPURenderer.ts#L97)
+Defined in: [presentation/renderers/WebGPURenderer.ts:96](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/presentation/renderers/WebGPURenderer.ts#L96)
 
 #### Parameters
 
@@ -38,7 +38,7 @@ Defined in: [presentation/renderers/WebGPURenderer.ts:97](https://github.com/dan
 
 > **initialize**(`canvas`): `Promise`\<`void`\>
 
-Defined in: [presentation/renderers/WebGPURenderer.ts:119](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/presentation/renderers/WebGPURenderer.ts#L119)
+Defined in: [presentation/renderers/WebGPURenderer.ts:117](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/presentation/renderers/WebGPURenderer.ts#L117)
 
 Inicializa o backend WebGPU e adquire o device da GPU.
 Deve ser chamado uma vez antes de render().
@@ -64,7 +64,7 @@ Toda a Camada 1 (device, queue, context) é gerenciada aqui — invisível ao us
 
 > **render**(`scene`, `camera`): `Promise`\<`void`\>
 
-Defined in: [presentation/renderers/WebGPURenderer.ts:136](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/presentation/renderers/WebGPURenderer.ts#L136)
+Defined in: [presentation/renderers/WebGPURenderer.ts:134](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/presentation/renderers/WebGPURenderer.ts#L134)
 
 Ciclo principal: renderiza a cena pela perspectiva da câmera.
 
@@ -92,7 +92,7 @@ Ciclo principal: renderiza a cena pela perspectiva da câmera.
 
 > **setClearColor**(`r`, `g`, `b`, `a`): `void`
 
-Defined in: [presentation/renderers/WebGPURenderer.ts:130](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/presentation/renderers/WebGPURenderer.ts#L130)
+Defined in: [presentation/renderers/WebGPURenderer.ts:128](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/presentation/renderers/WebGPURenderer.ts#L128)
 
 Define a cor de fundo.
 
@@ -128,7 +128,7 @@ Define a cor de fundo.
 
 > **setSize**(`width`, `height`): `void`
 
-Defined in: [presentation/renderers/WebGPURenderer.ts:124](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/presentation/renderers/WebGPURenderer.ts#L124)
+Defined in: [presentation/renderers/WebGPURenderer.ts:122](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/presentation/renderers/WebGPURenderer.ts#L122)
 
 Define o tamanho físico da tela de saída.
 

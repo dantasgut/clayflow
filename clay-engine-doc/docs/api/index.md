@@ -2,15 +2,13 @@
 
 ## Enumerations
 
-- [CollisionAlgorithmType](enumerations/CollisionAlgorithmType.md)
 - [LogLevel](enumerations/LogLevel.md)
-- [ResolutionType](enumerations/ResolutionType.md)
+- [PhysicsBodyState](enumerations/PhysicsBodyState.md)
 - [ResourceState](enumerations/ResourceState.md)
 - [ResourceType](enumerations/ResourceType.md)
 
 ## Classes
 
-- [AABBBroadphase](classes/AABBBroadphase.md)
 - [AmbientLight](classes/AmbientLight.md)
 - [BoxGeometry](classes/BoxGeometry.md)
 - [BoxShape](classes/BoxShape.md)
@@ -19,13 +17,15 @@
 - [ConeEmitterShape](classes/ConeEmitterShape.md)
 - [ConstantForce](classes/ConstantForce.md)
 - [CPUParticleEmitter](classes/CPUParticleEmitter.md)
-- [CPURigidBodySolver](classes/CPURigidBodySolver.md)
 - [DebugMarker](classes/DebugMarker.md)
+- [DefaultGpuPipelineEventBus](classes/DefaultGpuPipelineEventBus.md)
 - [DirectionalLight](classes/DirectionalLight.md)
 - [Entity](classes/Entity.md)
 - [FunctionalForce](classes/FunctionalForce.md)
 - [Geometry](classes/Geometry.md)
+- [GpuComputePassRegistry](classes/GpuComputePassRegistry.md)
 - [GPUParticleEmitter](classes/GPUParticleEmitter.md)
+- [GpuPhysicsOrchestrator](classes/GpuPhysicsOrchestrator.md)
 - [GPUSpringMassSolver](classes/GPUSpringMassSolver.md)
 - [Light](classes/Light.md)
 - [Logger](classes/Logger.md)
@@ -52,34 +52,32 @@
 - [VertexLayout](classes/VertexLayout.md)
 - [WebGPURenderer](classes/WebGPURenderer.md)
 - [WireframeMaterial](classes/WireframeMaterial.md)
-- [XPBDSoftBodySolver](classes/XPBDSoftBodySolver.md)
 
 ## Interfaces
 
 - [BodyEntry](interfaces/BodyEntry.md)
 - [ColliderReg](interfaces/ColliderReg.md)
-- [CollisionAlgorithm](interfaces/CollisionAlgorithm.md)
-- [CollisionContact](interfaces/CollisionContact.md)
 - [CollisionSimConfig](interfaces/CollisionSimConfig.md)
 - [Component](interfaces/Component.md)
 - [EmitterShape](interfaces/EmitterShape.md)
 - [ExtractionStrategy](interfaces/ExtractionStrategy.md)
 - [Force](interfaces/Force.md)
-- [NarrowphaseConfig](interfaces/NarrowphaseConfig.md)
+- [GpuPipelineEventBus](interfaces/GpuPipelineEventBus.md)
+- [GpuSimContext](interfaces/GpuSimContext.md)
 - [Physic](interfaces/Physic.md)
+- [PhysicsComputePass](interfaces/PhysicsComputePass.md)
+- [PhysicsSceneConfig](interfaces/PhysicsSceneConfig.md)
 - [PhysicsSolver](interfaces/PhysicsSolver.md)
-- [PhysicsStage](interfaces/PhysicsStage.md)
-- [PhysicsStageContext](interfaces/PhysicsStageContext.md)
-- [PhysicsWorldOptions](interfaces/PhysicsWorldOptions.md)
 - [RenderCommand](interfaces/RenderCommand.md)
 - [Renderer](interfaces/Renderer.md)
 - [RenderLight](interfaces/RenderLight.md)
 - [RenderQueue](interfaces/RenderQueue.md)
-- [ResolutionConfig](interfaces/ResolutionConfig.md)
 - [Resource](interfaces/Resource.md)
+- [RigidBodyGpuConfig](interfaces/RigidBodyGpuConfig.md)
 - [RigidBodyOptions](interfaces/RigidBodyOptions.md)
 - [RigidBodySimConfig](interfaces/RigidBodySimConfig.md)
 - [SimulationWorld](interfaces/SimulationWorld.md)
+- [SoftBodyGpuConfig](interfaces/SoftBodyGpuConfig.md)
 - [SoftBodyResolutionConfig](interfaces/SoftBodyResolutionConfig.md)
 - [SoftBodySimConfig](interfaces/SoftBodySimConfig.md)
 - [SpawnSample](interfaces/SpawnSample.md)
@@ -93,3 +91,9 @@
 
 - [LogCall](functions/LogCall.md)
 - [Loggable](functions/Loggable.md)
+
+## References
+
+### PhysicsWorldOptions
+
+Renames and re-exports [PhysicsSceneConfig](interfaces/PhysicsSceneConfig.md)

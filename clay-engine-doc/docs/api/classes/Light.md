@@ -1,6 +1,6 @@
 # Class: Light
 
-Defined in: [scene/lights/Light.ts:15](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/lights/Light.ts#L15)
+Defined in: [scene/lights/Light.ts:15](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/lights/Light.ts#L15)
 
 Componente de Iluminação. (Camada 2 - Representação - ECS Puro)
 Contém a cor e a intensidade. Sua posição/direção será lida do Transform da Entidade à qual está anexado.
@@ -21,7 +21,7 @@ Contém a cor e a intensidade. Sua posição/direção será lida do Transform d
 
 > **new Light**(`type`, `color?`, `intensity?`): `Light`
 
-Defined in: [scene/lights/Light.ts:23](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/lights/Light.ts#L23)
+Defined in: [scene/lights/Light.ts:23](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/lights/Light.ts#L23)
 
 #### Parameters
 
@@ -47,7 +47,7 @@ Defined in: [scene/lights/Light.ts:23](https://github.com/dantasgut/clayflow/blo
 
 > **color**: `vec3`
 
-Defined in: [scene/lights/Light.ts:20](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/lights/Light.ts#L20)
+Defined in: [scene/lights/Light.ts:20](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/lights/Light.ts#L20)
 
 ***
 
@@ -55,7 +55,7 @@ Defined in: [scene/lights/Light.ts:20](https://github.com/dantasgut/clayflow/blo
 
 > **intensity**: `number`
 
-Defined in: [scene/lights/Light.ts:21](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/lights/Light.ts#L21)
+Defined in: [scene/lights/Light.ts:21](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/lights/Light.ts#L21)
 
 ***
 
@@ -63,7 +63,7 @@ Defined in: [scene/lights/Light.ts:21](https://github.com/dantasgut/clayflow/blo
 
 > `readonly` **layer**: [`VISUAL_COMPONENT`](../enumerations/ResourceType.md#visual_component) = `ResourceType.VISUAL_COMPONENT`
 
-Defined in: [scene/lights/Light.ts:16](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/lights/Light.ts#L16)
+Defined in: [scene/lights/Light.ts:16](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/lights/Light.ts#L16)
 
 #### Implementation of
 
@@ -75,7 +75,7 @@ Defined in: [scene/lights/Light.ts:16](https://github.com/dantasgut/clayflow/blo
 
 > **lightType**: `LightType`
 
-Defined in: [scene/lights/Light.ts:18](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/lights/Light.ts#L18)
+Defined in: [scene/lights/Light.ts:18](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/lights/Light.ts#L18)
 
 ***
 
@@ -83,7 +83,7 @@ Defined in: [scene/lights/Light.ts:18](https://github.com/dantasgut/clayflow/blo
 
 > `readonly` **type**: `string` = `'Light'`
 
-Defined in: [scene/lights/Light.ts:17](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/lights/Light.ts#L17)
+Defined in: [scene/lights/Light.ts:17](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/lights/Light.ts#L17)
 
 #### Implementation of
 

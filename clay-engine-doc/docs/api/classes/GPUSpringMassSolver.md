@@ -1,6 +1,6 @@
 # Class: GPUSpringMassSolver
 
-Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:9](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/solvers/GPUSpringMassSolver.ts#L9)
+Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:9](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/solvers/GPUSpringMassSolver.ts#L9)
 
 Solver GPU para corpos deformáveis (spring-mass via Compute Shader).
 Implementa o lado "Implementação" do padrão Bridge.
@@ -15,7 +15,7 @@ Implementa o lado "Implementação" do padrão Bridge.
 
 > **new GPUSpringMassSolver**(`compute`): `GPUSpringMassSolver`
 
-Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:14](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/solvers/GPUSpringMassSolver.ts#L14)
+Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:14](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/solvers/GPUSpringMassSolver.ts#L14)
 
 #### Parameters
 
@@ -33,7 +33,7 @@ Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:14](https://github.
 
 > `readonly` **id**: `"gpu_spring_mass"` = `'gpu_spring_mass'`
 
-Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:10](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/solvers/GPUSpringMassSolver.ts#L10)
+Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:10](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/solvers/GPUSpringMassSolver.ts#L10)
 
 Identificador único do solver para logging e profiling.
 
@@ -47,7 +47,7 @@ Identificador único do solver para logging e profiling.
 
 > **solve**(`body`, `_dt`): `void`
 
-Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:18](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/solvers/GPUSpringMassSolver.ts#L18)
+Defined in: [elements/physics/solvers/GPUSpringMassSolver.ts:18](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/solvers/GPUSpringMassSolver.ts#L18)
 
 Avança a simulação do corpo por um passo de tempo.
 
