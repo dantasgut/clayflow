@@ -84,7 +84,11 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     // Contato corpo-a-corpo: cada par (A, B) gera dois slots simétricos —
     // (rb_A, col_B) e (rb_B, col_A). Para evitar impulso duplo, mantemos
     // apenas o slot canônico onde rb_i < col.body_owner_idx e suprimimos o outro.
-    if (col.body_owner_idx != 0xFFFFFFFFu && rb_i > col.body_owner_idx) {
+    // SOMENTE quando o corpo B é dinâmico (inv_mass > 0): corpos kinematic
+    // (inv_mass == 0) nunca aparecem como rb_i (já filtrado acima), portanto não
+    // geram o slot simétrico — suprimir o contato seria incorreto.
+    if (col.body_owner_idx != 0xFFFFFFFFu && rb_i > col.body_owner_idx
+        && bodies[col.body_owner_idx].pos.w > 0.0) {
         contacts[slot].is_active = 0u;
         return;
     }
