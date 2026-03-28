@@ -121,8 +121,8 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         this.rbSimParamsF32[SP_DT_FRAME]              = dtFrame;
         this.rbSimParamsF32[SP_RESTITUTION]           = 0.1;
         this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
-        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 4.0;
-        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 4.0;
+        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 0.0;    // sem damping global — per-body em mat_props.z
+        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 3.0;   // amortecimento angular global moderado
         this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.0;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
         this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;

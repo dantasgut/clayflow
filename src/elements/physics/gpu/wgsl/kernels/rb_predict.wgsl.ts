@@ -3,11 +3,11 @@
  *
  * Executa 1× por frame ANTES do loop de substeps.
  * Para cada corpo rígido dinâmico (inv_mass > 0):
- *   1. Aplica gravidade à velocidade externa: vel_ext = vel.xyz + gravity.xyz * dt
+ *   1. Aplica gravidade à velocidade externa: vel_ext = vel.xyz + gravity.xyz * dt_frame
  *   2. Aplica correção giroscópica a omega via gyroscopic_correction()
  *   3. Aplica damping linear e angular
- *   4. Prediz posição: pos_pred = pos + vel_ext * dt
- *   5. Prediz rotação: rot_pred = quat_integrate(rot, omega_g, dt)
+ *   4. Prediz posição: pos_pred = pos + vel_ext * dt_frame
+ *   5. Prediz rotação: rot_pred = quat_integrate(rot, omega_g, dt_frame)
  *
  * NÃO modifica vel nem omega — preservados para rb_velocity_recovery ao final do frame.
  *
@@ -32,7 +32,16 @@ fn rb_predict_main(@builtin(global_invocation_id) gid: vec3u) {
     let inv_mass = bodies[i].pos.w;
     if (inv_mass == 0.0) { return; }  // cinemático — ignora
 
-    let dt  = rb_params.gravity.w;
+    // Sleep real: corpo dorme quando vel.w = 1 (setado por rb_velocity_recovery).
+    // Pula gravidade e predição — pos_pred = pos mantém o corpo parado.
+    // O corpo acorda quando rb_solve corrige pos_pred (colisão com outro corpo).
+    if (bodies[i].vel.w > 0.5) {
+        bodies[i].pos_pred = bodies[i].pos;
+        bodies[i].rot_pred = bodies[i].rot;
+        return;
+    }
+
+    let dt  = rb_params.dt_frame;
     let vel = bodies[i].vel.xyz;
     let omega = bodies[i].omega.xyz;
     let rot = bodies[i].rot;
@@ -48,9 +57,9 @@ fn rb_predict_main(@builtin(global_invocation_id) gid: vec3u) {
     let I_safe = select(vec3f(1e6), 1.0 / I_inv, I_inv > vec3f(1e-12));
     let omega_g = gyroscopic_correction(omega, I_safe, dt);
 
-    // Damping
-    let vel_d   = vel_ext * (1.0 - lin_damping * dt);
-    let omega_d = omega_g * (1.0 - ang_damping * dt);
+    // Damping exponencial: frame-rate independent (exp(-k*dt) correto para k*dt qualquer).
+    let vel_d   = vel_ext * exp(-lin_damping * dt);
+    let omega_d = omega_g * exp(-ang_damping * dt);
 
     // Predição de posição
     let pos_pred = bodies[i].pos.xyz + vel_d * dt;

@@ -19,4 +19,8 @@ export interface GpuSimContext {
     readonly bodies:       ReadonlyMap<string, BodyEntry>;
     readonly entityBodies: ReadonlyMap<number, BodyEntry>;
     readonly colliders:    ReadonlyMap<number, ColliderReg>;
+    /** Número de colliders enviados ao buffer GPU neste frame (preenchido pelo orquestrador). */
+    colliderCount:           number;
+    /** True se o buffer gpu_colliders_global foi recriado neste frame (invalida bind groups). */
+    colliderBufferRecreated: boolean;
 }

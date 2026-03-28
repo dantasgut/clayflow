@@ -23,13 +23,14 @@ import { WebGPUContext }             from '../../../core/context/WebGPUContext';
 import type { Force }                 from '../../../scene/systems/forces/Force';
 import type { RigidBody }             from '../RigidBody';
 import type { RigidBodySimConfig }    from '../../../scene/systems/simulation/RigidBodySimConfig';
-import { ColliderDescriptorUploader, COLLIDERS_BUFFER_ID } from '../shared/ColliderDescriptorUploader';
+import { COLLIDERS_BUFFER_ID } from '../shared/ColliderDescriptorUploader';
 import { RIGID_BODY_GLOBAL_BUFFER_SET } from './RigidBodyGlobalBufferSet';
 import {
     PIPELINE_IDS,
     ensurePhysicsPipelinesInitialized,
 } from '../shared/ShaderLibrary';
 import { GpuPhysicsProfiler, PHYS_SLOTS } from './Profiler';
+import { Logger }                          from '../../../core/debug/Logger';
 import type { GpuPipelineEventBus }       from '../../../scene/systems/gpu/GpuPipelineEventBus';
 import type { PhysicsComputePass }        from '../../../scene/systems/PhysicsComputePass';
 import type { GpuSimContext }             from '../../../scene/systems/GpuSimContext';
@@ -43,7 +44,6 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
 
     // ── Estado interno ────────────────────────────────────────────────────
     protected core: EngineCore = WebGPUEngineCore.getInstance();
-    protected readonly uploader  = new ColliderDescriptorUploader();
     protected readonly phyProfiler: GpuPhysicsProfiler;
 
     protected ready        = false;
@@ -81,6 +81,10 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
     /** Buffer temporário para upload do mapeamento gpuRbIndex→uboSlot. */
     protected uboMapData = new Uint32Array(256);
 
+    private readonly velLog = Logger.create('VelocityLog');
+    private velLogFrame = 0;
+    private readonly velLogInterval: number;
+
     constructor(
         protected readonly globalForces:    Map<string, Force>,
         protected readonly getSubsteps:     () => number,
@@ -90,8 +94,9 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
         protected readonly eventBus?:       GpuPipelineEventBus,
     ) {
         this.phyProfiler = new GpuPhysicsProfiler(logInterval);
+        this.velLogInterval = logInterval;
 
-        // Qualquer realocação do buffer global invalida os bind groups
+        // Qualquer realocação do buffer global invalida os bind grupos
         eventBus?.on('physics:rb:reallocated', () => { this.bgCache = null; });
     }
 
@@ -143,12 +148,12 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
             newBodies[i]!.gpuRbIndex = i;
         }
 
-        const colliderCount = this.uploader.upload(context);
+        const colliderCount = context.colliderCount;
 
         this.gpuBodies    = newBodies;
         this.gpuEntityIds = newEntityIds;
 
-        if (this.uploader.bufferRecreated) {
+        if (context.colliderBufferRecreated) {
             this.bgCache = null;
         }
 
@@ -406,6 +411,21 @@ export abstract class ComputePassBase<TBG> implements PhysicsComputePass {
                     position:   [raw[off]!, raw[off + 1]!, raw[off + 2]!] as const,
                     rotation:   [raw[off + 12]!, raw[off + 13]!, raw[off + 14]!, raw[off + 15]!] as const,
                 });
+            }
+
+            this.velLogFrame++;
+            if (this.velLogFrame % this.velLogInterval === 0) {
+                const lines = snapshot
+                    .filter(b => b.simState && b.currentState.canIntegrate())
+                    .map(b => {
+                        const s    = b.simState!;
+                        const spd  = Math.sqrt(s.velocity[0]**2 + s.velocity[1]**2 + s.velocity[2]**2);
+                        const omg  = Math.sqrt(s.angularVelocity[0]**2 + s.angularVelocity[1]**2 + s.angularVelocity[2]**2);
+                        const slp  = spd < 0.001 && omg < 0.001 ? ' [SLEEP]' : '';
+                        return `  body[${b.gpuRbIndex}] spd=${spd.toFixed(3)}m/s omg=${omg.toFixed(3)}rad/s${slp}`;
+                    })
+                    .join('\n');
+                this.velLog.info(`frame ${this.velLogFrame} velocities:\n${lines}`);
             }
 
             this.eventBus?.emit('physics:transforms:ready', {

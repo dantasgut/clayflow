@@ -108,8 +108,11 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
         // Bounce explícito adiciona energia ao sistema e impede convergência rápida.
         this.rbSimParamsF32[SP_RESTITUTION]           = 0.0;
         this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
-        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 4.0;
-        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 4.0;
+        // Damping global em velocity_recovery usa fórmula 1 - k*dtSub com dtSub=dtFrame
+        // (substeps=1). Com k=4.0 isso dá 1-4/60=0.93/frame → terminal vel ~2.3m/s (artificial).
+        // Com k=0.05 → 1-0.05/60≈0.9992/frame → queda livre realista sem resistência visível.
+        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 0.05;
+        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 0.5;
         this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.1;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
         // sleep_lin_threshold deve cobrir a deriva de gravidade em repouso (~g*dt ≈ 0.16 m/s).

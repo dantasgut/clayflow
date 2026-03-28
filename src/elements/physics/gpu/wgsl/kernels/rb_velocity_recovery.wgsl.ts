@@ -41,35 +41,35 @@ fn rb_velocity_recovery_main(@builtin(global_invocation_id) gid: vec3u) {
     let raw_vel = (bodies[i].pos_pred.xyz - bodies[i].pos.xyz) * inv_dt;
 
     // ── Correção anti-arremesso (velocity clamping) ───────────────────────────
-    // Decompõe a correção de velocidade na direção da gravidade e na perpendicular.
-    // Clampeia apenas o componente ao longo da gravidade para evitar que correções
-    // posicionais (rb_solve) gerem velocidades explosivas no contato.
     let g_xyz = rb_params.gravity.xyz;
     let g_len = length(g_xyz);
-    var new_vel = raw_vel;
+    var new_vel   = raw_vel;
+    var in_contact = false;   // usado pelo pseudo-sleep abaixo
 
     if (g_len > 1e-6) {
-        let g_dir       = g_xyz / g_len;
-        let vel_old     = bodies[i].vel.xyz;
-        let expected    = vel_old + g_xyz * dt;          // velocidade esperada sem contato
-        let correction  = raw_vel - expected;            // quanto rb_solve acrescentou
+        let g_dir      = g_xyz / g_len;
+        let vel_old    = bodies[i].vel.xyz;
+        let expected   = vel_old + g_xyz * dt;
+        let correction = raw_vel - expected;
 
-        let corr_g      = dot(correction, g_dir);        // componente na direção da gravidade
-        let approach_g  = dot(expected, g_dir);          // >0 se caindo na direção de g
+        let corr_g     = dot(correction, g_dir);
+        let approach_g = dot(expected, g_dir);   // >0 se caindo na direção de g
+        let raw_vel_g  = dot(raw_vel, g_dir);
 
-        // Clampeia a componente de correção ao longo de g:
-        // não pode reverter mais do que a velocidade de aproximação × (1 + restitution).
+        // Contato: rb_solve corrigiu pos_pred para cima → raw_vel_g reduziu em relação a expected
+        // Em queda livre raw_vel_g ≈ approach_g (sem correção). Threshold 50% isola contato real.
+        in_contact = (approach_g > 1e-4) && (raw_vel_g < approach_g * 0.5);
+
         var corr_g_clamped = corr_g;
         if (approach_g > 1e-6) {
-            // Restitution threshold: abaixo da velocidade de aproximação, não aplicar bounce
-            let rest_threshold       = rb_params.restitution_threshold;
+            let rest_threshold        = rb_params.restitution_threshold;
             let effective_restitution = select(rb_params.restitution, 0.0, approach_g <= rest_threshold);
-            let max_bounce           = approach_g * (1.0 + effective_restitution);
-            corr_g_clamped           = max(corr_g, -max_bounce);
+            let max_bounce            = approach_g * (1.0 + effective_restitution);
+            corr_g_clamped            = max(corr_g, -max_bounce);
         }
 
-        let corr_perp   = correction - corr_g * g_dir;   // mantém correções laterais intactas
-        new_vel         = expected + corr_g_clamped * g_dir + corr_perp;
+        let corr_perp = correction - corr_g * g_dir;
+        new_vel       = expected + corr_g_clamped * g_dir + corr_perp;
     }
 
     // Recupera velocidade angular a partir da variação de quaternion
@@ -84,12 +84,13 @@ fn rb_velocity_recovery_main(@builtin(global_invocation_id) gid: vec3u) {
     var final_vel   = new_vel   * lin_damp;
     var final_omega = new_omega * ang_damp;
 
-    // Pseudo-sleep: zera velocidade abaixo do threshold (desativado quando threshold = 0.0)
-    // Fator 25.0 para omega: (5 rad/s)² / (1 cm/s)² — threshold angular ~5× maior
-    let sleep_sq  = rb_params.sleep_lin_threshold * rb_params.sleep_lin_threshold;
-    let speed_sq  = dot(final_vel, final_vel);
-    let omega_sq  = dot(final_omega, final_omega);
-    if (sleep_sq > 0.0 && speed_sq < sleep_sq && omega_sq < sleep_sq * 25.0) {
+    // Pseudo-sleep: zera velocidade abaixo do threshold APENAS quando em contato.
+    // Sem essa guarda, o threshold (0.2 m/s) engole a aceleração gravitacional
+    // (~g*dt ≈ 0.163 m/s), impedindo que corpos em queda livre acumulem velocidade.
+    let sleep_sq = rb_params.sleep_lin_threshold * rb_params.sleep_lin_threshold;
+    let speed_sq = dot(final_vel, final_vel);
+    let omega_sq = dot(final_omega, final_omega);
+    if (sleep_sq > 0.0 && in_contact && speed_sq < sleep_sq && omega_sq < sleep_sq * 25.0) {
         final_vel   = vec3f(0.0);
         final_omega = vec3f(0.0);
     }

@@ -106,6 +106,11 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
         var best_world:  vec3f  = corners[0];
         var best_local:  vec3f  = (col.inv_world_mat * vec4f(corners[0], 1.0)).xyz;
 
+        // Acumula cantos penetrantes para centróide (≥2 → pousamento plano estável)
+        var sum_world: vec3f = vec3f(0.0);
+        var sum_local: vec3f = vec3f(0.0);
+        var pen_count: f32   = 0.0;
+
         for (var k: u32 = 0u; k < 8u; k++) {
             let cw = corners[k];
             let cl = (col.inv_world_mat * vec4f(cw, 1.0)).xyz;
@@ -115,12 +120,30 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
                 best_world = cw;
                 best_local = cl;
             }
+            if (cd < 0.0) {
+                sum_world += cw;
+                sum_local += cl;
+                pen_count += 1.0;
+            }
         }
 
-        test_world = best_world;
-        test_local = best_local;
-        sdf_raw    = best_d;
-        test_d     = best_d;
+        // Centróide apenas para colisores planos (shape_type==2).
+        // Colisores caixa têm gradiente diagonal perto das arestas — o canto mais profundo
+        // está mais longe das arestas e produz um normal mais confiável.
+        let use_centroid = (pen_count >= 2.0) && (col.shape_type == 2u);
+        if (use_centroid) {
+            // Centróide dos cantos penetrantes — elimina torque espúrio em pousamentos planos
+            test_world = sum_world / pen_count;
+            test_local = sum_local / pen_count;
+            sdf_raw    = eval_sdf(test_local, col.shape_type, col.half);
+            test_d     = best_d;  // profundidade máxima para correção
+        } else {
+            // Canto mais profundo: normal mais confiável (mais longe das arestas)
+            test_world = best_world;
+            test_local = best_local;
+            sdf_raw    = best_d;
+            test_d     = best_d;
+        }
     } else {
         // SphereShape — testa o CM e subtrai o raio para detectar contato na superfície.
         // Sem subtração, o CM precisaria cruzar o collider antes do contato ser detectado.
@@ -151,7 +174,7 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
 
     // Calcula normal no espaço mundo (necessário para contatos especulativos).
     // Usa sdf_raw (valor bruto do collider em test_local) para diferenças finitas corretas.
-    let grad_local = sdf_gradient(test_local, sdf_raw, col.shape_type, col.half);
+    let grad_local = sdf_gradient_rb(test_local, sdf_raw, col.shape_type, col.half);
     let wn_raw     = mat4_upper3x3_transform(col.world_mat, grad_local);
     let wn_len     = length(wn_raw);
     if (wn_len < 1e-8) {
