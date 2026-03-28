@@ -15,9 +15,9 @@
  *   offset 12: lambda_tx   (f32)
  *   offset 13: lambda_ty   (f32)
  *   offset 14: diagonal_n  (f32)
- *   offset 15: diagonal_t  (f32)
- *   offset 16: restitution (f32)
- *   offset 17: _pad2       (f32)
+ *   offset 15: diagonal_t1  (f32)
+ *   offset 16: restitution  (f32)
+ *   offset 17: diagonal_t2  (f32)
  *   offset 18: _pad3       (f32)
  *   offset 19: _pad4       (f32)
  */

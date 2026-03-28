@@ -11,18 +11,18 @@
  *   offset 44: feature_id  (u32)   — índice de feature (0-3 para multi-ponto / persistência)
  *   offset 48: lambda_tx   (f32)   — impulso tangencial acumulado x (warm-starting)
  *   offset 52: lambda_ty   (f32)   — impulso tangencial acumulado y
- *   offset 56: diagonal_n  (f32)   — Delassus diagonal para normal — pré-computado em rb_build_lcp
- *   offset 60: diagonal_t  (f32)   — Delassus diagonal para tangencial
- *   offset 64: restitution (f32)   — coeficiente de restituição do par (combinado)
- *   offset 68: _pad2       (f32)   — padding para alinhamento a 80 bytes
- *   offset 72: _pad3       (f32)   — padding
- *   offset 76: _pad4       (f32)   — padding
+ *   offset 56: diagonal_n   (f32)   — Delassus diagonal para normal — pré-computado em rb_build_lcp
+ *   offset 60: diagonal_t1  (f32)   — Delassus diagonal para tangencial t1
+ *   offset 64: restitution  (f32)   — coeficiente de restituição do par (combinado)
+ *   offset 68: diagonal_t2  (f32)   — Delassus diagonal para tangencial t2 (t2 = cross(n, t1))
+ *   offset 72: _pad3        (f32)   — padding
+ *   offset 76: _pad4        (f32)   — padding
  *   Total: 80 bytes (5 × vec4f)
  *
  * Buffer: storage read_write, pré-alocado para max_contacts = body_count * collider_count slots.
  * Endereçamento determinístico: slot[rb_i * collider_count + col_j].
  * rb_narrowphase preserva lambdas do frame anterior (warm-starting) se o contato persistir.
- * rb_build_lcp pré-computa diagonal_n e diagonal_t antes de rb_solve.
+ * rb_build_lcp pré-computa diagonal_n, diagonal_t1 e diagonal_t2 antes de rb_solve.
  *
  * Depende de: nenhum outro módulo.
  */
@@ -38,9 +38,9 @@ struct RBContact {
     lambda_tx:   f32,    // impulso tangencial acumulado x (warm-starting)
     lambda_ty:   f32,    // impulso tangencial acumulado y
     diagonal_n:  f32,    // Delassus diagonal para normal — pré-computado em rb_build_lcp
-    diagonal_t:  f32,    // Delassus diagonal para tangencial
+    diagonal_t1: f32,    // Delassus diagonal para tangencial t1
     restitution: f32,    // coeficiente de restituição do par (combinado)
-    _pad2:       f32,    // padding para alinhamento a 80 bytes
+    diagonal_t2: f32,    // Delassus diagonal para tangencial t2 (t2 = cross(n, t1))
     _pad3:       f32,    // padding
     _pad4:       f32,    // padding
 }

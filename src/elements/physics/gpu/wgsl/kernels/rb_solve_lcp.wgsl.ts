@@ -131,7 +131,7 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
             let t2    = cross(n, t1);
             let j_v_t = vec2f(dot(v_cp2, t1), dot(v_cp2, t2));
 
-            let a_kk_t  = contacts[ci].diagonal_t;
+            let a_kk_t  = vec2f(contacts[ci].diagonal_t1, contacts[ci].diagonal_t2);
             let lam_t   = vec2f(contacts[ci].lambda_tx, contacts[ci].lambda_ty);
             let pgs_t   = lcp_pgs_step_friction(j_v_t, a_kk_t, lam_t, new_lam_n, mu);
             let d_lam_t = pgs_t.xy;

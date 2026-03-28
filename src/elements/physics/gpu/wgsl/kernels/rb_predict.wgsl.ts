@@ -41,15 +41,22 @@ fn rb_predict_main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    let dt  = rb_params.dt_frame;
+    // Usa dtSub (gravity.w) — predict roda dentro do loop de substeps.
+    // dt_frame seria 16ms; dtSub = dt_frame/substeps reduz penetração por substep.
+    let dt  = rb_params.gravity.w;
     let vel = bodies[i].vel.xyz;
     let omega = bodies[i].omega.xyz;
     let rot = bodies[i].rot;
     let lin_damping = bodies[i].mat_props.z;
     let ang_damping = bodies[i].mat_props.w;
 
-    // Aceleração gravitacional → velocidade externa
+    // Aceleração gravitacional → velocidade externa (semi-implicit Euler: força antes do solver).
+    // Para o pipeline LCP: rb_build_lcp e rb_solve_lcp lêem vel depois deste kernel,
+    // portanto gravidade deve estar em vel antes do solver para que o PGS a corrija.
+    // Para o pipeline XPBD: rb_substep_update sobrescreve vel com (pos_pred-pos)/dtSub
+    // imediatamente após cada substep — esta escrita é inofensiva (invisível ao XPBD).
     let vel_ext = vel + rb_params.gravity.xyz * dt;
+    bodies[i].vel = vec4f(vel_ext, bodies[i].vel.w);
 
     // Correção giroscópica: usa I (não-invertido) = 1/I_inv para eixos válidos
     // I_inv.xyz = 1/I_diagonal → I_diagonal = 1/I_inv (onde I_inv > 0)

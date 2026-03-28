@@ -51,12 +51,14 @@ import { WGSL_KERNEL_JACOBI_APPLY }           from '../gpu/wgsl/kernels/jacobi_a
 import { WGSL_KERNEL_RB_PREDICT }             from '../gpu/wgsl/kernels/rb_predict.wgsl';
 import { WGSL_KERNEL_RB_NARROWPHASE }         from '../gpu/wgsl/kernels/rb_narrowphase.wgsl';
 import { WGSL_KERNEL_RB_SOLVE }               from '../gpu/wgsl/kernels/rb_solve.wgsl';
+import { WGSL_KERNEL_RB_SOLVE_VELOCITY }      from '../gpu/wgsl/kernels/rb_solve_velocity.wgsl';
 import { WGSL_KERNEL_RB_VELOCITY_RECOVERY }   from '../gpu/wgsl/kernels/rb_velocity_recovery.wgsl';
 import { WGSL_KERNEL_RB_SYNC_TRANSFORM }     from '../gpu/wgsl/kernels/rb_sync_transform.wgsl';
 import { WGSL_KERNEL_RB_BUILD_LCP }          from '../gpu/wgsl/kernels/rb_build_lcp.wgsl';
 import { WGSL_KERNEL_RB_SOLVE_LCP }          from '../gpu/wgsl/kernels/rb_solve_lcp.wgsl';
 import { WGSL_KERNEL_RB_LCP_COMMIT }         from '../gpu/wgsl/kernels/rb_lcp_commit.wgsl';
 import { WGSL_KERNEL_RB_UPDATE_COLLIDERS }   from '../gpu/wgsl/kernels/rb_update_colliders.wgsl';
+import { WGSL_KERNEL_RB_SUBSTEP_UPDATE }    from '../gpu/wgsl/kernels/rb_substep_update.wgsl';
 import { WGSL_LCP }                          from '../gpu/wgsl/math/lcp.wgsl';
 
 // ── Pipeline IDs ──────────────────────────────────────────────────────────────
@@ -76,12 +78,14 @@ export const PIPELINE_IDS = Object.freeze({
     RB_PREDICT:              'physics_rb_predict',
     RB_NARROWPHASE:          'physics_rb_narrowphase',
     RB_SOLVE:                'physics_rb_solve',
+    RB_SOLVE_VELOCITY:       'physics_rb_solve_velocity',
     RB_VELOCITY_RECOVERY:    'physics_rb_velocity_recovery',
     RB_SYNC_TRANSFORM:       'physics_rb_sync_transform',
     RB_BUILD_LCP:            'physics_rb_build_lcp',
     RB_SOLVE_LCP:            'physics_rb_solve_lcp',
     RB_LCP_COMMIT:           'rb_lcp_commit_pipeline',
     RB_UPDATE_COLLIDERS:     'physics_rb_update_colliders',
+    RB_SUBSTEP_UPDATE:       'physics_rb_substep_update',
 } as const);
 
 // ── Shaders compostos ─────────────────────────────────────────────────────────
@@ -200,6 +204,15 @@ const SHADER_RB_VELOCITY_RECOVERY = WgslComposer.compose(
     WGSL_KERNEL_RB_VELOCITY_RECOVERY,
 );
 
+const SHADER_RB_SOLVE_VELOCITY = WgslComposer.compose(
+    WGSL_STRUCT_RB_SIM_PARAMS,
+    WGSL_STRUCT_RIGID_BODY,
+    WGSL_STRUCT_RB_CONTACT,
+    WGSL_XPBD,
+    WGSL_IMPULSE,
+    WGSL_KERNEL_RB_SOLVE_VELOCITY,
+);
+
 // rb_sync_transform: lê pos_pred/rot_pred → escreve mat4x4f no UBO do renderer
 const SHADER_RB_SYNC_TRANSFORM = WgslComposer.compose(
     WGSL_STRUCT_RB_SIM_PARAMS,
@@ -241,6 +254,13 @@ const SHADER_RB_LCP_COMMIT = WgslComposer.compose(
 );
 
 // rb_update_colliders: sincroniza world_mat/inv_world_mat dos colliders dinâmicos com pos_pred/rot_pred
+const SHADER_RB_SUBSTEP_UPDATE = WgslComposer.compose(
+    WGSL_STRUCT_RB_SIM_PARAMS,
+    WGSL_STRUCT_RIGID_BODY,
+    WGSL_QUAT,
+    WGSL_KERNEL_RB_SUBSTEP_UPDATE,
+);
+
 const SHADER_RB_UPDATE_COLLIDERS = WgslComposer.compose(
     WGSL_STRUCT_RB_SIM_PARAMS,
     WGSL_STRUCT_RIGID_BODY,
@@ -275,11 +295,13 @@ export async function ensurePhysicsPipelinesInitialized(core: EngineCore): Promi
         core.compute.createComputePipeline(PIPELINE_IDS.RB_NARROWPHASE,        SHADER_RB_NARROWPHASE,        'rb_narrowphase_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SOLVE,              SHADER_RB_SOLVE,              'rb_solve_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_VELOCITY_RECOVERY,  SHADER_RB_VELOCITY_RECOVERY,  'rb_velocity_recovery_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.RB_SOLVE_VELOCITY,     SHADER_RB_SOLVE_VELOCITY,     'rb_solve_velocity_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SYNC_TRANSFORM,     SHADER_RB_SYNC_TRANSFORM,     'rb_sync_transform_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_BUILD_LCP,          SHADER_RB_BUILD_LCP,          'rb_build_lcp'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SOLVE_LCP,          SHADER_RB_SOLVE_LCP,          'rb_solve_lcp_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_LCP_COMMIT,         SHADER_RB_LCP_COMMIT,         'rb_lcp_commit_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_UPDATE_COLLIDERS,   SHADER_RB_UPDATE_COLLIDERS,   'rb_update_colliders'),
+        core.compute.createComputePipeline(PIPELINE_IDS.RB_SUBSTEP_UPDATE,    SHADER_RB_SUBSTEP_UPDATE,    'rb_substep_update_main'),
     ])
         .then(() => undefined)
         .catch((err) => {

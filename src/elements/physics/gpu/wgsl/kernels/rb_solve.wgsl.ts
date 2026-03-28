@@ -59,10 +59,11 @@ fn rb_solve_main(@builtin(global_invocation_id) _gid: vec3u) {
         let alpha_tilde = 0.0;  // contato rígido, sem compliance
         let lambda_old  = contacts[ci].point.w;
 
-        // Bug P1-B — Penetration Slop: subtrai tolerância antes de aplicar correção
-        let slop      = rb_params.penetration_slop;
-        let depth_eff = max(depth - slop, 0.0);
-        let delta_lambda_unclamped = xpbd_delta_lambda(-depth_eff, w_rb, alpha_tilde);
+        // XPBD puro: corrige toda a penetração sem slop.
+        // Slop condicional (qualquer variante) deixa o corpo propositalmente enterrado,
+        // gerando velocity residual upward toda frame via pos_pred-pos → moto-contínuo.
+        let C_eff = -depth;
+        let delta_lambda_unclamped = xpbd_delta_lambda(C_eff, w_rb, alpha_tilde);
         let new_lambda = max(lambda_old + delta_lambda_unclamped, 0.0);
         let d_lambda   = new_lambda - lambda_old;
 
@@ -79,72 +80,31 @@ fn rb_solve_main(@builtin(global_invocation_id) _gid: vec3u) {
         );
 
         // Correção angular: Δang = I_inv × (r × n) × Δλ, aplica via quat_apply_angular_delta
-        let rxn       = cross(r, n);
-        let ang_delta = vec3f(
+        let rxn = cross(r, n);
+        var ang_delta = vec3f(
             rxn.x * I_inv.x * d_lambda,
             rxn.y * I_inv.y * d_lambda,
             rxn.z * I_inv.z * d_lambda,
         );
+
+        // Clamp angular: limita giro máximo por iteração.
+        // Com dt=16ms e solver serial, d_lambda pode ser grande → ang_delta explode > 1 rad.
+        // quat_apply_angular_delta usa integração Euler explícita que falha para |ang| > ~0.2 rad,
+        // invertendo o quaternion e gerando arremesso catastrófico (gangorra de energia).
+        let max_ang = 0.2;
+        let ang_len = length(ang_delta);
+        if (ang_len > max_ang) {
+            ang_delta = ang_delta * (max_ang / ang_len);
+        }
+
         bodies[rb_i].rot_pred = quat_apply_angular_delta(bodies[rb_i].rot_pred, ang_delta);
 
         // Renormalização CRÍTICA — previne drift numérico
         bodies[rb_i].rot_pred = quat_normalize(bodies[rb_i].rot_pred);
 
         // Atualiza lambda para warm-starting
+        // Fricção movida para rb_solve_velocity (velocity space) — Müller 2020
         contacts[ci].point.w = new_lambda;
-
-        // ── Fricção de Coulomb ──────────────────────────────────────────────
-        let mu       = bodies[rb_i].mat_props.y;
-        if (mu <= 0.0) { continue; }
-
-        // Velocidade no ponto de contato (usa vel/omega do frame anterior)
-        let v_cp     = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, r);
-        let v_normal = dot(v_cp, n) * n;
-        let v_tan    = v_cp - v_normal;
-        let v_tan_len = length(v_tan);
-        if (v_tan_len < 1e-8) { continue; }
-
-        let t1    = v_tan / v_tan_len;
-        let t2    = cross(n, t1);  // segunda tangente ortogonal
-
-        let w_t1  = rigid_generalized_mass(r, t1, inv_mass, I_inv);
-        let w_t2  = rigid_generalized_mass(r, t2, inv_mass, I_inv);
-
-        // Bug P1-A — Coulomb Clamp Circular: max_t calculado UMA VEZ, compartilhado por t1 e t2
-        let max_t = mu * new_lambda;
-
-        // Impulso tangencial 1
-        let lambda_tx_old  = contacts[ci].lambda_tx;
-        let d_lambda_tx_u  = xpbd_delta_lambda(dot(v_tan, t1) * dt, w_t1, 0.0);
-        let lambda_tx_new  = lambda_tx_old + d_lambda_tx_u;
-        let lambda_tx_clamped = clamp(lambda_tx_new, -max_t, max_t);
-        let d_tx = lambda_tx_clamped - lambda_tx_old;
-        contacts[ci].lambda_tx = lambda_tx_clamped;
-
-        // Impulso tangencial 2
-        let lambda_ty_old  = contacts[ci].lambda_ty;
-        let d_lambda_ty_u  = xpbd_delta_lambda(dot(v_tan, t2) * dt, w_t2, 0.0);
-        let lambda_ty_new  = lambda_ty_old + d_lambda_ty_u;
-        let lambda_ty_clamped = clamp(lambda_ty_new, -max_t, max_t);
-        let d_ty = lambda_ty_clamped - lambda_ty_old;
-        contacts[ci].lambda_ty = lambda_ty_clamped;
-
-        // Aplica correção tangencial de posição e rotação
-        let tan_corr = t1 * inv_mass * d_tx + t2 * inv_mass * d_ty;
-        bodies[rb_i].pos_pred = vec4f(
-            bodies[rb_i].pos_pred.xyz + tan_corr,
-            bodies[rb_i].pos_pred.w,
-        );
-
-        let rxn_t1 = cross(r, t1);
-        let rxn_t2 = cross(r, t2);
-        let ang_tan = vec3f(
-            (rxn_t1.x * I_inv.x * d_tx + rxn_t2.x * I_inv.x * d_ty),
-            (rxn_t1.y * I_inv.y * d_tx + rxn_t2.y * I_inv.y * d_ty),
-            (rxn_t1.z * I_inv.z * d_tx + rxn_t2.z * I_inv.z * d_ty),
-        );
-        bodies[rb_i].rot_pred = quat_apply_angular_delta(bodies[rb_i].rot_pred, ang_tan);
-        bodies[rb_i].rot_pred = quat_normalize(bodies[rb_i].rot_pred);
     }
     } // fim loop k
 }

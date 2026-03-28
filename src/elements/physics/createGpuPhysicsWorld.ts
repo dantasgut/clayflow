@@ -2,7 +2,7 @@
  * createGpuPhysicsWorld — factory para criação do mundo de física GPU-only.
  *
  * Cria e conecta internamente: GpuComputePassRegistry, GpuPipelineEventBus,
- * PhysicsResourceLoader, XPBDComputePass (RigidBody) e SoftBodyXPBDComputePass.
+ * PhysicsResourceLoader, LCPComputePass (RigidBody) e SoftBodyXPBDComputePass.
  *
  * Uso típico:
  * ```typescript
@@ -24,7 +24,7 @@ import { GpuComputePassRegistry }  from '../../scene/systems/gpu/GpuComputePassR
 import { DefaultGpuPipelineEventBus } from '../../scene/systems/gpu/DefaultGpuPipelineEventBus';
 import { PhysicsResourceLoader }   from '../../scene/rendering/PhysicsResourceLoader';
 import { GpuPhysicsOrchestrator }  from '../../scene/rendering/GpuPhysicsOrchestrator';
-import { XPBDComputePass as RigidBodyXPBDComputePass } from './rigidbody/XPBDComputePass';
+import { LCPComputePass as RigidBodyLCPComputePass } from './rigidbody/LCPComputePass';
 import { SoftBodyXPBDComputePass } from './softbody/XPBDComputePass';
 
 export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysicsOrchestrator {
@@ -36,12 +36,12 @@ export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysi
     const registry  = new GpuComputePassRegistry();
     const resLoader = new PhysicsResourceLoader<GpuPhysicsOrchestrator>(eventBus);
 
-    // RigidBody pass — sempre registrado (habilitado por padrão)
+    // RigidBody pass — LCP/PGS (velocity-space, Catto 2005)
     const rb = config.rigidBody ?? {};
-    registry.register(new RigidBodyXPBDComputePass(
+    registry.register(new RigidBodyLCPComputePass(
         globalForces,
         getSubsteps,
-        rb.iterations ?? 10,
+        rb.iterations ?? 15,
         rb.profilerLogInterval ?? 60,
         config.rigidBody,
         eventBus,

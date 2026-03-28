@@ -5,8 +5,8 @@
  * Para cada contato ativo:
  *   1. Calcula velocidade relativa na normal (contact_point_velocity de impulse.wgsl)
  *   2. Calcula bias b[i] via lcp_bias (Baumgarte + restituição)
- *   3. Pré-computa diagonal_n (Delassus normal) e diagonal_t (Delassus tangencial)
- *      e escreve nos campos contacts[i].diagonal_n / diagonal_t
+ *   3. Pré-computa diagonal_n, diagonal_t1 e diagonal_t2 (Delassus normal e tangenciais)
+ *      e escreve nos campos contacts[i].diagonal_n / diagonal_t1 / diagonal_t2
  *
  * Nota: contatos corpo rígido × collider estático têm o collider com inv_mass=0 e I_inv=0,
  * portanto a diagonal de Delassus é apenas a contribuição do corpo dinâmico.
@@ -39,9 +39,10 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
 
     // Contato inativo — zera bias e diagonais (rb_solve vai ignorar, mas limpa resíduos)
     if (contacts[ci].is_active == 0u) {
-        b_vec[ci]               = 0.0;
-        contacts[ci].diagonal_n = 1.0;  // valor seguro não-zero para evitar divisão por zero
-        contacts[ci].diagonal_t = 1.0;
+        b_vec[ci]                = 0.0;
+        contacts[ci].diagonal_n  = 1.0;  // valor seguro não-zero para evitar divisão por zero
+        contacts[ci].diagonal_t1 = 1.0;
+        contacts[ci].diagonal_t2 = 1.0;
         return;
     }
 
@@ -62,9 +63,12 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
     // (inv_mass_static = 0, I_inv_static = 0), portanto só a contribuição do corpo dinâmico.
     contacts[ci].diagonal_n = rigid_generalized_mass(ra, n, inv_mass, I_inv);
 
-    // Constrói uma tangente ortogonal à normal e calcula diagonal tangencial
-    let t = tangent_orthogonal(n);
-    contacts[ci].diagonal_t = rigid_generalized_mass(ra, t, inv_mass, I_inv);
+    // Constrói duas tangentes ortogonais e calcula diagonais tangenciais independentes.
+    // I_x ≠ I_y ≠ I_z em geral: w(t1) ≠ w(t2) — divisor único causaria under/over-correction.
+    let t1 = tangent_orthogonal(n);
+    let t2 = cross(n, t1);
+    contacts[ci].diagonal_t1 = rigid_generalized_mass(ra, t1, inv_mass, I_inv);
+    contacts[ci].diagonal_t2 = rigid_generalized_mass(ra, t2, inv_mass, I_inv);
 
     // ── Velocidade relativa na normal ──────────────────────────────────────
     let v_cp    = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, ra);

@@ -113,7 +113,9 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         this.rbSimParamsF32[SP_GRAVITY_X]      = gx;
         this.rbSimParamsF32[SP_GRAVITY_Y]      = gy;
         this.rbSimParamsF32[SP_GRAVITY_Z]      = gz;
-        this.rbSimParamsF32[SP_DT]             = dtSub;
+        // LCP: rb_predict e rb_lcp_commit rodam 1× por frame — gravity.w deve ser dtFrame.
+        // (XPBD usa dtSub aqui porque rb_predict roda N× por substep.)
+        this.rbSimParamsF32[SP_DT]             = dtFrame;
         this.rbSimParamsU32[SP_BODY_COUNT]     = bodyCount;
         this.rbSimParamsU32[SP_COLLIDER_COUNT] = colliderCount;
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;

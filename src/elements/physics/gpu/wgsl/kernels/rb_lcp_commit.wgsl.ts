@@ -37,10 +37,13 @@ fn rb_lcp_commit_main(@builtin(global_invocation_id) gid: vec3u) {
     let inv_mass = bodies[i].pos.w;
     if (inv_mass == 0.0) { return; }  // cinemático — ignora
 
-    let dt = rb_params.gravity.w;  // dtFrame (gravity.w = dtSub = dtFrame para substeps=1)
+    // Para o pipeline LCP, gravity.w = dtFrame (LCPComputePass define SP_DT = dtFrame).
+    // rb_predict (que escreve vel += g*dt) e rb_lcp_commit rodam 1× por frame.
+    let dt = rb_params.dt_frame;
     if (dt < 1e-12) { return; }
 
-    // Velocidades já corrigidas pelo LCP solver (rb_solve_lcp)
+    // Velocidades já corrigidas pelo LCP solver (rb_solve_lcp).
+    // Gravidade foi pré-integrada em rb_predict (vel_ext → vel), antes do solver.
     let vel   = bodies[i].vel.xyz;
     let omega = bodies[i].omega.xyz;
 

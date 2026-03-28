@@ -234,10 +234,10 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     contacts[slot].feature_id = 0u;
     contacts[slot].lambda_tx   = lambda_tx;
     contacts[slot].lambda_ty   = lambda_ty;
-    contacts[slot].restitution = combine_restitution(rb_params.restitution, rb_params.restitution);
-    contacts[slot]._pad2       = 0.0;
-    contacts[slot]._pad3       = 0.0;
-    contacts[slot]._pad4       = 0.0;
+    contacts[slot].restitution  = combine_restitution(rb_params.restitution, rb_params.restitution);
+    contacts[slot].diagonal_t2  = 0.0;  // pré-computado em rb_build_lcp; zerado aqui apenas como init
+    contacts[slot]._pad3        = 0.0;
+    contacts[slot]._pad4        = 0.0;
 }
 
 // Restituição combinada do par de contato: usa max (padrão Bullet/Box2D).
