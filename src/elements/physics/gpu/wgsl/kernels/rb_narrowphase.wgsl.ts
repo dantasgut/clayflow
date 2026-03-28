@@ -81,6 +81,14 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
+    // Contato corpo-a-corpo: cada par (A, B) gera dois slots simétricos —
+    // (rb_A, col_B) e (rb_B, col_A). Para evitar impulso duplo, mantemos
+    // apenas o slot canônico onde rb_i < col.body_owner_idx e suprimimos o outro.
+    if (col.body_owner_idx != 0xFFFFFFFFu && rb_i > col.body_owner_idx) {
+        contacts[slot].is_active = 0u;
+        return;
+    }
+
     // Lê o tipo de forma do corpo dinâmico
     let body_shape_type = u32(bodies[rb_i].body_shape.x);  // 0=Sphere, 1=Box
 
@@ -231,7 +239,7 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     contacts[slot].rb_idx     = rb_i;
     contacts[slot].col_idx    = col_j;
     contacts[slot].is_active  = 1u;
-    contacts[slot].feature_id = 0u;
+    contacts[slot].rb_idx_b   = col.body_owner_idx;  // 0xFFFFFFFFu se estático; índice do corpo B se dinâmico
     contacts[slot].lambda_tx   = lambda_tx;
     contacts[slot].lambda_ty   = lambda_ty;
     contacts[slot].restitution  = combine_restitution(rb_params.restitution, rb_params.restitution);

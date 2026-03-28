@@ -59,20 +59,35 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
     let gap = -contacts[ci].normal.w;  // = depth_eff: < 0 quando penetrando
 
     // ── Diagonais de Delassus ──────────────────────────────────────────────
-    // Para contato corpo rígido × collider estático, o collider tem massa infinita
-    // (inv_mass_static = 0, I_inv_static = 0), portanto só a contribuição do corpo dinâmico.
-    contacts[ci].diagonal_n = rigid_generalized_mass(ra, n, inv_mass, I_inv);
-
-    // Constrói duas tangentes ortogonais e calcula diagonais tangenciais independentes.
-    // I_x ≠ I_y ≠ I_z em geral: w(t1) ≠ w(t2) — divisor único causaria under/over-correction.
+    // Contribuição do corpo A (sempre presente).
     let t1 = tangent_orthogonal(n);
     let t2 = cross(n, t1);
-    contacts[ci].diagonal_t1 = rigid_generalized_mass(ra, t1, inv_mass, I_inv);
-    contacts[ci].diagonal_t2 = rigid_generalized_mass(ra, t2, inv_mass, I_inv);
+    var diag_n  = rigid_generalized_mass(ra, n,  inv_mass, I_inv);
+    var diag_t1 = rigid_generalized_mass(ra, t1, inv_mass, I_inv);
+    var diag_t2 = rigid_generalized_mass(ra, t2, inv_mass, I_inv);
 
     // ── Velocidade relativa na normal ──────────────────────────────────────
-    let v_cp    = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, ra);
-    let v_rel_n = dot(v_cp, n);
+    let v_cp_a  = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, ra);
+    var v_rel_n = dot(v_cp_a, n);
+
+    // Contribuição do corpo B (apenas para contatos corpo-a-corpo).
+    // rb_idx_b == 0xFFFFFFFFu → collider estático (massa infinita, contribuição zero).
+    let rb_j = contacts[ci].rb_idx_b;
+    if (rb_j != 0xFFFFFFFFu && rb_j < rb_params.body_count) {
+        let inv_mass_b = bodies[rb_j].pos.w;
+        let I_inv_b    = bodies[rb_j].I_inv.xyz;
+        let rb         = contacts[ci].point.xyz - bodies[rb_j].pos_pred.xyz;
+        diag_n  += rigid_generalized_mass(rb, n,  inv_mass_b, I_inv_b);
+        diag_t1 += rigid_generalized_mass(rb, t1, inv_mass_b, I_inv_b);
+        diag_t2 += rigid_generalized_mass(rb, t2, inv_mass_b, I_inv_b);
+        // Velocidade relativa: v_A - v_B ao longo da normal (bias e restituição corretos).
+        let v_cp_b = contact_point_velocity(bodies[rb_j].vel.xyz, bodies[rb_j].omega.xyz, rb);
+        v_rel_n   -= dot(v_cp_b, n);
+    }
+
+    contacts[ci].diagonal_n  = diag_n;
+    contacts[ci].diagonal_t1 = diag_t1;
+    contacts[ci].diagonal_t2 = diag_t2;
 
     // ── Bias b[i] ─────────────────────────────────────────────────────────
     b_vec[ci] = lcp_bias(gap, v_rel_n, contacts[ci].restitution, rb_params);

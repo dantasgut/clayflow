@@ -84,6 +84,22 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
             let p_t2 = t2 * lambda_ty;
             bodies[rb_i].vel   = vec4f(bodies[rb_i].vel.xyz   + p_t2 * inv_mass,        bodies[rb_i].vel.w);
             bodies[rb_i].omega = vec4f(bodies[rb_i].omega.xyz + cross(r, p_t2) * I_inv,  bodies[rb_i].omega.w);
+
+            // Reação sobre o corpo B (contato corpo-a-corpo)
+            let rb_j_ws = contacts[ci].rb_idx_b;
+            if (rb_j_ws != 0xFFFFFFFFu && rb_j_ws < rb_params.body_count) {
+                let inv_mass_b = bodies[rb_j_ws].pos.w;
+                if (inv_mass_b > 0.0) {
+                    let I_inv_b = bodies[rb_j_ws].I_inv.xyz;
+                    let rb      = contacts[ci].point.xyz - bodies[rb_j_ws].pos_pred.xyz;
+                    bodies[rb_j_ws].vel   = vec4f(bodies[rb_j_ws].vel.xyz   - p_n  * inv_mass_b,         bodies[rb_j_ws].vel.w);
+                    bodies[rb_j_ws].omega = vec4f(bodies[rb_j_ws].omega.xyz - cross(rb, p_n)  * I_inv_b, bodies[rb_j_ws].omega.w);
+                    bodies[rb_j_ws].vel   = vec4f(bodies[rb_j_ws].vel.xyz   - p_t1 * inv_mass_b,         bodies[rb_j_ws].vel.w);
+                    bodies[rb_j_ws].omega = vec4f(bodies[rb_j_ws].omega.xyz - cross(rb, p_t1) * I_inv_b, bodies[rb_j_ws].omega.w);
+                    bodies[rb_j_ws].vel   = vec4f(bodies[rb_j_ws].vel.xyz   - p_t2 * inv_mass_b,         bodies[rb_j_ws].vel.w);
+                    bodies[rb_j_ws].omega = vec4f(bodies[rb_j_ws].omega.xyz - cross(rb, p_t2) * I_inv_b, bodies[rb_j_ws].omega.w);
+                }
+            }
         }
     }
 
@@ -99,10 +115,28 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
             let n     = contacts[ci].normal.xyz;
             let r     = contacts[ci].point.xyz - bodies[rb_i].pos_pred.xyz;
             let I_inv = bodies[rb_i].I_inv.xyz;
+            let rb_j  = contacts[ci].rb_idx_b;  // 0xFFFFFFFFu se estático
 
             // ── Normal: passo PGS-LCP ──────────────────────────────────────────
-            let v_cp    = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, r);
-            let j_v     = dot(v_cp, n);
+            let v_cp_a = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, r);
+            var j_v    = dot(v_cp_a, n);
+
+            // Para contatos corpo-a-corpo: velocidade relativa v_A - v_B
+            var rb_valid = false;
+            var inv_mass_b = 0.0;
+            var I_inv_b    = vec3f(0.0);
+            var rb         = vec3f(0.0);
+            if (rb_j != 0xFFFFFFFFu && rb_j < rb_params.body_count) {
+                inv_mass_b = bodies[rb_j].pos.w;
+                if (inv_mass_b > 0.0) {
+                    rb_valid = true;
+                    I_inv_b  = bodies[rb_j].I_inv.xyz;
+                    rb       = contacts[ci].point.xyz - bodies[rb_j].pos_pred.xyz;
+                    let v_cp_b = contact_point_velocity(bodies[rb_j].vel.xyz, bodies[rb_j].omega.xyz, rb);
+                    j_v       -= dot(v_cp_b, n);
+                }
+            }
+
             let bias    = b_vec[ci];
             let a_kk    = contacts[ci].diagonal_n;
             let lam_n   = contacts[ci].point.w;
@@ -113,23 +147,30 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
 
             contacts[ci].point.w = new_lam_n;
 
-            // Aplica impulso normal
+            // Aplica impulso normal a A; reação a B se dinâmico
             if (abs(d_lam_n) > 1e-12) {
                 let p_n = n * d_lam_n;
                 bodies[rb_i].vel   = vec4f(bodies[rb_i].vel.xyz   + p_n * inv_mass,       bodies[rb_i].vel.w);
                 bodies[rb_i].omega = vec4f(bodies[rb_i].omega.xyz + cross(r, p_n) * I_inv, bodies[rb_i].omega.w);
+                if (rb_valid) {
+                    bodies[rb_j].vel   = vec4f(bodies[rb_j].vel.xyz   - p_n * inv_mass_b,         bodies[rb_j].vel.w);
+                    bodies[rb_j].omega = vec4f(bodies[rb_j].omega.xyz - cross(rb, p_n) * I_inv_b,  bodies[rb_j].omega.w);
+                }
             }
 
             // ── Fricção: passo PGS cone de Coulomb ────────────────────────────
             let mu = bodies[rb_i].mat_props.y;
             if (mu <= 0.0) { continue; }
 
-            // Reconstrói velocidade no ponto de contato após impulso normal
-            let v_cp2 = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, r);
-
-            let t1    = tangent_orthogonal(n);
-            let t2    = cross(n, t1);
-            let j_v_t = vec2f(dot(v_cp2, t1), dot(v_cp2, t2));
+            // Velocidade tangencial relativa após impulso normal
+            let t1     = tangent_orthogonal(n);
+            let t2     = cross(n, t1);
+            let v_cp2  = contact_point_velocity(bodies[rb_i].vel.xyz, bodies[rb_i].omega.xyz, r);
+            var j_v_t  = vec2f(dot(v_cp2, t1), dot(v_cp2, t2));
+            if (rb_valid) {
+                let v_cp2_b = contact_point_velocity(bodies[rb_j].vel.xyz, bodies[rb_j].omega.xyz, rb);
+                j_v_t -= vec2f(dot(v_cp2_b, t1), dot(v_cp2_b, t2));
+            }
 
             let a_kk_t  = vec2f(contacts[ci].diagonal_t1, contacts[ci].diagonal_t2);
             let lam_t   = vec2f(contacts[ci].lambda_tx, contacts[ci].lambda_ty);
@@ -140,11 +181,15 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
             contacts[ci].lambda_tx = new_lam_t.x;
             contacts[ci].lambda_ty = new_lam_t.y;
 
-            // Aplica impulso tangencial
+            // Aplica impulso tangencial a A; reação a B se dinâmico
             if (length(d_lam_t) > 1e-12) {
                 let p_t = t1 * d_lam_t.x + t2 * d_lam_t.y;
                 bodies[rb_i].vel   = vec4f(bodies[rb_i].vel.xyz   + p_t * inv_mass,       bodies[rb_i].vel.w);
                 bodies[rb_i].omega = vec4f(bodies[rb_i].omega.xyz + cross(r, p_t) * I_inv, bodies[rb_i].omega.w);
+                if (rb_valid) {
+                    bodies[rb_j].vel   = vec4f(bodies[rb_j].vel.xyz   - p_t * inv_mass_b,         bodies[rb_j].vel.w);
+                    bodies[rb_j].omega = vec4f(bodies[rb_j].omega.xyz - cross(rb, p_t) * I_inv_b,  bodies[rb_j].omega.w);
+                }
             }
         }
     } // fim loop k
