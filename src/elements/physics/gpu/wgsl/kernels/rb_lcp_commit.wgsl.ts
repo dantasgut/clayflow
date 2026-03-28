@@ -28,6 +28,7 @@ export const WGSL_KERNEL_RB_LCP_COMMIT = /* wgsl */`
 
 @group(0) @binding(0) var<uniform>             rb_params: RBSimParams;
 @group(0) @binding(1) var<storage, read_write> bodies:    array<RigidBody>;
+@group(0) @binding(2) var<storage, read>       contacts:  array<RBContact>;
 
 @compute @workgroup_size(64)
 fn rb_lcp_commit_main(@builtin(global_invocation_id) gid: vec3u) {
@@ -63,7 +64,26 @@ fn rb_lcp_commit_main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     // Avança posição pela velocidade corrigida (não por pos_pred!)
-    let new_pos = bodies[i].pos.xyz + final_vel * dt;
+    var new_pos = bodies[i].pos.xyz + final_vel * dt;
+
+    // Correção posicional direta para penetrações reais remanescentes após o solver.
+    // _pad3 armazena o SDF real 'd' (sem d_speculative) — negativo = penetração real,
+    // positivo/zero = contato especulativo (sem correção posicional necessária).
+    // Fator 0.3 complementa o Baumgarte de velocidade (beta*gap/dt), dando ~80% de
+    // correção total por frame e evitando que o corpo afunde lentamente.
+    let col_count = rb_params.collider_count;
+    var pos_correction = vec3f(0.0);
+    for (var j = 0u; j < col_count; j++) {
+        let slot = i * col_count + j;
+        if (contacts[slot].is_active == 0u) { continue; }
+        let actual_d = contacts[slot]._pad3;            // SDF real no ponto de teste
+        let slop     = rb_params.penetration_slop;
+        if (actual_d >= -slop) { continue; }            // especulativo ou dentro do slop — não precisa
+        let corr_depth = -(actual_d + slop);            // profundidade além do slop
+        pos_correction += contacts[slot].normal.xyz * corr_depth * 0.3;
+    }
+    new_pos += pos_correction;
+
     let new_rot = quat_normalize(quat_integrate(bodies[i].rot, final_omega, dt));
 
     // Escreve estado

@@ -245,10 +245,11 @@ const SHADER_RB_SOLVE_LCP = WgslComposer.compose(
     WGSL_KERNEL_RB_SOLVE_LCP,
 );
 
-// rb_lcp_commit: avança pos pela vel corrigida pelo LCP solver (substitui rb_velocity_recovery no pipeline LCP)
+// rb_lcp_commit: avança pos pela vel corrigida + correção posicional direta para penetrações reais
 const SHADER_RB_LCP_COMMIT = WgslComposer.compose(
     WGSL_STRUCT_RB_SIM_PARAMS,
     WGSL_STRUCT_RIGID_BODY,
+    WGSL_STRUCT_RB_CONTACT,
     WGSL_QUAT,
     WGSL_KERNEL_RB_LCP_COMMIT,
 );

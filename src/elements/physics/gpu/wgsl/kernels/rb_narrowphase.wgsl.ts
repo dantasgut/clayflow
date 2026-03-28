@@ -254,7 +254,7 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     contacts[slot].lambda_ty   = lambda_ty;
     contacts[slot].restitution  = combine_restitution(rb_params.restitution, rb_params.restitution);
     contacts[slot].diagonal_t2  = 0.0;  // pré-computado em rb_build_lcp; zerado aqui apenas como init
-    contacts[slot]._pad3        = 0.0;
+    contacts[slot]._pad3        = d;    // SDF real (antes de d_speculative): negativo = penetração real
     contacts[slot]._pad4        = 0.0;
 }
 

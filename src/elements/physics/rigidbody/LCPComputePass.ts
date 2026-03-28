@@ -122,13 +122,13 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
         this.rbSimParamsF32[SP_DT_FRAME]              = dtFrame;
         this.rbSimParamsF32[SP_RESTITUTION]           = 0.1;
-        this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
+        this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.001;
         this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 0.0;    // sem damping global — per-body em mat_props.z
         this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 3.0;   // amortecimento angular global moderado
         this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.05;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
         this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;
-        this.rbSimParamsF32[SP_BAUMGARTE_BETA]        = this.config?.baumgarteBeta        ?? 0.3;
+        this.rbSimParamsF32[SP_BAUMGARTE_BETA]        = this.config?.baumgarteBeta        ?? 0.5;
         this.rbSimParamsF32[SP_WARM_START_FACTOR]     = this.config?.warmStartFactor      ?? 0.85;
 
         let simParamsDirty = false;
@@ -201,6 +201,7 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         const lcpCommit = bg(PIPELINE_IDS.RB_LCP_COMMIT, [
             { binding: 0, resource: { buffer: rbParamsBuf } },
             { binding: 1, resource: { buffer: bodiesBuf   } },
+            { binding: 2, resource: { buffer: contactsBuf } },
         ]);
 
         return { predict, updateColliders, narrowphase, buildLcp, solveLcp, velocityRecovery, lcpCommit, syncTransform: null };
