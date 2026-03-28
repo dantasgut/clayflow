@@ -28,21 +28,25 @@ import { LCPComputePass as RigidBodyLCPComputePass } from './rigidbody/LCPComput
 import { SoftBodyXPBDComputePass } from './softbody/XPBDComputePass';
 
 export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysicsOrchestrator {
-    const substeps     = config.substeps ?? 4;
     const globalForces = new Map<string, Force>();
-    const getSubsteps  = () => substeps;
+
+    // Closures reativas: lidas a cada frame, não capturadas como const.
+    // Mutar config.rigidBody.substeps (ou config.substeps) em runtime tem efeito imediato.
+    // Prioridade: algoritmo-específico → global → default do algoritmo.
+    const getSubstepsRb = (): number => config.rigidBody?.substeps ?? config.substeps ?? 2;
+    const getSubstepsSb = (): number => config.softBody?.substeps  ?? config.substeps ?? 4;
+    // Fase 3 (FEM) e Fase 5 (MPM) usarão getSubstepsFem/getSubstepsMpm quando implementados.
 
     const eventBus  = new DefaultGpuPipelineEventBus();
     const registry  = new GpuComputePassRegistry();
     const resLoader = new PhysicsResourceLoader<GpuPhysicsOrchestrator>(eventBus);
 
     // RigidBody pass — LCP/PGS (velocity-space, Catto 2005)
-    const rb = config.rigidBody ?? {};
     registry.register(new RigidBodyLCPComputePass(
         globalForces,
-        getSubsteps,
-        rb.iterations ?? 15,
-        rb.profilerLogInterval ?? 60,
+        getSubstepsRb,
+        config.rigidBody?.iterations ?? 25,
+        config.rigidBody?.profilerLogInterval ?? 60,
         config.rigidBody,
         eventBus,
     ));
@@ -52,7 +56,7 @@ export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysi
         const sb = config.softBody;
         registry.register(new SoftBodyXPBDComputePass(
             globalForces,
-            getSubsteps,
+            getSubstepsSb,
             sb.restitution ?? 0.05,
             sb.iterations  ?? 15,
             sb.profilerLogInterval ?? 60,

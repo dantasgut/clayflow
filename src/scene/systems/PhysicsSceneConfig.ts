@@ -5,6 +5,20 @@
  * Injetado no `GpuPhysicsOrchestrator` no momento da construção.
  *
  * GPU-only: campos `backend`, solvers CPU e pipeline CPU são omitidos.
+ *
+ * ## Substeps por algoritmo
+ *
+ * `substeps` em `PhysicsSceneConfig` é o valor global de fallback.
+ * Cada algoritmo pode sobrescrever com seu próprio `substeps`, permitindo
+ * tuning independente:
+ *
+ *   RigidBody LCP:  2–4   (velocity-space; detecta contatos mais vezes por frame)
+ *   SoftBody XPBD:  4–8   (position-space; mais substeps = constraints mais rígidas)
+ *   FEM:            4–16  (adaptativo por rigidez e tamanho de elemento)
+ *   MPM:            20–160 (CFL de onda em materiais elásticos rígidos)
+ *
+ * A closure `getSubsteps` de cada pass é reativa: lê do config vivo a cada frame,
+ * então mutar `config.rigidBody.substeps` em runtime tem efeito imediato.
  */
 export interface PhysicsSceneConfig {
     /**
@@ -14,9 +28,8 @@ export interface PhysicsSceneConfig {
     gravity?: readonly [number, number, number];
 
     /**
-     * Número de substeps internos por frame.
-     * Cada `PhysicsComputePass` usa este valor para ampliar K (iterações de solve).
-     * Default: 4.
+     * Substeps globais de fallback — usado por qualquer algoritmo que não
+     * defina seu próprio `substeps`. Default: 4.
      */
     substeps?: number;
 
@@ -26,30 +39,42 @@ export interface PhysicsSceneConfig {
      */
     inertiaTensorMaxRatio?: number;
 
-    /**
-     * Parâmetros do pipeline XPBD para RigidBody.
-     * Presença habilita o `XPBDRigidBodyComputePass`.
-     */
+    /** Parâmetros do pipeline LCP/PGS para RigidBody. */
     rigidBody?: RigidBodyGpuConfig;
 
-    /**
-     * Parâmetros do pipeline XPBD para SoftBody.
-     * Presença habilita o `XPBDSoftBodyComputePass`.
-     */
+    /** Parâmetros do pipeline XPBD para SoftBody/cloth. */
     softBody?: SoftBodyGpuConfig;
+
+    /**
+     * Parâmetros do pipeline FEM (Finite Element Method).
+     * Presença habilita o `FEMComputePass` quando implementado (Fase 3).
+     */
+    fem?: FemGpuConfig;
+
+    /**
+     * Parâmetros do pipeline MPM (Material Point Method).
+     * Presença habilita o `MPMComputePass` quando implementado (Fase 5).
+     */
+    mpm?: MpmGpuConfig;
 }
 
-/** Parâmetros GPU do pipeline de corpo rígido. */
+/** Parâmetros GPU do pipeline de corpo rígido (LCP/PGS). */
 export interface RigidBodyGpuConfig {
-    /** Número de iterações do solver por substep. Default: 15. */
+    /**
+     * Substeps por frame para o pipeline de corpo rígido.
+     * Sobrescreve `PhysicsSceneConfig.substeps` para este algoritmo.
+     * Default: 2 (velocity-space; 2 detecções por frame a 60fps).
+     */
+    substeps?: number;
+    /** Número de iterações PGS por substep. Default: 25. */
     iterations?: number;
-    /** Margem especulativa (m) para contatos iminentes. 0 = desativado. Default: 0. */
+    /** Margem especulativa (m) para contatos iminentes. 0 = desativado. Default: 0.05. */
     predictiveThreshold?: number;
     /** Velocidade (m/s) abaixo da qual o coeficiente de restituição é zerado. Default: 2.0. */
     restitutionThreshold?: number;
     /** Velocidade (m/s) para pseudo-sleep. 0 = desativado. Default: 0.01. */
     sleepLinThreshold?: number;
-    /** Fator de Baumgarte [0.1–0.3] para o solver LCP. Default: 0.2. */
+    /** Fator de Baumgarte [0.1–0.4] para correção de penetração. Default: 0.3. */
     baumgarteBeta?: number;
     /** Fator de warm start [0.8–1.0] para o solver LCP. Default: 0.85. */
     warmStartFactor?: number;
@@ -59,8 +84,14 @@ export interface RigidBodyGpuConfig {
     useLcp?: boolean;
 }
 
-/** Parâmetros GPU do pipeline de corpo deformável. */
+/** Parâmetros GPU do pipeline de corpo deformável (XPBD). */
 export interface SoftBodyGpuConfig {
+    /**
+     * Substeps por frame para o pipeline de soft body.
+     * Sobrescreve `PhysicsSceneConfig.substeps` para este algoritmo.
+     * Default: 4 (position-space; mais substeps = constraints mais rígidas).
+     */
+    substeps?: number;
     /** Número de iterações do solver XPBD por substep. Default: 15. */
     iterations?: number;
     /** Coeficiente de restituição na colisão partícula-colissor [0–1]. Default: 0.05. */
@@ -71,6 +102,40 @@ export interface SoftBodyGpuConfig {
     shapeStiffness?: number;
     /** Ativa solver Jacobi XPBD em vez de graph coloring. Default: false. */
     useJacobiSolve?: boolean;
+    /** Intervalo de frames entre leituras do profiler GPU. Default: 60. */
+    profilerLogInterval?: number;
+}
+
+/**
+ * Parâmetros GPU do pipeline FEM (Finite Element Method).
+ * Stub para Fase 3 — campos serão expandidos na implementação.
+ */
+export interface FemGpuConfig {
+    /**
+     * Substeps por frame para o pipeline FEM.
+     * Sobrescreve `PhysicsSceneConfig.substeps` para este algoritmo.
+     * Default: 6 (adaptativo por rigidez e tamanho de elemento).
+     */
+    substeps?: number;
+    /** Número de iterações do solver por substep. Default: 20. */
+    iterations?: number;
+    /** Intervalo de frames entre leituras do profiler GPU. Default: 60. */
+    profilerLogInterval?: number;
+}
+
+/**
+ * Parâmetros GPU do pipeline MPM (Material Point Method).
+ * Stub para Fase 5 — campos serão expandidos na implementação.
+ */
+export interface MpmGpuConfig {
+    /**
+     * Substeps por frame para o pipeline MPM.
+     * Sobrescreve `PhysicsSceneConfig.substeps` para este algoritmo.
+     * Default: 20 (CFL de onda; materiais rígidos podem exigir 160+).
+     */
+    substeps?: number;
+    /** Tamanho da célula do grid (m). Default: 0.02. */
+    gridCellSize?: number;
     /** Intervalo de frames entre leituras do profiler GPU. Default: 60. */
     profilerLogInterval?: number;
 }

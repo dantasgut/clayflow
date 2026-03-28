@@ -71,7 +71,7 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
     constructor(
         globalForces:    Map<string, Force>,
         getSubsteps:     () => number,
-        solveIterations: number = 15,
+        solveIterations: number = 25,
         logInterval:     number = 60,
         config?:         RigidBodySimConfig,
         eventBus?:       GpuPipelineEventBus,
@@ -125,10 +125,10 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
         this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 0.0;    // sem damping global — per-body em mat_props.z
         this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 3.0;   // amortecimento angular global moderado
-        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.0;
+        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.05;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
         this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;
-        this.rbSimParamsF32[SP_BAUMGARTE_BETA]        = this.config?.baumgarteBeta        ?? 0.2;
+        this.rbSimParamsF32[SP_BAUMGARTE_BETA]        = this.config?.baumgarteBeta        ?? 0.3;
         this.rbSimParamsF32[SP_WARM_START_FACTOR]     = this.config?.warmStartFactor      ?? 0.85;
 
         let simParamsDirty = false;
