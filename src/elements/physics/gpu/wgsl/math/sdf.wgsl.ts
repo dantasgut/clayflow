@@ -64,10 +64,12 @@ fn sdf_gradient(local_p: vec3f, d: f32, shape_type: u32, half: vec4f) -> vec3f {
 // Depende de: sdf_gradient.
 fn sdf_gradient_rb(local_p: vec3f, d: f32, shape_type: u32, half: vec4f) -> vec3f {
     if (shape_type == 1u) {
-        let nd = abs(local_p) / half.xyz;
-        if (nd.x >= nd.y && nd.x >= nd.z) { return vec3f(sign(local_p.x), 0.0, 0.0); }
-        if (nd.y >= nd.z)                  { return vec3f(0.0, sign(local_p.y), 0.0); }
-        return                                      vec3f(0.0, 0.0, sign(local_p.z));
+        // pen = margem restante até cada face: menor pen = face mais próxima = normal correta.
+        // nd = abs/half escolhia a face MAIS LONGE do centro (errado para cantos em arestas).
+        let pen = half.xyz - abs(local_p);
+        if (pen.x <= pen.y && pen.x <= pen.z) { return vec3f(sign(local_p.x), 0.0, 0.0); }
+        if (pen.y <= pen.z)                   { return vec3f(0.0, sign(local_p.y), 0.0); }
+        return                                        vec3f(0.0, 0.0, sign(local_p.z));
     }
     return sdf_gradient(local_p, d, shape_type, half);
 }

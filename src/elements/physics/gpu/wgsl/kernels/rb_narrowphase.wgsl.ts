@@ -84,6 +84,24 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     // Lê o tipo de forma do corpo dinâmico
     let body_shape_type = u32(bodies[rb_i].body_shape.x);  // 0=Sphere, 1=Box
 
+    // Supressão canônica de par dinâmico–dinâmico: sem supressão → ambos os pares
+    // (A→B) e (B→A) ficam ativos e cada um aplica impulso nos dois corpos → 2× impulso.
+    // Critério: suprime o par "secundário" com base em (shape_type, índice):
+    //   - body_shape_type > col.shape_type → este par é secundário (ex.: Box testa Sphere)
+    //   - mesmo shape, rb_i > col.body_owner_idx → índice maior é secundário
+    // Apenas para dinâmico–dinâmico (inv_mass_b > 0).
+    if (col.body_owner_idx != 0xFFFFFFFFu) {
+        let inv_mass_b = bodies[col.body_owner_idx].pos.w;
+        if (inv_mass_b > 0.0) {
+            let col_shape_type = u32(bodies[col.body_owner_idx].body_shape.x);
+            if (body_shape_type > col_shape_type ||
+                (body_shape_type == col_shape_type && rb_i > col.body_owner_idx)) {
+                contacts[slot].is_active = 0u;
+                return;
+            }
+        }
+    }
+
     let world_pred = bodies[rb_i].pos_pred.xyz;
     let rot_pred   = bodies[rb_i].rot_pred;
 
