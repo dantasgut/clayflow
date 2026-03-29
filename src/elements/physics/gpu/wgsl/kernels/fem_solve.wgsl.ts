@@ -112,7 +112,9 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
                 + w2 * dot(gh2, gh2)
                 + w3 * dot(gh3, gh3);
 
-    let lambda_h_prev = elem.lambdas.x;
+    // Sem warm-start: lambda reinicia a 0 em cada substep para evitar acumulação
+    // de deriva que cresce indefinidamente e causa explosão após N frames.
+    let lambda_h_prev = 0.0;
     let dlambda_h = fem_delta_lambda(C_h, w_sum_h, alpha_h_tilde, lambda_h_prev);
 
     if (abs(dlambda_h) > 1e-18) {
@@ -138,7 +140,7 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
                 + w2 * dot(gd2, gd2)
                 + w3 * dot(gd3, gd3);
 
-    let lambda_d_prev = elem.lambdas.y;
+    let lambda_d_prev = 0.0;
     let dlambda_d = fem_delta_lambda(C_d, w_sum_d, alpha_d_tilde, lambda_d_prev);
 
     if (abs(dlambda_d) > 1e-18) {
@@ -154,11 +156,8 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
     nodes[n2].pred = vec4f(p2, nodes[n2].pred.w);
     nodes[n3].pred = vec4f(p3, nodes[n3].pred.w);
 
-    // ── Atualiza lambdas (warm start) ────────────────────────────────────────
-    elements[elem_idx].lambdas = vec4f(
-        lambda_h_prev + dlambda_h,
-        lambda_d_prev + dlambda_d,
-        0.0, 0.0,
-    );
+    // Lambda não é persistido (warm-start desabilitado para estabilidade a longo prazo).
+    // Quando warm-start for reativado, descomentar:
+    // elements[elem_idx].lambdas = vec4f(lambda_h_prev + dlambda_h, lambda_d_prev + dlambda_d, 0.0, 0.0);
 }
 `;
