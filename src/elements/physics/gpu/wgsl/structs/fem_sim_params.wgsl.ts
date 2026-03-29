@@ -7,7 +7,8 @@
  *   offset 16: mu + lambda + damping + collision_radius     → 16 bytes
  *   offset 32: alpha_h + alpha_d + dt_frame + restitution   → 16 bytes
  *   offset 48: collider_count + node_count + elem_count + solve_iters → 16 bytes
- *   Total: 64 bytes
+ *   offset 64: rb_count + _fsp_pad1 + _fsp_pad2 + _fsp_pad3 → 16 bytes
+ *   Total: 80 bytes
  *
  * Escrito pela CPU (FEMComputePass) uma vez por substep antes dos dispatches.
  * Lido por todos os kernels FEM via @group(0) @binding(0).
@@ -37,5 +38,9 @@ struct FEMSimParams {
     node_count:       u32,    // número total de nós (partículas) do mesh
     elem_count:       u32,    // número total de elementos tetraédricos
     solve_iters:      u32,    // iterações de solve por substep (para serial fallback)
+    rb_count:         u32,    // número de RigidBody no buffer global
+    _fsp_pad1:        u32,
+    _fsp_pad2:        u32,
+    _fsp_pad3:        u32,
 }
 `;

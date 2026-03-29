@@ -39,6 +39,7 @@ export const FSP_COLLIDER_COUNT   = 12;   // u32 view index
 export const FSP_NODE_COUNT       = 13;   // u32 view index
 export const FSP_ELEM_COUNT       = 14;   // u32 view index
 export const FSP_SOLVE_ITERS      = 15;   // u32 view index
+export const FSP_RB_COUNT         = 16;   // u32 view index
 
-/** Tamanho total do buffer em bytes (4 × vec4 = 16 × 4 = 64). */
-export const FEM_SIM_PARAMS_BYTE_SIZE = 64;
+/** Tamanho total do buffer em bytes (5 × vec4 = 20 × 4 = 80). */
+export const FEM_SIM_PARAMS_BYTE_SIZE = 80;

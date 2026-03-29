@@ -321,11 +321,13 @@ const SHADER_FEM_SOLVE = WgslComposer.compose(
     WGSL_KERNEL_FEM_SOLVE,
 );
 
-// fem_collision: colisão nó × collider SDF estático
+// fem_collision: colisão nó × collider SDF estático + corpos rígidos dinâmicos
 const SHADER_FEM_COLLISION = WgslComposer.compose(
     WGSL_STRUCT_FEM_SIM_PARAMS,
     WGSL_STRUCT_PARTICLE,
     WGSL_STRUCT_COLLIDER_DESC,
+    WGSL_STRUCT_RIGID_BODY,
+    WGSL_QUAT,
     WGSL_SDF,
     WGSL_MAT,
     WGSL_KERNEL_FEM_COLLISION,

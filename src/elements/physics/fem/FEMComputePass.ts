@@ -38,6 +38,7 @@ import type { Force }                  from '../../../scene/systems/forces/Force
 import type { Geometry }               from '../../../scene/components/Geometry';
 import { PhysicsBodyState }            from '../../../scene/core/physics/PhysicsBodyState';
 import { COLLIDERS_BUFFER_ID }         from '../shared/ColliderDescriptorUploader';
+import { RIGID_BODY_GLOBAL_BUFFER_SET } from '../rigidbody/RigidBodyGlobalBufferSet';
 import {
     PIPELINE_IDS,
     ensurePhysicsPipelinesInitialized,
@@ -65,6 +66,7 @@ import {
     FSP_COLLISION_RADIUS, FSP_ALPHA_H, FSP_ALPHA_D,
     FSP_DT_FRAME, FSP_RESTITUTION,
     FSP_COLLIDER_COUNT, FSP_NODE_COUNT, FSP_ELEM_COUNT, FSP_SOLVE_ITERS,
+    FSP_RB_COUNT,
 } from './FEMSimParamsLayout';
 
 type FEMBodyBindGroups = {
@@ -88,6 +90,7 @@ export class FEMComputePass implements PhysicsComputePass {
 
     /** Bind groups cacheados por uuid do FEMBody. */
     private readonly bgCache = new Map<string, FEMBodyBindGroups>();
+    private lastHadBodiesBuf = false;
 
     private readonly simParamsBuf = new ArrayBuffer(FEM_SIM_PARAMS_BYTES);
     private readonly simParamsF32 = new Float32Array(this.simParamsBuf);
@@ -127,6 +130,13 @@ export class FEMComputePass implements PhysicsComputePass {
 
         if (context.colliderBufferRecreated) {
             this.bgCache.clear();
+        }
+
+        // Invalida cache se o buffer de bodies rígidos passou a existir neste frame
+        const hasBodiesBuf = !!buffers.getBuffer(RIGID_BODY_GLOBAL_BUFFER_SET.bodiesId);
+        if (hasBodiesBuf !== this.lastHadBodiesBuf) {
+            this.bgCache.clear();
+            this.lastHadBodiesBuf = hasBodiesBuf;
         }
 
         const encoders: GPUCommandEncoder[] = [];
@@ -186,6 +196,16 @@ export class FEMComputePass implements PhysicsComputePass {
             this.simParamsU32[FSP_NODE_COUNT]        = nCount;
             this.simParamsU32[FSP_ELEM_COUNT]        = eCount;
             this.simParamsU32[FSP_SOLVE_ITERS]       = this.solveIters;
+
+            // Conta corpos rígidos dinâmicos para o kernel fem_collision
+            let rbCount = 0;
+            for (const { body } of context.bodies.values()) {
+                if (body.physicType === 'RigidBody' && body.bodyState !== PhysicsBodyState.Inactive) {
+                    rbCount++;
+                }
+            }
+            this.simParamsU32[FSP_RB_COUNT] = rbCount;
+
             buffers.writeBuffer(ids.simParamsId, this.simParamsF32);
 
             let bg = this.bgCache.get(fem.uuid);
@@ -347,6 +367,9 @@ export class FEMComputePass implements PhysicsComputePass {
         const nodesBuf     = buffers.getBuffer(ids.nodesId)!.native;
         const elemsBuf     = buffers.getBuffer(ids.elementsId)!.native;
         const collidersBuf = buffers.getBuffer(COLLIDERS_BUFFER_ID)!.native;
+        // Falls back to collidersBuf when no RigidBody pipeline is active (rb_count=0 → loop skipped)
+        const bodiesBuf    = buffers.getBuffer(RIGID_BODY_GLOBAL_BUFFER_SET.bodiesId)?.native
+                          ?? collidersBuf;
         const vbuf         = buffers.getBuffer(vertexBufferId)!.native;
 
         const bg = (id: string, grp: number, entries: GPUBindGroupEntry[], label: string) =>
@@ -361,6 +384,7 @@ export class FEMComputePass implements PhysicsComputePass {
             { binding: 0, resource: { buffer: simBuf       } },
             { binding: 1, resource: { buffer: nodesBuf     } },
             { binding: 2, resource: { buffer: collidersBuf } },
+            { binding: 3, resource: { buffer: bodiesBuf    } },
         ], 'bg_fem_collision');
 
         const velocityUpdate = bg(PIPELINE_IDS.FEM_VELOCITY_UPDATE, 0, [
