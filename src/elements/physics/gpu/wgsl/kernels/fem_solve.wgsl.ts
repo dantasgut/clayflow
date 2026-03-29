@@ -86,13 +86,16 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
     // ── Restrição hidrostática (volume) ──────────────────────────────────────
     let Ds_h  = compute_Ds(p0, p1, p2, p3);
     let F_h   = compute_F(Ds_h, Dm_inv);
-    let J     = compute_J(F_h);
-    let C_h   = J - 1.0;
+    var J     = compute_J(F_h);
+    // Clamp J to avoid passing near-zero/negative values to grad_hydrostatic.
+    // grad_hydrostatic already guards, but clamping J here also fixes C_h sign.
+    let J_clamped = max(J, 0.02);
+    let C_h   = J_clamped - 1.0;
 
     // Gradientes gh_j = J × (F_inv_T × Bm_col_j); g0 = -(g1+g2+g3)
-    let gh1 = grad_hydrostatic(F_h, J, elem.Bm_col0.xyz);
-    let gh2 = grad_hydrostatic(F_h, J, elem.Bm_col1.xyz);
-    let gh3 = grad_hydrostatic(F_h, J, elem.Bm_col2.xyz);
+    let gh1 = grad_hydrostatic(F_h, J_clamped, elem.Bm_col0.xyz);
+    let gh2 = grad_hydrostatic(F_h, J_clamped, elem.Bm_col1.xyz);
+    let gh3 = grad_hydrostatic(F_h, J_clamped, elem.Bm_col2.xyz);
     let gh0 = grad_node0(gh1, gh2, gh3);
 
     let w_sum_h = w0 * dot(gh0, gh0)
