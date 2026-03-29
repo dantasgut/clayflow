@@ -54,28 +54,19 @@ fn rb_lcp_commit_main(@builtin(global_invocation_id) gid: vec3u) {
     var final_vel   = vel   * lin_damp;
     var final_omega = omega * ang_damp;
 
-    // Pseudo-sleep: zera velocidades abaixo do threshold
-    let sleep_sq = rb_params.sleep_lin_threshold * rb_params.sleep_lin_threshold;
-    if (sleep_sq > 0.0
-        && dot(final_vel,   final_vel)   < sleep_sq
-        && dot(final_omega, final_omega) < sleep_sq * 25.0) {
-        final_vel   = vec3f(0.0);
-        final_omega = vec3f(0.0);
-    }
-
     // Avança posição pela velocidade corrigida (não por pos_pred!)
     var new_pos = bodies[i].pos.xyz + final_vel * dt;
 
-    // Correção posicional direta para penetrações reais remanescentes após o solver.
-    // _pad3 armazena o SDF real 'd' (sem d_speculative) — negativo = penetração real,
-    // positivo/zero = contato especulativo (sem correção posicional necessária).
-    // Fator 0.3 complementa o Baumgarte de velocidade (beta*gap/dt), dando ~80% de
-    // correção total por frame e evitando que o corpo afunde lentamente.
+    // Correção posicional + detecção de contato ativo num único loop.
+    // _pad3 armazena o SDF real 'd' (sem d_speculative) — negativo = penetração real.
+    // has_contact: true se qualquer slot está ativo — necessário para a condição de sleep.
     let col_count = rb_params.collider_count;
     var pos_correction = vec3f(0.0);
+    var has_contact = false;
     for (var j = 0u; j < col_count; j++) {
         let slot = i * col_count + j;
         if (contacts[slot].is_active == 0u) { continue; }
+        has_contact = true;
         let actual_d = contacts[slot]._pad3;            // SDF real no ponto de teste
         let slop     = rb_params.penetration_slop;
         if (actual_d >= -slop) { continue; }            // especulativo ou dentro do slop — não precisa
@@ -84,10 +75,24 @@ fn rb_lcp_commit_main(@builtin(global_invocation_id) gid: vec3u) {
     }
     new_pos += pos_correction;
 
+    // Pseudo-sleep: zera velocidades e marca corpo como dormindo.
+    // Condição has_contact evita sleep no ar (ex.: pico do quique, vel ≈ 0 momentaneamente).
+    // vel.w = 1.0 → dormindo (rb_predict ignora gravidade e mantém pos_pred = pos).
+    // vel.w = 0.0 → acordado (rb_predict integra gravidade normalmente).
+    let sleep_sq = rb_params.sleep_lin_threshold * rb_params.sleep_lin_threshold;
+    var is_sleeping = false;
+    if (sleep_sq > 0.0 && has_contact
+        && dot(final_vel,   final_vel)   < sleep_sq
+        && dot(final_omega, final_omega) < sleep_sq * 25.0) {
+        final_vel   = vec3f(0.0);
+        final_omega = vec3f(0.0);
+        is_sleeping = true;
+    }
+
     let new_rot = quat_normalize(quat_integrate(bodies[i].rot, final_omega, dt));
 
     // Escreve estado
-    bodies[i].vel      = vec4f(final_vel,   bodies[i].vel.w);
+    bodies[i].vel      = vec4f(final_vel,   select(0.0, 1.0, is_sleeping));
     bodies[i].omega    = vec4f(final_omega, bodies[i].omega.w);
     bodies[i].pos      = vec4f(new_pos,     bodies[i].pos.w);
     bodies[i].rot      = new_rot;
