@@ -105,6 +105,16 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     let world_pred = bodies[rb_i].pos_pred.xyz;
     let rot_pred   = bodies[rb_i].rot_pred;
 
+    // Para colisores dinâmicos (body_owner_idx < body_count), a world_mat/inv_world_mat
+    // do ColliderDesc é estática (posição inicial da CPU). Usar pos_pred + rot_pred do GPU.
+    let is_dynamic_col = col.body_owner_idx < rb_params.body_count;
+    var col_pos: vec3f;
+    var col_rot: vec4f;
+    if (is_dynamic_col) {
+        col_pos = bodies[col.body_owner_idx].pos_pred.xyz;
+        col_rot = bodies[col.body_owner_idx].rot_pred;
+    }
+
     // ── Escolha do ponto de teste ─────────────────────────────────────────────
     // Sphere: testa o CM e subtrai o raio para obter distância de superfície
     // Box:    varre os 8 cantos e usa o mais penetrante
@@ -122,7 +132,9 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
 
         var best_d:      f32    = 1e30;
         var best_world:  vec3f  = corners[0];
-        var best_local:  vec3f  = (col.inv_world_mat * vec4f(corners[0], 1.0)).xyz;
+        var best_local:  vec3f;
+        if (is_dynamic_col) { best_local = quat_rotate_vec_inv(col_rot, corners[0] - col_pos); }
+        else                { best_local = (col.inv_world_mat * vec4f(corners[0], 1.0)).xyz;   }
 
         // Acumula cantos penetrantes para centróide (≥2 → pousamento plano estável)
         var sum_world: vec3f = vec3f(0.0);
@@ -131,7 +143,9 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
 
         for (var k: u32 = 0u; k < 8u; k++) {
             let cw = corners[k];
-            let cl = (col.inv_world_mat * vec4f(cw, 1.0)).xyz;
+            var cl: vec3f;
+            if (is_dynamic_col) { cl = quat_rotate_vec_inv(col_rot, cw - col_pos); }
+            else                { cl = (col.inv_world_mat * vec4f(cw, 1.0)).xyz;   }
             let cd = eval_sdf(cl, col.shape_type, col.half);
             if (cd < best_d) {
                 best_d     = cd;
@@ -168,7 +182,9 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
         // sdf_raw preserva o valor bruto (sem raio) para o cálculo do gradiente, que usa
         // diferenças finitas e seria corrompido pelo offset do raio.
         let sphere_radius = bodies[rb_i].body_shape.y;  // half_x == raio da esfera
-        let local_pred    = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;
+        var local_pred: vec3f;
+        if (is_dynamic_col) { local_pred = quat_rotate_vec_inv(col_rot, world_pred - col_pos); }
+        else                { local_pred = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;   }
         let raw           = eval_sdf(local_pred, col.shape_type, col.half);
         test_world            = world_pred;
         test_local            = local_pred;
@@ -193,7 +209,9 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     // Calcula normal no espaço mundo (necessário para contatos especulativos).
     // Usa sdf_raw (valor bruto do collider em test_local) para diferenças finitas corretas.
     let grad_local = sdf_gradient_rb(test_local, sdf_raw, col.shape_type, col.half);
-    let wn_raw     = mat4_upper3x3_transform(col.world_mat, grad_local);
+    var wn_raw: vec3f;
+    if (is_dynamic_col) { wn_raw = quat_rotate_vec(col_rot, grad_local);               }
+    else                { wn_raw = mat4_upper3x3_transform(col.world_mat, grad_local); }
     let wn_len     = length(wn_raw);
     if (wn_len < 1e-8) {
         contacts[slot].is_active = 0u;
@@ -252,7 +270,11 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     contacts[slot].rb_idx_b   = col.body_owner_idx;  // 0xFFFFFFFFu se estático; índice do corpo B se dinâmico
     contacts[slot].lambda_tx   = lambda_tx;
     contacts[slot].lambda_ty   = lambda_ty;
-    contacts[slot].restitution  = combine_restitution(rb_params.restitution, rb_params.restitution);
+    let rest_a = bodies[rb_i].mat_props.x;
+    let is_dynamic_b = col.body_owner_idx < rb_params.body_count;
+    let safe_b  = select(0u, col.body_owner_idx, is_dynamic_b);
+    let rest_b  = select(0.0, bodies[safe_b].mat_props.x, is_dynamic_b);
+    contacts[slot].restitution  = combine_restitution(rest_a, rest_b);
     contacts[slot].diagonal_t2  = 0.0;  // pré-computado em rb_build_lcp; zerado aqui apenas como init
     contacts[slot]._pad3        = d;    // SDF real (antes de d_speculative): negativo = penetração real
     contacts[slot]._pad4        = 0.0;

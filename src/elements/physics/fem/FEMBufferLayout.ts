@@ -33,7 +33,7 @@ export const FEM_ELEM_STRIDE_WORDS  = 28;
 export const FEM_COLOR_RANGE_BYTES  = 16;
 
 /** Bytes do uniform FEMSimParams. */
-export const FEM_SIM_PARAMS_BYTES   = 64;
+export const FEM_SIM_PARAMS_BYTES   = 80;
 
 // ── Offsets nos nós (Float32Array view) ──────────────────────────────────────
 
