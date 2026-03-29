@@ -73,6 +73,16 @@ import { WGSL_KERNEL_FEM_COLLISION }         from '../gpu/wgsl/kernels/fem_colli
 import { WGSL_KERNEL_FEM_VELOCITY_UPDATE }   from '../gpu/wgsl/kernels/fem_velocity_update.wgsl';
 import { WGSL_KERNEL_FEM_VERTEX_WRITE }      from '../gpu/wgsl/kernels/fem_vertex_write.wgsl';
 
+// ── MPM modules ───────────────────────────────────────────────────────────────
+import { WGSL_STRUCT_MPM_SIM_PARAMS }        from '../gpu/wgsl/structs/mpm_sim_params.wgsl';
+import { WGSL_STRUCT_MPM_PARTICLE }          from '../gpu/wgsl/structs/mpm_particle.wgsl';
+import { WGSL_STRUCT_MPM_GRID_NODE }         from '../gpu/wgsl/structs/mpm_grid_node.wgsl';
+import { WGSL_MPM_WEIGHTS }                  from '../gpu/wgsl/math/mpm_weights.wgsl';
+import { WGSL_KERNEL_MPM_P2G }               from '../gpu/wgsl/kernels/mpm_p2g.wgsl';
+import { WGSL_KERNEL_MPM_GRID_UPDATE }       from '../gpu/wgsl/kernels/mpm_grid_update.wgsl';
+import { WGSL_KERNEL_MPM_G2P }               from '../gpu/wgsl/kernels/mpm_g2p.wgsl';
+import { WGSL_KERNEL_MPM_VERTEX_WRITE }      from '../gpu/wgsl/kernels/mpm_vertex_write.wgsl';
+
 // ── Pipeline IDs ──────────────────────────────────────────────────────────────
 
 /** IDs estáveis para getComputePipeline() e dispatchOnPass() — não mudam entre frames. */
@@ -103,6 +113,10 @@ export const PIPELINE_IDS = Object.freeze({
     FEM_COLLISION:           'physics_fem_collision',
     FEM_VELOCITY_UPDATE:     'physics_fem_velocity_update',
     FEM_VERTEX_WRITE:        'physics_fem_vertex_write',
+    MPM_P2G:                 'physics_mpm_p2g',
+    MPM_GRID_UPDATE:         'physics_mpm_grid_update',
+    MPM_G2P:                 'physics_mpm_g2p',
+    MPM_VERTEX_WRITE:        'physics_mpm_vertex_write',
 } as const);
 
 // ── Shaders compostos ─────────────────────────────────────────────────────────
@@ -331,6 +345,44 @@ const SHADER_FEM_VERTEX_WRITE = WgslComposer.compose(
     WGSL_KERNEL_FEM_VERTEX_WRITE,
 );
 
+// ── MPM shaders ───────────────────────────────────────────────────────────────
+
+// mpm_p2g: P2G com Neo-Hookean stress + APIC affine momentum (atomic i32)
+const SHADER_MPM_P2G = WgslComposer.compose(
+    WGSL_STRUCT_MPM_SIM_PARAMS,
+    WGSL_STRUCT_MPM_PARTICLE,
+    WGSL_STRUCT_MPM_GRID_NODE,
+    WGSL_LINALG,
+    WGSL_MPM_WEIGHTS,
+    WGSL_KERNEL_MPM_P2G,
+);
+
+// mpm_grid_update: normaliza momentum → vel, aplica gravidade + BC + SDF collision
+const SHADER_MPM_GRID_UPDATE = WgslComposer.compose(
+    WGSL_STRUCT_MPM_SIM_PARAMS,
+    WGSL_STRUCT_MPM_GRID_NODE,
+    WGSL_STRUCT_COLLIDER_DESC,
+    WGSL_SDF,
+    WGSL_MAT,
+    WGSL_KERNEL_MPM_GRID_UPDATE,
+);
+
+// mpm_g2p: G2P com APIC — interpola vel, acumula B_p, atualiza C e F, avança pos
+const SHADER_MPM_G2P = WgslComposer.compose(
+    WGSL_STRUCT_MPM_SIM_PARAMS,
+    WGSL_STRUCT_MPM_PARTICLE,
+    WGSL_STRUCT_MPM_GRID_NODE,
+    WGSL_MPM_WEIGHTS,
+    WGSL_KERNEL_MPM_G2P,
+);
+
+// mpm_vertex_write: copia pos.xyz das partículas para o vertex buffer do renderer
+const SHADER_MPM_VERTEX_WRITE = WgslComposer.compose(
+    WGSL_STRUCT_MPM_SIM_PARAMS,
+    WGSL_STRUCT_MPM_PARTICLE,
+    WGSL_KERNEL_MPM_VERTEX_WRITE,
+);
+
 // ── Registro de pipelines ─────────────────────────────────────────────────────
 
 let _initPromise: Promise<void> | null = null;
@@ -369,6 +421,10 @@ export async function ensurePhysicsPipelinesInitialized(core: EngineCore): Promi
         core.compute.createComputePipeline(PIPELINE_IDS.FEM_COLLISION,        SHADER_FEM_COLLISION,        'fem_collision_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.FEM_VELOCITY_UPDATE,  SHADER_FEM_VELOCITY_UPDATE,  'fem_velocity_update_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.FEM_VERTEX_WRITE,     SHADER_FEM_VERTEX_WRITE,     'fem_vertex_write_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.MPM_P2G,              SHADER_MPM_P2G,              'mpm_p2g_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.MPM_GRID_UPDATE,      SHADER_MPM_GRID_UPDATE,      'mpm_grid_update_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.MPM_G2P,              SHADER_MPM_G2P,              'mpm_g2p_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.MPM_VERTEX_WRITE,     SHADER_MPM_VERTEX_WRITE,     'mpm_vertex_write_main'),
     ])
         .then(() => undefined)
         .catch((err) => {
