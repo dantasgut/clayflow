@@ -61,6 +61,18 @@ import { WGSL_KERNEL_RB_UPDATE_COLLIDERS }   from '../gpu/wgsl/kernels/rb_update
 import { WGSL_KERNEL_RB_SUBSTEP_UPDATE }    from '../gpu/wgsl/kernels/rb_substep_update.wgsl';
 import { WGSL_LCP }                          from '../gpu/wgsl/math/lcp.wgsl';
 
+// ── FEM modules ───────────────────────────────────────────────────────────────
+import { WGSL_LINALG }                       from '../gpu/wgsl/math/linalg.wgsl';
+import { WGSL_FEM_KINEMATICS }               from '../gpu/wgsl/math/fem_kinematics.wgsl';
+import { WGSL_FEM_XPBD }                     from '../gpu/wgsl/math/fem_xpbd.wgsl';
+import { WGSL_STRUCT_FEM_SIM_PARAMS }        from '../gpu/wgsl/structs/fem_sim_params.wgsl';
+import { WGSL_STRUCT_FEM_ELEMENT }           from '../gpu/wgsl/structs/fem_element.wgsl';
+import { WGSL_KERNEL_FEM_PREDICT }           from '../gpu/wgsl/kernels/fem_predict.wgsl';
+import { WGSL_KERNEL_FEM_SOLVE }             from '../gpu/wgsl/kernels/fem_solve.wgsl';
+import { WGSL_KERNEL_FEM_COLLISION }         from '../gpu/wgsl/kernels/fem_collision.wgsl';
+import { WGSL_KERNEL_FEM_VELOCITY_UPDATE }   from '../gpu/wgsl/kernels/fem_velocity_update.wgsl';
+import { WGSL_KERNEL_FEM_VERTEX_WRITE }      from '../gpu/wgsl/kernels/fem_vertex_write.wgsl';
+
 // ── Pipeline IDs ──────────────────────────────────────────────────────────────
 
 /** IDs estáveis para getComputePipeline() e dispatchOnPass() — não mudam entre frames. */
@@ -86,6 +98,11 @@ export const PIPELINE_IDS = Object.freeze({
     RB_LCP_COMMIT:           'rb_lcp_commit_pipeline',
     RB_UPDATE_COLLIDERS:     'physics_rb_update_colliders',
     RB_SUBSTEP_UPDATE:       'physics_rb_substep_update',
+    FEM_PREDICT:             'physics_fem_predict',
+    FEM_SOLVE:               'physics_fem_solve',
+    FEM_COLLISION:           'physics_fem_collision',
+    FEM_VELOCITY_UPDATE:     'physics_fem_velocity_update',
+    FEM_VERTEX_WRITE:        'physics_fem_vertex_write',
 } as const);
 
 // ── Shaders compostos ─────────────────────────────────────────────────────────
@@ -270,6 +287,50 @@ const SHADER_RB_UPDATE_COLLIDERS = WgslComposer.compose(
     WGSL_KERNEL_RB_UPDATE_COLLIDERS,
 );
 
+// ── FEM shaders ───────────────────────────────────────────────────────────────
+
+// fem_predict: integração explícita vel+gravity, projeta pred = pos + vel*dt
+const SHADER_FEM_PREDICT = WgslComposer.compose(
+    WGSL_STRUCT_FEM_SIM_PARAMS,
+    WGSL_STRUCT_PARTICLE,
+    WGSL_KERNEL_FEM_PREDICT,
+);
+
+// fem_solve: resolve C_h + C_d por elemento (1 workgroup = 1 elemento)
+const SHADER_FEM_SOLVE = WgslComposer.compose(
+    WGSL_STRUCT_FEM_SIM_PARAMS,
+    WGSL_STRUCT_PARTICLE,
+    WGSL_STRUCT_FEM_ELEMENT,
+    WGSL_LINALG,
+    WGSL_FEM_KINEMATICS,
+    WGSL_FEM_XPBD,
+    WGSL_KERNEL_FEM_SOLVE,
+);
+
+// fem_collision: colisão nó × collider SDF estático
+const SHADER_FEM_COLLISION = WgslComposer.compose(
+    WGSL_STRUCT_FEM_SIM_PARAMS,
+    WGSL_STRUCT_PARTICLE,
+    WGSL_STRUCT_COLLIDER_DESC,
+    WGSL_SDF,
+    WGSL_MAT,
+    WGSL_KERNEL_FEM_COLLISION,
+);
+
+// fem_velocity_update: vel = (pred - pos) / dt; pos = pred
+const SHADER_FEM_VELOCITY_UPDATE = WgslComposer.compose(
+    WGSL_STRUCT_FEM_SIM_PARAMS,
+    WGSL_STRUCT_PARTICLE,
+    WGSL_KERNEL_FEM_VELOCITY_UPDATE,
+);
+
+// fem_vertex_write: escreve xyz no vertex buffer (stride 8 floats)
+const SHADER_FEM_VERTEX_WRITE = WgslComposer.compose(
+    WGSL_STRUCT_FEM_SIM_PARAMS,
+    WGSL_STRUCT_PARTICLE,
+    WGSL_KERNEL_FEM_VERTEX_WRITE,
+);
+
 // ── Registro de pipelines ─────────────────────────────────────────────────────
 
 let _initPromise: Promise<void> | null = null;
@@ -303,6 +364,11 @@ export async function ensurePhysicsPipelinesInitialized(core: EngineCore): Promi
         core.compute.createComputePipeline(PIPELINE_IDS.RB_LCP_COMMIT,         SHADER_RB_LCP_COMMIT,         'rb_lcp_commit_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_UPDATE_COLLIDERS,   SHADER_RB_UPDATE_COLLIDERS,   'rb_update_colliders'),
         core.compute.createComputePipeline(PIPELINE_IDS.RB_SUBSTEP_UPDATE,    SHADER_RB_SUBSTEP_UPDATE,    'rb_substep_update_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.FEM_PREDICT,          SHADER_FEM_PREDICT,          'fem_predict_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.FEM_SOLVE,            SHADER_FEM_SOLVE,            'fem_solve_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.FEM_COLLISION,        SHADER_FEM_COLLISION,        'fem_collision_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.FEM_VELOCITY_UPDATE,  SHADER_FEM_VELOCITY_UPDATE,  'fem_velocity_update_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.FEM_VERTEX_WRITE,     SHADER_FEM_VERTEX_WRITE,     'fem_vertex_write_main'),
     ])
         .then(() => undefined)
         .catch((err) => {
