@@ -60,15 +60,15 @@ fn lcp_pgs_step(j_v: f32, bias: f32, a_kk: f32, lambda_acc: f32) -> vec2f {
 }
 
 /// Um passo PGS para constraint de atrito (cone de Coulomb isotrópico).
-/// j_v_t: velocidade relativa tangencial (vec2f, J_t · v)
-/// a_kk_t: Delassus tangencial (escalar — mesma fórmula, direção tangente)
+/// j_v_t:    velocidade relativa tangencial (vec2f, J_t · v)
+/// a_kk_t:   Delassus tangencial por eixo (vec2f — t1, t2 podem diferir com I_x≠I_y≠I_z)
 /// lambda_t_acc: acumulador tangencial (vec2f)
 /// lambda_n: impulso normal acumulado (para limite do cone)
-/// mu: coeficiente de atrito combinado
+/// mu:       coeficiente de atrito combinado
 /// Retorna vec4f(delta_lambda_t.xy, novo_lambda_t_acc.xy)
-fn lcp_pgs_step_friction(j_v_t: vec2f, a_kk_t: f32, lambda_t_acc: vec2f,
+fn lcp_pgs_step_friction(j_v_t: vec2f, a_kk_t: vec2f, lambda_t_acc: vec2f,
                           lambda_n: f32, mu: f32) -> vec4f {
-    let safe_a    = max(a_kk_t, 1e-10);
+    let safe_a    = max(a_kk_t, vec2f(1e-10));
     let delta     = -(j_v_t) / safe_a;
     let new_raw   = lambda_t_acc + delta;
     // Projeção no disco de Coulomb: |λₜ| ≤ μ · λₙ

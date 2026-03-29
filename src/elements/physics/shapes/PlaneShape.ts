@@ -44,7 +44,13 @@ export class PlaneShape extends SDFCollider {
         this.halfDepth = halfDepth;
     }
 
-    public override packDescriptor(): { shapeType: number; half: [number, number, number, number] } {
-        return { shapeType: 2, half: [this.normal[0], this.normal[1], this.normal[2], this.offset] };
+    public override packDescriptor(): { shapeType: number; half: [number, number, number, number]; bounds: [number, number] } {
+        const bw = isFinite(this.halfWidth)  ? this.halfWidth  : 0;
+        const bd = isFinite(this.halfDepth) ? this.halfDepth : 0;
+        return {
+            shapeType: 2,
+            half:   [this.normal[0], this.normal[1], this.normal[2], this.offset],
+            bounds: [bw, bd],
+        };
     }
 }

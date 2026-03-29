@@ -33,7 +33,7 @@ import { WebGPUEngineCore }          from '../../../core/WebGPUEngineCore';
 import type { SoftBody }              from '../SoftBody';
 import type { Force }                 from '../../../scene/systems/forces/Force';
 import type { Geometry }              from '../../../scene/components/Geometry';
-import { ColliderDescriptorUploader, COLLIDERS_BUFFER_ID } from '../shared/ColliderDescriptorUploader';
+import { COLLIDERS_BUFFER_ID } from '../shared/ColliderDescriptorUploader';
 import {
     PIPELINE_IDS,
     ensurePhysicsPipelinesInitialized,
@@ -45,7 +45,7 @@ import type { GpuSimContext }             from '../../../scene/systems/GpuSimCon
 import type { EngineCore }               from '../../../core/interfaces/EngineCore';
 import {
     SP_GRAVITY_X, SP_GRAVITY_Y, SP_GRAVITY_Z, SP_DT,
-    SP_RESTITUTION, SP_DAMPING, SP_PARTICLE_RADIUS,
+    SP_RESTITUTION, SP_DAMPING, SP_PARTICLE_RADIUS, SP_COLLISION_RADIUS,
     SP_PARTICLE_COUNT, SP_CONSTRAINT_COUNT, SP_COLLIDER_COUNT,
     SP_SHAPE_STIFFNESS,
 } from './SimParamsLayout';
@@ -71,7 +71,6 @@ export class SoftBodyXPBDComputePass implements PhysicsComputePass {
     public readonly acceptedPhysicTypes: readonly string[] = ['SoftBody'];
 
     private core: EngineCore = WebGPUEngineCore.getInstance();
-    private readonly uploader     = new ColliderDescriptorUploader();
     private readonly softProfiler: GpuSoftBodyProfiler;
 
     private ready        = false;
@@ -120,9 +119,9 @@ export class SoftBodyXPBDComputePass implements PhysicsComputePass {
         const buffers = core.resources.buffers;
         const compute = core.compute;
 
-        const colliderCount = this.uploader.upload(context);
+        const colliderCount = context.colliderCount;
 
-        if (this.uploader.bufferRecreated) {
+        if (context.colliderBufferRecreated) {
             this.bgCache.clear();
         }
 
@@ -174,7 +173,8 @@ export class SoftBodyXPBDComputePass implements PhysicsComputePass {
             this.simParamsU32[SP_PARTICLE_COUNT]  = pCount;
             this.simParamsU32[SP_CONSTRAINT_COUNT] = cCount;
             this.simParamsU32[SP_COLLIDER_COUNT]   = colliderCount;
-            this.simParamsF32[SP_SHAPE_STIFFNESS]  = body.get<number>('shapeStiffness') ?? 0.0;
+            this.simParamsF32[SP_SHAPE_STIFFNESS]   = body.get<number>('shapeStiffness') ?? 0.0;
+            this.simParamsF32[SP_COLLISION_RADIUS]  = 0.05; // 5 cm — buffer para colisores estreitos (bastão)
 
             buffers.writeBuffer(simParamsId, this.simParamsF32);
 

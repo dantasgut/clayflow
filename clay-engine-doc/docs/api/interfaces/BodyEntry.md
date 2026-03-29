@@ -1,8 +1,8 @@
 # Interface: BodyEntry
 
-Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L7)
+Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L6)
 
-Entrada de corpo físico — compartilhada entre estágios do pipeline.
+Entrada de corpo físico no contexto GPU.
 
 ## Properties
 
@@ -10,7 +10,7 @@ Entrada de corpo físico — compartilhada entre estágios do pipeline.
 
 > **body**: [`PhysicsBody`](../classes/PhysicsBody.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L7)
+Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L6)
 
 ***
 
@@ -18,4 +18,4 @@ Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgu
 
 > **entity**: [`Entity`](../classes/Entity.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L7)
+Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L6)

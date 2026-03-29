@@ -50,10 +50,12 @@ import { ComputePassBase } from './ComputePassBase';
 
 type RbBindGroups = {
     predict:          GPUBindGroup;
+    substepUpdate:    GPUBindGroup;
     updateColliders:  GPUBindGroup;
     narrowphase:      GPUBindGroup;
     solve:            GPUBindGroup;
     velocityRecovery: GPUBindGroup;
+    solveVelocity:    GPUBindGroup;
     syncTransform:    GPUBindGroup | null;
 };
 
@@ -93,8 +95,8 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
             gz += f[2] ?? 0;
         }
 
-        // K ampliado: compensa o colapso para 1 substep mantendo qualidade total de solve
-        const K = this.solveIterations * this.getSubsteps();
+        // K = iterações por substep (não multiplicar por substeps — já rodamos N substeps)
+        const K = this.solveIterations;
 
         this.rbSimParamsF32[SP_GRAVITY_X]      = gx;
         this.rbSimParamsF32[SP_GRAVITY_Y]      = gy;
@@ -105,13 +107,24 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
         this.rbSimParamsF32[SP_DT_FRAME]              = dtFrame;
-        this.rbSimParamsF32[SP_RESTITUTION]           = 0.1;
+        // Restitution=0: XPBD posicional já produz bounce natural via correção de posição.
+        // Bounce explícito adiciona energia ao sistema e impede convergência rápida.
+        this.rbSimParamsF32[SP_RESTITUTION]           = 0.0;
         this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
-        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 4.0;
-        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 4.0;
-        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.0;
+        // Damping global em velocity_recovery usa fórmula 1 - k*dtSub com dtSub=dtFrame
+        // (substeps=1). Com k=4.0 isso dá 1-4/60=0.93/frame → terminal vel ~2.3m/s (artificial).
+        // Com k=0.05 → 1-0.05/60≈0.9992/frame → queda livre realista sem resistência visível.
+        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 0.05;
+        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 0.5;
+        // Especulativo reativado: com substeps=4, dtSub=4ms — penetração menor e
+        // look-ahead de 1 substep é proporcional ao dt menor, sem injeção excessiva de energia.
+        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.1;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
-        this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;
+        // sleep_lin_threshold deve cobrir a deriva de gravidade em repouso (~g*dt ≈ 0.16 m/s).
+        // Valor 0.01 era menor que essa deriva, impedindo o sleep em corpos em repouso.
+        // Sleep threshold desabilitado: com substeps=4, vel por substep é g*dtSub≈0.04m/s —
+        // qualquer threshold fixo engole queda livre. Damping global faz a convergência.
+        this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = 0.0;
 
         let simParamsDirty = false;
         for (let i = 0; i < 20; i++) {
@@ -147,6 +160,11 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
             { binding: 1, resource: { buffer: bodiesBuf   } },
         ]);
 
+        const substepUpdate = bg(PIPELINE_IDS.RB_SUBSTEP_UPDATE, [
+            { binding: 0, resource: { buffer: rbParamsBuf } },
+            { binding: 1, resource: { buffer: bodiesBuf   } },
+        ]);
+
         const updateColliders = bg(PIPELINE_IDS.RB_UPDATE_COLLIDERS, [
             { binding: 0, resource: { buffer: rbParamsBuf  } },
             { binding: 1, resource: { buffer: bodiesBuf    } },
@@ -171,7 +189,13 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
             { binding: 1, resource: { buffer: bodiesBuf   } },
         ]);
 
-        return { predict, updateColliders, narrowphase, solve, velocityRecovery, syncTransform: null };
+        const solveVelocity = bg(PIPELINE_IDS.RB_SOLVE_VELOCITY, [
+            { binding: 0, resource: { buffer: rbParamsBuf } },
+            { binding: 1, resource: { buffer: bodiesBuf   } },
+            { binding: 2, resource: { buffer: contactsBuf } },
+        ]);
+
+        return { predict, substepUpdate, updateColliders, narrowphase, solve, velocityRecovery, solveVelocity, syncTransform: null };
     }
 
     protected encodeAlgorithmPasses(
@@ -190,33 +214,37 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
         const wgContacts = Math.ceil(maxContacts / 64);
         const wgColliders = Math.ceil(Math.max(colliderCount, 1) / 64);
 
-        // rb_predict — 1× por frame, antes do loop de substeps
-        const predictPass = compute.beginComputePassExplicit(
-            encoder, 'rb_predict', shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.predict) : undefined);
-        compute.dispatchOnPass(predictPass, PIPELINE_IDS.RB_PREDICT, [bg.predict], wgBodies);
-        predictPass.end();
-        this.eventBus?.emit('physics:bodies:integrated', { bodyCount });
-
-        // rb_update_colliders — 1× por frame
-        const updateCollidersPass = compute.beginComputePassExplicit(encoder, 'rb_update_colliders');
-        compute.dispatchOnPass(updateCollidersPass, PIPELINE_IDS.RB_UPDATE_COLLIDERS, [bg.updateColliders], wgColliders);
-        updateCollidersPass.end();
-
         for (let s = 0; s < substeps; s++) {
             const isFirstSub = s === 0;
+
+            // rb_predict — 1× por substep (usa dtSub = gravity.w)
+            const predictPass = compute.beginComputePassExplicit(
+                encoder, `rb_predict_${s}`,
+                isFirstSub && shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.predict) : undefined);
+            compute.dispatchOnPass(predictPass, PIPELINE_IDS.RB_PREDICT, [bg.predict], wgBodies);
+            predictPass.end();
+
+            // rb_update_colliders — 1× por substep (sincroniza colliders com pos_pred)
+            const updateCollidersPass = compute.beginComputePassExplicit(encoder, `rb_update_colliders_${s}`);
+            compute.dispatchOnPass(updateCollidersPass, PIPELINE_IDS.RB_UPDATE_COLLIDERS, [bg.updateColliders], wgColliders);
+            updateCollidersPass.end();
 
             const npPass = compute.beginComputePassExplicit(
                 encoder, `rb_narrowphase_${s}`,
                 isFirstSub && shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.narrowphase) : undefined);
             compute.dispatchOnPass(npPass, PIPELINE_IDS.RB_NARROWPHASE, [bg.narrowphase], wgContacts);
             npPass.end();
-            this.eventBus?.emit('physics:contacts:detected', { maxContacts });
 
             const solvePass = compute.beginComputePassExplicit(
                 encoder, `rb_solve_${s}`,
                 isFirstSub && shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.solve) : undefined);
             compute.dispatchOnPass(solvePass, PIPELINE_IDS.RB_SOLVE, [bg.solve], 1);
             solvePass.end();
+
+            // rb_substep_update — finaliza substep: vel=(pos_pred-pos)/dtSub, pos=pos_pred
+            const subStepPass = compute.beginComputePassExplicit(encoder, `rb_substep_update_${s}`);
+            compute.dispatchOnPass(subStepPass, PIPELINE_IDS.RB_SUBSTEP_UPDATE, [bg.substepUpdate], wgBodies);
+            subStepPass.end();
         }
 
         const vrPass = compute.beginComputePassExplicit(
@@ -224,6 +252,11 @@ export class XPBDComputePass extends ComputePassBase<RbBindGroups> {
             shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.velocityRecovery) : undefined);
         compute.dispatchOnPass(vrPass, PIPELINE_IDS.RB_VELOCITY_RECOVERY, [bg.velocityRecovery], wgBodies);
         vrPass.end();
+
+        // rb_solve_velocity: fricção em velocity space (Müller 2020 — desacoplado da posição)
+        const svPass = compute.beginComputePassExplicit(encoder, 'rb_solve_velocity');
+        compute.dispatchOnPass(svPass, PIPELINE_IDS.RB_SOLVE_VELOCITY, [bg.solveVelocity], 1);
+        svPass.end();
     }
 
     // ── Helpers de syncTransform (armazenado dentro de RbBindGroups) ──────

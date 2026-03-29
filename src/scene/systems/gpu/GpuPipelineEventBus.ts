@@ -9,15 +9,6 @@ export interface PhysicsCollidersChangedPayload {
     changedCount: number;
 }
 
-export interface PhysicsBodiesIntegratedPayload {
-    /** Número de corpos para os quais predict foi encodado. */
-    bodyCount: number;
-}
-
-export interface PhysicsContactsDetectedPayload {
-    /** Número máximo de slots de contato alocados. */
-    maxContacts: number;
-}
 
 export interface PhysicsFrameSubmittedPayload {
     bodyCount:  number;
@@ -45,9 +36,7 @@ export interface PhysicsRbReallocatedPayload {
 export interface GpuPipelineEventMap {
     'physics:bodies:changed':     PhysicsBodiesChangedPayload;
     'physics:colliders:changed':  PhysicsCollidersChangedPayload;
-    'physics:bodies:integrated':  PhysicsBodiesIntegratedPayload;
-    'physics:contacts:detected':  PhysicsContactsDetectedPayload;
-    'physics:frame:submitted':    PhysicsFrameSubmittedPayload;
+'physics:frame:submitted':    PhysicsFrameSubmittedPayload;
     'physics:transforms:ready':   PhysicsTransformsReadyPayload;
     'physics:rb:reallocated':     PhysicsRbReallocatedPayload;
 }

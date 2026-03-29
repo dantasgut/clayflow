@@ -98,6 +98,10 @@ export class ResourceLoader extends SceneLoader<ResourceManager> {
         };
 
         const result = handlers[resource.state as ResourceState]?.();
-        if (result instanceof Promise) this._promises.push(result);
+        if (result instanceof Promise) {
+            this._promises.push(
+                result.catch(err => this.log.error(`Falha ao processar recurso state:${resource.state}`, err)),
+            );
+        }
     }
 }

@@ -49,4 +49,10 @@ export interface RigidBodySimConfig {
      * Default: 0.85.
      */
     warmStartFactor?: number;
+    /**
+     * Amortecimento angular global aplicado a todos os corpos por frame (LCP).
+     * Valor alto reduz rotação livre; valor baixo permite tipping e rolagem natural.
+     * Default: 0.5 (equivalente ao pipeline XPBD).
+     */
+    globalAngularDamping?: number;
 }

@@ -84,15 +84,35 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     // Lê o tipo de forma do corpo dinâmico
     let body_shape_type = u32(bodies[rb_i].body_shape.x);  // 0=Sphere, 1=Box
 
+    // Supressão canônica de par dinâmico–dinâmico: sem supressão → ambos os pares
+    // (A→B) e (B→A) ficam ativos e cada um aplica impulso nos dois corpos → 2× impulso.
+    // Critério: suprime o par "secundário" com base em (shape_type, índice):
+    //   - body_shape_type > col.shape_type → este par é secundário (ex.: Box testa Sphere)
+    //   - mesmo shape, rb_i > col.body_owner_idx → índice maior é secundário
+    // Apenas para dinâmico–dinâmico (inv_mass_b > 0).
+    if (col.body_owner_idx != 0xFFFFFFFFu) {
+        let inv_mass_b = bodies[col.body_owner_idx].pos.w;
+        if (inv_mass_b > 0.0) {
+            let col_shape_type = u32(bodies[col.body_owner_idx].body_shape.x);
+            if (body_shape_type > col_shape_type ||
+                (body_shape_type == col_shape_type && rb_i > col.body_owner_idx)) {
+                contacts[slot].is_active = 0u;
+                return;
+            }
+        }
+    }
+
     let world_pred = bodies[rb_i].pos_pred.xyz;
     let rot_pred   = bodies[rb_i].rot_pred;
 
     // ── Escolha do ponto de teste ─────────────────────────────────────────────
-    // Sphere: testa apenas o CM (caminho original)
+    // Sphere: testa o CM e subtrai o raio para obter distância de superfície
     // Box:    varre os 8 cantos e usa o mais penetrante
-    var test_world: vec3f;   // ponto de teste em world space
-    var test_local: vec3f;   // mesmo ponto em espaço local do collider
-    var test_d:     f32;     // SDF nesse ponto
+    var test_world:           vec3f;  // ponto de teste em world space
+    var test_local:           vec3f;  // mesmo ponto em espaço local do collider
+    var test_d:               f32;    // SDF a partir da superfície do corpo
+    var sdf_raw:              f32;    // SDF bruto em test_local (sem subtração de raio)
+    var sphere_radius_offset: f32 = 0.0;  // raio da esfera (0 para outros tipos)
 
     if (body_shape_type == 1u) {
         // BoxShape — varrer 8 cantos
@@ -104,6 +124,11 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
         var best_world:  vec3f  = corners[0];
         var best_local:  vec3f  = (col.inv_world_mat * vec4f(corners[0], 1.0)).xyz;
 
+        // Acumula cantos penetrantes para centróide (≥2 → pousamento plano estável)
+        var sum_world: vec3f = vec3f(0.0);
+        var sum_local: vec3f = vec3f(0.0);
+        var pen_count: f32   = 0.0;
+
         for (var k: u32 = 0u; k < 8u; k++) {
             let cw = corners[k];
             let cl = (col.inv_world_mat * vec4f(cw, 1.0)).xyz;
@@ -113,23 +138,61 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
                 best_world = cw;
                 best_local = cl;
             }
+            if (cd < 0.0) {
+                sum_world += cw;
+                sum_local += cl;
+                pen_count += 1.0;
+            }
         }
 
-        test_world = best_world;
-        test_local = best_local;
-        test_d     = best_d;
+        // Centróide apenas para colisores planos (shape_type==2).
+        // Colisores caixa têm gradiente diagonal perto das arestas — o canto mais profundo
+        // está mais longe das arestas e produz um normal mais confiável.
+        let use_centroid = (pen_count >= 2.0) && (col.shape_type == 2u);
+        if (use_centroid) {
+            // Centróide dos cantos penetrantes — elimina torque espúrio em pousamentos planos
+            test_world = sum_world / pen_count;
+            test_local = sum_local / pen_count;
+            sdf_raw    = eval_sdf(test_local, col.shape_type, col.half);
+            test_d     = best_d;  // profundidade máxima para correção
+        } else {
+            // Canto mais profundo: normal mais confiável (mais longe das arestas)
+            test_world = best_world;
+            test_local = best_local;
+            sdf_raw    = best_d;
+            test_d     = best_d;
+        }
     } else {
-        // SphereShape (ou padrão) — testa apenas o CM
-        let local_pred = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;
-        test_world = world_pred;
-        test_local = local_pred;
-        test_d     = eval_sdf(local_pred, col.shape_type, col.half);
+        // SphereShape — testa o CM e subtrai o raio para detectar contato na superfície.
+        // Sem subtração, o CM precisaria cruzar o collider antes do contato ser detectado.
+        // sdf_raw preserva o valor bruto (sem raio) para o cálculo do gradiente, que usa
+        // diferenças finitas e seria corrompido pelo offset do raio.
+        let sphere_radius = bodies[rb_i].body_shape.y;  // half_x == raio da esfera
+        let local_pred    = (col.inv_world_mat * vec4f(world_pred, 1.0)).xyz;
+        let raw           = eval_sdf(local_pred, col.shape_type, col.half);
+        test_world            = world_pred;
+        test_local            = local_pred;
+        sdf_raw               = raw;
+        sphere_radius_offset  = sphere_radius;
+        test_d                = raw - sphere_radius;
     }
 
     let d = test_d;
 
-    // Calcula normal no espaço mundo (necessário para contatos especulativos)
-    let grad_local = sdf_gradient(test_local, d, col.shape_type, col.half);
+    // Limites finitos do plano (bounds.xy = halfWidth, halfDepth em espaço local do collider).
+    // (0,0) = ilimitado. Ponto de teste fora dos limites → sem contato (corpo cai no abismo).
+    if (col.shape_type == 2u) {
+        let bw = col.bounds.x;
+        let bd = col.bounds.y;
+        if (bw > 0.0 && (abs(test_local.x) > bw || abs(test_local.z) > bd)) {
+            contacts[slot].is_active = 0u;
+            return;
+        }
+    }
+
+    // Calcula normal no espaço mundo (necessário para contatos especulativos).
+    // Usa sdf_raw (valor bruto do collider em test_local) para diferenças finitas corretas.
+    let grad_local = sdf_gradient_rb(test_local, sdf_raw, col.shape_type, col.half);
     let wn_raw     = mat4_upper3x3_transform(col.world_mat, grad_local);
     let wn_len     = length(wn_raw);
     if (wn_len < 1e-8) {
@@ -166,8 +229,10 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     // Profundidade efetiva: usa d_speculative quando contato é especulativo
     let depth_eff = select(d, d_speculative, d >= 0.0);
 
-    // Ponto de contato: ponto de teste projetado para a superfície do collider
-    let contact_point = test_world - depth_eff * wn;
+    // Ponto de contato: ponto de teste projetado para a superfície do collider.
+    // Para esfera: usa (depth_eff + raio) para projetar do CM até a superfície do collider,
+    // em vez de projetar da superfície da esfera (que daria o ponto no topo da esfera).
+    let contact_point = test_world - (depth_eff + sphere_radius_offset) * wn;
 
     // Preserva lambdas do frame anterior se o slot estava ativo (warm-starting)
     let prev_lambda_n  = contacts[slot].point.w;
@@ -184,13 +249,13 @@ fn rb_narrowphase_main(@builtin(global_invocation_id) gid: vec3u) {
     contacts[slot].rb_idx     = rb_i;
     contacts[slot].col_idx    = col_j;
     contacts[slot].is_active  = 1u;
-    contacts[slot].feature_id = 0u;
+    contacts[slot].rb_idx_b   = col.body_owner_idx;  // 0xFFFFFFFFu se estático; índice do corpo B se dinâmico
     contacts[slot].lambda_tx   = lambda_tx;
     contacts[slot].lambda_ty   = lambda_ty;
-    contacts[slot].restitution = combine_restitution(rb_params.restitution, rb_params.restitution);
-    contacts[slot]._pad2       = 0.0;
-    contacts[slot]._pad3       = 0.0;
-    contacts[slot]._pad4       = 0.0;
+    contacts[slot].restitution  = combine_restitution(rb_params.restitution, rb_params.restitution);
+    contacts[slot].diagonal_t2  = 0.0;  // pré-computado em rb_build_lcp; zerado aqui apenas como init
+    contacts[slot]._pad3        = d;    // SDF real (antes de d_speculative): negativo = penetração real
+    contacts[slot]._pad4        = 0.0;
 }
 
 // Restituição combinada do par de contato: usa max (padrão Bullet/Box2D).

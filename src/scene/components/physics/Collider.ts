@@ -89,5 +89,5 @@ export abstract class Collider implements Physic {
      *
      * Elimina `instanceof SphereShape/BoxShape/PlaneShape` nos uploaders GPU.
      */
-    public abstract packDescriptor(): { shapeType: number; half: [number, number, number, number] };
+    public abstract packDescriptor(): { shapeType: number; half: [number, number, number, number]; bounds: [number, number] };
 }

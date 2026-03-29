@@ -1,10 +1,12 @@
 # Class: RigidBody
 
-Defined in: [elements/physics/RigidBody.ts:20](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L20)
+Defined in: [elements/physics/RigidBody.ts:26](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L26)
 
-Convenência pré-configurada do PhysicsBody para dinâmica rígida.
-Define as propriedades padrão via Property Bag — qualquer solver
-pode ler 'mass', 'velocity', 'isKinematic' sem acoplamento a esta classe.
+Corpo rígido GPU-only.
+
+`material`  — propriedades de material (massa, atrito, etc.) definidas na construção.
+`simState`  — estado de simulação (posição, velocidade, etc.) inicializado em registerEntity.
+`gpuRbIndex`— índice no buffer global `gpu_rb_bodies`, atribuído pelo `PhysicsResourceLoader`.
 
 ## Extends
 
@@ -16,7 +18,7 @@ pode ler 'mass', 'velocity', 'isKinematic' sem acoplamento a esta classe.
 
 > **new RigidBody**(`options?`): `RigidBody`
 
-Defined in: [elements/physics/RigidBody.ts:26](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L26)
+Defined in: [elements/physics/RigidBody.ts:47](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L47)
 
 #### Parameters
 
@@ -34,11 +36,67 @@ Defined in: [elements/physics/RigidBody.ts:26](https://github.com/dantasgut/clay
 
 ## Properties
 
+### acceptedAlgorithms
+
+> `readonly` **acceptedAlgorithms**: readonly `string`[]
+
+Defined in: [elements/physics/RigidBody.ts:30](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L30)
+
+***
+
+### bodyState
+
+> **bodyState**: [`PhysicsBodyState`](../enumerations/PhysicsBodyState.md) = `PhysicsBodyState.Inactive`
+
+Defined in: [scene/components/physics/PhysicsBody.ts:46](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L46)
+
+Estado de simulação do corpo no mundo físico.
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`bodyState`](PhysicsBody.md#bodystate)
+
+***
+
+### dirtyFlags
+
+> **dirtyFlags**: `number` = `PhysicsDirtyFlag.None`
+
+Defined in: [scene/components/physics/PhysicsBody.ts:49](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L49)
+
+Bitmask de PhysicsDirtyFlag — indica quais aspectos físicos mudaram.
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`dirtyFlags`](PhysicsBody.md#dirtyflags)
+
+***
+
+### gpuRbIndex?
+
+> `optional` **gpuRbIndex?**: `number`
+
+Defined in: [elements/physics/RigidBody.ts:42](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L42)
+
+Índice do corpo no buffer global `gpu_rb_bodies`. Atribuído pelo alocador.
+
+***
+
+### isKinematic
+
+> `readonly` **isKinematic**: `boolean`
+
+Defined in: [elements/physics/RigidBody.ts:45](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L45)
+
+Sinaliza se o corpo deve ser tratado como kinematic na inicialização.
+
+***
+
 ### layer
 
 > `readonly` **layer**: [`PHYSICS_MECHANIC`](../enumerations/ResourceType.md#physics_mechanic)
 
-Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L36)
+Defined in: [scene/components/physics/PhysicsBody.ts:41](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L41)
 
 #### Inherited from
 
@@ -46,11 +104,21 @@ Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dant
 
 ***
 
+### material
+
+> `readonly` **material**: `RigidBodyMaterial`
+
+Defined in: [elements/physics/RigidBody.ts:33](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L33)
+
+Propriedades de material — estáticas após construção.
+
+***
+
 ### physicType
 
 > `readonly` **physicType**: `"RigidBody"` = `'RigidBody'`
 
-Defined in: [elements/physics/RigidBody.ts:22](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L22)
+Defined in: [elements/physics/RigidBody.ts:28](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L28)
 
 #### Overrides
 
@@ -58,11 +126,22 @@ Defined in: [elements/physics/RigidBody.ts:22](https://github.com/dantasgut/clay
 
 ***
 
+### simState?
+
+> `optional` **simState?**: `RigidBodySimState`
+
+Defined in: [elements/physics/RigidBody.ts:39](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L39)
+
+Estado de simulação — inicializado por GpuPhysicsOrchestrator.registerEntity()
+a partir do Transform e do tensor de inércia do collider.
+
+***
+
 ### state
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L38)
+Defined in: [scene/components/physics/PhysicsBody.ts:43](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L43)
 
 #### Inherited from
 
@@ -70,19 +149,11 @@ Defined in: [scene/components/physics/PhysicsBody.ts:38](https://github.com/dant
 
 ***
 
-### storageBufferId?
-
-> `optional` **storageBufferId?**: `string`
-
-Defined in: [elements/physics/RigidBody.ts:24](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L24)
-
-***
-
 ### type
 
 > `readonly` **type**: `"RigidBody"` = `'RigidBody'`
 
-Defined in: [elements/physics/RigidBody.ts:21](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L21)
+Defined in: [elements/physics/RigidBody.ts:27](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L27)
 
 #### Overrides
 
@@ -94,7 +165,7 @@ Defined in: [elements/physics/RigidBody.ts:21](https://github.com/dantasgut/clay
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L31)
+Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L36)
 
 #### Inherited from
 
@@ -102,17 +173,44 @@ Defined in: [scene/components/physics/PhysicsBody.ts:31](https://github.com/dant
 
 ## Accessors
 
-### isKinematic
+### currentState
 
 #### Get Signature
 
-> **get** **isKinematic**(): `boolean`
+> **get** **currentState**(): `BodyStateHandler`
 
-Defined in: [elements/physics/RigidBody.ts:46](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L46)
+Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L56)
+
+Handler do estado atual — consulta de capacidades pelos stages.
+
+##### Returns
+
+`BodyStateHandler`
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`currentState`](PhysicsBody.md#currentstate)
+
+***
+
+### isSleeping
+
+#### Get Signature
+
+> **get** **isSleeping**(): `boolean`
+
+Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L82)
+
+Atalho de compatibilidade — equivale a `bodyState === Sleeping`.
+Substitui `body.get<boolean>('isSleeping')` nos stages migrados.
 
 ##### Returns
 
 `boolean`
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`isSleeping`](PhysicsBody.md#issleeping)
 
 ***
 
@@ -122,7 +220,7 @@ Defined in: [elements/physics/RigidBody.ts:46](https://github.com/dantasgut/clay
 
 > **get** **mass**(): `number`
 
-Defined in: [elements/physics/RigidBody.ts:42](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L42)
+Defined in: [elements/physics/RigidBody.ts:84](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L84)
 
 ##### Returns
 
@@ -132,7 +230,7 @@ Defined in: [elements/physics/RigidBody.ts:42](https://github.com/dantasgut/clay
 
 > **set** **mass**(`v`): `void`
 
-Defined in: [elements/physics/RigidBody.ts:43](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L43)
+Defined in: [elements/physics/RigidBody.ts:88](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L88)
 
 ##### Parameters
 
@@ -150,13 +248,13 @@ Defined in: [elements/physics/RigidBody.ts:43](https://github.com/dantasgut/clay
 
 #### Get Signature
 
-> **get** **velocity**(): `vec3`
+> **get** **velocity**(): `vec3` \| `undefined`
 
-Defined in: [elements/physics/RigidBody.ts:45](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L45)
+Defined in: [elements/physics/RigidBody.ts:94](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L94)
 
 ##### Returns
 
-`vec3`
+`vec3` \| `undefined`
 
 ## Methods
 
@@ -164,7 +262,7 @@ Defined in: [elements/physics/RigidBody.ts:45](https://github.com/dantasgut/clay
 
 > **allocateResource**(`resourceManager`): `Promise`\<`void`\>
 
-Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L75)
+Defined in: [scene/components/physics/PhysicsBody.ts:129](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L129)
 
 #### Parameters
 
@@ -186,7 +284,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:75](https://github.com/dant
 
 > **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L87)
+Defined in: [scene/components/physics/PhysicsBody.ts:141](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L141)
 
 #### Parameters
 
@@ -208,7 +306,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:87](https://github.com/dant
 
 > `protected` **doAllocate**(`_resourceManager`): `Promise`\<`void`\>
 
-Defined in: [elements/physics/RigidBody.ts:48](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L48)
+Defined in: [elements/physics/RigidBody.ts:98](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L98)
 
 #### Parameters
 
@@ -228,13 +326,13 @@ Defined in: [elements/physics/RigidBody.ts:48](https://github.com/dantasgut/clay
 
 ### doDispose()
 
-> `protected` **doDispose**(`resourceManager`): `void`
+> `protected` **doDispose**(`_resourceManager`): `void`
 
-Defined in: [elements/physics/RigidBody.ts:52](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/RigidBody.ts#L52)
+Defined in: [elements/physics/RigidBody.ts:102](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L102)
 
 #### Parameters
 
-##### resourceManager
+##### \_resourceManager
 
 `ResourceManager`
 
@@ -252,7 +350,7 @@ Defined in: [elements/physics/RigidBody.ts:52](https://github.com/dantasgut/clay
 
 > **get**\<`T`\>(`key`): `T` \| `undefined`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L56)
+Defined in: [scene/components/physics/PhysicsBody.ts:102](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L102)
 
 #### Type Parameters
 
@@ -280,7 +378,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dant
 
 > **has**(`key`): `boolean`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L60)
+Defined in: [scene/components/physics/PhysicsBody.ts:106](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L106)
 
 #### Parameters
 
@@ -298,11 +396,60 @@ Defined in: [scene/components/physics/PhysicsBody.ts:60](https://github.com/dant
 
 ***
 
+### initSimState()
+
+> **initSimState**(`position`, `rotation`): `void`
+
+Defined in: [elements/physics/RigidBody.ts:69](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/RigidBody.ts#L69)
+
+Inicializa simState a partir da posição/rotação do Transform.
+Chamado por GpuPhysicsOrchestrator.registerEntity().
+
+#### Parameters
+
+##### position
+
+`ArrayLike`\<`number`\>
+
+##### rotation
+
+`ArrayLike`\<`number`\>
+
+#### Returns
+
+`void`
+
+***
+
+### registerInWorld()
+
+> **registerInWorld**(`_world`): `void`
+
+Defined in: [scene/components/physics/PhysicsBody.ts:114](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L114)
+
+Registra este componente no mundo físico.
+
+#### Parameters
+
+##### \_world
+
+`unknown`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`registerInWorld`](PhysicsBody.md#registerinworld)
+
+***
+
 ### set()
 
 > **set**\<`T`\>(`key`, `value`): `this`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L51)
+Defined in: [scene/components/physics/PhysicsBody.ts:97](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L97)
 
 #### Type Parameters
 
@@ -330,11 +477,84 @@ Defined in: [scene/components/physics/PhysicsBody.ts:51](https://github.com/dant
 
 ***
 
+### transitionTo()
+
+> **transitionTo**(`next`): `void`
+
+Defined in: [scene/components/physics/PhysicsBody.ts:64](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L64)
+
+Transita para um novo estado de simulação.
+Em modo DEV emite warning se a transição não for válida.
+
+#### Parameters
+
+##### next
+
+[`PhysicsBodyState`](../enumerations/PhysicsBodyState.md)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`transitionTo`](PhysicsBody.md#transitionto)
+
+***
+
+### unregisterFromWorld()
+
+> **unregisterFromWorld**(`_world`): `void`
+
+Defined in: [scene/components/physics/PhysicsBody.ts:116](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L116)
+
+Remove este componente do mundo físico.
+
+#### Parameters
+
+##### \_world
+
+`unknown`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`unregisterFromWorld`](PhysicsBody.md#unregisterfromworld)
+
+***
+
+### updateInWorld()
+
+> **updateInWorld**(`_world`): `void`
+
+Defined in: [scene/components/physics/PhysicsBody.ts:115](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L115)
+
+Atualiza aspectos dirty no mundo físico.
+
+#### Parameters
+
+##### \_world
+
+`unknown`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PhysicsBody`](PhysicsBody.md).[`updateInWorld`](PhysicsBody.md#updateinworld)
+
+***
+
 ### updateResource()
 
 > **updateResource**(`_resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/components/physics/PhysicsBody.ts#L82)
+Defined in: [scene/components/physics/PhysicsBody.ts:136](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/components/physics/PhysicsBody.ts#L136)
 
 #### Parameters
 

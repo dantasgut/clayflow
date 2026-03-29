@@ -1,8 +1,8 @@
 # Interface: ColliderReg
 
-Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L9)
+Defined in: [scene/systems/GpuSimContext.ts:9](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L9)
 
-Entrada de colisor — compartilhada entre estágios do pipeline.
+Entrada de colisor no contexto GPU.
 
 ## Properties
 
@@ -10,7 +10,7 @@ Entrada de colisor — compartilhada entre estágios do pipeline.
 
 > **collider**: [`Collider`](../classes/Collider.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L9)
+Defined in: [scene/systems/GpuSimContext.ts:9](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L9)
 
 ***
 
@@ -18,4 +18,4 @@ Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgu
 
 > **entity**: [`Entity`](../classes/Entity.md)
 
-Defined in: [scene/systems/PhysicsStageContext.ts:9](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/PhysicsStageContext.ts#L9)
+Defined in: [scene/systems/GpuSimContext.ts:9](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L9)

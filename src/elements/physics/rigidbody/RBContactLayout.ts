@@ -11,13 +11,13 @@
  *   offset  8: rb_idx      (u32)
  *   offset  9: col_idx     (u32)
  *   offset 10: is_active   (u32)
- *   offset 11: feature_id  (u32)
+ *   offset 11: rb_idx_b    (u32)  — índice do corpo B se collider dinâmico; 0xFFFFFFFF se estático
  *   offset 12: lambda_tx   (f32)
  *   offset 13: lambda_ty   (f32)
  *   offset 14: diagonal_n  (f32)
- *   offset 15: diagonal_t  (f32)
- *   offset 16: restitution (f32)
- *   offset 17: _pad2       (f32)
+ *   offset 15: diagonal_t1  (f32)
+ *   offset 16: restitution  (f32)
+ *   offset 17: diagonal_t2  (f32)
  *   offset 18: _pad3       (f32)
  *   offset 19: _pad4       (f32)
  */

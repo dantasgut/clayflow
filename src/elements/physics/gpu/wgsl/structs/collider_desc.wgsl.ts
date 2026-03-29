@@ -7,7 +7,7 @@
  *   offset 128: half          (vec4f,   16 bytes) — parâmetros de forma (ver shape_type)
  *   offset 144: shape_type     (u32,      4 bytes)
  *   offset 148: body_owner_idx (u32,      4 bytes) — gpuRbIndex do corpo dono (0xFFFFFFFF = nenhum)
- *   offset 152: _pad2          (vec2u,    8 bytes) — alinha struct a 160 bytes
+ *   offset 152: bounds         (vec2f,    8 bytes) — (halfWidth, halfDepth); (0,0) = ilimitado
  *
  * shape_type e campo `half`:
  *   0 = Sphere  → half.x = radius
@@ -27,6 +27,6 @@ struct ColliderDesc {
     half:          vec4f,    // parâmetros de forma (ver shape_type)
     shape_type:     u32,      // 0=sphere  1=box  2=plane
     body_owner_idx: u32,     // gpuRbIndex do corpo que possui este collider (0xFFFFFFFFu = nenhum)
-    _pad2:          vec2u,   // padding até 160 bytes
+    bounds:         vec2f,   // (halfWidth, halfDepth) em espaço local do collider; (0,0) = ilimitado
 }
 `;

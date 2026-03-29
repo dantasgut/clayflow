@@ -2,7 +2,7 @@
  * createGpuPhysicsWorld — factory para criação do mundo de física GPU-only.
  *
  * Cria e conecta internamente: GpuComputePassRegistry, GpuPipelineEventBus,
- * PhysicsResourceLoader, XPBDComputePass (RigidBody) e SoftBodyXPBDComputePass.
+ * PhysicsResourceLoader, LCPComputePass (RigidBody) e SoftBodyXPBDComputePass.
  *
  * Uso típico:
  * ```typescript
@@ -24,35 +24,51 @@ import { GpuComputePassRegistry }  from '../../scene/systems/gpu/GpuComputePassR
 import { DefaultGpuPipelineEventBus } from '../../scene/systems/gpu/DefaultGpuPipelineEventBus';
 import { PhysicsResourceLoader }   from '../../scene/rendering/PhysicsResourceLoader';
 import { GpuPhysicsOrchestrator }  from '../../scene/rendering/GpuPhysicsOrchestrator';
-import { XPBDComputePass as RigidBodyXPBDComputePass } from './rigidbody/XPBDComputePass';
+import { LCPComputePass as RigidBodyLCPComputePass } from './rigidbody/LCPComputePass';
 import { SoftBodyXPBDComputePass } from './softbody/XPBDComputePass';
+import { FEMComputePass }          from './fem/FEMComputePass';
 
 export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysicsOrchestrator {
-    const substeps     = config.substeps ?? 4;
     const globalForces = new Map<string, Force>();
-    const getSubsteps  = () => substeps;
+
+    // Closures reativas: lidas a cada frame, não capturadas como const.
+    // Mutar config.rigidBody.substeps (ou config.substeps) em runtime tem efeito imediato.
+    // Prioridade: algoritmo-específico → global → default do algoritmo.
+    const getSubstepsRb = (): number => config.rigidBody?.substeps ?? config.substeps ?? 2;
+    const getSubstepsSb = (): number => config.softBody?.substeps  ?? config.substeps ?? 4;
+    // Fase 3 (FEM) e Fase 5 (MPM) usarão getSubstepsFem/getSubstepsMpm quando implementados.
 
     const eventBus  = new DefaultGpuPipelineEventBus();
     const registry  = new GpuComputePassRegistry();
     const resLoader = new PhysicsResourceLoader<GpuPhysicsOrchestrator>(eventBus);
 
-    // RigidBody pass — sempre registrado (habilitado por padrão)
-    const rb = config.rigidBody ?? {};
-    registry.register(new RigidBodyXPBDComputePass(
+    // RigidBody pass — LCP/PGS (velocity-space, Catto 2005)
+    registry.register(new RigidBodyLCPComputePass(
         globalForces,
-        getSubsteps,
-        rb.iterations ?? 10,
-        rb.profilerLogInterval ?? 60,
+        getSubstepsRb,
+        config.rigidBody?.iterations ?? 25,
+        config.rigidBody?.profilerLogInterval ?? 60,
         config.rigidBody,
         eventBus,
     ));
+
+    // FEM pass — registrado apenas se config.fem for fornecido
+    if (config.fem) {
+        const fem = config.fem;
+        const getSubstepsFem = (): number => fem.substeps ?? config.substeps ?? 6;
+        registry.register(new FEMComputePass(
+            globalForces,
+            getSubstepsFem,
+            fem.iterations ?? 10,
+        ));
+    }
 
     // SoftBody pass — registrado apenas se config.softBody for fornecido
     if (config.softBody) {
         const sb = config.softBody;
         registry.register(new SoftBodyXPBDComputePass(
             globalForces,
-            getSubsteps,
+            getSubstepsSb,
             sb.restitution ?? 0.05,
             sb.iterations  ?? 15,
             sb.profilerLogInterval ?? 60,

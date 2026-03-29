@@ -1,6 +1,6 @@
 # Class: SphereEmitterShape
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/particles/shapes/SphereEmitterShape.ts#L7)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/SphereEmitterShape.ts#L7)
 
 Emissão na superfície de uma esfera. (Camada 3)
 Posição e direção uniformes na superfície esférica.
@@ -15,7 +15,7 @@ Posição e direção uniformes na superfície esférica.
 
 > **new SphereEmitterShape**(`radius?`): `SphereEmitterShape`
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
 
 #### Parameters
 
@@ -33,7 +33,7 @@ Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.
 
 > `readonly` **id**: `"sphere"` = `'sphere'`
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:8](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/particles/shapes/SphereEmitterShape.ts#L8)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:8](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/SphereEmitterShape.ts#L8)
 
 #### Implementation of
 
@@ -45,7 +45,7 @@ Defined in: [elements/particles/shapes/SphereEmitterShape.ts:8](https://github.c
 
 > **radius**: `number` = `0.5`
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
 
 ## Methods
 
@@ -53,7 +53,7 @@ Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.
 
 > **sample**(): [`SpawnSample`](../interfaces/SpawnSample.md)
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:12](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/particles/shapes/SphereEmitterShape.ts#L12)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:12](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/SphereEmitterShape.ts#L12)
 
 Gera uma posição e direção inicial no espaço local do emitter.
 

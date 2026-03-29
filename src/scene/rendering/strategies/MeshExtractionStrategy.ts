@@ -7,11 +7,15 @@ import { NULL_TRANSFORM } from '../../math/NullTransform';
 import type { RenderCommand } from '../RenderQueue';
 import { mat4, vec3 } from 'gl-matrix';
 import type { ExtractionStrategy } from './ExtractionStrategy';
+import { Loggable } from '../../../core/debug/Loggable';
+import { Logger } from '../../../core/debug/Logger';
 
 /**
  * Estratégia concreta para extrair as malhas (Geometry + Material).
  */
+@Loggable('MeshExtraction')
 export class MeshExtractionStrategy implements ExtractionStrategy {
+    declare private readonly log: Logger;
     private tempObjPos: vec3 = vec3.create();
     private tempCameraPos: vec3 = vec3.create();
 
@@ -19,7 +23,16 @@ export class MeshExtractionStrategy implements ExtractionStrategy {
         const geometry = entity.getComponent<Geometry>('Geometry');
         const material = entity.getComponent<Material>('Material');
 
-        if (!geometry || !material) return;
+        if (!geometry || !material) {
+            if (entity.name !== 'Entity') {
+                this.log.debug(`Ignorado id:${entity.id} name:"${entity.name}" — geometry:${!!geometry} material:${!!material}`);
+            }
+            return;
+        }
+
+        if (!geometry.vertexBufferId) {
+            this.log.warn(`id:${entity.id} name:"${entity.name}" sem vertexBufferId — state:${geometry.state}`);
+        }
 
         // Null Object — elimina verificação null; worldMatrix é identidade se não há Transform
         const transform = entity.getComponent<Transform>('Transform') ?? NULL_TRANSFORM;

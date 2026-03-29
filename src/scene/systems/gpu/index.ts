@@ -4,10 +4,10 @@ export type {
     GpuPipelineEventType,
     PhysicsBodiesChangedPayload,
     PhysicsCollidersChangedPayload,
-    PhysicsBodiesIntegratedPayload,
-    PhysicsContactsDetectedPayload,
-    PhysicsFrameSubmittedPayload,
+PhysicsFrameSubmittedPayload,
     PhysicsTransformsReadyPayload,
 } from './GpuPipelineEventBus';
 
 export { DefaultGpuPipelineEventBus } from './DefaultGpuPipelineEventBus';
+export { GpuBufferRegistry }          from './GpuBufferRegistry';
+export type { GpuBufferEntry, GpuBufferType } from './GpuBufferRegistry';

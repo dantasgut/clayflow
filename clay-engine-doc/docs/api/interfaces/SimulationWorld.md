@@ -1,29 +1,28 @@
 # Abstract Interface: SimulationWorld
 
-Defined in: [scene/systems/SimulationWorld.ts:25](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L25)
+Defined in: [scene/systems/SimulationWorld.ts:24](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L24)
 
 Contrato abstrato de um mundo de simulação física.
 
-Não faz suposições sobre:
- - O espaço (euclidiano, hiperbólico, abstrato)
- - O algoritmo de broadphase
- - A ordem do pipeline de simulação
- - A natureza das forças ou colisores
+Não faz suposições sobre algoritmo de simulação, broadphase ou espaço.
+Registro de corpos é event-driven via connectScene/disconnectScene.
 
-Registro de corpos é event-driven via connectScene/disconnectScene —
-não há registro manual por frame. O step avança a simulação e nada mais.
+Implementações concretas:
+  - `PhysicsWorld`            — configurador de mundo, registro de forças globais.
+  - `GpuPhysicsOrchestrator`  — orquestrador GPU-only via PhysicsComputePass.
 
 ## Example
 
 ```ts
-const world = new PhysicsWorld();
-world.connectScene(scene);          // observa child_added / child_removed
+const world = new GpuPhysicsOrchestrator(config, registry, eventBus, loader);
+world.connectScene(scene);
 // No loop de render:
-world.step(encoder, dt);
+world.step(scene, dt);
 ```
 
 ## Extended by
 
+- [`GpuPhysicsOrchestrator`](../classes/GpuPhysicsOrchestrator.md)
 - [`PhysicsWorld`](../classes/PhysicsWorld.md)
 
 ## Methods
@@ -32,7 +31,7 @@ world.step(encoder, dt);
 
 > `abstract` **addForce**(`force`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:49](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L49)
+Defined in: [scene/systems/SimulationWorld.ts:51](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L51)
 
 Registra uma força global aplicada a todos os corpos a cada step.
 
@@ -52,7 +51,7 @@ Registra uma força global aplicada a todos os corpos a cada step.
 
 > `abstract` **connectScene**(`scene`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:35](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L35)
+Defined in: [scene/systems/SimulationWorld.ts:34](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L34)
 
 Conecta o mundo a uma cena: observa child_added e child_removed
 para registrar/remover corpos e colliders automaticamente.
@@ -74,7 +73,7 @@ Também registra todos os physics components já presentes na cena.
 
 > `abstract` **disconnectScene**(`scene`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:38](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L38)
+Defined in: [scene/systems/SimulationWorld.ts:37](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L37)
 
 Remove a observação da cena e limpa todos os registros.
 
@@ -94,13 +93,11 @@ Remove a observação da cena e limpa todos os registros.
 
 > `optional` **encodeSyncPasses**(`commandEncoder`, `entityIdToSlot`, `objectUboBuffer`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:73](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L73)
+Defined in: [scene/systems/SimulationWorld.ts:78](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L78)
 
-Opcional — despachado pelo renderer no seu próprio encoder, APÓS uploadObjectMatrices
-e ANTES do render pass. Permite que pipelines GPU sobrescrevam os slots UBO dos
-corpos simulados com matrizes calculadas na GPU, sem CPU readback.
-
-Implementado apenas por mundos que possuem estágios GPU (ex: GpuRigidBodyPipeline).
+Opcional — despachado pelo renderer APÓS uploadObjectMatrices e ANTES do render pass.
+Permite que passes GPU escrevam diretamente no UBO de modelo, sem CPU readback.
+Implementado por `GpuPhysicsOrchestrator`; no-op em `PhysicsWorld`.
 
 #### Parameters
 
@@ -108,19 +105,37 @@ Implementado apenas por mundos que possuem estágios GPU (ex: GpuRigidBodyPipeli
 
 `GPUCommandEncoder`
 
-Encoder do renderer (sem render pass aberto).
-
 ##### entityIdToSlot
 
 `Map`\<`number`, `number`\>
-
-Mapa entityId → slot no UBO dinâmico de modelo.
 
 ##### objectUboBuffer
 
 `GPUBuffer`
 
-GPUBuffer do renderer_object_dyn_ubo (UNIFORM|STORAGE).
+#### Returns
+
+`void`
+
+***
+
+### initializeResources()?
+
+> `optional` **initializeResources**(`resourceManager`): `void`
+
+Defined in: [scene/systems/SimulationWorld.ts:71](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L71)
+
+Opcional — chamado pelo renderer uma vez, após a inicialização do engine GPU
+(dentro de `initGPUResources`), antes do primeiro `step()`.
+Injeta o `ResourceManager` para que o mundo possa alocar buffers globais
+sem acessar o singleton `WebGPUEngineCore` diretamente.
+Implementado por `GpuPhysicsOrchestrator`; no-op em mundos puramente CPU.
+
+#### Parameters
+
+##### resourceManager
+
+`ResourceManager`
 
 #### Returns
 
@@ -132,7 +147,7 @@ GPUBuffer do renderer_object_dyn_ubo (UNIFORM|STORAGE).
 
 > `abstract` **removeForce**(`id`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:50](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L50)
+Defined in: [scene/systems/SimulationWorld.ts:52](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L52)
 
 #### Parameters
 
@@ -150,7 +165,7 @@ Defined in: [scene/systems/SimulationWorld.ts:50](https://github.com/dantasgut/c
 
 > `abstract` **removeSolver**(`physicType`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:46](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L46)
+Defined in: [scene/systems/SimulationWorld.ts:48](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L48)
 
 #### Parameters
 
@@ -168,9 +183,10 @@ Defined in: [scene/systems/SimulationWorld.ts:46](https://github.com/dantasgut/c
 
 > `abstract` **setSolver**(`physicType`, `solver`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:45](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L45)
+Defined in: [scene/systems/SimulationWorld.ts:47](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L47)
 
-Associa um solver ao tipo de corpo (Bridge).
+Associa um solver ao tipo de corpo (estratégia por physicType).
+Em modo GPU-only, implementações podem tratar este método como no-op.
 
 #### Parameters
 
@@ -192,7 +208,7 @@ Associa um solver ao tipo de corpo (Bridge).
 
 > `abstract` **step**(`scene`, `dt`): `void`
 
-Defined in: [scene/systems/SimulationWorld.ts:60](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/scene/systems/SimulationWorld.ts#L60)
+Defined in: [scene/systems/SimulationWorld.ts:62](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/SimulationWorld.ts#L62)
 
 Avança a simulação por `dt` segundos.
 A implementação decide o pipeline interno (broadphase, narrowphase, integração).

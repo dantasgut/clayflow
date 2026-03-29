@@ -24,7 +24,7 @@ export const WGSL_STRUCT_RIGID_BODY = /* wgsl */`
 
 struct RigidBody {
     pos:        vec4f,  // xyz=posição, w=inv_mass (0=cinemático)
-    vel:        vec4f,  // xyz=velocidade linear, w=0
+    vel:        vec4f,  // xyz=velocidade linear, w=sleep_flag (0=awake, 1=sleeping)
     omega:      vec4f,  // xyz=velocidade angular, w=0
     rot:        vec4f,  // quaternion (x,y,z,w)
     I_inv:      vec4f,  // inércia inversa diagonal (frame local), w=0

@@ -23,7 +23,7 @@ export class SphereShape extends SDFCollider {
         return [I, I, I];
     }
 
-    public override packDescriptor(): { shapeType: number; half: [number, number, number, number] } {
-        return { shapeType: 0, half: [this.radius, 0, 0, 0] };
+    public override packDescriptor(): { shapeType: number; half: [number, number, number, number]; bounds: [number, number] } {
+        return { shapeType: 0, half: [this.radius, 0, 0, 0], bounds: [0, 0] };
     }
 }

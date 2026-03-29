@@ -1,42 +1,41 @@
-import { WebGPURenderer }    from './presentation/renderers/WebGPURenderer';
-import { Scene }             from './scene/core/Scene';
-import { PerspectiveCamera } from './elements/cameras/PerspectiveCamera';
+import { WebGPURenderer }           from './presentation/renderers/WebGPURenderer';
+import { Scene }                    from './scene/core/Scene';
+import { PerspectiveCamera }        from './elements/cameras/PerspectiveCamera';
+import { createGpuPhysicsWorld }    from './elements/physics/createGpuPhysicsWorld';
+import { ConstantForce }            from './elements/physics/forces/ConstantForce';
+import { vec3 }                     from 'gl-matrix';
 
-async function init() {
+async function init(): Promise<void> {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
-
-    // Dimensiona o canvas antes de inicializar o renderer
     canvas.width  = window.innerWidth  * window.devicePixelRatio;
     canvas.height = window.innerHeight * window.devicePixelRatio;
 
-    const scene  = new Scene();
-    const camera = new PerspectiveCamera(Math.PI / 4, canvas.width / canvas.height, 0.1, 1000);
-    camera.position[2] = 5;
-    scene.add(camera);
+    const world = createGpuPhysicsWorld({ substeps: 4 });
+    world.addForce(new ConstantForce('gravity', vec3.fromValues(0, -9.81, 0)));
 
-    // A camada 1 (device WebGPU) é inicializada aqui — invisível ao usuário da biblioteca
-    const renderer = new WebGPURenderer();
+    const renderer = new WebGPURenderer(world);
     await renderer.initialize(canvas);
-    renderer.setClearColor(0.2, 0.2, 0.25, 1.0);
+    renderer.setClearColor(0.08, 0.08, 0.12, 1.0);
 
-    // Agora que o renderer existe, o resize atualiza canvas E depth texture juntos
     window.addEventListener('resize', () => {
         canvas.width  = window.innerWidth  * window.devicePixelRatio;
         canvas.height = window.innerHeight * window.devicePixelRatio;
         renderer.setSize(canvas.width, canvas.height);
     });
 
-    console.log("WebGPU Architecture Initialized Successfully! Starting Game Loop...");
+    const scene  = new Scene();
+    const camera = new PerspectiveCamera(Math.PI / 4, canvas.width / canvas.height, 0.1, 500);
+    camera.position[0] = 0;
+    camera.position[1] = 1.5;
+    camera.position[2] = 7;
+    scene.add(camera);
 
-    // 4. O Game Loop Reativo
-    const tick = async () => {
-        // Toda a magia de sincronização de buffers (Loader) e 
-        // extração otimizada OCP (RenderExtractor) e encodings acontece aqui dentro
+    world.connectScene(scene);
+
+    const tick = async (): Promise<void> => {
         await renderer.render(scene, camera);
-
         requestAnimationFrame(tick);
     };
-
     tick();
 }
 

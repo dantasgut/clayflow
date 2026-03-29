@@ -71,7 +71,7 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
     constructor(
         globalForces:    Map<string, Force>,
         getSubsteps:     () => number,
-        solveIterations: number = 15,
+        solveIterations: number = 25,
         logInterval:     number = 60,
         config?:         RigidBodySimConfig,
         eventBus?:       GpuPipelineEventBus,
@@ -113,17 +113,19 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         this.rbSimParamsF32[SP_GRAVITY_X]      = gx;
         this.rbSimParamsF32[SP_GRAVITY_Y]      = gy;
         this.rbSimParamsF32[SP_GRAVITY_Z]      = gz;
-        this.rbSimParamsF32[SP_DT]             = dtSub;
+        // LCP: rb_predict e rb_lcp_commit rodam 1× por frame — gravity.w deve ser dtFrame.
+        // (XPBD usa dtSub aqui porque rb_predict roda N× por substep.)
+        this.rbSimParamsF32[SP_DT]             = dtFrame;
         this.rbSimParamsU32[SP_BODY_COUNT]     = bodyCount;
         this.rbSimParamsU32[SP_COLLIDER_COUNT] = colliderCount;
         this.rbSimParamsU32[SP_MAX_CONTACTS]   = maxContacts;
         this.rbSimParamsU32[SP_SOLVE_ITERS]    = K;
         this.rbSimParamsF32[SP_DT_FRAME]              = dtFrame;
         this.rbSimParamsF32[SP_RESTITUTION]           = 0.1;
-        this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.005;
-        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 4.0;
-        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = 4.0;
-        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.0;
+        this.rbSimParamsF32[SP_PENETRATION_SLOP]      = 0.001;
+        this.rbSimParamsF32[SP_LINEAR_DAMPING]        = 0.0;    // sem damping global — per-body em mat_props.z
+        this.rbSimParamsF32[SP_ANGULAR_DAMPING]       = this.config?.globalAngularDamping ?? 0.5;
+        this.rbSimParamsF32[SP_PREDICTIVE_THRESHOLD]  = this.config?.predictiveThreshold  ?? 0.05;
         this.rbSimParamsF32[SP_RESTITUTION_THRESHOLD] = this.config?.restitutionThreshold ?? 2.0;
         this.rbSimParamsF32[SP_SLEEP_LIN_THRESHOLD]   = this.config?.sleepLinThreshold    ?? 0.01;
         this.rbSimParamsF32[SP_BAUMGARTE_BETA]        = this.config?.baumgarteBeta        ?? 0.2;
@@ -199,6 +201,7 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
         const lcpCommit = bg(PIPELINE_IDS.RB_LCP_COMMIT, [
             { binding: 0, resource: { buffer: rbParamsBuf } },
             { binding: 1, resource: { buffer: bodiesBuf   } },
+            { binding: 2, resource: { buffer: contactsBuf } },
         ]);
 
         return { predict, updateColliders, narrowphase, buildLcp, solveLcp, velocityRecovery, lcpCommit, syncTransform: null };
@@ -225,14 +228,18 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
             encoder, 'lcp_rb_predict', shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.predict) : undefined);
         compute.dispatchOnPass(predictPass, PIPELINE_IDS.RB_PREDICT, [bg.predict], wgBodies);
         predictPass.end();
-        this.eventBus?.emit('physics:bodies:integrated', { bodyCount });
 
         // rb_update_colliders — 1× por frame
         const updateCollidersPass = compute.beginComputePassExplicit(encoder, 'lcp_rb_update_colliders');
         compute.dispatchOnPass(updateCollidersPass, PIPELINE_IDS.RB_UPDATE_COLLIDERS, [bg.updateColliders], wgColliders);
         updateCollidersPass.end();
 
-        for (let s = 0; s < substeps; s++) {
+        // LCP/PGS: rb_predict não atualiza pos_pred entre iterações, portanto
+        // rodar narrowphase + build_lcp + solve_lcp mais de 1× por frame aplicaria
+        // o mesmo bias Baumgarte N× sobre o mesmo gap → explosão de velocidade.
+        // As K iterações internas do solve_lcp (SP_SOLVE_ITERS) são a fonte de
+        // convergência; o loop externo de substeps não faz sentido para LCP.
+        for (let s = 0; s < 1; s++) {
             const isFirstSub = s === 0;
 
             const npPass = compute.beginComputePassExplicit(
@@ -240,7 +247,6 @@ export class LCPComputePass extends ComputePassBase<LcpBindGroups> {
                 isFirstSub && shouldProfile ? profiler.timestampWritesFor(PHYS_SLOTS.narrowphase) : undefined);
             compute.dispatchOnPass(npPass, PIPELINE_IDS.RB_NARROWPHASE, [bg.narrowphase], wgContacts);
             npPass.end();
-            this.eventBus?.emit('physics:contacts:detected', { maxContacts });
 
             const buildPass = compute.beginComputePassExplicit(encoder, `lcp_rb_build_lcp_${s}`);
             compute.dispatchOnPass(buildPass, PIPELINE_IDS.RB_BUILD_LCP, [bg.buildLcp], wgContacts);

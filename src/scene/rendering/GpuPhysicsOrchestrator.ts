@@ -37,6 +37,7 @@ import type { PhysicsSceneConfig }  from '../systems/PhysicsSceneConfig';
 import { GpuComputePassRegistry }   from '../systems/gpu/GpuComputePassRegistry';
 import type { ResourceManager }     from '../../core/interfaces/ResourceManager';
 import { PhysicsResourceLoader }    from './PhysicsResourceLoader';
+import { ColliderDescriptorUploader } from '../../elements/physics/shared/ColliderDescriptorUploader';
 import type { RigidBody }           from '../../elements/physics/RigidBody';
 import { PhysicsBodyState }         from '../core/physics/PhysicsBodyState';
 import { vec3 }                     from 'gl-matrix';
@@ -63,9 +64,10 @@ export class GpuPhysicsOrchestrator extends SimulationWorld {
     /** Barramento de eventos — exposto para integração com o renderer. */
     public readonly eventBus: GpuPipelineEventBus;
 
-    private readonly registry:   GpuComputePassRegistry;
-    private readonly resLoader:  PhysicsResourceLoader<GpuPhysicsOrchestrator>;
-    private readonly config:     PhysicsSceneConfig;
+    private readonly registry:          GpuComputePassRegistry;
+    private readonly resLoader:         PhysicsResourceLoader<GpuPhysicsOrchestrator>;
+    private readonly config:            PhysicsSceneConfig;
+    private readonly colliderUploader = new ColliderDescriptorUploader();
 
     // Contexto de simulação — compartilhado com os passes
     private readonly bodies:       Map<string, BodyEntry>   = new Map();
@@ -73,9 +75,11 @@ export class GpuPhysicsOrchestrator extends SimulationWorld {
     private readonly colliders:    Map<number, ColliderReg> = new Map();
 
     private readonly context: GpuSimContext = {
-        bodies:       this.bodies,
-        entityBodies: this.entityBodies,
-        colliders:    this.colliders,
+        bodies:                  this.bodies,
+        entityBodies:            this.entityBodies,
+        colliders:               this.colliders,
+        colliderCount:           0,
+        colliderBufferRecreated: false,
     };
 
     // Forças globais — referência compartilhada com os passes registrados.
@@ -189,6 +193,12 @@ export class GpuPhysicsOrchestrator extends SimulationWorld {
         // Se houver mudança estrutural e o ResourceManager foi injetado,
         // o loader realoca o buffer global de RigidBody diretamente.
         this.resLoader.load(scene, this);
+
+        // Upload único de colliders por frame — antes de qualquer pass.
+        // Garante que gpu_colliders_global tem os transforms corretos para
+        // colliders estáticos/kinematic antes de rb_update_colliders rodar.
+        this.context.colliderCount           = this.colliderUploader.upload(this.context);
+        this.context.colliderBufferRecreated = this.colliderUploader.bufferRecreated;
 
         // Delega execução de todos os passes registrados
         void this.registry.executeAll(this.context, dt);

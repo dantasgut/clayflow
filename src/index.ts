@@ -77,6 +77,19 @@ export type { PhysicsWorldOptions }           from './elements/physics/PhysicsWo
 export { RigidBody }              from './elements/physics/RigidBody';
 export type { RigidBodyOptions }  from './elements/physics/RigidBody';
 export { SoftBody }               from './elements/physics/SoftBody';
+export type { SoftBodyOptions, SoftParticle, SoftConstraint } from './elements/physics/SoftBody';
+export { FEMBody }                from './elements/physics/FEMBody';
+export type { FEMBodyOptions, FEMNode, FEMTetrahedron } from './elements/physics/FEMBody';
+export { MPMBody }                from './elements/physics/MPMBody';
+export type { MPMBodyOptions, MPMMaterialType, MPMParticleData } from './elements/physics/MPMBody';
+
+// Geometrias FEM
+export { FEMBoxGeometry }         from './elements/geometry/FEMBoxGeometry';
+export { boxToFEMBody }           from './elements/physics/fem/boxToFEMBody';
+export type { BoxFEMResult, BoxFEMOptions } from './elements/physics/fem/boxToFEMBody';
+
+// Fábrica de mundo físico GPU
+export { createGpuPhysicsWorld }  from './elements/physics/createGpuPhysicsWorld';
 
 // Formas de colisão
 export { SphereShape }            from './elements/physics/shapes/SphereShape';

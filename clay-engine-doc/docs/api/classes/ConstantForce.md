@@ -1,6 +1,6 @@
 # Class: ConstantForce
 
-Defined in: [elements/physics/forces/ConstantForce.ts:9](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/forces/ConstantForce.ts#L9)
+Defined in: [elements/physics/forces/ConstantForce.ts:9](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/forces/ConstantForce.ts#L9)
 
 Força constante independente do estado do corpo.
 Caso de uso principal: gravidade uniforme, vento constante.
@@ -15,7 +15,7 @@ Caso de uso principal: gravidade uniforme, vento constante.
 
 > **new ConstantForce**(`id`, `direction`): `ConstantForce`
 
-Defined in: [elements/physics/forces/ConstantForce.ts:13](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/forces/ConstantForce.ts#L13)
+Defined in: [elements/physics/forces/ConstantForce.ts:13](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/forces/ConstantForce.ts#L13)
 
 #### Parameters
 
@@ -37,7 +37,7 @@ Defined in: [elements/physics/forces/ConstantForce.ts:13](https://github.com/dan
 
 > `readonly` **id**: `string`
 
-Defined in: [elements/physics/forces/ConstantForce.ts:10](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/forces/ConstantForce.ts#L10)
+Defined in: [elements/physics/forces/ConstantForce.ts:10](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/forces/ConstantForce.ts#L10)
 
 #### Implementation of
 
@@ -49,7 +49,7 @@ Defined in: [elements/physics/forces/ConstantForce.ts:10](https://github.com/dan
 
 > **compute**(`_body`, `_dt`): `vec3`
 
-Defined in: [elements/physics/forces/ConstantForce.ts:18](https://github.com/dantasgut/clayflow/blob/c86fce0a7735698989d78d56ab3a1c0f3b119da1/src/elements/physics/forces/ConstantForce.ts#L18)
+Defined in: [elements/physics/forces/ConstantForce.ts:18](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/physics/forces/ConstantForce.ts#L18)
 
 #### Parameters
 

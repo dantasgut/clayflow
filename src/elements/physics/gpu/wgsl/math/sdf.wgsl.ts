@@ -47,11 +47,30 @@ fn eval_sdf(local_p: vec3f, shape_type: u32, half: vec4f) -> f32 {
 
 // Gradiente numérico do SDF em local_p (diferenças finitas para frente).
 // d é o valor já calculado em local_p — evita reavaliação.
+// Uso: soft body collision e contextos onde suavidade é desejada.
 // Depende de: eval_sdf, SDF_EPS.
 fn sdf_gradient(local_p: vec3f, d: f32, shape_type: u32, half: vec4f) -> vec3f {
     let gx = eval_sdf(local_p + vec3f(SDF_EPS, 0.0,     0.0    ), shape_type, half) - d;
     let gy = eval_sdf(local_p + vec3f(0.0,     SDF_EPS, 0.0    ), shape_type, half) - d;
     let gz = eval_sdf(local_p + vec3f(0.0,     0.0,     SDF_EPS), shape_type, half) - d;
     return vec3f(gx, gy, gz);
+}
+
+// Normal analítico para rigid body: retorna a face mais próxima do ponto (eixo-alinhada).
+// Para Box (shape_type==1): evita o gradiente diagonal das diferenças finitas perto de
+//   arestas/cantos, que causaria velocidade lateral espúria via corr_perp.
+// Para Esfera/Plano: delega para sdf_gradient (geometrias suaves, sem problema de borda).
+// Uso exclusivo: rb_narrowphase.
+// Depende de: sdf_gradient.
+fn sdf_gradient_rb(local_p: vec3f, d: f32, shape_type: u32, half: vec4f) -> vec3f {
+    if (shape_type == 1u) {
+        // pen = margem restante até cada face: menor pen = face mais próxima = normal correta.
+        // nd = abs/half escolhia a face MAIS LONGE do centro (errado para cantos em arestas).
+        let pen = half.xyz - abs(local_p);
+        if (pen.x <= pen.y && pen.x <= pen.z) { return vec3f(sign(local_p.x), 0.0, 0.0); }
+        if (pen.y <= pen.z)                   { return vec3f(0.0, sign(local_p.y), 0.0); }
+        return                                        vec3f(0.0, 0.0, sign(local_p.z));
+    }
+    return sdf_gradient(local_p, d, shape_type, half);
 }
 `;
