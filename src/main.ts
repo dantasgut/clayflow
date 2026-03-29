@@ -4,21 +4,15 @@ import { PerspectiveCamera }        from './elements/cameras/PerspectiveCamera';
 import { createGpuPhysicsWorld }    from './elements/physics/createGpuPhysicsWorld';
 import { ConstantForce }            from './elements/physics/forces/ConstantForce';
 import { vec3 }                     from 'gl-matrix';
-import { buildGelatinScene, GELATIN_MEDIUM } from './app/GelatinScene';
 
 async function init(): Promise<void> {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
     canvas.width  = window.innerWidth  * window.devicePixelRatio;
     canvas.height = window.innerHeight * window.devicePixelRatio;
 
-    // ── Mundo de física com FEM ───────────────────────────────────────────────
-    const world = createGpuPhysicsWorld({
-        substeps: 6,
-        fem: { substeps: 8, iterations: 10 },
-    });
+    const world = createGpuPhysicsWorld({ substeps: 4 });
     world.addForce(new ConstantForce('gravity', vec3.fromValues(0, -9.81, 0)));
 
-    // ── Renderer ──────────────────────────────────────────────────────────────
     const renderer = new WebGPURenderer(world);
     await renderer.initialize(canvas);
     renderer.setClearColor(0.08, 0.08, 0.12, 1.0);
@@ -29,7 +23,6 @@ async function init(): Promise<void> {
         renderer.setSize(canvas.width, canvas.height);
     });
 
-    // ── Cena ──────────────────────────────────────────────────────────────────
     const scene  = new Scene();
     const camera = new PerspectiveCamera(Math.PI / 4, canvas.width / canvas.height, 0.1, 500);
     camera.position[0] = 0;
@@ -37,13 +30,6 @@ async function init(): Promise<void> {
     camera.position[2] = 7;
     scene.add(camera);
 
-    // Constrói a cena de gelatina a partir do contrato padronizado.
-    // Para experimentar outros comportamentos, troque GELATIN_MEDIUM por:
-    //   GELATIN_SOFT  — macia, oscila livremente
-    //   GELATIN_FIRM  — firme, deforma mas resiste
-    buildGelatinScene(scene, GELATIN_MEDIUM);
-
-    // ── Conecta física e inicia loop ──────────────────────────────────────────
     world.connectScene(scene);
 
     const tick = async (): Promise<void> => {

@@ -91,15 +91,6 @@ export type { BoxFEMResult, BoxFEMOptions } from './elements/physics/fem/boxToFE
 // Fábrica de mundo físico GPU
 export { createGpuPhysicsWorld }  from './elements/physics/createGpuPhysicsWorld';
 
-// Presets e contratos de cena
-export { buildGelatinScene, GELATIN_SOFT, GELATIN_MEDIUM, GELATIN_FIRM } from './app/GelatinScene';
-export type {
-    DeformableMaterialConfig,
-    FEMMeshConfig,
-    FloorConfig,
-    GelatinSceneConfig,
-} from './app/GelatinScene';
-
 // Formas de colisão
 export { SphereShape }            from './elements/physics/shapes/SphereShape';
 export { BoxShape }               from './elements/physics/shapes/BoxShape';
