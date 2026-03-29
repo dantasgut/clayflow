@@ -1,6 +1,7 @@
-import type { ResourceManager } from '../../core/interfaces/ResourceManager';
-import type { Geometry }         from '../../scene/components/Geometry';
-import { PhysicsBody }           from '../../scene/components/physics/PhysicsBody';
+import type { ResourceManager }     from '../../core/interfaces/ResourceManager';
+import type { Geometry }             from '../../scene/components/Geometry';
+import { PhysicsBody }               from '../../scene/components/physics/PhysicsBody';
+import type { SoftBodyGpuBufferSet } from './SoftBodyGpuBufferSet';
 
 export interface SoftParticle {
     x: number;  y: number;  z: number;   // current position
@@ -61,6 +62,21 @@ export interface SoftBodyOptions {
 export class SoftBody extends PhysicsBody {
     public readonly type        = 'SoftBody';
     public readonly physicType  = 'SoftBody';
+
+    /**
+     * Algoritmos de simulação que este corpo aceita.
+     * Cada `PhysicsComputePass` filtra corpos cujo `physicType` está em seu
+     * `acceptedPhysicTypes` — este campo permite restringir adicionalmente
+     * a qual algoritmo o corpo será submetido.
+     */
+    public readonly acceptedAlgorithms: readonly string[] = ['XPBD'];
+
+    /**
+     * Conjunto de IDs de buffers alocados para este corpo.
+     * `null` enquanto ainda não alocado — definido pelo `SoftBodyBufferAllocator`.
+     * Substitui as 8+ chaves individuais do Property Bag.
+     */
+    public bufferSet?: SoftBodyGpuBufferSet;
 
     public particles:   SoftParticle[]   = [];
     public constraints: SoftConstraint[] = [];
@@ -156,16 +172,13 @@ export class SoftBody extends PhysicsBody {
         this.constraints.push({ i, j, restLength, compliance: this.defaultCompliance });
     }
 
-    // ── GPU buffers (kept for future GPU pipeline) ────────────────────────────
+    // ── Ciclo de vida GPU — buffers alocados pelo PhysicsResourceLoader ──────────
 
-    protected async doAllocate(resourceManager: ResourceManager): Promise<void> {
-        // GPU buffers allocated on demand when GPUSpringMassSolver is used.
-        // The CPU XPBD pipeline operates directly on `particles` and `constraints`.
-        void resourceManager;
+    protected override async doAllocate(_resourceManager: ResourceManager): Promise<void> {
+        // Buffers alocados pelo PhysicsResourceLoader (Layer 2) — no-op aqui.
     }
 
-    protected doDispose(_resourceManager: ResourceManager): void {
-        this.particles   = [];
-        this.constraints = [];
+    protected override doDispose(_resourceManager: ResourceManager): void {
+        // Buffers liberados pelo PhysicsResourceLoader (Layer 2) — no-op aqui.
     }
 }

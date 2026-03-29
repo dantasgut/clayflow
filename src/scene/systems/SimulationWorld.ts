@@ -3,24 +3,23 @@ import type { PhysicsBody } from '../components/physics/PhysicsBody';
 import type { Collider } from '../components/physics/Collider';
 import type { PhysicsSolver } from './solvers/PhysicsSolver';
 import type { Force } from './forces/Force';
+import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 
 /**
  * Contrato abstrato de um mundo de simulação física.
  *
- * Não faz suposições sobre:
- *  - O espaço (euclidiano, hiperbólico, abstrato)
- *  - O algoritmo de broadphase
- *  - A ordem do pipeline de simulação
- *  - A natureza das forças ou colisores
+ * Não faz suposições sobre algoritmo de simulação, broadphase ou espaço.
+ * Registro de corpos é event-driven via connectScene/disconnectScene.
  *
- * Registro de corpos é event-driven via connectScene/disconnectScene —
- * não há registro manual por frame. O step avança a simulação e nada mais.
+ * Implementações concretas:
+ *   - `PhysicsWorld`            — configurador de mundo, registro de forças globais.
+ *   - `GpuPhysicsOrchestrator`  — orquestrador GPU-only via PhysicsComputePass.
  *
  * @example
- * const world = new PhysicsWorld();
- * world.connectScene(scene);          // observa child_added / child_removed
+ * const world = new GpuPhysicsOrchestrator(config, registry, eventBus, loader);
+ * world.connectScene(scene);
  * // No loop de render:
- * world.step(encoder, dt);
+ * world.step(scene, dt);
  */
 export abstract class SimulationWorld {
     // ------------------------------------------------------------------
@@ -41,7 +40,10 @@ export abstract class SimulationWorld {
     // Configuração de simulação
     // ------------------------------------------------------------------
 
-    /** Associa um solver ao tipo de corpo (Bridge). */
+    /**
+     * Associa um solver ao tipo de corpo (estratégia por physicType).
+     * Em modo GPU-only, implementações podem tratar este método como no-op.
+     */
     public abstract setSolver(physicType: string, solver: PhysicsSolver): void;
     public abstract removeSolver(physicType: string): void;
 
@@ -60,15 +62,18 @@ export abstract class SimulationWorld {
     public abstract step(scene: Entity, dt: number): void;
 
     /**
-     * Opcional — despachado pelo renderer no seu próprio encoder, APÓS uploadObjectMatrices
-     * e ANTES do render pass. Permite que pipelines GPU sobrescrevam os slots UBO dos
-     * corpos simulados com matrizes calculadas na GPU, sem CPU readback.
-     *
-     * Implementado apenas por mundos que possuem estágios GPU (ex: GpuRigidBodyPipeline).
-     *
-     * @param commandEncoder   Encoder do renderer (sem render pass aberto).
-     * @param entityIdToSlot   Mapa entityId → slot no UBO dinâmico de modelo.
-     * @param objectUboBuffer  GPUBuffer do renderer_object_dyn_ubo (UNIFORM|STORAGE).
+     * Opcional — chamado pelo renderer uma vez, após a inicialização do engine GPU
+     * (dentro de `initGPUResources`), antes do primeiro `step()`.
+     * Injeta o `ResourceManager` para que o mundo possa alocar buffers globais
+     * sem acessar o singleton `WebGPUEngineCore` diretamente.
+     * Implementado por `GpuPhysicsOrchestrator`; no-op em mundos puramente CPU.
+     */
+    public initializeResources?(resourceManager: ResourceManager): void;
+
+    /**
+     * Opcional — despachado pelo renderer APÓS uploadObjectMatrices e ANTES do render pass.
+     * Permite que passes GPU escrevam diretamente no UBO de modelo, sem CPU readback.
+     * Implementado por `GpuPhysicsOrchestrator`; no-op em `PhysicsWorld`.
      */
     public encodeSyncPasses?(
         commandEncoder:  GPUCommandEncoder,

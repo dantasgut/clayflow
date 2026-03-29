@@ -2,6 +2,8 @@ import type { Component } from '../core/Component';
 import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { ResourceState } from '../core/ResourceState';
 import { ResourceType } from '../core/ResourceType';
+import type { ResourceStateHandler } from '../core/resource/ResourceStateHandler';
+import { ResourceStateHandlerRegistry } from '../core/resource/ResourceStateHandlerRegistry';
 
 /**
  * Componente Lógico (ECS) representando a aparência (Shader + Material Data) do Nó.
@@ -15,6 +17,11 @@ export abstract class Material implements Component {
     public readonly type: string = 'Material';
 
     public state: ResourceState = ResourceState.Uninitialized;
+
+    /** Handler do estado atual — encapsula capacidades do ciclo de vida GPU. */
+    public get currentResourceState(): ResourceStateHandler {
+        return ResourceStateHandlerRegistry.get(this.state);
+    }
     public shaderId: string = '';
     public transparent: boolean = false;
     /** Quando true, o renderer usa vertex pulling (lê VBO/IBO como storage buffers). */
@@ -26,9 +33,8 @@ export abstract class Material implements Component {
     public rawUniforms: Map<string, Float32Array> = new Map();
 
     public markDirty(): void {
-        if (this.state === ResourceState.Ready) {
-            this.state = ResourceState.Dirty;
-        }
+        if (this.currentResourceState.ignoreDirtyMark()) return;
+        this.state = ResourceState.Dirty;
     }
 
     public allocateResource(resourceManager: ResourceManager): void {

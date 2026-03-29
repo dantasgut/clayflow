@@ -4,7 +4,6 @@ import type { ExtractionStrategy } from './ExtractionStrategy';
 import { ParticleEmitter } from '../../components/particles/ParticleEmitter';
 import { NULL_TRANSFORM } from '../../math/NullTransform';
 import type { Transform } from '../../math/Transform';
-import { ResourceState } from '../../core/ResourceState';
 
 /**
  * Estratégia de extração de emissores de partículas. (Camada 2)
@@ -20,7 +19,7 @@ import { ResourceState } from '../../core/ResourceState';
 export class ParticleExtractionStrategy implements ExtractionStrategy {
     public extract(entity: Entity, queue: RenderQueue): void {
         const emitter = entity.getComponent<ParticleEmitter>('ParticleEmitter');
-        if (!emitter || emitter.state !== ResourceState.Ready || emitter.aliveCount <= 0) return;
+        if (!emitter || !emitter.currentResourceState.canRender() || emitter.aliveCount <= 0) return;
 
         const transform  = entity.getComponent<Transform>('Transform') ?? NULL_TRANSFORM;
         const worldMatrix = queue.acquireFloat32(16);

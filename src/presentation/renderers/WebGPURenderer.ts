@@ -8,7 +8,6 @@ import { RenderExtractor }       from '../../scene/rendering/RenderExtractor';
 import { ResourceLoader }        from '../../scene/rendering/ResourceLoader';
 import type { SimulationWorld }  from '../../scene/systems/SimulationWorld';
 import { PhysicsWorld }          from '../../elements/physics/PhysicsWorld';
-import { CPURigidBodySolver }    from '../../elements/physics/solvers/CPURigidBodySolver';
 import { GPUSpringMassSolver }   from '../../elements/physics/solvers/GPUSpringMassSolver';
 import { ConstantForce }         from '../../elements/physics/forces/ConstantForce';
 import { vec3 }                  from 'gl-matrix';
@@ -103,8 +102,7 @@ export class WebGPURenderer implements Renderer {
             this.world = world;
         } else {
             const defaultWorld = new PhysicsWorld();
-            defaultWorld.setSolver('RigidBody', new CPURigidBodySolver());
-            defaultWorld.setSolver('SoftBody',  new GPUSpringMassSolver(this.engine.compute));
+            defaultWorld.setSolver('SoftBody', new GPUSpringMassSolver(this.engine.compute));
             defaultWorld.addForce(new ConstantForce('gravity', vec3.fromValues(0, -9.81, 0)));
             this.world = defaultWorld;
         }
@@ -256,6 +254,10 @@ export class WebGPURenderer implements Renderer {
     private initGPUResources(): void {
         this.gpuResourcesReady = true;
         const rm  = this.engine.resources;
+
+        // Injeta o ResourceManager no mundo para que alocações de buffers globais
+        // (ex: gpu_rb_bodies) não dependam do singleton WebGPUEngineCore.
+        this.world.initializeResources?.(rm);
 
         // UBO frame globals (group 0) — 128 bytes = mat4x4f + 4×vec4f (viewProj + luzes + screen)
         rm.buffers.createUniformBuffer(this.frameUboId, 128);

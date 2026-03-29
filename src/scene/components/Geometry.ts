@@ -3,6 +3,8 @@ import type { ResourceManager } from '../../core/interfaces/ResourceManager';
 import { VertexLayout } from '../data/VertexLayout';
 import { ResourceState } from '../core/ResourceState';
 import { ResourceType } from '../core/ResourceType';
+import type { ResourceStateHandler } from '../core/resource/ResourceStateHandler';
+import { ResourceStateHandlerRegistry } from '../core/resource/ResourceStateHandlerRegistry';
 
 /**
  * Componente Lógico (ECS) representando a malha matemática de um Nó.
@@ -16,6 +18,11 @@ export abstract class Geometry implements Component {
     public readonly type: string = 'Geometry';
 
     public state: ResourceState = ResourceState.Uninitialized;
+
+    /** Handler do estado atual — encapsula capacidades do ciclo de vida GPU. */
+    public get currentResourceState(): ResourceStateHandler {
+        return ResourceStateHandlerRegistry.get(this.state);
+    }
     public vertexBufferId: string = '';
     public indexBufferId?: string;
     public vertexCount: number = 0;
@@ -83,10 +90,8 @@ export abstract class Geometry implements Component {
     }
 
     public markDirty(): void {
-        if (this.state === ResourceState.GpuManaged) return; // compute shader é o dono
-        if (this.state === ResourceState.Ready) {
-            this.state = ResourceState.Dirty;
-        }
+        if (this.currentResourceState.ignoreDirtyMark()) return;
+        this.state = ResourceState.Dirty;
     }
 
     public async allocateResource(resourceManager: ResourceManager): Promise<void> {

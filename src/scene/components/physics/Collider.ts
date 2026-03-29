@@ -31,7 +31,7 @@ export abstract class Collider implements Physic {
     public readonly layer = ResourceType.PHYSICS_MECHANIC as const;
     public readonly physicType = 'Collider';
 
-    /** Identificador da forma, usado pelo CollisionDispatcher para selecionar o teste. */
+    /** Identificador canônico da forma (ex: 'sphere', 'box', 'plane'). */
     public abstract readonly colliderShape: string;
 
     // ------------------------------------------------------------------
@@ -79,4 +79,15 @@ export abstract class Collider implements Physic {
 
     /** Tensor de inércia diagonal para esta forma, dado uma massa. */
     public abstract computeInertiaTensor(mass: number): [number, number, number];
+
+    /**
+     * Serializa a forma para o descritor compacto usado pela GPU.
+     *
+     * - `shapeType`: 0 = esfera, 1 = caixa, 2 = plano.
+     * - `half`: 4 floats cujo significado depende do `shapeType`
+     *           (raio / semi-extensões / normal+offset).
+     *
+     * Elimina `instanceof SphereShape/BoxShape/PlaneShape` nos uploaders GPU.
+     */
+    public abstract packDescriptor(): { shapeType: number; half: [number, number, number, number] };
 }
