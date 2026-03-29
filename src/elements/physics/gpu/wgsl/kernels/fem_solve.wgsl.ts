@@ -54,14 +54,19 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
     let dt     = fem_params.dt_sub;
     let dt2    = dt * dt;
 
-    // Compliances por elemento (copiadas no empacotamento CPU para acesso local)
-    let mu_e     = elem.Bm_col1.w;
-    let lambda_e = elem.Bm_col2.w;
-    let alpha_h  = select(fem_params.alpha_h, 1.0 / (lambda_e + 2.0 * mu_e), mu_e > 0.0);
-    let alpha_d  = select(fem_params.alpha_d, 1.0 / mu_e,                    mu_e > 0.0);
+    // rest_vol e compliances lidos antes de alpha_tilde (dependência de ordem).
+    let rest_vol  = elem.Bm_col0.w;
+    let mu_e      = elem.Bm_col1.w;
+    let lambda_e  = elem.Bm_col2.w;
+    let alpha_h   = select(fem_params.alpha_h, 1.0 / (lambda_e + 2.0 * mu_e), mu_e > 0.0);
+    let alpha_d   = select(fem_params.alpha_d, 1.0 / mu_e,                    mu_e > 0.0);
 
-    let alpha_h_tilde = alpha_h / dt2;
-    let alpha_d_tilde = alpha_d / dt2;
+    // Incorpora V₀ (volume de repouso) na compliance normalizada.
+    // Fórmula XPBD-FEM (Macklin 2021): α_tilde = α / (dt² × V₀)
+    // C deve ser passado sem fator V₀ (já está embutido em alpha_tilde).
+    let V0_safe = max(rest_vol, 1e-10);
+    let alpha_h_tilde = alpha_h / (dt2 * V0_safe);
+    let alpha_d_tilde = alpha_d / (dt2 * V0_safe);
 
     // ── Lê posições previstas ─────────────────────────────────────────────────
     var p0 = nodes[n0].pred.xyz;
@@ -81,7 +86,11 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
         elem.Bm_col2.xyz,
     );
 
-    let rest_vol = elem.Bm_col0.w;
+    // A fórmula do gradiente requer as LINHAS de D_m_inv:
+    //   ∂J/∂p_{k+1} = J × F^{-T} × (linha k de D_m_inv)
+    //   ∂Cd/∂p_{k+1} = (F × linha k de D_m_inv) / ||F||_F
+    // Em WGSL (coluna-maior), Dm_inv_T[k] = coluna k da transposta = linha k da original.
+    let Dm_inv_T = mat3_transpose(Dm_inv);
 
     // ── Restrição hidrostática (volume) ──────────────────────────────────────
     let Ds_h  = compute_Ds(p0, p1, p2, p3);
@@ -92,10 +101,10 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
     let J_clamped = max(J, 0.02);
     let C_h   = J_clamped - 1.0;
 
-    // Gradientes gh_j = J × (F_inv_T × Bm_col_j); g0 = -(g1+g2+g3)
-    let gh1 = grad_hydrostatic(F_h, J_clamped, elem.Bm_col0.xyz);
-    let gh2 = grad_hydrostatic(F_h, J_clamped, elem.Bm_col1.xyz);
-    let gh3 = grad_hydrostatic(F_h, J_clamped, elem.Bm_col2.xyz);
+    // Gradientes gh_j = J × (F_inv_T × linha_j(D_m_inv)); g0 = -(g1+g2+g3)
+    let gh1 = grad_hydrostatic(F_h, J_clamped, Dm_inv_T[0]);
+    let gh2 = grad_hydrostatic(F_h, J_clamped, Dm_inv_T[1]);
+    let gh3 = grad_hydrostatic(F_h, J_clamped, Dm_inv_T[2]);
     let gh0 = grad_node0(gh1, gh2, gh3);
 
     let w_sum_h = w0 * dot(gh0, gh0)
@@ -104,7 +113,7 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
                 + w3 * dot(gh3, gh3);
 
     let lambda_h_prev = elem.lambdas.x;
-    let dlambda_h = fem_delta_lambda(C_h * rest_vol, w_sum_h, alpha_h_tilde, lambda_h_prev);
+    let dlambda_h = fem_delta_lambda(C_h, w_sum_h, alpha_h_tilde, lambda_h_prev);
 
     if (abs(dlambda_h) > 1e-18) {
         p0 += w0 * dlambda_h * gh0;
@@ -119,9 +128,9 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
     let F_norm = mat3_frobenius_norm(F_d);
     let C_d   = F_norm - sqrt(3.0);
 
-    let gd1 = grad_deviatoric(F_d, F_norm, elem.Bm_col0.xyz);
-    let gd2 = grad_deviatoric(F_d, F_norm, elem.Bm_col1.xyz);
-    let gd3 = grad_deviatoric(F_d, F_norm, elem.Bm_col2.xyz);
+    let gd1 = grad_deviatoric(F_d, F_norm, Dm_inv_T[0]);
+    let gd2 = grad_deviatoric(F_d, F_norm, Dm_inv_T[1]);
+    let gd3 = grad_deviatoric(F_d, F_norm, Dm_inv_T[2]);
     let gd0 = grad_node0(gd1, gd2, gd3);
 
     let w_sum_d = w0 * dot(gd0, gd0)
@@ -130,7 +139,7 @@ fn fem_solve_main(@builtin(global_invocation_id) gid: vec3u) {
                 + w3 * dot(gd3, gd3);
 
     let lambda_d_prev = elem.lambdas.y;
-    let dlambda_d = fem_delta_lambda(C_d * rest_vol, w_sum_d, alpha_d_tilde, lambda_d_prev);
+    let dlambda_d = fem_delta_lambda(C_d, w_sum_d, alpha_d_tilde, lambda_d_prev);
 
     if (abs(dlambda_d) > 1e-18) {
         p0 += w0 * dlambda_d * gd0;
