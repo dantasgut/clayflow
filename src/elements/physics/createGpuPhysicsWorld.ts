@@ -26,6 +26,7 @@ import { PhysicsResourceLoader }   from '../../scene/rendering/PhysicsResourceLo
 import { GpuPhysicsOrchestrator }  from '../../scene/rendering/GpuPhysicsOrchestrator';
 import { LCPComputePass as RigidBodyLCPComputePass } from './rigidbody/LCPComputePass';
 import { SoftBodyXPBDComputePass } from './softbody/XPBDComputePass';
+import { FEMComputePass }          from './fem/FEMComputePass';
 
 export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysicsOrchestrator {
     const globalForces = new Map<string, Force>();
@@ -50,6 +51,17 @@ export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysi
         config.rigidBody,
         eventBus,
     ));
+
+    // FEM pass — registrado apenas se config.fem for fornecido
+    if (config.fem) {
+        const fem = config.fem;
+        const getSubstepsFem = (): number => fem.substeps ?? config.substeps ?? 6;
+        registry.register(new FEMComputePass(
+            globalForces,
+            getSubstepsFem,
+            fem.iterations ?? 10,
+        ));
+    }
 
     // SoftBody pass — registrado apenas se config.softBody for fornecido
     if (config.softBody) {
