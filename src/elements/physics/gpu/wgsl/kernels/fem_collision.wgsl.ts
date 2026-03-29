@@ -15,6 +15,7 @@
  *   @group(0) @binding(0) — FEMSimParams   (uniform)
  *   @group(0) @binding(1) — Particle[]     (storage read_write) — nós
  *   @group(0) @binding(2) — ColliderDesc[] (storage read)
+ *   @group(0) @binding(3) — RigidBody[]    (storage read) — corpos rígidos dinâmicos
  *
  * Dispatch: ceil(node_count / 64) workgroups.
  *
@@ -26,6 +27,7 @@ export const WGSL_KERNEL_FEM_COLLISION = /* wgsl */`
 @group(0) @binding(0) var<uniform>             fem_params: FEMSimParams;
 @group(0) @binding(1) var<storage, read_write> nodes:      array<Particle>;
 @group(0) @binding(2) var<storage, read>       colliders:  array<ColliderDesc>;
+@group(0) @binding(3) var<storage, read>       rb_bodies:  array<RigidBody>;
 
 @compute @workgroup_size(64)
 fn fem_collision_main(@builtin(global_invocation_id) gid: vec3u) {
@@ -74,6 +76,49 @@ fn fem_collision_main(@builtin(global_invocation_id) gid: vec3u) {
             let restitution = fem_params.restitution;
             nodes[i].pred = vec4f(
                 nodes[i].pred.xyz - (1.0 + restitution) * v_along_n * fem_params.dt_sub * wn,
+                nodes[i].pred.w,
+            );
+        }
+    }
+
+    // ── Colisão nó × corpos rígidos dinâmicos ────────────────────────────────
+    for (var ri = 0u; ri < fem_params.rb_count; ri++) {
+        let rb = rb_bodies[ri];
+
+        // Pula cinemáticos (inv_mass = 0) — são colisores estáticos, já cobertos acima
+        if (rb.pos.w == 0.0) { continue; }
+
+        let rb_pos  = rb.pos_pred.xyz;
+        let rb_rot  = rb.rot_pred;
+        let shape   = u32(rb.body_shape.x);
+        // eval_sdf e sdf_gradient esperam vec4f; body_shape.yzw são as half-extents (vec3f)
+        let half    = vec4f(rb.body_shape.yzw, 0.0);
+
+        // Transforma pred do nó para o espaço local do corpo rígido
+        let local_pt = quat_rotate_vec_inv(rb_rot, nodes[i].pred.xyz - rb_pos);
+
+        let d = eval_sdf(local_pt, shape, half);
+        if (d >= radius) { continue; }
+
+        let depth = radius - d;
+
+        // Normal em world space via gradiente local rotacionado
+        let grad_local = sdf_gradient(local_pt, d, shape, half);
+        let wn_rb_raw  = quat_rotate_vec(rb_rot, grad_local);
+        let wn_rb_len  = length(wn_rb_raw);
+        if (wn_rb_len < 1e-8) { continue; }
+        let wn_rb = wn_rb_raw / wn_rb_len;
+
+        // Corrige pred e pos
+        nodes[i].pred = vec4f(nodes[i].pred.xyz + depth * wn_rb, nodes[i].pred.w);
+        nodes[i].pos  = vec4f(nodes[i].pos.xyz  + depth * wn_rb, nodes[i].pos.w);
+
+        // Restituição
+        let vel_rb    = (nodes[i].pred.xyz - nodes[i].pos.xyz) / max(fem_params.dt_sub, 1e-12);
+        let v_rb_n    = dot(vel_rb, wn_rb);
+        if (v_rb_n < 0.0) {
+            nodes[i].pred = vec4f(
+                nodes[i].pred.xyz - (1.0 + fem_params.restitution) * v_rb_n * fem_params.dt_sub * wn_rb,
                 nodes[i].pred.w,
             );
         }
