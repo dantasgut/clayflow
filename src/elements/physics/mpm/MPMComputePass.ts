@@ -86,13 +86,15 @@ type MPMBodyBindGroups = {
 
 /** Bind groups globais (criados uma vez, reutilizados entre corpos e frames). */
 type MPMGlobalBindGroups = {
-    simParamsForP2G:    GPUBindGroup;  // group(0) — params
-    gridForP2G:         GPUBindGroup;  // group(1) — grid
-    gridForGridUpdate:  GPUBindGroup;  // group(1) — grid
-    gridForG2P:         GPUBindGroup;  // group(1) — grid
-    gridForUpdate:      GPUBindGroup;  // group(0+1 para grid_update)
-    simParamsUpdate:    GPUBindGroup;  // group(0) — params for grid_update
-    collidersForUpdate: GPUBindGroup;  // group(3) — colliders
+    simParamsForP2G:         GPUBindGroup;  // group(0) — params para p2g
+    simParamsForG2P:         GPUBindGroup;  // group(0) — params para g2p
+    simParamsForVertexWrite: GPUBindGroup;  // group(0) — params para vertex_write
+    gridForP2G:              GPUBindGroup;  // group(1) — grid
+    gridForGridUpdate:       GPUBindGroup;  // group(1) — grid
+    gridForG2P:              GPUBindGroup;  // group(1) — grid
+    gridForUpdate:           GPUBindGroup;  // group(0+1 para grid_update
+    simParamsUpdate:         GPUBindGroup;  // group(0) — params for grid_update
+    collidersForUpdate:      GPUBindGroup;  // group(3) — colliders
 };
 
 export interface MPMConfig {
@@ -298,7 +300,7 @@ export class MPMComputePass implements PhysicsComputePass {
                     const g2pPass = compute.beginComputePassExplicit(encoder, `mpm_g2p_${s}_${body.uuid.slice(0, 8)}`);
                     compute.dispatchOnPass(
                         g2pPass, PIPELINE_IDS.MPM_G2P,
-                        [gbg.simParamsForP2G, gbg.gridForG2P, bg.g2p],
+                        [gbg.simParamsForG2P, gbg.gridForG2P, bg.g2p],
                         wg,
                     );
                     g2pPass.end();
@@ -314,7 +316,7 @@ export class MPMComputePass implements PhysicsComputePass {
                 const vwPass = compute.beginComputePassExplicit(encoder, `mpm_vertex_write_${body.uuid.slice(0, 8)}`);
                 compute.dispatchOnPass(
                     vwPass, PIPELINE_IDS.MPM_VERTEX_WRITE,
-                    [gbg.simParamsForP2G, null!, bg.vertexWrite, bg.vertexVbuf],
+                    [gbg.simParamsForVertexWrite, null!, bg.vertexWrite, bg.vertexVbuf],
                     wg,
                 );
                 vwPass.end();
@@ -384,15 +386,18 @@ export class MPMComputePass implements PhysicsComputePass {
         const bg = (id: string, grp: number, entries: GPUBindGroupEntry[], label: string) =>
             compute.createBindGroupFromPipeline(id, grp, entries, label);
 
-        const simParamsForP2G   = bg(PIPELINE_IDS.MPM_P2G,          0, [{ binding: 0, resource: { buffer: simBuf  } }], 'bg_mpm_sim_p2g');
-        const gridForP2G        = bg(PIPELINE_IDS.MPM_P2G,          1, [{ binding: 0, resource: { buffer: gridBuf } }], 'bg_mpm_grid_p2g');
-        const simParamsUpdate   = bg(PIPELINE_IDS.MPM_GRID_UPDATE,   0, [{ binding: 0, resource: { buffer: simBuf  } }], 'bg_mpm_sim_upd');
-        const gridForGridUpdate = bg(PIPELINE_IDS.MPM_GRID_UPDATE,   1, [{ binding: 0, resource: { buffer: gridBuf } }], 'bg_mpm_grid_upd');
-        const gridForG2P        = bg(PIPELINE_IDS.MPM_G2P,          1, [{ binding: 0, resource: { buffer: gridBuf } }], 'bg_mpm_grid_g2p');
-        const collidersForUpdate = bg(PIPELINE_IDS.MPM_GRID_UPDATE,  3, [{ binding: 0, resource: { buffer: colBuf  } }], 'bg_mpm_colliders');
+        const simParamsForP2G        = bg(PIPELINE_IDS.MPM_P2G,           0, [{ binding: 0, resource: { buffer: simBuf  } }], 'bg_mpm_sim_p2g');
+        const simParamsForG2P        = bg(PIPELINE_IDS.MPM_G2P,           0, [{ binding: 0, resource: { buffer: simBuf  } }], 'bg_mpm_sim_g2p');
+        const simParamsForVertexWrite = bg(PIPELINE_IDS.MPM_VERTEX_WRITE,  0, [{ binding: 0, resource: { buffer: simBuf  } }], 'bg_mpm_sim_vw');
+        const gridForP2G             = bg(PIPELINE_IDS.MPM_P2G,           1, [{ binding: 0, resource: { buffer: gridBuf } }], 'bg_mpm_grid_p2g');
+        const simParamsUpdate        = bg(PIPELINE_IDS.MPM_GRID_UPDATE,    0, [{ binding: 0, resource: { buffer: simBuf  } }], 'bg_mpm_sim_upd');
+        const gridForGridUpdate      = bg(PIPELINE_IDS.MPM_GRID_UPDATE,    1, [{ binding: 0, resource: { buffer: gridBuf } }], 'bg_mpm_grid_upd');
+        const gridForG2P             = bg(PIPELINE_IDS.MPM_G2P,           1, [{ binding: 0, resource: { buffer: gridBuf } }], 'bg_mpm_grid_g2p');
+        const collidersForUpdate     = bg(PIPELINE_IDS.MPM_GRID_UPDATE,    3, [{ binding: 0, resource: { buffer: colBuf  } }], 'bg_mpm_colliders');
 
-        return { simParamsForP2G, gridForP2G, simParamsUpdate, gridForGridUpdate, gridForG2P,
-                 gridForUpdate: gridForGridUpdate, collidersForUpdate };
+        return { simParamsForP2G, simParamsForG2P, simParamsForVertexWrite,
+                 gridForP2G, simParamsUpdate, gridForGridUpdate,
+                 gridForG2P, gridForUpdate: gridForGridUpdate, collidersForUpdate };
     }
 
     private buildBodyBindGroups(mpm: MPMBody, vertexBufferId?: string): MPMBodyBindGroups {
