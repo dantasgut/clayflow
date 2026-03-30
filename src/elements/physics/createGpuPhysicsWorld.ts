@@ -27,6 +27,7 @@ import { GpuPhysicsOrchestrator }  from '../../scene/rendering/GpuPhysicsOrchest
 import { LCPComputePass as RigidBodyLCPComputePass } from './rigidbody/LCPComputePass';
 import { SoftBodyXPBDComputePass } from './softbody/XPBDComputePass';
 import { FEMComputePass }          from './fem/FEMComputePass';
+import { MPMComputePass }          from './mpm/MPMComputePass';
 
 export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysicsOrchestrator {
     const globalForces = new Map<string, Force>();
@@ -34,9 +35,8 @@ export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysi
     // Closures reativas: lidas a cada frame, não capturadas como const.
     // Mutar config.rigidBody.substeps (ou config.substeps) em runtime tem efeito imediato.
     // Prioridade: algoritmo-específico → global → default do algoritmo.
-    const getSubstepsRb = (): number => config.rigidBody?.substeps ?? config.substeps ?? 2;
-    const getSubstepsSb = (): number => config.softBody?.substeps  ?? config.substeps ?? 4;
-    // Fase 3 (FEM) e Fase 5 (MPM) usarão getSubstepsFem/getSubstepsMpm quando implementados.
+    const getSubstepsRb  = (): number => config.rigidBody?.substeps ?? config.substeps ?? 2;
+    const getSubstepsSb  = (): number => config.softBody?.substeps  ?? config.substeps ?? 4;
 
     const eventBus  = new DefaultGpuPipelineEventBus();
     const registry  = new GpuComputePassRegistry();
@@ -72,6 +72,21 @@ export function createGpuPhysicsWorld(config: PhysicsSceneConfig = {}): GpuPhysi
             sb.restitution ?? 0.05,
             sb.iterations  ?? 15,
             sb.profilerLogInterval ?? 60,
+        ));
+    }
+
+    // MPM pass — registrado apenas se config.mpm for fornecido
+    if (config.mpm) {
+        const mpm = config.mpm;
+        const getSubstepsMpm = (): number => mpm.substeps ?? config.substeps ?? 20;
+        registry.register(new MPMComputePass(
+            globalForces,
+            getSubstepsMpm,
+            {
+                gridDims:   mpm.gridDims   ?? [32, 32, 32],
+                cellSize:   mpm.gridCellSize ?? (12 / 32),
+                gridOrigin: mpm.gridOrigin ?? [-6, -1, -6],
+            },
         ));
     }
 

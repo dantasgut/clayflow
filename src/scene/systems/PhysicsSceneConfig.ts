@@ -134,8 +134,12 @@ export interface MpmGpuConfig {
      * Default: 20 (CFL de onda; materiais rígidos podem exigir 160+).
      */
     substeps?: number;
-    /** Tamanho da célula do grid (m). Default: 0.02. */
+    /** Tamanho da célula do grid (m). Default: 12/32 ≈ 0.375. */
     gridCellSize?: number;
+    /** Dimensões da grade [x, y, z]. Default: [32, 32, 32]. */
+    gridDims?: [number, number, number];
+    /** Canto mínimo da grade em world space [x, y, z]. Default: [-6, -1, -6]. */
+    gridOrigin?: [number, number, number];
     /** Intervalo de frames entre leituras do profiler GPU. Default: 60. */
     profilerLogInterval?: number;
 }

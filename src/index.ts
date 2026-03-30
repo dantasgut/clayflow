@@ -83,8 +83,9 @@ export type { FEMBodyOptions, FEMNode, FEMTetrahedron } from './elements/physics
 export { MPMBody }                from './elements/physics/MPMBody';
 export type { MPMBodyOptions, MPMMaterialType, MPMParticleData } from './elements/physics/MPMBody';
 
-// Geometrias FEM
+// Geometrias FEM / MPM
 export { FEMBoxGeometry }         from './elements/geometry/FEMBoxGeometry';
+export { PointCloudGeometry }     from './elements/geometry/PointCloudGeometry';
 export { boxToFEMBody }           from './elements/physics/fem/boxToFEMBody';
 export type { BoxFEMResult, BoxFEMOptions } from './elements/physics/fem/boxToFEMBody';
 
