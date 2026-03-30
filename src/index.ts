@@ -82,6 +82,8 @@ export { FEMBody }                from './elements/physics/FEMBody';
 export type { FEMBodyOptions, FEMNode, FEMTetrahedron } from './elements/physics/FEMBody';
 export { MPMBody }                from './elements/physics/MPMBody';
 export type { MPMBodyOptions, MPMMaterialType, MPMParticleData } from './elements/physics/MPMBody';
+export { PBFBody }                from './elements/physics/PBFBody';
+export type { PBFBodyOptions, PBFParticleData } from './elements/physics/PBFBody';
 
 // Serviços de grade compartilhados (F1 — infraestrutura de partículas)
 export { EulerianGrid }           from './elements/physics/shared/EulerianGrid';
