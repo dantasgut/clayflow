@@ -83,6 +83,15 @@ import { WGSL_KERNEL_MPM_GRID_UPDATE }       from '../gpu/wgsl/kernels/mpm_grid_
 import { WGSL_KERNEL_MPM_G2P }               from '../gpu/wgsl/kernels/mpm_g2p.wgsl';
 import { WGSL_KERNEL_MPM_VERTEX_WRITE }      from '../gpu/wgsl/kernels/mpm_vertex_write.wgsl';
 
+// ── NeighborSearch modules ────────────────────────────────────────────────────
+import { WGSL_STRUCT_NS_SIM_PARAMS }         from '../gpu/wgsl/structs/ns_sim_params.wgsl';
+import { WGSL_KERNEL_NS_ASSIGN_COUNT }       from '../gpu/wgsl/kernels/ns_assign_count.wgsl';
+import { WGSL_KERNEL_NS_SCAN_LOCAL }         from '../gpu/wgsl/kernels/ns_scan_local.wgsl';
+import { WGSL_KERNEL_NS_SCAN_GROUPS }        from '../gpu/wgsl/kernels/ns_scan_groups.wgsl';
+import { WGSL_KERNEL_NS_SCAN_COMBINE }       from '../gpu/wgsl/kernels/ns_scan_combine.wgsl';
+import { WGSL_KERNEL_NS_SCATTER }            from '../gpu/wgsl/kernels/ns_scatter.wgsl';
+import { WGSL_KERNEL_NS_FIND }               from '../gpu/wgsl/kernels/ns_find.wgsl';
+
 // ── Pipeline IDs ──────────────────────────────────────────────────────────────
 
 /** IDs estáveis para getComputePipeline() e dispatchOnPass() — não mudam entre frames. */
@@ -117,6 +126,12 @@ export const PIPELINE_IDS = Object.freeze({
     MPM_GRID_UPDATE:         'physics_mpm_grid_update',
     MPM_G2P:                 'physics_mpm_g2p',
     MPM_VERTEX_WRITE:        'physics_mpm_vertex_write',
+    NS_ASSIGN_COUNT:         'physics_ns_assign_count',
+    NS_SCAN_LOCAL:           'physics_ns_scan_local',
+    NS_SCAN_GROUPS:          'physics_ns_scan_groups',
+    NS_SCAN_COMBINE:         'physics_ns_scan_combine',
+    NS_SCATTER:              'physics_ns_scatter',
+    NS_FIND:                 'physics_ns_find',
 } as const);
 
 // ── Shaders compostos ─────────────────────────────────────────────────────────
@@ -347,6 +362,44 @@ const SHADER_FEM_VERTEX_WRITE = WgslComposer.compose(
     WGSL_KERNEL_FEM_VERTEX_WRITE,
 );
 
+// ── NeighborSearch shaders ────────────────────────────────────────────────────
+
+// ns_assign_count: atribui célula flat + atomicAdd(cell_count[cell], 1) por partícula
+const SHADER_NS_ASSIGN_COUNT = WgslComposer.compose(
+    WGSL_STRUCT_NS_SIM_PARAMS,
+    WGSL_KERNEL_NS_ASSIGN_COUNT,
+);
+
+// ns_scan_local: Hillis-Steele scan em workgroup de 256 → prefix exclusivo por bloco
+const SHADER_NS_SCAN_LOCAL = WgslComposer.compose(
+    WGSL_STRUCT_NS_SIM_PARAMS,
+    WGSL_KERNEL_NS_SCAN_LOCAL,
+);
+
+// ns_scan_groups: scan das somas de grupo (1 workgroup, ≤ 256 grupos)
+const SHADER_NS_SCAN_GROUPS = WgslComposer.compose(
+    WGSL_STRUCT_NS_SIM_PARAMS,
+    WGSL_KERNEL_NS_SCAN_GROUPS,
+);
+
+// ns_scan_combine: adiciona offset de grupo ao prefix local → cell_start final
+const SHADER_NS_SCAN_COMBINE = WgslComposer.compose(
+    WGSL_STRUCT_NS_SIM_PARAMS,
+    WGSL_KERNEL_NS_SCAN_COMBINE,
+);
+
+// ns_scatter: atomicAdd(&cell_cursor[cell], 1) → sorted_particles[slot] = i
+const SHADER_NS_SCATTER = WgslComposer.compose(
+    WGSL_STRUCT_NS_SIM_PARAMS,
+    WGSL_KERNEL_NS_SCATTER,
+);
+
+// ns_find: stencil 3×3×3 → neighbor_list + neighbor_count por partícula
+const SHADER_NS_FIND = WgslComposer.compose(
+    WGSL_STRUCT_NS_SIM_PARAMS,
+    WGSL_KERNEL_NS_FIND,
+);
+
 // ── MPM shaders ───────────────────────────────────────────────────────────────
 
 // mpm_p2g: P2G com Neo-Hookean stress + APIC affine momentum (atomic i32)
@@ -428,6 +481,12 @@ export async function ensurePhysicsPipelinesInitialized(core: EngineCore): Promi
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_GRID_UPDATE,      SHADER_MPM_GRID_UPDATE,      'mpm_grid_update_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_G2P,              SHADER_MPM_G2P,              'mpm_g2p_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_VERTEX_WRITE,     SHADER_MPM_VERTEX_WRITE,     'mpm_vertex_write_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.NS_ASSIGN_COUNT,      SHADER_NS_ASSIGN_COUNT,      'ns_assign_count_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.NS_SCAN_LOCAL,        SHADER_NS_SCAN_LOCAL,        'ns_scan_local_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.NS_SCAN_GROUPS,       SHADER_NS_SCAN_GROUPS,       'ns_scan_groups_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.NS_SCAN_COMBINE,      SHADER_NS_SCAN_COMBINE,      'ns_scan_combine_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.NS_SCATTER,           SHADER_NS_SCATTER,           'ns_scatter_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.NS_FIND,              SHADER_NS_FIND,              'ns_find_main'),
     ])
         .then(() => undefined)
         .catch((err) => {
