@@ -83,6 +83,16 @@ import { WGSL_KERNEL_MPM_GRID_UPDATE }       from '../gpu/wgsl/kernels/mpm_grid_
 import { WGSL_KERNEL_MPM_G2P }               from '../gpu/wgsl/kernels/mpm_g2p.wgsl';
 import { WGSL_KERNEL_MPM_VERTEX_WRITE }      from '../gpu/wgsl/kernels/mpm_vertex_write.wgsl';
 
+// ── SPH modules ───────────────────────────────────────────────────────────────
+import { WGSL_STRUCT_SPH_SIM_PARAMS }       from '../gpu/wgsl/structs/sph_sim_params.wgsl';
+import { WGSL_STRUCT_SPH_PARTICLE }         from '../gpu/wgsl/structs/sph_particle.wgsl';
+import { WGSL_SPH_KERNELS }                 from '../gpu/wgsl/math/sph_kernels.wgsl';
+import { WGSL_KERNEL_SPH_DENSITY }          from '../gpu/wgsl/kernels/sph_density.wgsl';
+import { WGSL_KERNEL_SPH_PRESSURE }         from '../gpu/wgsl/kernels/sph_pressure.wgsl';
+import { WGSL_KERNEL_SPH_FORCES }           from '../gpu/wgsl/kernels/sph_forces.wgsl';
+import { WGSL_KERNEL_SPH_INTEGRATE }        from '../gpu/wgsl/kernels/sph_integrate.wgsl';
+import { WGSL_KERNEL_SPH_COLLISION }        from '../gpu/wgsl/kernels/sph_collision.wgsl';
+
 // ── PBF modules ───────────────────────────────────────────────────────────────
 import { WGSL_STRUCT_PBF_SIM_PARAMS }       from '../gpu/wgsl/structs/pbf_sim_params.wgsl';
 import { WGSL_STRUCT_PBF_PARTICLE }         from '../gpu/wgsl/structs/pbf_particle.wgsl';
@@ -137,6 +147,11 @@ export const PIPELINE_IDS = Object.freeze({
     MPM_GRID_UPDATE:         'physics_mpm_grid_update',
     MPM_G2P:                 'physics_mpm_g2p',
     MPM_VERTEX_WRITE:        'physics_mpm_vertex_write',
+    SPH_DENSITY:             'physics_sph_density',
+    SPH_PRESSURE:            'physics_sph_pressure',
+    SPH_FORCES:              'physics_sph_forces',
+    SPH_INTEGRATE:           'physics_sph_integrate',
+    SPH_COLLISION:           'physics_sph_collision',
     PBF_PREDICT:             'physics_pbf_predict',
     PBF_DENSITY_LAMBDA:      'physics_pbf_density_lambda',
     PBF_POSITION_CORRECT:    'physics_pbf_position_correct',
@@ -380,6 +395,46 @@ const SHADER_FEM_VERTEX_WRITE = WgslComposer.compose(
     WGSL_KERNEL_FEM_VERTEX_WRITE,
 );
 
+// ── SPH shaders ───────────────────────────────────────────────────────────────
+
+// sph_density: ρᵢ = Σmⱼ·W₃(rᵢⱼ, h)
+const SHADER_SPH_DENSITY = WgslComposer.compose(
+    WGSL_STRUCT_SPH_SIM_PARAMS,
+    WGSL_STRUCT_SPH_PARTICLE,
+    WGSL_SPH_KERNELS,
+    WGSL_KERNEL_SPH_DENSITY,
+);
+
+// sph_pressure: EOS WCSPH p = k₀·[(ρ/ρ₀)^γ − 1]
+const SHADER_SPH_PRESSURE = WgslComposer.compose(
+    WGSL_STRUCT_SPH_SIM_PARAMS,
+    WGSL_STRUCT_SPH_PARTICLE,
+    WGSL_KERNEL_SPH_PRESSURE,
+);
+
+// sph_forces: grad_pressure + viscosidade + XSPH
+const SHADER_SPH_FORCES = WgslComposer.compose(
+    WGSL_STRUCT_SPH_SIM_PARAMS,
+    WGSL_STRUCT_SPH_PARTICLE,
+    WGSL_SPH_KERNELS,
+    WGSL_KERNEL_SPH_FORCES,
+);
+
+// sph_integrate: vel += dt·accel + xsph; pos += dt·vel
+const SHADER_SPH_INTEGRATE = WgslComposer.compose(
+    WGSL_STRUCT_SPH_SIM_PARAMS,
+    WGSL_STRUCT_SPH_PARTICLE,
+    WGSL_KERNEL_SPH_INTEGRATE,
+);
+
+// sph_collision: AABB bounds + colliders SDF
+const SHADER_SPH_COLLISION = WgslComposer.compose(
+    WGSL_STRUCT_SPH_SIM_PARAMS,
+    WGSL_STRUCT_SPH_PARTICLE,
+    WGSL_STRUCT_COLLIDER_DESC,
+    WGSL_KERNEL_SPH_COLLISION,
+);
+
 // ── PBF shaders ───────────────────────────────────────────────────────────────
 
 // pbf_predict: semi-implicit Euler; salva posOld
@@ -551,6 +606,11 @@ export async function ensurePhysicsPipelinesInitialized(core: EngineCore): Promi
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_GRID_UPDATE,      SHADER_MPM_GRID_UPDATE,      'mpm_grid_update_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_G2P,              SHADER_MPM_G2P,              'mpm_g2p_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_VERTEX_WRITE,     SHADER_MPM_VERTEX_WRITE,     'mpm_vertex_write_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.SPH_DENSITY,    SHADER_SPH_DENSITY,    'sph_density_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.SPH_PRESSURE,   SHADER_SPH_PRESSURE,   'sph_pressure_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.SPH_FORCES,     SHADER_SPH_FORCES,     'sph_forces_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.SPH_INTEGRATE,  SHADER_SPH_INTEGRATE,  'sph_integrate_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.SPH_COLLISION,  SHADER_SPH_COLLISION,  'sph_collision_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.PBF_PREDICT,           SHADER_PBF_PREDICT,           'pbf_predict_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.PBF_DENSITY_LAMBDA,    SHADER_PBF_DENSITY_LAMBDA,    'pbf_density_lambda_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.PBF_POSITION_CORRECT,  SHADER_PBF_POSITION_CORRECT,  'pbf_position_correct_main'),

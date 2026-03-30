@@ -84,6 +84,8 @@ export { MPMBody }                from './elements/physics/MPMBody';
 export type { MPMBodyOptions, MPMMaterialType, MPMParticleData } from './elements/physics/MPMBody';
 export { PBFBody }                from './elements/physics/PBFBody';
 export type { PBFBodyOptions, PBFParticleData } from './elements/physics/PBFBody';
+export { SPHBody }                from './elements/physics/SPHBody';
+export type { SPHBodyOptions, SPHParticleData } from './elements/physics/SPHBody';
 
 // Serviços de grade compartilhados (F1 — infraestrutura de partículas)
 export { EulerianGrid }           from './elements/physics/shared/EulerianGrid';

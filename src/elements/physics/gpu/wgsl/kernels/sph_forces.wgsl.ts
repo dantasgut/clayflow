@@ -1,0 +1,91 @@
+/**
+ * Kernel WGSL: sph_forces — computa forças SPH e acumulação de correção XSPH.
+ *
+ * aᵢ = gravity + f_pressure/mᵢ + f_viscosity/mᵢ
+ *
+ * Pressão (forma simétrica de Monaghan):
+ *   f_pressure/m = −Σⱼ mⱼ · (pᵢ/ρᵢ² + pⱼ/ρⱼ²) · ∇W(xᵢ−xⱼ, h)
+ *
+ * Viscosidade artificial (Monaghan 1992):
+ *   f_visc/m = μ · Σⱼ mⱼ/ρⱼ · (vⱼ−vᵢ) · ∇²W(rᵢⱼ, h)  [Laplaciano via ∇²W ≈ 2|∇W|/r]
+ *
+ * XSPH: color[i].xyz += Σⱼ mⱼ/ρⱼ · (vⱼ−vᵢ) · W(rᵢⱼ, h)
+ *
+ * Bind groups:
+ *   @group(0) @binding(0) — SPHSimParams (uniform)
+ *   @group(1) @binding(0) — particles: array<SPHParticle> (read_write)
+ *   @group(2) @binding(0) — neighbor_list:  array<u32>
+ *   @group(2) @binding(1) — neighbor_count: array<u32>
+ *
+ * Dispatch: ceil(particle_count / 64)
+ */
+export const WGSL_KERNEL_SPH_FORCES = /* wgsl */`
+
+@group(0) @binding(0) var<uniform>             sph_params:     SPHSimParams;
+@group(1) @binding(0) var<storage, read_write> particles:      array<SPHParticle>;
+@group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
+@group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
+
+@compute @workgroup_size(64)
+fn sph_forces_main(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= sph_params.counts.x) { return; }
+
+    let h      = sph_params.fluid.y;
+    let mu     = sph_params.viscosity.x;
+    let xsph_c = sph_params.viscosity.y;
+    let mass   = sph_params.mass.x;
+    let max_nb = sph_params.counts.z;
+    let nb_n   = neighbor_count[i];
+    let g      = sph_params.gravity_dt.xyz;
+
+    let xi   = particles[i].pos.xyz;
+    let vi   = particles[i].vel.xyz;
+    let rho_i = particles[i].pos.w;
+    let p_i   = particles[i].vel.w;
+
+    var f_press  = vec3f(0.0);
+    var f_visc   = vec3f(0.0);
+    var xsph_acc = vec3f(0.0);
+
+    for (var k: u32 = 0u; k < nb_n && k < max_nb; k++) {
+        let j    = neighbor_list[i * max_nb + k];
+        let xj   = particles[j].pos.xyz;
+        let vj   = particles[j].vel.xyz;
+        let rho_j = particles[j].pos.w;
+        let p_j   = particles[j].vel.w;
+
+        let r_vec = xi - xj;
+        let r     = length(r_vec);
+        if (r < 0.0001) { continue; }
+
+        let gw = grad_W_cubic(r_vec, r, h);
+
+        // Pressão simétrica
+        var term_p = 0.0f;
+        if (rho_i > 0.001 && rho_j > 0.001) {
+            term_p = p_i / (rho_i * rho_i) + p_j / (rho_j * rho_j);
+        }
+        f_press -= mass * term_p * gw;
+
+        // Viscosidade (Monaghan artificial): usa Laplaciano ≈ 2·|∇W|/r
+        let vij    = vj - vi;
+        let dW_r   = length(gw) / r;  // aprox. |∇²W| simplificada
+        if (rho_j > 0.001) {
+            f_visc += mu * (mass / rho_j) * vij * 2.0 * dW_r;
+        }
+
+        // XSPH
+        let w = W_cubic(r, h);
+        if (rho_j > 0.001) {
+            xsph_acc += (mass / rho_j) * vij * w;
+        }
+    }
+
+    // Aceleração total = g + f_press + f_visc (força / massa = aceleração)
+    let accel = g + f_press + f_visc;
+
+    particles[i].force = vec4f(accel, 0.0);
+    particles[i].color = vec4f(xsph_c * xsph_acc, 0.0);
+}
+`;
