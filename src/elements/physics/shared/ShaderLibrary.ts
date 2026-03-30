@@ -83,6 +83,17 @@ import { WGSL_KERNEL_MPM_GRID_UPDATE }       from '../gpu/wgsl/kernels/mpm_grid_
 import { WGSL_KERNEL_MPM_G2P }               from '../gpu/wgsl/kernels/mpm_g2p.wgsl';
 import { WGSL_KERNEL_MPM_VERTEX_WRITE }      from '../gpu/wgsl/kernels/mpm_vertex_write.wgsl';
 
+// ── PBF modules ───────────────────────────────────────────────────────────────
+import { WGSL_STRUCT_PBF_SIM_PARAMS }       from '../gpu/wgsl/structs/pbf_sim_params.wgsl';
+import { WGSL_STRUCT_PBF_PARTICLE }         from '../gpu/wgsl/structs/pbf_particle.wgsl';
+import { WGSL_KERNEL_PBF_PREDICT }          from '../gpu/wgsl/kernels/pbf_predict.wgsl';
+import { WGSL_KERNEL_PBF_DENSITY_LAMBDA }   from '../gpu/wgsl/kernels/pbf_density_lambda.wgsl';
+import { WGSL_KERNEL_PBF_POSITION_CORRECT } from '../gpu/wgsl/kernels/pbf_position_correct.wgsl';
+import { WGSL_KERNEL_PBF_VELOCITY_UPDATE }  from '../gpu/wgsl/kernels/pbf_velocity_update.wgsl';
+import { WGSL_KERNEL_PBF_VORTICITY }        from '../gpu/wgsl/kernels/pbf_vorticity.wgsl';
+import { WGSL_KERNEL_PBF_XSPH }             from '../gpu/wgsl/kernels/pbf_xsph.wgsl';
+import { WGSL_KERNEL_PBF_COLLISION }        from '../gpu/wgsl/kernels/pbf_collision.wgsl';
+
 // ── NeighborSearch modules ────────────────────────────────────────────────────
 import { WGSL_STRUCT_NS_SIM_PARAMS }         from '../gpu/wgsl/structs/ns_sim_params.wgsl';
 import { WGSL_KERNEL_NS_ASSIGN_COUNT }       from '../gpu/wgsl/kernels/ns_assign_count.wgsl';
@@ -126,6 +137,13 @@ export const PIPELINE_IDS = Object.freeze({
     MPM_GRID_UPDATE:         'physics_mpm_grid_update',
     MPM_G2P:                 'physics_mpm_g2p',
     MPM_VERTEX_WRITE:        'physics_mpm_vertex_write',
+    PBF_PREDICT:             'physics_pbf_predict',
+    PBF_DENSITY_LAMBDA:      'physics_pbf_density_lambda',
+    PBF_POSITION_CORRECT:    'physics_pbf_position_correct',
+    PBF_VELOCITY_UPDATE:     'physics_pbf_velocity_update',
+    PBF_VORTICITY:           'physics_pbf_vorticity',
+    PBF_XSPH:                'physics_pbf_xsph',
+    PBF_COLLISION:           'physics_pbf_collision',
     NS_ASSIGN_COUNT:         'physics_ns_assign_count',
     NS_SCAN_LOCAL:           'physics_ns_scan_local',
     NS_SCAN_GROUPS:          'physics_ns_scan_groups',
@@ -362,6 +380,58 @@ const SHADER_FEM_VERTEX_WRITE = WgslComposer.compose(
     WGSL_KERNEL_FEM_VERTEX_WRITE,
 );
 
+// ── PBF shaders ───────────────────────────────────────────────────────────────
+
+// pbf_predict: semi-implicit Euler; salva posOld
+const SHADER_PBF_PREDICT = WgslComposer.compose(
+    WGSL_STRUCT_PBF_SIM_PARAMS,
+    WGSL_STRUCT_PBF_PARTICLE,
+    WGSL_KERNEL_PBF_PREDICT,
+);
+
+// pbf_density_lambda: ρᵢ via Poly6; λᵢ via Spiky
+const SHADER_PBF_DENSITY_LAMBDA = WgslComposer.compose(
+    WGSL_STRUCT_PBF_SIM_PARAMS,
+    WGSL_STRUCT_PBF_PARTICLE,
+    WGSL_KERNEL_PBF_DENSITY_LAMBDA,
+);
+
+// pbf_position_correct: Δxᵢ com s_corr anti-clustering
+const SHADER_PBF_POSITION_CORRECT = WgslComposer.compose(
+    WGSL_STRUCT_PBF_SIM_PARAMS,
+    WGSL_STRUCT_PBF_PARTICLE,
+    WGSL_KERNEL_PBF_POSITION_CORRECT,
+);
+
+// pbf_velocity_update: vel = (pos − posOld) / dt
+const SHADER_PBF_VELOCITY_UPDATE = WgslComposer.compose(
+    WGSL_STRUCT_PBF_SIM_PARAMS,
+    WGSL_STRUCT_PBF_PARTICLE,
+    WGSL_KERNEL_PBF_VELOCITY_UPDATE,
+);
+
+// pbf_vorticity: curl + vorticity confinement force
+const SHADER_PBF_VORTICITY = WgslComposer.compose(
+    WGSL_STRUCT_PBF_SIM_PARAMS,
+    WGSL_STRUCT_PBF_PARTICLE,
+    WGSL_KERNEL_PBF_VORTICITY,
+);
+
+// pbf_xsph: XSPH viscosity smoothing
+const SHADER_PBF_XSPH = WgslComposer.compose(
+    WGSL_STRUCT_PBF_SIM_PARAMS,
+    WGSL_STRUCT_PBF_PARTICLE,
+    WGSL_KERNEL_PBF_XSPH,
+);
+
+// pbf_collision: AABB bounds + colliders SDF
+const SHADER_PBF_COLLISION = WgslComposer.compose(
+    WGSL_STRUCT_PBF_SIM_PARAMS,
+    WGSL_STRUCT_PBF_PARTICLE,
+    WGSL_STRUCT_COLLIDER_DESC,
+    WGSL_KERNEL_PBF_COLLISION,
+);
+
 // ── NeighborSearch shaders ────────────────────────────────────────────────────
 
 // ns_assign_count: atribui célula flat + atomicAdd(cell_count[cell], 1) por partícula
@@ -481,6 +551,13 @@ export async function ensurePhysicsPipelinesInitialized(core: EngineCore): Promi
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_GRID_UPDATE,      SHADER_MPM_GRID_UPDATE,      'mpm_grid_update_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_G2P,              SHADER_MPM_G2P,              'mpm_g2p_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.MPM_VERTEX_WRITE,     SHADER_MPM_VERTEX_WRITE,     'mpm_vertex_write_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.PBF_PREDICT,           SHADER_PBF_PREDICT,           'pbf_predict_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.PBF_DENSITY_LAMBDA,    SHADER_PBF_DENSITY_LAMBDA,    'pbf_density_lambda_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.PBF_POSITION_CORRECT,  SHADER_PBF_POSITION_CORRECT,  'pbf_position_correct_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.PBF_VELOCITY_UPDATE,   SHADER_PBF_VELOCITY_UPDATE,   'pbf_velocity_update_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.PBF_VORTICITY,         SHADER_PBF_VORTICITY,         'pbf_vorticity_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.PBF_XSPH,              SHADER_PBF_XSPH,              'pbf_xsph_main'),
+        core.compute.createComputePipeline(PIPELINE_IDS.PBF_COLLISION,         SHADER_PBF_COLLISION,         'pbf_collision_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.NS_ASSIGN_COUNT,      SHADER_NS_ASSIGN_COUNT,      'ns_assign_count_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.NS_SCAN_LOCAL,        SHADER_NS_SCAN_LOCAL,        'ns_scan_local_main'),
         core.compute.createComputePipeline(PIPELINE_IDS.NS_SCAN_GROUPS,       SHADER_NS_SCAN_GROUPS,       'ns_scan_groups_main'),
