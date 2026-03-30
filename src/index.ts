@@ -83,6 +83,12 @@ export type { FEMBodyOptions, FEMNode, FEMTetrahedron } from './elements/physics
 export { MPMBody }                from './elements/physics/MPMBody';
 export type { MPMBodyOptions, MPMMaterialType, MPMParticleData } from './elements/physics/MPMBody';
 
+// Serviços de grade compartilhados (F1 — infraestrutura de partículas)
+export { EulerianGrid }           from './elements/physics/shared/EulerianGrid';
+export type { EulerianGridConfig } from './elements/physics/shared/EulerianGridLayout';
+export { NeighborSearchGrid }     from './elements/physics/shared/NeighborSearchGrid';
+export type { NeighborSearchConfig } from './elements/physics/shared/NeighborSearchGridLayout';
+
 // Geometrias FEM / MPM
 export { FEMBoxGeometry }         from './elements/geometry/FEMBoxGeometry';
 export { PointCloudGeometry }     from './elements/geometry/PointCloudGeometry';
