@@ -6,8 +6,8 @@
  * Pressão (forma simétrica de Monaghan):
  *   f_pressure/m = −Σⱼ mⱼ · (pᵢ/ρᵢ² + pⱼ/ρⱼ²) · ∇W(xᵢ−xⱼ, h)
  *
- * Viscosidade artificial (Monaghan 1992):
- *   f_visc/m = μ · Σⱼ mⱼ/ρⱼ · (vⱼ−vᵢ) · ∇²W(rᵢⱼ, h)  [Laplaciano via ∇²W ≈ 2|∇W|/r]
+ * Viscosidade dinâmica (Müller 2003):
+ *   f_visc/m = μ · Σⱼ mⱼ/ρⱼ · (vⱼ−vᵢ) · ∇²W_visc(rᵢⱼ, h)  [Laplaciano do viscosity kernel]
  *
  * XSPH: color[i].xyz += Σⱼ mⱼ/ρⱼ · (vⱼ−vᵢ) · W(rᵢⱼ, h)
  *
@@ -68,11 +68,11 @@ fn sph_forces_main(@builtin(global_invocation_id) gid: vec3u) {
         }
         f_press -= mass * term_p * gw;
 
-        // Viscosidade (Monaghan artificial): usa Laplaciano ≈ 2·|∇W|/r
-        let vij    = vj - vi;
-        let dW_r   = length(gw) / r;  // aprox. |∇²W| simplificada
+        // Viscosidade dinâmica (Müller 2003): ∇²W_visc sempre positivo
+        let vij = vj - vi;
+        let lap = laplacian_W_visc(r, h);
         if (rho_j > 0.001) {
-            f_visc += mu * (mass / rho_j) * vij * 2.0 * dW_r;
+            f_visc += mu * (mass / rho_j) * vij * lap;
         }
 
         // XSPH

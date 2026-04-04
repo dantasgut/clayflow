@@ -1,8 +1,7 @@
 /**
  * SPHComputePass — pipeline GPU WCSPH (Weakly Compressible SPH).
  *
- * Implementa PhysicsComputePass sem herança (padrão PBFComputePass).
- * Recebe um NeighborSearchGrid compartilhado via constructor.
+ * Estende FluidComputePassBase; implementa apenas a lógica específica de SPH.
  *
  * ## Sequência por substep
  *
@@ -10,7 +9,7 @@
  * 1. encodeNeighborBuild
  * 2. dispatch sph_density    → ρᵢ = Σmⱼ·W₃
  * 3. dispatch sph_pressure   → pᵢ = k₀·[(ρᵢ/ρ₀)^γ − 1]
- * 4. dispatch sph_forces     → accel = g + f_press + f_visc; XSPH em color
+ * 4. dispatch sph_forces     → accel = g + f_press + f_visc(∇²W_visc); XSPH
  * 5. dispatch sph_integrate  → vel += dt·accel + xsph; pos += dt·vel
  * 6. dispatch sph_collision  → bounds AABB + colliders SDF
  * ```
@@ -21,17 +20,10 @@
  *   Por corpo: `gpu_sph_particles_{uuid}` (storage SPHParticle[], N × 64 bytes)
  */
 
-import { WebGPUEngineCore }        from '../../../core/WebGPUEngineCore';
-import type { EngineCore }         from '../../../core/interfaces/EngineCore';
-import type { PhysicsComputePass } from '../../../scene/systems/PhysicsComputePass';
-import type { GpuSimContext }      from '../../../scene/systems/GpuSimContext';
+import { FluidComputePassBase }    from '../shared/FluidComputePassBase';
 import type { Force }              from '../../../scene/systems/forces/Force';
-import { PhysicsBodyState }        from '../../../scene/core/physics/PhysicsBodyState';
 import { COLLIDERS_BUFFER_ID }     from '../shared/ColliderDescriptorUploader';
-import {
-    PIPELINE_IDS,
-    ensurePhysicsPipelinesInitialized,
-} from '../shared/ShaderLibrary';
+import { PIPELINE_IDS }            from '../shared/ShaderLibrary';
 import type { NeighborSearchGrid } from '../shared/NeighborSearchGrid';
 import type { SPHBody }            from '../SPHBody';
 import {
@@ -41,7 +33,6 @@ import {
     SPH_PARTICLE_STRIDE_FLOATS,
     buildSPHBufferIds,
     packSPHParticles,
-    type SPHBufferIds,
 } from './SPHBufferLayout';
 import {
     SPHSP_GRAVITY_X, SPHSP_GRAVITY_Y, SPHSP_GRAVITY_Z, SPHSP_DT_SUB,
@@ -55,7 +46,7 @@ import {
 export interface SPHPassConfig {
     substeps?:    number;   // default: 4
     maxParticles?: number;  // default: 10000
-    boundsMin?:   [number, number, number];  // default: [-10,-1,-10]
+    boundsMin?:   [number, number, number];
 }
 
 type SPHBodyBGs = {
@@ -67,198 +58,42 @@ type SPHBodyBGs = {
 };
 
 type SPHGlobalBGs = {
-    simParams:  GPUBindGroup;
-    neighbors:  GPUBindGroup;
-    colliders:  GPUBindGroup;
+    simParams: GPUBindGroup;
+    neighbors: GPUBindGroup;
+    colliders: GPUBindGroup;
 };
 
-export class SPHComputePass implements PhysicsComputePass {
+export class SPHComputePass extends FluidComputePassBase<SPHBody, SPHGlobalBGs, SPHBodyBGs> {
 
     public readonly passId = 'SPHBody';
     public readonly acceptedPhysicTypes: readonly string[] = ['SPHBody'];
 
-    private core: EngineCore = WebGPUEngineCore.getInstance();
-    private ready        = false;
-    private initPromise: Promise<void> | null = null;
-    private globalReady  = false;
-
-    private readonly substeps:     number;
-    private readonly maxParticles: number;
-    private readonly boundsMin:    [number, number, number];
-
-    private readonly neighborGrid: NeighborSearchGrid;
-
-    private readonly bgCache = new Map<string, SPHBodyBGs>();
-    private globalBG: SPHGlobalBGs | null = null;
-
-    private readonly simParamsBuf = new ArrayBuffer(SPH_SIM_PARAMS_BYTES);
-    private readonly simParamsF32 = new Float32Array(this.simParamsBuf);
-    private readonly simParamsU32 = new Uint32Array(this.simParamsBuf);
+    protected readonly simParamsBufferId    = SPH_SIM_PARAMS_BUFFER_ID;
+    protected readonly particleStrideFloats = SPH_PARTICLE_STRIDE_FLOATS;
 
     constructor(
-        private readonly globalForces: Map<string, Force>,
+        globalForces: Map<string, Force>,
         neighborGrid: NeighborSearchGrid,
         config?: SPHPassConfig,
     ) {
-        this.neighborGrid  = neighborGrid;
-        this.substeps      = config?.substeps     ?? 4;
-        this.maxParticles  = config?.maxParticles  ?? 10000;
-        this.boundsMin     = config?.boundsMin     ?? [-10, -1, -10];
+        super(
+            globalForces,
+            neighborGrid,
+            config?.substeps  ?? 4,
+            config?.boundsMin ?? [-10, -1, -10],
+            SPH_SIM_PARAMS_BYTES,
+        );
     }
 
-    // ── PhysicsComputePass ────────────────────────────────────────────────────
+    // ── Alocação ──────────────────────────────────────────────────────────────
 
-    public ensureReady(core: EngineCore): Promise<void> {
-        this.core = core;
-        if (!this.initPromise) this.kickInit();
-        return this.initPromise ?? Promise.resolve();
-    }
-
-    public dispose(): void {
-        this.bgCache.clear();
-        this.globalBG = null;
+    protected allocateBody(sph: SPHBody): void {
         const buffers = this.core.resources.buffers;
-        if (buffers.getBuffer(SPH_SIM_PARAMS_BUFFER_ID)) {
-            buffers.destroyBuffer(SPH_SIM_PARAMS_BUFFER_ID);
-        }
-        this.neighborGrid.dispose();
-    }
-
-    public execute(context: GpuSimContext, dtFrame: number): void {
-        if (!this.ready) { this.kickInit(); return; }
-        if (dtFrame <= 0) return;
-
-        if (!this.globalReady) this.createGlobalBuffers();
-        if (!this.globalReady) return;
-
-        const core    = this.core;
-        const compute = core.compute;
-        const buffers = core.resources.buffers;
-
-        if (context.colliderBufferRecreated) {
-            this.bgCache.clear();
-            this.globalBG = null;
-        }
-
-        const activeBodies: SPHBody[] = [];
-        for (const { body } of context.bodies.values()) {
-            if (body.physicType !== 'SPHBody') continue;
-            if (body.bodyState === PhysicsBodyState.Inactive) continue;
-            const sph = body as unknown as SPHBody;
-            if (!sph.bufferIds) this.allocateBody(sph);
-            if (!sph.bufferIds) continue;
-            if (sph.particles.length === 0) continue;
-            activeBodies.push(sph);
-        }
-        if (activeBodies.length === 0) return;
-
-        const firstBody      = activeBodies[0]!;
-        const totalParticles = activeBodies.reduce((s, b) => s + b.particles.length, 0);
-        const dtSub          = dtFrame / this.substeps;
-
-        let gx = 0, gy = 0, gz = 0;
-        for (const force of this.globalForces.values()) {
-            const f = force.compute(firstBody, dtSub);
-            gx += f[0] ?? 0; gy += f[1] ?? 0; gz += f[2] ?? 0;
-        }
-
-        const mass    = firstBody.get<number>('particleMass')    ?? 0.02;
-        const restRho = firstBody.get<number>('restDensity')     ?? 1000;
-
-        this.simParamsF32[SPHSP_GRAVITY_X]       = gx;
-        this.simParamsF32[SPHSP_GRAVITY_Y]       = gy;
-        this.simParamsF32[SPHSP_GRAVITY_Z]       = gz;
-        this.simParamsF32[SPHSP_DT_SUB]          = dtSub;
-        this.simParamsF32[SPHSP_REST_RHO]        = restRho;
-        this.simParamsF32[SPHSP_H]               = firstBody.get<number>('smoothingRadius') ?? 0.1;
-        this.simParamsF32[SPHSP_STIFFNESS]       = firstBody.get<number>('stiffness')       ?? 200;
-        this.simParamsF32[SPHSP_GAMMA]           = firstBody.get<number>('gamma')           ?? 7;
-        this.simParamsF32[SPHSP_VISCOSITY]       = firstBody.get<number>('viscosity')       ?? 0.01;
-        this.simParamsF32[SPHSP_XSPH_C]         = firstBody.get<number>('xsph')            ?? 0.01;
-        this.simParamsF32[SPHSP_DT_FRAME]        = dtFrame;
-        this.simParamsU32[SPHSP_PARTICLE_COUNT]  = totalParticles;
-        this.simParamsU32[SPHSP_COLLIDER_COUNT]  = context.colliderCount;
-        this.simParamsU32[SPHSP_MAX_NEIGHBORS]   = 64;
-        this.simParamsU32[SPHSP_PARTICLE_STRIDE] = SPH_PARTICLE_STRIDE_FLOATS;
-        this.simParamsF32[SPHSP_BOUND_MIN_X]     = this.boundsMin[0];
-        this.simParamsF32[SPHSP_BOUND_MIN_Y]     = this.boundsMin[1];
-        this.simParamsF32[SPHSP_BOUND_MIN_Z]     = this.boundsMin[2];
-        this.simParamsF32[SPHSP_RESTITUTION]     = firstBody.get<number>('restitution')    ?? 0;
-        this.simParamsF32[SPHSP_PARTICLE_MASS]   = mass;
-        this.simParamsF32[SPHSP_INV_MASS]        = mass > 0 ? 1 / mass : 0;
-        buffers.writeBuffer(SPH_SIM_PARAMS_BUFFER_ID, this.simParamsF32);
-
-        if (!this.globalBG) this.globalBG = this.buildGlobalBGs();
-        if (!this.globalBG) return;
-
-        for (const sph of activeBodies) {
-            if (!this.bgCache.has(sph.uuid)) {
-                this.bgCache.set(sph.uuid, this.buildBodyBGs(sph));
-            }
-        }
-
-        const gbg = this.globalBG;
-
-        try {
-            const encoder = core.renderPasses.createCommandEncoder('sph_gpu');
-
-            for (let s = 0; s < this.substeps; s++) {
-                const firstBuf = buffers.getBuffer(activeBodies[0]!.bufferIds!.particlesId)!.native;
-                this.neighborGrid.encodeNeighborBuild(
-                    encoder,
-                    firstBuf,
-                    totalParticles,
-                    SPH_PARTICLE_STRIDE_FLOATS,
-                );
-
-                for (const sph of activeBodies) {
-                    const bg = this.bgCache.get(sph.uuid)!;
-                    const wg = Math.ceil(sph.particles.length / 64);
-
-                    const densPass = compute.beginComputePassExplicit(encoder, `sph_density_${s}`);
-                    compute.dispatchOnPass(densPass, PIPELINE_IDS.SPH_DENSITY,
-                        [gbg.simParams, bg.density, gbg.neighbors], wg);
-                    densPass.end();
-
-                    const presPass = compute.beginComputePassExplicit(encoder, `sph_pressure_${s}`);
-                    compute.dispatchOnPass(presPass, PIPELINE_IDS.SPH_PRESSURE,
-                        [gbg.simParams, bg.pressure], wg);
-                    presPass.end();
-
-                    const frcPass = compute.beginComputePassExplicit(encoder, `sph_forces_${s}`);
-                    compute.dispatchOnPass(frcPass, PIPELINE_IDS.SPH_FORCES,
-                        [gbg.simParams, bg.forces, gbg.neighbors], wg);
-                    frcPass.end();
-
-                    const intPass = compute.beginComputePassExplicit(encoder, `sph_integrate_${s}`);
-                    compute.dispatchOnPass(intPass, PIPELINE_IDS.SPH_INTEGRATE,
-                        [gbg.simParams, bg.integrate], wg);
-                    intPass.end();
-
-                    const colPass = compute.beginComputePassExplicit(encoder, `sph_collision_${s}`);
-                    compute.dispatchOnPass(colPass, PIPELINE_IDS.SPH_COLLISION,
-                        [gbg.simParams, bg.collision, gbg.colliders], wg);
-                    colPass.end();
-                }
-            }
-
-            core.renderPasses.submit([encoder]);
-        } catch (err) {
-            console.error('[SPHComputePass] encode falhou:', err);
-            this.bgCache.clear();
-            this.globalBG = null;
-        }
-    }
-
-    // ── Alocação por corpo ────────────────────────────────────────────────────
-
-    private allocateBody(sph: SPHBody): void {
-        const buffers   = this.core.resources.buffers;
-        const n         = sph.particles.length;
+        const n       = sph.particles.length;
         if (n === 0) return;
 
-        const ids       = buildSPHBufferIds(sph.uuid);
-        const restRho   = sph.get<number>('restDensity') ?? 1000;
+        const ids     = buildSPHBufferIds(sph.uuid);
+        const restRho = sph.get<number>('restDensity') ?? 1000;
         buffers.createStorageBuffer(ids.particlesId, Math.max(n, 1) * SPH_PARTICLE_STRIDE_BYTES);
 
         const f32 = new Float32Array(n * SPH_PARTICLE_STRIDE_FLOATS);
@@ -268,21 +103,49 @@ export class SPHComputePass implements PhysicsComputePass {
         sph.bufferIds = ids;
     }
 
-    // ── Buffers globais ───────────────────────────────────────────────────────
+    // ── SimParams ─────────────────────────────────────────────────────────────
 
-    private createGlobalBuffers(): void {
-        this.core.resources.buffers.createUniformBuffer(SPH_SIM_PARAMS_BUFFER_ID, SPH_SIM_PARAMS_BYTES);
-        this.globalReady = true;
+    protected writeSimParams(
+        bodies: SPHBody[], dtFrame: number, dtSub: number,
+        totalParticles: number, colliderCount: number,
+        gx: number, gy: number, gz: number,
+    ): void {
+        const f32  = this.simParamsF32;
+        const u32  = this.simParamsU32;
+        const b    = bodies[0]!;
+        const mass = b.get<number>('particleMass') ?? 0.02;
+
+        f32[SPHSP_GRAVITY_X]       = gx;
+        f32[SPHSP_GRAVITY_Y]       = gy;
+        f32[SPHSP_GRAVITY_Z]       = gz;
+        f32[SPHSP_DT_SUB]          = dtSub;
+        f32[SPHSP_REST_RHO]        = b.get<number>('restDensity')     ?? 1000;
+        f32[SPHSP_H]               = b.get<number>('smoothingRadius') ?? 0.1;
+        f32[SPHSP_STIFFNESS]       = b.get<number>('stiffness')       ?? 200;
+        f32[SPHSP_GAMMA]           = b.get<number>('gamma')           ?? 7;
+        f32[SPHSP_VISCOSITY]       = b.get<number>('viscosity')       ?? 0.01;
+        f32[SPHSP_XSPH_C]         = b.get<number>('xsph')            ?? 0.01;
+        f32[SPHSP_DT_FRAME]        = dtFrame;
+        u32[SPHSP_PARTICLE_COUNT]  = totalParticles;
+        u32[SPHSP_COLLIDER_COUNT]  = colliderCount;
+        u32[SPHSP_MAX_NEIGHBORS]   = 64;
+        u32[SPHSP_PARTICLE_STRIDE] = SPH_PARTICLE_STRIDE_FLOATS;
+        f32[SPHSP_BOUND_MIN_X]     = this.boundsMin[0];
+        f32[SPHSP_BOUND_MIN_Y]     = this.boundsMin[1];
+        f32[SPHSP_BOUND_MIN_Z]     = this.boundsMin[2];
+        f32[SPHSP_RESTITUTION]     = b.get<number>('restitution') ?? 0;
+        f32[SPHSP_PARTICLE_MASS]   = mass;
+        f32[SPHSP_INV_MASS]        = mass > 0 ? 1 / mass : 0;
     }
 
     // ── Bind groups ───────────────────────────────────────────────────────────
 
-    private buildGlobalBGs(): SPHGlobalBGs | null {
+    protected buildGlobalBGs(): SPHGlobalBGs | null {
         const compute = this.core.compute;
         const buffers = this.core.resources.buffers;
 
-        const simBuf  = buffers.getBuffer(SPH_SIM_PARAMS_BUFFER_ID)?.native;
-        const colBuf  = buffers.getBuffer(COLLIDERS_BUFFER_ID)?.native;
+        const simBuf = buffers.getBuffer(SPH_SIM_PARAMS_BUFFER_ID)?.native;
+        const colBuf = buffers.getBuffer(COLLIDERS_BUFFER_ID)?.native;
         if (!simBuf || !colBuf) return null;
 
         const nbListBuf  = this.neighborGrid.getNeighborListBuffer();
@@ -292,16 +155,18 @@ export class SPHComputePass implements PhysicsComputePass {
             compute.createBindGroupFromPipeline(id, grp, entries, label);
 
         return {
-            simParams: bg(PIPELINE_IDS.SPH_DENSITY,  0, [{ binding: 0, resource: { buffer: simBuf } }], 'sph_bg_sim'),
+            simParams: bg(PIPELINE_IDS.SPH_DENSITY,  0,
+                [{ binding: 0, resource: { buffer: simBuf } }], 'sph_bg_sim'),
             neighbors: bg(PIPELINE_IDS.SPH_DENSITY,  2, [
                 { binding: 0, resource: { buffer: nbListBuf  } },
                 { binding: 1, resource: { buffer: nbCountBuf } },
             ], 'sph_bg_neighbors'),
-            colliders: bg(PIPELINE_IDS.SPH_COLLISION, 2, [{ binding: 0, resource: { buffer: colBuf } }], 'sph_bg_colliders'),
+            colliders: bg(PIPELINE_IDS.SPH_COLLISION, 2,
+                [{ binding: 0, resource: { buffer: colBuf } }], 'sph_bg_colliders'),
         };
     }
 
-    private buildBodyBGs(sph: SPHBody): SPHBodyBGs {
+    protected buildBodyBGs(sph: SPHBody): SPHBodyBGs {
         const compute = this.core.compute;
         const buffers = this.core.resources.buffers;
         const pBuf    = buffers.getBuffer(sph.bufferIds!.particlesId)!.native;
@@ -321,14 +186,41 @@ export class SPHComputePass implements PhysicsComputePass {
         };
     }
 
-    // ── Init ─────────────────────────────────────────────────────────────────
+    // ── Substep ───────────────────────────────────────────────────────────────
 
-    private kickInit(): void {
-        this.initPromise = ensurePhysicsPipelinesInitialized(this.core)
-            .then(() => { this.ready = true; })
-            .catch(err => {
-                console.error('[SPHComputePass] falha na compilação de pipeline:', err);
-                this.initPromise = null;
-            });
+    protected encodeSubstep(
+        encoder: GPUCommandEncoder,
+        _body: SPHBody,
+        gbg: SPHGlobalBGs,
+        bg: SPHBodyBGs,
+        wg: number,
+        s: number,
+    ): void {
+        const compute = this.core.compute;
+
+        const densPass = compute.beginComputePassExplicit(encoder, `sph_density_${s}`);
+        compute.dispatchOnPass(densPass, PIPELINE_IDS.SPH_DENSITY,
+            [gbg.simParams, bg.density, gbg.neighbors], wg);
+        densPass.end();
+
+        const presPass = compute.beginComputePassExplicit(encoder, `sph_pressure_${s}`);
+        compute.dispatchOnPass(presPass, PIPELINE_IDS.SPH_PRESSURE,
+            [gbg.simParams, bg.pressure], wg);
+        presPass.end();
+
+        const frcPass = compute.beginComputePassExplicit(encoder, `sph_forces_${s}`);
+        compute.dispatchOnPass(frcPass, PIPELINE_IDS.SPH_FORCES,
+            [gbg.simParams, bg.forces, gbg.neighbors], wg);
+        frcPass.end();
+
+        const intPass = compute.beginComputePassExplicit(encoder, `sph_integrate_${s}`);
+        compute.dispatchOnPass(intPass, PIPELINE_IDS.SPH_INTEGRATE,
+            [gbg.simParams, bg.integrate], wg);
+        intPass.end();
+
+        const colPass = compute.beginComputePassExplicit(encoder, `sph_collision_${s}`);
+        compute.dispatchOnPass(colPass, PIPELINE_IDS.SPH_COLLISION,
+            [gbg.simParams, bg.collision, gbg.colliders], wg);
+        colPass.end();
     }
 }

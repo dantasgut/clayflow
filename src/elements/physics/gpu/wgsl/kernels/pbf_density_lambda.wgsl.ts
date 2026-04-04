@@ -70,15 +70,12 @@ fn pbf_density_lambda_main(@builtin(global_invocation_id) gid: vec3u) {
 
         rho += W_poly6(r_sq, h);
 
-        // ∇_{xi} C_i: +∇W
+        // ∇_{xi} C_i acumula; ∇_{xj} C_i = −gw → ‖−gw‖² = ‖gw‖²
         let gw = grad_W_spiky(dv, r, h) / rho0;
         grad_i      += gw;
-        sum_grad_sq += dot(gw, gw);
-
-        // ∇_{xj} C_i: −∇W (contribuição de j ao denominador)
-        let gw_j = -gw;
-        sum_grad_sq += dot(gw_j, gw_j);
+        sum_grad_sq += dot(gw, gw);   // contribuição de j (∇_{xj} C_i)
     }
+    // Contribuição de i (∇_{xi} C_i) — adicionada UMA vez fora do loop
     sum_grad_sq += dot(grad_i, grad_i);
 
     let C = rho / rho0 - 1.0;

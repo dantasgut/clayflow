@@ -1,5 +1,6 @@
 /**
- * SPH Kernels — Cubic Spline W₃ (C² contínuo, suporte compacto 2h).
+ * SPH Kernels — Cubic Spline W₃ (C² contínuo, suporte compacto 2h)
+ *              + Viscosity Kernel W_visc (Müller 2003, ∇²W sempre positivo).
  *
  * W(r, h) = σ₃ · f(q),   q = r/h,   σ₃ = 1/(π·h³)
  *
@@ -14,6 +15,10 @@
  *           0                             se q ≥ 2
  *
  * ∇W(xᵢ − xⱼ, h) = dW/dr(r, h) · (xᵢ − xⱼ) / r
+ *
+ * ∇²W_visc(r, h) = 45/(π·h⁶) · (h − r)   [sempre positivo, suporte h]
+ *   Usado exclusivamente para o termo de viscosidade dinâmica μ.
+ *   Müller et al. 2003, "Particle-Based Fluid Simulation for Interactive Applications".
  */
 export const WGSL_SPH_KERNELS = /* wgsl */`
 
@@ -28,6 +33,13 @@ fn W_cubic(r: f32, h: f32) -> f32 {
         return sigma * 0.25 * d * d * d;
     }
     return 0.0;
+}
+
+// Laplaciano ∇²W_visc(r, h): escalar sempre ≥ 0 (Müller 2003)
+// Suporte: r < h  (diferente do Cubic Spline que tem suporte 2h)
+fn laplacian_W_visc(r: f32, h: f32) -> f32 {
+    if (r >= h) { return 0.0; }
+    return 45.0 / (3.14159265 * pow(h, 6.0)) * (h - r);
 }
 
 // Gradiente ∇W₃(r_vec, r, h): vetor 3D
