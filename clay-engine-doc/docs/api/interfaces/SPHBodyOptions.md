@@ -1,6 +1,6 @@
 # Interface: SPHBodyOptions
 
-Defined in: [elements/physics/SPHBody.ts:10](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L10)
+Defined in: [elements/physics/SPHBody.ts:10](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L10)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/SPHBody.ts:10](https://github.com/dantasgut/clayfl
 
 > `optional` **gamma?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:18](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L18)
+Defined in: [elements/physics/SPHBody.ts:18](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L18)
 
 Expoente γ da EOS WCSPH. Default: 7.
 
@@ -18,7 +18,7 @@ Expoente γ da EOS WCSPH. Default: 7.
 
 > `optional` **particleMass?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:24](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L24)
+Defined in: [elements/physics/SPHBody.ts:24](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L24)
 
 Massa por partícula (kg). Default: 0.02.
 
@@ -28,7 +28,7 @@ Massa por partícula (kg). Default: 0.02.
 
 > `optional` **restDensity?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:12](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L12)
+Defined in: [elements/physics/SPHBody.ts:12](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L12)
 
 Densidade de repouso ρ₀ (kg/m³). Default: 1000.
 
@@ -38,7 +38,7 @@ Densidade de repouso ρ₀ (kg/m³). Default: 1000.
 
 > `optional` **restitution?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:26](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L26)
+Defined in: [elements/physics/SPHBody.ts:26](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L26)
 
 Coeficiente de restituição nas colisões. Default: 0.0.
 
@@ -48,7 +48,7 @@ Coeficiente de restituição nas colisões. Default: 0.0.
 
 > `optional` **smoothingRadius?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:14](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L14)
+Defined in: [elements/physics/SPHBody.ts:14](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L14)
 
 Raio de suavização h (m). Default: 0.1.
 
@@ -58,7 +58,7 @@ Raio de suavização h (m). Default: 0.1.
 
 > `optional` **stiffness?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:16](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L16)
+Defined in: [elements/physics/SPHBody.ts:16](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L16)
 
 Rigidez da equação de estado k₀ (Pa). Default: 200.
 
@@ -68,7 +68,7 @@ Rigidez da equação de estado k₀ (Pa). Default: 200.
 
 > `optional` **viscosity?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:20](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L20)
+Defined in: [elements/physics/SPHBody.ts:20](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L20)
 
 Viscosidade dinâmica μ. Default: 0.01.
 
@@ -78,6 +78,6 @@ Viscosidade dinâmica μ. Default: 0.01.
 
 > `optional` **xsph?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:22](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L22)
+Defined in: [elements/physics/SPHBody.ts:22](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L22)
 
 Coeficiente XSPH c. Default: 0.01.

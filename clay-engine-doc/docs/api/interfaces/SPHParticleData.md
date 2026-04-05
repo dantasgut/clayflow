@@ -1,6 +1,6 @@
 # Interface: SPHParticleData
 
-Defined in: [elements/physics/SPHBody.ts:5](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L5)
+Defined in: [elements/physics/SPHBody.ts:5](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L5)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/SPHBody.ts:5](https://github.com/dantasgut/clayflo
 
 > `optional` **vx?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L7)
+Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L7)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflo
 
 > `optional` **vy?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L7)
+Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L7)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflo
 
 > `optional` **vz?**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L7)
+Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L7)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [elements/physics/SPHBody.ts:7](https://github.com/dantasgut/clayflo
 
 > **x**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L6)
+Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L6)
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflo
 
 > **y**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L6)
+Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L6)
 
 ***
 
@@ -48,4 +48,4 @@ Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflo
 
 > **z**: `number`
 
-Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SPHBody.ts#L6)
+Defined in: [elements/physics/SPHBody.ts:6](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SPHBody.ts#L6)

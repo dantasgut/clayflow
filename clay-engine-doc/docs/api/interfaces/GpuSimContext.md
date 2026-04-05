@@ -1,6 +1,6 @@
 # Interface: GpuSimContext
 
-Defined in: [scene/systems/GpuSimContext.ts:18](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/GpuSimContext.ts#L18)
+Defined in: [scene/systems/GpuSimContext.ts:18](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/GpuSimContext.ts#L18)
 
 Contexto de simulação GPU-only.
 
@@ -14,7 +14,7 @@ gerenciado pelos compute shaders.
 
 > `readonly` **bodies**: `ReadonlyMap`\<`string`, [`BodyEntry`](BodyEntry.md)\>
 
-Defined in: [scene/systems/GpuSimContext.ts:19](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/GpuSimContext.ts#L19)
+Defined in: [scene/systems/GpuSimContext.ts:19](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/GpuSimContext.ts#L19)
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [scene/systems/GpuSimContext.ts:19](https://github.com/dantasgut/cla
 
 > **colliderBufferRecreated**: `boolean`
 
-Defined in: [scene/systems/GpuSimContext.ts:25](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/GpuSimContext.ts#L25)
+Defined in: [scene/systems/GpuSimContext.ts:25](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/GpuSimContext.ts#L25)
 
 True se o buffer gpu_colliders_global foi recriado neste frame (invalida bind groups).
 
@@ -32,7 +32,7 @@ True se o buffer gpu_colliders_global foi recriado neste frame (invalida bind gr
 
 > **colliderCount**: `number`
 
-Defined in: [scene/systems/GpuSimContext.ts:23](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/GpuSimContext.ts#L23)
+Defined in: [scene/systems/GpuSimContext.ts:23](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/GpuSimContext.ts#L23)
 
 Número de colliders enviados ao buffer GPU neste frame (preenchido pelo orquestrador).
 
@@ -42,7 +42,7 @@ Número de colliders enviados ao buffer GPU neste frame (preenchido pelo orquest
 
 > `readonly` **colliders**: `ReadonlyMap`\<`number`, [`ColliderReg`](ColliderReg.md)\>
 
-Defined in: [scene/systems/GpuSimContext.ts:21](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/GpuSimContext.ts#L21)
+Defined in: [scene/systems/GpuSimContext.ts:21](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/GpuSimContext.ts#L21)
 
 ***
 
@@ -50,4 +50,4 @@ Defined in: [scene/systems/GpuSimContext.ts:21](https://github.com/dantasgut/cla
 
 > `readonly` **entityBodies**: `ReadonlyMap`\<`number`, [`BodyEntry`](BodyEntry.md)\>
 
-Defined in: [scene/systems/GpuSimContext.ts:20](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/GpuSimContext.ts#L20)
+Defined in: [scene/systems/GpuSimContext.ts:20](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/GpuSimContext.ts#L20)

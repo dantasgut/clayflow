@@ -1,6 +1,6 @@
 # Interface: SoftBodyOptions
 
-Defined in: [elements/physics/SoftBody.ts:26](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L26)
+Defined in: [elements/physics/SoftBody.ts:26](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L26)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/SoftBody.ts:26](https://github.com/dantasgut/clayf
 
 > `optional` **compliance?**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:28](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L28)
+Defined in: [elements/physics/SoftBody.ts:28](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L28)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [elements/physics/SoftBody.ts:28](https://github.com/dantasgut/clayf
 
 > `optional` **damping?**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:29](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L29)
+Defined in: [elements/physics/SoftBody.ts:29](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L29)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/physics/SoftBody.ts:29](https://github.com/dantasgut/clayf
 
 > `optional` **mass?**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:27](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L27)
+Defined in: [elements/physics/SoftBody.ts:27](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L27)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [elements/physics/SoftBody.ts:27](https://github.com/dantasgut/clayf
 
 > `optional` **offset?**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/SoftBody.ts:43](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L43)
+Defined in: [elements/physics/SoftBody.ts:43](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L43)
 
 Deslocamento inicial aplicado a todas as partículas (e ao rawVertices),
 posicionando o corpo deformável no espaço do mundo sem manipulação
@@ -44,7 +44,7 @@ manual de buffers no lado da aplicação.
 
 > `optional` **particleRadius?**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:36](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L36)
+Defined in: [elements/physics/SoftBody.ts:36](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L36)
 
 Raio virtual de colisão de cada partícula (metros).
 Não altera a geometria visual — apenas expande a distância de contato
@@ -57,7 +57,7 @@ Default: 0.05.
 
 > `optional` **pinnedIndices?**: readonly `number`[]
 
-Defined in: [elements/physics/SoftBody.ts:49](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L49)
+Defined in: [elements/physics/SoftBody.ts:49](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L49)
 
 Índices das partículas a fixar (w = 0).
 Partículas fixadas não respondem a forças nem a constraints — servem
@@ -69,4 +69,4 @@ como âncoras estáticas para pendurar panos, cordas e estruturas.
 
 > `optional` **targetGeometry?**: [`Geometry`](../classes/Geometry.md)
 
-Defined in: [elements/physics/SoftBody.ts:37](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/SoftBody.ts#L37)
+Defined in: [elements/physics/SoftBody.ts:37](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L37)

@@ -1,6 +1,6 @@
 # Interface: GpuPipelineEventBus
 
-Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:55](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/gpu/GpuPipelineEventBus.ts#L55)
+Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:55](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/GpuPipelineEventBus.ts#L55)
 
 Barramento de eventos tipado para coordenação de stages do pipeline GPU.
 Camada 2 — sem dependência de WebGPU.
@@ -14,7 +14,7 @@ Handlers são síncronos — sem microtasks adicionais no caminho crítico do fr
 
 > **emit**\<`K`\>(`type`, `payload`): `void`
 
-Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:66](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/gpu/GpuPipelineEventBus.ts#L66)
+Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:66](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/GpuPipelineEventBus.ts#L66)
 
 #### Type Parameters
 
@@ -42,7 +42,7 @@ Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:66](https://github.com/dan
 
 > **off**\<`K`\>(`type`, `handler`): `void`
 
-Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:61](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/gpu/GpuPipelineEventBus.ts#L61)
+Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:61](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/GpuPipelineEventBus.ts#L61)
 
 #### Type Parameters
 
@@ -70,7 +70,7 @@ Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:61](https://github.com/dan
 
 > **on**\<`K`\>(`type`, `handler`): () => `void`
 
-Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:56](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/gpu/GpuPipelineEventBus.ts#L56)
+Defined in: [scene/systems/gpu/GpuPipelineEventBus.ts:56](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/GpuPipelineEventBus.ts#L56)
 
 #### Type Parameters
 

@@ -1,6 +1,6 @@
 # Class: NeighborSearchGrid
 
-Defined in: [elements/physics/shared/NeighborSearchGrid.ts:49](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/shared/NeighborSearchGrid.ts#L49)
+Defined in: [elements/physics/shared/NeighborSearchGrid.ts:49](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/NeighborSearchGrid.ts#L49)
 
 ## Constructors
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/shared/NeighborSearchGrid.ts:49](https://github.co
 
 > **new NeighborSearchGrid**(`config`, `maxParticles`): `NeighborSearchGrid`
 
-Defined in: [elements/physics/shared/NeighborSearchGrid.ts:79](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/shared/NeighborSearchGrid.ts#L79)
+Defined in: [elements/physics/shared/NeighborSearchGrid.ts:79](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/NeighborSearchGrid.ts#L79)
 
 #### Parameters
 
@@ -30,7 +30,7 @@ Defined in: [elements/physics/shared/NeighborSearchGrid.ts:79](https://github.co
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/shared/NeighborSearchGrid.ts:197](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/shared/NeighborSearchGrid.ts#L197)
+Defined in: [elements/physics/shared/NeighborSearchGrid.ts:197](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/NeighborSearchGrid.ts#L197)
 
 #### Returns
 
@@ -42,7 +42,7 @@ Defined in: [elements/physics/shared/NeighborSearchGrid.ts:197](https://github.c
 
 > **encodeNeighborBuild**(`encoder`, `particleBuffer`, `particleCount`, `strideFloats`): `void`
 
-Defined in: [elements/physics/shared/NeighborSearchGrid.ts:111](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/shared/NeighborSearchGrid.ts#L111)
+Defined in: [elements/physics/shared/NeighborSearchGrid.ts:111](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/NeighborSearchGrid.ts#L111)
 
 Insere no encoder todos os compute passes necessários para construir
 a lista de vizinhos a partir de `particleBuffer`.
@@ -83,7 +83,7 @@ stride em float32 (bytes / 4) — ex.: 16 para 64 bytes/partícula
 
 > **getNeighborCountBuffer**(): `GPUBuffer`
 
-Defined in: [elements/physics/shared/NeighborSearchGrid.ts:98](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/shared/NeighborSearchGrid.ts#L98)
+Defined in: [elements/physics/shared/NeighborSearchGrid.ts:98](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/NeighborSearchGrid.ts#L98)
 
 #### Returns
 
@@ -95,7 +95,7 @@ Defined in: [elements/physics/shared/NeighborSearchGrid.ts:98](https://github.co
 
 > **getNeighborListBuffer**(): `GPUBuffer`
 
-Defined in: [elements/physics/shared/NeighborSearchGrid.ts:97](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/shared/NeighborSearchGrid.ts#L97)
+Defined in: [elements/physics/shared/NeighborSearchGrid.ts:97](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/NeighborSearchGrid.ts#L97)
 
 #### Returns
 

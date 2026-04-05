@@ -1,6 +1,6 @@
 # Class: VertexLayout
 
-Defined in: [scene/data/VertexLayout.ts:27](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/data/VertexLayout.ts#L27)
+Defined in: [scene/data/VertexLayout.ts:27](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/data/VertexLayout.ts#L27)
 
 Calculador Dinâmico de Layout Geomêtrico.
 Remove a necessidade de hardcodar `stride` e matematícas de offset nos Arrays.
@@ -11,7 +11,7 @@ Remove a necessidade de hardcodar `stride` e matematícas de offset nos Arrays.
 
 > **new VertexLayout**(`descriptors`): `VertexLayout`
 
-Defined in: [scene/data/VertexLayout.ts:31](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/data/VertexLayout.ts#L31)
+Defined in: [scene/data/VertexLayout.ts:31](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/data/VertexLayout.ts#L31)
 
 #### Parameters
 
@@ -29,7 +29,7 @@ Defined in: [scene/data/VertexLayout.ts:31](https://github.com/dantasgut/clayflo
 
 > `readonly` **attributes**: `ComputedVertexAttribute`[]
 
-Defined in: [scene/data/VertexLayout.ts:28](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/data/VertexLayout.ts#L28)
+Defined in: [scene/data/VertexLayout.ts:28](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/data/VertexLayout.ts#L28)
 
 ***
 
@@ -37,7 +37,7 @@ Defined in: [scene/data/VertexLayout.ts:28](https://github.com/dantasgut/clayflo
 
 > `readonly` **stride**: `number`
 
-Defined in: [scene/data/VertexLayout.ts:29](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/data/VertexLayout.ts#L29)
+Defined in: [scene/data/VertexLayout.ts:29](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/data/VertexLayout.ts#L29)
 
 ## Methods
 
@@ -45,7 +45,7 @@ Defined in: [scene/data/VertexLayout.ts:29](https://github.com/dantasgut/clayflo
 
 > **getGPUVertexBufferLayout**(`stepMode?`): `GPUVertexBufferLayout`
 
-Defined in: [scene/data/VertexLayout.ts:67](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/data/VertexLayout.ts#L67)
+Defined in: [scene/data/VertexLayout.ts:67](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/data/VertexLayout.ts#L67)
 
 Gera o Layout nativo para ser inserido direto na criação da Pipeline WebGPU
 

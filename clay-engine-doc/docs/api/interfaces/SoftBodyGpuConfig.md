@@ -1,6 +1,6 @@
 # Interface: SoftBodyGpuConfig
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:88](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L88)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:88](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L88)
 
 Parâmetros GPU do pipeline de corpo deformável (XPBD).
 
@@ -10,7 +10,7 @@ Parâmetros GPU do pipeline de corpo deformável (XPBD).
 
 > `optional` **iterations?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:96](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L96)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:96](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L96)
 
 Número de iterações do solver XPBD por substep. Default: 15.
 
@@ -20,7 +20,7 @@ Número de iterações do solver XPBD por substep. Default: 15.
 
 > `optional` **profilerLogInterval?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:106](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L106)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:106](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L106)
 
 Intervalo de frames entre leituras do profiler GPU. Default: 60.
 
@@ -30,7 +30,7 @@ Intervalo de frames entre leituras do profiler GPU. Default: 60.
 
 > `optional` **restitution?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:98](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L98)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:98](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L98)
 
 Coeficiente de restituição na colisão partícula-colissor [0–1]. Default: 0.05.
 
@@ -40,7 +40,7 @@ Coeficiente de restituição na colisão partícula-colissor [0–1]. Default: 0
 
 > `optional` **shapeStiffness?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:102](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L102)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:102](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L102)
 
 Rigidez do Shape Matching [0–1]. Default: 0.5.
 
@@ -50,7 +50,7 @@ Rigidez do Shape Matching [0–1]. Default: 0.5.
 
 > `optional` **substeps?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:94](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L94)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:94](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L94)
 
 Substeps por frame para o pipeline de soft body.
 Sobrescreve `PhysicsSceneConfig.substeps` para este algoritmo.
@@ -62,7 +62,7 @@ Default: 4 (position-space; mais substeps = constraints mais rígidas).
 
 > `optional` **useJacobiSolve?**: `boolean`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:104](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L104)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:104](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L104)
 
 Ativa solver Jacobi XPBD em vez de graph coloring. Default: false.
 
@@ -72,6 +72,6 @@ Ativa solver Jacobi XPBD em vez de graph coloring. Default: false.
 
 > `optional` **useShapeMatching?**: `boolean`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:100](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L100)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:100](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/PhysicsSceneConfig.ts#L100)
 
 Ativa Shape Matching. Default: false.

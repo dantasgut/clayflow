@@ -1,6 +1,6 @@
 # Enumeration: LogLevel
 
-Defined in: [core/debug/LogLevel.ts:5](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/core/debug/LogLevel.ts#L5)
+Defined in: [core/debug/LogLevel.ts:5](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/core/debug/LogLevel.ts#L5)
 
 Níveis de severidade do Logger.
 A ordem numérica define a filtragem: mensagens abaixo do nível ativo são descartadas.
@@ -11,7 +11,7 @@ A ordem numérica define a filtragem: mensagens abaixo do nível ativo são desc
 
 > **DEBUG**: `0`
 
-Defined in: [core/debug/LogLevel.ts:6](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/core/debug/LogLevel.ts#L6)
+Defined in: [core/debug/LogLevel.ts:6](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/core/debug/LogLevel.ts#L6)
 
 ***
 
@@ -19,7 +19,7 @@ Defined in: [core/debug/LogLevel.ts:6](https://github.com/dantasgut/clayflow/blo
 
 > **ERROR**: `3`
 
-Defined in: [core/debug/LogLevel.ts:9](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/core/debug/LogLevel.ts#L9)
+Defined in: [core/debug/LogLevel.ts:9](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/core/debug/LogLevel.ts#L9)
 
 ***
 
@@ -27,7 +27,7 @@ Defined in: [core/debug/LogLevel.ts:9](https://github.com/dantasgut/clayflow/blo
 
 > **INFO**: `1`
 
-Defined in: [core/debug/LogLevel.ts:7](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/core/debug/LogLevel.ts#L7)
+Defined in: [core/debug/LogLevel.ts:7](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/core/debug/LogLevel.ts#L7)
 
 ***
 
@@ -35,7 +35,7 @@ Defined in: [core/debug/LogLevel.ts:7](https://github.com/dantasgut/clayflow/blo
 
 > **SILENT**: `4`
 
-Defined in: [core/debug/LogLevel.ts:10](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/core/debug/LogLevel.ts#L10)
+Defined in: [core/debug/LogLevel.ts:10](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/core/debug/LogLevel.ts#L10)
 
 ***
 
@@ -43,4 +43,4 @@ Defined in: [core/debug/LogLevel.ts:10](https://github.com/dantasgut/clayflow/bl
 
 > **WARN**: `2`
 
-Defined in: [core/debug/LogLevel.ts:8](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/core/debug/LogLevel.ts#L8)
+Defined in: [core/debug/LogLevel.ts:8](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/core/debug/LogLevel.ts#L8)

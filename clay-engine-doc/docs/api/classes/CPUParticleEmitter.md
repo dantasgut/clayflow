@@ -1,6 +1,6 @@
 # Class: CPUParticleEmitter
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L29)
+Defined in: [elements/particles/CPUParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L29)
 
 Emissor de partículas simulado na CPU. (Camada 3)
 
@@ -28,7 +28,7 @@ entity.add(emitter);
 
 > **new CPUParticleEmitter**(`options?`): `CPUParticleEmitter`
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:47](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L47)
+Defined in: [elements/particles/CPUParticleEmitter.ts:47](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L47)
 
 #### Parameters
 
@@ -50,7 +50,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:47](https://github.com/dan
 
 > **aliveCount**: `number` = `0`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:44](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L44)
+Defined in: [scene/components/particles/ParticleEmitter.ts:44](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L44)
 
 Partículas vivas neste frame — atualizado por `step()`.
 
@@ -64,7 +64,7 @@ Partículas vivas neste frame — atualizado por `step()`.
 
 > **bindGroupIds**: `string`[] = `[]`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:50](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L50)
+Defined in: [scene/components/particles/ParticleEmitter.ts:50](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L50)
 
 Bind groups fornecidos ao render pass (inclui o buffer de partículas).
 
@@ -78,7 +78,7 @@ Bind groups fornecidos ao render pass (inclui o buffer de partículas).
 
 > **bindGroupSchema**: `GPUBindGroupLayoutEntry`[] = `[]`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:53](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L53)
+Defined in: [scene/components/particles/ParticleEmitter.ts:53](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L53)
 
 Schema do bind group de renderização (para registro no BindGroupManager).
 
@@ -92,7 +92,7 @@ Schema do bind group de renderização (para registro no BindGroupManager).
 
 > **emissionRate**: `number`
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L31)
+Defined in: [elements/particles/CPUParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L31)
 
 ***
 
@@ -100,7 +100,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:31](https://github.com/dan
 
 > **gravity**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:34](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L34)
+Defined in: [elements/particles/CPUParticleEmitter.ts:34](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L34)
 
 ***
 
@@ -108,7 +108,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:34](https://github.com/dan
 
 > **initialSpeed**: `number`
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:33](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L33)
+Defined in: [elements/particles/CPUParticleEmitter.ts:33](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L33)
 
 ***
 
@@ -116,7 +116,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:33](https://github.com/dan
 
 > `readonly` **layer**: [`VISUAL_COMPONENT`](../enumerations/ResourceType.md#visual_component) = `ResourceType.VISUAL_COMPONENT`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:26](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L26)
+Defined in: [scene/components/particles/ParticleEmitter.ts:26](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L26)
 
 #### Inherited from
 
@@ -128,7 +128,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:26](https://github.co
 
 > **maxLife**: `number`
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:32](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L32)
+Defined in: [elements/particles/CPUParticleEmitter.ts:32](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L32)
 
 ***
 
@@ -136,7 +136,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:32](https://github.com/dan
 
 > `readonly` **maxParticles**: `number`
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:30](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L30)
+Defined in: [elements/particles/CPUParticleEmitter.ts:30](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L30)
 
 Número máximo de partículas simultâneas alocadas no buffer GPU.
 
@@ -150,7 +150,7 @@ Número máximo de partículas simultâneas alocadas no buffer GPU.
 
 > **shaderId**: `string` = `'particle'`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:47](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L47)
+Defined in: [scene/components/particles/ParticleEmitter.ts:47](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L47)
 
 ID do shader pipeline para renderização das partículas.
 
@@ -164,7 +164,7 @@ ID do shader pipeline para renderização das partículas.
 
 > **shape**: [`EmitterShape`](../interfaces/EmitterShape.md)
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:35](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L35)
+Defined in: [elements/particles/CPUParticleEmitter.ts:35](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L35)
 
 ***
 
@@ -172,7 +172,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:35](https://github.com/dan
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:28](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L28)
+Defined in: [scene/components/particles/ParticleEmitter.ts:28](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L28)
 
 #### Inherited from
 
@@ -184,7 +184,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:28](https://github.co
 
 > `readonly` **type**: `"ParticleEmitter"` = `'ParticleEmitter'`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:27](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L27)
+Defined in: [scene/components/particles/ParticleEmitter.ts:27](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L27)
 
 #### Inherited from
 
@@ -196,7 +196,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:27](https://github.co
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:24](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L24)
+Defined in: [scene/components/particles/ParticleEmitter.ts:24](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L24)
 
 #### Inherited from
 
@@ -210,7 +210,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:24](https://github.co
 
 > **get** **currentResourceState**(): `ResourceStateHandler`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L31)
+Defined in: [scene/components/particles/ParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L31)
 
 Handler do estado atual — encapsula capacidades do ciclo de vida GPU.
 
@@ -230,7 +230,7 @@ Handler do estado atual — consulta de capacidades pelos consumidores.
 
 > **allocateResource**(`rm`): `Promise`\<`void`\>
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:56](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L56)
+Defined in: [scene/components/particles/ParticleEmitter.ts:56](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L56)
 
 #### Parameters
 
@@ -252,7 +252,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:56](https://github.co
 
 > **disposeResource**(`rm`): `void`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:67](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L67)
+Defined in: [scene/components/particles/ParticleEmitter.ts:67](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L67)
 
 #### Parameters
 
@@ -274,7 +274,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:67](https://github.co
 
 > `protected` **doAllocate**(`rm`): `Promise`\<`void`\>
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:63](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L63)
+Defined in: [elements/particles/CPUParticleEmitter.ts:63](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L63)
 
 #### Parameters
 
@@ -296,7 +296,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:63](https://github.com/dan
 
 > `protected` **doDispose**(`rm`): `void`
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:90](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L90)
+Defined in: [elements/particles/CPUParticleEmitter.ts:90](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L90)
 
 #### Parameters
 
@@ -318,7 +318,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:90](https://github.com/dan
 
 > `protected` **doUpdate**(`rm`): `Promise`\<`void`\>
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:86](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L86)
+Defined in: [elements/particles/CPUParticleEmitter.ts:86](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L86)
 
 #### Parameters
 
@@ -340,7 +340,7 @@ Defined in: [elements/particles/CPUParticleEmitter.ts:86](https://github.com/dan
 
 > **get**\<`T`\>(`key`): `T` \| `undefined`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:38](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L38)
+Defined in: [scene/components/particles/ParticleEmitter.ts:38](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L38)
 
 #### Type Parameters
 
@@ -368,7 +368,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:38](https://github.co
 
 > **markDirty**(): `void`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:73](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L73)
+Defined in: [scene/components/particles/ParticleEmitter.ts:73](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L73)
 
 #### Returns
 
@@ -384,7 +384,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:73](https://github.co
 
 > **set**\<`T`\>(`key`, `value`): `this`
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:37](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L37)
+Defined in: [scene/components/particles/ParticleEmitter.ts:37](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L37)
 
 #### Type Parameters
 
@@ -416,7 +416,7 @@ Defined in: [scene/components/particles/ParticleEmitter.ts:37](https://github.co
 
 > **step**(`_encoder`, `dt`): `void`
 
-Defined in: [elements/particles/CPUParticleEmitter.ts:96](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/particles/CPUParticleEmitter.ts#L96)
+Defined in: [elements/particles/CPUParticleEmitter.ts:96](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/particles/CPUParticleEmitter.ts#L96)
 
 Avança a simulação: spawn + integração. Chamado por ParticleSystem.step().
 
@@ -444,7 +444,7 @@ Avança a simulação: spawn + integração. Chamado por ParticleSystem.step().
 
 > **updateResource**(`rm`): `Promise`\<`void`\>
 
-Defined in: [scene/components/particles/ParticleEmitter.ts:62](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/particles/ParticleEmitter.ts#L62)
+Defined in: [scene/components/particles/ParticleEmitter.ts:62](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/particles/ParticleEmitter.ts#L62)
 
 #### Parameters
 

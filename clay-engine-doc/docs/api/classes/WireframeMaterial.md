@@ -1,6 +1,6 @@
 # Class: WireframeMaterial
 
-Defined in: [elements/materials/WireframeMaterial.ts:24](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/materials/WireframeMaterial.ts#L24)
+Defined in: [elements/materials/WireframeMaterial.ts:24](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/materials/WireframeMaterial.ts#L24)
 
 Material de wireframe espesso renderizado via vertex pulling. (Camada 3)
 
@@ -30,7 +30,7 @@ const box = new Mesh(
 
 > **new WireframeMaterial**(`opts?`): `WireframeMaterial`
 
-Defined in: [elements/materials/WireframeMaterial.ts:27](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/materials/WireframeMaterial.ts#L27)
+Defined in: [elements/materials/WireframeMaterial.ts:27](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/materials/WireframeMaterial.ts#L27)
 
 #### Parameters
 
@@ -52,7 +52,7 @@ Defined in: [elements/materials/WireframeMaterial.ts:27](https://github.com/dant
 
 > **bindGroupIds**: `string`[] = `[]`
 
-Defined in: [scene/components/Material.ts:29](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L29)
+Defined in: [scene/components/Material.ts:29](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L29)
 
 #### Inherited from
 
@@ -64,7 +64,7 @@ Defined in: [scene/components/Material.ts:29](https://github.com/dantasgut/clayf
 
 > **bindGroupSchema**: `GPUBindGroupLayoutEntry`[] = `[]`
 
-Defined in: [scene/components/Material.ts:30](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L30)
+Defined in: [scene/components/Material.ts:30](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L30)
 
 #### Inherited from
 
@@ -76,7 +76,7 @@ Defined in: [scene/components/Material.ts:30](https://github.com/dantasgut/clayf
 
 > **doubleSided**: `boolean` = `false`
 
-Defined in: [scene/components/Material.ts:31](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L31)
+Defined in: [scene/components/Material.ts:31](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L31)
 
 #### Inherited from
 
@@ -88,7 +88,7 @@ Defined in: [scene/components/Material.ts:31](https://github.com/dantasgut/clayf
 
 > `readonly` **layer**: [`VISUAL_COMPONENT`](../enumerations/ResourceType.md#visual_component) = `ResourceType.VISUAL_COMPONENT`
 
-Defined in: [scene/components/Material.ts:16](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L16)
+Defined in: [scene/components/Material.ts:16](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L16)
 
 #### Inherited from
 
@@ -100,7 +100,7 @@ Defined in: [scene/components/Material.ts:16](https://github.com/dantasgut/clayf
 
 > **lineWidth**: `number`
 
-Defined in: [elements/materials/WireframeMaterial.ts:25](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/materials/WireframeMaterial.ts#L25)
+Defined in: [elements/materials/WireframeMaterial.ts:25](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/materials/WireframeMaterial.ts#L25)
 
 ***
 
@@ -108,7 +108,7 @@ Defined in: [elements/materials/WireframeMaterial.ts:25](https://github.com/dant
 
 > **rawUniforms**: `Map`\<`string`, `Float32Array`\>
 
-Defined in: [scene/components/Material.ts:33](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L33)
+Defined in: [scene/components/Material.ts:33](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L33)
 
 #### Inherited from
 
@@ -120,7 +120,7 @@ Defined in: [scene/components/Material.ts:33](https://github.com/dantasgut/clayf
 
 > **shaderId**: `string` = `''`
 
-Defined in: [scene/components/Material.ts:25](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L25)
+Defined in: [scene/components/Material.ts:25](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L25)
 
 #### Inherited from
 
@@ -132,7 +132,7 @@ Defined in: [scene/components/Material.ts:25](https://github.com/dantasgut/clayf
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/Material.ts:19](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L19)
+Defined in: [scene/components/Material.ts:19](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L19)
 
 #### Inherited from
 
@@ -144,7 +144,7 @@ Defined in: [scene/components/Material.ts:19](https://github.com/dantasgut/clayf
 
 > **topology**: `GPUPrimitiveTopology` = `'triangle-list'`
 
-Defined in: [scene/components/Material.ts:32](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L32)
+Defined in: [scene/components/Material.ts:32](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L32)
 
 #### Inherited from
 
@@ -156,7 +156,7 @@ Defined in: [scene/components/Material.ts:32](https://github.com/dantasgut/clayf
 
 > **transparent**: `boolean` = `false`
 
-Defined in: [scene/components/Material.ts:26](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L26)
+Defined in: [scene/components/Material.ts:26](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L26)
 
 #### Inherited from
 
@@ -168,7 +168,7 @@ Defined in: [scene/components/Material.ts:26](https://github.com/dantasgut/clayf
 
 > `readonly` **type**: `string` = `'Material'`
 
-Defined in: [scene/components/Material.ts:17](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L17)
+Defined in: [scene/components/Material.ts:17](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L17)
 
 #### Inherited from
 
@@ -180,7 +180,7 @@ Defined in: [scene/components/Material.ts:17](https://github.com/dantasgut/clayf
 
 > **useVertexPulling**: `boolean` = `false`
 
-Defined in: [scene/components/Material.ts:28](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L28)
+Defined in: [scene/components/Material.ts:28](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L28)
 
 Quando true, o renderer usa vertex pulling (lê VBO/IBO como storage buffers).
 
@@ -194,7 +194,7 @@ Quando true, o renderer usa vertex pulling (lê VBO/IBO como storage buffers).
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/Material.ts:14](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L14)
+Defined in: [scene/components/Material.ts:14](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L14)
 
 #### Inherited from
 
@@ -208,7 +208,7 @@ Defined in: [scene/components/Material.ts:14](https://github.com/dantasgut/clayf
 
 > **get** **currentResourceState**(): `ResourceStateHandler`
 
-Defined in: [scene/components/Material.ts:22](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L22)
+Defined in: [scene/components/Material.ts:22](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L22)
 
 Handler do estado atual — encapsula capacidades do ciclo de vida GPU.
 
@@ -228,7 +228,7 @@ Handler do estado atual — consulta de capacidades pelos consumidores.
 
 > **allocateResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/Material.ts:40](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L40)
+Defined in: [scene/components/Material.ts:40](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L40)
 
 #### Parameters
 
@@ -250,7 +250,7 @@ Defined in: [scene/components/Material.ts:40](https://github.com/dantasgut/clayf
 
 > **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/Material.ts:72](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L72)
+Defined in: [scene/components/Material.ts:72](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L72)
 
 #### Parameters
 
@@ -272,7 +272,7 @@ Defined in: [scene/components/Material.ts:72](https://github.com/dantasgut/clayf
 
 > **markDirty**(): `void`
 
-Defined in: [scene/components/Material.ts:35](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L35)
+Defined in: [scene/components/Material.ts:35](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L35)
 
 #### Returns
 
@@ -288,7 +288,7 @@ Defined in: [scene/components/Material.ts:35](https://github.com/dantasgut/clayf
 
 > **updateResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/Material.ts:64](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/components/Material.ts#L64)
+Defined in: [scene/components/Material.ts:64](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/Material.ts#L64)
 
 #### Parameters
 
