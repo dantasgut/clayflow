@@ -2,7 +2,7 @@
 
 > **LogCall**(`level`, `template`): (`_target`, `propertyKey`, `descriptor`) => `PropertyDescriptor`
 
-Defined in: [core/debug/LogCall.ts:42](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/core/debug/LogCall.ts#L42)
+Defined in: [core/debug/LogCall.ts:42](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/core/debug/LogCall.ts#L42)
 
 Decorator de método (experimentalDecorators).
 Intercepta a chamada, loga o resultado (ou erro) e o tempo de execução.

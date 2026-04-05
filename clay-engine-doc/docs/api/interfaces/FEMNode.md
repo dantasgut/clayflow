@@ -1,6 +1,6 @@
 # Interface: FEMNode
 
-Defined in: [elements/physics/FEMBody.ts:5](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L5)
+Defined in: [elements/physics/FEMBody.ts:5](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L5)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/FEMBody.ts:5](https://github.com/dantasgut/clayflo
 
 > **vx**: `number`
 
-Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L7)
+Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L7)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflo
 
 > **vy**: `number`
 
-Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L7)
+Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L7)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflo
 
 > **vz**: `number`
 
-Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L7)
+Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L7)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [elements/physics/FEMBody.ts:7](https://github.com/dantasgut/clayflo
 
 > **w**: `number`
 
-Defined in: [elements/physics/FEMBody.ts:9](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L9)
+Defined in: [elements/physics/FEMBody.ts:9](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L9)
 
 0 = fixado (cinemático), 1 = livre.
 
@@ -42,7 +42,7 @@ Defined in: [elements/physics/FEMBody.ts:9](https://github.com/dantasgut/clayflo
 
 > **x**: `number`
 
-Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L6)
+Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L6)
 
 ***
 
@@ -50,7 +50,7 @@ Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflo
 
 > **y**: `number`
 
-Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L6)
+Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L6)
 
 ***
 
@@ -58,4 +58,4 @@ Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflo
 
 > **z**: `number`
 
-Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/FEMBody.ts#L6)
+Defined in: [elements/physics/FEMBody.ts:6](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/FEMBody.ts#L6)

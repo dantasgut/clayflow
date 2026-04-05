@@ -57,11 +57,12 @@ classDiagram
             +type: string
             +entity: Entity
         }
-        class SceneLoader~T~ {
-            <<Abstract Base>>
-            +load(scene: Scene, manager: T)
-            #getResources(entity: Entity) Iterable
-            #process(resource: unknown, manager: T)
+        class RenderExtractor {
+            <<Funnel Extrator DoD>>
+            -extractorStrategies: Map
+            +opaqueGroups: Map
+            +transparentList: Array
+            +extract(scene, cameraPos: vec3)
         }
     }
 
@@ -129,10 +130,20 @@ classDiagram
             +step(scene, dt)
             +encodeSyncPasses()
         }
+        class GpuPipelineEventBus {
+            <<Sync/PubSub Layer 2>>
+            +emit(event, payload)
+        }
     }
 
-    %% CAMADA DE SINCRONIZAÇÃO CONCRETA
+    %% CAMADA DE SINCRONIZAÇÃO CONCRETA E REGISTROS
     namespace Implementacoes_Concretas {
+        class SceneLoader~T~ {
+            <<Abstract Base>>
+            +load(scene: Scene, manager: T)
+            #getResources(entity: Entity) Iterable
+            #process(resource: unknown, manager: T)
+        }
         class ResourceLoader {
             -_promises: Promise[]
             -_counters: object
@@ -150,25 +161,47 @@ classDiagram
             -_allocateSoftBodyBuffers()
             -_emitCoalescedEvents()
         }
-        class RenderExtractor {
-            -extractorStrategies: Map
-            +opaqueGroups: Map
-            +transparentList: Array
-            +extract(scene, cameraPos: vec3)
+        class GpuBufferRegistry {
+            <<Physics Mega-Buffers>>
+            +register(desc: object)
+            +unregisterByOwner(uuid: string)
+            +getBuffer(uuid: string)
         }
     }
 
-    %% CAMADA 1: HARDWARE E EVENTOS
+    %% CAMADA 1: HARDWARE (VRAM e Registros)
     namespace Hardware_API {
-        class ResourceManager
-        class GpuBufferRegistry {
-            +register(desc)
-            +unregisterByOwner(uuid)
+        class ResourceManager {
+            <<Facade>>
+            +buffers: BufferManager
+            +textures: TextureManager
+            +bindings: BindGroupManager
+            +pipelines: PipelineManager
+            +compute: ComputeManager
         }
-        class GpuPipelineEventBus {
-            +emit(event, payload)
+        class BufferManager {
+            +createStorageBuffer(id: string, size: number)
+            +writeBuffer(id: string, data: Float32Array)
+            +getBuffer(id: string)
+        }
+        class TextureManager {
+            +createTexture(id: string, desc: object)
+            +destroyTexture(id: string)
+        }
+        class ComputeManager {
+            +dispatch(pipelineId: string, x: number, y: number, z: number)
+        }
+        class BindGroupManager {
+            +createBindGroup(id: string, layout: object)
+            +getBindGroup(id: string)
         }
     }
+
+    %% COMPOSIÇÃO DE HARDWARE (Facade Interior)
+    ResourceManager *-- BufferManager : Compõe
+    ResourceManager *-- TextureManager : Compõe
+    ResourceManager *-- BindGroupManager : Compõe
+    ResourceManager *-- ComputeManager : Compõe
 
     %% HERANÇAS DE DADOS E ANTI-PATTERNS ESTRUTURAIS
     Resource <|-- Component : Herda

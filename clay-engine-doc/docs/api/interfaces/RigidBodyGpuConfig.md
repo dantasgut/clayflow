@@ -1,6 +1,6 @@
 # Interface: RigidBodyGpuConfig
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:62](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L62)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:62](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L62)
 
 Parâmetros GPU do pipeline de corpo rígido (LCP/PGS).
 
@@ -10,7 +10,7 @@ Parâmetros GPU do pipeline de corpo rígido (LCP/PGS).
 
 > `optional` **baumgarteBeta?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:78](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L78)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:78](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L78)
 
 Fator de Baumgarte [0.1–0.4] para correção de penetração. Default: 0.3.
 
@@ -20,7 +20,7 @@ Fator de Baumgarte [0.1–0.4] para correção de penetração. Default: 0.3.
 
 > `optional` **iterations?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:70](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L70)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:70](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L70)
 
 Número de iterações PGS por substep. Default: 25.
 
@@ -30,7 +30,7 @@ Número de iterações PGS por substep. Default: 25.
 
 > `optional` **predictiveThreshold?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:72](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L72)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:72](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L72)
 
 Margem especulativa (m) para contatos iminentes. 0 = desativado. Default: 0.05.
 
@@ -40,7 +40,7 @@ Margem especulativa (m) para contatos iminentes. 0 = desativado. Default: 0.05.
 
 > `optional` **profilerLogInterval?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:82](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L82)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:82](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L82)
 
 Intervalo de frames entre leituras do profiler GPU. Default: 60.
 
@@ -50,7 +50,7 @@ Intervalo de frames entre leituras do profiler GPU. Default: 60.
 
 > `optional` **restitutionThreshold?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:74](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L74)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:74](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L74)
 
 Velocidade (m/s) abaixo da qual o coeficiente de restituição é zerado. Default: 2.0.
 
@@ -60,7 +60,7 @@ Velocidade (m/s) abaixo da qual o coeficiente de restituição é zerado. Defaul
 
 > `optional` **sleepLinThreshold?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:76](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L76)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:76](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L76)
 
 Velocidade (m/s) para pseudo-sleep. 0 = desativado. Default: 0.01.
 
@@ -70,7 +70,7 @@ Velocidade (m/s) para pseudo-sleep. 0 = desativado. Default: 0.01.
 
 > `optional` **substeps?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:68](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L68)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:68](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L68)
 
 Substeps por frame para o pipeline de corpo rígido.
 Sobrescreve `PhysicsSceneConfig.substeps` para este algoritmo.
@@ -82,7 +82,7 @@ Default: 2 (velocity-space; 2 detecções por frame a 60fps).
 
 > `optional` **useLcp?**: `boolean`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:84](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L84)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:84](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L84)
 
 Ativa solver LCP/PGS em vez de XPBD. Default: false.
 
@@ -92,6 +92,6 @@ Ativa solver LCP/PGS em vez de XPBD. Default: false.
 
 > `optional` **warmStartFactor?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:80](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/systems/PhysicsSceneConfig.ts#L80)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:80](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/systems/PhysicsSceneConfig.ts#L80)
 
 Fator de warm start [0.8–1.0] para o solver LCP. Default: 0.85.

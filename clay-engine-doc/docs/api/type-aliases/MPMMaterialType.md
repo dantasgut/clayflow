@@ -2,4 +2,4 @@
 
 > **MPMMaterialType** = `"elastic"` \| `"snow"` \| `"fluid"` \| `"sand"`
 
-Defined in: [elements/physics/MPMBody.ts:5](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/elements/physics/MPMBody.ts#L5)
+Defined in: [elements/physics/MPMBody.ts:5](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/elements/physics/MPMBody.ts#L5)

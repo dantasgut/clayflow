@@ -1,6 +1,6 @@
 # Class: GpuPhysicsOrchestrator
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:61](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L61)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:61](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L61)
 
 Contrato abstrato de um mundo de simulação física.
 
@@ -30,7 +30,7 @@ world.step(scene, dt);
 
 > **new GpuPhysicsOrchestrator**(`config`, `registry`, `eventBus?`, `resLoader?`, `globalForces?`): `GpuPhysicsOrchestrator`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:98](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L98)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:98](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L98)
 
 #### Parameters
 
@@ -68,7 +68,7 @@ Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:98](https://github.com/da
 
 > `readonly` **eventBus**: [`GpuPipelineEventBus`](../interfaces/GpuPipelineEventBus.md)
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:65](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L65)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:65](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L65)
 
 Barramento de eventos — exposto para integração com o renderer.
 
@@ -78,7 +78,7 @@ Barramento de eventos — exposto para integração com o renderer.
 
 > **addForce**(`force`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:169](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L169)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:169](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L169)
 
 Registra uma força global aplicada a todos os corpos a cada step.
 
@@ -102,7 +102,7 @@ Registra uma força global aplicada a todos os corpos a cada step.
 
 > **connectScene**(`scene`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:134](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L134)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:134](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L134)
 
 Conecta o mundo a uma cena: observa child_added e child_removed
 para registrar/remover corpos e colliders automaticamente.
@@ -128,7 +128,7 @@ Também registra todos os physics components já presentes na cena.
 
 > **disconnectScene**(`scene`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:146](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L146)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:146](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L146)
 
 Remove a observação da cena e limpa todos os registros.
 
@@ -152,7 +152,7 @@ Remove a observação da cena e limpa todos os registros.
 
 > **encodeSyncPasses**(`commandEncoder`, `entityIdToSlot`, `objectUboBuffer`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:211](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L211)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:211](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L211)
 
 Opcional — despachado pelo renderer APÓS uploadObjectMatrices e ANTES do render pass.
 Permite que passes GPU escrevam diretamente no UBO de modelo, sem CPU readback.
@@ -186,7 +186,7 @@ Implementado por `GpuPhysicsOrchestrator`; no-op em `PhysicsWorld`.
 
 > **getContext**(): `Readonly`\<[`GpuSimContext`](../interfaces/GpuSimContext.md)\>
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:227](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L227)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:227](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L227)
 
 #### Returns
 
@@ -198,7 +198,7 @@ Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:227](https://github.com/d
 
 > **getGlobalForces**(): `ReadonlyMap`\<`string`, [`Force`](../interfaces/Force.md)\>
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:231](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L231)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:231](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L231)
 
 #### Returns
 
@@ -210,7 +210,7 @@ Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:231](https://github.com/d
 
 > **initializeResources**(`resourceManager`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:126](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L126)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:126](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L126)
 
 Injeta o ResourceManager no loader, habilitando a alocação do buffer
 global de RigidBody a partir do próximo `step()`.
@@ -235,7 +235,7 @@ global de RigidBody a partir do próximo `step()`.
 
 > **removeForce**(`id`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:173](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L173)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:173](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L173)
 
 #### Parameters
 
@@ -257,7 +257,7 @@ Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:173](https://github.com/d
 
 > **removeSolver**(`_physicType`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:167](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L167)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:167](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L167)
 
 #### Parameters
 
@@ -279,7 +279,7 @@ Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:167](https://github.com/d
 
 > **setSolver**(`_physicType`, `_solver`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:163](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L163)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:163](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L163)
 
 GPU-only: solvers por tipo de corpo não se aplicam. No-op com aviso.
 
@@ -307,7 +307,7 @@ GPU-only: solvers por tipo de corpo não se aplicam. No-op com aviso.
 
 > **step**(`scene`, `dt`): `void`
 
-Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:181](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/rendering/GpuPhysicsOrchestrator.ts#L181)
+Defined in: [scene/rendering/GpuPhysicsOrchestrator.ts:181](https://github.com/dantasgut/clayflow/blob/da5bfcad6a3bd21b2f5e94930406f86702541470/src/scene/rendering/GpuPhysicsOrchestrator.ts#L181)
 
 Avança a simulação por `dt` segundos.
 A implementação decide o pipeline interno (broadphase, narrowphase, integração).
