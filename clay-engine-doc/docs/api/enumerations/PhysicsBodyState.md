@@ -1,6 +1,6 @@
 # Enumeration: PhysicsBodyState
 
-Defined in: [scene/core/physics/PhysicsBodyState.ts:1](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/core/physics/PhysicsBodyState.ts#L1)
+Defined in: [scene/core/physics/PhysicsBodyState.ts:1](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/core/physics/PhysicsBodyState.ts#L1)
 
 ## Enumeration Members
 
@@ -8,7 +8,7 @@ Defined in: [scene/core/physics/PhysicsBodyState.ts:1](https://github.com/dantas
 
 > **Active**: `1`
 
-Defined in: [scene/core/physics/PhysicsBodyState.ts:3](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/core/physics/PhysicsBodyState.ts#L3)
+Defined in: [scene/core/physics/PhysicsBodyState.ts:3](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/core/physics/PhysicsBodyState.ts#L3)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [scene/core/physics/PhysicsBodyState.ts:3](https://github.com/dantas
 
 > **Inactive**: `0`
 
-Defined in: [scene/core/physics/PhysicsBodyState.ts:2](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/core/physics/PhysicsBodyState.ts#L2)
+Defined in: [scene/core/physics/PhysicsBodyState.ts:2](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/core/physics/PhysicsBodyState.ts#L2)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [scene/core/physics/PhysicsBodyState.ts:2](https://github.com/dantas
 
 > **Kinematic**: `3`
 
-Defined in: [scene/core/physics/PhysicsBodyState.ts:5](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/core/physics/PhysicsBodyState.ts#L5)
+Defined in: [scene/core/physics/PhysicsBodyState.ts:5](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/core/physics/PhysicsBodyState.ts#L5)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [scene/core/physics/PhysicsBodyState.ts:5](https://github.com/dantas
 
 > **Removed**: `4`
 
-Defined in: [scene/core/physics/PhysicsBodyState.ts:6](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/core/physics/PhysicsBodyState.ts#L6)
+Defined in: [scene/core/physics/PhysicsBodyState.ts:6](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/core/physics/PhysicsBodyState.ts#L6)
 
 ***
 
@@ -40,4 +40,4 @@ Defined in: [scene/core/physics/PhysicsBodyState.ts:6](https://github.com/dantas
 
 > **Sleeping**: `2`
 
-Defined in: [scene/core/physics/PhysicsBodyState.ts:4](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/core/physics/PhysicsBodyState.ts#L4)
+Defined in: [scene/core/physics/PhysicsBodyState.ts:4](https://github.com/dantasgut/clayflow/blob/206f9504f31474f1f55957b1d36c583844789973/src/scene/core/physics/PhysicsBodyState.ts#L4)
