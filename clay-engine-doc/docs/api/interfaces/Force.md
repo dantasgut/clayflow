@@ -1,6 +1,6 @@
 # Interface: Force
 
-Defined in: [scene/systems/forces/Force.ts:20](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/forces/Force.ts#L20)
+Defined in: [scene/systems/forces/Force.ts:20](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/forces/Force.ts#L20)
 
 Interface para forças físicas (Strategy — GoF).
 Qualquer força — gravitacional, eletromagnética, mola, vento, campo personalizado —
@@ -26,7 +26,7 @@ world.addForce(new FunctionalForce('radial', (body) => {
 
 > `readonly` **id**: `string`
 
-Defined in: [scene/systems/forces/Force.ts:21](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/forces/Force.ts#L21)
+Defined in: [scene/systems/forces/Force.ts:21](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/forces/Force.ts#L21)
 
 ## Methods
 
@@ -34,7 +34,7 @@ Defined in: [scene/systems/forces/Force.ts:21](https://github.com/dantasgut/clay
 
 > **compute**(`body`, `dt`): `vec3`
 
-Defined in: [scene/systems/forces/Force.ts:22](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/forces/Force.ts#L22)
+Defined in: [scene/systems/forces/Force.ts:22](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/forces/Force.ts#L22)
 
 #### Parameters
 

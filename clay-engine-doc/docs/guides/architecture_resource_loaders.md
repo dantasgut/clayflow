@@ -212,6 +212,43 @@ classDiagram
         %% -----------------------------------
         %% PAINEL DE CONTROLE (CORE)
         %% -----------------------------------
+        class WebGPUContext {
+            <<Singleton>>
+            -adapterRef: GPUAdapter
+            -deviceRef: GPUDevice
+            -contextRef: GPUCanvasContext
+            -formatRef: GPUTextureFormat
+            +adapter: GPUAdapter
+            +device: GPUDevice
+            +context: GPUCanvasContext
+            +format: GPUTextureFormat
+            +queue: GPUQueue
+            +$getInstance() WebGPUContext
+            +$reset()
+            +initialize(canvas) Promise~void~
+        }
+        class ProfilerSystem {
+            <<Implementation>>
+            -context: WebGPUContext
+            -querySet: GPUQuerySet
+            -resolveBuffer: GPUBuffer
+            -resultBuffer: GPUBuffer
+            +isSupported: boolean
+            +canResolve: boolean
+            +timestampWritesForPass(beginIndex, endIndex)
+            +writeTimestamp(passEncoder, queryIndex)
+            +resolveQueriesRange(encoder, first, count)
+            +readResultsRange(first, count)
+        }
+        class Profiler {
+            <<Interface>>
+            +isSupported: boolean
+            +canResolve: boolean
+            +timestampWritesForPass(beginIndex, endIndex)
+            +writeTimestamp(passEncoder, queryIndex)
+            +resolveQueriesRange(encoder, first, count)
+            +readResultsRange(first, count)
+        }
         class WebGPUEngineCore {
             <<Singleton Super Facade>>
             +context: WebGPUContext
@@ -257,6 +294,27 @@ classDiagram
             +textures: TextureManager
             +bindings: BindGroupManager
             +destroyAll()
+        }
+
+        %% -----------------------------------
+        %% COMPILADOR E CACHE DE SHADERS
+        %% -----------------------------------
+        class WebGPUPipelineManager {
+            <<Implementation>>
+            -context: WebGPUContext
+            -shaderModules: Map
+            -renderPipelines: Map
+            -pipelineLayouts: Map
+            -getShaderModule(id, code)
+            +createRenderPipeline(id, wgslCode, pipelineDescriptor)
+            +getRenderPipeline(id)
+            +createPipelineLayout(id, layouts)
+        }
+        class PipelineManager {
+            <<Interface>>
+            +createRenderPipeline(id, wgslCode, pipelineDescriptor)
+            +getRenderPipeline(id)
+            +createPipelineLayout(id, layouts)
         }
 
         %% -----------------------------------
@@ -342,6 +400,24 @@ classDiagram
         }
 
         %% -----------------------------------
+        %% ENCODERS E PASSES GRÁFICOS
+        %% -----------------------------------
+        class WebGPURenderPassManager {
+            <<Implementation>>
+            -context: WebGPUContext
+            +constructor()
+            +createCommandEncoder(label)
+            +beginRenderPass(encoder, colorView, depthView, clearColor, label)
+            +submit(encoders)
+        }
+        class RenderPassManager {
+            <<Interface>>
+            +createCommandEncoder(label)
+            +beginRenderPass(encoder, colorView, depthView, clearColor, label)
+            +submit(encoders)
+        }
+
+        %% -----------------------------------
         %% COMPUTAÇÃO, GRAVAÇÃO E CÓPIAS
         %% -----------------------------------
         class WebGPUComputeManager {
@@ -372,17 +448,32 @@ classDiagram
             +finishRecording(id, encoder)
             +getBundle(id)
         }
-        class CopyManager {
+        class CopyManagerImpl["CopyManager"] {
             <<Implementation>>
             -context: WebGPUContext
             +constructor()
             +copyBufferToBuffer(encoder, source, dest, size, srcOff, dstOff)
             +readBuffer(source, size)
         }
-        class CopyManagerInterface {
+        class CopyManagerIntf["CopyManager"] {
             <<Interface>>
             +copyBufferToBuffer(encoder, source, dest, size, srcOff, dstOff)
             +readBuffer(source, size)
+        }
+        class IndirectDrawManagerImpl["IndirectDrawManager"] {
+            <<Implementation>>
+            -context: WebGPUContext
+            -indirectBuffers: Map
+            +constructor()
+            +createDrawIndirectBuffer(id)
+            +createDrawIndexedIndirectBuffer(id)
+            +getBuffer(id)
+        }
+        class IndirectDrawManagerIntf["IndirectDrawManager"] {
+            <<Interface>>
+            +createDrawIndirectBuffer(id)
+            +createDrawIndexedIndirectBuffer(id)
+            +getBuffer(id)
         }
     }
 
@@ -390,10 +481,22 @@ classDiagram
     %% RELAÇÕES E DEPENDÊNCIAS DO CORE
     %% --------------------------------
     %% CORE
+    WebGPUEngineCore *-- WebGPUContext : Master Composition
+    WebGPUEngineCore *-- ProfilerSystem : Master Composition
     WebGPUEngineCore *-- WebGPUResourceManager : Master Composition
+    WebGPUEngineCore *-- WebGPUPipelineManager : Master Composition
+    WebGPUEngineCore *-- WebGPURenderPassManager : Master Composition
     WebGPUEngineCore *-- WebGPUComputeManager : Master Composition
-    WebGPUEngineCore *-- CopyManager : Master Composition
+    WebGPUEngineCore *-- CopyManagerImpl : Master Composition
+    WebGPUEngineCore *-- IndirectDrawManagerImpl : Master Composition
     WebGPUEngineCore ..|> EngineCore : Implementa
+    ProfilerSystem ..|> Profiler : Implementa
+    ProfilerSystem ..> WebGPUContext : Usa
+    %% SUBSISTEMA DE PIPELINES
+    WebGPUPipelineManager ..|> PipelineManager : Implementa
+
+    %% SUBSISTEMA DE RENDERING PASSES
+    WebGPURenderPassManager ..|> RenderPassManager : Implementa
 
     %% FACADE
     WebGPUResourceManager *-- WebGPUBindGroupManager : <<Anti-Pattern>> Acoplamento Direto
@@ -420,7 +523,12 @@ classDiagram
     WebGPUComputeManager ..|> ComputeManager : Implementa
 
     %% SUBSISTEMA DE CÓPIAS
-    CopyManager ..|> CopyManagerInterface : Implementa
+    CopyManagerImpl ..|> CopyManagerIntf : Implementa
+    CopyManagerImpl ..> EngineBuffer : Usa
+
+    %% SUBSISTEMA DE DESENHO INDIRETO
+    IndirectDrawManagerImpl ..|> IndirectDrawManagerIntf : Implementa
+    IndirectDrawManagerImpl ..> EngineBuffer : Usa
     Resource <|-- Component : Herda
     Component <|-- Geometry : Implementa
     Component <|-- Material : Implementa
@@ -437,6 +545,7 @@ classDiagram
     SimulationWorld <|-- GpuPhysicsOrchestrator : Extends (Problema Insano!)
 
     %% AMÁLGAMA NO RENDERER
+    WebGPURenderer --> WebGPUEngineCore : Usa
     WebGPURenderer --> ResourceLoader : Aciona .load()
     WebGPURenderer --> RenderExtractor : Prepara matrizes
     WebGPURenderer --> SimulationWorld : Delega cálculo (.step)

@@ -1,6 +1,6 @@
 # Interface: SoftConstraint
 
-Defined in: [elements/physics/SoftBody.ts:19](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L19)
+Defined in: [elements/physics/SoftBody.ts:19](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/SoftBody.ts#L19)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/SoftBody.ts:19](https://github.com/dantasgut/clayf
 
 > **compliance**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:23](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L23)
+Defined in: [elements/physics/SoftBody.ts:23](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/SoftBody.ts#L23)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [elements/physics/SoftBody.ts:23](https://github.com/dantasgut/clayf
 
 > **i**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:20](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L20)
+Defined in: [elements/physics/SoftBody.ts:20](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/SoftBody.ts#L20)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/physics/SoftBody.ts:20](https://github.com/dantasgut/clayf
 
 > **j**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:21](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L21)
+Defined in: [elements/physics/SoftBody.ts:21](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/SoftBody.ts#L21)
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [elements/physics/SoftBody.ts:21](https://github.com/dantasgut/clayf
 
 > **restLength**: `number`
 
-Defined in: [elements/physics/SoftBody.ts:22](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/SoftBody.ts#L22)
+Defined in: [elements/physics/SoftBody.ts:22](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/SoftBody.ts#L22)

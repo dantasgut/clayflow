@@ -1,6 +1,6 @@
 # Class: MPMBody
 
-Defined in: [elements/physics/MPMBody.ts:37](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L37)
+Defined in: [elements/physics/MPMBody.ts:37](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L37)
 
 Corpo MPM — malha de partículas simulada pelo Material Point Method (MLS-MPM).
 
@@ -19,7 +19,7 @@ Os buffers GPU são alocados externamente (MPMComputePass), análogo a FEMBody.
 
 > **new MPMBody**(`options?`): `MPMBody`
 
-Defined in: [elements/physics/MPMBody.ts:48](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L48)
+Defined in: [elements/physics/MPMBody.ts:48](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L48)
 
 #### Parameters
 
@@ -41,7 +41,7 @@ Defined in: [elements/physics/MPMBody.ts:48](https://github.com/dantasgut/clayfl
 
 > `readonly` **acceptedAlgorithms**: readonly `string`[]
 
-Defined in: [elements/physics/MPMBody.ts:41](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L41)
+Defined in: [elements/physics/MPMBody.ts:41](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L41)
 
 ***
 
@@ -49,7 +49,7 @@ Defined in: [elements/physics/MPMBody.ts:41](https://github.com/dantasgut/clayfl
 
 > **bodyState**: [`PhysicsBodyState`](../enumerations/PhysicsBodyState.md) = `PhysicsBodyState.Inactive`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:46](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L46)
+Defined in: [scene/components/physics/PhysicsBody.ts:46](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L46)
 
 Estado de simulação do corpo no mundo físico.
 
@@ -63,7 +63,7 @@ Estado de simulação do corpo no mundo físico.
 
 > `optional` **bufferIds?**: `MPMBufferIds`
 
-Defined in: [elements/physics/MPMBody.ts:44](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L44)
+Defined in: [elements/physics/MPMBody.ts:44](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L44)
 
 IDs de buffers GPU alocados pelo MPMComputePass.
 
@@ -73,7 +73,7 @@ IDs de buffers GPU alocados pelo MPMComputePass.
 
 > **dirtyFlags**: `number` = `PhysicsDirtyFlag.None`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:49](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L49)
+Defined in: [scene/components/physics/PhysicsBody.ts:49](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L49)
 
 Bitmask de PhysicsDirtyFlag — indica quais aspectos físicos mudaram.
 
@@ -87,7 +87,7 @@ Bitmask de PhysicsDirtyFlag — indica quais aspectos físicos mudaram.
 
 > `readonly` **layer**: [`PHYSICS_MECHANIC`](../enumerations/ResourceType.md#physics_mechanic)
 
-Defined in: [scene/components/physics/PhysicsBody.ts:41](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L41)
+Defined in: [scene/components/physics/PhysicsBody.ts:41](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L41)
 
 #### Inherited from
 
@@ -99,7 +99,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:41](https://github.com/dant
 
 > **particles**: [`MPMParticleData`](../interfaces/MPMParticleData.md)[] = `[]`
 
-Defined in: [elements/physics/MPMBody.ts:46](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L46)
+Defined in: [elements/physics/MPMBody.ts:46](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L46)
 
 ***
 
@@ -107,7 +107,7 @@ Defined in: [elements/physics/MPMBody.ts:46](https://github.com/dantasgut/clayfl
 
 > `readonly` **physicType**: `"MPMBody"` = `'MPMBody'`
 
-Defined in: [elements/physics/MPMBody.ts:39](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L39)
+Defined in: [elements/physics/MPMBody.ts:39](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L39)
 
 #### Overrides
 
@@ -119,7 +119,7 @@ Defined in: [elements/physics/MPMBody.ts:39](https://github.com/dantasgut/clayfl
 
 > **state**: [`ResourceState`](../enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:43](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L43)
+Defined in: [scene/components/physics/PhysicsBody.ts:43](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L43)
 
 #### Inherited from
 
@@ -131,7 +131,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:43](https://github.com/dant
 
 > `readonly` **type**: `"MPMBody"` = `'MPMBody'`
 
-Defined in: [elements/physics/MPMBody.ts:38](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L38)
+Defined in: [elements/physics/MPMBody.ts:38](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L38)
 
 #### Overrides
 
@@ -143,7 +143,7 @@ Defined in: [elements/physics/MPMBody.ts:38](https://github.com/dantasgut/clayfl
 
 > `readonly` **uuid**: `string`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L36)
+Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L36)
 
 #### Inherited from
 
@@ -157,7 +157,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:36](https://github.com/dant
 
 > **get** **currentState**(): `BodyStateHandler`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L56)
+Defined in: [scene/components/physics/PhysicsBody.ts:56](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L56)
 
 Handler do estado atual — consulta de capacidades pelos stages.
 
@@ -177,7 +177,7 @@ Handler do estado atual — consulta de capacidades pelos stages.
 
 > **get** **isSleeping**(): `boolean`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L82)
+Defined in: [scene/components/physics/PhysicsBody.ts:82](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L82)
 
 Atalho de compatibilidade — equivale a `bodyState === Sleeping`.
 Substitui `body.get<boolean>('isSleeping')` nos stages migrados.
@@ -196,7 +196,7 @@ Substitui `body.get<boolean>('isSleeping')` nos stages migrados.
 
 > **allocateResource**(`resourceManager`): `Promise`\<`void`\>
 
-Defined in: [scene/components/physics/PhysicsBody.ts:129](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L129)
+Defined in: [scene/components/physics/PhysicsBody.ts:129](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L129)
 
 #### Parameters
 
@@ -218,7 +218,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:129](https://github.com/dan
 
 > **disposeResource**(`resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:141](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L141)
+Defined in: [scene/components/physics/PhysicsBody.ts:141](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L141)
 
 #### Parameters
 
@@ -240,7 +240,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:141](https://github.com/dan
 
 > `protected` **doAllocate**(`_resourceManager`): `Promise`\<`void`\>
 
-Defined in: [elements/physics/MPMBody.ts:60](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L60)
+Defined in: [elements/physics/MPMBody.ts:60](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L60)
 
 #### Parameters
 
@@ -262,7 +262,7 @@ Defined in: [elements/physics/MPMBody.ts:60](https://github.com/dantasgut/clayfl
 
 > `protected` **doDispose**(`_resourceManager`): `void`
 
-Defined in: [elements/physics/MPMBody.ts:64](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/MPMBody.ts#L64)
+Defined in: [elements/physics/MPMBody.ts:64](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L64)
 
 #### Parameters
 
@@ -284,7 +284,7 @@ Defined in: [elements/physics/MPMBody.ts:64](https://github.com/dantasgut/clayfl
 
 > **get**\<`T`\>(`key`): `T` \| `undefined`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:102](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L102)
+Defined in: [scene/components/physics/PhysicsBody.ts:102](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L102)
 
 #### Type Parameters
 
@@ -312,7 +312,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:102](https://github.com/dan
 
 > **has**(`key`): `boolean`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:106](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L106)
+Defined in: [scene/components/physics/PhysicsBody.ts:106](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L106)
 
 #### Parameters
 
@@ -334,7 +334,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:106](https://github.com/dan
 
 > **registerInWorld**(`_world`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:114](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L114)
+Defined in: [scene/components/physics/PhysicsBody.ts:114](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L114)
 
 Registra este componente no mundo físico.
 
@@ -358,7 +358,7 @@ Registra este componente no mundo físico.
 
 > **set**\<`T`\>(`key`, `value`): `this`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:97](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L97)
+Defined in: [scene/components/physics/PhysicsBody.ts:97](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L97)
 
 #### Type Parameters
 
@@ -390,7 +390,7 @@ Defined in: [scene/components/physics/PhysicsBody.ts:97](https://github.com/dant
 
 > **transitionTo**(`next`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:64](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L64)
+Defined in: [scene/components/physics/PhysicsBody.ts:64](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L64)
 
 Transita para um novo estado de simulação.
 Em modo DEV emite warning se a transição não for válida.
@@ -415,7 +415,7 @@ Em modo DEV emite warning se a transição não for válida.
 
 > **unregisterFromWorld**(`_world`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:116](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L116)
+Defined in: [scene/components/physics/PhysicsBody.ts:116](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L116)
 
 Remove este componente do mundo físico.
 
@@ -439,7 +439,7 @@ Remove este componente do mundo físico.
 
 > **updateInWorld**(`_world`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:115](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L115)
+Defined in: [scene/components/physics/PhysicsBody.ts:115](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L115)
 
 Atualiza aspectos dirty no mundo físico.
 
@@ -463,7 +463,7 @@ Atualiza aspectos dirty no mundo físico.
 
 > **updateResource**(`_resourceManager`): `void`
 
-Defined in: [scene/components/physics/PhysicsBody.ts:136](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/PhysicsBody.ts#L136)
+Defined in: [scene/components/physics/PhysicsBody.ts:136](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/PhysicsBody.ts#L136)
 
 #### Parameters
 

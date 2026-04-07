@@ -1,6 +1,6 @@
 # Abstract Class: Collider
 
-Defined in: [scene/components/physics/Collider.ts:28](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L28)
+Defined in: [scene/components/physics/Collider.ts:28](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L28)
 
 Base abstrata para todos os volumes de colisão (Template Method — GoF).
 
@@ -40,7 +40,7 @@ ou use SDFCollider (factories/physics/) como conveniência para espaços euclidi
 
 > `abstract` `readonly` **colliderShape**: `string`
 
-Defined in: [scene/components/physics/Collider.ts:35](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L35)
+Defined in: [scene/components/physics/Collider.ts:35](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L35)
 
 Identificador canônico da forma (ex: 'sphere', 'box', 'plane').
 
@@ -50,7 +50,7 @@ Identificador canônico da forma (ex: 'sphere', 'box', 'plane').
 
 > `readonly` **layer**: [`PHYSICS_MECHANIC`](../enumerations/ResourceType.md#physics_mechanic)
 
-Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L31)
+Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L31)
 
 #### Implementation of
 
@@ -62,7 +62,7 @@ Defined in: [scene/components/physics/Collider.ts:31](https://github.com/dantasg
 
 > `readonly` **physicType**: `"Collider"` = `'Collider'`
 
-Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L32)
+Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L32)
 
 #### Implementation of
 
@@ -74,7 +74,7 @@ Defined in: [scene/components/physics/Collider.ts:32](https://github.com/dantasg
 
 > `readonly` **type**: `"Collider"` = `'Collider'`
 
-Defined in: [scene/components/physics/Collider.ts:30](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L30)
+Defined in: [scene/components/physics/Collider.ts:30](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L30)
 
 Chave única no layer 1 — garante um único Collider por Entity.
 
@@ -84,7 +84,7 @@ Chave única no layer 1 — garante um único Collider por Entity.
 
 > `abstract` **computeInertiaTensor**(`mass`): \[`number`, `number`, `number`\]
 
-Defined in: [scene/components/physics/Collider.ts:81](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L81)
+Defined in: [scene/components/physics/Collider.ts:81](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L81)
 
 Tensor de inércia diagonal para esta forma, dado uma massa.
 
@@ -104,7 +104,7 @@ Tensor de inércia diagonal para esta forma, dado uma massa.
 
 > `abstract` **getAABB**(`worldMatrix`): `AABB`
 
-Defined in: [scene/components/physics/Collider.ts:43](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L43)
+Defined in: [scene/components/physics/Collider.ts:43](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L43)
 
 AABB conservador no espaço de mundo (para broadphase).
 
@@ -124,7 +124,7 @@ AABB conservador no espaço de mundo (para broadphase).
 
 > `abstract` **getBoundingRadius**(`worldMatrix`): `number`
 
-Defined in: [scene/components/physics/Collider.ts:53](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L53)
+Defined in: [scene/components/physics/Collider.ts:53](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L53)
 
 Raio da esfera circunscrita no espaço de mundo.
 Esferas: radius * maxScale.
@@ -146,7 +146,7 @@ Boxes: comprimento da diagonal de halfExtents * maxScale.
 
 > `abstract` **getClosestPoint**(`worldMatrix`, `queryPoint`): `vec3`
 
-Defined in: [scene/components/physics/Collider.ts:61](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L61)
+Defined in: [scene/components/physics/Collider.ts:61](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L61)
 
 Ponto na superfície (ou interior) da forma mais próximo de um ponto externo.
 Usado pelo narrowphase sem conhecer a forma concreta.
@@ -173,7 +173,7 @@ Boxes: projeção do queryPoint no AABB orientado.
 
 > `optional` **getLocalHalfExtents**(): \[`number`, `number`, `number`\]
 
-Defined in: [scene/components/physics/Collider.ts:78](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L78)
+Defined in: [scene/components/physics/Collider.ts:78](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L78)
 
 Semi-extensões da forma em espaço local (antes de qualquer transformação).
 Usado pelo SATAlgorithm para extrair dimensões do OBB sem depender do tipo concreto.
@@ -189,7 +189,7 @@ Caixas: [halfWidth, halfHeight, halfDepth].
 
 > `abstract` **getWorldCenter**(`worldMatrix`): `vec3`
 
-Defined in: [scene/components/physics/Collider.ts:46](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L46)
+Defined in: [scene/components/physics/Collider.ts:46](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L46)
 
 Centro do volume no espaço de mundo.
 
@@ -209,7 +209,7 @@ Centro do volume no espaço de mundo.
 
 > `optional` **getWorldVertices**(`worldMatrix`): `vec3`[]
 
-Defined in: [scene/components/physics/Collider.ts:71](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L71)
+Defined in: [scene/components/physics/Collider.ts:71](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L71)
 
 Vértices da forma em espaço de mundo — implementado por poliedros (BoxShape).
 Usado pelo PlaneBoxCollision para manifold multi-ponto sem cast para tipo concreto.
@@ -231,7 +231,7 @@ Retorna array vazio por default; formas sem vértices explícitos não o impleme
 
 > `abstract` **packDescriptor**(): `object`
 
-Defined in: [scene/components/physics/Collider.ts:92](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L92)
+Defined in: [scene/components/physics/Collider.ts:92](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L92)
 
 Serializa a forma para o descritor compacto usado pela GPU.
 
@@ -263,7 +263,7 @@ Elimina `instanceof SphereShape/BoxShape/PlaneShape` nos uploaders GPU.
 
 > `optional` **sdf**(`localPoint`): `number`
 
-Defined in: [scene/components/physics/Collider.ts:64](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/components/physics/Collider.ts#L64)
+Defined in: [scene/components/physics/Collider.ts:64](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/components/physics/Collider.ts#L64)
 
 SDF opcional em espaço local — implementado por SDFCollider e subclasses que suportam testes genéricos.
 

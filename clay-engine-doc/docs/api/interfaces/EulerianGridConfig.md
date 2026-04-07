@@ -1,6 +1,6 @@
 # Interface: EulerianGridConfig
 
-Defined in: [elements/physics/shared/EulerianGridLayout.ts:35](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/EulerianGridLayout.ts#L35)
+Defined in: [elements/physics/shared/EulerianGridLayout.ts:35](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/shared/EulerianGridLayout.ts#L35)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/shared/EulerianGridLayout.ts:35](https://github.co
 
 > **cellSize**: `number`
 
-Defined in: [elements/physics/shared/EulerianGridLayout.ts:39](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/EulerianGridLayout.ts#L39)
+Defined in: [elements/physics/shared/EulerianGridLayout.ts:39](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/shared/EulerianGridLayout.ts#L39)
 
 Tamanho de cada célula (metros).
 
@@ -18,7 +18,7 @@ Tamanho de cada célula (metros).
 
 > **dims**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/shared/EulerianGridLayout.ts:37](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/EulerianGridLayout.ts#L37)
+Defined in: [elements/physics/shared/EulerianGridLayout.ts:37](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/shared/EulerianGridLayout.ts#L37)
 
 Dimensões da grade [x, y, z] em células.
 
@@ -28,6 +28,6 @@ Dimensões da grade [x, y, z] em células.
 
 > **origin**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/shared/EulerianGridLayout.ts:41](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/elements/physics/shared/EulerianGridLayout.ts#L41)
+Defined in: [elements/physics/shared/EulerianGridLayout.ts:41](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/shared/EulerianGridLayout.ts#L41)
 
 Canto mínimo da grade em world space [x, y, z].

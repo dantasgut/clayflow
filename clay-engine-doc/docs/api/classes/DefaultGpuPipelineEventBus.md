@@ -1,6 +1,6 @@
 # Class: DefaultGpuPipelineEventBus
 
-Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:11](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L11)
+Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:11](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L11)
 
 Implementação padrão do GpuPipelineEventBus.
 Handlers síncronos com snapshot para segurança durante emit.
@@ -25,7 +25,7 @@ Handlers síncronos com snapshot para segurança durante emit.
 
 > **emit**\<`K`\>(`type`, `payload`): `void`
 
-Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:33](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L33)
+Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:33](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L33)
 
 #### Type Parameters
 
@@ -57,7 +57,7 @@ Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:33](https://github.
 
 > **off**\<`K`\>(`type`, `handler`): `void`
 
-Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:26](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L26)
+Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:26](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L26)
 
 #### Type Parameters
 
@@ -89,7 +89,7 @@ Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:26](https://github.
 
 > **on**\<`K`\>(`type`, `handler`): () => `void`
 
-Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:15](https://github.com/dantasgut/clayflow/blob/7f07eedac2c1cf94d44b78ad841d845219723bba/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L15)
+Defined in: [scene/systems/gpu/DefaultGpuPipelineEventBus.ts:15](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/gpu/DefaultGpuPipelineEventBus.ts#L15)
 
 #### Type Parameters
 
