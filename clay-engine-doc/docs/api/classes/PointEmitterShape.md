@@ -1,6 +1,6 @@
 # Class: PointEmitterShape
 
-Defined in: [elements/particles/shapes/PointEmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/PointEmitterShape.ts#L7)
+Defined in: [elements/particles/shapes/PointEmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/particles/shapes/PointEmitterShape.ts#L7)
 
 Emissão pontual — todas as partículas nascem na origem local. (Camada 3)
 Direção uniformemente distribuída em hemisfério superior por padrão.
@@ -25,7 +25,7 @@ Direção uniformemente distribuída em hemisfério superior por padrão.
 
 > `readonly` **id**: `"point"` = `'point'`
 
-Defined in: [elements/particles/shapes/PointEmitterShape.ts:8](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/PointEmitterShape.ts#L8)
+Defined in: [elements/particles/shapes/PointEmitterShape.ts:8](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/particles/shapes/PointEmitterShape.ts#L8)
 
 #### Implementation of
 
@@ -37,7 +37,7 @@ Defined in: [elements/particles/shapes/PointEmitterShape.ts:8](https://github.co
 
 > **sample**(): [`SpawnSample`](../interfaces/SpawnSample.md)
 
-Defined in: [elements/particles/shapes/PointEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/elements/particles/shapes/PointEmitterShape.ts#L10)
+Defined in: [elements/particles/shapes/PointEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/particles/shapes/PointEmitterShape.ts#L10)
 
 Gera uma posição e direção inicial no espaço local do emitter.
 

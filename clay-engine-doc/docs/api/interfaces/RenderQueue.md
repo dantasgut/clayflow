@@ -1,6 +1,6 @@
 # Interface: RenderQueue
 
-Defined in: [scene/rendering/RenderQueue.ts:68](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/rendering/RenderQueue.ts#L68)
+Defined in: [scene/rendering/RenderQueue.ts:68](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/rendering/RenderQueue.ts#L68)
 
 Interface Oficial que a Camada 3 consumirá.
 Arrays Lineares 100% blindados e livres de orientação a objetos gordos.
@@ -11,7 +11,7 @@ Arrays Lineares 100% blindados e livres de orientação a objetos gordos.
 
 > `readonly` **lights**: [`RenderLight`](RenderLight.md)[]
 
-Defined in: [scene/rendering/RenderQueue.ts:76](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/rendering/RenderQueue.ts#L76)
+Defined in: [scene/rendering/RenderQueue.ts:76](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/rendering/RenderQueue.ts#L76)
 
 ***
 
@@ -19,7 +19,7 @@ Defined in: [scene/rendering/RenderQueue.ts:76](https://github.com/dantasgut/cla
 
 > `readonly` **opaqueGroups**: `Map`\<`string`, [`RenderCommand`](RenderCommand.md)[]\>
 
-Defined in: [scene/rendering/RenderQueue.ts:70](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/rendering/RenderQueue.ts#L70)
+Defined in: [scene/rendering/RenderQueue.ts:70](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/rendering/RenderQueue.ts#L70)
 
 ***
 
@@ -27,7 +27,7 @@ Defined in: [scene/rendering/RenderQueue.ts:70](https://github.com/dantasgut/cla
 
 > `readonly` **transparentList**: [`RenderCommand`](RenderCommand.md)[]
 
-Defined in: [scene/rendering/RenderQueue.ts:73](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/rendering/RenderQueue.ts#L73)
+Defined in: [scene/rendering/RenderQueue.ts:73](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/rendering/RenderQueue.ts#L73)
 
 ## Methods
 
@@ -35,7 +35,7 @@ Defined in: [scene/rendering/RenderQueue.ts:73](https://github.com/dantasgut/cla
 
 > **acquireFloat32**(`size`): `Float32Array`
 
-Defined in: [scene/rendering/RenderQueue.ts:81](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/rendering/RenderQueue.ts#L81)
+Defined in: [scene/rendering/RenderQueue.ts:81](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/rendering/RenderQueue.ts#L81)
 
 Obtém um Float32Array do pool interno — evita alocações GC por frame.
 
@@ -55,7 +55,7 @@ Obtém um Float32Array do pool interno — evita alocações GC por frame.
 
 > **clear**(): `void`
 
-Defined in: [scene/rendering/RenderQueue.ts:78](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/rendering/RenderQueue.ts#L78)
+Defined in: [scene/rendering/RenderQueue.ts:78](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/rendering/RenderQueue.ts#L78)
 
 #### Returns
 

@@ -1,6 +1,6 @@
 # Interface: BodyEntry
 
-Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L6)
+Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/GpuSimContext.ts#L6)
 
 Entrada de corpo físico no contexto GPU.
 
@@ -10,7 +10,7 @@ Entrada de corpo físico no contexto GPU.
 
 > **body**: [`PhysicsBody`](../classes/PhysicsBody.md)
 
-Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L6)
+Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/GpuSimContext.ts#L6)
 
 ***
 
@@ -18,4 +18,4 @@ Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clay
 
 > **entity**: [`Entity`](../classes/Entity.md)
 
-Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/bd87702a19ea27821f269c4fd9796e0879474a2a/src/scene/systems/GpuSimContext.ts#L6)
+Defined in: [scene/systems/GpuSimContext.ts:6](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/GpuSimContext.ts#L6)
