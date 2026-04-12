@@ -1,6 +1,6 @@
 # Interface: MPMParticleData
 
-Defined in: [elements/physics/MPMBody.ts:7](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L7)
+Defined in: [elements/physics/MPMBody.ts:7](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/MPMBody.ts#L7)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/MPMBody.ts:7](https://github.com/dantasgut/clayflo
 
 > **vx**: `number`
 
-Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L9)
+Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/MPMBody.ts#L9)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflo
 
 > **vy**: `number`
 
-Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L9)
+Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/MPMBody.ts#L9)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflo
 
 > **vz**: `number`
 
-Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L9)
+Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/MPMBody.ts#L9)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [elements/physics/MPMBody.ts:9](https://github.com/dantasgut/clayflo
 
 > **x**: `number`
 
-Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L8)
+Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/MPMBody.ts#L8)
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflo
 
 > **y**: `number`
 
-Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L8)
+Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/MPMBody.ts#L8)
 
 ***
 
@@ -48,4 +48,4 @@ Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflo
 
 > **z**: `number`
 
-Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/elements/physics/MPMBody.ts#L8)
+Defined in: [elements/physics/MPMBody.ts:8](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/MPMBody.ts#L8)

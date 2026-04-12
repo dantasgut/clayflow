@@ -1,6 +1,6 @@
 # Interface: Renderer
 
-Defined in: [presentation/interfaces/Renderer.ts:11](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/presentation/interfaces/Renderer.ts#L11)
+Defined in: [presentation/interfaces/Renderer.ts:11](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/presentation/interfaces/Renderer.ts#L11)
 
 Contrato abstrato (Camada 4) para qualquer tipo de Motor de Apresentação.
 Separa a lógica da Cena da API gráfica final.
@@ -14,7 +14,7 @@ Toda a inicialização de hardware é feita aqui dentro.
 
 > **initialize**(`canvas`): `Promise`\<`void`\>
 
-Defined in: [presentation/interfaces/Renderer.ts:17](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/presentation/interfaces/Renderer.ts#L17)
+Defined in: [presentation/interfaces/Renderer.ts:17](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/presentation/interfaces/Renderer.ts#L17)
 
 Inicializa o backend gráfico e adquire o device da GPU.
 Deve ser chamado uma vez antes do primeiro render().
@@ -37,7 +37,7 @@ O elemento <canvas> do DOM.
 
 > **render**(`scene`, `camera`): `Promise`\<`void`\>
 
-Defined in: [presentation/interfaces/Renderer.ts:22](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/presentation/interfaces/Renderer.ts#L22)
+Defined in: [presentation/interfaces/Renderer.ts:22](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/presentation/interfaces/Renderer.ts#L22)
 
 Ciclo principal: renderiza a cena pela perspectiva da câmera.
 
@@ -61,7 +61,7 @@ Ciclo principal: renderiza a cena pela perspectiva da câmera.
 
 > **setClearColor**(`r`, `g`, `b`, `a`): `void`
 
-Defined in: [presentation/interfaces/Renderer.ts:32](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/presentation/interfaces/Renderer.ts#L32)
+Defined in: [presentation/interfaces/Renderer.ts:32](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/presentation/interfaces/Renderer.ts#L32)
 
 Define a cor de fundo.
 
@@ -93,7 +93,7 @@ Define a cor de fundo.
 
 > **setSize**(`width`, `height`): `void`
 
-Defined in: [presentation/interfaces/Renderer.ts:27](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/presentation/interfaces/Renderer.ts#L27)
+Defined in: [presentation/interfaces/Renderer.ts:27](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/presentation/interfaces/Renderer.ts#L27)
 
 Define o tamanho físico da tela de saída.
 

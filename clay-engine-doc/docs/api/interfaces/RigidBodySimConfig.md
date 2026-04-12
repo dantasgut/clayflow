@@ -1,6 +1,6 @@
 # Interface: RigidBodySimConfig
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:7](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L7)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:7](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L7)
 
 Configuração da simulação de corpos rígidos GPU.
 
@@ -13,7 +13,7 @@ Campos de pipeline CPU (resolution, gyroscopic) foram removidos (GPU-only).
 
 > `optional` **baumgarteBeta?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:44](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L44)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:44](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L44)
 
 Fator de correção de Baumgarte [0.1–0.3] para o solver LCP/PGS.
 Controla a velocidade de correção de penetração por bias do constraint.
@@ -26,7 +26,7 @@ Default: 0.2.
 
 > `optional` **globalAngularDamping?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:57](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L57)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:57](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L57)
 
 Amortecimento angular global aplicado a todos os corpos por frame (LCP).
 Valor alto reduz rotação livre; valor baixo permite tipping e rolagem natural.
@@ -38,7 +38,7 @@ Default: 0.5 (equivalente ao pipeline XPBD).
 
 > `optional` **iterations?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:12](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L12)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:12](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L12)
 
 Número de iterações do solver PGS por substep (backend='gpu').
 Default: 15. (Otimização 3c — compensa substeps=4 vs. substeps=8 anteriores)
@@ -49,7 +49,7 @@ Default: 15. (Otimização 3c — compensa substeps=4 vs. substeps=8 anteriores)
 
 > `optional` **predictiveThreshold?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:25](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L25)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:25](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L25)
 
 Margem especulativa para detecção de contatos iminentes (backend='gpu').
 0 = desativado (padrão). Valores > 0 ativam contatos especulativos para prevenir
@@ -62,7 +62,7 @@ Default: 0 (desativado).
 
 > `optional` **profilerLogInterval?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:18](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L18)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:18](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L18)
 
 Intervalo de frames entre leituras do profiler GPU (backend='gpu').
 Valores menores aumentam a frequência dos logs de tempo de kernel.
@@ -74,7 +74,7 @@ Default: 60 (≈1 log/s a 60fps).
 
 > `optional` **restitutionThreshold?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:31](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L31)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:31](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L31)
 
 Velocidade de aproximação (m/s) abaixo da qual o coeficiente de restituição é
 forçado a zero, eliminando quique em colisões de baixa energia (backend='gpu').
@@ -86,7 +86,7 @@ Default: 2.0 (m/s — queda de ~20 cm já não quica).
 
 > `optional` **sleepLinThreshold?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:37](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L37)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:37](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L37)
 
 Velocidade linear (m/s) abaixo da qual o corpo é considerado em repouso e tem
 vel/omega zerados (pseudo-sleep) para evitar vibração residual (backend='gpu').
@@ -98,7 +98,7 @@ vel/omega zerados (pseudo-sleep) para evitar vibração residual (backend='gpu')
 
 > `optional` **warmStartFactor?**: `number`
 
-Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:51](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/simulation/RigidBodySimConfig.ts#L51)
+Defined in: [scene/systems/simulation/RigidBodySimConfig.ts:51](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/RigidBodySimConfig.ts#L51)
 
 Fator de escala para warm starting do solver LCP/PGS [0.8–1.0].
 Escala os impulsos acumulados do frame anterior usados como solução inicial.

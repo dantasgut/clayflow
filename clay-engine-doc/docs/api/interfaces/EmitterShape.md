@@ -1,6 +1,6 @@
 # Interface: EmitterShape
 
-Defined in: [scene/systems/particles/EmitterShape.ts:19](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/particles/EmitterShape.ts#L19)
+Defined in: [scene/systems/particles/EmitterShape.ts:19](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/particles/EmitterShape.ts#L19)
 
 Estratégia de forma de emissão. (Camada 2)
 
@@ -19,7 +19,7 @@ emitter.shape = new ConeEmitterShape(Math.PI / 6);
 
 > `readonly` **id**: `string`
 
-Defined in: [scene/systems/particles/EmitterShape.ts:20](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/particles/EmitterShape.ts#L20)
+Defined in: [scene/systems/particles/EmitterShape.ts:20](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/particles/EmitterShape.ts#L20)
 
 ## Methods
 
@@ -27,7 +27,7 @@ Defined in: [scene/systems/particles/EmitterShape.ts:20](https://github.com/dant
 
 > **sample**(): [`SpawnSample`](SpawnSample.md)
 
-Defined in: [scene/systems/particles/EmitterShape.ts:22](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/scene/systems/particles/EmitterShape.ts#L22)
+Defined in: [scene/systems/particles/EmitterShape.ts:22](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/particles/EmitterShape.ts#L22)
 
 Gera uma posição e direção inicial no espaço local do emitter.
 

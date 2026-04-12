@@ -2,7 +2,7 @@
 
 > **Loggable**(`targetOrName`): `any`
 
-Defined in: [core/debug/Loggable.ts:44](https://github.com/dantasgut/clayflow/blob/b3dfee2b900d61c7c75366d8c2100dcee3d4e71a/src/core/debug/Loggable.ts#L44)
+Defined in: [core/debug/Loggable.ts:44](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/core/debug/Loggable.ts#L44)
 
 ## Parameters
 
