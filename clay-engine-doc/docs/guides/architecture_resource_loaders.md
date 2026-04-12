@@ -1650,3 +1650,239 @@ src/scene/
 > **Regra de importação:**
 > Layer 3 importa exclusivamente de `scene/contracts/`, `scene/descriptors/`, `scene/world/` e `scene/events/` — nunca de `scene/systems/` (que é domínio da Layer 4) nem de `core/` (Layer 1).
 > Layer 4 importa de qualquer pasta de `scene/` e de `core/interfaces/`, mas nunca de `core/gpu/` (implementação WebGPU).
+
+---
+
+## Proposta — Camada 3: Elementos de Cena e Física
+
+A Camada 3 contém todos os elementos concretos da engine: recursos visuais, corpos físicos, partículas e infraestrutura GPU auxiliar. **Toda classe com dado GPU implementa `Resource`** — o contrato da Camada 2 que garante alocação, atualização e descarte via `ResourceSystem`, sem acesso direto à Camada 1.
+
+| Removido | Motivo |
+|---|---|
+| `PhysicsComputePass` e hierarquia | Substituído por `ResourceSystem` + `ExecutionSystem` |
+| `FluidParticleVisualAdapter` | Anti-pattern de herança por conveniência |
+| `XPBDComputePass` | Deprecated — funcionalidade coberta por `SoftBody` + `ResourceSystem` |
+| `ColliderDescriptorUploader` | Absorvido pelo padrão `Resource.getDescriptors()` |
+| `ShaderLibrary` | Absorvido por `ShaderRegistry` na Camada 2 |
+| `FEMGraphColorSolver` | Unificado com `GraphColorSolver` — mesmo algoritmo |
+| `bufferIds?: object` em `PhysicsBody` | Substituído por `getDescriptors()` tipado |
+
+```mermaid
+classDiagram
+
+    %% ── CAMADA 2 — CONTRATOS ─────────────────────────────────────────────────
+    namespace Camada_2 {
+        class Resource {
+            <<Interface — Camada 2>>
+            +getDescriptors() GPUDescriptor[]
+            +getPipelineDescriptors() PipelineDescriptor[]
+            +pack() Float32Array
+        }
+        class World {
+            <<ECS store — Camada 2>>
+            +insert(id: EntityId, resource: Resource, tags: string[])
+            +query(types: string[]) EntityId[]
+        }
+    }
+
+    %% ── RECURSOS DE CENA ─────────────────────────────────────────────────────
+    namespace Recursos_Cena {
+        class Transform {
+            <<implements Resource>>
+            +position: vec3
+            +rotation: quat
+            +scale: vec3
+        }
+        class Camera {
+            <<implements Resource>>
+            +fov: number
+            +aspect: number
+            +near: number
+            +far: number
+        }
+        class Light {
+            <<Abstract — implements Resource>>
+            +color: vec3
+            +intensity: number
+        }
+        class DirectionalLight {
+            +direction: vec3
+        }
+        class PointLight {
+            +radius: number
+        }
+        class RenderTarget {
+            <<implements Resource>>
+            +width: number
+            +height: number
+        }
+    }
+
+    %% ── GEOMETRIA ────────────────────────────────────────────────────────────
+    namespace Geometria {
+        class Geometry {
+            <<Abstract — implements Resource>>
+            +vertexCount: number
+            +indexCount: number
+        }
+        class ParametricGeometry {
+            <<f(u,v) → vértice>>
+        }
+        class BoxGeometry { }
+        class SphereGeometry { }
+        class PlaneGeometry { }
+        class PointCloudGeometry {
+            <<escrita por compute>>
+        }
+    }
+
+    %% ── MATERIAL ─────────────────────────────────────────────────────────────
+    namespace Material_ns {
+        class Material {
+            <<Abstract — implements Resource>>
+            +shaderId: string
+        }
+        class StandardMaterial {
+            +color: vec4
+            +roughness: number
+            +metallic: number
+        }
+        class WireframeMaterial {
+            +color: vec4
+        }
+    }
+
+    %% ── FÍSICA ───────────────────────────────────────────────────────────────
+    namespace Fisica {
+        class PhysicsBody {
+            <<Abstract — implements Resource>>
+            +physicType: string
+        }
+        class RigidBody { <<LCP/PGS>> }
+        class SoftBody { <<XPBD>> }
+        class FEMBody { <<XPBD-FEM T4>> }
+        class MPMBody { <<MLS-MPM>> }
+        class PBFBody { <<Position-Based Fluids>> }
+        class SPHBody { <<WCSPH>> }
+        class Collider {
+            <<Abstract — implements Resource>>
+            +getAABB() AABB
+        }
+        class BoxCollider { }
+        class SphereCollider { }
+        class PlaneCollider { }
+        class Force {
+            <<Interface — cálculo CPU>>
+            +id: string
+            +compute(body, dt) vec3
+        }
+        class ConstantForce { }
+        class FunctionalForce { }
+    }
+
+    %% ── PARTÍCULAS ───────────────────────────────────────────────────────────
+    namespace Particulas {
+        class ParticleEmitter {
+            <<Abstract — implements Resource>>
+            +maxParticles: number
+            +aliveCount: number
+        }
+        class ScriptedParticleEmitter {
+            <<CPU — até ~5k partículas>>
+            +emissionRate: number
+            +maxLife: number
+        }
+        class ComputeParticleEmitter {
+            <<GPU compute>>
+        }
+        class EmitterShape {
+            <<Interface>>
+            +sample() SpawnSample
+        }
+        class ConeEmitterShape { }
+        class PointEmitterShape { }
+        class SphereEmitterShape { }
+    }
+
+    %% ── INFRAESTRUTURA GPU ───────────────────────────────────────────────────
+    namespace GPU_Infra {
+        class WgslComposer {
+            <<Composição de módulos WGSL>>
+            +compose(...blocks) string$
+        }
+        class GraphColorSolver {
+            <<Greedy Graph Coloring — SoftBody e FEM>>
+            +solve(constraints) ColoredConstraints$
+        }
+        class NeighborSearchGrid {
+            <<implements Resource — SPH/PBF>>
+            +build(encoder, particles, count)
+        }
+        class EulerianGrid {
+            <<implements Resource — MPM/FLIP>>
+            +encodeClear(encoder)
+        }
+    }
+
+    %% ── RELAÇÕES ─────────────────────────────────────────────────────────────
+
+    %% Implementação de Resource
+    Transform ..|> Resource : implementa
+    Camera ..|> Resource : implementa
+    Light ..|> Resource : implementa
+    RenderTarget ..|> Resource : implementa
+    Geometry ..|> Resource : implementa
+    Material ..|> Resource : implementa
+    PhysicsBody ..|> Resource : implementa
+    Collider ..|> Resource : implementa
+    ParticleEmitter ..|> Resource : implementa
+    NeighborSearchGrid ..|> Resource : implementa
+    EulerianGrid ..|> Resource : implementa
+
+    %% Recursos de Cena
+    Light <|-- DirectionalLight
+    Light <|-- PointLight
+
+    %% Geometria
+    Geometry <|-- ParametricGeometry
+    Geometry <|-- BoxGeometry
+    Geometry <|-- PointCloudGeometry
+    ParametricGeometry <|-- SphereGeometry
+    ParametricGeometry <|-- PlaneGeometry
+
+    %% Material
+    Material <|-- StandardMaterial
+    Material <|-- WireframeMaterial
+
+    %% Física
+    PhysicsBody <|-- RigidBody
+    PhysicsBody <|-- SoftBody
+    PhysicsBody <|-- FEMBody
+    PhysicsBody <|-- MPMBody
+    PhysicsBody <|-- PBFBody
+    PhysicsBody <|-- SPHBody
+    Collider <|-- BoxCollider
+    Collider <|-- SphereCollider
+    Collider <|-- PlaneCollider
+    Force <|.. ConstantForce : implementa
+    Force <|.. FunctionalForce : implementa
+    RigidBody --> Collider : possui
+    SoftBody --> Collider : usa para colisão
+    SoftBody --> GraphColorSolver : resolve constraints
+    FEMBody --> GraphColorSolver : resolve elementos
+    PBFBody --> NeighborSearchGrid : usa
+    SPHBody --> NeighborSearchGrid : usa
+    MPMBody --> EulerianGrid : usa
+
+    %% Partículas
+    ParticleEmitter <|-- ScriptedParticleEmitter
+    ParticleEmitter <|-- ComputeParticleEmitter
+    EmitterShape <|.. ConeEmitterShape : implementa
+    EmitterShape <|.. PointEmitterShape : implementa
+    EmitterShape <|.. SphereEmitterShape : implementa
+    ScriptedParticleEmitter --> EmitterShape : usa
+    ComputeParticleEmitter --> EmitterShape : usa
+
+    %% World armazena tudo via Resource
+    World --> Resource : armazena por EntityId
+```
