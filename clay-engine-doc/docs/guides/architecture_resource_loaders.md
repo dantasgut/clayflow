@@ -1655,22 +1655,45 @@ src/scene/
 
 ## Proposta — Camada 3: Elementos de Cena e Física
 
-A Camada 3 contém todos os elementos concretos da engine: recursos visuais, corpos físicos, partículas e infraestrutura GPU auxiliar. **Toda classe com dado GPU implementa `Resource`** — o contrato da Camada 2 que garante alocação, atualização e descarte via `ResourceSystem`, sem acesso direto à Camada 1.
+A Camada 3 contém todos os elementos concretos da engine: recursos visuais, corpos físicos, partículas e infraestrutura GPU auxiliar. **Todo elemento com dado GPU implementa `Resource`** — o contrato da Camada 2 que garante alocação, atualização e descarte via `ResourceSystem`, sem acesso direto à Camada 1.
 
-| Removido | Motivo |
-|---|---|
-| `PhysicsComputePass` e hierarquia | Substituído por `ResourceSystem` + `ExecutionSystem` |
-| `FluidParticleVisualAdapter` | Anti-pattern de herança por conveniência |
-| `XPBDComputePass` | Deprecated — funcionalidade coberta por `SoftBody` + `ResourceSystem` |
-| `ColliderDescriptorUploader` | Absorvido pelo padrão `Resource.getDescriptors()` |
-| `ShaderLibrary` | Absorvido por `ShaderRegistry` na Camada 2 |
-| `FEMGraphColorSolver` | Unificado com `GraphColorSolver` — mesmo algoritmo |
-| `bufferIds?: object` em `PhysicsBody` | Substituído por `getDescriptors()` tipado |
+O padrão é idêntico para física, geometria, material, luz e câmera:
+- `getDescriptors()` declara slots GPU via `StructSchema` (uniforms) ou `TensorSchema` (arrays de partículas e constraints)
+- `getPipelineDescriptors()` declara qual shader processa esses dados
+- `pack()` serializa o estado atual para o buffer
+
+### O que foi removido e por quê
+
+| Removido | Substituto | Motivo |
+|---|---|---|
+| `PhysicsComputePass` e hierarquia | `ResourceSystem` + `ExecutionSystem` | Passes acoplavam à Camada 1 — a Camada 2 assume coordenação |
+| `FluidParticleVisualAdapter` | `FluidBody` + `PointCloudGeometry` + `PointSpriteMaterial` | Anti-pattern de herança por conveniência |
+| `XPBDComputePass` | `SoftBody` + `XPBDSolver` | Deprecated — pass obsoleto ainda registrável |
+| `ColliderDescriptorUploader` | `Collider.getDescriptors()` | Absorvido pelo contrato `Resource` |
+| `ShaderLibrary` | `ShaderRegistry` (Camada 2) | Centralizado na Camada 2 como ponte L3 → L1 |
+| `FEMGraphColorSolver` | `GraphColorSolver` | Mesmo algoritmo — duas implementações sem razão |
+| `bufferIds?: object` em `PhysicsBody` | `getDescriptors(): GPUDescriptor[]` | Perda total de segurança de tipos |
+| `FEMBody`, `MPMBody`, `PBFBody`, `SPHBody` | `SoftBody` / `FluidBody` + `Solver` correspondente | O algoritmo não define o tipo de corpo — o Solver é composable |
+| `Force` CPU-only | `ForceField` implements Resource | Forças vão para shaders — precisam de Schema e GPUDescriptor |
+| `ConstantForce`, `FunctionalForce` | `GravityField`, `WindField`, `VortexField`, `DragField` | Nomes semânticos — cada campo tem Schema próprio |
+
+### Composição ECS — um EntityId, múltiplos Resources
+
+Um mesmo EntityId pode acumular papéis ortogonais. O Solver consulta o `World` e lê os buffers de cada tipo:
+
+```
+Planeta:    Transform + RigidBody + SphereGeometry + StandardMaterial + GravityField + SphereCollider
+Pano:       Transform + SoftBody + PlaneGeometry + StandardMaterial + XPBDSolver + SpringConstraint
+Fluido:     Transform + FluidBody + PointCloudGeometry + PointSpriteMaterial + SPHSolver + BuoyancyField
+Vento:      Transform + WindField   ← entidade ambiental sem body
+```
+
+`ForceField` não é propriedade de um body — é um Resource independente que o Solver lê via `World.query(['ForceField'])`.
 
 ```mermaid
 classDiagram
 
-    %% ── CAMADA 2 — CONTRATOS ─────────────────────────────────────────────────
+    %% ── CAMADA 2 — CONTRATOS (referência) ───────────────────────────────────
     namespace Camada_2 {
         class Resource {
             <<Interface — Camada 2>>
@@ -1681,7 +1704,7 @@ classDiagram
         class World {
             <<ECS store — Camada 2>>
             +insert(id: EntityId, resource: Resource, tags: string[])
-            +query(types: string[]) EntityId[]
+            +query(tags: string[]) EntityId[]
         }
     }
 
@@ -1689,12 +1712,14 @@ classDiagram
     namespace Recursos_Cena {
         class Transform {
             <<implements Resource>>
+            <<StructSchema: position vec3f, rotation vec4f, scale vec3f>>
             +position: vec3
             +rotation: quat
             +scale: vec3
         }
         class Camera {
             <<implements Resource>>
+            <<StructSchema: view mat4x4f, projection mat4x4f, near f32, far f32>>
             +fov: number
             +aspect: number
             +near: number
@@ -1702,17 +1727,21 @@ classDiagram
         }
         class Light {
             <<Abstract — implements Resource>>
+            <<StructSchema: color vec3f, intensity f32>>
             +color: vec3
             +intensity: number
         }
         class DirectionalLight {
+            <<StructSchema estende Light + direction vec3f>>
             +direction: vec3
         }
         class PointLight {
+            <<StructSchema estende Light + position vec3f + radius f32>>
             +radius: number
         }
         class RenderTarget {
             <<implements Resource>>
+            <<GPUDescriptor: textura de cor e depth>>
             +width: number
             +height: number
         }
@@ -1722,6 +1751,7 @@ classDiagram
     namespace Geometria {
         class Geometry {
             <<Abstract — implements Resource>>
+            <<TensorSchema: vértices [pos vec3f, normal vec3f, uv vec2f]>>
             +vertexCount: number
             +indexCount: number
         }
@@ -1732,7 +1762,7 @@ classDiagram
         class SphereGeometry { }
         class PlaneGeometry { }
         class PointCloudGeometry {
-            <<escrita por compute>>
+            <<escrita por compute — FluidBody e Partículas>>
         }
     }
 
@@ -1740,60 +1770,167 @@ classDiagram
     namespace Material_ns {
         class Material {
             <<Abstract — implements Resource>>
+            <<PipelineDescriptor: shaderId de render>>
             +shaderId: string
         }
         class StandardMaterial {
+            <<StructSchema: albedo vec4f, roughness f32, metallic f32>>
             +color: vec4
             +roughness: number
             +metallic: number
         }
         class WireframeMaterial {
+            <<StructSchema: color vec4f>>
             +color: vec4
+        }
+        class PointSpriteMaterial {
+            <<StructSchema: radius f32, color vec4f — fluido e partículas>>
+            +radius: number
         }
     }
 
-    %% ── FÍSICA ───────────────────────────────────────────────────────────────
-    namespace Fisica {
+    %% ── FÍSICA — BODIES ──────────────────────────────────────────────────────
+    namespace Fisica_Bodies {
         class PhysicsBody {
             <<Abstract — implements Resource>>
-            +physicType: string
+            <<StructSchema: mass f32, linearDamping f32, angularDamping f32>>
+            +mass: number
+            +linearDamping: number
         }
-        class RigidBody { <<LCP/PGS>> }
-        class SoftBody { <<XPBD>> }
-        class FEMBody { <<XPBD-FEM T4>> }
-        class MPMBody { <<MLS-MPM>> }
-        class PBFBody { <<Position-Based Fluids>> }
-        class SPHBody { <<WCSPH>> }
+        class RigidBody {
+            <<TensorSchema: pos vec3f, rot vec4f, linVel vec3f, angVel vec3f>>
+            +isKinematic: boolean
+        }
+        class SoftBody {
+            <<TensorSchema: partículas [pos vec3f, vel vec3f, mass f32]>>
+            +restShapeMatching: boolean
+        }
+        class FluidBody {
+            <<TensorSchema: partículas [pos vec3f, vel vec3f, density f32, pressure f32]>>
+            +restDensity: number
+        }
+    }
+
+    %% ── FÍSICA — FORCE FIELDS ────────────────────────────────────────────────
+    namespace Fisica_ForceFields {
+        class ForceField {
+            <<Abstract — implements Resource>>
+            <<StructSchema: strength f32, falloff f32, minDist f32, maxDist f32>>
+            +strength: number
+            +falloff: number
+        }
+        class GravityField {
+            <<StructSchema: acceleration vec3f — ambiental ou corpo-a-corpo>>
+            +acceleration: vec3
+        }
+        class WindField {
+            <<StructSchema: direction vec3f, magnitude f32>>
+            +direction: vec3
+        }
+        class VortexField {
+            <<StructSchema: axis vec3f, magnitude f32>>
+            +axis: vec3
+        }
+        class DragField {
+            <<StructSchema: linearCoeff f32, quadraticCoeff f32>>
+            +linearCoeff: number
+        }
+        class BuoyancyField {
+            <<StructSchema: fluidDensity f32, fluidLevel f32 — emitido por FluidBody>>
+            +fluidDensity: number
+        }
+    }
+
+    %% ── FÍSICA — COLLIDERS ───────────────────────────────────────────────────
+    namespace Fisica_Colliders {
         class Collider {
             <<Abstract — implements Resource>>
-            +getAABB() AABB
+            <<StructSchema: friction f32, restitution f32>>
+            +friction: number
+            +restitution: number
         }
-        class BoxCollider { }
-        class SphereCollider { }
-        class PlaneCollider { }
-        class Force {
-            <<Interface — cálculo CPU>>
-            +id: string
-            +compute(body, dt) vec3
+        class BoxCollider {
+            <<StructSchema: halfExtents vec3f>>
         }
-        class ConstantForce { }
-        class FunctionalForce { }
+        class SphereCollider {
+            <<StructSchema: radius f32>>
+        }
+        class PlaneCollider {
+            <<StructSchema: normal vec3f, offset f32>>
+        }
+        class MeshCollider {
+            <<TensorSchema: triângulos de colisão [vec3f, vec3f, vec3f]>>
+        }
+    }
+
+    %% ── FÍSICA — CONSTRAINTS ─────────────────────────────────────────────────
+    namespace Fisica_Constraints {
+        class Constraint {
+            <<Abstract — implements Resource>>
+            <<StructSchema: bodyA EntityId u32, bodyB EntityId u32>>
+            +bodyA: number
+            +bodyB: number
+        }
+        class SpringConstraint {
+            <<TensorSchema: pares [bodyA u32, bodyB u32, stiffness f32, restLength f32, damping f32]>>
+            +stiffness: number
+            +restLength: number
+            +damping: number
+        }
+        class JointConstraint {
+            <<StructSchema: anchorA vec3f, anchorB vec3f, limits vec2f>>
+        }
+        class DistanceConstraint {
+            <<StructSchema: minDist f32, maxDist f32>>
+        }
+    }
+
+    %% ── FÍSICA — SOLVERS ─────────────────────────────────────────────────────
+    namespace Fisica_Solvers {
+        class Solver {
+            <<Interface — implements Resource>>
+            <<PipelineDescriptor: shaders de compute>>
+            +accepts(body: PhysicsBody) boolean
+        }
+        class LCPSolver {
+            <<RigidBody — LCP/PGS>>
+            <<lê: RigidBody, Collider, Constraint, ForceField>>
+        }
+        class XPBDSolver {
+            <<SoftBody — XPBD>>
+            <<lê: SoftBody, Constraint, ForceField, GraphColorSolver>>
+        }
+        class FEMSolver {
+            <<SoftBody — XPBD-FEM T4>>
+            <<lê: SoftBody, Constraint, ForceField, GraphColorSolver>>
+        }
+        class MPMSolver {
+            <<FluidBody e SoftBody — MLS-MPM>>
+            <<lê: Body, ForceField, EulerianGrid>>
+        }
+        class PBFSolver {
+            <<FluidBody — Position-Based Fluids>>
+            <<lê: FluidBody, ForceField, NeighborSearchGrid>>
+        }
+        class SPHSolver {
+            <<FluidBody — WCSPH>>
+            <<lê: FluidBody, ForceField, NeighborSearchGrid>>
+        }
     }
 
     %% ── PARTÍCULAS ───────────────────────────────────────────────────────────
     namespace Particulas {
         class ParticleEmitter {
             <<Abstract — implements Resource>>
+            <<TensorSchema: partículas [pos vec3f, vel vec3f, life f32, size f32]>>
             +maxParticles: number
-            +aliveCount: number
         }
         class ScriptedParticleEmitter {
             <<CPU — até ~5k partículas>>
             +emissionRate: number
-            +maxLife: number
         }
         class ComputeParticleEmitter {
-            <<GPU compute>>
+            <<GPU — PipelineDescriptor aponta shader de emissão>>
         }
         class EmitterShape {
             <<Interface>>
@@ -1816,11 +1953,13 @@ classDiagram
         }
         class NeighborSearchGrid {
             <<implements Resource — SPH/PBF>>
-            +build(encoder, particles, count)
+            <<TensorSchema: células de hash espacial>>
+            +cellSize: number
         }
         class EulerianGrid {
             <<implements Resource — MPM/FLIP>>
-            +encodeClear(encoder)
+            <<TensorSchema: grade de velocidade e massa>>
+            +resolution: vec3i
         }
     }
 
@@ -1834,12 +1973,15 @@ classDiagram
     Geometry ..|> Resource : implementa
     Material ..|> Resource : implementa
     PhysicsBody ..|> Resource : implementa
+    ForceField ..|> Resource : implementa
     Collider ..|> Resource : implementa
+    Constraint ..|> Resource : implementa
+    Solver ..|> Resource : implementa
     ParticleEmitter ..|> Resource : implementa
     NeighborSearchGrid ..|> Resource : implementa
     EulerianGrid ..|> Resource : implementa
 
-    %% Recursos de Cena
+    %% Cena
     Light <|-- DirectionalLight
     Light <|-- PointLight
 
@@ -1853,26 +1995,44 @@ classDiagram
     %% Material
     Material <|-- StandardMaterial
     Material <|-- WireframeMaterial
+    Material <|-- PointSpriteMaterial
 
-    %% Física
+    %% Bodies
     PhysicsBody <|-- RigidBody
     PhysicsBody <|-- SoftBody
-    PhysicsBody <|-- FEMBody
-    PhysicsBody <|-- MPMBody
-    PhysicsBody <|-- PBFBody
-    PhysicsBody <|-- SPHBody
+    PhysicsBody <|-- FluidBody
+
+    %% ForceFields — qualquer EntityId pode emitir
+    ForceField <|-- GravityField
+    ForceField <|-- WindField
+    ForceField <|-- VortexField
+    ForceField <|-- DragField
+    ForceField <|-- BuoyancyField
+    FluidBody --> BuoyancyField : emite sobre corpos imersos
+
+    %% Colliders
     Collider <|-- BoxCollider
     Collider <|-- SphereCollider
     Collider <|-- PlaneCollider
-    Force <|.. ConstantForce : implementa
-    Force <|.. FunctionalForce : implementa
-    RigidBody --> Collider : possui
-    SoftBody --> Collider : usa para colisão
-    SoftBody --> GraphColorSolver : resolve constraints
-    FEMBody --> GraphColorSolver : resolve elementos
-    PBFBody --> NeighborSearchGrid : usa
-    SPHBody --> NeighborSearchGrid : usa
-    MPMBody --> EulerianGrid : usa
+    Collider <|-- MeshCollider
+
+    %% Constraints
+    Constraint <|-- SpringConstraint
+    Constraint <|-- JointConstraint
+    Constraint <|-- DistanceConstraint
+
+    %% Solvers
+    Solver <|.. LCPSolver : implementa
+    Solver <|.. XPBDSolver : implementa
+    Solver <|.. FEMSolver : implementa
+    Solver <|.. MPMSolver : implementa
+    Solver <|.. PBFSolver : implementa
+    Solver <|.. SPHSolver : implementa
+    XPBDSolver --> GraphColorSolver : resolve constraints
+    FEMSolver --> GraphColorSolver : resolve elementos
+    PBFSolver --> NeighborSearchGrid : busca vizinhos
+    SPHSolver --> NeighborSearchGrid : busca vizinhos
+    MPMSolver --> EulerianGrid : transfere momento
 
     %% Partículas
     ParticleEmitter <|-- ScriptedParticleEmitter
@@ -1883,6 +2043,87 @@ classDiagram
     ScriptedParticleEmitter --> EmitterShape : usa
     ComputeParticleEmitter --> EmitterShape : usa
 
-    %% World armazena tudo via Resource
+    %% World
     World --> Resource : armazena por EntityId
+```
+
+### Organização de Pacotes — Camada 3
+
+```
+src/elements/
+│
+├── scene/                            ← recursos de cena — sempre presentes
+│     ├── Transform.ts                  StructSchema: position vec3f, rotation vec4f, scale vec3f
+│     ├── Camera.ts                     StructSchema: view mat4x4f, projection mat4x4f, near f32, far f32
+│     ├── Light.ts                      abstract — StructSchema: color vec3f, intensity f32
+│     ├── DirectionalLight.ts
+│     ├── PointLight.ts
+│     └── RenderTarget.ts               GPUDescriptor: textura de cor e depth
+│
+├── geometry/                         ← dados de vértice e índice
+│     ├── Geometry.ts                   abstract — TensorSchema: [pos vec3f, normal vec3f, uv vec2f]
+│     ├── ParametricGeometry.ts
+│     ├── BoxGeometry.ts
+│     ├── SphereGeometry.ts
+│     ├── PlaneGeometry.ts
+│     └── PointCloudGeometry.ts         escrita por compute — fluido e partículas
+│
+├── material/                         ← shading e aparência
+│     ├── Material.ts                   abstract — PipelineDescriptor aponta shader de render
+│     ├── StandardMaterial.ts           StructSchema: albedo vec4f, roughness f32, metallic f32
+│     ├── WireframeMaterial.ts          StructSchema: color vec4f
+│     └── PointSpriteMaterial.ts        StructSchema: radius f32, color vec4f
+│
+├── physics/
+│     ├── bodies/                     ← contêineres de estado físico
+│     │     ├── PhysicsBody.ts          abstract — StructSchema: mass f32, linearDamping f32
+│     │     ├── RigidBody.ts            TensorSchema: pos, rot, linVel, angVel
+│     │     ├── SoftBody.ts             TensorSchema: partículas [pos vec3f, vel vec3f, mass f32]
+│     │     └── FluidBody.ts            TensorSchema: partículas [pos vec3f, vel vec3f, density f32, pressure f32]
+│     │
+│     ├── forcefields/                ← campos de força — ambiental ou corpo-a-corpo
+│     │     ├── ForceField.ts           abstract — StructSchema: strength f32, falloff f32
+│     │     ├── GravityField.ts         StructSchema: acceleration vec3f
+│     │     ├── WindField.ts            StructSchema: direction vec3f, magnitude f32
+│     │     ├── VortexField.ts          StructSchema: axis vec3f, magnitude f32
+│     │     ├── DragField.ts            StructSchema: linearCoeff f32, quadraticCoeff f32
+│     │     └── BuoyancyField.ts        StructSchema: fluidDensity f32, fluidLevel f32
+│     │
+│     ├── colliders/                  ← formas de colisão — material de contato
+│     │     ├── Collider.ts             abstract — StructSchema: friction f32, restitution f32
+│     │     ├── BoxCollider.ts          StructSchema: halfExtents vec3f
+│     │     ├── SphereCollider.ts       StructSchema: radius f32
+│     │     ├── PlaneCollider.ts        StructSchema: normal vec3f, offset f32
+│     │     └── MeshCollider.ts         TensorSchema: triângulos [vec3f, vec3f, vec3f]
+│     │
+│     ├── constraints/                ← vínculos entre EntityIds
+│     │     ├── Constraint.ts           abstract — StructSchema: bodyA u32, bodyB u32
+│     │     ├── SpringConstraint.ts     TensorSchema: pares [bodyA, bodyB, stiffness, restLength, damping]
+│     │     ├── JointConstraint.ts      StructSchema: anchorA vec3f, anchorB vec3f, limits vec2f
+│     │     └── DistanceConstraint.ts   StructSchema: minDist f32, maxDist f32
+│     │
+│     └── solvers/                    ← algoritmos de simulação — PipelineDescriptor aponta compute shaders
+│           ├── Solver.ts               interface — implements Resource
+│           ├── LCPSolver.ts            RigidBody — LCP/PGS
+│           ├── XPBDSolver.ts           SoftBody — XPBD
+│           ├── FEMSolver.ts            SoftBody — XPBD-FEM T4
+│           ├── MPMSolver.ts            FluidBody/SoftBody — MLS-MPM
+│           ├── PBFSolver.ts            FluidBody — Position-Based Fluids
+│           └── SPHSolver.ts            FluidBody — WCSPH
+│
+├── particles/                        ← sistema de partículas visual
+│     ├── ParticleEmitter.ts            abstract — TensorSchema: [pos, vel, life, size]
+│     ├── ScriptedParticleEmitter.ts    CPU — até ~5k
+│     ├── ComputeParticleEmitter.ts     GPU compute
+│     └── shapes/
+│           ├── EmitterShape.ts
+│           ├── ConeEmitterShape.ts
+│           ├── PointEmitterShape.ts
+│           └── SphereEmitterShape.ts
+│
+└── gpu/                              ← infraestrutura GPU auxiliar
+      ├── WgslComposer.ts               composição de módulos WGSL
+      ├── GraphColorSolver.ts           greedy graph coloring — SoftBody e FEM
+      ├── NeighborSearchGrid.ts         TensorSchema: células de hash espacial — SPH/PBF
+      └── EulerianGrid.ts               TensorSchema: grade de velocidade e massa — MPM/FLIP
 ```
