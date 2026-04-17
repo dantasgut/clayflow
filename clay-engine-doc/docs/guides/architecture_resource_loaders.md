@@ -1090,7 +1090,13 @@ Reorganização da Camada 1 com três responsabilidades alinhadas às fases reai
 
 ```mermaid
 classDiagram
-    namespace Hardware_API_Proposta {
+
+    %% ═══════════════════════════════════════════════════════════════════════
+    %% FRONTEIRA PÚBLICA — core/interfaces/
+    %% Tudo que cruza a fronteira da Camada 1 é interface.
+    %% Camadas superiores importam APENAS deste namespace.
+    %% ═══════════════════════════════════════════════════════════════════════
+    namespace Interfaces_Publicas {
 
         %% ── CONTEXTO ─────────────────────────────────────────────────────────
         class Context {
@@ -1100,302 +1106,417 @@ classDiagram
             +format: GPUTextureFormat
             +canvas: GPUCanvasContext
         }
-        class GpuContext {
-            <<Implementation — Value Object, não Singleton>>
-        }
 
-        %% ── BASE WRAPPER TIPADA ──────────────────────────────────────────────
-        class EngineResource~T~ {
-            <<Abstract Wrapper>>
+        %% ── FAMÍLIA 1: INTERFACES DE MEMÓRIA ─────────────────────────────────
+        class Buffer {
+            <<Interface — recurso de memória>>
             +id: string
-            +label: string
-            +native: T
-            +destroy()
-        }
-
-        %% ── HIERARQUIA DE BUFFERS POR USO ────────────────────────────────────
-        class EngineBuffer {
-            <<Abstract — GPUBuffer>>
             +size: number
             +usage: GPUBufferUsageFlags
+            +destroy()
         }
         class VertexBuffer {
-            <<VERTEX | COPY_DST>>
+            <<Interface>>
             +stride: number
             +vertexCount: number
         }
         class IndexBuffer {
-            <<INDEX | COPY_DST>>
+            <<Interface>>
             +indexCount: number
             +format: GPUIndexFormat
         }
         class UniformBuffer {
-            <<UNIFORM | COPY_DST>>
+            <<Interface>>
             +bindingSize: number
         }
         class StorageBuffer {
-            <<STORAGE | COPY_SRC | COPY_DST>>
+            <<Interface>>
         }
         class IndirectBuffer {
-            <<INDIRECT | STORAGE | COPY_DST>>
+            <<Interface>>
         }
         class StagingBuffer {
-            <<MAP_READ | COPY_DST>>
+            <<Interface>>
             +mapAsync() Promise~ArrayBuffer~
         }
-
-        %% ── OUTROS RECURSOS GPU ──────────────────────────────────────────────
-        class EngineTexture {
-            <<GPUTexture>>
+        class Texture {
+            <<Interface — recurso de imagem>>
+            +id: string
             +width: number
             +height: number
             +format: GPUTextureFormat
+            +destroy()
         }
-        class EngineBindGroup {
-            <<GPUBindGroup>>
+        class Sampler {
+            <<Interface>>
+            +id: string
+            +destroy()
+        }
+
+        %% ── FAMÍLIA 2: INTERFACES DE ESTADO ──────────────────────────────────
+        class BindGroupLayout {
+            <<Interface>>
+            +id: string
+        }
+        class BindGroup {
+            <<Interface>>
+            +id: string
             +layoutId: string
         }
-        class EnginePipeline~T~ {
-            <<T: GPURenderPipeline | GPUComputePipeline>>
+        class Pipeline~T~ {
+            <<Interface — T: GPURenderPipeline | GPUComputePipeline>>
+            +id: string
+        }
+        class RenderBundle {
+            <<Interface — comandos pré-gravados>>
+            +id: string
         }
 
-        %% ── FASE 1: CRIAÇÃO — 4 alocadores focados ───────────────────────────
+        %% ── INTERFACES DE GRAVAÇÃO ───────────────────────────────────────────
+        %% Transientes — sem id persistente, sem destroy()
+        class ComputePass {
+            <<Interface — transiente>>
+            +setPipeline(pipeline: Pipeline)
+            +setBindGroup(index, bindGroup: BindGroup)
+            +dispatchWorkgroups(x, y?, z?)
+            +end()
+        }
+        class RenderPass {
+            <<Interface — transiente>>
+            +setPipeline(pipeline: Pipeline)
+            +setBindGroup(index, bindGroup: BindGroup)
+            +setVertexBuffer(slot, buffer: VertexBuffer)
+            +setIndexBuffer(buffer: IndexBuffer)
+            +draw(vertexCount, instanceCount?)
+            +drawIndexed(indexCount, instanceCount?)
+            +executeBundles(bundles: RenderBundle[])
+            +end()
+        }
 
-        class Resources {
+        %% ── ALOCADORES E CACHES ──────────────────────────────────────────────
+        class BufferAllocator {
             <<Interface>>
-            +buffers: GpuBufferAllocator
-            +textures: GpuTextureAllocator
-            +bindings: GpuBindingCache
-            +pipelines: GpuPipelineCache
-            +bundles: RenderBundleCache
-            +destroyAll()
-        }
-        class GpuResources {
-            <<Implementation — Facade de composição>>
-        }
-
-        class RenderBundleCache {
-            <<Comandos de render pré-gravados — GPURenderBundle>>
-            +beginRecording(colorFmts, depthFmt) GPURenderBundleEncoder
-            +finishRecording(id, encoder) GPURenderBundle
-            +get(id) GPURenderBundle
-        }
-
-        class BufferDescriptor~T extends EngineBuffer~ {
-            <<Descritor Tipado — codifica usage e campos>>
-            +type: BufferType
-            +size: number
-            +label?: string
-        }
-        class GpuBufferAllocator {
-            <<Memória linear — device.createBuffer()>>
-            +create~T~(id, desc: BufferDescriptor~T~) T
-            +get(id) EngineBuffer
+            +createVertex(id, stride, count) VertexBuffer
+            +createIndex(id, count, format) IndexBuffer
+            +createUniform(id, size) UniformBuffer
+            +createStorage(id, size) StorageBuffer
+            +createIndirect(id) IndirectBuffer
+            +createStaging(id, size) StagingBuffer
+            +get(id) Buffer
             +destroy(id)
         }
-
-        class TextureDescriptor~T extends EngineTexture~ {
-            <<Descritor Tipado — codifica format, usage, dimensões>>
-            +type: TextureType
-            +width: number
-            +height: number
-            +format: GPUTextureFormat
+        class TextureAllocator {
+            <<Interface>>
+            +createTexture(id, desc) Texture
+            +createSampler(id, desc) Sampler
+            +getTexture(id) Texture
+            +getSampler(id) Sampler
+            +destroyTexture(id)
         }
-        class GpuTextureAllocator {
-            <<Memória de imagem — device.createTexture()>>
-            +create~T~(id, desc: TextureDescriptor~T~) T
-            +get(id) EngineTexture
-            +destroy(id)
-        }
-
-        class GpuBindingCache {
-            <<Estado de binding — layouts, bind groups e samplers>>
-            +getLayout(id, entries) GPUBindGroupLayout
-            +getBindGroup(id, layoutId, entries) EngineBindGroup
-            +getSampler(id, desc) GPUSampler
+        class BindingCache {
+            <<Interface>>
+            +getLayout(id, entries) BindGroupLayout
+            +getBindGroup(id, layoutId, entries) BindGroup
             +destroyBindGroup(id, layoutId)
             +clearCache()
         }
-
-        class GpuPipelineCache {
-            <<Programas compilados — cache com despacho por tipo>>
-            +getShaderModule(id, wgsl) GPUShaderModule
-            +register(type: string, compiler: PipelineCompiler)
-            +get(descriptor: PipelineDescriptor) EnginePipeline
+        class PipelineCache {
+            <<Interface>>
+            +getCompute(descriptor: PipelineDescriptor) Pipeline~GPUComputePipeline~
+            +getRender(descriptor: PipelineDescriptor) Pipeline~GPURenderPipeline~
         }
-        class PipelineCompiler {
-            <<Interface — compilador por tipo de pipeline>>
-            +compile(descriptor: PipelineDescriptor, ctx: Context) EnginePipeline
-        }
-        class ComputePipelineCompiler {
-            <<Compila GPUComputePipeline>>
-        }
-        class RenderPipelineCompiler {
-            <<Compila GPURenderPipeline>>
+        class BundleCache {
+            <<Interface>>
+            +beginRecording(colorFmts, depthFmt) RenderPass
+            +finishRecording(id) RenderBundle
+            +get(id) RenderBundle
         }
 
-        %% ── FASE 2: GRAVAÇÃO (descartável por frame) ─────────────────────────
-        class GpuEncoder {
-            <<Wrapper GPUCommandEncoder — por frame>>
-            +beginRenderPass(colorView, depthView, opts) GPURenderPassEncoder
-            +beginComputePass(opts) GPUComputePassEncoder
-            +copy(src, dst, size, srcOff?, dstOff?)
-            +readback(src: StagingBuffer, size) Promise~ArrayBuffer~
+        %% ── FACADES ──────────────────────────────────────────────────────────
+        class Resources {
+            <<Interface>>
+            +buffers: BufferAllocator
+            +textures: TextureAllocator
+            +bindings: BindingCache
+            +pipelines: PipelineCache
+            +bundles: BundleCache
+            +destroyAll()
+        }
+        class Encoder {
+            <<Interface — transiente, por frame>>
+            +beginRenderPass(colorView, depthView, opts) RenderPass
+            +beginComputePass(opts) ComputePass
+            +copy(src: Buffer, dst: Buffer, size, srcOff?, dstOff?)
             +resolveTimestamps(querySet, dst: StagingBuffer, first, count)
-            +finish() GPUCommandBuffer
         }
-
-        %% ── PROFILER ─────────────────────────────────────────────────────────
+        class Commands {
+            <<Interface>>
+            +createEncoder(label?) Encoder
+            +submit(encoders: Encoder[])
+            +write(buffer: Buffer, data: ArrayBufferView, offset?)
+            +readback(staging: StagingBuffer) Promise~ArrayBuffer~
+        }
         class Profiler {
             <<Interface>>
             +isSupported: boolean
             +timestampWritesForPass(begin, end) object
             +readResultsRange(first, count) Promise~BigInt64Array~
         }
-        class ProfilerSystem {
-            <<Implementation>>
-        }
-
-        %% ── FASE 3: SUBMISSÃO E ESCRITA ─────────────────────────────────────
-        class Commands {
-            <<Interface — fase de gravação e submissão>>
-            +createEncoder(label?) GpuEncoder
-            +submit(buffers: GPUCommandBuffer[])
-            +write(buffer: EngineBuffer, data: ArrayBufferView, offset?)
-        }
-        class GpuCommands {
-            <<Implementation>>
-        }
-
-        %% ── PONTO DE ENTRADA — Camada 1 ──────────────────────────────────────
         class EngineCore {
             <<Interface — Facade da Camada 1>>
-            +ctx: Context
             +resources: Resources
             +commands: Commands
             +profiler: Profiler
             +initialize(canvas) Promise~void~
             +destroy()
         }
-        class GpuEngineCore {
-            <<Implementation — inicializado uma vez, não Singleton>>
-        }
     }
 
-    %% ── RELAÇÕES ─────────────────────────────────────────────────────────────
+    %% ═══════════════════════════════════════════════════════════════════════
+    %% IMPLEMENTAÇÕES — core/gpu/
+    %% Nunca importadas por camadas superiores.
+    %% ═══════════════════════════════════════════════════════════════════════
+    namespace Gpu_Implementation {
+        class GpuContext {
+            <<Value Object, não Singleton>>
+        }
+        class GpuEngineCore {
+            <<inicializado uma vez, não Singleton>>
+            -ctx: GpuContext
+        }
+        class GpuResources {
+            <<Facade de composição>>
+        }
+        class GpuCommands {  }
+        class GpuEncoder {  }
+        class GpuBufferAllocator {  }
+        class GpuTextureAllocator {  }
+        class GpuBindingCache {  }
+        class GpuPipelineCache {  }
+        class GpuBundleCache {  }
+        class ProfilerSystem {  }
+    }
 
-    EngineBuffer --|> EngineResource : extends
-    EngineTexture --|> EngineResource : extends
-    EngineBindGroup --|> EngineResource : extends
-    EnginePipeline --|> EngineResource : extends
+    %% ── RELAÇÕES: HIERARQUIA DE INTERFACES ───────────────────────────────────
 
-    VertexBuffer --|> EngineBuffer
-    IndexBuffer --|> EngineBuffer
-    UniformBuffer --|> EngineBuffer
-    StorageBuffer --|> EngineBuffer
-    IndirectBuffer --|> EngineBuffer
-    StagingBuffer --|> EngineBuffer
+    %% Família 1 — Memória
+    VertexBuffer --|> Buffer
+    IndexBuffer --|> Buffer
+    UniformBuffer --|> Buffer
+    StorageBuffer --|> Buffer
+    IndirectBuffer --|> Buffer
+    StagingBuffer --|> Buffer
+
+    %% Família 2 — Estado (interfaces planas, sem base comum obrigatória)
+
+    %% ── RELAÇÕES: IMPLEMENTAÇÕES ─────────────────────────────────────────────
 
     GpuContext ..|> Context : implementa
+    GpuEngineCore ..|> EngineCore : implementa
+    GpuEngineCore *-- GpuContext : detém — privado
+    GpuEngineCore *-- GpuResources : detém
+    GpuEngineCore *-- GpuCommands : detém
+    GpuEngineCore *-- ProfilerSystem : detém
+
     GpuResources ..|> Resources : implementa
     GpuResources *-- GpuBufferAllocator
     GpuResources *-- GpuTextureAllocator
     GpuResources *-- GpuBindingCache
     GpuResources *-- GpuPipelineCache
-    GpuResources *-- RenderBundleCache
+    GpuResources *-- GpuBundleCache
 
-    GpuBufferAllocator ..> Context : usa device
-    GpuTextureAllocator ..> Context : usa device
-    GpuBindingCache ..> Context : usa device
-    GpuPipelineCache ..> Context : usa device
-    RenderBundleCache ..> Context : usa device
-
-    GpuBufferAllocator ..> BufferDescriptor : recebe como parâmetro
-    GpuBufferAllocator ..> EngineBuffer : produz subtipos tipados via T
-    GpuTextureAllocator ..> TextureDescriptor : recebe como parâmetro
-    GpuTextureAllocator ..> EngineTexture : produz
-    GpuBindingCache ..> EngineBindGroup : produz
-    GpuPipelineCache ..> EnginePipeline : produz
-    GpuPipelineCache --> PipelineCompiler : despacha por type
-    ComputePipelineCompiler ..|> PipelineCompiler : implementa
-    RenderPipelineCompiler ..|> PipelineCompiler : implementa
-
-    GpuEngineCore ..|> EngineCore : implementa
-    GpuEngineCore *-- GpuContext : detém
-    GpuEngineCore *-- GpuResources : detém
-    GpuEngineCore *-- GpuCommands : detém
-    GpuEngineCore *-- ProfilerSystem : detém
+    GpuBufferAllocator ..|> BufferAllocator : implementa
+    GpuTextureAllocator ..|> TextureAllocator : implementa
+    GpuBindingCache ..|> BindingCache : implementa
+    GpuPipelineCache ..|> PipelineCache : implementa
+    GpuBundleCache ..|> BundleCache : implementa
 
     GpuCommands ..|> Commands : implementa
-    GpuCommands ..> Context : usa device e queue
-    GpuCommands ..> GpuEncoder : createEncoder() — delega a device.createCommandEncoder()
-    GpuEncoder ..> StagingBuffer : readback e resolveTimestamps
-
+    GpuEncoder ..|> Encoder : implementa
     ProfilerSystem ..|> Profiler : implementa
-    ProfilerSystem ..> Context : usa device
-    ProfilerSystem ..> StagingBuffer : resolve timestamps via mapAsync()
 ```
+
+### Princípio da fronteira
+
+Toda interface em `Interfaces_Publicas` é o **contrato exportado** da Camada 1. Nenhum tipo concreto (`Gpu*`) escapa — camadas superiores operam exclusivamente sobre interfaces: `Buffer`, `Texture`, `Pipeline`, `ComputePass`, `RenderPass`, `Encoder`, etc.
+
+As implementações `Gpu*` ficam inteiramente dentro de `core/gpu/` e só são acessadas via injeção no bootstrap da aplicação.
+
+### Correções aplicadas ao diagrama
+
+| # | Antes | Depois | Princípio |
+|---|---|---|---|
+| 1 | `EngineComputePass`/`EngineRenderPass` herdam `EngineResource` | `ComputePass`/`RenderPass` — interfaces transientes, sem `id`, sem `destroy()` | LSP |
+| 2 | `getLayout()` → `GPUBindGroupLayout`, `getSampler()` → `GPUSampler` | `BindGroupLayout`, `Sampler` — interfaces encapsuladas | Encapsulamento |
+| 3 | `GpuBindingCache` acumula layouts, bind groups e samplers | Samplers migrados para `TextureAllocator`; `BindingCache` foca em layouts e bind groups | SRP |
+| 4 | `PipelineCompiler` Strategy + `register(type, compiler)` para 2 tipos fixos | `PipelineCache.getCompute()` e `getRender()` — dois métodos tipados | YAGNI |
+| 5 | `BufferDescriptor<T>` phantom generic | Métodos de fábrica explícitos por subtipo: `createVertex()`, `createStorage()`, etc. | Simplicidade |
+| 6 | `RenderBundleCache` na família Gravação, retorna `GPURenderBundle` | `BundleCache` na família Estado, retorna `RenderBundle` | Classificação |
+| 7 | `GpuEncoder.readback()` — operação pós-submit no encoder | `Commands.readback(staging)` — pós-submit onde pertence | Responsabilidade temporal |
+| 8 | `Resources` interface com campos `Gpu*` concretos | Campos abstratos: `BufferAllocator`, `TextureAllocator`, `BindingCache`, `PipelineCache`, `BundleCache` | DIP |
+| 9 | `Commands.createEncoder()` retorna `GpuEncoder` concreto | Retorna `Encoder` interface; `Commands.submit(encoders: Encoder[])` | DIP |
+| 10 | Tipos `Engine*` são classes concretas em `core/gpu/` usadas como retorno de interfaces | Todo tipo de fronteira é **interface** em `core/interfaces/` — implementações `Gpu*` nunca escapam | DIP total |
 
 ### Organização de Pacotes — Camada 1
 
 ```
 src/core/
 │
-├── interfaces/                        ← contratos públicos — importados pelas camadas superiores
-│     ├── EngineCore.ts                  Facade da Camada 1
+├── interfaces/                        ← contratos públicos — ÚNICO ponto de importação para C2/C3/C4
+│     │
+│     ├── EngineCore.ts                  facade: resources, commands, profiler
 │     ├── Context.ts                     device, queue, format, canvas
-│     ├── Resources.ts                   buffers, textures, bindings, pipelines, bundles
-│     ├── Commands.ts                    createEncoder, submit, write
+│     │
+│     ├── resources/                     ← interfaces dos tipos de recurso
+│     │     ├── Buffer.ts                  Buffer + VertexBuffer + IndexBuffer + UniformBuffer + StorageBuffer + IndirectBuffer + StagingBuffer
+│     │     ├── Texture.ts                 Texture
+│     │     ├── Sampler.ts                 Sampler
+│     │     ├── BindGroupLayout.ts         BindGroupLayout
+│     │     ├── BindGroup.ts               BindGroup
+│     │     ├── Pipeline.ts                Pipeline<T>
+│     │     └── RenderBundle.ts            RenderBundle
+│     │
+│     ├── passes/                        ← interfaces de gravação (transientes)
+│     │     ├── ComputePass.ts             setPipeline, setBindGroup, dispatchWorkgroups, end
+│     │     └── RenderPass.ts              setPipeline, setBindGroup, setVertexBuffer, draw, end
+│     │
+│     ├── allocators/                    ← interfaces de alocação e cache
+│     │     ├── BufferAllocator.ts         createVertex, createStorage, createUniform, ...
+│     │     ├── TextureAllocator.ts        createTexture, createSampler
+│     │     ├── BindingCache.ts            getLayout, getBindGroup
+│     │     ├── PipelineCache.ts           getCompute, getRender
+│     │     └── BundleCache.ts             beginRecording, finishRecording, get
+│     │
+│     ├── Resources.ts                   facade: buffers, textures, bindings, pipelines, bundles
+│     ├── Encoder.ts                     beginRenderPass, beginComputePass, copy
+│     ├── Commands.ts                    createEncoder, submit, write, readback
 │     └── Profiler.ts                    isSupported, timestampWritesForPass, readResultsRange
 │
-└── gpu/                               ← implementações WebGPU — nunca importadas diretamente por C2/C3/C4
+└── gpu/                               ← implementações WebGPU — NUNCA importadas por C2/C3/C4
       ├── GpuEngineCore.ts               implementa EngineCore
       ├── GpuContext.ts                  implementa Context (value object)
-      ├── GpuCommands.ts                 implementa Commands — createEncoder, submit, write via GPUQueue
-      ├── GpuEncoder.ts                  wrapper de GPUCommandEncoder — descartável por frame
+      ├── GpuCommands.ts                 implementa Commands
+      ├── GpuEncoder.ts                  implementa Encoder
       │
       ├── profiler/
-      │     └── ProfilerSystem.ts        implementa Profiler — GPUQuerySet + StagingBuffer
+      │     └── ProfilerSystem.ts        implementa Profiler
       │
       └── resources/
-            ├── GpuResources.ts          implementa Resources — facade de composição
-            │
-            ├── base/
-            │     └── EngineResource.ts  abstract wrapper genérico T — base de todos os wrappers
-            │
-            ├── buffers/
-            │     ├── GpuBufferAllocator.ts
-            │     ├── BufferDescriptor.ts  descritor tipado — codifica usage e campos por subtipo
-            │     ├── EngineBuffer.ts      abstract — GPUBufferUsageFlags
-            │     ├── VertexBuffer.ts      VERTEX | COPY_DST
-            │     ├── IndexBuffer.ts       INDEX | COPY_DST
-            │     ├── UniformBuffer.ts     UNIFORM | COPY_DST
-            │     ├── StorageBuffer.ts     STORAGE | COPY_SRC | COPY_DST
-            │     ├── IndirectBuffer.ts    INDIRECT | STORAGE | COPY_DST
-            │     └── StagingBuffer.ts     MAP_READ | COPY_DST
-            │
-            ├── textures/
-            │     ├── GpuTextureAllocator.ts
-            │     ├── TextureDescriptor.ts  descritor tipado — format, usage, dimensões
-            │     └── EngineTexture.ts
-            │
-            ├── bindings/
-            │     ├── GpuBindingCache.ts    layouts, bind groups, samplers
-            │     └── EngineBindGroup.ts
-            │
-            ├── pipelines/
-            │     ├── GpuPipelineCache.ts          shader modules — cache com despacho por tipo
-            │     ├── EnginePipeline.ts             wrapper genérico T: GPURenderPipeline | GPUComputePipeline
-            │     ├── PipelineCompiler.ts           interface — compilador por tipo de pipeline
-            │     ├── ComputePipelineCompiler.ts    compila GPUComputePipeline
-            │     └── RenderPipelineCompiler.ts     compila GPURenderPipeline
-            │
-            └── bundles/
-                  └── RenderBundleCache.ts  GPURenderBundle — pré-gravado, reutilizável
+            ├── GpuResources.ts          implementa Resources
+            ├── GpuBufferAllocator.ts    implementa BufferAllocator — classes internas: GpuVertexBuffer, GpuStorageBuffer, ...
+            ├── GpuTextureAllocator.ts   implementa TextureAllocator — classes internas: GpuTexture, GpuSampler
+            ├── GpuBindingCache.ts       implementa BindingCache — classes internas: GpuBindGroupLayout, GpuBindGroup
+            ├── GpuPipelineCache.ts      implementa PipelineCache — classes internas: GpuPipeline<T>
+            ├── GpuBundleCache.ts        implementa BundleCache — classes internas: GpuRenderBundle
+            ├── GpuComputePass.ts        implementa ComputePass
+            └── GpuRenderPass.ts         implementa RenderPass
 ```
 
 > **Regra de importação:** camadas superiores (C2, C3, C4) importam exclusivamente de `core/interfaces/`.
+> A pasta `core/gpu/` contém todas as implementações WebGPU — substituível por outro backend (`webgl/`, `mock/`) sem tocar nos contratos. As classes concretas `Gpu*` são internas a cada alocador e nunca exportadas.
+
+> **Regra de importação:** camadas superiores (C2, C3, C4) importam exclusivamente de `core/interfaces/`.
 > A pasta `core/gpu/` é a implementação WebGPU — substituível por outro backend (`webgl/`, `mock/`) sem tocar os contratos.
+
+---
+
+### Pipeline completo — fluxo de um frame via Camada 1
+
+O fluxo segue sempre a mesma ordem: alocar memória → escrever dados → compilar pipelines → criar layouts e bind groups → gravar comandos → submeter.
+
+```typescript
+// ── 1. ALOCAÇÃO DE MEMÓRIA ────────────────────────────────────────────────
+
+const particleBuffer: StorageBuffer = core.resources.buffers.createStorage(
+  'particles', PARTICLE_COUNT * PARTICLE_STRIDE
+);
+
+const cameraBuffer: UniformBuffer = core.resources.buffers.createUniform(
+  'camera', CAMERA_STRIDE
+);
+
+const materialBuffer: UniformBuffer = core.resources.buffers.createUniform(
+  'material', MATERIAL_STRIDE
+);
+
+// ── 2. ESCRITA DE DADOS CPU → GPU ─────────────────────────────────────────
+
+core.commands.write(particleBuffer, initialParticleData);
+core.commands.write(cameraBuffer,   cameraData);
+core.commands.write(materialBuffer, materialData);
+
+// ── 3. COMPILAÇÃO DE PIPELINES ────────────────────────────────────────────
+
+const computePipeline = core.resources.pipelines.getCompute({
+  id:          'pipeline_particle_sim',
+  type:        'compute',
+  shaderId:    'particle_sim',
+  entryPoints: ['cs_main'],
+  source:      particleSimWGSL,
+});
+
+const renderPipeline = core.resources.pipelines.getRender({
+  id:          'pipeline_particle_render',
+  type:        'render',
+  shaderId:    'particle_render',
+  entryPoints: ['vs_main', 'fs_main'],
+  source:      particleRenderWGSL,
+});
+
+// ── 4. LAYOUTS E BIND GROUPS ──────────────────────────────────────────────
+// Layout declara quais bindings existem em cada @group
+// Bind group associa buffers concretos a cada @binding
+
+const computeLayout: BindGroupLayout = core.resources.bindings.getLayout(
+  'layout_compute',
+  [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }]
+);
+
+const computeBindGroup: BindGroup = core.resources.bindings.getBindGroup(
+  'bg_particles', 'layout_compute',
+  [{ binding: 0, resource: { buffer: particleBuffer } }]  // @group(0) @binding(0)
+);
+
+const renderLayout: BindGroupLayout = core.resources.bindings.getLayout(
+  'layout_render',
+  [
+    { binding: 0, visibility: GPUShaderStage.VERTEX,   buffer: { type: 'uniform' } },
+    { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+  ]
+);
+
+const renderBindGroup: BindGroup = core.resources.bindings.getBindGroup(
+  'bg_render', 'layout_render',
+  [
+    { binding: 0, resource: { buffer: cameraBuffer } },   // @group(0) @binding(0)
+    { binding: 1, resource: { buffer: materialBuffer } }, // @group(0) @binding(1)
+  ]
+);
+
+// ── 5. GRAVAÇÃO DE COMANDOS ───────────────────────────────────────────────
+
+const encoder: Encoder = core.commands.createEncoder();
+
+// Compute pass — simula partículas, escreve no particleBuffer
+const computePass: ComputePass = encoder.beginComputePass();
+computePass.setPipeline(computePipeline);
+computePass.setBindGroup(0, computeBindGroup);  // @group(0) → particleBuffer
+computePass.dispatchWorkgroups(Math.ceil(PARTICLE_COUNT / 64));
+computePass.end();
+
+// Render pass — lê particleBuffer já escrito pelo compute pass
+const renderPass: RenderPass = encoder.beginRenderPass(colorView, depthView);
+renderPass.setPipeline(renderPipeline);
+renderPass.setBindGroup(0, renderBindGroup);    // @group(0) → camera + material
+renderPass.draw(PARTICLE_COUNT);
+renderPass.end();
+
+// ── 6. SUBMISSÃO ──────────────────────────────────────────────────────────
+
+core.commands.submit([encoder]);
+// submit() internamente: encoder.finish() → GPUCommandBuffer → GPUQueue.submit()
+// GPUCommandBuffer nunca escapa — produzido e consumido dentro de Commands
+```
 
 ---
 
@@ -1410,7 +1531,6 @@ classDiagram
     namespace Camada_1 {
         class EngineCore {
             <<Facade da Camada 1>>
-            +ctx: Context
             +resources: Resources
             +commands: Commands
             +profiler: Profiler
@@ -1419,24 +1539,24 @@ classDiagram
         }
         class Resources {
             <<Interface — fase de alocação>>
-            +buffers: GpuBufferAllocator
-            +textures: GpuTextureAllocator
-            +bindings: GpuBindingCache
-            +pipelines: GpuPipelineCache
-            +bundles: RenderBundleCache
+            +buffers: BufferAllocator
+            +textures: TextureAllocator
+            +bindings: BindingCache
+            +pipelines: PipelineCache
+            +bundles: BundleCache
         }
         class Commands {
             <<Interface — fase de gravação e submissão>>
-            +createEncoder(label?) GpuEncoder
-            +submit(buffers: GPUCommandBuffer[])
-            +write(buffer: EngineBuffer, data: ArrayBufferView, offset?)
+            +createEncoder(label?) Encoder
+            +submit(encoders: Encoder[])
+            +write(buffer: Buffer, data: ArrayBufferView, offset?)
+            +readback(staging: StagingBuffer) Promise~ArrayBuffer~
         }
-        class GpuEncoder {
-            <<Wrapper por frame — Camada 1>>
-            +beginRenderPass(colorView, depthView, opts) GPURenderPassEncoder
-            +beginComputePass(opts) GPUComputePassEncoder
-            +copy(src, dst, size)
-            +finish() GPUCommandBuffer
+        class Encoder {
+            <<Interface — transiente, por frame>>
+            +beginRenderPass(colorView, depthView, opts) RenderPass
+            +beginComputePass(opts) ComputePass
+            +copy(src: Buffer, dst: Buffer, size)
         }
     }
 
@@ -1456,6 +1576,7 @@ classDiagram
     namespace Contratos_Recurso {
         class Resource {
             <<Interface — dado GPU gerenciável>>
+            +type: string
             +getDescriptors() GPUDescriptor[]
             +getPipelineDescriptors() PipelineDescriptor[]
             +pack() Float32Array
@@ -1504,14 +1625,15 @@ classDiagram
             +usage: number
         }
         class PipelineDescriptor {
-            <<Descrição de pipeline GPU>>
+            <<Descrição de pipeline GPU — auto-suficiente>>
             +id: string
             +type: string
             +shaderId: string
             +entryPoints: string[]
+            +source: string
         }
     }
-    note for PipelineDescriptor "Descreve o programa GPU — não o layout de dados.\nNão estende Schema: Schema define estrutura de memória;\nPipelineDescriptor define qual shader compila sobre ela."
+    note for PipelineDescriptor "Descreve o programa GPU e carrega o WGSL.\nO PipelineCache compila diretamente do source — sem registry intermediário."
 
     %% ── SISTEMAS LAYER 2 ─────────────────────────────────────────────────────
     namespace Sistemas {
@@ -1526,11 +1648,7 @@ classDiagram
             <<Coordena gravação e submissão de comandos GPU>>
             +run(world: World, core: EngineCore)
         }
-        class ShaderRegistry {
-            <<Registro de WGSL — ponte Layer 3 para Layer 1>>
-            +register(id: string, wgsl: string)
-            +get(id: string) string
-        }
+
     }
 
     %% ── FENÔMENOS GLOBAIS ────────────────────────────────────────────────────
@@ -1595,14 +1713,13 @@ classDiagram
     ResourceSystem --> EventBus : emite eventos após flush
     ExecutionSystem ..> EventBus : escuta eventos de World
     ExecutionSystem --> World : consulta entidades por tipo
-    ExecutionSystem --> ShaderRegistry : busca wgsl por shaderId
     ExecutionSystem ..> PipelineDescriptor : compila pipelines via Layer 1
     ExecutionSystem --> EngineCore : grava encoder e submete
 
     %% Layer 1 — referências internas
     EngineCore --> Resources : resources
     EngineCore --> Commands : commands
-    Commands ..> GpuEncoder : createEncoder — cria por frame
+    Commands ..> Encoder : createEncoder — cria por frame
 
     %% Eventos
     DefaultEventBus ..|> EventBus : implementa
@@ -1634,8 +1751,7 @@ src/scene/
 │
 ├── systems/                          ← sistemas de coordenação — acionados por Layer 4
 │     ├── ResourceSystem.ts             coordena ciclo de vida de recursos GPU
-│     ├── ExecutionSystem.ts            coordena gravação e submissão de comandos GPU
-│     └── ShaderRegistry.ts            registro de WGSL — ponte Layer 3 → Layer 1
+│     └── ExecutionSystem.ts            coordena gravação e submissão de comandos GPU
 │
 └── events/                           ← sistema de eventos de pipeline GPU
       ├── EventBus.ts                   interface pubsub — importada por L3 e L4
@@ -1655,25 +1771,49 @@ src/scene/
 
 ## Proposta — Camada 3: Elementos de Cena e Física
 
-A Camada 3 contém todos os elementos concretos da engine: recursos visuais, corpos físicos, partículas e infraestrutura GPU auxiliar. **Toda classe com dado GPU implementa `Resource`** — o contrato da Camada 2 que garante alocação, atualização e descarte via `ResourceSystem`, sem acesso direto à Camada 1.
+A Camada 3 contém todos os elementos concretos da engine: recursos visuais, corpos físicos, partículas e infraestrutura GPU auxiliar. **Todo elemento com dado GPU implementa `Resource`** — o contrato da Camada 2 que garante alocação, atualização e descarte via `ResourceSystem`, sem acesso direto à Camada 1.
 
-| Removido | Motivo |
-|---|---|
-| `PhysicsComputePass` e hierarquia | Substituído por `ResourceSystem` + `ExecutionSystem` |
-| `FluidParticleVisualAdapter` | Anti-pattern de herança por conveniência |
-| `XPBDComputePass` | Deprecated — funcionalidade coberta por `SoftBody` + `ResourceSystem` |
-| `ColliderDescriptorUploader` | Absorvido pelo padrão `Resource.getDescriptors()` |
-| `ShaderLibrary` | Absorvido por `ShaderRegistry` na Camada 2 |
-| `FEMGraphColorSolver` | Unificado com `GraphColorSolver` — mesmo algoritmo |
-| `bufferIds?: object` em `PhysicsBody` | Substituído por `getDescriptors()` tipado |
+O padrão é idêntico para física, geometria, material, luz e câmera:
+- `getDescriptors()` declara slots GPU via `StructSchema` (uniforms) ou `TensorSchema` (arrays de partículas e constraints)
+- `getPipelineDescriptors()` declara qual shader processa esses dados
+- `pack()` serializa o estado atual para o buffer
+
+### O que foi removido e por quê
+
+| Removido | Substituto | Motivo |
+|---|---|---|
+| `PhysicsComputePass` e hierarquia | `ResourceSystem` + `ExecutionSystem` | Passes acoplavam à Camada 1 — a Camada 2 assume coordenação |
+| `FluidParticleVisualAdapter` | `FluidBody` + `PointCloudGeometry` + `PointSpriteMaterial` | Anti-pattern de herança por conveniência |
+| `XPBDComputePass` | `SoftBody` + `XPBDSolver` | Deprecated — pass obsoleto ainda registrável |
+| `ColliderDescriptorUploader` | `Collider.getDescriptors()` | Absorvido pelo contrato `Resource` |
+| `ShaderLibrary` | `PipelineDescriptor.source` | WGSL viaja com o descritor — sem registry intermediário |
+| `FEMGraphColorSolver` | `GraphColorSolver` | Mesmo algoritmo — duas implementações sem razão |
+| `bufferIds?: object` em `PhysicsBody` | `getDescriptors(): GPUDescriptor[]` | Perda total de segurança de tipos |
+| `FEMBody`, `MPMBody`, `PBFBody`, `SPHBody` | `SoftBody` / `FluidBody` + `Solver` correspondente | O algoritmo não define o tipo de corpo — o Solver é composable |
+| `Force` CPU-only | `ForceField` implements Resource | Forças vão para shaders — precisam de Schema e GPUDescriptor |
+| `ConstantForce`, `FunctionalForce` | `GravityField`, `WindField`, `VortexField`, `DragField` | Nomes semânticos — cada campo tem Schema próprio |
+
+### Composição ECS — um EntityId, múltiplos Resources
+
+Um mesmo EntityId pode acumular papéis ortogonais. O Solver consulta o `World` e lê os buffers de cada tipo:
+
+```
+Planeta:    Transform + RigidBody + SphereGeometry + StandardMaterial + GravityField + SphereCollider
+Pano:       Transform + SoftBody + PlaneGeometry + StandardMaterial + XPBDSolver + SpringConstraint
+Fluido:     Transform + FluidBody + PointCloudGeometry + PointSpriteMaterial + SPHSolver + BuoyancyField
+Vento:      Transform + WindField   ← entidade ambiental sem body
+```
+
+`ForceField` não é propriedade de um body — é um Resource independente que o Solver lê via `World.query(['ForceField'])`.
 
 ```mermaid
 classDiagram
 
-    %% ── CAMADA 2 — CONTRATOS ─────────────────────────────────────────────────
+    %% ── CAMADA 2 — CONTRATOS (referência) ───────────────────────────────────
     namespace Camada_2 {
         class Resource {
             <<Interface — Camada 2>>
+            +type: string
             +getDescriptors() GPUDescriptor[]
             +getPipelineDescriptors() PipelineDescriptor[]
             +pack() Float32Array
@@ -1681,7 +1821,7 @@ classDiagram
         class World {
             <<ECS store — Camada 2>>
             +insert(id: EntityId, resource: Resource, tags: string[])
-            +query(types: string[]) EntityId[]
+            +query(tags: string[]) EntityId[]
         }
     }
 
@@ -1689,12 +1829,14 @@ classDiagram
     namespace Recursos_Cena {
         class Transform {
             <<implements Resource>>
+            <<StructSchema: position vec3f, rotation vec4f, scale vec3f>>
             +position: vec3
             +rotation: quat
             +scale: vec3
         }
         class Camera {
             <<implements Resource>>
+            <<StructSchema: view mat4x4f, projection mat4x4f, near f32, far f32>>
             +fov: number
             +aspect: number
             +near: number
@@ -1702,17 +1844,21 @@ classDiagram
         }
         class Light {
             <<Abstract — implements Resource>>
+            <<StructSchema: color vec3f, intensity f32>>
             +color: vec3
             +intensity: number
         }
         class DirectionalLight {
+            <<StructSchema estende Light + direction vec3f>>
             +direction: vec3
         }
         class PointLight {
+            <<StructSchema estende Light + position vec3f + radius f32>>
             +radius: number
         }
         class RenderTarget {
             <<implements Resource>>
+            <<GPUDescriptor: textura de cor e depth>>
             +width: number
             +height: number
         }
@@ -1722,17 +1868,25 @@ classDiagram
     namespace Geometria {
         class Geometry {
             <<Abstract — implements Resource>>
+            <<TensorSchema: vértices [pos vec3f, normal vec3f, uv vec2f]>>
+            <<PipelineDescriptor: compute shader — quando forma é calculada na GPU>>
             +vertexCount: number
             +indexCount: number
         }
         class ParametricGeometry {
-            <<f(u,v) → vértice>>
+            <<f(u,v) → vértice — gerado em CPU>>
         }
         class BoxGeometry { }
         class SphereGeometry { }
         class PlaneGeometry { }
         class PointCloudGeometry {
-            <<escrita por compute>>
+            <<PipelineDescriptor: compute shader gera posições>>
+            <<escrita por compute — FluidBody e Partículas>>
+        }
+        class ParametricSurfaceGeometry {
+            <<PipelineDescriptor: compute shader avalia f(u,v) → pos, normal>>
+            +uSteps: number
+            +vSteps: number
         }
     }
 
@@ -1740,60 +1894,167 @@ classDiagram
     namespace Material_ns {
         class Material {
             <<Abstract — implements Resource>>
+            <<PipelineDescriptor: shaderId de render>>
             +shaderId: string
         }
         class StandardMaterial {
+            <<StructSchema: albedo vec4f, roughness f32, metallic f32>>
             +color: vec4
             +roughness: number
             +metallic: number
         }
         class WireframeMaterial {
+            <<StructSchema: color vec4f>>
             +color: vec4
+        }
+        class PointSpriteMaterial {
+            <<StructSchema: radius f32, color vec4f — fluido e partículas>>
+            +radius: number
         }
     }
 
-    %% ── FÍSICA ───────────────────────────────────────────────────────────────
-    namespace Fisica {
+    %% ── FÍSICA — BODIES ──────────────────────────────────────────────────────
+    namespace Fisica_Bodies {
         class PhysicsBody {
             <<Abstract — implements Resource>>
-            +physicType: string
+            <<StructSchema: mass f32, linearDamping f32, angularDamping f32>>
+            +mass: number
+            +linearDamping: number
         }
-        class RigidBody { <<LCP/PGS>> }
-        class SoftBody { <<XPBD>> }
-        class FEMBody { <<XPBD-FEM T4>> }
-        class MPMBody { <<MLS-MPM>> }
-        class PBFBody { <<Position-Based Fluids>> }
-        class SPHBody { <<WCSPH>> }
+        class RigidBody {
+            <<TensorSchema: pos vec3f, rot vec4f, linVel vec3f, angVel vec3f>>
+            +isKinematic: boolean
+        }
+        class SoftBody {
+            <<TensorSchema: partículas [pos vec3f, vel vec3f, mass f32]>>
+            +restShapeMatching: boolean
+        }
+        class FluidBody {
+            <<TensorSchema: partículas [pos vec3f, vel vec3f, density f32, pressure f32]>>
+            +restDensity: number
+        }
+    }
+
+    %% ── FÍSICA — FORCE FIELDS ────────────────────────────────────────────────
+    namespace Fisica_ForceFields {
+        class ForceField {
+            <<Abstract — implements Resource>>
+            <<StructSchema: strength f32, falloff f32, minDist f32, maxDist f32>>
+            +strength: number
+            +falloff: number
+        }
+        class GravityField {
+            <<StructSchema: acceleration vec3f — ambiental ou corpo-a-corpo>>
+            +acceleration: vec3
+        }
+        class WindField {
+            <<StructSchema: direction vec3f, magnitude f32>>
+            +direction: vec3
+        }
+        class VortexField {
+            <<StructSchema: axis vec3f, magnitude f32>>
+            +axis: vec3
+        }
+        class DragField {
+            <<StructSchema: linearCoeff f32, quadraticCoeff f32>>
+            +linearCoeff: number
+        }
+        class BuoyancyField {
+            <<StructSchema: fluidDensity f32, fluidLevel f32 — emitido por FluidBody>>
+            +fluidDensity: number
+        }
+    }
+
+    %% ── FÍSICA — COLLIDERS ───────────────────────────────────────────────────
+    namespace Fisica_Colliders {
         class Collider {
             <<Abstract — implements Resource>>
-            +getAABB() AABB
+            <<StructSchema: friction f32, restitution f32>>
+            +friction: number
+            +restitution: number
         }
-        class BoxCollider { }
-        class SphereCollider { }
-        class PlaneCollider { }
-        class Force {
-            <<Interface — cálculo CPU>>
-            +id: string
-            +compute(body, dt) vec3
+        class BoxCollider {
+            <<StructSchema: halfExtents vec3f>>
         }
-        class ConstantForce { }
-        class FunctionalForce { }
+        class SphereCollider {
+            <<StructSchema: radius f32>>
+        }
+        class PlaneCollider {
+            <<StructSchema: normal vec3f, offset f32>>
+        }
+        class MeshCollider {
+            <<TensorSchema: triângulos de colisão [vec3f, vec3f, vec3f]>>
+        }
+    }
+
+    %% ── FÍSICA — CONSTRAINTS ─────────────────────────────────────────────────
+    namespace Fisica_Constraints {
+        class Constraint {
+            <<Abstract — implements Resource>>
+            <<StructSchema: bodyA EntityId u32, bodyB EntityId u32>>
+            +bodyA: number
+            +bodyB: number
+        }
+        class SpringConstraint {
+            <<TensorSchema: pares [bodyA u32, bodyB u32, stiffness f32, restLength f32, damping f32]>>
+            +stiffness: number
+            +restLength: number
+            +damping: number
+        }
+        class JointConstraint {
+            <<StructSchema: anchorA vec3f, anchorB vec3f, limits vec2f>>
+        }
+        class DistanceConstraint {
+            <<StructSchema: minDist f32, maxDist f32>>
+        }
+    }
+
+    %% ── FÍSICA — SOLVERS ─────────────────────────────────────────────────────
+    namespace Fisica_Solvers {
+        class Solver {
+            <<Interface — implements Resource>>
+            <<PipelineDescriptor: shaders de compute>>
+            +accepts(body: PhysicsBody) boolean
+        }
+        class LCPSolver {
+            <<RigidBody — LCP/PGS>>
+            <<lê: RigidBody, Collider, Constraint, ForceField>>
+        }
+        class XPBDSolver {
+            <<SoftBody — XPBD>>
+            <<lê: SoftBody, Constraint, ForceField, GraphColorSolver>>
+        }
+        class FEMSolver {
+            <<SoftBody — XPBD-FEM T4>>
+            <<lê: SoftBody, Constraint, ForceField, GraphColorSolver>>
+        }
+        class MPMSolver {
+            <<FluidBody e SoftBody — MLS-MPM>>
+            <<lê: Body, ForceField, EulerianGrid>>
+        }
+        class PBFSolver {
+            <<FluidBody — Position-Based Fluids>>
+            <<lê: FluidBody, ForceField, NeighborSearchGrid>>
+        }
+        class SPHSolver {
+            <<FluidBody — WCSPH>>
+            <<lê: FluidBody, ForceField, NeighborSearchGrid>>
+        }
     }
 
     %% ── PARTÍCULAS ───────────────────────────────────────────────────────────
     namespace Particulas {
         class ParticleEmitter {
             <<Abstract — implements Resource>>
+            <<TensorSchema: partículas [pos vec3f, vel vec3f, life f32, size f32]>>
             +maxParticles: number
-            +aliveCount: number
         }
         class ScriptedParticleEmitter {
             <<CPU — até ~5k partículas>>
             +emissionRate: number
-            +maxLife: number
         }
         class ComputeParticleEmitter {
-            <<GPU compute>>
+            <<GPU — PipelineDescriptor aponta shader de emissão>>
         }
         class EmitterShape {
             <<Interface>>
@@ -1816,11 +2077,13 @@ classDiagram
         }
         class NeighborSearchGrid {
             <<implements Resource — SPH/PBF>>
-            +build(encoder, particles, count)
+            <<TensorSchema: células de hash espacial>>
+            +cellSize: number
         }
         class EulerianGrid {
             <<implements Resource — MPM/FLIP>>
-            +encodeClear(encoder)
+            <<TensorSchema: grade de velocidade e massa>>
+            +resolution: vec3i
         }
     }
 
@@ -1834,12 +2097,15 @@ classDiagram
     Geometry ..|> Resource : implementa
     Material ..|> Resource : implementa
     PhysicsBody ..|> Resource : implementa
+    ForceField ..|> Resource : implementa
     Collider ..|> Resource : implementa
+    Constraint ..|> Resource : implementa
+    Solver ..|> Resource : implementa
     ParticleEmitter ..|> Resource : implementa
     NeighborSearchGrid ..|> Resource : implementa
     EulerianGrid ..|> Resource : implementa
 
-    %% Recursos de Cena
+    %% Cena
     Light <|-- DirectionalLight
     Light <|-- PointLight
 
@@ -1847,32 +2113,51 @@ classDiagram
     Geometry <|-- ParametricGeometry
     Geometry <|-- BoxGeometry
     Geometry <|-- PointCloudGeometry
+    Geometry <|-- ParametricSurfaceGeometry
     ParametricGeometry <|-- SphereGeometry
     ParametricGeometry <|-- PlaneGeometry
 
     %% Material
     Material <|-- StandardMaterial
     Material <|-- WireframeMaterial
+    Material <|-- PointSpriteMaterial
 
-    %% Física
+    %% Bodies
     PhysicsBody <|-- RigidBody
     PhysicsBody <|-- SoftBody
-    PhysicsBody <|-- FEMBody
-    PhysicsBody <|-- MPMBody
-    PhysicsBody <|-- PBFBody
-    PhysicsBody <|-- SPHBody
+    PhysicsBody <|-- FluidBody
+
+    %% ForceFields — qualquer EntityId pode emitir
+    ForceField <|-- GravityField
+    ForceField <|-- WindField
+    ForceField <|-- VortexField
+    ForceField <|-- DragField
+    ForceField <|-- BuoyancyField
+    FluidBody --> BuoyancyField : emite sobre corpos imersos
+
+    %% Colliders
     Collider <|-- BoxCollider
     Collider <|-- SphereCollider
     Collider <|-- PlaneCollider
-    Force <|.. ConstantForce : implementa
-    Force <|.. FunctionalForce : implementa
-    RigidBody --> Collider : possui
-    SoftBody --> Collider : usa para colisão
-    SoftBody --> GraphColorSolver : resolve constraints
-    FEMBody --> GraphColorSolver : resolve elementos
-    PBFBody --> NeighborSearchGrid : usa
-    SPHBody --> NeighborSearchGrid : usa
-    MPMBody --> EulerianGrid : usa
+    Collider <|-- MeshCollider
+
+    %% Constraints
+    Constraint <|-- SpringConstraint
+    Constraint <|-- JointConstraint
+    Constraint <|-- DistanceConstraint
+
+    %% Solvers
+    Solver <|.. LCPSolver : implementa
+    Solver <|.. XPBDSolver : implementa
+    Solver <|.. FEMSolver : implementa
+    Solver <|.. MPMSolver : implementa
+    Solver <|.. PBFSolver : implementa
+    Solver <|.. SPHSolver : implementa
+    XPBDSolver --> GraphColorSolver : resolve constraints
+    FEMSolver --> GraphColorSolver : resolve elementos
+    PBFSolver --> NeighborSearchGrid : busca vizinhos
+    SPHSolver --> NeighborSearchGrid : busca vizinhos
+    MPMSolver --> EulerianGrid : transfere momento
 
     %% Partículas
     ParticleEmitter <|-- ScriptedParticleEmitter
@@ -1883,6 +2168,860 @@ classDiagram
     ScriptedParticleEmitter --> EmitterShape : usa
     ComputeParticleEmitter --> EmitterShape : usa
 
-    %% World armazena tudo via Resource
+    %% World
     World --> Resource : armazena por EntityId
+```
+
+### Organização de Pacotes — Camada 3
+
+```
+src/elements/
+│
+├── scene/                            ← recursos de cena — sempre presentes
+│     ├── Transform.ts                  StructSchema: position vec3f, rotation vec4f, scale vec3f
+│     ├── Camera.ts                     StructSchema: view mat4x4f, projection mat4x4f, near f32, far f32
+│     ├── Light.ts                      abstract — StructSchema: color vec3f, intensity f32
+│     ├── DirectionalLight.ts
+│     ├── PointLight.ts
+│     └── RenderTarget.ts               GPUDescriptor: textura de cor e depth
+│
+├── geometry/                         ← dados de vértice e índice
+│     ├── Geometry.ts                   abstract — TensorSchema: [pos vec3f, normal vec3f, uv vec2f]
+│     ├── ParametricGeometry.ts         f(u,v) → vértice — gerado em CPU
+│     ├── BoxGeometry.ts                sem computação GPU por padrão — PipelineDescriptor opcional quando forma é calculada na GPU
+│     ├── SphereGeometry.ts             sem computação GPU por padrão — PipelineDescriptor opcional quando forma é calculada na GPU
+│     ├── PlaneGeometry.ts              sem computação GPU por padrão — PipelineDescriptor opcional
+│     ├── PointCloudGeometry.ts         PipelineDescriptor: compute shader gera posições — FluidBody e Partículas
+│     └── ParametricSurfaceGeometry.ts  PipelineDescriptor: compute shader avalia f(u,v) → pos, normal
+│
+├── material/                         ← shading e aparência
+│     ├── Material.ts                   abstract — PipelineDescriptor aponta shader de render
+│     ├── StandardMaterial.ts           StructSchema: albedo vec4f, roughness f32, metallic f32
+│     ├── WireframeMaterial.ts          StructSchema: color vec4f
+│     └── PointSpriteMaterial.ts        StructSchema: radius f32, color vec4f
+│
+├── physics/
+│     ├── bodies/                     ← contêineres de estado físico
+│     │     ├── PhysicsBody.ts          abstract — StructSchema: mass f32, linearDamping f32
+│     │     ├── RigidBody.ts            TensorSchema: pos, rot, linVel, angVel
+│     │     ├── SoftBody.ts             TensorSchema: partículas [pos vec3f, vel vec3f, mass f32]
+│     │     └── FluidBody.ts            TensorSchema: partículas [pos vec3f, vel vec3f, density f32, pressure f32]
+│     │
+│     ├── forcefields/                ← campos de força — ambiental ou corpo-a-corpo
+│     │     ├── ForceField.ts           abstract — StructSchema: strength f32, falloff f32
+│     │     ├── GravityField.ts         StructSchema: acceleration vec3f
+│     │     ├── WindField.ts            StructSchema: direction vec3f, magnitude f32
+│     │     ├── VortexField.ts          StructSchema: axis vec3f, magnitude f32
+│     │     ├── DragField.ts            StructSchema: linearCoeff f32, quadraticCoeff f32
+│     │     └── BuoyancyField.ts        StructSchema: fluidDensity f32, fluidLevel f32
+│     │
+│     ├── colliders/                  ← formas de colisão — material de contato
+│     │     ├── Collider.ts             abstract — StructSchema: friction f32, restitution f32
+│     │     ├── BoxCollider.ts          StructSchema: halfExtents vec3f
+│     │     ├── SphereCollider.ts       StructSchema: radius f32
+│     │     ├── PlaneCollider.ts        StructSchema: normal vec3f, offset f32
+│     │     └── MeshCollider.ts         TensorSchema: triângulos [vec3f, vec3f, vec3f]
+│     │
+│     ├── constraints/                ← vínculos entre EntityIds
+│     │     ├── Constraint.ts           abstract — StructSchema: bodyA u32, bodyB u32
+│     │     ├── SpringConstraint.ts     TensorSchema: pares [bodyA, bodyB, stiffness, restLength, damping]
+│     │     ├── JointConstraint.ts      StructSchema: anchorA vec3f, anchorB vec3f, limits vec2f
+│     │     └── DistanceConstraint.ts   StructSchema: minDist f32, maxDist f32
+│     │
+│     └── solvers/                    ← algoritmos de simulação — PipelineDescriptor aponta compute shaders
+│           ├── Solver.ts               interface — implements Resource
+│           ├── LCPSolver.ts            RigidBody — LCP/PGS
+│           ├── XPBDSolver.ts           SoftBody — XPBD
+│           ├── FEMSolver.ts            SoftBody — XPBD-FEM T4
+│           ├── MPMSolver.ts            FluidBody/SoftBody — MLS-MPM
+│           ├── PBFSolver.ts            FluidBody — Position-Based Fluids
+│           └── SPHSolver.ts            FluidBody — WCSPH
+│
+├── particles/                        ← sistema de partículas visual
+│     ├── ParticleEmitter.ts            abstract — TensorSchema: [pos, vel, life, size]
+│     ├── ScriptedParticleEmitter.ts    CPU — até ~5k
+│     ├── ComputeParticleEmitter.ts     GPU compute
+│     └── shapes/
+│           ├── EmitterShape.ts
+│           ├── ConeEmitterShape.ts
+│           ├── PointEmitterShape.ts
+│           └── SphereEmitterShape.ts
+│
+└── gpu/                              ← infraestrutura GPU auxiliar
+      ├── WgslComposer.ts               composição de módulos WGSL
+      ├── GraphColorSolver.ts           greedy graph coloring — SoftBody e FEM
+      ├── NeighborSearchGrid.ts         TensorSchema: células de hash espacial — SPH/PBF
+      └── EulerianGrid.ts               TensorSchema: grade de velocidade e massa — MPM/FLIP
+```
+
+---
+
+## Fluxo de Criação de Recursos — C3 → C2 → C1
+
+Esta seção detalha como um Resource declara seus contratos GPU e como esses contratos fluem pelas camadas até a alocação física no hardware.
+
+---
+
+### Regra fundamental
+
+A Camada 2 não preenche nenhum descritor — ela apenas chama os métodos do contrato e consome o que o Resource entrega. Todo o conhecimento de layout de memória, localização de binding e serialização vive dentro do próprio Resource da Camada 3.
+
+---
+
+### Fase 1 — Instanciação (Camada 3, CPU)
+
+O usuário monta a cena criando entidades e anexando Resources. Neste momento nada é alocado na GPU — os objetos existem apenas em memória CPU.
+
+```typescript
+const id: EntityId = 42; // EntityId é um u32 fornecido externamente
+world.insert(id, new Geometry(vertices),                                ['geometry']);
+world.insert(id, new Transform(),                                       ['transform']);
+world.insert(id, new StandardMaterial({ albedo: [1, 0, 0, 1], roughness: 0.5 }), ['material']);
+```
+
+`World.insert()` emite `resourcesChanged` no `EventBus`, sinalizando ao `ResourceSystem` que há novos Resources a processar.
+
+---
+
+### Fase 2 — Como um Resource preenche StructSchema e GPUDescriptor
+
+O schema é declarado uma vez na classe. O `getDescriptors()` constrói o `GPUDescriptor` embutindo o schema. O `pack()` serializa no stride exato que o schema calculou.
+
+```typescript
+// Camada 3 — Camera.ts
+class Camera implements Resource {
+
+  // Schema declarado uma vez — descreve o contrato de memória GPU
+  private static readonly schema = new StructSchema({
+    view:       FieldType.mat4x4f,
+    projection: FieldType.mat4x4f,
+    near:       FieldType.f32,
+    far:        FieldType.f32,
+  });
+
+  // getDescriptors() CONSTRÓI o GPUDescriptor usando o schema acima
+  getDescriptors(): GPUDescriptor[] {
+    return [{
+      id:      `camera_${this.entityId}`,
+      group:   0,
+      binding: 0,
+      schema:  Camera.schema,   // schema embutido aqui
+      count:   1,
+      usage:   GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    }];
+  }
+
+  getPipelineDescriptors(): PipelineDescriptor[] {
+    return []; // Camera não possui shader próprio
+  }
+
+  // pack() serializa o estado atual no stride exato declarado pelo schema
+  pack(): Float32Array {
+    const out = new Float32Array(Camera.schema.stride / 4);
+    out.set(this.viewMatrix.elements,       0);   // 16 floats — mat4x4f
+    out.set(this.projectionMatrix.elements, 16);  // 16 floats — mat4x4f
+    out[32] = this.near;                          // f32
+    out[33] = this.far;                           // f32
+    return out;
+  }
+}
+```
+
+---
+
+### Fase 3 — Como um Resource preenche TensorSchema e GPUDescriptor
+
+Para arrays (vértices, partículas, constraints), o `TensorSchema` declara o stride de um elemento e o `count` no `GPUDescriptor` informa quantos elementos existem. O tamanho real do buffer na GPU é `stride × count`.
+
+O critério para a presença de um compute shader em `Geometry` é se a **forma é calculada na GPU** — isso inclui qualquer operação: geração procedural, deformação, cálculos de geometria algébrica, simulação, ou qualquer outro programa compute. Qualquer subclasse de `Geometry` pode implementar `getPipelineDescriptors()`.
+
+Quando há compute shader, o `StorageBuffer` é o único canal de dados — o `pack()` retorna vazio porque não há dado CPU a enviar. O compute shader escreve diretamente no buffer.
+
+Geometria sem computação GPU: `getPipelineDescriptors()` retorna vazio — os vértices carregados via `pack()` já são a forma final.
+
+```typescript
+// Camada 3 — BoxGeometry.ts (sem computação GPU — vértices finais carregados em CPU)
+class BoxGeometry extends Geometry {
+
+  private static readonly schema = new TensorSchema({
+    elementType: FieldType.vec3f,
+    stride:      (3 + 3 + 2) * 4,   // pos vec3f + normal vec3f + uv vec2f = 32 bytes
+  });
+
+  getDescriptors(): GPUDescriptor[] {
+    return [{
+      id:      `geometry_${this.entityId}_vertices`,
+      group:   0,
+      binding: 0,
+      schema:  BoxGeometry.schema,
+      count:   this.vertices.length,
+      usage:   GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    }];
+  }
+
+  getPipelineDescriptors(): PipelineDescriptor[] {
+    return []; // forma final definida em CPU — nenhum compute necessário
+  }
+
+  pack(): Float32Array {
+    const stride = 8;
+    const out = new Float32Array(this.vertices.length * stride);
+    for (let i = 0; i < this.vertices.length; i++) {
+      const b = i * stride;
+      out[b + 0] = this.vertices[i].x;
+      out[b + 1] = this.vertices[i].y;
+      out[b + 2] = this.vertices[i].z;
+      out[b + 3] = this.normals[i].x;
+      out[b + 4] = this.normals[i].y;
+      out[b + 5] = this.normals[i].z;
+      out[b + 6] = this.uvs[i].u;
+      out[b + 7] = this.uvs[i].v;
+    }
+    return out;
+  }
+}
+```
+
+Geometria com computação GPU: `getPipelineDescriptors()` retorna um compute shader. O `pack()` retorna vazio — o dado nasce e vive no `StorageBuffer`, sem trânsito CPU → GPU.
+
+```typescript
+// Camada 3 — PointCloudGeometry.ts (geometria procedural — gerada em GPU)
+class PointCloudGeometry extends Geometry {
+
+  private static readonly schema = new TensorSchema({
+    elementType: FieldType.vec3f,
+    stride:      (3 + 3) * 4,   // pos vec3f + normal vec3f — sem uv
+  });
+
+  getDescriptors(): GPUDescriptor[] {
+    return [{
+      id:      `geometry_${this.entityId}_points`,
+      group:   0,
+      binding: 0,
+      schema:  PointCloudGeometry.schema,
+      count:   this.maxParticles,
+      // STORAGE: escrito pelo compute shader; VERTEX: lido pelo vertex stage
+      usage:   GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    }];
+  }
+
+  getPipelineDescriptors(): PipelineDescriptor[] {
+    return [{
+      id:          `pipeline_pointcloud_${this.entityId}`,
+      type:        'compute',
+      shaderId:    'point_cloud_gen',
+      entryPoints: ['cs_main'],
+      source:      pointCloudGenWGSL,
+    }];
+  }
+
+  pack(): Float32Array {
+    return new Float32Array(0); // dados gerados inteiramente na GPU
+  }
+}
+```
+
+Superfície paramétrica: a função `f(u,v) → (pos, normal)` é avaliada inteiramente no compute shader para cada ponto da grade `(uSteps × vSteps)`. Os parâmetros de resolução e coeficientes da superfície são enviados como uniform via `pack()`.
+
+```typescript
+// Camada 3 — ParametricSurfaceGeometry.ts
+class ParametricSurfaceGeometry extends Geometry {
+
+  // Buffer de saída: pos vec3f + normal vec3f por ponto da grade
+  private static readonly vertexSchema = new TensorSchema({
+    elementType: FieldType.vec3f,
+    stride:      (3 + 3) * 4,
+  });
+
+  // Parâmetros da superfície enviados ao compute shader como uniform
+  private static readonly paramsSchema = new StructSchema({
+    uSteps: FieldType.u32,
+    vSteps: FieldType.u32,
+  });
+
+  constructor(
+    private readonly entityId: EntityId,
+    private readonly uSteps: number,
+    private readonly vSteps: number,
+  ) { super(); }
+
+  getDescriptors(): GPUDescriptor[] {
+    return [
+      {
+        // StorageBuffer de saída — compute escreve, vertex stage lê
+        id:      `surface_${this.entityId}_vertices`,
+        group:   0,
+        binding: 0,
+        schema:  ParametricSurfaceGeometry.vertexSchema,
+        count:   this.uSteps * this.vSteps,
+        usage:   GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
+      },
+      {
+        // Parâmetros de resolução lidos pelo compute shader
+        id:      `surface_${this.entityId}_params`,
+        group:   0,
+        binding: 1,
+        schema:  ParametricSurfaceGeometry.paramsSchema,
+        count:   1,
+        usage:   GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      },
+    ];
+  }
+
+  getPipelineDescriptors(): PipelineDescriptor[] {
+    return [{
+      id:          `pipeline_surface_${this.entityId}`,
+      type:        'compute',
+      shaderId:    'parametric_surface',
+      entryPoints: ['cs_main'],
+      source:      parametricSurfaceWGSL,
+    }];
+  }
+
+  pack(): Float32Array {
+    // apenas os parâmetros de resolução — vértices gerados na GPU
+    return new Float32Array([this.uSteps, this.vSteps]);
+  }
+}
+```
+
+O pipeline de um frame com geometria calculada na GPU passa por dois passes:
+
+```
+ComputePass  — ParametricSurfaceGeometry / PointCloudGeometry
+  → compute shader avalia f(u,v) ou opera sobre vértices
+  → escreve resultado em StorageBuffer (group 0, binding 0)
+
+RenderPass   — Material.pipeline
+  vertex:   lê StorageBuffer (vértices calculados) + Transform + Camera → clip position
+  fragment: lê Material (albedo, roughness...) → cor final
+```
+
+| Resource | `getDescriptors()` | `getPipelineDescriptors()` | `pack()` |
+|---|---|---|---|
+| `BoxGeometry` (sem compute) | TensorSchema — VertexBuffer | vazio | vértices CPU |
+| `PointCloudGeometry` | TensorSchema — StorageBuffer (VERTEX\|STORAGE) | compute shader | vazio |
+| `ParametricSurfaceGeometry` | StorageBuffer de vértices + UniformBuffer de parâmetros | compute shader avalia f(u,v) | parâmetros de resolução |
+| `Material` | StructSchema — parâmetros de shading | vertex + fragment shader | albedo, roughness… |
+| `Camera` | StructSchema — view/projection | vazio | view, projection, near, far |
+
+---
+
+### Fase 4 — Como um Resource preenche PipelineDescriptor
+
+O `PipelineDescriptor` é auto-suficiente: carrega o `source` WGSL junto com o `shaderId`. O `PipelineCache` compila diretamente do `source` — sem registry intermediário.
+
+```typescript
+// Camada 3 — StandardMaterial.ts
+import standardMaterialWGSL from './standard_material.wgsl?raw';
+
+class StandardMaterial implements Resource {
+
+  private static readonly schema = new StructSchema({
+    albedo:    FieldType.vec4f,
+    roughness: FieldType.f32,
+    metallic:  FieldType.f32,
+  });
+
+  getDescriptors(): GPUDescriptor[] {
+    return [{
+      id:      `material_${this.entityId}`,
+      group:   1,
+      binding: 0,
+      schema:  StandardMaterial.schema,
+      count:   1,
+      usage:   GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    }];
+  }
+
+  getPipelineDescriptors(): PipelineDescriptor[] {
+    return [{
+      id:          'pipeline_standard_material',
+      type:        'render',
+      shaderId:    'standard_material',
+      entryPoints: ['vs_main', 'fs_main'],
+      source:      standardMaterialWGSL,   // WGSL embutido — registrado automaticamente
+    }];
+  }
+
+  pack(): Float32Array {
+    return new Float32Array([
+      ...this.albedo,
+      this.roughness,
+      this.metallic,
+    ]);
+  }
+}
+```
+
+---
+
+### Fase 5 — Coleta e alocação (Camada 2 → Camada 1)
+
+`ResourceSystem` reage ao `resourcesChanged` e percorre os Resources novos, coletando todos os descritores antes de tocar a Camada 1:
+
+```
+ResourceSystem
+  resource.getDescriptors()         → GPUDescriptor[] construídos pelo Resource
+  resource.getPipelineDescriptors() → PipelineDescriptor[] construídos pelo Resource
+
+  → EngineCore.resources            ← Resources (interface — facade)
+      → GpuResources                ← implementação
+          → BufferAllocator.createStorage(id, size) / createUniform(id, size) / ...
+              → device.createBuffer({ size: schema.stride × count, usage })
+              → Buffer alocado e indexado por id
+
+  ResourceSystem:
+  → EngineCore.resources
+      → GpuResources
+          → PipelineCache.getCompute(descriptor) / getRender(descriptor)
+              → device.createComputePipeline() / createRenderPipeline()
+              → Pipeline alocado
+```
+
+Após alocação, `ResourceSystem` emite `bufferReallocated` no `EventBus` para que bind groups sejam recriados.
+
+---
+
+### Fase 6 — Upload de dados (pack → write)
+
+Com os buffers existindo na GPU, `ResourceSystem` carrega os dados serializados:
+
+```
+resource.pack()  → Float32Array com stride exato declarado pelo schema
+
+→ EngineCore.commands.write(buffer, float32Array)
+    → GPUQueue.writeBuffer(gpuBuffer, 0, float32Array)
+```
+
+`Commands.write()` usa a fila diretamente — sem encoder — adequado para uploads de startup e atualizações de uniform.
+
+---
+
+### Fase 7 — Frame loop (gravação e submissão)
+
+`ExecutionSystem` escuta `resourcesChanged` no `EventBus` e mantém listas já classificadas de Resources por tipo de pass. No `run()` apenas abre os passes, itera as listas e submete — pipelines e bind groups já estão indexados no `EngineCore.resources`.
+
+```typescript
+class ExecutionSystem {
+
+  private computePass: GPUComputePassEncoder;
+  private renderPass:  GPURenderPassEncoder;
+
+  private readonly computeResources: Resource[] = [];
+  private readonly renderResources:  Resource[] = [];
+
+  constructor(
+    private readonly eventBus: EventBus,
+    private readonly core:     EngineCore,
+  ) {
+    this.eventBus.on('resourcesChanged', ({ added, removed }) => {
+      for (const resource of added) {
+        const pipelines = resource.getPipelineDescriptors();
+        if (pipelines.some(p => p.type === 'compute')) this.computeResources.push(resource);
+        if (pipelines.some(p => p.type === 'render'))  this.renderResources.push(resource);
+      }
+      for (const resource of removed) {
+        this.removeFrom(this.computeResources, resource);
+        this.removeFrom(this.renderResources, resource);
+      }
+    });
+  }
+
+  run(colorView: GPUTextureView, depthView: GPUTextureView): void {
+    const encoder = this.core.commands.createEncoder();
+
+    this.computePass = encoder.beginComputePass();
+    for (const resource of this.computeResources) {
+      for (const descriptor of resource.getPipelineDescriptors()) {
+        if (descriptor.type !== 'compute') continue;
+        const pipeline  = this.core.resources.pipelines.get(descriptor);
+        const bindings  = resource.getDescriptors().map(d =>
+          this.core.resources.bindings.get(d.id)
+        );
+        this.computePass.setPipeline(pipeline.native);
+        bindings.forEach((bg, i) => this.computePass.setBindGroup(i, bg));
+        this.computePass.dispatchWorkgroups(Math.ceil(resource.elementCount / 64));
+      }
+    }
+    this.computePass.end();
+
+    this.renderPass = encoder.beginRenderPass(colorView, depthView);
+    for (const resource of this.renderResources) {
+      for (const descriptor of resource.getPipelineDescriptors()) {
+        if (descriptor.type !== 'render') continue;
+        const pipeline = this.core.resources.pipelines.get(descriptor);
+        const bindings = resource.getDescriptors().map(d =>
+          this.core.resources.bindings.get(d.id)
+        );
+        this.renderPass.setPipeline(pipeline.native);
+        bindings.forEach((bg, i) => this.renderPass.setBindGroup(i, bg));
+        this.renderPass.draw(resource.elementCount);
+      }
+    }
+    this.renderPass.end();
+
+    this.core.commands.submit([encoder.finish()]);
+  }
+
+  private removeFrom(list: Resource[], resource: Resource): void {
+    const idx = list.indexOf(resource);
+    if (idx !== -1) list.splice(idx, 1);
+  }
+}
+```
+
+---
+
+### World — ECS store
+
+`World` indexa Resources por `EntityId` e emite eventos no `EventBus` a cada mutação. O `query()` retorna apenas entidades que possuem todos os tags solicitados.
+
+```typescript
+class World {
+
+  private readonly store   = new Map<EntityId, Map<string, Resource>>();
+  private readonly tagIndex = new Map<string, Set<EntityId>>();
+
+  constructor(private readonly eventBus: EventBus) {}
+
+  insert(id: EntityId, resource: Resource, tags: string[]): void {
+    if (!this.store.has(id)) this.store.set(id, new Map());
+    this.store.get(id)!.set(resource.type, resource);
+    for (const tag of tags) {
+      if (!this.tagIndex.has(tag)) this.tagIndex.set(tag, new Set());
+      this.tagIndex.get(tag)!.add(id);
+    }
+    this.eventBus.emit('resourcesChanged', { added: [resource], removed: [] });
+  }
+
+  update(id: EntityId, resource: Resource): void {
+    this.store.get(id)?.set(resource.type, resource);
+    this.eventBus.emit('resourcesChanged', { added: [resource], removed: [] });
+  }
+
+  remove(id: EntityId, type: string): void {
+    const resource = this.store.get(id)?.get(type);
+    this.store.get(id)?.delete(type);
+    if (resource) {
+      this.eventBus.emit('resourcesChanged', { added: [], removed: [resource] });
+    }
+  }
+
+  get(id: EntityId, type: string): Resource | undefined {
+    return this.store.get(id)?.get(type);
+  }
+
+  query(tags: string[]): EntityId[] {
+    if (tags.length === 0) return [];
+    const [first, ...rest] = tags.map(t => this.tagIndex.get(t) ?? new Set<EntityId>());
+    const result: EntityId[] = [];
+    for (const id of first) {
+      if (rest.every(set => set.has(id))) result.push(id);
+    }
+    return result;
+  }
+}
+```
+
+---
+
+### ResourceSystem — ciclo de vida de recursos GPU
+
+`ResourceSystem` escuta `resourcesChanged` no `EventBus` e coordena alocação, upload e descarte. Nunca toca a Camada 1 diretamente — delega tudo via `EngineCore`.
+
+```typescript
+class ResourceSystem {
+
+  constructor(
+    private readonly eventBus: EventBus,
+    private readonly core:     EngineCore,
+  ) {
+    this.eventBus.on('resourcesChanged', ({ added, removed }) => {
+      for (const resource of added)   this.collect(resource);
+      for (const resource of removed) this.dispose(resource);
+    });
+  }
+
+  private collect(resource: Resource): void {
+    // Aloca buffers GPU a partir dos GPUDescriptors declarados pelo Resource
+    for (const descriptor of resource.getDescriptors()) {
+      this.core.resources.buffers.create(descriptor.id, {
+        size:  descriptor.schema.stride * descriptor.count,
+        usage: descriptor.usage,
+      });
+    }
+
+    // Compila pipelines a partir dos PipelineDescriptors — source viaja com o descritor
+    for (const descriptor of resource.getPipelineDescriptors()) {
+      this.core.resources.pipelines.get(descriptor);
+    }
+
+    // Carrega dados serializados nos buffers recém-alocados
+    this.upload(resource);
+
+    this.eventBus.emit('bufferReallocated', { resource });
+  }
+
+  private upload(resource: Resource): void {
+    const data = resource.pack();
+    if (data.length === 0) return; // dado gerado na GPU — nada a enviar
+    for (const descriptor of resource.getDescriptors()) {
+      const buffer = this.core.resources.buffers.get(descriptor.id);
+      if (buffer) this.core.commands.write(buffer, data);
+    }
+  }
+
+  update(resource: Resource): void {
+    this.upload(resource);
+  }
+
+  private dispose(resource: Resource): void {
+    for (const descriptor of resource.getDescriptors()) {
+      this.core.resources.buffers.destroy(descriptor.id);
+    }
+  }
+}
+```
+
+---
+
+---
+
+## Proposta — Camada 4: Apresentação e Pipeline de Render
+
+A Camada 4 é o ponto de entrada da aplicação. Ela instancia e orquestra tudo o que existe abaixo — `EngineCore` (C1), `World`, `ResourceSystem`, `ExecutionSystem` e `EventBus` (C2) — e expõe ao usuário final uma API de cena declarativa e um pipeline de render configurável por estágios.
+
+Não conhece geometrias nem solvers concretos. Conhece apenas `Resource` (via contrato C2) e `RenderStage` (contrato interno).
+
+```mermaid
+classDiagram
+
+    %% ── CAMADA 2 — CONTRATOS E SISTEMAS (referência) ─────────────────────────
+    namespace Camada_2 {
+        class World {
+            <<ECS store>>
+            +insert(id, resource, tags)
+            +query(tags) EntityId[]
+        }
+        class ResourceSystem {
+            <<Ciclo de vida GPU>>
+            +flush(world, core) Promise~void~
+        }
+        class ExecutionSystem {
+            <<Submissão GPU>>
+            +run(encoder, world, core)
+        }
+        class EventBus {
+            <<Pubsub>>
+            +on(type, handler)
+            +emit(type, payload)
+        }
+        class Resource {
+            <<Interface>>
+            +type: string
+            +getDescriptors() GPUDescriptor[]
+            +getPipelineDescriptors() PipelineDescriptor[]
+            +pack() Float32Array
+        }
+    }
+
+    %% ── CAMADA 4 — APRESENTAÇÃO ──────────────────────────────────────────────
+    namespace Bootstrap {
+        class Application {
+            <<Entry point — instancia e orquestra o frame>>
+            -core: EngineCore
+            -world: World
+            -eventBus: EventBus
+            -loop: GameLoop
+            -pipeline: RenderPipeline
+            -resourceSystem: ResourceSystem
+            -executionSystem: ExecutionSystem
+            +create(canvas) Promise~Application~
+            +scene: Scene
+            +run()
+            +stop()
+        }
+        class GameLoop {
+            <<RAF — controla dt e timestep fixo>>
+            +dt: number
+            +elapsed: number
+            +start(onFrame)
+            +stop()
+        }
+    }
+
+    namespace Cena {
+        class Scene {
+            <<Wrapper semântico sobre World>>
+            +add(entity: SceneEntity) EntityId
+            +remove(id: EntityId)
+            +setCamera(camera: Camera)
+            +getCamera() Camera
+        }
+        class SceneEntity {
+            <<Value object — bundle de Resources + tags>>
+            +id: EntityId
+            +resources: Resource[]
+            +tags: string[]
+        }
+    }
+
+    namespace Pipeline {
+        class RenderPipeline {
+            <<Sequência ordenada de estágios>>
+            +stages: RenderStage[]
+            +add(stage: RenderStage)
+            +execute(encoder, world, core)
+        }
+        class RenderStage {
+            <<Abstract — um passo do pipeline>>
+            +name: string
+            +execute(encoder: Encoder, world: World, core: EngineCore)
+        }
+        class ShadowStage {
+            <<Estágio — gera shadow maps para as luzes ativas>>
+        }
+        class ForwardStage {
+            <<Estágio — geometria opaca + transparente>>
+            +clearColor: GPUColor
+        }
+        class PostProcessStage {
+            <<Estágio — efeitos fullscreen encadeados>>
+            +effects: PostProcessEffect[]
+            +add(effect: PostProcessEffect)
+        }
+        class UIStage {
+            <<Estágio — HUD e sobreposições 2D>>
+        }
+    }
+
+    namespace Recursos_Render {
+        class RenderTarget {
+            <<Resource — par color+depth alocado via ResourceSystem>>
+            +type: string
+            +width: number
+            +height: number
+            +colorId: string
+            +depthId: string
+            +getDescriptors() GPUDescriptor[]
+            +getPipelineDescriptors() PipelineDescriptor[]
+            +pack() Float32Array
+        }
+        class PostProcessEffect {
+            <<Resource — parâmetros de efeito fullscreen>>
+            +type: string
+            +getDescriptors() GPUDescriptor[]
+            +getPipelineDescriptors() PipelineDescriptor[]
+            +pack() Float32Array
+        }
+    }
+
+    %% ── RELAÇÕES ─────────────────────────────────────────────────────────────
+
+    Application --> World              : instancia
+    Application --> EventBus           : instancia
+    Application --> GameLoop           : controla tick por frame
+    Application --> Scene              : expõe API de cena
+    Application --> RenderPipeline     : execute() por frame
+    Application --> ResourceSystem     : flush() por frame
+    Application --> ExecutionSystem    : injeta em ForwardStage
+
+    Scene --> World                    : delega insert/query
+    Scene ..> SceneEntity              : decompõe em inserts por Resource
+    SceneEntity --> Resource           : agrupa lista de Resources
+
+    RenderPipeline --> RenderStage     : executa em ordem
+    ShadowStage     --|> RenderStage   : estende
+    ForwardStage    --|> RenderStage   : estende
+    PostProcessStage --|> RenderStage  : estende
+    UIStage         --|> RenderStage   : estende
+
+    ForwardStage --> ExecutionSystem   : run(encoder, world, core)
+    PostProcessStage --> PostProcessEffect : itera efeitos
+
+    ShadowStage  ..> RenderTarget      : produz shadow map
+    ForwardStage ..> RenderTarget      : lê shadow map do ShadowStage
+
+    RenderTarget ..|> Resource         : implementa
+    PostProcessEffect ..|> Resource    : implementa
+
+    ResourceSystem ..> EventBus        : escuta resourcesChanged
+    ExecutionSystem ..> EventBus       : escuta resourcesChanged
+```
+
+### Fluxo por frame
+
+```
+GameLoop.tick(dt)
+  ↓
+resourceSystem.flush(world, core)           ← aloca/descarta recursos pendentes
+  ↓
+encoder = core.commands.createEncoder()
+renderPipeline.execute(encoder, world, core)
+  ├─ ShadowStage    → beginRenderPass(shadowTarget) → draws → end()
+  ├─ ForwardStage   → executionSystem.run(encoder, world, core)
+  ├─ PostProcessStage → efeitos fullscreen em sequência
+  └─ UIStage        → draws 2D sobre frame final
+core.commands.submit([encoder.finish()])
+```
+
+> **Decisão arquitetural:** `ExecutionSystem.run()` recebe o `encoder` como parâmetro em vez de criar o próprio — todos os estágios compartilham um único `GPUCommandBuffer` por frame, sem múltiplos submits.
+
+### Organização de Pacotes — Camada 4
+
+```
+src/presentation/
+│
+├── app/                              ← bootstrap e loop
+│     ├── Application.ts               entry point — instancia core, world, systems, pipeline
+│     └── GameLoop.ts                  RAF com dt fixo e variável
+│
+├── scene/                            ← API de cena para o usuário final
+│     ├── Scene.ts                     wrapper semântico sobre World
+│     └── SceneEntity.ts               value object — bundle de Resources + tags
+│
+├── pipeline/                         ← pipeline de render configurável
+│     ├── RenderPipeline.ts            sequência ordenada de estágios
+│     ├── RenderStage.ts               abstract — contrato de estágio
+│     ├── ShadowStage.ts               gera shadow maps
+│     ├── ForwardStage.ts              geometria opaca + transparente via ExecutionSystem
+│     ├── PostProcessStage.ts          efeitos fullscreen encadeados
+│     └── UIStage.ts                   HUD e sobreposições 2D
+│
+└── resources/                        ← Resources da camada de apresentação
+      ├── RenderTarget.ts              par color+depth — implementa Resource
+      └── PostProcessEffect.ts         efeito fullscreen — implementa Resource
+```
+
+> **Regra de importação:**
+> Camada 4 importa de `scene/` (C2) e `core/` (C1 interface) — nunca de `elements/` (C3) diretamente.
+> Elementos C3 entram na cena via `SceneEntity` e são gerenciados pelo `World` como `Resource`.
+
+---
+
+### Resumo do fluxo vertical completo
+
+```
+Camada 3 — Resource declara e serializa
+  new StructSchema({ ... })           ← layout de memória
+  new TensorSchema({ ... })           ← layout de array
+  getDescriptors()     → GPUDescriptor[]       construídos pelo Resource
+  getPipelineDescriptors() → PipelineDescriptor[]  construídos pelo Resource
+  pack()               → Float32Array          serializado pelo Resource
+        ↓
+Camada 2 — coleta, coordena, não preenche nada
+  ResourceSystem  → coleta GPUDescriptors  → solicita alocação
+  ExecutionSystem → coleta PipelineDescriptors → solicita compilação
+  Commands.write() → carrega dados packed no buffer alocado
+  EventBus → propaga eventos de ciclo de vida entre sistemas
+        ↓
+Camada 1 — executa contra o hardware
+  EngineCore.resources → GpuResources (facade)
+    BufferAllocator   → device.createBuffer()
+    TextureAllocator  → device.createTexture()
+    PipelineCache     → device.createRenderPipeline() / createComputePipeline()
+  EngineCore.commands → Commands
+    Encoder → GPUCommandEncoder → GPUCommandBuffer (interno)
+    GPUQueue.submit() → execução física na GPU
 ```

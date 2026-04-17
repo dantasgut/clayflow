@@ -1,6 +1,6 @@
 # Class: FunctionalForce
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:9](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/forces/FunctionalForce.ts#L9)
+Defined in: [elements/physics/forces/FunctionalForce.ts:9](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/forces/FunctionalForce.ts#L9)
 
 Força definida por função arbitrária — para campos personalizados,
 geometria diferencial, espaços abstratos.
@@ -15,7 +15,7 @@ geometria diferencial, espaços abstratos.
 
 > **new FunctionalForce**(`id`, `fn`): `FunctionalForce`
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:13](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/forces/FunctionalForce.ts#L13)
+Defined in: [elements/physics/forces/FunctionalForce.ts:13](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/forces/FunctionalForce.ts#L13)
 
 #### Parameters
 
@@ -37,7 +37,7 @@ Defined in: [elements/physics/forces/FunctionalForce.ts:13](https://github.com/d
 
 > `readonly` **id**: `string`
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:10](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/forces/FunctionalForce.ts#L10)
+Defined in: [elements/physics/forces/FunctionalForce.ts:10](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/forces/FunctionalForce.ts#L10)
 
 #### Implementation of
 
@@ -49,7 +49,7 @@ Defined in: [elements/physics/forces/FunctionalForce.ts:10](https://github.com/d
 
 > **compute**(`body`, `dt`): `vec3`
 
-Defined in: [elements/physics/forces/FunctionalForce.ts:18](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/forces/FunctionalForce.ts#L18)
+Defined in: [elements/physics/forces/FunctionalForce.ts:18](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/forces/FunctionalForce.ts#L18)
 
 #### Parameters
 

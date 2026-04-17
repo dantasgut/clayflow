@@ -2,7 +2,7 @@
 
 > **createGpuPhysicsWorld**(`config?`): [`GpuPhysicsOrchestrator`](../classes/GpuPhysicsOrchestrator.md)
 
-Defined in: [elements/physics/createGpuPhysicsWorld.ts:32](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/createGpuPhysicsWorld.ts#L32)
+Defined in: [elements/physics/createGpuPhysicsWorld.ts:32](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/createGpuPhysicsWorld.ts#L32)
 
 ## Parameters
 

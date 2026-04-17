@@ -1,6 +1,6 @@
 # Interface: CollisionSimConfig
 
-Defined in: [scene/systems/simulation/CollisionSimConfig.ts:5](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/CollisionSimConfig.ts#L5)
+Defined in: [scene/systems/simulation/CollisionSimConfig.ts:5](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/CollisionSimConfig.ts#L5)
 
 Configuração do pipeline de detecção de colisão.
 Parâmetros de narrowphase CPU foram removidos (GPU-only).
@@ -11,7 +11,7 @@ Parâmetros de narrowphase CPU foram removidos (GPU-only).
 
 > `optional` **predictiveContacts?**: `boolean`
 
-Defined in: [scene/systems/simulation/CollisionSimConfig.ts:12](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/CollisionSimConfig.ts#L12)
+Defined in: [scene/systems/simulation/CollisionSimConfig.ts:12](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/CollisionSimConfig.ts#L12)
 
 Habilita contatos especulativos anti-tunneling.
 Testa posições previstas (pos + vel·dt) para pares sem contato atual,
@@ -24,6 +24,6 @@ Default: false.
 
 > `optional` **predictiveContactsThreshold?**: `number`
 
-Defined in: [scene/systems/simulation/CollisionSimConfig.ts:14](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/scene/systems/simulation/CollisionSimConfig.ts#L14)
+Defined in: [scene/systems/simulation/CollisionSimConfig.ts:14](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/CollisionSimConfig.ts#L14)
 
 Velocidade relativa mínima (m/s) para ativar contatos especulativos. Default: 2.0.

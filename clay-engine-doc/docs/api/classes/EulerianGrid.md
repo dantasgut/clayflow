@@ -1,6 +1,6 @@
 # Class: EulerianGrid
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:32](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L32)
+Defined in: [elements/physics/shared/EulerianGrid.ts:32](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L32)
 
 ## Constructors
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/shared/EulerianGrid.ts:32](https://github.com/dant
 
 > **new EulerianGrid**(`config`): `EulerianGrid`
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:40](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L40)
+Defined in: [elements/physics/shared/EulerianGrid.ts:40](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L40)
 
 #### Parameters
 
@@ -26,7 +26,7 @@ Defined in: [elements/physics/shared/EulerianGrid.ts:40](https://github.com/dant
 
 > `readonly` **cellCount**: `number`
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:35](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L35)
+Defined in: [elements/physics/shared/EulerianGrid.ts:35](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L35)
 
 ***
 
@@ -34,7 +34,7 @@ Defined in: [elements/physics/shared/EulerianGrid.ts:35](https://github.com/dant
 
 > `readonly` **config**: [`EulerianGridConfig`](../interfaces/EulerianGridConfig.md)
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:34](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L34)
+Defined in: [elements/physics/shared/EulerianGrid.ts:34](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L34)
 
 ## Methods
 
@@ -42,7 +42,7 @@ Defined in: [elements/physics/shared/EulerianGrid.ts:34](https://github.com/dant
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:93](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L93)
+Defined in: [elements/physics/shared/EulerianGrid.ts:93](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L93)
 
 #### Returns
 
@@ -54,7 +54,7 @@ Defined in: [elements/physics/shared/EulerianGrid.ts:93](https://github.com/dant
 
 > **encodeClear**(`encoder`): `void`
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:85](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L85)
+Defined in: [elements/physics/shared/EulerianGrid.ts:85](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L85)
 
 Insere clearBuffer do buffer de momentum no encoder.
 Deve ser chamado no início de cada frame antes do P2G de MPM e/ou FLIP.
@@ -75,7 +75,7 @@ Deve ser chamado no início de cada frame antes do P2G de MPM e/ou FLIP.
 
 > **getMomentumBuffer**(): `GPUBuffer`
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:51](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L51)
+Defined in: [elements/physics/shared/EulerianGrid.ts:51](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L51)
 
 Retorna o buffer de momentum (MPMGridNode[], atomic<i32>).
 Alocado lazily na primeira chamada.
@@ -90,7 +90,7 @@ Alocado lazily na primeira chamada.
 
 > **getPressureBuffer**(): `GPUBuffer`
 
-Defined in: [elements/physics/shared/EulerianGrid.ts:67](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/shared/EulerianGrid.ts#L67)
+Defined in: [elements/physics/shared/EulerianGrid.ts:67](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/shared/EulerianGrid.ts#L67)
 
 Retorna o buffer de pressão (f32 por célula), exclusivo FLIP.
 Alocado lazily na primeira chamada.
