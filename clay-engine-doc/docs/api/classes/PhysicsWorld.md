@@ -1,6 +1,6 @@
 # Class: PhysicsWorld
 
-Defined in: [elements/physics/PhysicsWorld.ts:44](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L44)
+Defined in: [elements/physics/PhysicsWorld.ts:44](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L44)
 
 Contrato abstrato de um mundo de simulação física.
 
@@ -30,7 +30,7 @@ world.step(scene, dt);
 
 > **new PhysicsWorld**(`config?`): `PhysicsWorld`
 
-Defined in: [elements/physics/PhysicsWorld.ts:52](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L52)
+Defined in: [elements/physics/PhysicsWorld.ts:52](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L52)
 
 #### Parameters
 
@@ -54,7 +54,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:52](https://github.com/dantasgut/c
 
 > **get** **eventBus**(): [`GpuPipelineEventBus`](../interfaces/GpuPipelineEventBus.md)
 
-Defined in: [elements/physics/PhysicsWorld.ts:50](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L50)
+Defined in: [elements/physics/PhysicsWorld.ts:50](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L50)
 
 Barramento de eventos — exposto para integração com o renderer.
 
@@ -68,7 +68,7 @@ Barramento de eventos — exposto para integração com o renderer.
 
 > **addForce**(`force`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:91](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L91)
+Defined in: [elements/physics/PhysicsWorld.ts:91](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L91)
 
 Registra uma força global aplicada a todos os corpos a cada step.
 
@@ -92,7 +92,7 @@ Registra uma força global aplicada a todos os corpos a cada step.
 
 > **connectScene**(`scene`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:65](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L65)
+Defined in: [elements/physics/PhysicsWorld.ts:65](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L65)
 
 Conecta o mundo a uma cena: observa child_added e child_removed
 para registrar/remover corpos e colliders automaticamente.
@@ -118,7 +118,7 @@ Também registra todos os physics components já presentes na cena.
 
 > **disconnectScene**(`scene`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:69](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L69)
+Defined in: [elements/physics/PhysicsWorld.ts:69](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L69)
 
 Remove a observação da cena e limpa todos os registros.
 
@@ -142,7 +142,7 @@ Remove a observação da cena e limpa todos os registros.
 
 > **encodeSyncPasses**(`commandEncoder`, `entityIdToSlot`, `objectUboBuffer`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:81](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L81)
+Defined in: [elements/physics/PhysicsWorld.ts:81](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L81)
 
 Opcional — despachado pelo renderer APÓS uploadObjectMatrices e ANTES do render pass.
 Permite que passes GPU escrevam diretamente no UBO de modelo, sem CPU readback.
@@ -176,7 +176,7 @@ Implementado por `GpuPhysicsOrchestrator`; no-op em `PhysicsWorld`.
 
 > **initializeResources**(`resourceManager`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:59](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L59)
+Defined in: [elements/physics/PhysicsWorld.ts:59](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L59)
 
 Opcional — chamado pelo renderer uma vez, após a inicialização do engine GPU
 (dentro de `initGPUResources`), antes do primeiro `step()`.
@@ -204,7 +204,7 @@ Implementado por `GpuPhysicsOrchestrator`; no-op em mundos puramente CPU.
 
 > **removeForce**(`id`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:95](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L95)
+Defined in: [elements/physics/PhysicsWorld.ts:95](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L95)
 
 #### Parameters
 
@@ -226,7 +226,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:95](https://github.com/dantasgut/c
 
 > **removeSolver**(`_physicType`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:104](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L104)
+Defined in: [elements/physics/PhysicsWorld.ts:104](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L104)
 
 #### Parameters
 
@@ -248,7 +248,7 @@ Defined in: [elements/physics/PhysicsWorld.ts:104](https://github.com/dantasgut/
 
 > **setSolver**(`_physicType`, `_solver`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:100](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L100)
+Defined in: [elements/physics/PhysicsWorld.ts:100](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L100)
 
 No-op — engine GPU-only não usa solvers CPU.
 
@@ -276,7 +276,7 @@ No-op — engine GPU-only não usa solvers CPU.
 
 > **step**(`scene`, `dt`): `void`
 
-Defined in: [elements/physics/PhysicsWorld.ts:75](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/PhysicsWorld.ts#L75)
+Defined in: [elements/physics/PhysicsWorld.ts:75](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PhysicsWorld.ts#L75)
 
 Avança a simulação por `dt` segundos.
 A implementação decide o pipeline interno (broadphase, narrowphase, integração).

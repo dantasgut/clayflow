@@ -1,6 +1,6 @@
 # Interface: BoxFEMResult
 
-Defined in: [elements/physics/fem/boxToFEMBody.ts:28](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/fem/boxToFEMBody.ts#L28)
+Defined in: [elements/physics/fem/boxToFEMBody.ts:28](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/fem/boxToFEMBody.ts#L28)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/fem/boxToFEMBody.ts:28](https://github.com/dantasg
 
 > **elements**: [`FEMTetrahedron`](FEMTetrahedron.md)[]
 
-Defined in: [elements/physics/fem/boxToFEMBody.ts:30](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/fem/boxToFEMBody.ts#L30)
+Defined in: [elements/physics/fem/boxToFEMBody.ts:30](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/fem/boxToFEMBody.ts#L30)
 
 ***
 
@@ -16,4 +16,4 @@ Defined in: [elements/physics/fem/boxToFEMBody.ts:30](https://github.com/dantasg
 
 > **nodes**: [`FEMNode`](FEMNode.md)[]
 
-Defined in: [elements/physics/fem/boxToFEMBody.ts:29](https://github.com/dantasgut/clayflow/blob/02b1d356fbb46ac583261c11629af5fa6d9ef730/src/elements/physics/fem/boxToFEMBody.ts#L29)
+Defined in: [elements/physics/fem/boxToFEMBody.ts:29](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/fem/boxToFEMBody.ts#L29)
