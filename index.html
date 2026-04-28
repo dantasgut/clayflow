@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WebGPU Math Engine</title>
     <style>
-      body { margin: 0; overflow: hidden; background-color: #1a1a2e; }
-      canvas { width: 100vw; height: 100vh; display: block; }
+      body { margin: 0; overflow: hidden; background-color: #1a1a2e; font-family: monospace; color: #e0e0e0; }
+      canvas { width: 100vw; height: 100vh; display: block; position: absolute; top: 0; left: 0; z-index: 0; }
+      #log { position: absolute; top: 8px; left: 8px; z-index: 1; white-space: pre-wrap; font-size: 12px; background: rgba(0,0,0,0.55); padding: 8px 12px; border-radius: 4px; max-width: 80vw; }
     </style>
   </head>
   <body>
     <canvas id="gpuCanvas"></canvas>
+    <pre id="log"></pre>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
