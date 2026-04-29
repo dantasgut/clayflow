@@ -93,6 +93,8 @@ export type {
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
+    EntitiesRemovedPayload,
+    ProfilerStatsPayload,
 } from './events/index';
 
 export type {

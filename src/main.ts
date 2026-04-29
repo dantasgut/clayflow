@@ -36,7 +36,10 @@ async function main(): Promise<void> {
     if (!(noSupportRead instanceof BigInt64Array)) fail('readRange não retornou BigInt64Array');
     if (profiler.isSupported) {
         const tw = profiler.timestampWritesFor(0, 1);
-        if (tw === undefined) fail('timestampWritesFor retornou undefined com suporte ativo');
+        if (tw === undefined) {
+            fail('timestampWritesFor retornou undefined com suporte ativo');
+            return;
+        }
         if (tw.beginningOfPassWriteIndex !== 0 || tw.endOfPassWriteIndex !== 1) {
             fail(`tw indices incorretos: ${tw.beginningOfPassWriteIndex}/${tw.endOfPassWriteIndex}`);
         }
