@@ -85,6 +85,12 @@ export class ShadowFlow extends Flow {
         return this.depthView;
     }
 
+    override onEntitiesRemoved(entityIds: readonly number[]): void {
+        for (const id of entityIds) {
+            this.slots.delete(id as EntityId);
+        }
+    }
+
     get currentLightViewProj(): readonly number[] {
         return this.lightViewProj;
     }

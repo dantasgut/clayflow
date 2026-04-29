@@ -101,6 +101,29 @@ export class ForwardFlow extends RenderFlow {
         return true;
     }
 
+    override onPoolReallocated(_poolKey: string): void {
+        // ForwardFlow não consome diretamente nenhum pool — meshes vivem em VBO/IBO
+        // por entityId, não em pool. Se renderer evoluir para pool de transforms,
+        // invalidar `cachedSlots` aqui.
+    }
+
+    override onCanvasResized(_width: number, _height: number): void {
+        // Sinaliza recriação na próxima dispatch via ensureDepth/ensureOutputColor
+        // (esses checam canvasSize.width/height contra canvas.width/height).
+        this.canvasSize.width = 0;
+        this.canvasSize.height = 0;
+        this.depthTexture = null;
+        this.depthView = null;
+        this.outputColorTexture = null;
+        this.outputColorView = null;
+    }
+
+    override onEntitiesRemoved(entityIds: readonly number[]): void {
+        for (const id of entityIds) {
+            this.cachedSlots.delete(id as EntityId);
+        }
+    }
+
     override resolveTarget(): RenderTarget {
         throw new Error('ForwardFlow.resolveTarget called outside dispatch.');
     }

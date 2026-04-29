@@ -6,6 +6,7 @@ export type {
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
+    EntitiesRemovedPayload,
 } from './EventMap';
 export { DefaultEventBus } from './DefaultEventBus';
 export type { ChangedEvent } from './ChangedEvent';

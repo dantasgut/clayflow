@@ -96,6 +96,12 @@ export class MPMFlow extends Flow {
         return this.resources.poolCount(this.bodyType) > 0;
     }
 
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.bodyType) {
+            this.particlesBg = null;
+        }
+    }
+
     private gridCellCount(): number {
         return this.gridDim[0] * this.gridDim[1] * this.gridDim[2];
     }

@@ -9,6 +9,7 @@ export class BoxGeometry extends Geometry {
         normal: FieldType.vec3f,
         uv: FieldType.vec2f,
     });
+    static readonly schema = BoxGeometry.vertexStruct;
 
     constructor(values: Record<string, unknown> = {}) {
         super();

@@ -1,6 +1,7 @@
 import type { EngineCore } from '../../core/contracts/index';
 import type { EventBus } from '../events/EventBus';
 import { FlowRegistry } from '../flows/FlowRegistry';
+import type { EntityId } from '../world/EntityId';
 
 export class ExecutionSystem {
     private elapsed = 0;
@@ -12,6 +13,28 @@ export class ExecutionSystem {
         private readonly flows: FlowRegistry,
     ) {
         this.events.on('frameTick', e => this.onFrameTick(e.dt, e.elapsed));
+        this.events.on('poolReallocated', e => this.broadcastPoolReallocated(e.poolKey));
+        this.events.on('canvasReconfigured', e => this.broadcastCanvasResized(e.width, e.height));
+        this.events.on('entitiesRemoved', e => this.broadcastEntitiesRemoved(e.entityIds));
+    }
+
+    broadcastPoolReallocated(poolKey: string): void {
+        for (const flow of this.flows.allFlows()) {
+            flow.onPoolReallocated(poolKey);
+        }
+    }
+
+    broadcastEntitiesRemoved(entityIds: readonly EntityId[]): void {
+        if (entityIds.length === 0) return;
+        for (const flow of this.flows.allFlows()) {
+            flow.onEntitiesRemoved(entityIds);
+        }
+    }
+
+    broadcastCanvasResized(width: number, height: number): void {
+        for (const flow of this.flows.allFlows()) {
+            flow.onCanvasResized(width, height);
+        }
     }
 
     private onFrameTick(dt: number, elapsed: number): void {
@@ -33,7 +56,6 @@ export class ExecutionSystem {
             dt: finishedAt - start,
             elapsed: this.elapsed,
         });
-        // touch dt to ensure parameter is recognized by linters
         void dt;
     }
 

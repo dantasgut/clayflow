@@ -96,6 +96,16 @@ export class NeighborSearchPipeline {
         return nsSimParamsStruct;
     }
 
+    /**
+     * Invalida bind groups que dependem do particles buffer atual.
+     * Chamado por SPHFlow/PBFFlow quando o pool de partículas reallocate.
+     */
+    invalidateParticlesBinding(): void {
+        this.assignBg = null;
+        this.findBg = null;
+        this.currentParticlesBuffer = null;
+    }
+
     private ensureBuffersAndLayouts(): void {
         if (this.paramsBuffer === null) {
             this.paramsBuffer = this.core.create<UniformBufferSpec>({ kind: 'buffer', subkind: 'uniform', discriminator: `ns_params:${this.disc}`, byteSize: 48 });

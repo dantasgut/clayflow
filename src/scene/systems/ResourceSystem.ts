@@ -131,7 +131,7 @@ export class ResourceSystem {
         let entry = this.pools.get(poolKey);
         if (entry === undefined) entry = this.createPool(poolKey, schema);
 
-        const entityId = this.world.entityIdOf(resource as unknown as { attached: readonly unknown[] } & object as never);
+        const entityId = this.world.entityIdOfResource(resource);
         const slot = entry.freeList.length > 0
             ? (entry.freeList.shift() as number)
             : entry.count;
@@ -250,7 +250,7 @@ export class ResourceSystem {
                 const poolKey = this.computePoolKey(desc.schema, resource);
                 const entry = this.pools.get(poolKey);
                 if (entry === undefined) continue;
-                const entityId = this.world.entityIdOf(resource as never);
+                const entityId = this.world.entityIdOfResource(resource);
                 if (entityId === undefined) continue;
                 const slot = entry.slotByEntity.get(entityId);
                 if (slot === undefined) continue;
@@ -274,7 +274,7 @@ export class ResourceSystem {
                 const poolKey = this.computePoolKey(desc.schema, resource);
                 const entry = this.pools.get(poolKey);
                 if (entry === undefined) continue;
-                const entityId = this.world.entityIdOf(resource as never);
+                const entityId = this.world.entityIdOfResource(resource);
                 if (entityId === undefined) continue;
                 const slot = entry.slotByEntity.get(entityId);
                 if (slot === undefined) continue;
@@ -303,9 +303,11 @@ export class ResourceSystem {
     private identityOf(resource: Resource): string {
         const ctor = resource.constructor as { schema?: { name: string }; name: string };
         const schemaName = ctor.schema?.name ?? ctor.name;
-        const id = this.world.entityIdOf(resource as never);
-        return id !== undefined ? `${schemaName}#${id}` : `${schemaName}@${(this as { _instanceCounter?: number })._instanceCounter ?? 0}`;
+        const id = this.world.entityIdOfResource(resource);
+        return id !== undefined ? `${schemaName}#${id}` : `${schemaName}@anon${this.anonCounter++}`;
     }
+
+    private anonCounter = 0;
 }
 
 function alignUp(value: number, alignment: number): number {

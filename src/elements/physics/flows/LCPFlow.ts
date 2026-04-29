@@ -71,6 +71,12 @@ export class LCPFlow extends Flow {
         return this.resources.poolCount(this.bodiesPoolKey) > 0;
     }
 
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.bodiesPoolKey) {
+            this.bindGroup = null;
+        }
+    }
+
     private ensureGpuObjects(): void {
         if (this.shader === null) {
             this.shader = this.core.create<ShaderModuleSpec>({

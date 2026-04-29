@@ -63,24 +63,28 @@ fn vs_main(in: VsIn) -> VsOut {
 }
 
 fn sample_shadow(world_pos: vec3<f32>, n_dot_l: f32) -> f32 {
-    if (shadow.enabled < 0.5) { return 1.0; }
     let lp = shadow.lightViewProj * vec4<f32>(world_pos, 1.0);
     let ndc = lp.xyz / max(lp.w, 1e-6);
-    if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) {
-        return 1.0;
-    }
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     let bias = max(shadow.bias * (1.0 - n_dot_l), shadow.bias * 0.1);
     let ref_depth = ndc.z - bias;
-    // 3x3 PCF
     let texel = vec2<f32>(1.0) / vec2<f32>(textureDimensions(shadow_map, 0));
+    // textureSampleCompareLevel não exige uniform control flow.
+    // Always-execute PCF 3x3 + máscara fora-dos-bounds via select (sem branch divergente).
     var sum = 0.0;
     for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
         for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
-            sum = sum + textureSampleCompare(shadow_map, shadow_sampler, uv + vec2<f32>(f32(dx), f32(dy)) * texel, ref_depth);
+            sum = sum + textureSampleCompareLevel(
+                shadow_map, shadow_sampler,
+                uv + vec2<f32>(f32(dx), f32(dy)) * texel,
+                ref_depth,
+            );
         }
     }
-    return sum / 9.0;
+    let pcf = sum / 9.0;
+    let in_bounds = f32(ndc.x >= -1.0 && ndc.x <= 1.0 && ndc.y >= -1.0 && ndc.y <= 1.0 && ndc.z >= 0.0 && ndc.z <= 1.0);
+    let enabled = step(0.5, shadow.enabled);
+    return mix(1.0, mix(1.0, pcf, in_bounds), enabled);
 }
 
 @fragment

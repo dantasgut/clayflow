@@ -1,35 +1,27 @@
-// Demo standalone das 4 camadas — gate de validação cross-layer #91.
-//
-// Exercita:
-//  - C1 (Hardware): GpuEngineCore criado via Application.create.
-//  - C2 (Sync): World/EventBus/ResourceSystem/ExecutionSystem/FlowRegistry instanciados.
-//  - C3 (Elements): SphereGeometry + StandardMaterial + Camera + DirectionalLight (castShadow);
-//    RigidBody com LCPFlow integrando gravidade no GPU; SoftBody com XPBDFlow.
-//  - C4 (Presentation): Application + GameLoop + ForwardFlow real + ShadowFlow ativo +
-//    OrbitController (auto-rotate) + InteractionSystem.
-//
-// O laço RAF emite frameTick continuamente; cada flow ativo dispatcha seus passes
-// dentro de um único core.record('frame', ...). O frame é encerrado com core.submit().
-
-import {
-    Application,
-    InteractionSystem,
-    OrbitController,
-} from './presentation/index';
+// Smoke de stress para Fase A (hardening): valida cleanup de slots, pool growth e resize.
+import { Application } from './presentation/index';
 import {
     BoxGeometry,
     Camera,
     DirectionalLight,
     GravityField,
     LCPFlow,
-    PlaneGeometry,
     RigidBody,
-    SoftBody,
-    SphereGeometry,
     StandardMaterial,
     Transform,
-    XPBDFlow,
 } from './elements/index';
+
+const log = (m: string) => {
+    console.log(`[stress] ${m}`);
+    const el = document.getElementById('log');
+    if (el) el.textContent += m + '\n';
+};
+const fail = (m: string) => {
+    console.error(`[stress] FAIL: ${m}`);
+    const el = document.getElementById('log');
+    if (el) el.textContent += `FAIL: ${m}\n`;
+    throw new Error(m);
+};
 
 async function main(): Promise<void> {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
@@ -38,53 +30,88 @@ async function main(): Promise<void> {
     canvas.height = Math.floor(canvas.clientHeight * dpr);
 
     const app = await Application.create({ canvas });
-
-    const interaction = new InteractionSystem({ canvas, window }, app.events);
-    interaction.attach();
-
-    const aspect = canvas.width / canvas.height;
-    const camera = new Camera({ aspect });
+    const camera = new Camera({ aspect: canvas.width / canvas.height });
     app.world.insert(camera);
-
-    interaction.addController(new OrbitController(camera, {
-        target: [0, 0.5, 0],
-        distance: 7,
-        autoRotate: true,
-        autoRotateSpeed: 0.4,
-    }));
-
-    const sun = new DirectionalLight({ direction: [0.4, -1, 0.6, 0], color: [1, 1, 0.95, 1], castShadow: true });
-    app.world.insert(sun);
-
-    const ground = new PlaneGeometry({ size: [12, 12] });
-    ground.add(new StandardMaterial({ albedo: [0.4, 0.5, 0.55, 1], roughness: 0.9 }));
-    ground.add(new Transform({ position: [0, -0.5, 0, 1] }));
-    app.world.insert(ground);
-
-    const cube = new BoxGeometry({ size: [1, 1, 1] });
-    cube.add(new StandardMaterial({ albedo: [0.85, 0.4, 0.25, 1], roughness: 0.4 }));
-    cube.add(new Transform({ position: [-1.5, 0, 0, 1] }));
-    app.world.insert(cube);
-
-    const sphere = new SphereGeometry({ radius: 0.6, latSegments: 24, lonSegments: 32 });
-    sphere.add(new StandardMaterial({ albedo: [0.25, 0.65, 0.85, 1], roughness: 0.3 }));
-    sphere.add(new Transform({ position: [1.5, 0, 0, 1] }));
-    app.world.insert(sphere);
-
+    app.world.insert(new DirectionalLight({ direction: [0.4, -1, 0.6, 0], castShadow: true }));
     app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-
-    app.world.insert(new RigidBody({ position: [0, 4, 0, 1], mass: 1.0, restitution: 0.3 }));
-    app.world.insert(new SoftBody({ position: [0, 6, 0, 1], mass: 1.0 }));
-
     app.flows.register(new LCPFlow(app.core, app.world, app.resources));
-    app.flows.register(new XPBDFlow(app.core, app.world, app.resources));
+    log('bootstrap OK');
 
-    app.start();
-    console.log('[demo] Application started — 4 camadas ativas');
+    // ── 1. Pool growth: 8 bodies, roda 3 frames, depois +12 (força realloc) ──
+    for (let i = 0; i < 8; i++) {
+        app.world.insert(new RigidBody({ position: [i * 0.3, 5, 0, 1], mass: 1.0 }));
+    }
+    for (let i = 0; i < 3; i++) app.events.emit('frameTick', { dt: 1/60, elapsed: i/60 });
+    log('8 bodies + 3 frames pre-growth OK');
+
+    for (let i = 8; i < 20; i++) {
+        app.world.insert(new RigidBody({ position: [i * 0.3, 5, 0, 1], mass: 1.0 }));
+    }
+    const poolBuf = app.resources.poolBufferSpec('RigidBody:LCP');
+    if (poolBuf === undefined || poolBuf.byteSize !== 32 * 160) {
+        fail(`expected pool byteSize=${32*160} after growth, got ${poolBuf?.byteSize}`);
+    }
+    log(`pool growth OK — count=${app.resources.poolCount('RigidBody:LCP')}, byteSize=${poolBuf!.byteSize}`);
+
+    // Roda 3 frames após growth — verifica que LCPFlow.bindGroup foi recriado.
+    let cap: string | null = null;
+    await app.core.withErrorScope('validation', async () => {
+        for (let i = 0; i < 3; i++) app.events.emit('frameTick', { dt: 1/60, elapsed: (3+i)/60 });
+    }).catch(e => { cap = String(e?.message ?? e); });
+    if (cap !== null) fail(`post-growth dispatch: ${cap}`);
+    log('3 frames post-growth OK (LCPFlow.bindGroup recriado)');
+
+    // ── 2. cachedSlots em ForwardFlow ──
+    const cubes: BoxGeometry[] = [];
+    for (let i = 0; i < 30; i++) {
+        const c = new BoxGeometry({ size: [0.2, 0.2, 0.2] });
+        c.add(new StandardMaterial({ albedo: [Math.random(), Math.random(), Math.random(), 1] }));
+        c.add(new Transform({ position: [(i % 6) * 0.5 - 1.5, 1, Math.floor(i / 6) * 0.5 - 1, 1] }));
+        app.world.insert(c);
+        cubes.push(c);
+    }
+    for (let i = 0; i < 3; i++) app.events.emit('frameTick', { dt: 1/60, elapsed: (6+i)/60 });
+    const slotsBefore = (app.defaults.forward as unknown as { cachedSlots: Map<unknown, unknown> }).cachedSlots.size;
+    if (slotsBefore < 30) fail(`expected ≥ 30 cached slots, got ${slotsBefore}`);
+    log(`ForwardFlow.cachedSlots after 30 cubes: ${slotsBefore}`);
+
+    // ── 3. Remove metade ──
+    for (let i = 0; i < 15; i++) app.world.remove(cubes[i]!);
+    const slotsAfter = (app.defaults.forward as unknown as { cachedSlots: Map<unknown, unknown> }).cachedSlots.size;
+    log(`cachedSlots after 15 removes: ${slotsAfter}`);
+    if (slotsAfter !== slotsBefore - 15) {
+        fail(`expected slots=${slotsBefore - 15}, got ${slotsAfter}`);
+    }
+
+    // Continua dispatch após remove
+    cap = null;
+    await app.core.withErrorScope('validation', async () => {
+        for (let i = 0; i < 3; i++) app.events.emit('frameTick', { dt: 1/60, elapsed: (9+i)/60 });
+    }).catch(e => { cap = String(e?.message ?? e); });
+    if (cap !== null) fail(`post-remove dispatch: ${cap}`);
+    log('3 frames post-remove OK');
+
+    // ── 4. Resize ──
+    let resizeOk = 0;
+    for (let i = 0; i < 5; i++) {
+        canvas.width = 600 + i * 80;
+        canvas.height = 400 + i * 50;
+        app.core.reconfigureCanvas();
+        app.events.emit('canvasReconfigured', {
+            width: canvas.width, height: canvas.height, format: app.core.canvasFormat,
+        });
+        resizeOk++;
+    }
+    log(`resize x${resizeOk} OK (final ${canvas.width}×${canvas.height})`);
+
+    cap = null;
+    await app.core.withErrorScope('validation', async () => {
+        for (let i = 0; i < 3; i++) app.events.emit('frameTick', { dt: 1/60, elapsed: (12+i)/60 });
+    }).catch(e => { cap = String(e?.message ?? e); });
+    if (cap !== null) fail(`post-resize dispatch: ${cap}`);
+    log('3 frames post-resize OK');
+
+    log('STRESS PASSED');
 }
 
-main().catch(err => {
-    console.error('[demo] FAIL:', err);
-    const el = document.getElementById('log');
-    if (el) el.textContent = `FAIL: ${err?.message ?? err}`;
-});
+main().catch(err => fail(String(err?.message ?? err)));

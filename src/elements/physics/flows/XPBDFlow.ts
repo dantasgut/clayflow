@@ -79,6 +79,12 @@ export class XPBDFlow extends Flow {
         return this.resources.poolCount(this.poolKey) > 0;
     }
 
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.poolKey) {
+            this.bindGroup = null;
+        }
+    }
+
     private ensureGpuObjects(): void {
         if (this.predictShader === null) {
             this.predictShader = this.core.create<ShaderModuleSpec>({

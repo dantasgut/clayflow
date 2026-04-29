@@ -9,6 +9,7 @@ export class SphereGeometry extends Geometry {
         normal: FieldType.vec3f,
         uv: FieldType.vec2f,
     });
+    static readonly schema = SphereGeometry.vertexStruct;
 
     constructor(values: Record<string, unknown> = {}) {
         super();

@@ -95,6 +95,14 @@ export class SPHFlow extends Flow {
         return this.resources.poolCount(this.bodyType) > 0;
     }
 
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.bodyType) {
+            this.particlesBg = null;
+            this.neighborsBg = null;
+            this.neighborSearch?.invalidateParticlesBinding();
+        }
+    }
+
     private ensureGpuObjects(): void {
         const b = this.base();
         if (this.densityShader === null)   this.densityShader = this.core.create<ShaderModuleSpec>({ kind: 'shader', discriminator: 'sph_density', source: b + '\n' + sphDensityKernel });

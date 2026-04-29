@@ -1,4 +1,5 @@
 import type { Resource } from '../contracts/Resource';
+import type { EntityId } from '../world/EntityId';
 import type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 import type { ChangedEvent } from './ChangedEvent';
 import type { FrameCompleteEvent } from './FrameCompleteEvent';
@@ -25,6 +26,10 @@ export interface CanvasReconfiguredPayload {
     readonly format: GPUTextureFormat;
 }
 
+export interface EntitiesRemovedPayload {
+    readonly entityIds: readonly EntityId[];
+}
+
 export interface EventMap {
     resourcesChanged: ChangedEvent<Resource>;
     resourceReady: ReadyEvent<ResourceReadyPayload>;
@@ -35,6 +40,7 @@ export interface EventMap {
     frameTick: FrameTickEvent;
     frameComplete: FrameCompleteEvent;
     canvasReconfigured: CanvasReconfiguredPayload;
+    entitiesRemoved: EntitiesRemovedPayload;
 }
 
 export type EventName = keyof EventMap;

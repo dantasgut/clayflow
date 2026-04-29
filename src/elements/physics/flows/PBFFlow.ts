@@ -106,6 +106,14 @@ export class PBFFlow extends Flow {
         return this.resources.poolCount(this.bodyType) > 0;
     }
 
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.bodyType) {
+            this.particlesBg = null;
+            this.neighborsBg = null;
+            this.neighborSearch?.invalidateParticlesBinding();
+        }
+    }
+
     private ensureGpuObjects(): void {
         const b = this.base();
         if (this.predictShader === null)         this.predictShader = this.core.create<ShaderModuleSpec>({ kind: 'shader', discriminator: 'pbf_predict', source: b + '\n' + pbfPredictKernel });
