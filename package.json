@@ -27,7 +27,7 @@
     "dev": "vite",
     "build:lib": "vite build",
     "preview": "vite preview",
-    "doc": "typedoc --out docs src/index.ts",
+    "doc": "typedoc --plugin typedoc-plugin-markdown --skipErrorChecking --out clay-engine-doc/docs/api --entryPoints src/presentation/index.ts src/elements/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

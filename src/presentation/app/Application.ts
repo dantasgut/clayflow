@@ -26,6 +26,24 @@ export interface ApplicationOptions {
     resizeDebounceMs?: number;
 }
 
+/**
+ * Application — bootstrap das 4 camadas da engine sobre um `<canvas>`.
+ *
+ * Ciclo de vida:
+ *   1. `await Application.create({ canvas })` adquire device/queue, configura
+ *      swapchain, instancia `World`/`EventBus`/`ResourceSystem`/`FlowRegistry`,
+ *      e registra defaults (`ShadowFlow + ForwardFlow + PostFlow + UIFlow + DebugFlow`).
+ *   2. `app.world.insert(entity)` para cada entidade da cena. Resources
+ *      indexados disparam alocação de buffers/binds reativamente.
+ *   3. `app.start()` inicia o `GameLoop` (RAF), que emite `frameTick` e cada
+ *      Flow ready dispatcha seus passes dentro de `core.record(...)` + `submit()`.
+ *   4. `app.stop()` pausa o RAF; `app.dispose()` desfaz event listeners.
+ *
+ * Resize: por padrão (`autoResize: true` em browser) anexa um listener em
+ * `window.resize` debounced 100ms que reconfigura o canvas + emite
+ * `canvasReconfigured`, e os flows recriam textures size-dependent via
+ * `Flow.onCanvasResized`.
+ */
 export class Application {
     readonly world: World;
     readonly flows: FlowRegistry;
