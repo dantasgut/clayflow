@@ -2,16 +2,36 @@ import type { Camera } from '../../../elements/scene/Camera';
 import { InputDrivenController } from '../InputDrivenController';
 import type { ControllerContext } from '../InputDrivenController';
 
+export interface FlyControllerKeymap {
+    readonly forward?: readonly string[];
+    readonly back?: readonly string[];
+    readonly left?: readonly string[];
+    readonly right?: readonly string[];
+    readonly up?: readonly string[];
+    readonly down?: readonly string[];
+}
+
 export interface FlyControllerOptions {
     readonly position?: readonly [number, number, number];
     readonly speed?: number;
     readonly mouseSensitivity?: number;
+    readonly keymap?: FlyControllerKeymap;
 }
+
+const DEFAULT_KEYMAP: Required<FlyControllerKeymap> = {
+    forward: ['KeyW'],
+    back: ['KeyS'],
+    left: ['KeyA'],
+    right: ['KeyD'],
+    up: ['KeyE', 'Space'],
+    down: ['KeyQ', 'ShiftLeft'],
+};
 
 export class FlyController extends InputDrivenController {
     private readonly pos: [number, number, number];
     private readonly speed: number;
     private readonly mouseSensitivity: number;
+    private readonly keymap: Required<FlyControllerKeymap>;
     private yaw = 0;
     private pitch = 0;
 
@@ -21,6 +41,12 @@ export class FlyController extends InputDrivenController {
         this.pos = [p[0], p[1], p[2]];
         this.speed = options.speed ?? 6;
         this.mouseSensitivity = options.mouseSensitivity ?? 0.003;
+        this.keymap = { ...DEFAULT_KEYMAP, ...(options.keymap ?? {}) } as Required<FlyControllerKeymap>;
+    }
+
+    private anyKeyDown(input: ControllerContext['input'], codes: readonly string[]): boolean {
+        for (const c of codes) if (input.isKeyDown(c)) return true;
+        return false;
     }
 
     update(ctx: ControllerContext): void {
@@ -35,12 +61,12 @@ export class FlyController extends InputDrivenController {
         const upVec: [number, number, number] = [0, 1, 0];
 
         let mx = 0, my = 0, mz = 0;
-        if (input.isKeyDown('KeyW')) mz += 1;
-        if (input.isKeyDown('KeyS')) mz -= 1;
-        if (input.isKeyDown('KeyA')) mx -= 1;
-        if (input.isKeyDown('KeyD')) mx += 1;
-        if (input.isKeyDown('KeyE') || input.isKeyDown('Space')) my += 1;
-        if (input.isKeyDown('KeyQ') || input.isKeyDown('ShiftLeft')) my -= 1;
+        if (this.anyKeyDown(input, this.keymap.forward)) mz += 1;
+        if (this.anyKeyDown(input, this.keymap.back))    mz -= 1;
+        if (this.anyKeyDown(input, this.keymap.left))    mx -= 1;
+        if (this.anyKeyDown(input, this.keymap.right))   mx += 1;
+        if (this.anyKeyDown(input, this.keymap.up))      my += 1;
+        if (this.anyKeyDown(input, this.keymap.down))    my -= 1;
         const len = Math.hypot(mx, my, mz);
         if (len > 0) {
             const inv = 1 / len;

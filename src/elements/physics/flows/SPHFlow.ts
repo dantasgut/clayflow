@@ -35,7 +35,7 @@ export interface SPHFlowOptions {
 
 export class SPHFlow extends Flow {
     readonly type = 'SPHFlow';
-    readonly bodyType = 'FluidBody:SPH';
+    readonly bodyType = 'SPHParticle:SPH';
     readonly phase: Phase = 'physics';
 
     private readonly fixedDt: number;
@@ -93,6 +93,14 @@ export class SPHFlow extends Flow {
 
     override isReady(): boolean {
         return this.resources.poolCount(this.bodyType) > 0;
+    }
+
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.bodyType) {
+            this.particlesBg = null;
+            this.neighborsBg = null;
+            this.neighborSearch?.invalidateParticlesBinding();
+        }
     }
 
     private ensureGpuObjects(): void {

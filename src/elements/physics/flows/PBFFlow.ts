@@ -38,7 +38,7 @@ export interface PBFFlowOptions {
 
 export class PBFFlow extends Flow {
     readonly type = 'PBFFlow';
-    readonly bodyType = 'FluidBody:PBF';
+    readonly bodyType = 'PBFParticle:PBF';
     readonly phase: Phase = 'physics';
 
     private readonly fixedDt: number;
@@ -104,6 +104,14 @@ export class PBFFlow extends Flow {
 
     override isReady(): boolean {
         return this.resources.poolCount(this.bodyType) > 0;
+    }
+
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.bodyType) {
+            this.particlesBg = null;
+            this.neighborsBg = null;
+            this.neighborSearch?.invalidateParticlesBinding();
+        }
     }
 
     private ensureGpuObjects(): void {

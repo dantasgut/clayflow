@@ -1,3 +1,17 @@
+/**
+ * Camada 3 — Elements API pública.
+ *
+ * Resources user-facing: geometrias paramétricas, materiais, lights,
+ * physics bodies (RigidBody, SoftBody, MPMBody, SPHBody, PBFBody), colliders,
+ * constraints, force fields, particle emitters, e os Flows que processam
+ * cada categoria (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, SPHFlow, PBFFlow).
+ *
+ * Cada classe expõe `getDescriptors()` (camadas C2 alocam buffers/bindings
+ * automaticamente) e, quando relevante, `getFlowDescriptors()` (associa o
+ * resource a um pool por algoritmo).
+ *
+ * @packageDocumentation
+ */
 export { Entity } from './Entity';
 
 export * from './scene/index';

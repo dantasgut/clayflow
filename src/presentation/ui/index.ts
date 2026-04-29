@@ -5,3 +5,7 @@ export { UiPanel } from './UiPanel';
 export { UiText } from './UiText';
 export { UiButton } from './UiButton';
 export { UiSlider } from './UiSlider';
+export { UiInteractionHandler } from './UiInteractionHandler';
+export { UiHBox } from './UiHBox';
+export { UiVBox } from './UiVBox';
+export { UiStack } from './UiStack';

@@ -80,6 +80,12 @@ export class FEMFlow extends Flow {
         return this.resources.poolCount(this.bodyType) > 0;
     }
 
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey === this.bodyType) {
+            this.bindGroup = null;
+        }
+    }
+
     private ensureGpuObjects(): void {
         if (this.predictShader === null) {
             this.predictShader = this.core.create<ShaderModuleSpec>({

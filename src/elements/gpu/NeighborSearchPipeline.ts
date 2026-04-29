@@ -96,6 +96,16 @@ export class NeighborSearchPipeline {
         return nsSimParamsStruct;
     }
 
+    /**
+     * Invalida bind groups que dependem do particles buffer atual.
+     * Chamado por SPHFlow/PBFFlow quando o pool de partículas reallocate.
+     */
+    invalidateParticlesBinding(): void {
+        this.assignBg = null;
+        this.findBg = null;
+        this.currentParticlesBuffer = null;
+    }
+
     private ensureBuffersAndLayouts(): void {
         if (this.paramsBuffer === null) {
             this.paramsBuffer = this.core.create<UniformBufferSpec>({ kind: 'buffer', subkind: 'uniform', discriminator: `ns_params:${this.disc}`, byteSize: 48 });
@@ -331,7 +341,6 @@ export class NeighborSearchPipeline {
 
         this.uploadParams(particleCount);
         this.clearBuffer(this.cellCountBuffer as StorageBufferSpec, this.cellCount * 4);
-        this.clearBuffer(this.cellCursorBuffer as StorageBufferSpec, this.cellCount * 4);
         this.clearBuffer(this.neighborCountBuffer as StorageBufferSpec, particleCount * 4);
         this.currentParticleCount = particleCount;
 
@@ -363,6 +372,9 @@ export class NeighborSearchPipeline {
                 .setBindGroup(1, this.scanCombineBg as BindGroupSpec);
             pass.dispatch.workgroups(cellWg);
         });
+        // cell_cursor recebe cópia de cell_start: scatter usa atomicAdd em
+        // cell_cursor para alocar o slot dentro do range [start, start+count).
+        frame.copy(this.cellStartBuffer as StorageBufferSpec, this.cellCursorBuffer as StorageBufferSpec, this.cellCount * 4);
         frame.compute('NS.scatter', pass => {
             pass.bind.setPipeline(this.scatterPipeline as ComputePipelineSpec)
                 .setBindGroup(0, this.paramsBg as BindGroupSpec)

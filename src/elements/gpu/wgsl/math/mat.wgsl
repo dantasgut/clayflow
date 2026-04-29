@@ -40,6 +40,57 @@ fn quat_to_mat4(q: vec4f, t: vec3f) -> mat4x4f {
     );
 }
 
+// Constrói mat3x3f (column-major) a partir de três vetores-coluna.
+// Helper para reidratar matrizes armazenadas como 3 vec4f em structs (MPM F, C, etc.).
+fn mat3_from_cols(c0: vec3f, c1: vec3f, c2: vec3f) -> mat3x3f {
+    return mat3x3f(c0, c1, c2);
+}
+
+// Transposta de mat3x3f (column-major: m[col][row]).
+fn mat3_transpose(m: mat3x3f) -> mat3x3f {
+    return mat3x3f(
+        vec3f(m[0].x, m[1].x, m[2].x),
+        vec3f(m[0].y, m[1].y, m[2].y),
+        vec3f(m[0].z, m[1].z, m[2].z),
+    );
+}
+
+// Determinante de mat3x3f via expansão da primeira linha.
+fn mat3_det(m: mat3x3f) -> f32 {
+    return
+          m[0].x * (m[1].y*m[2].z - m[2].y*m[1].z)
+        - m[1].x * (m[0].y*m[2].z - m[2].y*m[0].z)
+        + m[2].x * (m[0].y*m[1].z - m[1].y*m[0].z);
+}
+
+// Inversa de mat3x3f via matriz adjunta / determinante.
+// Caller deve garantir det != 0 (ou tolerar NaN/Inf).
+fn mat3_inverse(m: mat3x3f) -> mat3x3f {
+    let det = mat3_det(m);
+    let inv_det = 1.0 / det;
+    let c00 =  (m[1].y*m[2].z - m[2].y*m[1].z) * inv_det;
+    let c01 = -(m[0].y*m[2].z - m[2].y*m[0].z) * inv_det;
+    let c02 =  (m[0].y*m[1].z - m[1].y*m[0].z) * inv_det;
+    let c10 = -(m[1].x*m[2].z - m[2].x*m[1].z) * inv_det;
+    let c11 =  (m[0].x*m[2].z - m[2].x*m[0].z) * inv_det;
+    let c12 = -(m[0].x*m[1].z - m[1].x*m[0].z) * inv_det;
+    let c20 =  (m[1].x*m[2].y - m[2].x*m[1].y) * inv_det;
+    let c21 = -(m[0].x*m[2].y - m[2].x*m[0].y) * inv_det;
+    let c22 =  (m[0].x*m[1].y - m[1].x*m[0].y) * inv_det;
+    // Já vem como adjunta transposta (cofactor[col][row]) → forma colunas direto.
+    return mat3x3f(
+        vec3f(c00, c01, c02),
+        vec3f(c10, c11, c12),
+        vec3f(c20, c21, c22),
+    );
+}
+
+// Multiplicação A × B (column-major). WGSL operator * sobre mat3x3f já faz isso,
+// mas mantemos wrapper nominal para clareza dos call sites em kernels MPM/FEM.
+fn mat3_mul(a: mat3x3f, b: mat3x3f) -> mat3x3f {
+    return a * b;
+}
+
 // Inversa exata de uma matriz rígida (rotação + translação, sem escala).
 // M = [R | t]  →  M⁻¹ = [Rᵀ | -Rᵀ·t]
 fn rigid_mat4_inverse(m: mat4x4f) -> mat4x4f {

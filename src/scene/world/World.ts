@@ -12,6 +12,8 @@ interface EntityRecord {
     readonly schemaNames: Set<string>;
 }
 
+const RESOURCE_TO_ENTITY_ID = new WeakMap<Resource, EntityId>();
+
 export class World {
     private readonly records = new Map<EntityId, EntityRecord>();
     private readonly entityToId = new Map<Entity, EntityId>();
@@ -36,6 +38,7 @@ export class World {
         const record: EntityRecord = { id, root: entity, resources, tags, schemaNames };
         this.records.set(id, record);
         this.entityToId.set(entity, id);
+        for (const r of resources) RESOURCE_TO_ENTITY_ID.set(r, id);
         for (const name of schemaNames) {
             let set = this.bySchema.get(name);
             if (set === undefined) {
@@ -64,6 +67,7 @@ export class World {
         this.records.delete(id);
         this.entityToId.delete(entity);
         this.events.emit('resourcesChanged', { added: [], removed: record.resources });
+        this.events.emit('entitiesRemoved', { entityIds: [id] });
     }
 
     addTag(id: EntityId, tag: string): void {
@@ -99,6 +103,15 @@ export class World {
 
     entityIdOf(entity: Entity): EntityId | undefined {
         return this.entityToId.get(entity);
+    }
+
+    /**
+     * Mapeia um Resource (mesmo se for `parts` de um root) para o EntityId do
+     * root onde ele está alocado. Resources que pertencem a múltiplos roots
+     * (não-suportado) retornam o último mapeado.
+     */
+    entityIdOfResource(resource: Resource): EntityId | undefined {
+        return RESOURCE_TO_ENTITY_ID.get(resource);
     }
 
     rootOf(id: EntityId): Entity | undefined {

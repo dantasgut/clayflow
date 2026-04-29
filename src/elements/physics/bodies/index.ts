@@ -5,3 +5,6 @@ export { SoftBody } from './SoftBody';
 export type { SoftBodyAlgorithm, SoftBodyOptions } from './SoftBody';
 export { FluidBody } from './FluidBody';
 export type { FluidBodyAlgorithm, FluidBodyOptions } from './FluidBody';
+export { MPMBody } from './MPMBody';
+export { SPHBody } from './SPHBody';
+export { PBFBody } from './PBFBody';

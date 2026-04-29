@@ -6,6 +6,8 @@ export type {
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
+    EntitiesRemovedPayload,
+    ProfilerStatsPayload,
 } from './EventMap';
 export { DefaultEventBus } from './DefaultEventBus';
 export type { ChangedEvent } from './ChangedEvent';

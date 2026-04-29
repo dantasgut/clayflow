@@ -76,6 +76,13 @@ export class PostFlow extends Flow {
         return this.canvas !== null && this.forwardFlow !== null;
     }
 
+    override onCanvasResized(_width: number, _height: number): void {
+        this.pingpongTextures = null;
+        this.pingpongViews = null;
+        this.bindGroupCache.clear();
+        this.currentSize = { w: 0, h: 0 };
+    }
+
     private ensureShared(): void {
         if (this.shader === null) {
             this.shader = this.core.create<ShaderModuleSpec>({ kind: 'shader', discriminator: 'post_effects_shader', source: effectsWGSL });

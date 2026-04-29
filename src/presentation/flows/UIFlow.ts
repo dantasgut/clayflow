@@ -183,7 +183,12 @@ export class UIFlow extends Flow {
             if (el instanceof UiPanel) {
                 out.push({ rect: [el.bounds.x, el.bounds.y, el.bounds.width, el.bounds.height], color: [...el.background] as [number, number, number, number], uv: [0, 0, 0, 0], textured: 0 });
             } else if (el instanceof UiButton) {
-                out.push({ rect: [el.bounds.x, el.bounds.y, el.bounds.width, el.bounds.height], color: [0.25, 0.25, 0.30, 0.85], uv: [0, 0, 0, 0], textured: 0 });
+                const c: [number, number, number, number] = el.pressed
+                    ? [0.15, 0.15, 0.20, 0.95]
+                    : el.hovered
+                        ? [0.40, 0.40, 0.50, 0.90]
+                        : [0.25, 0.25, 0.30, 0.85];
+                out.push({ rect: [el.bounds.x, el.bounds.y, el.bounds.width, el.bounds.height], color: c, uv: [0, 0, 0, 0], textured: 0 });
             } else if (el instanceof UiSlider) {
                 out.push({ rect: [el.bounds.x, el.bounds.y, el.bounds.width, el.bounds.height], color: [0.20, 0.20, 0.25, 0.85], uv: [0, 0, 0, 0], textured: 0 });
                 const t = (el.value - el.min) / Math.max(el.max - el.min, 1e-6);
@@ -202,29 +207,59 @@ export class UIFlow extends Flow {
         if (this.font === null || el.text.length === 0) return;
         const baseSize = this.font.fontSize;
         const scale = el.fontSize / baseSize;
-        let cursorX = el.bounds.x;
-        const baselineY = el.bounds.y;
-        for (const ch of el.text) {
-            const glyph = this.font.glyphs.get(ch);
-            if (glyph === undefined) {
-                cursorX += baseSize * 0.5 * scale;
+        const lineHeight = baseSize * scale * 1.2;
+        const maxWidth = el.bounds.width > 0 ? el.bounds.width : Number.POSITIVE_INFINITY;
+        const startX = el.bounds.x;
+        let cursorX = startX;
+        let cursorY = el.bounds.y;
+
+        // Word-wrap simples por palavras (split em ' ', '\n' começa nova linha).
+        // Glifos ausentes usam metade do font-size como advance default.
+        const words = el.text.split(/(\s+)/); // mantém whitespace
+        for (const word of words) {
+            if (word === '') continue;
+            if (word === '\n') {
+                cursorX = startX;
+                cursorY += lineHeight;
                 continue;
             }
-            const w = glyph.width * scale;
-            const h = glyph.height * scale;
-            out.push({
-                rect: [cursorX, baselineY, w, h],
-                color: [...el.color] as [number, number, number, number],
-                uv: [
-                    glyph.x / this.font.atlasWidth,
-                    glyph.y / this.font.atlasHeight,
-                    (glyph.x + glyph.width) / this.font.atlasWidth,
-                    (glyph.y + glyph.height) / this.font.atlasHeight,
-                ],
-                textured: 1,
-            });
-            cursorX += glyph.advance * scale;
+            const wordWidth = this.measureText(word, scale);
+            if (wordWidth + (cursorX - startX) > maxWidth && cursorX > startX && /\S/.test(word)) {
+                cursorX = startX;
+                cursorY += lineHeight;
+            }
+            for (const ch of word) {
+                const glyph = this.font.glyphs.get(ch);
+                if (glyph === undefined) {
+                    cursorX += baseSize * 0.5 * scale;
+                    continue;
+                }
+                const w = glyph.width * scale;
+                const h = glyph.height * scale;
+                out.push({
+                    rect: [cursorX, cursorY, w, h],
+                    color: [...el.color] as [number, number, number, number],
+                    uv: [
+                        glyph.x / this.font.atlasWidth,
+                        glyph.y / this.font.atlasHeight,
+                        (glyph.x + glyph.width) / this.font.atlasWidth,
+                        (glyph.y + glyph.height) / this.font.atlasHeight,
+                    ],
+                    textured: 1,
+                });
+                cursorX += glyph.advance * scale;
+            }
         }
+    }
+
+    private measureText(s: string, scale: number): number {
+        if (this.font === null) return 0;
+        let w = 0;
+        for (const ch of s) {
+            const glyph = this.font.glyphs.get(ch);
+            w += (glyph?.advance ?? this.font.fontSize * 0.5) * scale;
+        }
+        return w;
     }
 
     private uploadGeometry(): void {

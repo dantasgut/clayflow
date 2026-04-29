@@ -9,6 +9,7 @@ export class PlaneGeometry extends Geometry {
         normal: FieldType.vec3f,
         uv: FieldType.vec2f,
     });
+    static readonly schema = PlaneGeometry.vertexStruct;
 
     constructor(values: Record<string, unknown> = {}) {
         super();

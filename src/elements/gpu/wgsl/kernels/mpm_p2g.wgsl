@@ -1,7 +1,7 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/mpm_p2g.wgsl.ts
 @group(0) @binding(0) var<uniform>             mpm_params: MPMSimParams;
 @group(1) @binding(0) var<storage, read_write> grid:       array<MPMGridNode>;
-@group(2) @binding(0) var<storage, read>       particles:  array<MPMParticle>;
+@group(2) @binding(0) var<storage, read_write> particles:  array<MPMParticle>;
 
 @compute @workgroup_size(64)
 fn mpm_p2g_main(@builtin(global_invocation_id) gid: vec3u) {

@@ -3,27 +3,28 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Constraint } from './Constraint';
 
+/**
+ * DistanceConstraint segue o struct WGSL `DistanceConstraint` (16 bytes):
+ *   i: u32           — índice do body A no pool de partículas
+ *   j: u32           — índice do body B no pool de partículas
+ *   rest_length: f32 — comprimento de repouso (m)
+ *   compliance: f32  — m/N (0 = totalmente rígido)
+ */
 export class DistanceConstraint extends Constraint {
     static readonly schema = new StructSchema('DistanceConstraint', {
-        bodyA: FieldType.u32,
-        bodyB: FieldType.u32,
-        minDist: FieldType.f32,
-        maxDist: FieldType.f32,
+        i: FieldType.u32,
+        j: FieldType.u32,
+        rest_length: FieldType.f32,
         compliance: FieldType.f32,
-        color: FieldType.u32,
-        _pad0: FieldType.u32,
-        _pad1: FieldType.u32,
     });
 
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = DistanceConstraint.schema.applyDefaults({
-            bodyA: values['bodyA'] ?? 0,
-            bodyB: values['bodyB'] ?? 0,
-            minDist: values['minDist'] ?? 0,
-            maxDist: values['maxDist'] ?? 1,
+            i: values['i'] ?? values['bodyA'] ?? 0,
+            j: values['j'] ?? values['bodyB'] ?? 0,
+            rest_length: values['rest_length'] ?? values['restLength'] ?? 1,
             compliance: values['compliance'] ?? 0,
-            color: 0,
         });
     }
 
