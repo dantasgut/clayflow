@@ -35,7 +35,7 @@ export interface SPHFlowOptions {
 
 export class SPHFlow extends Flow {
     readonly type = 'SPHFlow';
-    readonly bodyType = 'FluidBody:SPH';
+    readonly bodyType = 'SPHParticle:SPH';
     readonly phase: Phase = 'physics';
 
     private readonly fixedDt: number;

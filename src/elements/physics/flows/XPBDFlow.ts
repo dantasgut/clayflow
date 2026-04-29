@@ -15,14 +15,18 @@ import type { World } from '../../../scene/world/World';
 import type { GravityField } from '../forcefields/GravityField';
 import simParamsStruct from '../../gpu/wgsl/structs/sim_params.wgsl?raw';
 import particleStruct from '../../gpu/wgsl/structs/particle.wgsl?raw';
+import distanceConstraintStruct from '../../gpu/wgsl/structs/distance_constraint.wgsl?raw';
 import xpbdMath from '../../gpu/wgsl/math/xpbd.wgsl?raw';
 import predictKernel from '../../gpu/wgsl/kernels/predict.wgsl?raw';
 import velocityUpdateKernel from '../../gpu/wgsl/kernels/velocity_update.wgsl?raw';
+import distanceSolveKernel from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw';
 
 export interface XPBDFlowOptions {
     readonly bodyType?: string;
+    readonly constraintPoolKey?: string;
     readonly fixedDt?: number;
     readonly substeps?: number;
+    readonly solverIters?: number;
 }
 
 export class XPBDFlow extends Flow {
@@ -33,15 +37,21 @@ export class XPBDFlow extends Flow {
 
     private readonly fixedDt: number;
     private readonly substeps: number;
+    private readonly solverIters: number;
     private readonly poolKey: string;
+    private readonly constraintPoolKey: string | null;
 
     private predictShader: ShaderModuleSpec | null = null;
     private velUpdateShader: ShaderModuleSpec | null = null;
+    private distanceShader: ShaderModuleSpec | null = null;
     private paramsBuffer: UniformBufferSpec | null = null;
     private bindLayout: LayoutSpec | null = null;
     private bindGroup: BindGroupSpec | null = null;
+    private distanceLayout: LayoutSpec | null = null;
+    private distanceBg: BindGroupSpec | null = null;
     private predictPipeline: ComputePipelineSpec | null = null;
     private velUpdatePipeline: ComputePipelineSpec | null = null;
+    private distancePipeline: ComputePipelineSpec | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -53,11 +63,13 @@ export class XPBDFlow extends Flow {
         this.bodyType = options.bodyType ?? 'SoftBody:XPBD';
         this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 1);
+        this.solverIters = Math.max(1, options.solverIters ?? 4);
         this.poolKey = this.bodyType;
+        this.constraintPoolKey = options.constraintPoolKey ?? null;
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [
+        const list: PipelineDescriptor[] = [
             {
                 id: 'pipeline_xpbd_predict',
                 role: 'compute',
@@ -73,6 +85,16 @@ export class XPBDFlow extends Flow {
                 consumes: [this.bodyType],
             },
         ];
+        if (this.constraintPoolKey !== null) {
+            list.push({
+                id: 'pipeline_xpbd_distance_solve',
+                role: 'compute',
+                shaderSource: [simParamsStruct, particleStruct, distanceConstraintStruct, xpbdMath, distanceSolveKernel].join('\n'),
+                entryPoints: ['distance_solve_main'],
+                consumes: [this.bodyType, this.constraintPoolKey],
+            });
+        }
+        return list;
     }
 
     override isReady(): boolean {
@@ -82,6 +104,10 @@ export class XPBDFlow extends Flow {
     override onPoolReallocated(poolKey: string): void {
         if (poolKey === this.poolKey) {
             this.bindGroup = null;
+            this.distanceBg = null;
+        }
+        if (poolKey === this.constraintPoolKey) {
+            this.distanceBg = null;
         }
     }
 
@@ -149,6 +175,48 @@ export class XPBDFlow extends Flow {
                 entryPoint: 'velocity_update_main',
             });
         }
+        if (this.constraintPoolKey !== null) {
+            const constraintsBuf = this.resources.poolBufferSpec(this.constraintPoolKey);
+            if (this.distanceShader === null) {
+                this.distanceShader = this.core.create<ShaderModuleSpec>({
+                    kind: 'shader',
+                    discriminator: 'xpbd_distance_solve_shader',
+                    source: [simParamsStruct, particleStruct, distanceConstraintStruct, xpbdMath, distanceSolveKernel].join('\n'),
+                });
+            }
+            if (this.distanceLayout === null) {
+                this.distanceLayout = this.core.create<LayoutSpec>({
+                    kind: 'layout',
+                    discriminator: 'xpbd_distance_layout',
+                    entries: [
+                        { binding: 0, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'uniform' },
+                        { binding: 1, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'storage' },
+                        { binding: 2, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'read-only-storage' },
+                    ],
+                });
+            }
+            if (this.distanceBg === null && constraintsBuf !== undefined && bodiesBuf !== undefined) {
+                this.distanceBg = this.core.create<BindGroupSpec>({
+                    kind: 'bindgroup',
+                    discriminator: 'xpbd_distance_bg',
+                    layout: this.distanceLayout,
+                    bindings: [
+                        { binding: 0, kind: 'buffer', buffer: this.paramsBuffer },
+                        { binding: 1, kind: 'buffer', buffer: bodiesBuf },
+                        { binding: 2, kind: 'buffer', buffer: constraintsBuf },
+                    ],
+                });
+            }
+            if (this.distancePipeline === null) {
+                this.distancePipeline = this.core.create<ComputePipelineSpec>({
+                    kind: 'pipeline', subkind: 'compute',
+                    discriminator: 'xpbd_distance_solve_pipeline',
+                    layouts: [this.distanceLayout],
+                    shader: this.distanceShader,
+                    entryPoint: 'distance_solve_main',
+                });
+            }
+        }
     }
 
     private uploadParams(particleCount: number, dtSub: number): void {
@@ -173,7 +241,7 @@ export class XPBDFlow extends Flow {
         f32[5] = 0.05;             // damping @ 20
         f32[6] = 0.05;             // particle_radius @ 24
         u32[7] = particleCount;    // particle_count @ 28
-        u32[8] = 0;                // constraint_count @ 32
+        u32[8] = this.constraintPoolKey !== null ? this.resources.poolCount(this.constraintPoolKey) : 0;
         u32[9] = 0;                // collider_count @ 36
         f32[10] = 0;               // shape_stiffness @ 40
         f32[11] = 0;               // collision_radius @ 44
@@ -204,6 +272,18 @@ export class XPBDFlow extends Flow {
                     .setBindGroup(0, this.bindGroup as BindGroupSpec);
                 pass.dispatch.workgroups(wgs);
             });
+            if (this.distancePipeline !== null && this.distanceBg !== null
+                && this.constraintPoolKey !== null
+                && this.resources.poolCount(this.constraintPoolKey) > 0) {
+                for (let it = 0; it < this.solverIters; it++) {
+                    frame.compute('XPBDFlow.distance_solve', pass => {
+                        pass.bind
+                            .setPipeline(this.distancePipeline as ComputePipelineSpec)
+                            .setBindGroup(0, this.distanceBg as BindGroupSpec);
+                        pass.dispatch.workgroups(1);
+                    });
+                }
+            }
             frame.compute('XPBDFlow.velocity_update', pass => {
                 pass.bind
                     .setPipeline(this.velUpdatePipeline as ComputePipelineSpec)

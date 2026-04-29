@@ -38,7 +38,7 @@ export interface PBFFlowOptions {
 
 export class PBFFlow extends Flow {
     readonly type = 'PBFFlow';
-    readonly bodyType = 'FluidBody:PBF';
+    readonly bodyType = 'PBFParticle:PBF';
     readonly phase: Phase = 'physics';
 
     private readonly fixedDt: number;

@@ -19,6 +19,7 @@ import mpmParticleStruct from '../../gpu/wgsl/structs/mpm_particle.wgsl?raw';
 import mpmGridNodeStruct from '../../gpu/wgsl/structs/mpm_grid_node.wgsl?raw';
 import colliderDescStruct from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
 import matLib from '../../gpu/wgsl/math/mat.wgsl?raw';
+import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
 import mpmWeightsLib from '../../gpu/wgsl/math/mpm_weights.wgsl?raw';
 import mpmP2GKernel from '../../gpu/wgsl/kernels/mpm_p2g.wgsl?raw';
 import mpmGridUpdateKernel from '../../gpu/wgsl/kernels/mpm_grid_update.wgsl?raw';
@@ -29,7 +30,7 @@ const COLLIDER_DESC_SIZE = 160;
 const MPM_GRID_NODE_SIZE = 32;
 
 export interface MPMFlowOptions {
-    readonly bodyType?: 'FluidBody:MPM' | 'SoftBody:MPM';
+    readonly bodyType?: string;
     readonly fixedDt?: number;
     readonly substeps?: number;
     readonly gridDim?: readonly [number, number, number];
@@ -75,7 +76,7 @@ export class MPMFlow extends Flow {
         options: MPMFlowOptions = {},
     ) {
         super();
-        this.bodyType = options.bodyType ?? 'FluidBody:MPM';
+        this.bodyType = options.bodyType ?? 'MPMParticle:MPM';
         this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.gridDim = options.gridDim ?? [32, 32, 32];
@@ -84,7 +85,7 @@ export class MPMFlow extends Flow {
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        const baseSrc = [mpmSimParamsStruct, mpmParticleStruct, mpmGridNodeStruct, colliderDescStruct, matLib, mpmWeightsLib].join('\n');
+        const baseSrc = [mpmSimParamsStruct, mpmParticleStruct, mpmGridNodeStruct, colliderDescStruct, matLib, sdfLib, mpmWeightsLib].join('\n');
         return [
             { id: 'pipeline_mpm_p2g', role: 'compute', shaderSource: baseSrc + '\n' + mpmP2GKernel, entryPoints: ['mpm_p2g_main'], consumes: [this.bodyType, 'GravityField'] },
             { id: 'pipeline_mpm_grid_update', role: 'compute', shaderSource: baseSrc + '\n' + mpmGridUpdateKernel, entryPoints: ['mpm_grid_update_main'], consumes: [this.bodyType, 'GravityField'] },
@@ -107,7 +108,7 @@ export class MPMFlow extends Flow {
     }
 
     private ensureGpuObjects(): void {
-        const baseSrc = [mpmSimParamsStruct, mpmParticleStruct, mpmGridNodeStruct, colliderDescStruct, matLib, mpmWeightsLib].join('\n');
+        const baseSrc = [mpmSimParamsStruct, mpmParticleStruct, mpmGridNodeStruct, colliderDescStruct, matLib, sdfLib, mpmWeightsLib].join('\n');
         if (this.p2gShader === null) {
             this.p2gShader = this.core.create<ShaderModuleSpec>({ kind: 'shader', discriminator: 'mpm_p2g_shader', source: baseSrc + '\n' + mpmP2GKernel });
         }
