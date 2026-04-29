@@ -65,6 +65,7 @@ export class Application {
             core: engine,
             world,
             resources: resourceSystem,
+            events,
         });
         return new Application(options, defaults);
     }

@@ -2,6 +2,7 @@ import type { EngineCore } from '../../core/contracts/index';
 import type { FlowRegistry } from '../../scene/flows/FlowRegistry';
 import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
 import type { World } from '../../scene/world/World';
+import type { EventBus } from '../../scene/events/EventBus';
 import { ForwardFlow } from './ForwardFlow';
 import { ShadowFlow } from './ShadowFlow';
 import { PostFlow } from './PostFlow';
@@ -13,6 +14,7 @@ export interface PresentationDefaultsOptions {
     readonly core: EngineCore;
     readonly world: World;
     readonly resources: ResourceSystem;
+    readonly events?: EventBus;
 }
 
 export interface PresentationDefaults {
@@ -33,6 +35,7 @@ export function registerPresentationDefaults(
     forward.setRenderToOffscreen(true);
     const ui = new UIFlow(options.core, options.canvas);
     const debug = new DebugFlow();
+    if (options.events !== undefined) debug.bindEvents(options.events);
     flows.register(shadow);
     flows.register(forward);
     flows.register(post);

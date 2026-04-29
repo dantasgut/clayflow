@@ -30,6 +30,13 @@ export interface EntitiesRemovedPayload {
     readonly entityIds: readonly EntityId[];
 }
 
+export interface ProfilerStatsPayload {
+    readonly fps: number;
+    readonly frameTimeMs: number;
+    readonly avgFrameTimeMs: number;
+    readonly stagesNs: Readonly<Record<string, number>>;
+}
+
 export interface EventMap {
     resourcesChanged: ChangedEvent<Resource>;
     resourceReady: ReadyEvent<ResourceReadyPayload>;
@@ -41,6 +48,7 @@ export interface EventMap {
     frameComplete: FrameCompleteEvent;
     canvasReconfigured: CanvasReconfiguredPayload;
     entitiesRemoved: EntitiesRemovedPayload;
+    profilerStats: ProfilerStatsPayload;
 }
 
 export type EventName = keyof EventMap;

@@ -1,19 +1,22 @@
-// Fase D.5 smoke — Controllers polish.
-// Valida: OrbitController damping (velocidade decai exponencialmente após drag),
-// pinch-zoom (TouchDevice → OrbitController.distance), FlyController com
-// keymap customizada, FpsController construído com canvas para auto pointer-lock.
-import { Application, OrbitController, FlyController, FpsController } from './presentation/index';
-import { Input } from './presentation/index';
-import type { ControllerContext } from './presentation/index';
-import { Camera } from './elements/index';
+// Fase E smoke — Profiler + createAsync + DebugFlow.
+// E.1 valida que GpuProfilerSystem.isSupported reflete a feature do device,
+//     que aloca buffers quando suportado, e que readRange retorna BigInt64Array.
+// E.2 valida que core.createAsync devolve uma compute pipeline funcional
+//     que pode ser dispatched ao igual a uma pipeline sync.
+// E.3 valida que DebugFlow emite `profilerStats` ao receber frameTicks.
+import { Application } from './presentation/index';
+import type {
+    BindGroupSpec, ComputePipelineSpec, LayoutSpec, ShaderModuleSpec,
+    StorageBufferSpec, StagingBufferSpec,
+} from './core/contracts/index';
 
 const log = (m: string) => {
-    console.log(`[ctrl] ${m}`);
+    console.log(`[fase-e] ${m}`);
     const el = document.getElementById('log');
     if (el) el.textContent += m + '\n';
 };
 const fail = (m: string) => {
-    console.error(`[ctrl] FAIL: ${m}`);
+    console.error(`[fase-e] FAIL: ${m}`);
     const el = document.getElementById('log');
     if (el) el.textContent += `FAIL: ${m}\n`;
     throw new Error(m);
@@ -25,89 +28,113 @@ async function main(): Promise<void> {
     const app = await Application.create({ canvas });
     log('app created');
 
-    // Test 1: OrbitController damping.
-    {
-        const cam = new Camera({ aspect: 1 });
-        const orbit = new OrbitController(cam, {
-            target: [0, 0, 0], distance: 5, damping: 0.7,
+    // ─── E.1: GpuProfilerSystem real ────────────────────────────────────────
+    const profiler = app.core.profiler;
+    log(`profiler.isSupported = ${profiler.isSupported}`);
+    // Mesmo sem suporte, readRange deve retornar BigInt64Array (zeros).
+    const noSupportRead = await profiler.readRange(0, 4);
+    if (!(noSupportRead instanceof BigInt64Array)) fail('readRange não retornou BigInt64Array');
+    if (profiler.isSupported) {
+        const tw = profiler.timestampWritesFor(0, 1);
+        if (tw === undefined) fail('timestampWritesFor retornou undefined com suporte ativo');
+        if (tw.beginningOfPassWriteIndex !== 0 || tw.endOfPassWriteIndex !== 1) {
+            fail(`tw indices incorretos: ${tw.beginningOfPassWriteIndex}/${tw.endOfPassWriteIndex}`);
+        }
+        log('profiler API OK (timestamp-query suportado, writes config válida)');
+    } else {
+        if (profiler.timestampWritesFor(0, 1) !== undefined) {
+            fail('timestampWritesFor deveria ser undefined sem suporte');
+        }
+        log('profiler API OK (sem suporte → returns undefined, readRange retorna zeros)');
+    }
+
+    // ─── E.2: createAsync end-to-end ────────────────────────────────────────
+    // Cria layout + buffer, compila pipeline async, dispatcha, faz readback.
+    const N = 64;
+    const buf = app.core.create<StorageBufferSpec>({
+        kind: 'buffer', subkind: 'storage',
+        discriminator: 'fase_e_async_buf',
+        byteSize: N * 4,
+    });
+    const staging = app.core.create<StagingBufferSpec>({
+        kind: 'buffer', subkind: 'staging',
+        discriminator: 'fase_e_async_staging',
+        byteSize: N * 4,
+    });
+    const layout = app.core.create<LayoutSpec>({
+        kind: 'layout', discriminator: 'fase_e_async_layout',
+        entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'storage' }],
+    });
+    const shader = app.core.create<ShaderModuleSpec>({
+        kind: 'shader', discriminator: 'fase_e_async_shader',
+        source: `
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+    if (gid.x >= ${N}u) { return; }
+    data[gid.x] = gid.x * 2u;
+}`,
+    });
+    // createAsync: pipeline retorna apenas após shader linkado.
+    const pipeline = await app.core.createAsync<ComputePipelineSpec>({
+        kind: 'pipeline', subkind: 'compute',
+        discriminator: 'fase_e_async_pipeline',
+        layouts: [layout], shader, entryPoint: 'main',
+    });
+    log('createAsync OK (compute pipeline compiled async)');
+
+    const bg = app.core.create<BindGroupSpec>({
+        kind: 'bindgroup', discriminator: 'fase_e_async_bg',
+        layout, bindings: [{ binding: 0, kind: 'buffer', buffer: buf }],
+    });
+    let validationErr: string | null = null;
+    await app.core.withErrorScope('validation', async () => {
+        app.core.record(frame => {
+            frame.compute('FaseE.dispatch', pass => {
+                pass.bind.setPipeline(pipeline).setBindGroup(0, bg);
+                pass.dispatch.workgroups(1);
+            });
+            frame.copy(buf, staging, N * 4);
         });
-        const input = new Input();
-        // Drag — velocidade injetada
-        input.state.pointerButtons = 1;
-        input.state.pointerDeltaX = 100;
-        const ctx: ControllerContext = { input, dt: 1/60 };
-        orbit.update(ctx);
-        const camPosA = (cam.data['position'] as number[]).slice();
-        // Solta drag — damping deve decair
-        input.state.pointerButtons = 0;
-        input.state.pointerDeltaX = 0;
-        for (let i = 0; i < 60; i++) orbit.update(ctx);
-        const camPosB = (cam.data['position'] as number[]).slice();
-        // Após 60 frames de damping a 0.7^60, velocidade ~ 0; câmera deve
-        // estar essencialmente parada após N=60 vs. paragem brusca onde
-        // câmera ficaria no exato ponto após o drag.
-        // Sanidade: positions A e B devem diferir (damping ainda movimentou).
-        const diff = Math.hypot(
-            camPosB[0]! - camPosA[0]!,
-            camPosB[1]! - camPosA[1]!,
-            camPosB[2]! - camPosA[2]!,
-        );
-        if (diff < 1e-6) fail(`damping não causou movimento residual após drag (diff=${diff})`);
-        log(`OrbitController damping OK (deslocamento residual=${diff.toFixed(4)})`);
-    }
+        app.core.submit();
+    }).catch(e => { validationErr = String(e?.message ?? e); });
+    if (validationErr !== null) fail(`createAsync dispatch: ${validationErr}`);
 
-    // Test 2: OrbitController pinch consume.
-    {
-        const cam = new Camera({ aspect: 1 });
-        const orbit = new OrbitController(cam, {
-            target: [0, 0, 0], distance: 10, pinchSensitivity: 0.01, damping: 0,
-        });
-        const input = new Input();
-        input.state.pinchDelta = 50; // afasta dedos = zoom-in
-        const ctx: ControllerContext = { input, dt: 1/60 };
-        orbit.update(ctx);
-        const pos = cam.data['position'] as number[];
-        const dist = Math.hypot(pos[0]!, pos[1]!, pos[2]!);
-        // Distance deve ter diminuído (zoom-in: distance × exp(-50 × 0.01) ≈ 10 × 0.6065 ≈ 6.06)
-        if (dist > 7 || dist < 5) fail(`pinch zoom: distance=${dist.toFixed(2)} esperado~6.06`);
-        log(`OrbitController pinch OK (distance=${dist.toFixed(2)} após pinch=+50)`);
+    const result = new Uint32Array(await app.core.readback(staging));
+    for (let i = 0; i < N; i++) {
+        if (result[i] !== i * 2) fail(`pipeline async output[${i}]=${result[i]} esperado=${i*2}`);
     }
+    log('createAsync pipeline produces expected output (data[i] = i*2)');
 
-    // Test 3: FlyController keymap customizada.
-    {
-        const cam = new Camera({ aspect: 1 });
-        const fly = new FlyController(cam, {
-            position: [0, 0, 0], speed: 1,
-            keymap: { up: ['KeyU'], down: ['KeyJ'] },
-        });
-        const input = new Input();
-        const ctx: ControllerContext = { input, dt: 1/60 };
-        // Default Q/E NÃO devem mais acionar up/down
-        input.state.keys.add('KeyE');
-        for (let i = 0; i < 10; i++) fly.update(ctx);
-        const posAfterE = (cam.data['position'] as number[]).slice();
-        if (Math.abs(posAfterE[1]!) > 1e-3) fail(`KeyE moveu y para ${posAfterE[1]} apesar de keymap custom`);
-        // KeyU deve mover up
-        input.state.keys.delete('KeyE');
-        input.state.keys.add('KeyU');
-        for (let i = 0; i < 10; i++) fly.update(ctx);
-        const posAfterU = cam.data['position'] as number[];
-        if (posAfterU[1]! <= 0) fail(`KeyU não moveu y (y=${posAfterU[1]})`);
-        log(`FlyController keymap OK (KeyU=up, default KeyE inativo)`);
+    // ─── E.3: DebugFlow profilerStats ───────────────────────────────────────
+    let statsCount = 0;
+    let lastStats: { fps: number, frameTimeMs: number, avgFrameTimeMs: number } | null = null;
+    app.events.on('profilerStats', e => {
+        statsCount++;
+        lastStats = e;
+    });
+    app.defaults.debug.setEnabled(true);
+    // Dispara ticks com elapsed crescente para destravar throttle (250ms).
+    for (let i = 0; i < 30; i++) {
+        app.events.emit('frameTick', { dt: 1/60, elapsed: i * 0.05 });
     }
+    if (statsCount === 0) fail('DebugFlow não emitiu profilerStats em 30 ticks com debug enabled');
+    if (lastStats === null) fail('lastStats vazio');
+    if (lastStats!.fps <= 0) fail(`fps inválido: ${lastStats!.fps}`);
+    if (lastStats!.frameTimeMs <= 0) fail(`frameTimeMs inválido: ${lastStats!.frameTimeMs}`);
+    log(`profilerStats OK (${statsCount} eventos, último fps=${lastStats!.fps.toFixed(1)}, ` +
+        `frame=${lastStats!.frameTimeMs.toFixed(2)}ms, avg=${lastStats!.avgFrameTimeMs.toFixed(2)}ms)`);
 
-    // Test 4: FpsController construção com canvas (auto pointer-lock).
-    {
-        const cam = new Camera({ aspect: 1 });
-        const fps = new FpsController(cam, { canvas, position: [0, 0, 0] });
-        const input = new Input();
-        const ctx: ControllerContext = { input, dt: 1/60 };
-        fps.update(ctx); // só verifica que não throw
-        log('FpsController canvas-binding OK (sem crash; click chama requestPointerLock)');
+    // Verifica que disable freia emissão.
+    app.defaults.debug.setEnabled(false);
+    const before = statsCount;
+    for (let i = 30; i < 60; i++) {
+        app.events.emit('frameTick', { dt: 1/60, elapsed: i * 0.05 });
     }
+    if (statsCount !== before) fail(`stats continuou sendo emitido após disable (count: ${before} → ${statsCount})`);
+    log('DebugFlow.setEnabled(false) silencia emissão');
 
-    log('CONTROLLERS POLISH SMOKE PASSED');
-    void app;
+    log('FASE E SMOKE PASSED');
 }
 
 main().catch(err => fail(String(err?.message ?? err)));
