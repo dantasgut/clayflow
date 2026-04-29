@@ -1,0 +1,33 @@
+name: test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  unit:
+    name: Type-check + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install
+        run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Unit tests + coverage
+        run: npm run test:coverage
+      - name: Build lib
+        run: npm run build:lib
+
+  # Browser/WebGPU smokes: rodam interativamente via Vite dev server +
+  # Chrome MCP (mcp__claude-in-chrome__*) durante desenvolvimento.
+  # Não rodamos em CI porque WebGPU em headless requer Vulkan drivers
+  # (mesa-vulkan-drivers + libvulkan1) que tornam o pipeline pesado.
+  # Smokes manuais cobrem: compute round-trip, queda livre LCP/XPBD,
+  # demo standalone das 4 camadas (ver engine/src/main.ts variações).

@@ -1,6 +1,6 @@
 # Interface: ExtractionStrategy
 
-Defined in: [scene/rendering/strategies/ExtractionStrategy.ts:9](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/rendering/strategies/ExtractionStrategy.ts#L9)
+Defined in: [scene/rendering/strategies/ExtractionStrategy.ts:9](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/rendering/strategies/ExtractionStrategy.ts#L9)
 
 Padrão Strategy: Interface base para extração de entidades da Cena (Camada 2).
 Permite que novos componentes sejam renderizados/processados sem modificar o RenderExtractor.
@@ -11,7 +11,7 @@ Permite que novos componentes sejam renderizados/processados sem modificar o Ren
 
 > **extract**(`entity`, `queue`, `cameraWorldPos?`): `void`
 
-Defined in: [scene/rendering/strategies/ExtractionStrategy.ts:10](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/rendering/strategies/ExtractionStrategy.ts#L10)
+Defined in: [scene/rendering/strategies/ExtractionStrategy.ts:10](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/rendering/strategies/ExtractionStrategy.ts#L10)
 
 #### Parameters
 

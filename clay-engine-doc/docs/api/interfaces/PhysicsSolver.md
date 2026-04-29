@@ -1,6 +1,6 @@
 # Interface: PhysicsSolver
 
-Defined in: [scene/systems/solvers/PhysicsSolver.ts:15](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/solvers/PhysicsSolver.ts#L15)
+Defined in: [scene/systems/solvers/PhysicsSolver.ts:15](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/solvers/PhysicsSolver.ts#L15)
 
 Abstração de backend de simulação física (Bridge — GoF).
 
@@ -22,7 +22,7 @@ world.setSolver('SoftBody', new GPUSpringMassSolver(compute));
 
 > `readonly` **id**: `string`
 
-Defined in: [scene/systems/solvers/PhysicsSolver.ts:17](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/solvers/PhysicsSolver.ts#L17)
+Defined in: [scene/systems/solvers/PhysicsSolver.ts:17](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/solvers/PhysicsSolver.ts#L17)
 
 Identificador único do solver para logging e profiling.
 
@@ -32,7 +32,7 @@ Identificador único do solver para logging e profiling.
 
 > **solve**(`body`, `dt`): `void`
 
-Defined in: [scene/systems/solvers/PhysicsSolver.ts:24](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/solvers/PhysicsSolver.ts#L24)
+Defined in: [scene/systems/solvers/PhysicsSolver.ts:24](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/solvers/PhysicsSolver.ts#L24)
 
 Avança a simulação do corpo por um passo de tempo.
 

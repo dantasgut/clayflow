@@ -1,6 +1,6 @@
 # Interface: PhysicsComputePass
 
-Defined in: [scene/systems/PhysicsComputePass.ts:18](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsComputePass.ts#L18)
+Defined in: [scene/systems/PhysicsComputePass.ts:18](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsComputePass.ts#L18)
 
 Contrato de um compute pass de física GPU (substitui `PhysicsStage`).
 
@@ -21,7 +21,7 @@ O `passId` corresponde ao algoritmo numérico, não ao tipo de corpo:
 
 > `readonly` **acceptedPhysicTypes**: readonly `string`[]
 
-Defined in: [scene/systems/PhysicsComputePass.ts:27](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsComputePass.ts#L27)
+Defined in: [scene/systems/PhysicsComputePass.ts:27](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsComputePass.ts#L27)
 
 physicTypes que este pass aceita.
 Ex: `['RigidBody']` para passes de corpo rígido.
@@ -33,7 +33,7 @@ Deve corresponder a `PhysicsBody.physicType` dos corpos a processar.
 
 > `readonly` **passId**: `string`
 
-Defined in: [scene/systems/PhysicsComputePass.ts:20](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsComputePass.ts#L20)
+Defined in: [scene/systems/PhysicsComputePass.ts:20](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsComputePass.ts#L20)
 
 ID estável do algoritmo. Usado por GpuComputePassRegistry para associar corpos.
 
@@ -43,7 +43,7 @@ ID estável do algoritmo. Usado por GpuComputePassRegistry para associar corpos.
 
 > **dispose**(): `void`
 
-Defined in: [scene/systems/PhysicsComputePass.ts:45](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsComputePass.ts#L45)
+Defined in: [scene/systems/PhysicsComputePass.ts:45](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsComputePass.ts#L45)
 
 Libera todos os buffers GPU gerenciados por este pass.
 Chamado quando o pass é removido do registry ou a cena é desconectada.
@@ -58,7 +58,7 @@ Chamado quando o pass é removido do registry ou a cena é desconectada.
 
 > **ensureReady**(`core`): `Promise`\<`void`\>
 
-Defined in: [scene/systems/PhysicsComputePass.ts:33](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsComputePass.ts#L33)
+Defined in: [scene/systems/PhysicsComputePass.ts:33](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsComputePass.ts#L33)
 
 Garante que os pipelines WGSL estão compilados e prontos.
 Idempotente — chamado antes do primeiro `execute()`.
@@ -79,7 +79,7 @@ Idempotente — chamado antes do primeiro `execute()`.
 
 > **execute**(`context`, `dt`): `void`
 
-Defined in: [scene/systems/PhysicsComputePass.ts:39](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsComputePass.ts#L39)
+Defined in: [scene/systems/PhysicsComputePass.ts:39](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsComputePass.ts#L39)
 
 Executa os dispatches deste pass para o frame atual.
 Só chamado quando `ensureReady()` tiver resolvido com sucesso.

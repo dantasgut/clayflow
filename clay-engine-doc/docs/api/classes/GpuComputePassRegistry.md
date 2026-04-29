@@ -1,6 +1,6 @@
 # Class: GpuComputePassRegistry
 
-Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:20](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/gpu/GpuComputePassRegistry.ts#L20)
+Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:20](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/gpu/GpuComputePassRegistry.ts#L20)
 
 Registry de `PhysicsComputePass` ativos na cena.
 
@@ -34,7 +34,7 @@ em executeAll(), que só é chamado após initialize().
 
 > **get** **activePasses**(): readonly [`PhysicsComputePass`](../interfaces/PhysicsComputePass.md)[]
 
-Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:69](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/gpu/GpuComputePassRegistry.ts#L69)
+Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:69](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/gpu/GpuComputePassRegistry.ts#L69)
 
 Retorna os passes registrados (somente leitura).
 
@@ -48,7 +48,7 @@ readonly [`PhysicsComputePass`](../interfaces/PhysicsComputePass.md)[]
 
 > **disposeAll**(): `void`
 
-Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:60](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/gpu/GpuComputePassRegistry.ts#L60)
+Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:60](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/gpu/GpuComputePassRegistry.ts#L60)
 
 Libera todos os passes registrados. Chamado ao desconectar a cena.
 
@@ -62,7 +62,7 @@ Libera todos os passes registrados. Chamado ao desconectar a cena.
 
 > **executeAll**(`context`, `dt`): `Promise`\<`void`\>
 
-Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:43](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/gpu/GpuComputePassRegistry.ts#L43)
+Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:43](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/gpu/GpuComputePassRegistry.ts#L43)
 
 Garante que todos os passes estão prontos e executa cada um.
 Passes ainda em inicialização são silenciosamente ignorados neste frame.
@@ -87,7 +87,7 @@ Passes ainda em inicialização são silenciosamente ignorados neste frame.
 
 > **register**(`pass`): `void`
 
-Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:26](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/gpu/GpuComputePassRegistry.ts#L26)
+Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:26](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/gpu/GpuComputePassRegistry.ts#L26)
 
 Registra um pass. Passes são executados na ordem de registro.
 
@@ -107,7 +107,7 @@ Registra um pass. Passes são executados na ordem de registro.
 
 > **unregister**(`passId`): `void`
 
-Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:31](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/gpu/GpuComputePassRegistry.ts#L31)
+Defined in: [scene/systems/gpu/GpuComputePassRegistry.ts:31](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/gpu/GpuComputePassRegistry.ts#L31)
 
 Remove e descarta um pass pelo seu `passId`.
 

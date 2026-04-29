@@ -1,6 +1,6 @@
 # Interface: VertexAttributeDescriptor
 
-Defined in: [scene/data/VertexLayout.ts:13](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/data/VertexLayout.ts#L13)
+Defined in: [scene/data/VertexLayout.ts:13](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/data/VertexLayout.ts#L13)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [scene/data/VertexLayout.ts:13](https://github.com/dantasgut/clayflo
 
 > **format**: [`VertexFormatType`](../type-aliases/VertexFormatType.md)
 
-Defined in: [scene/data/VertexLayout.ts:15](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/data/VertexLayout.ts#L15)
+Defined in: [scene/data/VertexLayout.ts:15](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/data/VertexLayout.ts#L15)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [scene/data/VertexLayout.ts:15](https://github.com/dantasgut/clayflo
 
 > **name**: `string`
 
-Defined in: [scene/data/VertexLayout.ts:14](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/data/VertexLayout.ts#L14)
+Defined in: [scene/data/VertexLayout.ts:14](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/data/VertexLayout.ts#L14)
 
 ***
 
@@ -24,4 +24,4 @@ Defined in: [scene/data/VertexLayout.ts:14](https://github.com/dantasgut/clayflo
 
 > **shaderLocation**: `number`
 
-Defined in: [scene/data/VertexLayout.ts:16](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/data/VertexLayout.ts#L16)
+Defined in: [scene/data/VertexLayout.ts:16](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/data/VertexLayout.ts#L16)

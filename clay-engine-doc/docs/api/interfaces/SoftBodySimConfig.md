@@ -1,6 +1,6 @@
 # Interface: SoftBodySimConfig
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:20](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L20)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:20](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L20)
 
 Configuração da simulação de corpos deformáveis (XPBD SoftBody GPU).
 
@@ -20,7 +20,7 @@ world.addForce(new ConstantForce('gravity', vec3.fromValues(0, -9.81, 0)));
 
 > `optional` **iterations?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:31](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L31)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:31](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L31)
 
 Número de iterações do solver XPBD por substep.
 Valores maiores convergem melhor em malhas densas, com custo proporcional.
@@ -32,7 +32,7 @@ Default: 15.
 
 > `optional` **profilerLogInterval?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:63](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L63)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:63](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L63)
 
 Intervalo de frames entre leituras do profiler GPU.
 Default: 60 (≈1 log/s a 60fps).
@@ -43,7 +43,7 @@ Default: 60 (≈1 log/s a 60fps).
 
 > `optional` **resolution?**: [`SoftBodyResolutionConfig`](SoftBodyResolutionConfig.md)
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:25](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L25)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:25](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L25)
 
 Seleção explícita de algoritmo de resolução.
 Default: XPBD (único suportado atualmente).
@@ -54,7 +54,7 @@ Default: XPBD (único suportado atualmente).
 
 > `optional` **restitution?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:36](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L36)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:36](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L36)
 
 Coeficiente de restituição na colisão partícula-colissor (0–1).
 Default: 0.05.
@@ -65,7 +65,7 @@ Default: 0.05.
 
 > `optional` **shapeStiffness?**: `number`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:49](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L49)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:49](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L49)
 
 Coeficiente de rigidez do Shape Matching [0..1].
 0 = sem restauração, 1 = corpo rígido aproximado.
@@ -77,7 +77,7 @@ Só tem efeito se useShapeMatching=true. Default: 0.5.
 
 > `optional` **useJacobiSolve?**: `boolean`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:58](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L58)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:58](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L58)
 
 Ativa o solver Jacobi XPBD em vez do graph coloring.
 
@@ -92,7 +92,7 @@ Default: false.
 
 > `optional` **useShapeMatching?**: `boolean`
 
-Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:43](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/simulation/SoftBodySimConfig.ts#L43)
+Defined in: [scene/systems/simulation/SoftBodySimConfig.ts:43](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/simulation/SoftBodySimConfig.ts#L43)
 
 Ativa Shape Matching.
 Cada partícula é puxada em direção à posição-meta R·r_i + cm,

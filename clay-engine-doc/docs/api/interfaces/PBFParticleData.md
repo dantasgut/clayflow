@@ -1,6 +1,6 @@
 # Interface: PBFParticleData
 
-Defined in: [elements/physics/PBFBody.ts:5](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PBFBody.ts#L5)
+Defined in: [elements/physics/PBFBody.ts:5](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/elements/physics/PBFBody.ts#L5)
 
 ## Properties
 
@@ -8,7 +8,7 @@ Defined in: [elements/physics/PBFBody.ts:5](https://github.com/dantasgut/clayflo
 
 > `optional` **vx?**: `number`
 
-Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PBFBody.ts#L7)
+Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/elements/physics/PBFBody.ts#L7)
 
 ***
 
@@ -16,7 +16,7 @@ Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflo
 
 > `optional` **vy?**: `number`
 
-Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PBFBody.ts#L7)
+Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/elements/physics/PBFBody.ts#L7)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflo
 
 > `optional` **vz?**: `number`
 
-Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PBFBody.ts#L7)
+Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/elements/physics/PBFBody.ts#L7)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [elements/physics/PBFBody.ts:7](https://github.com/dantasgut/clayflo
 
 > **x**: `number`
 
-Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PBFBody.ts#L6)
+Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/elements/physics/PBFBody.ts#L6)
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflo
 
 > **y**: `number`
 
-Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PBFBody.ts#L6)
+Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/elements/physics/PBFBody.ts#L6)
 
 ***
 
@@ -48,4 +48,4 @@ Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflo
 
 > **z**: `number`
 
-Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/elements/physics/PBFBody.ts#L6)
+Defined in: [elements/physics/PBFBody.ts:6](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/elements/physics/PBFBody.ts#L6)

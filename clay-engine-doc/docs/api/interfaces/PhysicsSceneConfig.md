@@ -1,6 +1,6 @@
 # Interface: PhysicsSceneConfig
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:23](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L23)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:23](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L23)
 
 Configuração de cena física — dados puros, sem comportamento.
 
@@ -29,7 +29,7 @@ então mutar `config.rigidBody.substeps` em runtime tem efeito imediato.
 
 > `optional` **fem?**: `FemGpuConfig`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:52](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L52)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:52](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L52)
 
 Parâmetros do pipeline FEM (Finite Element Method).
 Presença habilita o `FEMComputePass` quando implementado (Fase 3).
@@ -40,7 +40,7 @@ Presença habilita o `FEMComputePass` quando implementado (Fase 3).
 
 > `optional` **gravity?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:28](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L28)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:28](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L28)
 
 Aceleração gravitacional (m/s²) aplicada globalmente.
 Default: [0, -9.81, 0].
@@ -51,7 +51,7 @@ Default: [0, -9.81, 0].
 
 > `optional` **inertiaTensorMaxRatio?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:40](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L40)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:40](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L40)
 
 Razão máxima entre o maior e o menor componente do tensor de inércia.
 Limita instabilidade em corpos finos/longos. Default: 10.
@@ -62,7 +62,7 @@ Limita instabilidade em corpos finos/longos. Default: 10.
 
 > `optional` **mpm?**: `MpmGpuConfig`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:58](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L58)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:58](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L58)
 
 Parâmetros do pipeline MPM (Material Point Method).
 Presença habilita o `MPMComputePass` quando implementado (Fase 5).
@@ -73,7 +73,7 @@ Presença habilita o `MPMComputePass` quando implementado (Fase 5).
 
 > `optional` **rigidBody?**: [`RigidBodyGpuConfig`](RigidBodyGpuConfig.md)
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:43](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L43)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:43](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L43)
 
 Parâmetros do pipeline LCP/PGS para RigidBody.
 
@@ -83,7 +83,7 @@ Parâmetros do pipeline LCP/PGS para RigidBody.
 
 > `optional` **softBody?**: [`SoftBodyGpuConfig`](SoftBodyGpuConfig.md)
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:46](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L46)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:46](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L46)
 
 Parâmetros do pipeline XPBD para SoftBody/cloth.
 
@@ -93,7 +93,7 @@ Parâmetros do pipeline XPBD para SoftBody/cloth.
 
 > `optional` **substeps?**: `number`
 
-Defined in: [scene/systems/PhysicsSceneConfig.ts:34](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/scene/systems/PhysicsSceneConfig.ts#L34)
+Defined in: [scene/systems/PhysicsSceneConfig.ts:34](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/scene/systems/PhysicsSceneConfig.ts#L34)
 
 Substeps globais de fallback — usado por qualquer algoritmo que não
 defina seu próprio `substeps`. Default: 4.

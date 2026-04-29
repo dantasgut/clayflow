@@ -1,6 +1,6 @@
 # Class: DebugMarker
 
-Defined in: [core/debug/DebugMarker.ts:15](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/core/debug/DebugMarker.ts#L15)
+Defined in: [core/debug/DebugMarker.ts:15](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/core/debug/DebugMarker.ts#L15)
 
 Marcadores de depuração para GPU (Camada 1).
 Mapeia para pushDebugGroup / popDebugGroup / insertDebugMarker do WebGPU,
@@ -34,7 +34,7 @@ DebugMarker.pop(encoder);
 
 > `static` **disable**(): `void`
 
-Defined in: [core/debug/DebugMarker.ts:19](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/core/debug/DebugMarker.ts#L19)
+Defined in: [core/debug/DebugMarker.ts:19](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/core/debug/DebugMarker.ts#L19)
 
 #### Returns
 
@@ -46,7 +46,7 @@ Defined in: [core/debug/DebugMarker.ts:19](https://github.com/dantasgut/clayflow
 
 > `static` **enable**(): `void`
 
-Defined in: [core/debug/DebugMarker.ts:18](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/core/debug/DebugMarker.ts#L18)
+Defined in: [core/debug/DebugMarker.ts:18](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/core/debug/DebugMarker.ts#L18)
 
 #### Returns
 
@@ -58,7 +58,7 @@ Defined in: [core/debug/DebugMarker.ts:18](https://github.com/dantasgut/clayflow
 
 > `static` **isEnabled**(): `boolean`
 
-Defined in: [core/debug/DebugMarker.ts:20](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/core/debug/DebugMarker.ts#L20)
+Defined in: [core/debug/DebugMarker.ts:20](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/core/debug/DebugMarker.ts#L20)
 
 #### Returns
 
@@ -70,7 +70,7 @@ Defined in: [core/debug/DebugMarker.ts:20](https://github.com/dantasgut/clayflow
 
 > `static` **mark**(`encoder`, `label`): `void`
 
-Defined in: [core/debug/DebugMarker.ts:35](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/core/debug/DebugMarker.ts#L35)
+Defined in: [core/debug/DebugMarker.ts:35](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/core/debug/DebugMarker.ts#L35)
 
 Insere um marcador pontual (snapshot) na fila de comandos GPU.
 
@@ -94,7 +94,7 @@ Insere um marcador pontual (snapshot) na fila de comandos GPU.
 
 > `static` **pop**(`encoder`): `void`
 
-Defined in: [core/debug/DebugMarker.ts:29](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/core/debug/DebugMarker.ts#L29)
+Defined in: [core/debug/DebugMarker.ts:29](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/core/debug/DebugMarker.ts#L29)
 
 Fecha o grupo de debug aberto mais recentemente.
 
@@ -114,7 +114,7 @@ Fecha o grupo de debug aberto mais recentemente.
 
 > `static` **push**(`encoder`, `label`): `void`
 
-Defined in: [core/debug/DebugMarker.ts:23](https://github.com/dantasgut/clayflow/blob/87010aaa1cb17d2d45c3b81bbc0c9138a609607c/src/core/debug/DebugMarker.ts#L23)
+Defined in: [core/debug/DebugMarker.ts:23](https://github.com/dantasgut/clayflow/blob/2c41166256c7c7cb583fd49924156206b2c57ab6/src/legacy/core/debug/DebugMarker.ts#L23)
 
 Abre um grupo de debug hierárquico na fila de comandos GPU.
 
