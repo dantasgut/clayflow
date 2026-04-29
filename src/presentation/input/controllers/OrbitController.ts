@@ -7,15 +7,31 @@ export interface OrbitControllerOptions {
     readonly distance?: number;
     readonly autoRotate?: boolean;
     readonly autoRotateSpeed?: number;
+    /** Coeficiente de damping em [0, 1]: 0 = sem damping (parada brusca),
+     * 1 = sem amortecimento (gira eternamente). Default 0.85. */
+    readonly damping?: number;
+    /** Sensibilidade do pinch (touch) em distance units por pixel. */
+    readonly pinchSensitivity?: number;
 }
 
+/**
+ * OrbitController com damping (inércia) por canal: theta, phi, distance.
+ * Cada canal acumula `velocity_X = lerp(velocity_X, raw_input, damping)` por
+ * frame, decaindo gradualmente após o usuário soltar. Suporta pinch-zoom
+ * (touch) consumindo `input.state.pinchDelta`.
+ */
 export class OrbitController extends InputDrivenController {
     private theta = 0;
     private phi = Math.PI / 4;
     private distance: number;
+    private vTheta = 0;
+    private vPhi = 0;
+    private vDistance = 0;
     private readonly target: [number, number, number];
     private readonly autoRotate: boolean;
     private readonly autoRotateSpeed: number;
+    private readonly damping: number;
+    private readonly pinchSensitivity: number;
 
     constructor(private readonly camera: Camera, options: OrbitControllerOptions = {}) {
         super();
@@ -23,22 +39,41 @@ export class OrbitController extends InputDrivenController {
         this.distance = options.distance ?? 5;
         this.autoRotate = options.autoRotate ?? false;
         this.autoRotateSpeed = options.autoRotateSpeed ?? 0.5;
+        this.damping = Math.max(0, Math.min(1, options.damping ?? 0.85));
+        this.pinchSensitivity = options.pinchSensitivity ?? 0.01;
     }
 
     update(ctx: ControllerContext): void {
         const { input, dt } = ctx;
-        if (input.state.pointerButtons & 1) {
-            this.theta -= input.state.pointerDeltaX * 0.005;
-            this.phi -= input.state.pointerDeltaY * 0.005;
-            this.phi = Math.max(0.05, Math.min(Math.PI - 0.05, this.phi));
-        }
-        if (this.autoRotate) {
-            this.theta += this.autoRotateSpeed * dt;
+        const dragging = (input.state.pointerButtons & 1) !== 0;
+
+        // Inputs raw → injetam velocidade nos canais.
+        if (dragging) {
+            this.vTheta = -input.state.pointerDeltaX * 0.005;
+            this.vPhi   = -input.state.pointerDeltaY * 0.005;
+        } else {
+            // Sem drag: damping decai velocidade exponencialmente.
+            this.vTheta *= this.damping;
+            this.vPhi *= this.damping;
         }
         if (input.state.wheel !== 0) {
-            this.distance *= Math.exp(input.state.wheel * 0.001);
+            this.vDistance = input.state.wheel * 0.001;
+        } else if (input.state.pinchDelta !== 0) {
+            // pinch positivo (afasta dedos) deve diminuir distance (zoom-in).
+            this.vDistance = -input.state.pinchDelta * this.pinchSensitivity;
+        } else {
+            this.vDistance *= this.damping;
+        }
+
+        // Apply velocity → state.
+        this.theta += this.vTheta;
+        this.phi += this.vPhi;
+        this.phi = Math.max(0.05, Math.min(Math.PI - 0.05, this.phi));
+        if (this.vDistance !== 0) {
+            this.distance *= Math.exp(this.vDistance);
             this.distance = Math.max(0.5, Math.min(100, this.distance));
         }
+        if (this.autoRotate) this.theta += this.autoRotateSpeed * dt;
 
         const sinP = Math.sin(this.phi), cosP = Math.cos(this.phi);
         const sinT = Math.sin(this.theta), cosT = Math.cos(this.theta);

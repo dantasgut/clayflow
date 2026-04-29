@@ -1,22 +1,19 @@
-// Fase C.6 smoke — DistanceConstraint integration via XPBDFlow.
-// Rope vertical: 10 SoftBody + 9 DistanceConstraint conectando bodies
-// consecutivos. Top body fixado (mass=0 → invMass=0). Após N frames
-// dispatcham predict + distance_solve × iters + velocity_update sem
-// validation errors. Smoke nível "kernels compilam, dispatcham, e o pool de
-// constraints é consumido pelo flow".
-import { Application } from './presentation/index';
-import {
-    Camera, GravityField, SoftBody, DistanceConstraint, XPBDFlow,
-} from './elements/index';
-import type { StagingBufferSpec } from './core/contracts/index';
+// Fase D.5 smoke — Controllers polish.
+// Valida: OrbitController damping (velocidade decai exponencialmente após drag),
+// pinch-zoom (TouchDevice → OrbitController.distance), FlyController com
+// keymap customizada, FpsController construído com canvas para auto pointer-lock.
+import { Application, OrbitController, FlyController, FpsController } from './presentation/index';
+import { Input } from './presentation/index';
+import type { ControllerContext } from './presentation/index';
+import { Camera } from './elements/index';
 
 const log = (m: string) => {
-    console.log(`[xpbd] ${m}`);
+    console.log(`[ctrl] ${m}`);
     const el = document.getElementById('log');
     if (el) el.textContent += m + '\n';
 };
 const fail = (m: string) => {
-    console.error(`[xpbd] FAIL: ${m}`);
+    console.error(`[ctrl] FAIL: ${m}`);
     const el = document.getElementById('log');
     if (el) el.textContent += `FAIL: ${m}\n`;
     throw new Error(m);
@@ -24,98 +21,93 @@ const fail = (m: string) => {
 
 async function main(): Promise<void> {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
+    canvas.width = 800; canvas.height = 600;
     const app = await Application.create({ canvas });
     log('app created');
 
-    app.world.insert(new Camera({ aspect: canvas.width / canvas.height }));
-    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-    app.flows.register(new XPBDFlow(app.core, app.world, app.resources, {
-        constraintPoolKey: 'DistanceConstraint',
-        solverIters: 4,
-    }));
-
-    const N = 10;
-    const REST_LENGTH = 0.2;
-    // Vertical chain: top em y=2.0 (fixo), bottom em y=2.0 - 9*0.2 = 0.2.
-    for (let i = 0; i < N; i++) {
-        const yi = 2.0 - i * REST_LENGTH;
-        const isTop = (i === 0);
-        app.world.insert(new SoftBody({
-            position: [0, yi, 0, 1],
-            mass: isTop ? 0 : 1, // mass=0 → invMass=0 (kinematic)
-        }));
-    }
-    log(`inserted ${N} SoftBody`);
-
-    for (let i = 0; i < N - 1; i++) {
-        app.world.insert(new DistanceConstraint({
-            i, j: i + 1, rest_length: REST_LENGTH, compliance: 0,
-        }));
-    }
-    log(`inserted ${N - 1} DistanceConstraint`);
-
-    let cap: string | null = null;
-    const FRAMES = 60;
-    await app.core.withErrorScope('validation', async () => {
-        for (let i = 0; i < FRAMES; i++) {
-            app.events.emit('frameTick', { dt: 1 / 60, elapsed: i / 60 });
-        }
-    }).catch(e => { cap = String(e?.message ?? e); });
-    if (cap !== null) fail(`validation: ${cap}`);
-    log(`${FRAMES} frames dispatched cleanly (predict + distance_solve×4 + velocity_update)`);
-
-    // Readback do pool de SoftBody para verificar que o chain hangs em
-    // equilíbrio (top fixed, segmentos com distância ≈ rest_length).
-    const SOFT_STRIDE = 48; // 3 vec4f (pos, pred, vel)
-    const poolBuf = app.resources.poolBufferSpec('SoftBody:XPBD');
-    if (poolBuf === undefined) fail('SoftBody pool buffer não encontrado');
-    const staging = app.core.create<StagingBufferSpec>({
-        kind: 'buffer', subkind: 'staging',
-        discriminator: 'rope_readback',
-        byteSize: N * SOFT_STRIDE,
-    });
-    app.core.record(frame => {
-        frame.copy(poolBuf!, staging, N * SOFT_STRIDE);
-    });
-    app.core.submit();
-    const bytes = await app.core.readback(staging);
-    const f32 = new Float32Array(bytes);
-    const positions: [number, number, number][] = [];
-    for (let i = 0; i < N; i++) {
-        const off = i * (SOFT_STRIDE / 4);
-        positions.push([f32[off + 0]!, f32[off + 1]!, f32[off + 2]!]);
-    }
-    log(`top y=${positions[0]![1].toFixed(3)} bottom y=${positions[N-1]![1].toFixed(3)}`);
-
-    // Top deve estar fixo em y=2.0 (invMass=0).
-    if (Math.abs(positions[0]![1] - 2.0) > 1e-3) {
-        fail(`top body moveu de y=2.0 para y=${positions[0]![1]}`);
+    // Test 1: OrbitController damping.
+    {
+        const cam = new Camera({ aspect: 1 });
+        const orbit = new OrbitController(cam, {
+            target: [0, 0, 0], distance: 5, damping: 0.7,
+        });
+        const input = new Input();
+        // Drag — velocidade injetada
+        input.state.pointerButtons = 1;
+        input.state.pointerDeltaX = 100;
+        const ctx: ControllerContext = { input, dt: 1/60 };
+        orbit.update(ctx);
+        const camPosA = (cam.data['position'] as number[]).slice();
+        // Solta drag — damping deve decair
+        input.state.pointerButtons = 0;
+        input.state.pointerDeltaX = 0;
+        for (let i = 0; i < 60; i++) orbit.update(ctx);
+        const camPosB = (cam.data['position'] as number[]).slice();
+        // Após 60 frames de damping a 0.7^60, velocidade ~ 0; câmera deve
+        // estar essencialmente parada após N=60 vs. paragem brusca onde
+        // câmera ficaria no exato ponto após o drag.
+        // Sanidade: positions A e B devem diferir (damping ainda movimentou).
+        const diff = Math.hypot(
+            camPosB[0]! - camPosA[0]!,
+            camPosB[1]! - camPosA[1]!,
+            camPosB[2]! - camPosA[2]!,
+        );
+        if (diff < 1e-6) fail(`damping não causou movimento residual após drag (diff=${diff})`);
+        log(`OrbitController damping OK (deslocamento residual=${diff.toFixed(4)})`);
     }
 
-    // Distância média entre segmentos consecutivos deve ≈ rest_length ± 30%.
-    // Tolerância larga porque XPBD com substeps=1 e 4 iters não converge a 0;
-    // só validamos ordem de magnitude (constraint ativo, não escapando).
-    let totalDist = 0;
-    let maxDist = 0;
-    for (let i = 0; i < N - 1; i++) {
-        const dx = positions[i+1]![0] - positions[i]![0];
-        const dy = positions[i+1]![1] - positions[i]![1];
-        const dz = positions[i+1]![2] - positions[i]![2];
-        const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
-        totalDist += d;
-        maxDist = Math.max(maxDist, d);
-    }
-    const avgDist = totalDist / (N - 1);
-    log(`avg segment dist=${avgDist.toFixed(3)} (rest=${REST_LENGTH}), max=${maxDist.toFixed(3)}`);
-
-    const tolerance = REST_LENGTH * 0.3;
-    if (Math.abs(avgDist - REST_LENGTH) > tolerance) {
-        fail(`média=${avgDist.toFixed(3)} fora de rest_length=${REST_LENGTH} ±${tolerance}`);
+    // Test 2: OrbitController pinch consume.
+    {
+        const cam = new Camera({ aspect: 1 });
+        const orbit = new OrbitController(cam, {
+            target: [0, 0, 0], distance: 10, pinchSensitivity: 0.01, damping: 0,
+        });
+        const input = new Input();
+        input.state.pinchDelta = 50; // afasta dedos = zoom-in
+        const ctx: ControllerContext = { input, dt: 1/60 };
+        orbit.update(ctx);
+        const pos = cam.data['position'] as number[];
+        const dist = Math.hypot(pos[0]!, pos[1]!, pos[2]!);
+        // Distance deve ter diminuído (zoom-in: distance × exp(-50 × 0.01) ≈ 10 × 0.6065 ≈ 6.06)
+        if (dist > 7 || dist < 5) fail(`pinch zoom: distance=${dist.toFixed(2)} esperado~6.06`);
+        log(`OrbitController pinch OK (distance=${dist.toFixed(2)} após pinch=+50)`);
     }
 
-    log('XPBD ROPE SMOKE PASSED — top fixed, segments converged near rest_length');
+    // Test 3: FlyController keymap customizada.
+    {
+        const cam = new Camera({ aspect: 1 });
+        const fly = new FlyController(cam, {
+            position: [0, 0, 0], speed: 1,
+            keymap: { up: ['KeyU'], down: ['KeyJ'] },
+        });
+        const input = new Input();
+        const ctx: ControllerContext = { input, dt: 1/60 };
+        // Default Q/E NÃO devem mais acionar up/down
+        input.state.keys.add('KeyE');
+        for (let i = 0; i < 10; i++) fly.update(ctx);
+        const posAfterE = (cam.data['position'] as number[]).slice();
+        if (Math.abs(posAfterE[1]!) > 1e-3) fail(`KeyE moveu y para ${posAfterE[1]} apesar de keymap custom`);
+        // KeyU deve mover up
+        input.state.keys.delete('KeyE');
+        input.state.keys.add('KeyU');
+        for (let i = 0; i < 10; i++) fly.update(ctx);
+        const posAfterU = cam.data['position'] as number[];
+        if (posAfterU[1]! <= 0) fail(`KeyU não moveu y (y=${posAfterU[1]})`);
+        log(`FlyController keymap OK (KeyU=up, default KeyE inativo)`);
+    }
+
+    // Test 4: FpsController construção com canvas (auto pointer-lock).
+    {
+        const cam = new Camera({ aspect: 1 });
+        const fps = new FpsController(cam, { canvas, position: [0, 0, 0] });
+        const input = new Input();
+        const ctx: ControllerContext = { input, dt: 1/60 };
+        fps.update(ctx); // só verifica que não throw
+        log('FpsController canvas-binding OK (sem crash; click chama requestPointerLock)');
+    }
+
+    log('CONTROLLERS POLISH SMOKE PASSED');
+    void app;
 }
 
 main().catch(err => fail(String(err?.message ?? err)));

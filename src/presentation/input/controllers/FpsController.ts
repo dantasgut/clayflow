@@ -6,12 +6,15 @@ export interface FpsControllerOptions {
     readonly position?: readonly [number, number, number];
     readonly speed?: number;
     readonly mouseSensitivity?: number;
+    /** Canvas para auto-pointer-lock no primeiro click (default: nenhum lock). */
+    readonly canvas?: HTMLCanvasElement;
 }
 
 export class FpsController extends InputDrivenController {
     private readonly pos: [number, number, number];
     private readonly speed: number;
     private readonly mouseSensitivity: number;
+    private readonly canvas: HTMLCanvasElement | null;
     private yaw = 0;
     private pitch = 0;
 
@@ -21,11 +24,27 @@ export class FpsController extends InputDrivenController {
         this.pos = [p[0], p[1], p[2]];
         this.speed = options.speed ?? 4;
         this.mouseSensitivity = options.mouseSensitivity ?? 0.003;
+        this.canvas = options.canvas ?? null;
+        if (this.canvas !== null) this.attachLock(this.canvas);
+    }
+
+    private attachLock(canvas: HTMLCanvasElement): void {
+        canvas.addEventListener('click', () => {
+            const c = canvas as HTMLCanvasElement & { requestPointerLock?: () => Promise<void> | void };
+            if (c.requestPointerLock !== undefined && document.pointerLockElement !== canvas) {
+                try { void c.requestPointerLock(); } catch { /* unsupported */ }
+            }
+        });
     }
 
     update(ctx: ControllerContext): void {
         const { input, dt } = ctx;
-        if (input.state.pointerButtons & 1) {
+        // Quando pointer-locked, sempre captura o look (sem precisar segurar
+        // botão). Senão, requer botão esquerdo (paridade com 1ª pessoa em browser).
+        const locked = this.canvas !== null && typeof document !== 'undefined'
+            && document.pointerLockElement === this.canvas;
+        const lookActive = locked || (input.state.pointerButtons & 1) !== 0;
+        if (lookActive) {
             this.yaw -= input.state.pointerDeltaX * this.mouseSensitivity;
             this.pitch -= input.state.pointerDeltaY * this.mouseSensitivity;
             this.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, this.pitch));
