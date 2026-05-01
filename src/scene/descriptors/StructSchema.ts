@@ -19,9 +19,31 @@ function alignTo(value: number, alignment: number): number {
     return Math.ceil(value / alignment) * alignment;
 }
 
+/**
+ * StructSchema descreve um struct WGSL — sequência ordenada de fields
+ * tipados (FieldType) com layout calculado automaticamente seguindo regras
+ * de alinhamento WGSL std430-like. Resources usam StructSchema para:
+ *   - Calcular `stride` (tamanho de 1 instância no buffer GPU).
+ *   - Serializar `data` em ArrayBuffer (`pack(data)`) para core.write.
+ *   - Gerar WGSL `struct` definition para uso em shaders (`toWGSL()`).
+ *
+ * Exemplo:
+ * ```ts
+ * const camera = new StructSchema('Camera', {
+ *     view: FieldType.mat4x4f,
+ *     position: FieldType.vec4f,
+ *     near: FieldType.f32,
+ * });
+ * camera.stride;  // 80 (mat4 64 + vec4 16, alinhado a 16)
+ * camera.pack({ view: identity, position: [0,0,5,1], near: 0.1 });
+ * ```
+ */
 export class StructSchema extends Schema {
+    /** Nome do struct (e.g. 'Camera', 'Transform'). Usado em queries e WGSL. */
     readonly name: string;
+    /** Map ordenado field-name → FieldType. Ordem de inserção preservada. */
     readonly fields: ReadonlyMap<string, FieldType>;
+    /** Tamanho total de uma instância em bytes (alinhado ao max field align). */
     readonly stride: number;
     private readonly layout: ReadonlyMap<string, StructFieldLayout>;
 
@@ -46,6 +68,10 @@ export class StructSchema extends Schema {
         this.layout = layout;
     }
 
+    /**
+     * Byte offset do field dentro do struct. Útil para writes parciais
+     * (`core.write(buf, data, offsetOf('position'))`). Lança se field não existe.
+     */
     offsetOf(field: string): number {
         const entry = this.layout.get(field);
         if (entry === undefined)
@@ -53,6 +79,7 @@ export class StructSchema extends Schema {
         return entry.offset;
     }
 
+    /** FieldType do field. Lança se field não existe. */
     typeOf(field: string): FieldType {
         const entry = this.layout.get(field);
         if (entry === undefined)
@@ -60,6 +87,10 @@ export class StructSchema extends Schema {
         return entry.type;
     }
 
+    /**
+     * Preenche values ausentes em `values` com defaults (0 ou [0,0,...]).
+     * Usado nos constructors de Resources para garantir `data` completo.
+     */
     applyDefaults(values: Record<string, unknown>): Record<string, unknown> {
         const out: Record<string, unknown> = {};
         for (const [name, type] of this.fields) {
@@ -72,6 +103,11 @@ export class StructSchema extends Schema {
         return out;
     }
 
+    /**
+     * Serializa `data` em um ArrayBuffer com o stride exato do struct.
+     * Cada field é escrito no offset correto com o TypedArray do tipo.
+     * Returns Uint8Array view sobre o buffer (pronto para core.write).
+     */
     pack(data: Record<string, unknown>): ArrayBufferView {
         const buffer = new ArrayBuffer(this.stride);
         for (const [name, layoutEntry] of this.layout) {
@@ -85,6 +121,11 @@ export class StructSchema extends Schema {
         return new Uint8Array(buffer);
     }
 
+    /**
+     * Emite a definição WGSL `struct Name { ... }` correspondente.
+     * Útil para concatenar em shader sources e garantir sincronia
+     * com o layout JS (mesmo nome de field, mesmo tipo).
+     */
     toWGSL(): string {
         const lines: string[] = [`struct ${this.name} {`];
         for (const [name, type] of this.fields) {

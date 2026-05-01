@@ -9,22 +9,47 @@ import { PostFlow } from './PostFlow';
 import { UIFlow } from './UIFlow';
 import { DebugFlow } from './DebugFlow';
 
+/**
+ * Dependências necessárias para construir os Flows default. Application
+ * passa essas refs do `SceneContext` quando chama `registerPresentationDefaults`.
+ */
 export interface PresentationDefaultsOptions {
     readonly canvas: HTMLCanvasElement;
     readonly core: EngineCore;
     readonly world: World;
     readonly resources: ResourceSystem;
+    /** EventBus opcional — usado pelo DebugFlow para emitir profilerStats. */
     readonly events?: EventBus;
 }
 
+/**
+ * Bag dos Flows default registrados pelo Application. Permite o app
+ * customizar diretamente (e.g. `defaults.post.addEffect(new Bloom(...))`,
+ * `defaults.debug.setEnabled(true)`).
+ */
 export interface PresentationDefaults {
+    /** Forward render pass principal (bind-shadows + per-entity pipelines). */
     readonly forward: ForwardFlow;
+    /** Shadow map pass (depth-only, light POV). */
     readonly shadow: ShadowFlow;
+    /** Post-processing chain (Bloom/Fxaa/etc. em ping-pong). */
     readonly post: PostFlow;
+    /** UI pass (quads + glyphs sobre o canvas). */
     readonly ui: UIFlow;
+    /** Debug overlay — emite profilerStats event quando habilitado. */
     readonly debug: DebugFlow;
 }
 
+/**
+ * Cria e registra os 5 Flows default no FlowRegistry, com bindings adequados
+ * (forward bind shadow, post bind forward, debug bind events).
+ *
+ * Ordem importa: Shadow → Forward → Post → Debug → UI (priority dentro
+ * das phases).
+ *
+ * Chamado uma vez por `Application.create`. Apps que querem pipeline
+ * customizado podem ignorar e construir flows manualmente.
+ */
 export function registerPresentationDefaults(
     flows: FlowRegistry,
     options: PresentationDefaultsOptions,
