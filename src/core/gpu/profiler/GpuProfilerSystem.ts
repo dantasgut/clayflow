@@ -84,7 +84,8 @@ export class GpuProfilerSystem implements Profiler {
      * única vez por frame, depois de todos os passes que usaram este profiler.
      */
     resolveOnto(encoder: GPUCommandEncoder, count?: number): void {
-        if (this.querySet === null || this.resolveBuffer === null || this.stagingBuffer === null) return;
+        if (this.querySet === null || this.resolveBuffer === null || this.stagingBuffer === null)
+            return;
         const n = count ?? this.capacity;
         encoder.resolveQuerySet(this.querySet, 0, n, this.resolveBuffer, 0);
         encoder.copyBufferToBuffer(this.resolveBuffer, 0, this.stagingBuffer, 0, n * 8);
@@ -98,14 +99,19 @@ export class GpuProfilerSystem implements Profiler {
     submitFrame(): void {
         if (this.stagingBuffer === null || this.mapInProgress) return;
         this.mapInProgress = true;
-        this.stagingBuffer.mapAsync(GPUMapMode.READ).then(() => {
-            const buf = this.stagingBuffer;
-            if (buf === null) return;
-            const range = buf.getMappedRange();
-            this.lastTimestamps = new BigInt64Array(range.slice(0));
-            buf.unmap();
-            this.mapInProgress = false;
-        }).catch(() => { this.mapInProgress = false; });
+        this.stagingBuffer
+            .mapAsync(GPUMapMode.READ)
+            .then(() => {
+                const buf = this.stagingBuffer;
+                if (buf === null) return;
+                const range = buf.getMappedRange();
+                this.lastTimestamps = new BigInt64Array(range.slice(0));
+                buf.unmap();
+                this.mapInProgress = false;
+            })
+            .catch(() => {
+                this.mapInProgress = false;
+            });
     }
 
     async readRange(first: number, count: number): Promise<BigInt64Array> {

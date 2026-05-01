@@ -4,7 +4,10 @@ import type { ConsumerResolver, ResolveContext } from '../ConsumerResolver';
 export type PerEntityBindingFactory = (ctx: ResolveContext) => readonly BindingEntry[];
 
 export class PerEntityResolver implements ConsumerResolver {
-    constructor(readonly name: string, private readonly factory: PerEntityBindingFactory) {}
+    constructor(
+        readonly name: string,
+        private readonly factory: PerEntityBindingFactory,
+    ) {}
 
     resolve(ctx: ResolveContext): readonly BindingEntry[] {
         if (ctx.forEntityId === undefined) {

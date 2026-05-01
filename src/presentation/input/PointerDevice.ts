@@ -1,7 +1,10 @@
 import type { Input } from './Input';
 
 export class PointerDevice {
-    constructor(private readonly canvas: HTMLCanvasElement, private readonly input: Input) {}
+    constructor(
+        private readonly canvas: HTMLCanvasElement,
+        private readonly input: Input,
+    ) {}
 
     attach(): void {
         this.canvas.addEventListener('pointerdown', this.onDown);
@@ -24,8 +27,8 @@ export class PointerDevice {
         this.input.state.pointerButtons &= ~(1 << e.button);
     };
     private readonly onMove = (e: PointerEvent): void => {
-        this.input.state.pointerDeltaX += e.movementX || (e.clientX - this.input.state.pointerX);
-        this.input.state.pointerDeltaY += e.movementY || (e.clientY - this.input.state.pointerY);
+        this.input.state.pointerDeltaX += e.movementX || e.clientX - this.input.state.pointerX;
+        this.input.state.pointerDeltaY += e.movementY || e.clientY - this.input.state.pointerY;
         this.input.state.pointerX = e.clientX;
         this.input.state.pointerY = e.clientY;
     };

@@ -18,16 +18,23 @@ export class SpringConstraint extends Constraint {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = SpringConstraint.schema.applyDefaults({
-            bodyA: values['bodyA'] ?? 0,
-            bodyB: values['bodyB'] ?? 0,
-            stiffness: values['stiffness'] ?? 100.0,
-            damping: values['damping'] ?? 1.0,
-            restLength: values['restLength'] ?? 1.0,
+            bodyA: values.bodyA ?? 0,
+            bodyB: values.bodyB ?? 0,
+            stiffness: values.stiffness ?? 100.0,
+            damping: values.damping ?? 1.0,
+            restLength: values.restLength ?? 1.0,
             color: 0,
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'constraint', role: 'storage-rw', schema: SpringConstraint.schema, storage: 'pool' }];
+        return [
+            {
+                id: 'constraint',
+                role: 'storage-rw',
+                schema: SpringConstraint.schema,
+                storage: 'pool',
+            },
+        ];
     }
 }

@@ -28,22 +28,24 @@ export class FluidBody extends PhysicsBody {
         super();
         this.algorithm = options.algorithm ?? FluidBody.defaultAlgorithm;
         this.data = FluidBody.schema.applyDefaults({
-            pos: values['position'] ?? [0, 0, 0, 1],
-            vel: values['velocity'] ?? [0, 0, 0, 0],
-            density: values['density'] ?? 1000.0,
+            pos: values.position ?? [0, 0, 0, 1],
+            vel: values.velocity ?? [0, 0, 0, 0],
+            density: values.density ?? 1000.0,
             pressure: 0,
-            mass: values['mass'] ?? 1.0,
-            material_id: (values['materialId'] ?? 0) as number,
+            mass: values.mass ?? 1.0,
+            material_id: values.materialId ?? 0,
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'body',
-            role: 'storage-rw',
-            schema: FluidBody.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'body',
+                role: 'storage-rw',
+                schema: FluidBody.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getFlowDescriptors(): readonly FlowDescriptor[] {

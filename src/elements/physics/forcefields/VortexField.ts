@@ -16,10 +16,10 @@ export class VortexField extends ForceField {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = VortexField.schema.applyDefaults({
-            axis: values['axis'] ?? [0, 1, 0, 0],
-            center: values['center'] ?? [0, 0, 0, 1],
-            magnitude: values['magnitude'] ?? 1.0,
-            falloff: values['falloff'] ?? 1.0,
+            axis: values.axis ?? [0, 1, 0, 0],
+            center: values.center ?? [0, 0, 0, 1],
+            magnitude: values.magnitude ?? 1.0,
+            falloff: values.falloff ?? 1.0,
         });
     }
 

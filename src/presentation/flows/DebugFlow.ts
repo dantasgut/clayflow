@@ -53,21 +53,31 @@ export class DebugFlow extends Flow {
     /** Anexa o flow a um EventBus para emitir profilerStats e ouvir tecla F1. */
     bindEvents(events: EventBus): this {
         this.events = events;
-        events.on('frameTick', e => this.onFrameTick(e.dt, e.elapsed));
+        events.on('frameTick', (e) => {
+            this.onFrameTick(e.dt, e.elapsed);
+        });
         if (typeof window !== 'undefined') {
-            window.addEventListener('keydown', ev => {
+            window.addEventListener('keydown', (ev) => {
                 if (ev.code === this.toggleKey) this.enabled = !this.enabled;
             });
         }
         return this;
     }
 
-    setEnabled(value: boolean): void { this.enabled = value; }
-    isEnabled(): boolean { return this.enabled; }
+    setEnabled(value: boolean): void {
+        this.enabled = value;
+    }
+    isEnabled(): boolean {
+        return this.enabled;
+    }
 
-    getPipelineDescriptors(): readonly PipelineDescriptor[] { return []; }
+    getPipelineDescriptors(): readonly PipelineDescriptor[] {
+        return [];
+    }
 
-    override isReady(): boolean { return this.enabled; }
+    override isReady(): boolean {
+        return this.enabled;
+    }
 
     private onFrameTick(dt: number, elapsed: number): void {
         const dtMs = dt * 1000;

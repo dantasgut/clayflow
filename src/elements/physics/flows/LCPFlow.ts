@@ -1,15 +1,8 @@
-import type {
-    BindGroupSpec,
-    ComputePipelineSpec,
-    EngineCore,
-    Frame,
-    LayoutSpec,
-    ShaderModuleSpec,
-    UniformBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, UniformBufferSpec } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
+import { createComputeKernel, type ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import type { GravityField } from '../forcefields/GravityField';
@@ -19,7 +12,13 @@ import quatLib from '../../gpu/wgsl/math/quat.wgsl?raw';
 import impulseLib from '../../gpu/wgsl/math/impulse.wgsl?raw';
 import rbPredictKernel from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
 
-const PREDICT_SHADER = [rigidBodyStruct, rbSimParamsStruct, quatLib, impulseLib, rbPredictKernel].join('\n');
+const PREDICT_SHADER = [
+    rigidBodyStruct,
+    rbSimParamsStruct,
+    quatLib,
+    impulseLib,
+    rbPredictKernel,
+].join('\n');
 
 const RB_SIM_PARAMS_BYTE_SIZE = 80;
 
@@ -39,11 +38,8 @@ export class LCPFlow extends Flow {
     private readonly fixedDt: number;
     private readonly substeps: number;
 
-    private shader: ShaderModuleSpec | null = null;
     private paramsBuffer: UniformBufferSpec | null = null;
-    private bindGroupLayout: LayoutSpec | null = null;
-    private bindGroup: BindGroupSpec | null = null;
-    private pipeline: ComputePipelineSpec | null = null;
+    private kernel: ComputeKernel | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -58,13 +54,15 @@ export class LCPFlow extends Flow {
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [{
-            id: 'pipeline_lcp_predict',
-            role: 'compute',
-            shaderSource: PREDICT_SHADER,
-            entryPoints: ['rb_predict_main'],
-            consumes: ['RigidBody:LCP', 'GravityField'],
-        }];
+        return [
+            {
+                id: 'pipeline_lcp_predict',
+                role: 'compute',
+                shaderSource: PREDICT_SHADER,
+                entryPoints: ['rb_predict_main'],
+                consumes: ['RigidBody:LCP', 'GravityField'],
+            },
+        ];
     }
 
     override isReady(): boolean {
@@ -73,18 +71,11 @@ export class LCPFlow extends Flow {
 
     override onPoolReallocated(poolKey: string): void {
         if (poolKey === this.bodiesPoolKey) {
-            this.bindGroup = null;
+            this.kernel = null; // pool buffer mudou — rebuild bind group
         }
     }
 
     private ensureGpuObjects(): void {
-        if (this.shader === null) {
-            this.shader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'lcp_predict_shader',
-                source: PREDICT_SHADER,
-            });
-        }
         if (this.paramsBuffer === null) {
             this.paramsBuffer = this.core.create<UniformBufferSpec>({
                 kind: 'buffer',
@@ -93,45 +84,26 @@ export class LCPFlow extends Flow {
                 byteSize: RB_SIM_PARAMS_BYTE_SIZE,
             });
         }
-        if (this.bindGroupLayout === null) {
-            this.bindGroupLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'lcp_predict_layout',
-                entries: [
-                    { binding: 0, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'uniform' },
-                    { binding: 1, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'storage' },
-                ],
-            });
-        }
+        if (this.kernel !== null) return;
         const bodiesBufferSpec = this.resources.poolBufferSpec(this.bodiesPoolKey);
         if (bodiesBufferSpec === undefined) return;
-        if (this.bindGroup === null) {
-            this.bindGroup = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'lcp_predict_bg',
-                layout: this.bindGroupLayout,
-                bindings: [
-                    { binding: 0, kind: 'buffer', buffer: this.paramsBuffer },
-                    { binding: 1, kind: 'buffer', buffer: bodiesBufferSpec },
-                ],
-            });
-        }
-        if (this.pipeline === null) {
-            this.pipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'lcp_predict_pipeline',
-                layouts: [this.bindGroupLayout],
-                shader: this.shader,
-                entryPoint: 'rb_predict_main',
-            });
-        }
+        this.kernel = createComputeKernel(this.core, {
+            discriminator: 'lcp_predict',
+            shaderSource: PREDICT_SHADER,
+            entryPoint: 'rb_predict_main',
+            bindings: [
+                { binding: 0, type: 'uniform', buffer: this.paramsBuffer },
+                { binding: 1, type: 'storage', buffer: bodiesBufferSpec },
+            ],
+        });
     }
 
     private uploadParams(bodyCount: number, dtSub: number): void {
         if (this.paramsBuffer === null) return;
         const gravity = this.findGravityField();
-        const accel = (gravity?.data['acceleration'] as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (gravity?.data.acceleration as readonly number[] | undefined) ?? [
+            0, -9.81, 0, 0,
+        ];
         const buffer = new ArrayBuffer(RB_SIM_PARAMS_BYTE_SIZE);
         const f32 = new Float32Array(buffer);
         const u32 = new Uint32Array(buffer);
@@ -162,22 +134,23 @@ export class LCPFlow extends Flow {
         const first = ids[0];
         if (first === undefined) return null;
         const resources = this.world.resourcesOf(first);
-        return (resources.find(r => (r.constructor as { schema?: { name: string } }).schema?.name === 'GravityField') ?? null) as GravityField | null;
+        return (resources.find(
+            (r) => (r.constructor as { schema?: { name: string } }).schema?.name === 'GravityField',
+        ) ?? null) as GravityField | null;
     }
 
     dispatch(frame: Frame): void {
         const bodyCount = this.resources.poolCount(this.bodiesPoolKey);
         if (bodyCount === 0) return;
         this.ensureGpuObjects();
-        if (this.pipeline === null || this.bindGroup === null) return;
+        if (this.kernel === null) return;
+        const kernel = this.kernel;
         const dtSub = this.fixedDt / this.substeps;
         const workgroups = Math.ceil(bodyCount / 64);
         for (let s = 0; s < this.substeps; s++) {
             this.uploadParams(bodyCount, dtSub);
-            frame.compute('LCPFlow.predict', pass => {
-                pass.bind
-                    .setPipeline(this.pipeline as ComputePipelineSpec)
-                    .setBindGroup(0, this.bindGroup as BindGroupSpec);
+            frame.compute('LCPFlow.predict', (pass) => {
+                pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
                 pass.dispatch.workgroups(workgroups);
             });
         }

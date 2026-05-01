@@ -15,12 +15,14 @@ export class PlaneCollider extends Collider {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = PlaneCollider.schema.applyDefaults({
-            normal: values['normal'] ?? [0, 1, 0, 0],
-            offset: values['offset'] ?? 0,
+            normal: values.normal ?? [0, 1, 0, 0],
+            offset: values.offset ?? 0,
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'collider', role: 'storage-ro', schema: PlaneCollider.schema, storage: 'pool' }];
+        return [
+            { id: 'collider', role: 'storage-ro', schema: PlaneCollider.schema, storage: 'pool' },
+        ];
     }
 }

@@ -17,9 +17,9 @@ export class StandardMaterial extends Material {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = StandardMaterial.schema.applyDefaults({
-            albedo: values['albedo'] ?? [1, 1, 1, 1],
-            roughness: values['roughness'] ?? 0.5,
-            metallic: values['metallic'] ?? 0.0,
+            albedo: values.albedo ?? [1, 1, 1, 1],
+            roughness: values.roughness ?? 0.5,
+            metallic: values.metallic ?? 0.0,
         });
     }
 
@@ -28,14 +28,16 @@ export class StandardMaterial extends Material {
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [{
-            id: 'pipeline_standard',
-            role: 'render',
-            shaderSource: forwardWGSL,
-            entryPoints: ['vs_main', 'fs_main'],
-            consumes: ['Camera', 'Transform'],
-            topology: 'triangle-list',
-            cullMode: 'back',
-        }];
+        return [
+            {
+                id: 'pipeline_standard',
+                role: 'render',
+                shaderSource: forwardWGSL,
+                entryPoints: ['vs_main', 'fs_main'],
+                consumes: ['Camera', 'Transform'],
+                topology: 'triangle-list',
+                cullMode: 'back',
+            },
+        ];
     }
 }

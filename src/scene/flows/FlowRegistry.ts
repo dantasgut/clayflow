@@ -26,7 +26,7 @@ export class FlowRegistry {
         if (previous !== undefined) {
             const arr = this.byPhase.get(previous.phase);
             if (arr !== undefined) {
-                const index = arr.findIndex(r => r.flow === previous);
+                const index = arr.findIndex((r) => r.flow === previous);
                 if (index >= 0) arr.splice(index, 1);
             }
         }
@@ -42,11 +42,11 @@ export class FlowRegistry {
     }
 
     flowsInPhase(phase: Phase): readonly Flow[] {
-        return (this.byPhase.get(phase) ?? []).map(r => r.flow);
+        return (this.byPhase.get(phase) ?? []).map((r) => r.flow);
     }
 
     activeFlowsInPhase(phase: Phase): readonly Flow[] {
-        return this.flowsInPhase(phase).filter(f => f.isReady());
+        return this.flowsInPhase(phase).filter((f) => f.isReady());
     }
 
     phasesInOrder(): readonly Phase[] {

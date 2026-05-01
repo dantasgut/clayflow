@@ -7,7 +7,7 @@ describe('ResourceStateHandlerRegistry', () => {
 
     it('todos os 7 estados têm handler', () => {
         for (const s of Object.values(ResourceState)) {
-            expect(reg.get(s as ResourceState)).toBeDefined();
+            expect(reg.get(s)).toBeDefined();
         }
     });
 
@@ -53,4 +53,28 @@ describe('ResourceStateHandlerRegistry', () => {
         expect(reg.get(ResourceState.Dirty).needsUpdate()).toBe(true);
         expect(reg.get(ResourceState.Ready).needsUpdate()).toBe(false);
     });
+
+    // Cobertura completa por handler — invoca cada método de cada estado uma vez.
+    const all: readonly ResourceState[] = [
+        ResourceState.Uninitialized,
+        ResourceState.Loading,
+        ResourceState.Ready,
+        ResourceState.Dirty,
+        ResourceState.GpuManaged,
+        ResourceState.Disposed,
+        ResourceState.Destroyed,
+    ];
+    for (const s of all) {
+        it(`handler ${s} expõe todos os métodos`, () => {
+            const h = reg.get(s);
+            expect(typeof h.canRender()).toBe('boolean');
+            expect(typeof h.needsAllocation()).toBe('boolean');
+            expect(typeof h.needsUpdate()).toBe('boolean');
+            expect(typeof h.needsDisposal()).toBe('boolean');
+            expect(typeof h.suppressCpuUpload()).toBe('boolean');
+            expect(typeof h.ignoreDirtyMark()).toBe('boolean');
+            expect(Array.isArray(h.validTransitions())).toBe(true);
+            expect(h.stateId).toBe(s);
+        });
+    }
 });

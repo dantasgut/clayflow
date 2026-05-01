@@ -26,7 +26,9 @@ export class AudioLoader {
         try {
             const decoded = await ctx.decodeAudioData(buffer.slice(0));
             return {
-                url, buffer, decoded,
+                url,
+                buffer,
+                decoded,
                 duration: decoded.duration,
                 numberOfChannels: decoded.numberOfChannels,
                 sampleRate: decoded.sampleRate,
@@ -36,7 +38,10 @@ export class AudioLoader {
         }
     }
 
-    play(audio: LoadedAudio, options: { volume?: number; loop?: boolean } = {}): AudioBufferSourceNode | null {
+    play(
+        audio: LoadedAudio,
+        options: { volume?: number; loop?: boolean } = {},
+    ): AudioBufferSourceNode | null {
         const ctx = this.getContext();
         if (ctx === null || audio.decoded === null) return null;
         const src = ctx.createBufferSource();

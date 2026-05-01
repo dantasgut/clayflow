@@ -34,8 +34,8 @@ export type GltfAnimationPath = 'translation' | 'rotation' | 'scale' | 'weights'
 export type GltfInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
 
 export interface GltfAnimationSampler {
-    readonly input: Float32Array;     // tempos (segundos)
-    readonly output: Float32Array;    // valores (vec3 ou vec4)
+    readonly input: Float32Array; // tempos (segundos)
+    readonly output: Float32Array; // valores (vec3 ou vec4)
     readonly interpolation: GltfInterpolation;
 }
 
@@ -53,9 +53,9 @@ export interface GltfAnimation {
 
 export interface GltfSkin {
     readonly name?: string;
-    readonly inverseBindMatrices: Float32Array | null;  // mat4 × jointCount
-    readonly joints: readonly number[];                 // node indices
-    readonly skeleton: number | null;                   // root node (optional)
+    readonly inverseBindMatrices: Float32Array | null; // mat4 × jointCount
+    readonly joints: readonly number[]; // node indices
+    readonly skeleton: number | null; // root node (optional)
 }
 
 export interface GltfDocument {
@@ -76,17 +76,64 @@ interface RawAccessor {
     count: number;
     type: string;
 }
-interface RawBufferView { buffer: number; byteOffset?: number; byteLength: number }
-interface RawBuffer { uri?: string; byteLength: number }
-interface RawPrimitive { attributes: Record<string, number>; indices?: number; material?: number }
-interface RawMesh { name?: string; primitives: RawPrimitive[] }
-interface RawMaterial { name?: string; pbrMetallicRoughness?: { baseColorFactor?: number[]; roughnessFactor?: number; metallicFactor?: number } }
-interface RawNode { name?: string; mesh?: number; skin?: number; translation?: number[]; rotation?: number[]; scale?: number[]; children?: number[] }
-interface RawAnimSampler { input: number; output: number; interpolation?: string }
-interface RawAnimChannel { sampler: number; target: { node?: number; path: string } }
-interface RawAnimation { name?: string; samplers: RawAnimSampler[]; channels: RawAnimChannel[] }
-interface RawSkin { name?: string; inverseBindMatrices?: number; joints: number[]; skeleton?: number }
-interface RawScene { nodes?: number[] }
+interface RawBufferView {
+    buffer: number;
+    byteOffset?: number;
+    byteLength: number;
+}
+interface RawBuffer {
+    uri?: string;
+    byteLength: number;
+}
+interface RawPrimitive {
+    attributes: Record<string, number>;
+    indices?: number;
+    material?: number;
+}
+interface RawMesh {
+    name?: string;
+    primitives: RawPrimitive[];
+}
+interface RawMaterial {
+    name?: string;
+    pbrMetallicRoughness?: {
+        baseColorFactor?: number[];
+        roughnessFactor?: number;
+        metallicFactor?: number;
+    };
+}
+interface RawNode {
+    name?: string;
+    mesh?: number;
+    skin?: number;
+    translation?: number[];
+    rotation?: number[];
+    scale?: number[];
+    children?: number[];
+}
+interface RawAnimSampler {
+    input: number;
+    output: number;
+    interpolation?: string;
+}
+interface RawAnimChannel {
+    sampler: number;
+    target: { node?: number; path: string };
+}
+interface RawAnimation {
+    name?: string;
+    samplers: RawAnimSampler[];
+    channels: RawAnimChannel[];
+}
+interface RawSkin {
+    name?: string;
+    inverseBindMatrices?: number;
+    joints: number[];
+    skeleton?: number;
+}
+interface RawScene {
+    nodes?: number[];
+}
 
 interface RawGltf {
     accessors?: RawAccessor[];
@@ -101,12 +148,27 @@ interface RawGltf {
     scenes?: RawScene[];
 }
 
-const COMPONENT_BYTES: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
-const TYPE_COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
+const COMPONENT_BYTES: Record<number, number> = {
+    5120: 1,
+    5121: 1,
+    5122: 2,
+    5123: 2,
+    5125: 4,
+    5126: 4,
+};
+const TYPE_COMPONENTS: Record<string, number> = {
+    SCALAR: 1,
+    VEC2: 2,
+    VEC3: 3,
+    VEC4: 4,
+    MAT2: 4,
+    MAT3: 9,
+    MAT4: 16,
+};
 
-const GLB_MAGIC = 0x46546c67;        // "glTF"
-const GLB_CHUNK_JSON = 0x4e4f534a;   // "JSON"
-const GLB_CHUNK_BIN  = 0x004e4942;   // "BIN\0"
+const GLB_MAGIC = 0x46546c67; // "glTF"
+const GLB_CHUNK_JSON = 0x4e4f534a; // "JSON"
+const GLB_CHUNK_BIN = 0x004e4942; // "BIN\0"
 
 export class GltfLoader {
     /**
@@ -143,7 +205,8 @@ export class GltfLoader {
         const version = dv.getUint32(4, true);
         if (version !== 2) throw new Error(`GLB version ${version} unsupported (need 2)`);
         const totalLen = dv.getUint32(8, true);
-        if (totalLen > data.byteLength) throw new Error(`GLB length ${totalLen} > buffer ${data.byteLength}`);
+        if (totalLen > data.byteLength)
+            throw new Error(`GLB length ${totalLen} > buffer ${data.byteLength}`);
 
         let offset = 12;
         let json: RawGltf | null = null;
@@ -206,7 +269,7 @@ export class GltfLoader {
     }
 
     private buildDocument(raw: RawGltf, buffers: ArrayBuffer[], url: string): GltfDocument {
-        const nodes: GltfNode[] = (raw.nodes ?? []).map(n => {
+        const nodes: GltfNode[] = (raw.nodes ?? []).map((n) => {
             const t = n.translation ?? [0, 0, 0];
             const r = n.rotation ?? [0, 0, 0, 1];
             const s = n.scale ?? [1, 1, 1];
@@ -221,14 +284,14 @@ export class GltfLoader {
             };
             return node;
         });
-        const meshes: GltfMesh[] = (raw.meshes ?? []).map(m => {
+        const meshes: GltfMesh[] = (raw.meshes ?? []).map((m) => {
             const mesh: GltfMesh = {
-                primitives: m.primitives.map(p => this.extractPrimitive(raw, buffers, p)),
+                primitives: m.primitives.map((p) => this.extractPrimitive(raw, buffers, p)),
                 ...(m.name !== undefined ? { name: m.name } : {}),
             };
             return mesh;
         });
-        const materials: GltfMaterial[] = (raw.materials ?? []).map(m => {
+        const materials: GltfMaterial[] = (raw.materials ?? []).map((m) => {
             const bc = m.pbrMetallicRoughness?.baseColorFactor ?? [1, 1, 1, 1];
             const mat: GltfMaterial = {
                 baseColorFactor: [bc[0] ?? 1, bc[1] ?? 1, bc[2] ?? 1, bc[3] ?? 1],
@@ -238,29 +301,31 @@ export class GltfLoader {
             };
             return mat;
         });
-        const animations: GltfAnimation[] = (raw.animations ?? []).map(a => {
-            const samplers: GltfAnimationSampler[] = a.samplers.map(s => ({
+        const animations: GltfAnimation[] = (raw.animations ?? []).map((a) => {
+            const samplers: GltfAnimationSampler[] = a.samplers.map((s) => ({
                 input: this.readAccessorF32(raw, buffers, s.input) ?? new Float32Array(0),
                 output: this.readAccessorF32(raw, buffers, s.output) ?? new Float32Array(0),
-                interpolation: ((s.interpolation as GltfInterpolation | undefined) ?? 'LINEAR'),
+                interpolation: (s.interpolation as GltfInterpolation | undefined) ?? 'LINEAR',
             }));
             const channels: GltfAnimationChannel[] = a.channels
-                .filter(c => c.target.node !== undefined)
-                .map(c => ({
+                .filter((c) => c.target.node !== undefined)
+                .map((c) => ({
                     samplerIndex: c.sampler,
                     targetNode: c.target.node!,
-                    targetPath: (c.target.path as GltfAnimationPath),
+                    targetPath: c.target.path as GltfAnimationPath,
                 }));
             const anim: GltfAnimation = {
-                samplers, channels,
+                samplers,
+                channels,
                 ...(a.name !== undefined ? { name: a.name } : {}),
             };
             return anim;
         });
-        const skins: GltfSkin[] = (raw.skins ?? []).map(s => {
-            const ibm = s.inverseBindMatrices !== undefined
-                ? this.readAccessorF32(raw, buffers, s.inverseBindMatrices)
-                : null;
+        const skins: GltfSkin[] = (raw.skins ?? []).map((s) => {
+            const ibm =
+                s.inverseBindMatrices !== undefined
+                    ? this.readAccessorF32(raw, buffers, s.inverseBindMatrices)
+                    : null;
             const skin: GltfSkin = {
                 inverseBindMatrices: ibm,
                 joints: s.joints,
@@ -273,12 +338,25 @@ export class GltfLoader {
     }
 
     private extractPrimitive(raw: RawGltf, buffers: ArrayBuffer[], p: RawPrimitive): GltfPrimitive {
-        const positions = this.readAccessorF32(raw, buffers, p.attributes['POSITION']);
-        const normals = p.attributes['NORMAL'] !== undefined ? this.readAccessorF32(raw, buffers, p.attributes['NORMAL']) : null;
-        const uvs = p.attributes['TEXCOORD_0'] !== undefined ? this.readAccessorF32(raw, buffers, p.attributes['TEXCOORD_0']) : null;
-        const joints = p.attributes['JOINTS_0'] !== undefined ? this.readAccessorU16(raw, buffers, p.attributes['JOINTS_0']) : null;
-        const weights = p.attributes['WEIGHTS_0'] !== undefined ? this.readAccessorF32(raw, buffers, p.attributes['WEIGHTS_0']) : null;
-        const indices = p.indices !== undefined ? this.readAccessorIndices(raw, buffers, p.indices) : null;
+        const positions = this.readAccessorF32(raw, buffers, p.attributes.POSITION);
+        const normals =
+            p.attributes.NORMAL !== undefined
+                ? this.readAccessorF32(raw, buffers, p.attributes.NORMAL)
+                : null;
+        const uvs =
+            p.attributes.TEXCOORD_0 !== undefined
+                ? this.readAccessorF32(raw, buffers, p.attributes.TEXCOORD_0)
+                : null;
+        const joints =
+            p.attributes.JOINTS_0 !== undefined
+                ? this.readAccessorU16(raw, buffers, p.attributes.JOINTS_0)
+                : null;
+        const weights =
+            p.attributes.WEIGHTS_0 !== undefined
+                ? this.readAccessorF32(raw, buffers, p.attributes.WEIGHTS_0)
+                : null;
+        const indices =
+            p.indices !== undefined ? this.readAccessorIndices(raw, buffers, p.indices) : null;
         return {
             positions: positions ?? new Float32Array(0),
             normals,
@@ -290,7 +368,11 @@ export class GltfLoader {
         };
     }
 
-    private readAccessorF32(raw: RawGltf, buffers: ArrayBuffer[], idx: number | undefined): Float32Array | null {
+    private readAccessorF32(
+        raw: RawGltf,
+        buffers: ArrayBuffer[],
+        idx: number | undefined,
+    ): Float32Array | null {
         if (idx === undefined) return null;
         const acc = raw.accessors?.[idx];
         if (acc === undefined) return null;
@@ -315,7 +397,11 @@ export class GltfLoader {
         return new Uint16Array(buf, offset, acc.count * components);
     }
 
-    private readAccessorIndices(raw: RawGltf, buffers: ArrayBuffer[], idx: number): Uint16Array | Uint32Array | null {
+    private readAccessorIndices(
+        raw: RawGltf,
+        buffers: ArrayBuffer[],
+        idx: number,
+    ): Uint16Array | Uint32Array | null {
         const acc = raw.accessors?.[idx];
         if (acc === undefined) return null;
         const view = raw.bufferViews?.[acc.bufferView];
@@ -324,6 +410,8 @@ export class GltfLoader {
         if (buf === undefined) return null;
         const offset = (view.byteOffset ?? 0) + (acc.byteOffset ?? 0);
         const bytes = COMPONENT_BYTES[acc.componentType] ?? 2;
-        return bytes === 4 ? new Uint32Array(buf, offset, acc.count) : new Uint16Array(buf, offset, acc.count);
+        return bytes === 4
+            ? new Uint32Array(buf, offset, acc.count)
+            : new Uint16Array(buf, offset, acc.count);
     }
 }

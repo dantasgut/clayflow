@@ -7,7 +7,7 @@ export abstract class Flow {
     abstract readonly type: string;
     abstract readonly bodyType: string;
     abstract readonly phase: Phase;
-    priority: number = 0;
+    priority = 0;
 
     abstract getPipelineDescriptors(): readonly PipelineDescriptor[];
     abstract dispatch(frame: Frame): void;

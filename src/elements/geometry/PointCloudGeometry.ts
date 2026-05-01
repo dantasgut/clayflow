@@ -12,23 +12,29 @@ export class PointCloudGeometry extends Geometry {
 
     constructor(values: Record<string, unknown> = {}) {
         super();
-        const max = (values['maxParticles'] ?? 1024) as number;
+        const max = (values.maxParticles ?? 1024) as number;
         this.data = { maxParticles: max, vertexCount: max, indexCount: 0 };
     }
 
     override getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'points',
-            role: 'storage-rw',
-            schema: PointCloudGeometry.schema,
-            count: this.data['maxParticles'] as number,
-        }];
+        return [
+            {
+                id: 'points',
+                role: 'storage-rw',
+                schema: PointCloudGeometry.schema,
+                count: this.data.maxParticles as number,
+            },
+        ];
     }
 
     override getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];
     }
 
-    get vertexCount(): number { return this.data['vertexCount'] as number; }
-    get indexCount(): number { return 0; }
+    get vertexCount(): number {
+        return this.data.vertexCount as number;
+    }
+    get indexCount(): number {
+        return 0;
+    }
 }

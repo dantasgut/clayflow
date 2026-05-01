@@ -5,7 +5,7 @@ import {
     fieldElementBytes,
     fieldElements,
     fieldWgsl,
-    FieldType,
+    type FieldType,
 } from './FieldType';
 import { Schema } from './Schema';
 
@@ -48,13 +48,15 @@ export class StructSchema extends Schema {
 
     offsetOf(field: string): number {
         const entry = this.layout.get(field);
-        if (entry === undefined) throw new Error(`StructSchema(${this.name}): unknown field '${field}'`);
+        if (entry === undefined)
+            throw new Error(`StructSchema(${this.name}): unknown field '${field}'`);
         return entry.offset;
     }
 
     typeOf(field: string): FieldType {
         const entry = this.layout.get(field);
-        if (entry === undefined) throw new Error(`StructSchema(${this.name}): unknown field '${field}'`);
+        if (entry === undefined)
+            throw new Error(`StructSchema(${this.name}): unknown field '${field}'`);
         return entry.type;
     }
 
@@ -120,7 +122,7 @@ function writeValue(
         for (let i = limit; i < elements; i++) view[i] = 0;
         return;
     }
-    if (value !== undefined && typeof value === 'object' && Symbol.iterator in (value as object)) {
+    if (value !== undefined && typeof value === 'object' && Symbol.iterator in value!) {
         let i = 0;
         for (const v of value as Iterable<unknown>) {
             if (i >= elements) break;

@@ -10,22 +10,38 @@ import type { IndexBufferSpec } from '../../contracts/specs/IndexBufferSpec';
 import type { IndirectBufferSpec } from '../../contracts/specs/IndirectBufferSpec';
 import type { RenderPipelineSpec } from '../../contracts/specs/RenderPipelineSpec';
 import type { VertexBufferSpec } from '../../contracts/specs/VertexBufferSpec';
-import { GpuResourceStore } from '../GpuResourceStore';
+import { type GpuResourceStore } from '../GpuResourceStore';
 import { specHash } from '../specHash';
 
 export class GpuBundleRenderPass
-    implements RenderPass, Binder<RenderPipelineSpec>, GeometryBinder, RenderState, Drawer, BundleRunner
+    implements
+        RenderPass,
+        Binder<RenderPipelineSpec>,
+        GeometryBinder,
+        RenderState,
+        Drawer,
+        BundleRunner
 {
     constructor(
         private readonly encoder: GPURenderBundleEncoder,
         private readonly store: GpuResourceStore,
     ) {}
 
-    get bind(): Binder<RenderPipelineSpec> { return this; }
-    get geometry(): GeometryBinder { return this; }
-    get state(): RenderState { return this; }
-    get draw(): Drawer { return this; }
-    get bundles(): BundleRunner { return this; }
+    get bind(): Binder<RenderPipelineSpec> {
+        return this;
+    }
+    get geometry(): GeometryBinder {
+        return this;
+    }
+    get state(): RenderState {
+        return this;
+    }
+    get draw(): Drawer {
+        return this;
+    }
+    get bundles(): BundleRunner {
+        return this;
+    }
 
     setPipeline(spec: RenderPipelineSpec): this {
         const pipeline = this.store.require<GPURenderPipeline>(specHash(spec), 'render-pipeline');
@@ -55,7 +71,14 @@ export class GpuBundleRenderPass
         return this;
     }
 
-    viewport(_x: number, _y: number, _w: number, _h: number, _minDepth: number, _maxDepth: number): this {
+    viewport(
+        _x: number,
+        _y: number,
+        _w: number,
+        _h: number,
+        _minDepth: number,
+        _maxDepth: number,
+    ): this {
         return this;
     }
 
@@ -71,12 +94,23 @@ export class GpuBundleRenderPass
         return this;
     }
 
-    vertices(count: number, instances?: number, firstVertex?: number, firstInstance?: number): this {
+    vertices(
+        count: number,
+        instances?: number,
+        firstVertex?: number,
+        firstInstance?: number,
+    ): this {
         this.encoder.draw(count, instances, firstVertex, firstInstance);
         return this;
     }
 
-    indexed(count: number, instances?: number, firstIndex?: number, baseVertex?: number, firstInstance?: number): this {
+    indexed(
+        count: number,
+        instances?: number,
+        firstIndex?: number,
+        baseVertex?: number,
+        firstInstance?: number,
+    ): this {
         this.encoder.drawIndexed(count, instances, firstIndex, baseVertex, firstInstance);
         return this;
     }

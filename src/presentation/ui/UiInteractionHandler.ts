@@ -44,7 +44,7 @@ export class UiInteractionHandler {
         this.dragSlider = null;
     }
 
-    private localCoords(e: PointerEvent): { x: number, y: number } {
+    private localCoords(e: PointerEvent): { x: number; y: number } {
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / Math.max(rect.width, 1);
         const scaleY = this.canvas.height / Math.max(rect.height, 1);
@@ -73,7 +73,10 @@ export class UiInteractionHandler {
     }
 
     private updateSliderFromPointer(slider: UiSlider, x: number): void {
-        const t = Math.max(0, Math.min(1, (x - slider.bounds.x) / Math.max(slider.bounds.width, 1)));
+        const t = Math.max(
+            0,
+            Math.min(1, (x - slider.bounds.x) / Math.max(slider.bounds.width, 1)),
+        );
         const next = slider.min + t * (slider.max - slider.min);
         if (next !== slider.value) {
             slider.value = next;

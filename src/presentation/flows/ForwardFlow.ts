@@ -40,6 +40,8 @@ interface RenderableSlot {
     materialBuffer: UniformBufferSpec;
     materialBindGroup: BindGroupSpec;
     pipeline: RenderPipelineSpec;
+    /** False enquanto createAsync está em flight (preferAsync mode); true se sync ou já resolvido. */
+    pipelineReady: boolean;
 }
 
 export class ForwardFlow extends RenderFlow {
@@ -50,7 +52,7 @@ export class ForwardFlow extends RenderFlow {
 
     private depthTexture: TextureSpec | null = null;
     private depthView: TextureViewSpec | null = null;
-    private cachedSlots = new Map<EntityId, RenderableSlot>();
+    private readonly cachedSlots = new Map<EntityId, RenderableSlot>();
     private readonly canvasSize = { width: 0, height: 0 };
 
     private cameraLayout: LayoutSpec | null = null;
@@ -69,6 +71,16 @@ export class ForwardFlow extends RenderFlow {
 
     private shadowFlow: ShadowFlow | null = null;
     private renderToOffscreen = false;
+    /**
+     * Quando true, o render pass passa `timestampWrites: profiler.timestampWritesFor(0,1)`.
+     * Útil para HUD de profiling. No-op se device não suporta `timestamp-query`.
+     */
+    private profileTimestamps = false;
+    /**
+     * Quando true, novos slots criam seu render pipeline via `createAsync` em background.
+     * Slots cujo pipeline ainda não está pronto são skipados na dispatch (sem stall do frame).
+     */
+    private preferAsyncPipeline = false;
 
     constructor(
         private readonly core: EngineCore,
@@ -86,6 +98,16 @@ export class ForwardFlow extends RenderFlow {
 
     setRenderToOffscreen(enabled: boolean): this {
         this.renderToOffscreen = enabled;
+        return this;
+    }
+
+    setProfileTimestamps(enabled: boolean): this {
+        this.profileTimestamps = enabled;
+        return this;
+    }
+
+    setPreferAsync(enabled: boolean): this {
+        this.preferAsyncPipeline = enabled;
         return this;
     }
 
@@ -142,37 +164,43 @@ export class ForwardFlow extends RenderFlow {
         for (const r of renderables) this.uploadPerFrameData(r);
         this.uploadShadowParams();
 
-        const colorView = this.renderToOffscreen && this.outputColorView !== null
-            ? this.outputColorView
-            : frame.canvasView;
+        const colorView =
+            this.renderToOffscreen && this.outputColorView !== null
+                ? this.outputColorView
+                : frame.canvasView;
+        const tsWrites = this.profileTimestamps
+            ? this.core.profiler.timestampWritesFor(0, 1)
+            : undefined;
         const target: RenderTarget = {
-            colorAttachments: [{
-                view: colorView,
-                clearValue: [0.05, 0.07, 0.12, 1.0],
-                loadOp: 'clear',
-                storeOp: 'store',
-            }],
+            colorAttachments: [
+                {
+                    view: colorView,
+                    clearValue: [0.05, 0.07, 0.12, 1.0],
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                },
+            ],
             depthStencilAttachment: {
                 view: this.depthView,
                 depthClearValue: 1.0,
                 depthLoadOp: 'clear',
                 depthStoreOp: 'store',
             },
+            ...(tsWrites !== undefined ? { timestampWrites: tsWrites } : {}),
         };
 
         if (this.shadowBindGroup === null) return;
         const shadowBg = this.shadowBindGroup;
-        frame.render(target, 'ForwardFlow', pass => {
+        frame.render(target, 'ForwardFlow', (pass) => {
             for (const r of renderables) {
+                if (!r.pipelineReady) continue; // skipa slots cujo pipeline async ainda compila
                 pass.bind
                     .setPipeline(r.pipeline)
                     .setBindGroup(0, r.cameraBindGroup)
                     .setBindGroup(1, r.transformBindGroup)
                     .setBindGroup(2, r.materialBindGroup)
                     .setBindGroup(3, shadowBg);
-                pass.geometry
-                    .vertex(0, r.vbo)
-                    .index(r.ibo);
+                pass.geometry.vertex(0, r.vbo).index(r.ibo);
                 pass.draw.indexed(r.geometry.indexCount);
             }
         });
@@ -184,21 +212,42 @@ export class ForwardFlow extends RenderFlow {
             this.cameraLayout = this.core.create<LayoutSpec>({
                 kind: 'layout',
                 discriminator: 'forward_camera_layout',
-                entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, kind: 'buffer', type: 'uniform' }],
+                entries: [
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                        kind: 'buffer',
+                        type: 'uniform',
+                    },
+                ],
             });
         }
         if (this.transformLayout === null) {
             this.transformLayout = this.core.create<LayoutSpec>({
                 kind: 'layout',
                 discriminator: 'forward_transform_layout',
-                entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, kind: 'buffer', type: 'uniform' }],
+                entries: [
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.VERTEX,
+                        kind: 'buffer',
+                        type: 'uniform',
+                    },
+                ],
             });
         }
         if (this.materialLayout === null) {
             this.materialLayout = this.core.create<LayoutSpec>({
                 kind: 'layout',
                 discriminator: 'forward_material_layout',
-                entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, kind: 'buffer', type: 'uniform' }],
+                entries: [
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.FRAGMENT,
+                        kind: 'buffer',
+                        type: 'uniform',
+                    },
+                ],
             });
         }
         if (this.shadowLayout === null) {
@@ -206,15 +255,33 @@ export class ForwardFlow extends RenderFlow {
                 kind: 'layout',
                 discriminator: 'forward_shadow_layout',
                 entries: [
-                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, kind: 'buffer', type: 'uniform' },
-                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, kind: 'texture', sampleType: 'depth', viewDimension: '2d', multisampled: false },
-                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, kind: 'sampler', type: 'comparison' },
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.FRAGMENT,
+                        kind: 'buffer',
+                        type: 'uniform',
+                    },
+                    {
+                        binding: 1,
+                        visibility: GPUShaderStage.FRAGMENT,
+                        kind: 'texture',
+                        sampleType: 'depth',
+                        viewDimension: '2d',
+                        multisampled: false,
+                    },
+                    {
+                        binding: 2,
+                        visibility: GPUShaderStage.FRAGMENT,
+                        kind: 'sampler',
+                        type: 'comparison',
+                    },
                 ],
             });
         }
         if (this.shadowParamsBuffer === null) {
             this.shadowParamsBuffer = this.core.create<UniformBufferSpec>({
-                kind: 'buffer', subkind: 'uniform',
+                kind: 'buffer',
+                subkind: 'uniform',
                 discriminator: 'forward_shadow_params',
                 byteSize: 96,
             });
@@ -231,21 +298,30 @@ export class ForwardFlow extends RenderFlow {
     private ensureShadowResources(): void {
         if (this.shadowDummyTexture === null) {
             this.shadowDummyTexture = this.core.create<TextureSpec>({
-                kind: 'texture', discriminator: 'forward_shadow_dummy',
-                width: 1, height: 1,
+                kind: 'texture',
+                discriminator: 'forward_shadow_dummy',
+                width: 1,
+                height: 1,
                 format: 'depth32float',
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             });
             this.shadowDummyView = this.core.create<TextureViewSpec>({
-                kind: 'textureview', discriminator: 'forward_shadow_dummy_view',
-                source: this.shadowDummyTexture, format: 'depth32float',
+                kind: 'textureview',
+                discriminator: 'forward_shadow_dummy_view',
+                source: this.shadowDummyTexture,
+                format: 'depth32float',
             });
         }
         const shadowView = this.shadowFlow?.depthTextureView ?? this.shadowDummyView;
         if (shadowView === null) return;
         const disc = shadowView.discriminator ?? 'unknown';
         if (this.shadowBindGroup !== null && this.lastShadowDiscriminator === disc) return;
-        if (this.shadowLayout === null || this.shadowParamsBuffer === null || this.shadowSampler === null) return;
+        if (
+            this.shadowLayout === null
+            || this.shadowParamsBuffer === null
+            || this.shadowSampler === null
+        )
+            return;
         this.shadowBindGroup = this.core.create<BindGroupSpec>({
             kind: 'bindgroup',
             discriminator: `forward_shadow_bg:${disc}`,
@@ -261,17 +337,28 @@ export class ForwardFlow extends RenderFlow {
 
     private ensureOutputColor(): void {
         if (!this.renderToOffscreen) return;
-        const w = this.canvas.width, h = this.canvas.height;
+        const w = this.canvas.width,
+            h = this.canvas.height;
         if (w === 0 || h === 0) return;
-        if (this.outputColorTexture !== null && this.canvasSize.width === w && this.canvasSize.height === h) return;
+        if (
+            this.outputColorTexture !== null
+            && this.canvasSize.width === w
+            && this.canvasSize.height === h
+        )
+            return;
         this.outputColorTexture = this.core.create<TextureSpec>({
-            kind: 'texture', discriminator: `forward_color:${w}x${h}`,
-            width: w, height: h, format: this.core.canvasFormat,
+            kind: 'texture',
+            discriminator: `forward_color:${w}x${h}`,
+            width: w,
+            height: h,
+            format: this.core.canvasFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });
         this.outputColorView = this.core.create<TextureViewSpec>({
-            kind: 'textureview', discriminator: `forward_color_view:${w}x${h}`,
-            source: this.outputColorTexture, format: this.core.canvasFormat,
+            kind: 'textureview',
+            discriminator: `forward_color_view:${w}x${h}`,
+            source: this.outputColorTexture,
+            format: this.core.canvasFormat,
         });
     }
 
@@ -296,7 +383,12 @@ export class ForwardFlow extends RenderFlow {
         const w = this.canvas.width;
         const h = this.canvas.height;
         if (w === 0 || h === 0) return;
-        if (this.depthTexture !== null && this.canvasSize.width === w && this.canvasSize.height === h) return;
+        if (
+            this.depthTexture !== null
+            && this.canvasSize.width === w
+            && this.canvasSize.height === h
+        )
+            return;
         this.depthTexture = this.core.create<TextureSpec>({
             kind: 'texture',
             discriminator: `forward_depth:${w}x${h}`,
@@ -319,7 +411,9 @@ export class ForwardFlow extends RenderFlow {
         const out: RenderableSlot[] = [];
         const cameraId = this.world.queryBySchemaName('Camera')[0];
         if (cameraId === undefined) return out;
-        const cameraResource = this.world.resourcesOf(cameraId).find(r => r.constructor === Camera) as Camera | undefined;
+        const cameraResource = this.world
+            .resourcesOf(cameraId)
+            .find((r) => r.constructor === Camera) as Camera | undefined;
         if (cameraResource === undefined) return out;
 
         const seenSchemas = ['BoxVertex', 'SphereVertex', 'PlaneVertex', 'ParametricVertex'];
@@ -329,10 +423,13 @@ export class ForwardFlow extends RenderFlow {
                 if (visited.has(id)) continue;
                 visited.add(id);
                 const resources = this.world.resourcesOf(id);
-                const geometry = resources.find(r => isGeometry(r)) as Geometry | undefined;
-                const material = resources.find(r => isMaterial(r)) as Material | undefined;
-                const transform = resources.find(r => r.constructor === Transform) as Transform | undefined;
-                if (geometry === undefined || material === undefined || transform === undefined) continue;
+                const geometry = resources.find((r) => isGeometry(r)) as Geometry | undefined;
+                const material = resources.find((r) => isMaterial(r)) as Material | undefined;
+                const transform = resources.find((r) => r.constructor === Transform) as
+                    | Transform
+                    | undefined;
+                if (geometry === undefined || material === undefined || transform === undefined)
+                    continue;
                 const slot = this.ensureSlot(id, geometry, material, transform, cameraResource);
                 if (slot !== null) out.push(slot);
             }
@@ -349,14 +446,21 @@ export class ForwardFlow extends RenderFlow {
     ): RenderableSlot | null {
         const cached = this.cachedSlots.get(entityId);
         if (cached !== undefined) return cached;
-        if (this.cameraLayout === null || this.transformLayout === null || this.materialLayout === null || this.shadowLayout === null) return null;
+        if (
+            this.cameraLayout === null
+            || this.transformLayout === null
+            || this.materialLayout === null
+            || this.shadowLayout === null
+        )
+            return null;
 
-        const vertices = geometry.data['vertices'] as Float32Array | undefined;
-        const indices = geometry.data['indices'] as Uint16Array | undefined;
+        const vertices = geometry.data.vertices as Float32Array | undefined;
+        const indices = geometry.data.indices as Uint16Array | undefined;
         if (vertices === undefined || indices === undefined) return null;
 
         const vbo: VertexBufferSpec = this.core.create({
-            kind: 'buffer', subkind: 'vertex',
+            kind: 'buffer',
+            subkind: 'vertex',
             discriminator: `forward_vbo:${entityId}`,
             byteSize: vertices.byteLength,
             stride: 32,
@@ -365,7 +469,8 @@ export class ForwardFlow extends RenderFlow {
         this.core.write(vbo, vertices);
 
         const ibo: IndexBufferSpec = this.core.create({
-            kind: 'buffer', subkind: 'index',
+            kind: 'buffer',
+            subkind: 'index',
             discriminator: `forward_ibo:${entityId}`,
             byteSize: alignBufferSize(indices.byteLength),
             count: geometry.indexCount,
@@ -375,7 +480,8 @@ export class ForwardFlow extends RenderFlow {
         this.core.write(ibo, paddedIndices);
 
         const cameraBuffer: UniformBufferSpec = this.core.create({
-            kind: 'buffer', subkind: 'uniform',
+            kind: 'buffer',
+            subkind: 'uniform',
             discriminator: `forward_camera:${entityId}`,
             byteSize: alignUp(Camera.schema.stride, 16),
         });
@@ -387,7 +493,8 @@ export class ForwardFlow extends RenderFlow {
         });
 
         const transformBuffer: UniformBufferSpec = this.core.create({
-            kind: 'buffer', subkind: 'uniform',
+            kind: 'buffer',
+            subkind: 'uniform',
             discriminator: `forward_transform:${entityId}`,
             byteSize: alignUp(Transform.schema.stride, 16),
         });
@@ -399,7 +506,8 @@ export class ForwardFlow extends RenderFlow {
         });
 
         const materialBuffer: UniformBufferSpec = this.core.create({
-            kind: 'buffer', subkind: 'uniform',
+            kind: 'buffer',
+            subkind: 'uniform',
             discriminator: `forward_material:${entityId}`,
             byteSize: alignUp(StandardMaterial.schema.stride, 16),
         });
@@ -418,22 +526,30 @@ export class ForwardFlow extends RenderFlow {
             discriminator: matPipelineDesc.id,
             source: matPipelineDesc.shaderSource,
         });
-        const pipeline: RenderPipelineSpec = this.core.create<RenderPipelineSpec>({
-            kind: 'pipeline', subkind: 'render',
+        const pipelineSpec: RenderPipelineSpec = {
+            kind: 'pipeline',
+            subkind: 'render',
             discriminator: `forward_pipeline:${matPipelineDesc.id}`,
-            layouts: [this.cameraLayout, this.transformLayout, this.materialLayout, this.shadowLayout],
+            layouts: [
+                this.cameraLayout,
+                this.transformLayout,
+                this.materialLayout,
+                this.shadowLayout,
+            ],
             vertex: {
                 shader,
                 entryPoint: 'vs_main',
-                buffers: [{
-                    arrayStride: 32,
-                    stepMode: 'vertex',
-                    attributes: [
-                        { shaderLocation: 0, offset: 0,  format: 'float32x3' },
-                        { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                        { shaderLocation: 2, offset: 24, format: 'float32x2' },
-                    ],
-                }],
+                buffers: [
+                    {
+                        arrayStride: 32,
+                        stepMode: 'vertex',
+                        attributes: [
+                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                            { shaderLocation: 2, offset: 24, format: 'float32x2' },
+                        ],
+                    },
+                ],
             },
             fragment: {
                 shader,
@@ -442,16 +558,31 @@ export class ForwardFlow extends RenderFlow {
             },
             primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
             depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-        });
+        };
 
         const slot: RenderableSlot = {
-            entityId, geometry, material, transform,
-            vbo, ibo,
-            cameraBuffer, cameraBindGroup,
-            transformBuffer, transformBindGroup,
-            materialBuffer, materialBindGroup,
-            pipeline,
+            entityId,
+            geometry,
+            material,
+            transform,
+            vbo,
+            ibo,
+            cameraBuffer,
+            cameraBindGroup,
+            transformBuffer,
+            transformBindGroup,
+            materialBuffer,
+            materialBindGroup,
+            pipeline: pipelineSpec,
+            pipelineReady: !this.preferAsyncPipeline,
         };
+        if (this.preferAsyncPipeline) {
+            void this.core.createAsync<RenderPipelineSpec>(pipelineSpec).then(() => {
+                slot.pipelineReady = true;
+            });
+        } else {
+            this.core.create<RenderPipelineSpec>(pipelineSpec);
+        }
         void camera;
         this.cachedSlots.set(entityId, slot);
         return slot;
@@ -460,7 +591,9 @@ export class ForwardFlow extends RenderFlow {
     private uploadPerFrameData(r: RenderableSlot): void {
         const cameraId = this.world.queryBySchemaName('Camera')[0];
         if (cameraId !== undefined) {
-            const camera = this.world.resourcesOf(cameraId).find(rr => rr.constructor === Camera) as Camera | undefined;
+            const camera = this.world
+                .resourcesOf(cameraId)
+                .find((rr) => rr.constructor === Camera) as Camera | undefined;
             if (camera !== undefined) {
                 this.core.write(r.cameraBuffer, Camera.schema.pack(camera.data));
             }
@@ -472,16 +605,28 @@ export class ForwardFlow extends RenderFlow {
 
 function isGeometry(r: { constructor: { name: string } }): boolean {
     const name = r.constructor.name;
-    return name === 'BoxGeometry' || name === 'SphereGeometry' || name === 'PlaneGeometry' || name === 'ParametricGeometry' || name === 'ParametricSurfaceGeometry';
+    return (
+        name === 'BoxGeometry'
+        || name === 'SphereGeometry'
+        || name === 'PlaneGeometry'
+        || name === 'ParametricGeometry'
+        || name === 'ParametricSurfaceGeometry'
+    );
 }
 
 function isMaterial(r: { constructor: { name: string } }): boolean {
     const name = r.constructor.name;
-    return name === 'StandardMaterial' || name === 'WireframeMaterial' || name === 'PointSpriteMaterial';
+    return (
+        name === 'StandardMaterial'
+        || name === 'WireframeMaterial'
+        || name === 'PointSpriteMaterial'
+    );
 }
 
 function materialPack(material: Material): ArrayBufferView {
-    const ctor = material.constructor as unknown as { schema: { pack(data: Record<string, unknown>): ArrayBufferView } };
+    const ctor = material.constructor as unknown as {
+        schema: { pack(data: Record<string, unknown>): ArrayBufferView };
+    };
     return ctor.schema.pack(material.data);
 }
 

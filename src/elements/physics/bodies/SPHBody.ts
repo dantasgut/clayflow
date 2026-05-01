@@ -23,9 +23,9 @@ export class SPHBody extends PhysicsBody {
 
     constructor(values: Record<string, unknown> = {}) {
         super();
-        const position = (values['position'] ?? [0, 0, 0, 0]) as readonly number[];
-        const velocity = (values['velocity'] ?? [0, 0, 0, 0]) as readonly number[];
-        const density = (values['density'] ?? 1000) as number;
+        const position = (values.position ?? [0, 0, 0, 0]) as readonly number[];
+        const velocity = (values.velocity ?? [0, 0, 0, 0]) as readonly number[];
+        const density = (values.density ?? 1000) as number;
         this.data = SPHBody.schema.applyDefaults({
             pos: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, density],
             vel: [velocity[0] ?? 0, velocity[1] ?? 0, velocity[2] ?? 0, 0],
@@ -35,12 +35,14 @@ export class SPHBody extends PhysicsBody {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'body',
-            role: 'storage-rw',
-            schema: SPHBody.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'body',
+                role: 'storage-rw',
+                schema: SPHBody.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getFlowDescriptors(): readonly FlowDescriptor[] {

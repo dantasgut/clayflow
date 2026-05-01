@@ -1,0 +1,34 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/main.ts",
+    "src/__tests__/**/*.ts",
+    "src/**/__tests__/**/*.ts",
+    "vitest.config.ts",
+    "eslint.config.js"
+  ],
+  "project": ["src/**/*.ts"],
+  "ignore": ["clay-engine-doc/**", "dist/**", "docs/**", "**/*.wgsl", "src/__smokes__/**"],
+  "ignoreDependencies": [
+    "@types/gl-matrix",
+    "@types/uuid",
+    "@typescript-eslint/eslint-plugin",
+    "@typescript-eslint/parser",
+    "docusaurus-plugin-typedoc"
+  ],
+  "rules": {
+    "exports": "warn",
+    "types": "warn",
+    "nsExports": "warn",
+    "nsTypes": "warn",
+    "enumMembers": "warn",
+    "duplicates": "warn",
+    "files": "error",
+    "dependencies": "error",
+    "devDependencies": "error",
+    "unlisted": "error",
+    "binaries": "error",
+    "unresolved": "error"
+  }
+}

@@ -11,7 +11,9 @@ export class DefaultEventBus implements EventBus {
             this.handlers.set(type, set);
         }
         set.add(handler as EventHandler<EventName>);
-        return () => this.off(type, handler);
+        return () => {
+            this.off(type, handler);
+        };
     }
 
     off<E extends EventName>(type: E, handler: EventHandler<E>): void {

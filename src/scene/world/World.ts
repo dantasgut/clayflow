@@ -134,8 +134,13 @@ export class World {
     }
 
     private implementsResource(entity: Entity): entity is Entity & Resource {
-        const candidate = entity as unknown as { getDescriptors?: unknown; getPipelineDescriptors?: unknown };
-        return typeof candidate.getDescriptors === 'function'
-            && typeof candidate.getPipelineDescriptors === 'function';
+        const candidate = entity as unknown as {
+            getDescriptors?: unknown;
+            getPipelineDescriptors?: unknown;
+        };
+        return (
+            typeof candidate.getDescriptors === 'function'
+            && typeof candidate.getPipelineDescriptors === 'function'
+        );
     }
 }

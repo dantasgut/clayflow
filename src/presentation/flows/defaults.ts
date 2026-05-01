@@ -30,7 +30,12 @@ export function registerPresentationDefaults(
     options: PresentationDefaultsOptions,
 ): PresentationDefaults {
     const shadow = new ShadowFlow(options.core, options.world, options.resources);
-    const forward = new ForwardFlow(options.core, options.world, options.resources, options.canvas).bindShadowFlow(shadow);
+    const forward = new ForwardFlow(
+        options.core,
+        options.world,
+        options.resources,
+        options.canvas,
+    ).bindShadowFlow(shadow);
     const post = new PostFlow({ canvas: options.canvas }, options.core).bindForwardFlow(forward);
     forward.setRenderToOffscreen(true);
     const ui = new UIFlow(options.core, options.canvas);

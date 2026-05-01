@@ -1,4 +1,4 @@
-import type { BaseBindingLayoutEntry } from './BindingLayoutEntry';
+import type { BaseBindingLayoutEntry } from './BaseBindingLayoutEntry';
 
 export interface BufferBindingLayoutEntry extends BaseBindingLayoutEntry {
     readonly kind: 'buffer';
