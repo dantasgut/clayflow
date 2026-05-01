@@ -1,4 +1,12 @@
-export { FieldType, fieldAlign, fieldBytes, fieldCtor, fieldElementBytes, fieldElements, fieldWgsl } from './FieldType';
+export {
+    FieldType,
+    fieldAlign,
+    fieldBytes,
+    fieldCtor,
+    fieldElementBytes,
+    fieldElements,
+    fieldWgsl,
+} from './FieldType';
 export { Schema } from './Schema';
 export { StructSchema } from './StructSchema';
 export { TensorSchema } from './TensorSchema';

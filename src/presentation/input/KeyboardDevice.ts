@@ -1,7 +1,10 @@
 import type { Input } from './Input';
 
 export class KeyboardDevice {
-    constructor(private readonly target: HTMLElement | Window, private readonly input: Input) {}
+    constructor(
+        private readonly target: HTMLElement | Window,
+        private readonly input: Input,
+    ) {}
 
     attach(): void {
         const t = this.target as Window;

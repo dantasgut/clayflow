@@ -11,8 +11,12 @@ class TestEntity extends Entity implements Resource {
     static readonly schema = new StructSchema('TestEntity', { value: FieldType.f32 });
     state = ResourceState.Uninitialized;
     data: Record<string, unknown> = { value: 0 };
-    getDescriptors() { return [{ id: 't', role: 'uniform' as const, schema: TestEntity.schema }]; }
-    getPipelineDescriptors() { return []; }
+    getDescriptors() {
+        return [{ id: 't', role: 'uniform' as const, schema: TestEntity.schema }];
+    }
+    getPipelineDescriptors() {
+        return [];
+    }
 }
 
 describe('World', () => {
@@ -64,8 +68,12 @@ describe('World', () => {
         const id = w.insert(e);
         let resourcesRemoved = 0;
         let entitiesRemoved = 0;
-        bus.on('resourcesChanged', ev => { if (ev.removed.length > 0) resourcesRemoved++; });
-        bus.on('entitiesRemoved', ev => { if (ev.entityIds.includes(id)) entitiesRemoved++; });
+        bus.on('resourcesChanged', (ev) => {
+            if (ev.removed.length > 0) resourcesRemoved++;
+        });
+        bus.on('entitiesRemoved', (ev) => {
+            if (ev.entityIds.includes(id)) entitiesRemoved++;
+        });
         w.remove(e);
         expect(resourcesRemoved).toBe(1);
         expect(entitiesRemoved).toBe(1);

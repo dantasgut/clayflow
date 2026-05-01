@@ -3,7 +3,10 @@ import { specHash } from '../specHash';
 import type { ResourceSpec } from '../../contracts/specs/ResourceSpec';
 
 const buf = (size: number, disc: string): ResourceSpec => ({
-    kind: 'buffer', subkind: 'storage', byteSize: size, discriminator: disc,
+    kind: 'buffer',
+    subkind: 'storage',
+    byteSize: size,
+    discriminator: disc,
 });
 
 describe('specHash', () => {
@@ -25,8 +28,18 @@ describe('specHash', () => {
     });
 
     it('ordem das chaves não importa (serialização estável)', () => {
-        const a: ResourceSpec = { kind: 'buffer', subkind: 'uniform', byteSize: 32, discriminator: 'x' };
-        const b: ResourceSpec = { discriminator: 'x', byteSize: 32, subkind: 'uniform', kind: 'buffer' };
+        const a: ResourceSpec = {
+            kind: 'buffer',
+            subkind: 'uniform',
+            byteSize: 32,
+            discriminator: 'x',
+        };
+        const b: ResourceSpec = {
+            discriminator: 'x',
+            byteSize: 32,
+            subkind: 'uniform',
+            kind: 'buffer',
+        };
         expect(specHash(a)).toBe(specHash(b));
     });
 
@@ -36,7 +49,10 @@ describe('specHash', () => {
     });
 
     it('lida com cycles sem stack overflow', () => {
-        type Cyclic = { kind: string; self?: Cyclic };
+        interface Cyclic {
+            kind: string;
+            self?: Cyclic;
+        }
         const a: Cyclic = { kind: 'test' };
         a.self = a;
         // O specHash não deveria ser chamado com objetos cíclicos em prática (specs são planos),

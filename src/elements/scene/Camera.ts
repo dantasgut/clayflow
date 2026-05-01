@@ -24,14 +24,14 @@ export class Camera extends Entity implements Resource {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = Camera.schema.applyDefaults({
-            position: values['position'] ?? [0, 0, 5, 1],
-            near: values['near'] ?? 0.1,
-            far: values['far'] ?? 1000.0,
-            fov: values['fov'] ?? Math.PI / 4,
-            aspect: values['aspect'] ?? 16 / 9,
-            view: values['view'] ?? identity(),
-            projection: values['projection'] ?? identity(),
-            viewProjection: values['viewProjection'] ?? identity(),
+            position: values.position ?? [0, 0, 5, 1],
+            near: values.near ?? 0.1,
+            far: values.far ?? 1000.0,
+            fov: values.fov ?? Math.PI / 4,
+            aspect: values.aspect ?? 16 / 9,
+            view: values.view ?? identity(),
+            projection: values.projection ?? identity(),
+            viewProjection: values.viewProjection ?? identity(),
         });
     }
 
@@ -45,5 +45,5 @@ export class Camera extends Entity implements Resource {
 }
 
 function identity(): readonly number[] {
-    return [1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1];
+    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 }

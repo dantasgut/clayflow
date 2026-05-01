@@ -30,34 +30,49 @@ describe('StructSchema layout WGSL', () => {
 
     it('RigidBody legacy: 10 vec4f = 160 bytes', () => {
         const rb = new StructSchema('RigidBody', {
-            pos: FieldType.vec4f, vel: FieldType.vec4f, omega: FieldType.vec4f,
-            rot: FieldType.vec4f, I_inv: FieldType.vec4f, pos_pred: FieldType.vec4f,
-            rot_pred: FieldType.vec4f, mat_props: FieldType.vec4f,
-            body_shape: FieldType.vec4f, _rb_pad: FieldType.vec4f,
+            pos: FieldType.vec4f,
+            vel: FieldType.vec4f,
+            omega: FieldType.vec4f,
+            rot: FieldType.vec4f,
+            I_inv: FieldType.vec4f,
+            pos_pred: FieldType.vec4f,
+            rot_pred: FieldType.vec4f,
+            mat_props: FieldType.vec4f,
+            body_shape: FieldType.vec4f,
+            _rb_pad: FieldType.vec4f,
         });
         expect(rb.stride).toBe(160);
     });
 
     it('SoftBody/Particle: 3 vec4f = 48 bytes', () => {
         const sb = new StructSchema('SoftBody', {
-            pos: FieldType.vec4f, pred: FieldType.vec4f, vel: FieldType.vec4f,
+            pos: FieldType.vec4f,
+            pred: FieldType.vec4f,
+            vel: FieldType.vec4f,
         });
         expect(sb.stride).toBe(48);
     });
 
     it('SPHParticle: 4 vec4f = 64 bytes', () => {
         const p = new StructSchema('SPHParticle', {
-            pos: FieldType.vec4f, vel: FieldType.vec4f,
-            force: FieldType.vec4f, color: FieldType.vec4f,
+            pos: FieldType.vec4f,
+            vel: FieldType.vec4f,
+            force: FieldType.vec4f,
+            color: FieldType.vec4f,
         });
         expect(p.stride).toBe(64);
     });
 
     it('MPMParticle: 8 vec4f = 128 bytes', () => {
         const p = new StructSchema('MPMParticle', {
-            pos: FieldType.vec4f, vel: FieldType.vec4f,
-            F_col0: FieldType.vec4f, F_col1: FieldType.vec4f, F_col2: FieldType.vec4f,
-            C_col0: FieldType.vec4f, C_col1: FieldType.vec4f, C_col2: FieldType.vec4f,
+            pos: FieldType.vec4f,
+            vel: FieldType.vec4f,
+            F_col0: FieldType.vec4f,
+            F_col1: FieldType.vec4f,
+            F_col2: FieldType.vec4f,
+            C_col0: FieldType.vec4f,
+            C_col1: FieldType.vec4f,
+            C_col2: FieldType.vec4f,
         });
         expect(p.stride).toBe(128);
     });
@@ -94,12 +109,7 @@ describe('StructSchema.pack', () => {
 
     it('packs mat4x4f como 16 floats column-major', () => {
         const s = new StructSchema('M', { m: FieldType.mat4x4f });
-        const m = [
-            1, 2, 3, 4,
-            5, 6, 7, 8,
-            9, 10, 11, 12,
-            13, 14, 15, 16,
-        ];
+        const m = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         const bytes = s.pack({ m });
         const f32 = new Float32Array(bytes.buffer, bytes.byteOffset, 16);
         expect(Array.from(f32)).toEqual(m);
@@ -115,15 +125,15 @@ describe('StructSchema.pack', () => {
     it('applyDefaults zera campos faltantes', () => {
         const s = new StructSchema('D', { a: FieldType.f32, b: FieldType.vec3f });
         const data = s.applyDefaults({});
-        expect(data['a']).toBe(0);
-        expect(data['b']).toEqual([0, 0, 0]);
+        expect(data.a).toBe(0);
+        expect(data.b).toEqual([0, 0, 0]);
     });
 
     it('applyDefaults preserva campos providos', () => {
         const s = new StructSchema('D', { a: FieldType.f32, b: FieldType.f32 });
         const data = s.applyDefaults({ a: 5 });
-        expect(data['a']).toBe(5);
-        expect(data['b']).toBe(0);
+        expect(data.a).toBe(5);
+        expect(data.b).toBe(0);
     });
 });
 

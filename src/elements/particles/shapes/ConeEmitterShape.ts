@@ -5,7 +5,7 @@ export class ConeEmitterShape implements EmitterShape {
         private readonly origin: readonly [number, number, number] = [0, 0, 0],
         private readonly direction: readonly [number, number, number] = [0, 1, 0],
         private readonly halfAngle: number = Math.PI / 6,
-        private readonly speed: number = 1,
+        private readonly speed = 1,
     ) {}
 
     sample(rng: () => number): SpawnSample {

@@ -30,9 +30,9 @@ export class SoftBody extends PhysicsBody {
     constructor(values: Record<string, unknown> = {}, options: SoftBodyOptions = {}) {
         super();
         this.algorithm = options.algorithm ?? SoftBody.defaultAlgorithm;
-        const position = (values['position'] ?? [0, 0, 0, 1]) as readonly number[];
-        const velocity = (values['velocity'] ?? [0, 0, 0, 0]) as readonly number[];
-        const mass = (values['mass'] ?? 1) as number;
+        const position = (values.position ?? [0, 0, 0, 1]) as readonly number[];
+        const velocity = (values.velocity ?? [0, 0, 0, 0]) as readonly number[];
+        const mass = (values.mass ?? 1) as number;
         const invMass = mass > 0 ? 1 / mass : 0;
         this.data = SoftBody.schema.applyDefaults({
             pos: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, invMass],
@@ -42,12 +42,14 @@ export class SoftBody extends PhysicsBody {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'body',
-            role: 'storage-rw',
-            schema: SoftBody.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'body',
+                role: 'storage-rw',
+                schema: SoftBody.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getFlowDescriptors(): readonly FlowDescriptor[] {

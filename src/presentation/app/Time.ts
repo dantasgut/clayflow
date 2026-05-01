@@ -23,13 +23,15 @@ export class Time extends Entity implements Resource {
     }
 
     update(dt: number): void {
-        this.data['dt'] = dt;
-        this.data['elapsed'] = (this.data['elapsed'] as number) + dt;
+        this.data.dt = dt;
+        this.data.elapsed = (this.data.elapsed as number) + dt;
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'time', role: 'uniform', schema: Time.schema }];
     }
 
-    getPipelineDescriptors(): readonly PipelineDescriptor[] { return []; }
+    getPipelineDescriptors(): readonly PipelineDescriptor[] {
+        return [];
+    }
 }

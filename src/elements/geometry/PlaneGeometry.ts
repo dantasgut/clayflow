@@ -13,13 +13,42 @@ export class PlaneGeometry extends Geometry {
 
     constructor(values: Record<string, unknown> = {}) {
         super();
-        const size = (values['size'] ?? [1, 1]) as readonly number[];
-        const w = (size[0] ?? 1) / 2, h = (size[1] ?? 1) / 2;
+        const size = (values.size ?? [1, 1]) as readonly number[];
+        const w = (size[0] ?? 1) / 2,
+            h = (size[1] ?? 1) / 2;
         const vertices = new Float32Array([
-            -w, 0, -h,  0, 1, 0,  0, 0,
-             w, 0, -h,  0, 1, 0,  1, 0,
-             w, 0,  h,  0, 1, 0,  1, 1,
-            -w, 0,  h,  0, 1, 0,  0, 1,
+            -w,
+            0,
+            -h,
+            0,
+            1,
+            0,
+            0,
+            0,
+            w,
+            0,
+            -h,
+            0,
+            1,
+            0,
+            1,
+            0,
+            w,
+            0,
+            h,
+            0,
+            1,
+            0,
+            1,
+            1,
+            -w,
+            0,
+            h,
+            0,
+            1,
+            0,
+            0,
+            1,
         ]);
         const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
         this.data = { size, vertices, indices, vertexCount: 4, indexCount: 6 };
@@ -32,6 +61,10 @@ export class PlaneGeometry extends Geometry {
         ];
     }
 
-    get vertexCount(): number { return 4; }
-    get indexCount(): number { return 6; }
+    get vertexCount(): number {
+        return 4;
+    }
+    get indexCount(): number {
+        return 6;
+    }
 }

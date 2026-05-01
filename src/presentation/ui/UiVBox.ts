@@ -11,7 +11,7 @@ export class UiVBox extends UiElement {
     layout(): void {
         const innerW = Math.max(0, this.bounds.width - this.padding * 2);
         const innerH = Math.max(0, this.bounds.height - this.padding * 2);
-        const visibleChildren = this.children.filter(c => c.visible);
+        const visibleChildren = this.children.filter((c) => c.visible);
         if (visibleChildren.length === 0) return;
         const gaps = this.gap * Math.max(0, visibleChildren.length - 1);
         let fixedH = 0;
@@ -20,9 +20,7 @@ export class UiVBox extends UiElement {
             if (c.bounds.height > 0) fixedH += c.bounds.height;
             else flexCount++;
         }
-        const flexH = flexCount > 0
-            ? Math.max(0, (innerH - fixedH - gaps) / flexCount)
-            : 0;
+        const flexH = flexCount > 0 ? Math.max(0, (innerH - fixedH - gaps) / flexCount) : 0;
         const x = this.bounds.x + this.padding;
         let cursorY = this.bounds.y + this.padding;
         for (const c of visibleChildren) {

@@ -1,38 +1,38 @@
-import { GpuEngineCore } from '../core/gpu/GpuEngineCore';
-import { ConsumerResolverRegistry } from './consumers/ConsumerResolverRegistry';
-import { DefaultEventBus } from './events/DefaultEventBus';
-import { FlowRegistry } from './flows/FlowRegistry';
-import { ExecutionSystem } from './systems/ExecutionSystem';
-import { LayoutInferencer } from './systems/LayoutInferencer';
-import { ResourceSystem } from './systems/ResourceSystem';
-import { World } from './world/World';
+import { createScene, type SceneContext } from './SceneContext';
+import type { CanvasOptions } from '../core/contracts/index';
 
-const core = new GpuEngineCore();
+const defaultScene: SceneContext = createScene();
 
 export interface SceneBootstrapOptions {
     canvas?: HTMLCanvasElement;
-    canvasOptions?: Parameters<typeof core.initialize>[1];
+    canvasOptions?: CanvasOptions;
 }
 
 export async function bootstrap(options: SceneBootstrapOptions = {}): Promise<void> {
     if (options.canvas !== undefined && options.canvasOptions !== undefined) {
-        await core.initialize(options.canvas, options.canvasOptions);
+        await defaultScene.core.initialize(options.canvas, options.canvasOptions);
     } else if (options.canvas !== undefined) {
-        await core.initialize(options.canvas);
+        await defaultScene.core.initialize(options.canvas);
     } else {
-        await core.initialize();
+        await defaultScene.core.initialize();
     }
 }
 
-export const events = new DefaultEventBus();
-export const flows = new FlowRegistry();
-export const layoutInferencer = new LayoutInferencer();
-export const consumers = new ConsumerResolverRegistry();
-export const world = new World(events);
-export const resourceSystem = new ResourceSystem(core, events, world);
-export const executionSystem = new ExecutionSystem(core, events, flows);
+// Singletons da scene default — backwards-compat. Para multi-Application,
+// use createScene() + Application.create({ scene: ... }).
+export const events = defaultScene.events;
+export const flows = defaultScene.flows;
+export const layoutInferencer = defaultScene.layoutInferencer;
+export const consumers = defaultScene.consumers;
+export const world = defaultScene.world;
+export const resourceSystem = defaultScene.resourceSystem;
+export const executionSystem = defaultScene.executionSystem;
 
-export { core as engine };
+export { defaultScene };
+export { createScene } from './SceneContext';
+export type { SceneContext } from './SceneContext';
+
+export const engine = defaultScene.core;
 
 export { Entity, ResourceState } from './contracts/index';
 export type { Resource } from './contracts/index';
@@ -95,6 +95,10 @@ export type {
     CanvasReconfiguredPayload,
     EntitiesRemovedPayload,
     ProfilerStatsPayload,
+    EngineErrorPayload,
+    DeviceLostPayload,
+    DeviceRecoveredPayload,
+    MemoryWarningPayload,
 } from './events/index';
 
 export type {

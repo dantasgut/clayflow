@@ -20,11 +20,11 @@ export class GravityField extends ForceField {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = GravityField.schema.applyDefaults({
-            sourceMode: (values['sourceMode'] ?? 0) as number,
-            acceleration: values['acceleration'] ?? [0, -9.81, 0, 0],
-            sourcePosition: values['sourcePosition'] ?? [0, 0, 0, 1],
-            sourceMass: values['sourceMass'] ?? 0,
-            gravitationalConstant: values['gravitationalConstant'] ?? 6.674e-11,
+            sourceMode: values.sourceMode ?? 0,
+            acceleration: values.acceleration ?? [0, -9.81, 0, 0],
+            sourcePosition: values.sourcePosition ?? [0, 0, 0, 1],
+            sourceMass: values.sourceMass ?? 0,
+            gravitationalConstant: values.gravitationalConstant ?? 6.674e-11,
         });
     }
 

@@ -20,20 +20,22 @@ export class ShadowMap extends Entity implements Resource {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = ShadowMap.schema.applyDefaults({
-            lightViewProj: values['lightViewProj'] ?? identity(),
-            bias: values['bias'] ?? 0.0001,
-            normalBias: values['normalBias'] ?? 0.001,
-            size: values['size'] ?? [2048, 2048],
+            lightViewProj: values.lightViewProj ?? identity(),
+            bias: values.bias ?? 0.0001,
+            normalBias: values.normalBias ?? 0.001,
+            size: values.size ?? [2048, 2048],
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'shadowmap',
-            role: 'storage-ro',
-            schema: ShadowMap.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'shadowmap',
+                role: 'storage-ro',
+                schema: ShadowMap.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
@@ -42,5 +44,5 @@ export class ShadowMap extends Entity implements Resource {
 }
 
 function identity(): readonly number[] {
-    return [1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1];
+    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 }

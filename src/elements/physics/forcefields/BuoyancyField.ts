@@ -14,9 +14,9 @@ export class BuoyancyField extends ForceField {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = BuoyancyField.schema.applyDefaults({
-            fluidDensity: values['fluidDensity'] ?? 1000.0,
-            fluidLevel: values['fluidLevel'] ?? 0.0,
-            gravity: values['gravity'] ?? 9.81,
+            fluidDensity: values.fluidDensity ?? 1000.0,
+            fluidLevel: values.fluidLevel ?? 0.0,
+            gravity: values.gravity ?? 9.81,
         });
     }
 

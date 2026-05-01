@@ -37,6 +37,31 @@ export interface ProfilerStatsPayload {
     readonly stagesNs: Readonly<Record<string, number>>;
 }
 
+export interface EngineErrorPayload {
+    readonly stage: string;
+    readonly filter: GPUErrorFilter;
+    readonly message: string;
+}
+
+export interface DeviceLostPayload {
+    readonly reason: GPUDeviceLostReason;
+    readonly message: string;
+}
+
+export interface DeviceRecoveredPayload {
+    readonly reason: GPUDeviceLostReason;
+}
+
+export interface MemoryWarningPayload {
+    readonly totalBytes: number;
+    readonly budgetBytes: number;
+    readonly top: readonly {
+        readonly kind: 'buffer' | 'texture' | 'other';
+        readonly bytes: number;
+        readonly label?: string;
+    }[];
+}
+
 export interface EventMap {
     resourcesChanged: ChangedEvent<Resource>;
     resourceReady: ReadyEvent<ResourceReadyPayload>;
@@ -49,6 +74,10 @@ export interface EventMap {
     canvasReconfigured: CanvasReconfiguredPayload;
     entitiesRemoved: EntitiesRemovedPayload;
     profilerStats: ProfilerStatsPayload;
+    engineError: EngineErrorPayload;
+    deviceLost: DeviceLostPayload;
+    deviceRecovered: DeviceRecoveredPayload;
+    memoryWarning: MemoryWarningPayload;
 }
 
 export type EventName = keyof EventMap;

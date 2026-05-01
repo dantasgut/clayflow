@@ -17,7 +17,7 @@ export class WireframeMaterial extends Material {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = WireframeMaterial.schema.applyDefaults({
-            color: values['color'] ?? [1, 1, 1, 1],
+            color: values.color ?? [1, 1, 1, 1],
             roughness: 1.0,
             metallic: 0.0,
         });
@@ -28,13 +28,15 @@ export class WireframeMaterial extends Material {
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [{
-            id: 'pipeline_wireframe',
-            role: 'render',
-            shaderSource: forwardWGSL,
-            entryPoints: ['vs_main', 'fs_main'],
-            consumes: ['Camera', 'Transform'],
-            topology: 'line-list',
-        }];
+        return [
+            {
+                id: 'pipeline_wireframe',
+                role: 'render',
+                shaderSource: forwardWGSL,
+                entryPoints: ['vs_main', 'fs_main'],
+                consumes: ['Camera', 'Transform'],
+                topology: 'line-list',
+            },
+        ];
     }
 }

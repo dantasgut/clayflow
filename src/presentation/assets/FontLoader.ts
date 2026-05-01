@@ -24,9 +24,9 @@ export interface FontLoaderOptions {
 }
 
 const DEFAULT_CHARS =
-    ' !"#$%&\'()*+,-./0123456789:;<=>?@' +
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`' +
-    'abcdefghijklmnopqrstuvwxyz{|}~';
+    ' !"#$%&\'()*+,-./0123456789:;<=>?@'
+    + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`'
+    + 'abcdefghijklmnopqrstuvwxyz{|}~';
 
 export class FontLoader {
     async load(family: string, url: string, options: FontLoaderOptions = {}): Promise<LoadedFont> {
@@ -56,9 +56,17 @@ export class FontLoader {
         };
     }
 
-    private buildAtlas(family: string, fontSize: number, chars: string, padding: number):
-        | { bitmap: ImageBitmap | null; width: number; height: number; glyphs: Map<string, FontGlyph> }
-        | null {
+    private buildAtlas(
+        family: string,
+        fontSize: number,
+        chars: string,
+        padding: number,
+    ): {
+        bitmap: ImageBitmap | null;
+        width: number;
+        height: number;
+        glyphs: Map<string, FontGlyph>;
+    } | null {
         if (typeof OffscreenCanvas === 'undefined') return null;
         const measureCanvas = new OffscreenCanvas(1, 1);
         const measureCtx = measureCanvas.getContext('2d');
@@ -89,7 +97,14 @@ export class FontLoader {
             const y = row * cell + padding;
             ctx.fillText(ch, x, y);
             const metrics = ctx.measureText(ch);
-            glyphs.set(ch, { char: ch, x, y, width: metrics.width, height: fontSize, advance: metrics.width });
+            glyphs.set(ch, {
+                char: ch,
+                x,
+                y,
+                width: metrics.width,
+                height: fontSize,
+                advance: metrics.width,
+            });
         }
         const bitmap = canvas.transferToImageBitmap();
         return { bitmap, width, height, glyphs };

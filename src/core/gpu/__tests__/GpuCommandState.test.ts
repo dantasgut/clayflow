@@ -1,16 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GpuCommandState } from '../GpuCommandState';
 
-function fakeDevice(): { device: GPUDevice; cmdBuffer: GPUCommandBuffer; finishCalls: number } {
+function fakeDevice(): { device: GPUDevice; cmdBuffer: GPUCommandBuffer } {
     const cmdBuffer = {} as GPUCommandBuffer;
-    let finishCalls = 0;
     const encoder = {
-        finish: () => { finishCalls++; return cmdBuffer; },
+        finish: () => cmdBuffer,
     } as unknown as GPUCommandEncoder;
     const device = {
         createCommandEncoder: vi.fn(() => encoder),
     } as unknown as GPUDevice;
-    return { device, cmdBuffer, finishCalls: 0 };
+    return { device, cmdBuffer };
 }
 
 describe('GpuCommandState', () => {
@@ -27,7 +26,9 @@ describe('GpuCommandState', () => {
         const s = new GpuCommandState();
         const { device } = fakeDevice();
         s.open(device);
-        expect(() => s.open(device)).toThrow(/already open/);
+        expect(() => {
+            s.open(device);
+        }).toThrow(/already open/);
     });
 
     it('requireEncoder sem open lança', () => {
@@ -61,7 +62,9 @@ describe('GpuCommandState', () => {
         const { device } = fakeDevice();
         s.open(device);
         s.pushPass({ kind: 'compute', encoder: {} as GPUComputePassEncoder });
-        expect(() => s.popPass('render')).toThrow(/pass stack mismatch/);
+        expect(() => {
+            s.popPass('render');
+        }).toThrow(/pass stack mismatch/);
     });
 
     it('marker enter/leave balanceado', () => {

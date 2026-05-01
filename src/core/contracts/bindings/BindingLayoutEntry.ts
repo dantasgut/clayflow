@@ -4,10 +4,7 @@ import type { SamplerBindingLayoutEntry } from './SamplerBindingLayoutEntry';
 import type { StorageTextureBindingLayoutEntry } from './StorageTextureBindingLayoutEntry';
 import type { TextureBindingLayoutEntry } from './TextureBindingLayoutEntry';
 
-export interface BaseBindingLayoutEntry {
-    readonly binding: number;
-    readonly visibility: number;
-}
+export type { BaseBindingLayoutEntry } from './BaseBindingLayoutEntry';
 
 export type BindingLayoutEntry =
     | BufferBindingLayoutEntry

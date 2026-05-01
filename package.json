@@ -28,27 +28,44 @@
     "build:lib": "vite build",
     "preview": "vite preview",
     "doc": "typedoc --plugin typedoc-plugin-markdown --skipErrorChecking --out clay-engine-doc/docs/api --entryPoints src/presentation/index.ts src/elements/index.ts",
+    "doc:coverage": "typedoc --skipErrorChecking --validation.notDocumented --out .typedoc-cov-trash --entryPoints src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:browser": "echo 'browser smokes — use Vite dev server + Chrome MCP (mcp__claude-in-chrome__*) ou abrir http://localhost:5173 manualmente. Nenhum runner standalone — WebGPU em headless requer drivers Vulkan que CI manage.'"
+    "test:browser": "echo 'browser smokes — use Vite dev server + Chrome MCP (mcp__claude-in-chrome__*) ou abrir http://localhost:5173 manualmente. Nenhum runner standalone — WebGPU em headless requer drivers Vulkan que CI manage.'",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.{ts,json,md}\" \"*.{json,md,js}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,json,md}\" \"*.{json,md,js}\"",
+    "check:dead": "knip",
+    "check:circular": "madge --circular --extensions ts --ts-config tsconfig.json --exclude '^(core/contracts/(specs/BundleSpec|passes/(RenderPass|BundleRunner))|presentation/plugins/EnginePlugin)\\.ts$' src/",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@types/gl-matrix": "^2.4.5",
     "@types/uuid": "^10.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
     "@vitest/coverage-v8": "^4.1.5",
     "@webgpu/types": "^0.1.69",
     "docusaurus-plugin-typedoc": "^1.4.2",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^9.1.2",
     "happy-dom": "^20.9.0",
+    "husky": "^9.1.7",
+    "knip": "^5.88.1",
+    "lint-staged": "^15.5.2",
+    "madge": "^8.0.0",
+    "prettier": "^3.8.3",
     "typedoc": "^0.28.17",
     "typedoc-plugin-markdown": "^4.11.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.1",
     "vite": "^7.3.1",
     "vite-plugin-dts": "^4.5.4",
     "vitest": "^4.1.5"
   },
   "dependencies": {
-    "gl-matrix": "^3.4.4",
     "uuid": "^13.0.0"
   }
 }

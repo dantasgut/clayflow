@@ -24,14 +24,15 @@
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    // "noPropertyAccessFromIndexSignature": true, — adia para refactor de Resource.data
+    //   em fases H-O (229 errors em files que acessam .data com dot notation).
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
 
     // Style Options
-    // "noImplicitReturns": true,
-    // "noImplicitOverride": true,
     // "noUnusedLocals": true,
     // "noUnusedParameters": true,
-    // "noFallthroughCasesInSwitch": true,
-    // "noPropertyAccessFromIndexSignature": true,
 
     // Recommended Options
     "strict": true,
@@ -41,6 +42,8 @@
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
-    "skipLibCheck": true,
-  }
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist", "clay-engine-doc"]
 }

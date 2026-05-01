@@ -30,7 +30,7 @@ export class GpuCommandState {
 
     popPass(expected: ActivePassKind): void {
         const top = this.passStack.pop();
-        if (top === undefined || top.kind !== expected) {
+        if (top?.kind !== expected) {
             throw new Error(`GpuCommandState: pass stack mismatch on pop ${expected}.`);
         }
     }

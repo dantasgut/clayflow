@@ -43,7 +43,13 @@ describe('GpuResourceStore', () => {
 
     it('clear ignora exceptions de destroy (best-effort)', () => {
         const s = new GpuResourceStore();
-        s.set('bad', { destroy: () => { throw new Error('boom'); } } as unknown as GPUBuffer);
-        expect(() => s.clear()).not.toThrow();
+        s.set('bad', {
+            destroy: () => {
+                throw new Error('boom');
+            },
+        } as unknown as GPUBuffer);
+        expect(() => {
+            s.clear();
+        }).not.toThrow();
     });
 });

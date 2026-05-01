@@ -29,17 +29,17 @@ export class MPMBody extends PhysicsBody {
 
     constructor(values: Record<string, unknown> = {}) {
         super();
-        const position = (values['position'] ?? [0, 0, 0, 1]) as readonly number[];
-        const velocity = (values['velocity'] ?? [0, 0, 0, 0]) as readonly number[];
-        const mass = (values['mass'] ?? 0.02) as number;
-        const volume = (values['volume'] ?? 1e-3) as number;
+        const position = (values.position ?? [0, 0, 0, 1]) as readonly number[];
+        const velocity = (values.velocity ?? [0, 0, 0, 0]) as readonly number[];
+        const mass = (values.mass ?? 0.02) as number;
+        const volume = (values.volume ?? 1e-3) as number;
         // F inicial = identidade; C inicial = zero.
         this.data = MPMBody.schema.applyDefaults({
             pos: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, mass],
             vel: [velocity[0] ?? 0, velocity[1] ?? 0, velocity[2] ?? 0, volume],
-            F_col0: [1, 0, 0, 1],   // x=1, w=det(F)=1
-            F_col1: [0, 1, 0, 0],   // y=1, w=material_id=0
-            F_col2: [0, 0, 1, 0],   // z=1, w=pad
+            F_col0: [1, 0, 0, 1], // x=1, w=det(F)=1
+            F_col1: [0, 1, 0, 0], // y=1, w=material_id=0
+            F_col2: [0, 0, 1, 0], // z=1, w=pad
             C_col0: [0, 0, 0, 0],
             C_col1: [0, 0, 0, 0],
             C_col2: [0, 0, 0, 0],
@@ -47,12 +47,14 @@ export class MPMBody extends PhysicsBody {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'body',
-            role: 'storage-rw',
-            schema: MPMBody.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'body',
+                role: 'storage-rw',
+                schema: MPMBody.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getFlowDescriptors(): readonly FlowDescriptor[] {

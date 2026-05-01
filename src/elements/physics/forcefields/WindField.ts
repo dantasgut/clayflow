@@ -15,9 +15,9 @@ export class WindField extends ForceField {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = WindField.schema.applyDefaults({
-            direction: values['direction'] ?? [1, 0, 0, 0],
-            magnitude: values['magnitude'] ?? 1.0,
-            turbulence: values['turbulence'] ?? 0.0,
+            direction: values.direction ?? [1, 0, 0, 0],
+            magnitude: values.magnitude ?? 1.0,
+            turbulence: values.turbulence ?? 0.0,
         });
     }
 

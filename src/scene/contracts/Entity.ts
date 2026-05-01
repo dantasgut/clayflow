@@ -1,5 +1,5 @@
 export abstract class Entity {
-    private parts: Entity[] = [];
+    private readonly parts: Entity[] = [];
 
     add(e: Entity): this {
         this.parts.push(e);

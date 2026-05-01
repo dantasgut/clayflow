@@ -25,7 +25,8 @@ export class ResourceStateHandlerRegistry {
 
     get(state: ResourceState): ResourceStateHandler {
         const handler = this.handlers.get(state);
-        if (handler === undefined) throw new Error(`ResourceStateHandlerRegistry: no handler for state ${state}`);
+        if (handler === undefined)
+            throw new Error(`ResourceStateHandlerRegistry: no handler for state ${state}`);
         return handler;
     }
 

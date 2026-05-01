@@ -1,0 +1,10 @@
+dist/
+node_modules/
+clay-engine-doc/build/
+clay-engine-doc/.docusaurus/
+clay-engine-doc/docs/api/
+docs/
+coverage/
+**/__fixtures__/
+**/*.wgsl
+package-lock.json

@@ -1,4 +1,4 @@
-import { fieldBytes, fieldCtor, fieldElements, fieldWgsl, FieldType } from './FieldType';
+import { fieldBytes, fieldCtor, fieldElements, fieldWgsl, type FieldType } from './FieldType';
 import { Schema } from './Schema';
 
 export class TensorSchema extends Schema {
@@ -18,7 +18,8 @@ export class TensorSchema extends Schema {
     }
 
     private flatten(values: unknown): number[] {
-        const totalElements = this.shape.reduce((a, b) => a * b, 1) * fieldElements(this.elementType);
+        const totalElements =
+            this.shape.reduce((a, b) => a * b, 1) * fieldElements(this.elementType);
         const flat: number[] = new Array(totalElements).fill(0);
         let i = 0;
         const recurse = (v: unknown): void => {
@@ -37,15 +38,19 @@ export class TensorSchema extends Schema {
     }
 
     applyDefaults(values: Record<string, unknown>): Record<string, unknown> {
-        const data = values['data'];
+        const data = values.data;
         if (data === undefined) {
-            return { data: new Array(this.shape.reduce((a, b) => a * b, 1) * fieldElements(this.elementType)).fill(0) };
+            return {
+                data: new Array(
+                    this.shape.reduce((a, b) => a * b, 1) * fieldElements(this.elementType),
+                ).fill(0),
+            };
         }
         return { data };
     }
 
     pack(data: Record<string, unknown>): ArrayBufferView {
-        const flat = this.flatten(data['data']);
+        const flat = this.flatten(data.data);
         const ctor = fieldCtor(this.elementType);
         const arr = new ctor(flat.length);
         for (let i = 0; i < flat.length; i++) arr[i] = flat[i] ?? 0;

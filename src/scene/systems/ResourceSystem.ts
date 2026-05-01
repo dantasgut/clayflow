@@ -41,8 +41,12 @@ export class ResourceSystem {
         private readonly events: EventBus,
         private readonly world: World,
     ) {
-        this.events.on('resourcesChanged', e => this.onResourcesChanged(e.added, e.removed));
-        this.events.on('resourceDirty', e => this.onResourceDirty(e.payload.resource));
+        this.events.on('resourcesChanged', (e) => {
+            this.onResourcesChanged(e.added, e.removed);
+        });
+        this.events.on('resourceDirty', (e) => {
+            this.onResourceDirty(e.payload.resource);
+        });
     }
 
     poolBindGroup(poolKey: string): BindGroupSpec | undefined {
@@ -113,8 +117,14 @@ export class ResourceSystem {
                 byteSize: alignUp(desc.schema.stride, 16),
             });
             this.individuals.set(resource, spec);
-            this.core.write(spec, resource.data['_initialBytes'] as ArrayBufferView ?? desc.schema.pack(resource.data));
-        } else if ((desc.role === 'storage-rw' || desc.role === 'storage-ro') && desc.schema !== undefined) {
+            this.core.write(
+                spec,
+                (resource.data._initialBytes as ArrayBufferView) ?? desc.schema.pack(resource.data),
+            );
+        } else if (
+            (desc.role === 'storage-rw' || desc.role === 'storage-ro')
+            && desc.schema !== undefined
+        ) {
             const count = desc.count ?? 1;
             const spec = this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
@@ -132,9 +142,7 @@ export class ResourceSystem {
         if (entry === undefined) entry = this.createPool(poolKey, schema);
 
         const entityId = this.world.entityIdOfResource(resource);
-        const slot = entry.freeList.length > 0
-            ? (entry.freeList.shift() as number)
-            : entry.count;
+        const slot = entry.freeList.length > 0 ? entry.freeList.shift()! : entry.count;
 
         if (slot >= entry.capacity) {
             this.growPool(entry);
@@ -164,12 +172,14 @@ export class ResourceSystem {
         const layoutSpec = this.core.create<LayoutSpec>({
             kind: 'layout',
             discriminator: `pool_layout:${poolKey}`,
-            entries: [{
-                binding: 0,
-                visibility: GPUShaderStage.COMPUTE,
-                kind: 'buffer',
-                type: 'storage',
-            }],
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE,
+                    kind: 'buffer',
+                    type: 'storage',
+                },
+            ],
         });
         const bindGroupSpec = this.core.create<BindGroupSpec>({
             kind: 'bindgroup',
@@ -278,7 +288,11 @@ export class ResourceSystem {
                 if (entityId === undefined) continue;
                 const slot = entry.slotByEntity.get(entityId);
                 if (slot === undefined) continue;
-                this.core.write(entry.bufferSpec, desc.schema.pack(resource.data), slot * entry.stride);
+                this.core.write(
+                    entry.bufferSpec,
+                    desc.schema.pack(resource.data),
+                    slot * entry.stride,
+                );
             }
         }
     }
@@ -293,7 +307,12 @@ export class ResourceSystem {
 
     private schemaForBinding(resource: Resource): Schema | undefined {
         for (const desc of resource.getDescriptors()) {
-            if (desc.schema !== undefined && (desc.role === 'uniform' || desc.role === 'storage-ro' || desc.role === 'storage-rw')) {
+            if (
+                desc.schema !== undefined
+                && (desc.role === 'uniform'
+                    || desc.role === 'storage-ro'
+                    || desc.role === 'storage-rw')
+            ) {
                 return desc.schema;
             }
         }

@@ -30,7 +30,9 @@ describe('DefaultEventBus', () => {
 
     it('emit sem listeners não lança', () => {
         const bus = new DefaultEventBus();
-        expect(() => bus.emit('frameTick', { dt: 0, elapsed: 0 })).not.toThrow();
+        expect(() => {
+            bus.emit('frameTick', { dt: 0, elapsed: 0 });
+        }).not.toThrow();
     });
 
     it('múltiplos handlers recebem em ordem', () => {
@@ -46,7 +48,10 @@ describe('DefaultEventBus', () => {
     it('unsubscribe durante emit não corrompe iteração', () => {
         const bus = new DefaultEventBus();
         const calls: string[] = [];
-        const off2 = bus.on('frameTick', () => { calls.push('b'); off2(); });
+        const off2 = bus.on('frameTick', () => {
+            calls.push('b');
+            off2();
+        });
         bus.on('frameTick', () => calls.push('a'));
         bus.on('frameTick', () => calls.push('c'));
         bus.emit('frameTick', { dt: 0, elapsed: 0 });

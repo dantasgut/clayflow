@@ -21,14 +21,21 @@ export class DistanceConstraint extends Constraint {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = DistanceConstraint.schema.applyDefaults({
-            i: values['i'] ?? values['bodyA'] ?? 0,
-            j: values['j'] ?? values['bodyB'] ?? 0,
-            rest_length: values['rest_length'] ?? values['restLength'] ?? 1,
-            compliance: values['compliance'] ?? 0,
+            i: values.i ?? values.bodyA ?? 0,
+            j: values.j ?? values.bodyB ?? 0,
+            rest_length: values.rest_length ?? values.restLength ?? 1,
+            compliance: values.compliance ?? 0,
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'constraint', role: 'storage-rw', schema: DistanceConstraint.schema, storage: 'pool' }];
+        return [
+            {
+                id: 'constraint',
+                role: 'storage-rw',
+                schema: DistanceConstraint.schema,
+                storage: 'pool',
+            },
+        ];
     }
 }

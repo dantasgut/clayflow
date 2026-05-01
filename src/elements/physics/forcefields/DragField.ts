@@ -14,8 +14,8 @@ export class DragField extends ForceField {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = DragField.schema.applyDefaults({
-            linearCoeff: values['linearCoeff'] ?? 0.1,
-            quadraticCoeff: values['quadraticCoeff'] ?? 0.01,
+            linearCoeff: values.linearCoeff ?? 0.1,
+            quadraticCoeff: values.quadraticCoeff ?? 0.01,
         });
     }
 

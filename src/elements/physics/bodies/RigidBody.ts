@@ -31,39 +31,41 @@ export class RigidBody extends PhysicsBody {
     constructor(values: Record<string, unknown> = {}, options: RigidBodyOptions = {}) {
         super();
         this.algorithm = options.algorithm ?? RigidBody.defaultAlgorithm;
-        const position = (values['position'] ?? [0, 0, 0, 1]) as readonly number[];
-        const rotation = (values['rotation'] ?? [0, 0, 0, 1]) as readonly number[];
-        const mass = (values['mass'] ?? 1) as number;
+        const position = (values.position ?? [0, 0, 0, 1]) as readonly number[];
+        const rotation = (values.rotation ?? [0, 0, 0, 1]) as readonly number[];
+        const mass = (values.mass ?? 1) as number;
         const invMass = mass > 0 ? 1 / mass : 0;
-        const matProps = values['material'] as readonly number[] | undefined;
+        const matProps = values.material as readonly number[] | undefined;
         // Legacy contract: pos.w = inv_mass; vel.w = sleep_flag (0=awake);
         // mat_props = (restitution, friction, lin_damping, ang_damping).
         this.data = RigidBody.schema.applyDefaults({
             pos: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, invMass],
-            vel: values['velocity'] ?? [0, 0, 0, 0],
-            omega: values['angularVelocity'] ?? [0, 0, 0, 0],
+            vel: values.velocity ?? [0, 0, 0, 0],
+            omega: values.angularVelocity ?? [0, 0, 0, 0],
             rot: rotation,
-            I_inv: values['inverseInertia'] ?? [invMass, invMass, invMass, 0],
+            I_inv: values.inverseInertia ?? [invMass, invMass, invMass, 0],
             pos_pred: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, invMass],
             rot_pred: rotation,
             mat_props: matProps ?? [
-                (values['restitution'] ?? 0.2) as number,
-                (values['friction'] ?? 0.5) as number,
-                (values['linearDamping'] ?? 0) as number,
-                (values['angularDamping'] ?? 0) as number,
+                (values.restitution ?? 0.2) as number,
+                (values.friction ?? 0.5) as number,
+                (values.linearDamping ?? 0) as number,
+                (values.angularDamping ?? 0) as number,
             ],
-            body_shape: values['shape'] ?? [0, 1, 0, 0],
+            body_shape: values.shape ?? [0, 1, 0, 0],
             _rb_pad: [0, 0, 0, 0],
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'body',
-            role: 'storage-rw',
-            schema: RigidBody.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'body',
+                role: 'storage-rw',
+                schema: RigidBody.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getFlowDescriptors(): readonly FlowDescriptor[] {
@@ -71,11 +73,11 @@ export class RigidBody extends PhysicsBody {
     }
 
     setPosition(p: readonly [number, number, number, number]): void {
-        this.data['pos'] = p;
-        this.data['pos_pred'] = p;
+        this.data.pos = p;
+        this.data.pos_pred = p;
     }
 
     getPosition(): readonly number[] {
-        return this.data['pos'] as readonly number[];
+        return this.data.pos as readonly number[];
     }
 }

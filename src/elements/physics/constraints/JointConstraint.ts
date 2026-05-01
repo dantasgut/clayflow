@@ -17,17 +17,24 @@ export class JointConstraint extends Constraint {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = JointConstraint.schema.applyDefaults({
-            bodyA: values['bodyA'] ?? 0,
-            bodyB: values['bodyB'] ?? 0,
-            kind: values['kind'] ?? 0,
+            bodyA: values.bodyA ?? 0,
+            bodyB: values.bodyB ?? 0,
+            kind: values.kind ?? 0,
             color: 0,
-            anchorA: values['anchorA'] ?? [0, 0, 0, 0],
-            anchorB: values['anchorB'] ?? [0, 0, 0, 0],
-            limits: values['limits'] ?? [0, 0, 0, 0],
+            anchorA: values.anchorA ?? [0, 0, 0, 0],
+            anchorB: values.anchorB ?? [0, 0, 0, 0],
+            limits: values.limits ?? [0, 0, 0, 0],
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'constraint', role: 'storage-rw', schema: JointConstraint.schema, storage: 'pool' }];
+        return [
+            {
+                id: 'constraint',
+                role: 'storage-rw',
+                schema: JointConstraint.schema,
+                storage: 'pool',
+            },
+        ];
     }
 }

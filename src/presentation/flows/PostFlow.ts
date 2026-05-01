@@ -47,7 +47,10 @@ export class PostFlow extends Flow {
 
     private forwardFlow: ForwardFlow | null = null;
 
-    constructor(options: PostFlowOptions | undefined, private readonly core: EngineCore) {
+    constructor(
+        options: PostFlowOptions | undefined,
+        private readonly core: EngineCore,
+    ) {
         super();
         this.canvas = options?.canvas ?? null;
     }
@@ -58,7 +61,7 @@ export class PostFlow extends Flow {
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return this.effects.map(eff => ({
+        return this.effects.map((eff) => ({
             id: `pipeline_post_${eff.name}`,
             role: 'render',
             shaderSource: effectsWGSL,
@@ -85,38 +88,90 @@ export class PostFlow extends Flow {
 
     private ensureShared(): void {
         if (this.shader === null) {
-            this.shader = this.core.create<ShaderModuleSpec>({ kind: 'shader', discriminator: 'post_effects_shader', source: effectsWGSL });
+            this.shader = this.core.create<ShaderModuleSpec>({
+                kind: 'shader',
+                discriminator: 'post_effects_shader',
+                source: effectsWGSL,
+            });
         }
         if (this.sampler === null) {
-            this.sampler = this.core.create<SamplerSpec>({ kind: 'sampler', discriminator: 'post_sampler', desc: { magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' } });
+            this.sampler = this.core.create<SamplerSpec>({
+                kind: 'sampler',
+                discriminator: 'post_sampler',
+                desc: {
+                    magFilter: 'linear',
+                    minFilter: 'linear',
+                    addressModeU: 'clamp-to-edge',
+                    addressModeV: 'clamp-to-edge',
+                },
+            });
         }
         if (this.bindLayout === null) {
             this.bindLayout = this.core.create<LayoutSpec>({
-                kind: 'layout', discriminator: 'post_layout',
+                kind: 'layout',
+                discriminator: 'post_layout',
                 entries: [
-                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, kind: 'texture', sampleType: 'float', viewDimension: '2d', multisampled: false },
-                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, kind: 'sampler', type: 'filtering' },
-                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, kind: 'buffer', type: 'uniform' },
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.FRAGMENT,
+                        kind: 'texture',
+                        sampleType: 'float',
+                        viewDimension: '2d',
+                        multisampled: false,
+                    },
+                    {
+                        binding: 1,
+                        visibility: GPUShaderStage.FRAGMENT,
+                        kind: 'sampler',
+                        type: 'filtering',
+                    },
+                    {
+                        binding: 2,
+                        visibility: GPUShaderStage.FRAGMENT,
+                        kind: 'buffer',
+                        type: 'uniform',
+                    },
                 ],
             });
         }
     }
 
     private ensurePingPong(width: number, height: number): void {
-        if (this.pingpongTextures !== null && this.currentSize.w === width && this.currentSize.h === height) return;
+        if (
+            this.pingpongTextures !== null
+            && this.currentSize.w === width
+            && this.currentSize.h === height
+        )
+            return;
         const fmt = this.core.canvasFormat;
         const t0 = this.core.create<TextureSpec>({
-            kind: 'texture', discriminator: `post_pp_a:${width}x${height}`,
-            width, height, format: fmt,
+            kind: 'texture',
+            discriminator: `post_pp_a:${width}x${height}`,
+            width,
+            height,
+            format: fmt,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });
         const t1 = this.core.create<TextureSpec>({
-            kind: 'texture', discriminator: `post_pp_b:${width}x${height}`,
-            width, height, format: fmt,
+            kind: 'texture',
+            discriminator: `post_pp_b:${width}x${height}`,
+            width,
+            height,
+            format: fmt,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });
-        const v0 = this.core.create<TextureViewSpec>({ kind: 'textureview', discriminator: `post_pp_a_v:${width}x${height}`, source: t0, format: fmt });
-        const v1 = this.core.create<TextureViewSpec>({ kind: 'textureview', discriminator: `post_pp_b_v:${width}x${height}`, source: t1, format: fmt });
+        const v0 = this.core.create<TextureViewSpec>({
+            kind: 'textureview',
+            discriminator: `post_pp_a_v:${width}x${height}`,
+            source: t0,
+            format: fmt,
+        });
+        const v1 = this.core.create<TextureViewSpec>({
+            kind: 'textureview',
+            discriminator: `post_pp_b_v:${width}x${height}`,
+            source: t1,
+            format: fmt,
+        });
         this.pingpongTextures = [t0, t1];
         this.pingpongViews = [v0, v1];
         this.bindGroupCache.clear();
@@ -126,16 +181,36 @@ export class PostFlow extends Flow {
     private ensureSlot(effect: PostProcessEffect): EffectSlot {
         const cached = this.slots.get(effect);
         if (cached !== undefined) return cached;
-        if (this.shader === null || this.bindLayout === null) throw new Error('PostFlow not initialized');
+        if (this.shader === null || this.bindLayout === null)
+            throw new Error('PostFlow not initialized');
         const paramsBuffer = this.core.create<UniformBufferSpec>({
-            kind: 'buffer', subkind: 'uniform',
-            discriminator: `post_params:${effect.name}`, byteSize: 16,
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: `post_params:${effect.name}`,
+            byteSize: 16,
         });
+        // Custom shader path: effect.fragmentSource() defined → shader dedicado.
+        // Default: reusa o shared `effects.wgsl`.
+        const customSource = effect.fragmentSource?.();
+        const shader =
+            customSource !== undefined
+                ? this.core.create<ShaderModuleSpec>({
+                      kind: 'shader',
+                      discriminator: `post_custom_shader:${effect.name}`,
+                      source: customSource,
+                  })
+                : this.shader;
         const pipeline = this.core.create<RenderPipelineSpec>({
-            kind: 'pipeline', subkind: 'render', discriminator: `post_pipeline:${effect.name}`,
+            kind: 'pipeline',
+            subkind: 'render',
+            discriminator: `post_pipeline:${effect.name}`,
             layouts: [this.bindLayout],
-            vertex: { shader: this.shader, entryPoint: 'vs_fullscreen' },
-            fragment: { shader: this.shader, entryPoint: effect.fragmentEntry, targets: [{ format: this.core.canvasFormat }] },
+            vertex: { shader, entryPoint: 'vs_fullscreen' },
+            fragment: {
+                shader,
+                entryPoint: effect.fragmentEntry,
+                targets: [{ format: this.core.canvasFormat }],
+            },
             primitive: { topology: 'triangle-list' },
         });
         const slot: EffectSlot = { effect, pipeline, paramsBuffer };
@@ -144,7 +219,8 @@ export class PostFlow extends Flow {
     }
 
     private bindGroupFor(srcView: TextureViewSpec, paramsBuffer: UniformBufferSpec): BindGroupSpec {
-        if (this.bindLayout === null || this.sampler === null) throw new Error('PostFlow shared not ready');
+        if (this.bindLayout === null || this.sampler === null)
+            throw new Error('PostFlow shared not ready');
         const cacheKey = `${srcView.discriminator ?? 'view'}|${paramsBuffer.discriminator ?? 'p'}`;
         const cached = this.bindGroupCache.get(cacheKey);
         if (cached !== undefined) return cached;
@@ -170,7 +246,7 @@ export class PostFlow extends Flow {
         this.ensurePingPong(this.canvas.width, this.canvas.height);
         if (this.pingpongViews === null) return;
 
-        const enabled = this.effects.filter(e => e.isEnabled);
+        const enabled = this.effects.filter((e) => e.isEnabled);
         for (const eff of enabled) {
             const slot = this.ensureSlot(eff);
             this.core.write(slot.paramsBuffer, eff.paramsBytes());
@@ -180,12 +256,17 @@ export class PostFlow extends Flow {
         if (enabled.length === 0) {
             const passthroughSlot = this.ensurePassthroughSlot();
             const target: RenderTarget = {
-                colorAttachments: [{
-                    view: frame.canvasView, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store',
-                }],
+                colorAttachments: [
+                    {
+                        view: frame.canvasView,
+                        loadOp: 'clear',
+                        clearValue: [0, 0, 0, 1],
+                        storeOp: 'store',
+                    },
+                ],
             };
             const bg = this.bindGroupFor(sceneView, passthroughSlot.paramsBuffer);
-            frame.render(target, 'PostFlow.passthrough', pass => {
+            frame.render(target, 'PostFlow.passthrough', (pass) => {
                 pass.bind.setPipeline(passthroughSlot.pipeline).setBindGroup(0, bg);
                 pass.draw.vertices(3);
             });
@@ -202,12 +283,17 @@ export class PostFlow extends Flow {
             const isLast = i === enabled.length - 1;
             const dstView = isLast ? frame.canvasView : this.pingpongViews[i % 2]!;
             const target: RenderTarget = {
-                colorAttachments: [{
-                    view: dstView, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store',
-                }],
+                colorAttachments: [
+                    {
+                        view: dstView,
+                        loadOp: 'clear',
+                        clearValue: [0, 0, 0, 1],
+                        storeOp: 'store',
+                    },
+                ],
             };
             const bg = this.bindGroupFor(srcView, slot.paramsBuffer);
-            frame.render(target, `PostFlow.${eff.name}`, pass => {
+            frame.render(target, `PostFlow.${eff.name}`, (pass) => {
                 pass.bind.setPipeline(slot.pipeline).setBindGroup(0, bg);
                 pass.draw.vertices(3);
             });
@@ -218,19 +304,32 @@ export class PostFlow extends Flow {
 
     private ensurePassthroughSlot(): EffectSlot {
         if (this.passthroughSlot !== null) return this.passthroughSlot;
-        if (this.shader === null || this.bindLayout === null) throw new Error('PostFlow not initialized');
+        if (this.shader === null || this.bindLayout === null)
+            throw new Error('PostFlow not initialized');
         const paramsBuffer = this.core.create<UniformBufferSpec>({
-            kind: 'buffer', subkind: 'uniform',
-            discriminator: 'post_params:passthrough', byteSize: 16,
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'post_params:passthrough',
+            byteSize: 16,
         });
         const pipeline = this.core.create<RenderPipelineSpec>({
-            kind: 'pipeline', subkind: 'render', discriminator: 'post_pipeline:passthrough',
+            kind: 'pipeline',
+            subkind: 'render',
+            discriminator: 'post_pipeline:passthrough',
             layouts: [this.bindLayout],
             vertex: { shader: this.shader, entryPoint: 'vs_fullscreen' },
-            fragment: { shader: this.shader, entryPoint: 'fs_passthrough', targets: [{ format: this.core.canvasFormat }] },
+            fragment: {
+                shader: this.shader,
+                entryPoint: 'fs_passthrough',
+                targets: [{ format: this.core.canvasFormat }],
+            },
             primitive: { topology: 'triangle-list' },
         });
-        this.passthroughSlot = { effect: null as unknown as PostProcessEffect, pipeline, paramsBuffer };
+        this.passthroughSlot = {
+            effect: null as unknown as PostProcessEffect,
+            pipeline,
+            paramsBuffer,
+        };
         return this.passthroughSlot;
     }
 }

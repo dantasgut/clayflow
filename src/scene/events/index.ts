@@ -8,6 +8,10 @@ export type {
     CanvasReconfiguredPayload,
     EntitiesRemovedPayload,
     ProfilerStatsPayload,
+    EngineErrorPayload,
+    DeviceLostPayload,
+    DeviceRecoveredPayload,
+    MemoryWarningPayload,
 } from './EventMap';
 export { DefaultEventBus } from './DefaultEventBus';
 export type { ChangedEvent } from './ChangedEvent';

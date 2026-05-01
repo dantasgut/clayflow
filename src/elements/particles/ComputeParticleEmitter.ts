@@ -17,11 +17,13 @@ export class ComputeParticleEmitter extends ParticleEmitter {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'particles',
-            role: 'storage-rw',
-            schema: ComputeParticleEmitter.schema,
-            count: this.data['maxParticles'] as number,
-        }];
+        return [
+            {
+                id: 'particles',
+                role: 'storage-rw',
+                schema: ComputeParticleEmitter.schema,
+                count: this.data.maxParticles as number,
+            },
+        ];
     }
 }

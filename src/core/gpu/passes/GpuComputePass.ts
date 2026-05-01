@@ -4,7 +4,7 @@ import type { Dispatcher } from '../../contracts/passes/Dispatcher';
 import type { BindGroupSpec } from '../../contracts/specs/BindGroupSpec';
 import type { ComputePipelineSpec } from '../../contracts/specs/ComputePipelineSpec';
 import type { IndirectBufferSpec } from '../../contracts/specs/IndirectBufferSpec';
-import { GpuResourceStore } from '../GpuResourceStore';
+import { type GpuResourceStore } from '../GpuResourceStore';
 import { specHash } from '../specHash';
 
 export class GpuComputePass implements ComputePass, Binder<ComputePipelineSpec>, Dispatcher {

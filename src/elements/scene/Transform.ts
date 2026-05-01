@@ -20,10 +20,10 @@ export class Transform extends Entity implements Resource {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = Transform.schema.applyDefaults({
-            position: values['position'] ?? [0, 0, 0, 1],
-            rotation: values['rotation'] ?? [0, 0, 0, 1],
-            scale: values['scale'] ?? [1, 1, 1, 1],
-            model: values['model'] ?? [1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1],
+            position: values.position ?? [0, 0, 0, 1],
+            rotation: values.rotation ?? [0, 0, 0, 1],
+            scale: values.scale ?? [1, 1, 1, 1],
+            model: values.model ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
         });
     }
 

@@ -1,10 +1,4 @@
-export type BufferSubkind =
-    | 'vertex'
-    | 'index'
-    | 'uniform'
-    | 'storage'
-    | 'indirect'
-    | 'staging';
+export type BufferSubkind = 'vertex' | 'index' | 'uniform' | 'storage' | 'indirect' | 'staging';
 
 export interface BufferSpec {
     readonly kind: 'buffer';

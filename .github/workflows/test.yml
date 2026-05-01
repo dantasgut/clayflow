@@ -18,6 +18,15 @@ jobs:
           cache: 'npm'
       - name: Install
         run: npm ci
+      # Static-analysis gates rodam primeiro: feedback rápido se algo viola.
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Circular dependencies
+        run: npm run check:circular
+      - name: Dead code
+        run: npm run check:dead
       - name: Type-check
         run: npx tsc --noEmit
       - name: Unit tests + coverage

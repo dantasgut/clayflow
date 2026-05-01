@@ -6,8 +6,12 @@
 // E.3 valida que DebugFlow emite `profilerStats` ao receber frameTicks.
 import { Application } from './presentation/index';
 import type {
-    BindGroupSpec, ComputePipelineSpec, LayoutSpec, ShaderModuleSpec,
-    StorageBufferSpec, StagingBufferSpec,
+    BindGroupSpec,
+    ComputePipelineSpec,
+    LayoutSpec,
+    ShaderModuleSpec,
+    StorageBufferSpec,
+    StagingBufferSpec,
 } from './core/contracts/index';
 
 const log = (m: string) => {
@@ -24,7 +28,8 @@ const fail = (m: string) => {
 
 async function main(): Promise<void> {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
-    canvas.width = 800; canvas.height = 600;
+    canvas.width = 800;
+    canvas.height = 600;
     const app = await Application.create({ canvas });
     log('app created');
 
@@ -41,7 +46,9 @@ async function main(): Promise<void> {
             return;
         }
         if (tw.beginningOfPassWriteIndex !== 0 || tw.endOfPassWriteIndex !== 1) {
-            fail(`tw indices incorretos: ${tw.beginningOfPassWriteIndex}/${tw.endOfPassWriteIndex}`);
+            fail(
+                `tw indices incorretos: ${tw.beginningOfPassWriteIndex}/${tw.endOfPassWriteIndex}`,
+            );
         }
         log('profiler API OK (timestamp-query suportado, writes config válida)');
     } else {
@@ -55,21 +62,27 @@ async function main(): Promise<void> {
     // Cria layout + buffer, compila pipeline async, dispatcha, faz readback.
     const N = 64;
     const buf = app.core.create<StorageBufferSpec>({
-        kind: 'buffer', subkind: 'storage',
+        kind: 'buffer',
+        subkind: 'storage',
         discriminator: 'fase_e_async_buf',
         byteSize: N * 4,
     });
     const staging = app.core.create<StagingBufferSpec>({
-        kind: 'buffer', subkind: 'staging',
+        kind: 'buffer',
+        subkind: 'staging',
         discriminator: 'fase_e_async_staging',
         byteSize: N * 4,
     });
     const layout = app.core.create<LayoutSpec>({
-        kind: 'layout', discriminator: 'fase_e_async_layout',
-        entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'storage' }],
+        kind: 'layout',
+        discriminator: 'fase_e_async_layout',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, kind: 'buffer', type: 'storage' },
+        ],
     });
     const shader = app.core.create<ShaderModuleSpec>({
-        kind: 'shader', discriminator: 'fase_e_async_shader',
+        kind: 'shader',
+        discriminator: 'fase_e_async_shader',
         source: `
 @group(0) @binding(0) var<storage, read_write> data: array<u32>;
 @compute @workgroup_size(64)
@@ -80,64 +93,75 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     });
     // createAsync: pipeline retorna apenas após shader linkado.
     const pipeline = await app.core.createAsync<ComputePipelineSpec>({
-        kind: 'pipeline', subkind: 'compute',
+        kind: 'pipeline',
+        subkind: 'compute',
         discriminator: 'fase_e_async_pipeline',
-        layouts: [layout], shader, entryPoint: 'main',
+        layouts: [layout],
+        shader,
+        entryPoint: 'main',
     });
     log('createAsync OK (compute pipeline compiled async)');
 
     const bg = app.core.create<BindGroupSpec>({
-        kind: 'bindgroup', discriminator: 'fase_e_async_bg',
-        layout, bindings: [{ binding: 0, kind: 'buffer', buffer: buf }],
+        kind: 'bindgroup',
+        discriminator: 'fase_e_async_bg',
+        layout,
+        bindings: [{ binding: 0, kind: 'buffer', buffer: buf }],
     });
-    let validationErr: string | null = null;
-    await app.core.withErrorScope('validation', async () => {
-        app.core.record(frame => {
-            frame.compute('FaseE.dispatch', pass => {
-                pass.bind.setPipeline(pipeline).setBindGroup(0, bg);
-                pass.dispatch.workgroups(1);
+    try {
+        await app.core.withErrorScope('validation', () => {
+            app.core.record((frame) => {
+                frame.compute('FaseE.dispatch', (pass) => {
+                    pass.bind.setPipeline(pipeline).setBindGroup(0, bg);
+                    pass.dispatch.workgroups(1);
+                });
+                frame.copy(buf, staging, N * 4);
             });
-            frame.copy(buf, staging, N * 4);
+            app.core.submit();
         });
-        app.core.submit();
-    }).catch(e => { validationErr = String(e?.message ?? e); });
-    if (validationErr !== null) fail(`createAsync dispatch: ${validationErr}`);
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        fail(`createAsync dispatch: ${msg}`);
+    }
 
     const result = new Uint32Array(await app.core.readback(staging));
     for (let i = 0; i < N; i++) {
-        if (result[i] !== i * 2) fail(`pipeline async output[${i}]=${result[i]} esperado=${i*2}`);
+        if (result[i] !== i * 2) fail(`pipeline async output[${i}]=${result[i]} esperado=${i * 2}`);
     }
     log('createAsync pipeline produces expected output (data[i] = i*2)');
 
     // ─── E.3: DebugFlow profilerStats ───────────────────────────────────────
     let statsCount = 0;
-    let lastStats: { fps: number, frameTimeMs: number, avgFrameTimeMs: number } | null = null;
-    app.events.on('profilerStats', e => {
+    let lastStats: { fps: number; frameTimeMs: number; avgFrameTimeMs: number } | null = null;
+    app.events.on('profilerStats', (e) => {
         statsCount++;
         lastStats = e;
     });
     app.defaults.debug.setEnabled(true);
     // Dispara ticks com elapsed crescente para destravar throttle (250ms).
     for (let i = 0; i < 30; i++) {
-        app.events.emit('frameTick', { dt: 1/60, elapsed: i * 0.05 });
+        app.events.emit('frameTick', { dt: 1 / 60, elapsed: i * 0.05 });
     }
     if (statsCount === 0) fail('DebugFlow não emitiu profilerStats em 30 ticks com debug enabled');
     if (lastStats === null) fail('lastStats vazio');
     if (lastStats!.fps <= 0) fail(`fps inválido: ${lastStats!.fps}`);
     if (lastStats!.frameTimeMs <= 0) fail(`frameTimeMs inválido: ${lastStats!.frameTimeMs}`);
-    log(`profilerStats OK (${statsCount} eventos, último fps=${lastStats!.fps.toFixed(1)}, ` +
-        `frame=${lastStats!.frameTimeMs.toFixed(2)}ms, avg=${lastStats!.avgFrameTimeMs.toFixed(2)}ms)`);
+    log(
+        `profilerStats OK (${statsCount} eventos, último fps=${lastStats!.fps.toFixed(1)}, `
+            + `frame=${lastStats!.frameTimeMs.toFixed(2)}ms, avg=${lastStats!.avgFrameTimeMs.toFixed(2)}ms)`,
+    );
 
     // Verifica que disable freia emissão.
     app.defaults.debug.setEnabled(false);
     const before = statsCount;
     for (let i = 30; i < 60; i++) {
-        app.events.emit('frameTick', { dt: 1/60, elapsed: i * 0.05 });
+        app.events.emit('frameTick', { dt: 1 / 60, elapsed: i * 0.05 });
     }
-    if (statsCount !== before) fail(`stats continuou sendo emitido após disable (count: ${before} → ${statsCount})`);
+    if (statsCount !== before)
+        fail(`stats continuou sendo emitido após disable (count: ${before} → ${statsCount})`);
     log('DebugFlow.setEnabled(false) silencia emissão');
 
     log('FASE E SMOKE PASSED');
 }
 
-main().catch(err => fail(String(err?.message ?? err)));
+main().catch((err) => fail(String(err?.message ?? err)));

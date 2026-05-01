@@ -1,4 +1,4 @@
-import { ResourceState } from '../contracts/ResourceState';
+import { type ResourceState } from '../contracts/ResourceState';
 
 export interface ResourceStateHandler {
     readonly stateId: ResourceState;

@@ -12,13 +12,13 @@ export class GameLoop {
 
     start(): void {
         if (this.rafId !== null) return;
-        this.last = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        this.last = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const tick = (): void => {
-            const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+            const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
             const dt = Math.min((now - this.last) / 1000, 1 / 30);
             this.last = now;
             this.time.update(dt);
-            this.events.emit('frameTick', { dt, elapsed: this.time.data['elapsed'] as number });
+            this.events.emit('frameTick', { dt, elapsed: this.time.data.elapsed as number });
             this.rafId = requestAnimationFrame(tick);
         };
         this.rafId = requestAnimationFrame(tick);

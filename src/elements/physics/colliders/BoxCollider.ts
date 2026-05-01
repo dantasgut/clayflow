@@ -12,12 +12,14 @@ export class BoxCollider extends Collider {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = BoxCollider.schema.applyDefaults({
-            halfExtents: values['halfExtents'] ?? [0.5, 0.5, 0.5, 0],
-            center: values['center'] ?? [0, 0, 0, 1],
+            halfExtents: values.halfExtents ?? [0.5, 0.5, 0.5, 0],
+            center: values.center ?? [0, 0, 0, 1],
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'collider', role: 'storage-ro', schema: BoxCollider.schema, storage: 'pool' }];
+        return [
+            { id: 'collider', role: 'storage-ro', schema: BoxCollider.schema, storage: 'pool' },
+        ];
     }
 }

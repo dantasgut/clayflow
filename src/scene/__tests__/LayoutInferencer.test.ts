@@ -30,7 +30,7 @@ fn main() {
 }`;
         const info = inf.parseWGSL(src);
         expect(info.bindings).toHaveLength(3);
-        const groups = info.bindings.map(b => b.group).sort();
+        const groups = info.bindings.map((b) => b.group).sort();
         expect(groups).toEqual([0, 1, 2]);
     });
 

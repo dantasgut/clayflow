@@ -13,15 +13,17 @@ export class MeshCollider extends Collider {
 
     constructor(values: Record<string, unknown> = {}) {
         super();
-        const triangles = (values['triangles'] ?? []) as readonly number[];
+        const triangles = (values.triangles ?? []) as readonly number[];
         this.data = MeshCollider.schema.applyDefaults({
             triangleCount: triangles.length / 9,
             firstTriangle: 0,
         });
-        this.data['triangles'] = triangles;
+        this.data.triangles = triangles;
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'collider', role: 'storage-ro', schema: MeshCollider.schema, storage: 'pool' }];
+        return [
+            { id: 'collider', role: 'storage-ro', schema: MeshCollider.schema, storage: 'pool' },
+        ];
     }
 }

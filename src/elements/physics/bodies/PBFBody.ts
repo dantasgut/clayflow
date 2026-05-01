@@ -23,8 +23,8 @@ export class PBFBody extends PhysicsBody {
 
     constructor(values: Record<string, unknown> = {}) {
         super();
-        const position = (values['position'] ?? [0, 0, 0, 0]) as readonly number[];
-        const velocity = (values['velocity'] ?? [0, 0, 0, 0]) as readonly number[];
+        const position = (values.position ?? [0, 0, 0, 0]) as readonly number[];
+        const velocity = (values.velocity ?? [0, 0, 0, 0]) as readonly number[];
         this.data = PBFBody.schema.applyDefaults({
             pos: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, 0],
             vel: [velocity[0] ?? 0, velocity[1] ?? 0, velocity[2] ?? 0, 0],
@@ -34,12 +34,14 @@ export class PBFBody extends PhysicsBody {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'body',
-            role: 'storage-rw',
-            schema: PBFBody.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'body',
+                role: 'storage-rw',
+                schema: PBFBody.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getFlowDescriptors(): readonly FlowDescriptor[] {

@@ -9,7 +9,10 @@ import type { Input } from './Input';
 export class TouchDevice {
     private lastPinchDist: number | null = null;
 
-    constructor(private readonly canvas: HTMLCanvasElement, private readonly input: Input) {}
+    constructor(
+        private readonly canvas: HTMLCanvasElement,
+        private readonly input: Input,
+    ) {}
 
     attach(): void {
         this.canvas.addEventListener('touchstart', this.onTouch, { passive: true });

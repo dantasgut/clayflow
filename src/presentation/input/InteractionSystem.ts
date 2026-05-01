@@ -19,14 +19,19 @@ export class InteractionSystem {
     readonly gamepad: GamepadDevice;
     private readonly controllers: InputDrivenController[] = [];
 
-    constructor(private readonly options: InteractionSystemOptions, private readonly events: EventBus) {
+    constructor(
+        private readonly options: InteractionSystemOptions,
+        private readonly events: EventBus,
+    ) {
         this.input = new Input();
         const w = options.window ?? (typeof window !== 'undefined' ? window : null);
         this.keyboard = new KeyboardDevice(w ?? options.canvas, this.input);
         this.pointer = new PointerDevice(options.canvas, this.input);
         this.touch = new TouchDevice(options.canvas, this.input);
         this.gamepad = new GamepadDevice();
-        this.events.on('frameTick', e => this.tick(e.dt));
+        this.events.on('frameTick', (e) => {
+            this.tick(e.dt);
+        });
     }
 
     attach(): void {

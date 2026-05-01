@@ -15,12 +15,14 @@ export class SphereCollider extends Collider {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = SphereCollider.schema.applyDefaults({
-            center: values['center'] ?? [0, 0, 0, 1],
-            radius: values['radius'] ?? 0.5,
+            center: values.center ?? [0, 0, 0, 1],
+            radius: values.radius ?? 0.5,
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'collider', role: 'storage-ro', schema: SphereCollider.schema, storage: 'pool' }];
+        return [
+            { id: 'collider', role: 'storage-ro', schema: SphereCollider.schema, storage: 'pool' },
+        ];
     }
 }

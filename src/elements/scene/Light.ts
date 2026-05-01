@@ -21,12 +21,14 @@ export abstract class Light extends Entity implements Resource {
     data: Record<string, unknown> = {};
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{
-            id: 'light',
-            role: 'storage-ro',
-            schema: Light.schema,
-            storage: 'pool',
-        }];
+        return [
+            {
+                id: 'light',
+                role: 'storage-ro',
+                schema: Light.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {

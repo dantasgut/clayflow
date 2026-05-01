@@ -9,21 +9,21 @@ function stableStringify(value: unknown, seen: WeakSet<object>): string {
         if (typeof value === 'bigint') return `"${value.toString()}n"`;
         return JSON.stringify(value);
     }
-    if (seen.has(value as object)) return '"<cycle>"';
-    seen.add(value as object);
+    if (seen.has(value)) return '"<cycle>"';
+    seen.add(value);
 
     if (Array.isArray(value)) {
-        const parts = value.map(v => stableStringify(v, seen));
+        const parts = value.map((v) => stableStringify(v, seen));
         seen.delete(value as object);
         return `[${parts.join(',')}]`;
     }
 
-    const keys = Object.keys(value as Record<string, unknown>).sort();
-    const parts = keys.map(k => {
+    const keys = Object.keys(value).sort();
+    const parts = keys.map((k) => {
         const v = (value as Record<string, unknown>)[k];
         return `${JSON.stringify(k)}:${stableStringify(v, seen)}`;
     });
-    seen.delete(value as object);
+    seen.delete(value);
     return `{${parts.join(',')}}`;
 }
 

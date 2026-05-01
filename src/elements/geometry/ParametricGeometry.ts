@@ -15,12 +15,15 @@ export class ParametricGeometry extends Geometry {
 
     constructor(values: Record<string, unknown> = {}) {
         super();
-        const fn = (values['fn'] ?? defaultFn) as ParametricFunction;
-        const uSteps = (values['uSteps'] ?? 32) as number;
-        const vSteps = (values['vSteps'] ?? 32) as number;
+        const fn = (values.fn ?? defaultFn) as ParametricFunction;
+        const uSteps = (values.uSteps ?? 32) as number;
+        const vSteps = (values.vSteps ?? 32) as number;
         const { vertices, indices } = sample(fn, uSteps, vSteps);
         this.data = {
-            uSteps, vSteps, vertices, indices,
+            uSteps,
+            vSteps,
+            vertices,
+            indices,
             vertexCount: vertices.length / 8,
             indexCount: indices.length,
         };
@@ -28,22 +31,36 @@ export class ParametricGeometry extends Geometry {
 
     getDescriptors(): readonly GPUDescriptor[] {
         return [
-            { id: 'vertices', role: 'vertex', schema: ParametricGeometry.vertexStruct, count: this.data['vertexCount'] as number },
-            { id: 'indices', role: 'index', count: this.data['indexCount'] as number },
+            {
+                id: 'vertices',
+                role: 'vertex',
+                schema: ParametricGeometry.vertexStruct,
+                count: this.data.vertexCount as number,
+            },
+            { id: 'indices', role: 'index', count: this.data.indexCount as number },
         ];
     }
 
-    get vertexCount(): number { return this.data['vertexCount'] as number; }
-    get indexCount(): number { return this.data['indexCount'] as number; }
+    get vertexCount(): number {
+        return this.data.vertexCount as number;
+    }
+    get indexCount(): number {
+        return this.data.indexCount as number;
+    }
 }
 
 const defaultFn: ParametricFunction = (u, v) => [u * 2 - 1, v * 2 - 1, 0];
 
-function sample(fn: ParametricFunction, uSteps: number, vSteps: number): { vertices: Float32Array; indices: Uint16Array } {
+function sample(
+    fn: ParametricFunction,
+    uSteps: number,
+    vSteps: number,
+): { vertices: Float32Array; indices: Uint16Array } {
     const verts: number[] = [];
     for (let i = 0; i <= vSteps; i++) {
         for (let j = 0; j <= uSteps; j++) {
-            const u = j / uSteps, v = i / vSteps;
+            const u = j / uSteps,
+                v = i / vSteps;
             const [x, y, z] = fn(u, v);
             verts.push(x, y, z, 0, 1, 0, u, v);
         }
@@ -52,7 +69,10 @@ function sample(fn: ParametricFunction, uSteps: number, vSteps: number): { verti
     const stride = uSteps + 1;
     for (let i = 0; i < vSteps; i++) {
         for (let j = 0; j < uSteps; j++) {
-            const a = i * stride + j, b = a + 1, c = a + stride, d = c + 1;
+            const a = i * stride + j,
+                b = a + 1,
+                c = a + stride,
+                d = c + 1;
             idx.push(a, c, b, b, c, d);
         }
     }

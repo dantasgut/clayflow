@@ -2,9 +2,9 @@ import type { EmitterShape, SpawnSample } from './EmitterShape';
 
 export class SphereEmitterShape implements EmitterShape {
     constructor(
-        private readonly radius: number = 1,
+        private readonly radius = 1,
         private readonly center: readonly [number, number, number] = [0, 0, 0],
-        private readonly speed: number = 1,
+        private readonly speed = 1,
     ) {}
 
     sample(rng: () => number): SpawnSample {
@@ -18,7 +18,11 @@ export class SphereEmitterShape implements EmitterShape {
         const cy = this.center[1] ?? 0;
         const cz = this.center[2] ?? 0;
         return {
-            position: [cx + dx * this.radius, cy + dy * this.radius, cz + dz * this.radius] as const,
+            position: [
+                cx + dx * this.radius,
+                cy + dy * this.radius,
+                cz + dz * this.radius,
+            ] as const,
             velocity: [dx * this.speed, dy * this.speed, dz * this.speed] as const,
         };
     }

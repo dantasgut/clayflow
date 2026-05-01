@@ -1,4 +1,4 @@
-import type { AnyBufferSpec } from '../specs/ResourceSpec';
+import type { AnyBufferSpec } from '../specs/AnyBufferSpec';
 
 export interface BufferBindingEntry {
     readonly binding: number;

@@ -17,8 +17,8 @@ export class PointSpriteMaterial extends Material {
     constructor(values: Record<string, unknown> = {}) {
         super();
         this.data = PointSpriteMaterial.schema.applyDefaults({
-            color: values['color'] ?? [1, 1, 1, 1],
-            radius: values['radius'] ?? 0.05,
+            color: values.color ?? [1, 1, 1, 1],
+            radius: values.radius ?? 0.05,
         });
     }
 
@@ -27,13 +27,15 @@ export class PointSpriteMaterial extends Material {
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [{
-            id: 'pipeline_pointsprite',
-            role: 'render',
-            shaderSource: forwardWGSL,
-            entryPoints: ['vs_main', 'fs_main'],
-            consumes: ['Camera', 'Transform'],
-            topology: 'point-list',
-        }];
+        return [
+            {
+                id: 'pipeline_pointsprite',
+                role: 'render',
+                shaderSource: forwardWGSL,
+                entryPoints: ['vs_main', 'fs_main'],
+                consumes: ['Camera', 'Transform'],
+                topology: 'point-list',
+            },
+        ];
     }
 }
