@@ -44,6 +44,20 @@ interface RenderableSlot {
     pipelineReady: boolean;
 }
 
+/**
+ * ForwardFlow é o render pass principal. Itera sobre Renderables (entidades
+ * com Geometry + Material + Transform), constrói pipelines per-entity e
+ * dispatcha um render pass com:
+ *   - 4 bindgroups: camera (group 0), transform (1), material (2), shadow (3)
+ *   - depth attachment (depth24plus)
+ *   - color attachment para canvas ou offscreen target (PostFlow ping-pong)
+ *
+ * Pode operar em modo offscreen (`setRenderToOffscreen(true)`) renderizando
+ * em uma textura para PostFlow consumir, ou direto no canvasView.
+ *
+ * Suporte: shadows via `bindShadowFlow`, profiler timestamps via
+ * `setProfileTimestamps`, async pipeline compilation via `setPreferAsync`.
+ */
 export class ForwardFlow extends RenderFlow {
     readonly type = 'ForwardFlow';
     readonly bodyType = '';
@@ -91,34 +105,59 @@ export class ForwardFlow extends RenderFlow {
         super();
     }
 
+    /**
+     * Vincula um ShadowFlow para que ForwardFlow leia o depth map de
+     * shadow no fragment shader. Sem esse bind, shadow é desabilitado
+     * (usa dummy texture branca).
+     */
     bindShadowFlow(shadowFlow: ShadowFlow): this {
         this.shadowFlow = shadowFlow;
         return this;
     }
 
+    /**
+     * Alterna entre render direto no canvas (false) ou em uma textura
+     * offscreen consumida pelo PostFlow (true). Habilitado por default
+     * pelo `Application` quando PostFlow está registrado.
+     */
     setRenderToOffscreen(enabled: boolean): this {
         this.renderToOffscreen = enabled;
         return this;
     }
 
+    /**
+     * Habilita timestamp queries no render pass. Requer device com
+     * `timestamp-query` feature. Profiler emite stagesNs em profilerStats event.
+     */
     setProfileTimestamps(enabled: boolean): this {
         this.profileTimestamps = enabled;
         return this;
     }
 
+    /**
+     * Habilita async pipeline compilation (createAsync). Slots novos não
+     * stallam o frame durante shader compile; renderizam quando prontos.
+     */
     setPreferAsync(enabled: boolean): this {
         this.preferAsyncPipeline = enabled;
         return this;
     }
 
+    /**
+     * View da textura offscreen onde ForwardFlow renderiza (quando
+     * setRenderToOffscreen=true). Consumido pelo PostFlow como input do chain.
+     * Null se renderToOffscreen=false ou ainda não inicializado.
+     */
     get colorOutputView(): TextureViewSpec | null {
         return this.outputColorView;
     }
 
+    /** ForwardFlow não declara pipelines descriptors (cria per-entity em ensureSlot). */
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];
     }
 
+    /** Sempre ready — renderizáveis vazios resultam em no-op gracioso. */
     override isReady(): boolean {
         return true;
     }
@@ -152,14 +191,26 @@ export class ForwardFlow extends RenderFlow {
         }
     }
 
+    /**
+     * RenderFlow base API — não usada por ForwardFlow (que constrói target
+     * inline em dispatch). Lança se chamada fora de dispatch.
+     */
     override resolveTarget(): RenderTarget {
         throw new Error('ForwardFlow.resolveTarget called outside dispatch.');
     }
 
+    /** RenderFlow base API — no-op em ForwardFlow (lógica inteira em dispatch). */
     override recordRenderPass(_frame: Frame, _target: RenderTarget): void {
         // not used — dispatch builds target itself
     }
 
+    /**
+     * Render pass principal por frame. Sequência:
+     *   1. Ensure layouts/depth/shadow/outputColor (idempotente).
+     *   2. Coleta renderables do World (Camera + Geometry + Material + Transform).
+     *   3. Upload uniforms per-frame (camera/transform/material).
+     *   4. Render pass: itera renderables, bind groups, draw.indexed.
+     */
     override dispatch(frame: Frame): void {
         this.ensureSharedLayouts();
         this.ensureDepth();

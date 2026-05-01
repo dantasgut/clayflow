@@ -27,7 +27,9 @@ export interface GltfNode {
  * permite mesh com múltiplos primitives quando partes têm materials diferentes.
  */
 export interface GltfMesh {
+    /** Nome legível (debug). */
     readonly name?: string;
+    /** Primitives sub-mesh — múltiplos quando partes têm materials diferentes. */
     readonly primitives: readonly GltfPrimitive[];
 }
 
@@ -58,6 +60,7 @@ export interface GltfPrimitive {
  * `StandardMaterial` da engine: baseColor → albedo, etc.
  */
 export interface GltfMaterial {
+    /** Nome legível (debug). */
     readonly name?: string;
     /** Cor base RGBA (multiplicada com baseColorTexture quando presente). */
     readonly baseColorFactor: readonly [number, number, number, number];
@@ -87,6 +90,7 @@ export interface GltfAnimationSampler {
     readonly input: Float32Array;
     /** Valores nos keyframes (vec3 para translation/scale, vec4 quaternion). */
     readonly output: Float32Array;
+    /** Modo de interpolação entre keyframes (LINEAR / STEP / CUBICSPLINE). */
     readonly interpolation: GltfInterpolation;
 }
 
@@ -108,8 +112,11 @@ export interface GltfAnimationChannel {
  * num tempo `t`, transformam nodes da scene.
  */
 export interface GltfAnimation {
+    /** Nome legível (debug). */
     readonly name?: string;
+    /** Samplers compartilhados entre channels (input/output/interpolation). */
     readonly samplers: readonly GltfAnimationSampler[];
+    /** Channels que mapeiam samplers para (node, path) específicos. */
     readonly channels: readonly GltfAnimationChannel[];
 }
 
@@ -119,6 +126,7 @@ export interface GltfAnimation {
  * "desfazem" o bind pose para que vertex skinning funcione corretamente.
  */
 export interface GltfSkin {
+    /** Nome legível (debug). */
     readonly name?: string;
     /** Float32Array com mat4 × jointCount (16 floats por joint). */
     readonly inverseBindMatrices: Float32Array | null;
@@ -139,10 +147,15 @@ export interface GltfDocument {
     readonly raw: unknown;
     /** URL de origem (usada para resolver buffers externos via fetch). */
     readonly url: string;
+    /** Lista de todos os nodes do glTF (transform tree). */
     readonly nodes: readonly GltfNode[];
+    /** Lista de todas as meshes — referenciadas por node.meshIndex. */
     readonly meshes: readonly GltfMesh[];
+    /** Lista de todos os materials — referenciados por primitive.materialIndex. */
     readonly materials: readonly GltfMaterial[];
+    /** Lista de todas as animations — aplicáveis em runtime ao traversal. */
     readonly animations: readonly GltfAnimation[];
+    /** Lista de todos os skins (esqueletos) — referenciados por node.skinIndex. */
     readonly skins: readonly GltfSkin[];
     /** Índice em `nodes` da scene root (entry point para traversal). */
     readonly scene: number;
@@ -249,6 +262,18 @@ const GLB_MAGIC = 0x46546c67; // "glTF"
 const GLB_CHUNK_JSON = 0x4e4f534a; // "JSON"
 const GLB_CHUNK_BIN = 0x004e4942; // "BIN\0"
 
+/**
+ * GltfLoader carrega arquivos glTF (`.gltf` JSON ou `.glb` binário) em
+ * `GltfDocument`. Resolve buffers externos via fetch, decodifica
+ * `data:` URIs base64, e parsa o BIN chunk de GLBs.
+ *
+ * Suporte limitado vs. spec completa:
+ *   - Mesh primitives: positions, normals, uvs, joints/weights, indices.
+ *   - Materials: PBR metallic-roughness factors (não carrega textures).
+ *   - Animations: samplers (LINEAR/STEP/CUBICSPLINE) + channels.
+ *   - Skins: jointCount + IBMs.
+ *   - Não-suportado: morphtargets, sparse accessors, KHR extensions.
+ */
 export class GltfLoader {
     /**
      * Load a glTF document from URL. Suporta:

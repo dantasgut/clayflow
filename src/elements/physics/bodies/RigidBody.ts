@@ -4,12 +4,33 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { PhysicsBody } from './PhysicsBody';
 
+/**
+ * Solver algorithm para o RigidBody.
+ *   - `LCP`: Linear Complementarity Problem — exacto mas mais lento.
+ *   - `XPBD`: Extended Position-Based Dynamics — rápido, estável,
+ *     aproximação para constraints.
+ */
 export type RigidBodyAlgorithm = 'LCP' | 'XPBD';
 
+/**
+ * Opções de criação do RigidBody. Apenas algorithm; restante via `values`
+ * (position, mass, etc.) no constructor.
+ */
 export interface RigidBodyOptions {
+    /** Algoritmo solver. Default: 'LCP'. */
     readonly algorithm?: RigidBodyAlgorithm;
 }
 
+/**
+ * RigidBody — corpo rígido 6-DOF (3 translation + 3 rotation). Estado
+ * persistente em pool buffer GPU; integrado pelo LCPFlow ou XPBDFlow
+ * conforme `algorithm`.
+ *
+ * Layout do struct (160 bytes alinhado): pos (vec4) + vel + omega + rot
+ * (quaternion) + I_inv (inverse inertia diagonal) + pos_pred + rot_pred
+ * + mat_props (restitution, friction, lin/ang damping) + body_shape
+ * (encode do shape primitive: sphere/box/etc.) + padding.
+ */
 export class RigidBody extends PhysicsBody {
     static readonly schema = new StructSchema('RigidBody', {
         pos: FieldType.vec4f,
@@ -57,6 +78,11 @@ export class RigidBody extends PhysicsBody {
         });
     }
 
+    /**
+     * Declara o body como member do pool storage `RigidBody`. ResourceSystem
+     * coalesce todos os RigidBodies em 1 buffer GPU (eficiente para muitos
+     * corpos — típico em physics scenes).
+     */
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
@@ -68,15 +94,21 @@ export class RigidBody extends PhysicsBody {
         ];
     }
 
+    /**
+     * Declara qual flow integra este body. O FlowRegistry usa para rotear
+     * — bodyType='RigidBody' resolve para LCPFlow ou XPBDFlow conforme algorithm.
+     */
     getFlowDescriptors(): readonly FlowDescriptor[] {
         return [{ algorithm: this.algorithm, bodyType: 'RigidBody' }];
     }
 
+    /** Setter conveniente — atualiza `pos` e `pos_pred` (predicted). Marca dirty implícito. */
     setPosition(p: readonly [number, number, number, number]): void {
         this.data.pos = p;
         this.data.pos_pred = p;
     }
 
+    /** Retorna a posição atual (read-only). */
     getPosition(): readonly number[] {
         return this.data.pos as readonly number[];
     }

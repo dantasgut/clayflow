@@ -3,14 +3,34 @@ import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Geometry } from './Geometry';
 
+/**
+ * Função paramétrica que mapeia coordenadas (u, v) ∈ [0,1]² → posição 3D.
+ * Usada por `ParametricGeometry` para gerar superfícies (e.g. esfera,
+ * torus, hélice) a partir de fórmulas matemáticas.
+ *
+ * @param u Coordenada paramétrica horizontal (0..1).
+ * @param v Coordenada paramétrica vertical (0..1).
+ * @returns Posição [x, y, z] em world coords.
+ */
 export type ParametricFunction = (u: number, v: number) => readonly [number, number, number];
 
+/**
+ * ParametricGeometry gera uma malha tessellated a partir de uma função
+ * paramétrica `f(u, v) → [x, y, z]`. Útil para superfícies matemáticas
+ * (sphere, torus, möbius, etc.) sem pré-computar mesh data.
+ *
+ * Subdivisão é controlada por `uSteps × vSteps` (default 32×32 = 1024 quads).
+ * Normais são placeholder (always [0, 1, 0]) — apps que precisam de
+ * shading correto devem post-processar com derivada cross-product.
+ */
 export class ParametricGeometry extends Geometry {
+    /** Vertex layout: position (vec3) + normal (vec3) + uv (vec2). */
     static readonly vertexStruct = new StructSchema('ParametricVertex', {
         position: FieldType.vec3f,
         normal: FieldType.vec3f,
         uv: FieldType.vec2f,
     });
+    /** Alias para vertexStruct — Schema interface comum. */
     static readonly schema = ParametricGeometry.vertexStruct;
 
     constructor(values: Record<string, unknown> = {}) {
@@ -29,6 +49,7 @@ export class ParametricGeometry extends Geometry {
         };
     }
 
+    /** Declara VBO (vertex buffer) + IBO (index buffer) para o ResourceSystem. */
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
@@ -41,9 +62,11 @@ export class ParametricGeometry extends Geometry {
         ];
     }
 
+    /** Número total de vértices (= (uSteps+1) × (vSteps+1)). */
     get vertexCount(): number {
         return this.data.vertexCount as number;
     }
+    /** Número total de índices (= uSteps × vSteps × 6, 2 triangles por quad). */
     get indexCount(): number {
         return this.data.indexCount as number;
     }

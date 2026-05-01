@@ -1,10 +1,25 @@
+/**
+ * Heightmap carregado — array de alturas normalizadas (0..1) em layout
+ * row-major `heights[y*width + x]`. Apps usam para gerar terrain meshes
+ * via `ParametricGeometry` ou displacement mapping.
+ */
 export interface Heightmap {
+    /** Largura em texels. */
     readonly width: number;
+    /** Altura em texels. */
     readonly height: number;
+    /** Float32Array com width × height alturas (canal R do PNG, normalizado 0..1). */
     readonly heights: Float32Array;
 }
 
+/**
+ * HeightmapLoader carrega imagens (PNG/JPG) e extrai o canal R como
+ * altura normalizada. 8-bit precision (256 níveis distintos). Para
+ * heightmaps de alta resolução use 16-bit PNG ou EXR (não-suportado
+ * neste loader — usar TextureLoader + decode manual).
+ */
 export class HeightmapLoader {
+    /** Carrega heightmap via fetch + decode + extração canal R. */
     async load(url: string): Promise<Heightmap> {
         const response = await fetch(url);
         const blob = await response.blob();

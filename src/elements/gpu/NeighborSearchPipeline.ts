@@ -13,16 +13,42 @@ import nsScanCombine from './wgsl/kernels/ns_scan_combine.wgsl?raw';
 import nsScatter from './wgsl/kernels/ns_scatter.wgsl?raw';
 import nsFind from './wgsl/kernels/ns_find.wgsl?raw';
 
+/**
+ * Configuração do NeighborSearchPipeline. Define o grid uniform usado
+ * para spatial hashing e capacidades dos buffers.
+ */
 export interface NeighborSearchOptions {
+    /** Dimensões do grid (cells por eixo). Default: [32, 32, 32]. */
     readonly gridDim?: readonly [number, number, number];
+    /** Tamanho de uma cell em world units. Default: 0.1. */
     readonly cellSize?: number;
+    /** Origem (canto -X-Y-Z) do grid em world coords. */
     readonly origin?: readonly [number, number, number];
+    /** Capacidade máxima de partículas (alocação fixa do buffer). */
     readonly maxParticles: number;
+    /** Máximo de vizinhos retornados por partícula (truncate). */
     readonly maxNeighbors: number;
+    /**
+     * Stride do particle struct em floats (e.g. 16 para SPHParticle = 64 bytes).
+     * O kernel `assign_count` lê o particle.position desde esse offset.
+     */
     readonly particleStrideF32: number;
+    /** Discriminador único para isolar buffers entre múltiplas instâncias. */
     readonly discriminator: string;
 }
 
+/**
+ * NeighborSearchPipeline implementa busca de vizinhos GPU via spatial
+ * hashing + parallel prefix scan + scatter. Pipeline com 6 kernels:
+ *   1. `assign_count`: cada partícula computa cell index + atomicAdd em cellCount.
+ *   2. `scan_local` + `scan_groups` + `scan_combine`: prefix sum sobre
+ *      cellCount → cellStart (offsets para cada cell).
+ *   3. `scatter`: cada partícula é escrita em sortedParticles[cellStart[cell] + cursor].
+ *   4. `find`: cada partícula busca vizinhos nas 27 cells adjacentes via
+ *      sortedParticles[cellStart[c]..cellStart[c]+cellCount[c]].
+ *
+ * Usado por SPHFlow e PBFFlow para acelerar density/forces computation.
+ */
 export class NeighborSearchPipeline {
     private readonly disc: string;
     private readonly gridDim: readonly [number, number, number];
@@ -371,10 +397,19 @@ export class NeighborSearchPipeline {
         this.core.write(this.paramsBuffer, new Uint8Array(buf));
     }
 
+    /**
+     * Buffer de neighbor indices flat — `neighborList[p*maxNeighbors + n]`
+     * dá o índice da n-ésima partícula vizinha de p (até `neighborCount[p]`).
+     * Null antes de `rebuild` ser chamado pela primeira vez.
+     */
     get neighborList(): StorageBufferSpec | null {
         return this.neighborListBuffer;
     }
 
+    /**
+     * Buffer de contadores — `neighborCount[p]` é o número de vizinhos
+     * encontrados para a partícula p (≤ maxNeighbors).
+     */
     get neighborCount(): StorageBufferSpec | null {
         return this.neighborCountBuffer;
     }
@@ -384,6 +419,14 @@ export class NeighborSearchPipeline {
         this.core.write(buf, arr);
     }
 
+    /**
+     * Reconstrói os buffers de vizinhos para o estado atual de partículas.
+     * Chamado uma vez por frame (no início do dispatch do flow consumidor).
+     * Se particleCount=0, no-op.
+     *
+     * Sequência de kernels: assign_count → scan_local → scan_groups →
+     * scan_combine → copy(cellStart, cellCursor) → scatter → find.
+     */
     rebuild(frame: Frame, particlesBuffer: StorageBufferSpec, particleCount: number): void {
         if (particleCount === 0) return;
         this.ensureBuffers();
