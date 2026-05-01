@@ -82,9 +82,11 @@ async function main(): Promise<void> {
 
     // ─── 30 frames ────────────────────────────────────────────────────────
     let frames = 0;
+    let finalized = false;
     app.events.on('frameComplete', () => {
         frames++;
-        if (frames >= 30) {
+        if (frames >= 30 && !finalized) {
+            finalized = true;
             app.stop();
             finalize();
         }

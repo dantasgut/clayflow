@@ -130,10 +130,16 @@ export class ForwardFlow extends RenderFlow {
     }
 
     override onCanvasResized(_width: number, _height: number): void {
-        // Sinaliza recriação na próxima dispatch via ensureDepth/ensureOutputColor
-        // (esses checam canvasSize.width/height contra canvas.width/height).
+        // Sinaliza recriação na próxima dispatch via ensureDepth/ensureOutputColor.
+        // CRÍTICO: destruir as texturas antigas antes de nullificar — caso contrário
+        // ficam no GpuResourceStore acumulando bytes a cada resize (memory leak
+        // detectado em stress60s smoke).
         this.canvasSize.width = 0;
         this.canvasSize.height = 0;
+        if (this.depthView !== null) this.core.destroy(this.depthView);
+        if (this.depthTexture !== null) this.core.destroy(this.depthTexture);
+        if (this.outputColorView !== null) this.core.destroy(this.outputColorView);
+        if (this.outputColorTexture !== null) this.core.destroy(this.outputColorTexture);
         this.depthTexture = null;
         this.depthView = null;
         this.outputColorTexture = null;
