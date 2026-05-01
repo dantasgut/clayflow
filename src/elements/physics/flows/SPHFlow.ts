@@ -1,16 +1,13 @@
 import type {
-    BindGroupSpec,
-    ComputePipelineSpec,
     EngineCore,
     Frame,
-    LayoutSpec,
-    ShaderModuleSpec,
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
+import { createComputeKernel, type ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import type { GravityField } from '../forcefields/GravityField';
@@ -45,24 +42,11 @@ export class SPHFlow extends Flow {
     private paramsBuffer: UniformBufferSpec | null = null;
     private neighborSearch: NeighborSearchPipeline | null = null;
     private collidersBuffer: StorageBufferSpec | null = null;
-    private paramsLayout: LayoutSpec | null = null;
-    private particlesLayout: LayoutSpec | null = null;
-    private neighborsLayout: LayoutSpec | null = null;
-    private collidersLayout: LayoutSpec | null = null;
-    private paramsBg: BindGroupSpec | null = null;
-    private particlesBg: BindGroupSpec | null = null;
-    private neighborsBg: BindGroupSpec | null = null;
-    private collidersBg: BindGroupSpec | null = null;
-    private densityShader: ShaderModuleSpec | null = null;
-    private pressureShader: ShaderModuleSpec | null = null;
-    private forcesShader: ShaderModuleSpec | null = null;
-    private integrateShader: ShaderModuleSpec | null = null;
-    private collisionShader: ShaderModuleSpec | null = null;
-    private densityPipeline: ComputePipelineSpec | null = null;
-    private pressurePipeline: ComputePipelineSpec | null = null;
-    private forcesPipeline: ComputePipelineSpec | null = null;
-    private integratePipeline: ComputePipelineSpec | null = null;
-    private collisionPipeline: ComputePipelineSpec | null = null;
+    private densityKernel: ComputeKernel | null = null;
+    private pressureKernel: ComputeKernel | null = null;
+    private forcesKernel: ComputeKernel | null = null;
+    private integrateKernel: ComputeKernel | null = null;
+    private collisionKernel: ComputeKernel | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -129,45 +113,17 @@ export class SPHFlow extends Flow {
 
     override onPoolReallocated(poolKey: string): void {
         if (poolKey === this.bodyType) {
-            this.particlesBg = null;
-            this.neighborsBg = null;
+            this.densityKernel = null;
+            this.pressureKernel = null;
+            this.forcesKernel = null;
+            this.integrateKernel = null;
+            this.collisionKernel = null;
             this.neighborSearch?.invalidateParticlesBinding();
         }
     }
 
     private ensureGpuObjects(): void {
         const b = this.base();
-        if (this.densityShader === null)
-            this.densityShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'sph_density',
-                source: b + '\n' + sphDensityKernel,
-            });
-        if (this.pressureShader === null)
-            this.pressureShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'sph_pressure',
-                source: b + '\n' + sphPressureKernel,
-            });
-        if (this.forcesShader === null)
-            this.forcesShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'sph_forces',
-                source: b + '\n' + sphForcesKernel,
-            });
-        if (this.integrateShader === null)
-            this.integrateShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'sph_integrate',
-                source: b + '\n' + sphIntegrateKernel,
-            });
-        if (this.collisionShader === null)
-            this.collisionShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'sph_collision',
-                source: b + '\n' + sphCollisionKernel,
-            });
-
         if (this.paramsBuffer === null)
             this.paramsBuffer = this.core.create<UniformBufferSpec>({
                 kind: 'buffer',
@@ -194,158 +150,72 @@ export class SPHFlow extends Flow {
                 byteSize: COLLIDER_DESC_SIZE,
             });
 
-        if (this.paramsLayout === null)
-            this.paramsLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'sph_params_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'uniform',
-                    },
-                ],
-            });
-        if (this.particlesLayout === null)
-            this.particlesLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'sph_particles_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        if (this.neighborsLayout === null)
-            this.neighborsLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'sph_neighbors_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 1,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                ],
-            });
-        if (this.collidersLayout === null)
-            this.collidersLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'sph_colliders_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                ],
-            });
-
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
+        const nlist = this.neighborSearch.neighborList;
+        const ncount = this.neighborSearch.neighborCount;
+        if (nlist === null || ncount === null) return;
 
-        if (this.paramsBg === null)
-            this.paramsBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'sph_params_bg',
-                layout: this.paramsLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.paramsBuffer }],
-            });
-        if (this.particlesBg === null)
-            this.particlesBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'sph_particles_bg',
-                layout: this.particlesLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: particlesBuf }],
-            });
-        const nlist = this.neighborSearch?.neighborList;
-        const ncount = this.neighborSearch?.neighborCount;
-        if (
-            this.neighborsBg === null
-            && nlist !== null
-            && nlist !== undefined
-            && ncount !== null
-            && ncount !== undefined
-        ) {
-            this.neighborsBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'sph_neighbors_bg',
-                layout: this.neighborsLayout,
-                bindings: [
-                    { binding: 0, kind: 'buffer', buffer: nlist },
-                    { binding: 1, kind: 'buffer', buffer: ncount },
-                ],
+        // Bindgroups por slot. Cada kernel cria sua própria cópia (specHash
+        // dedup mantém GPU layout único quando estrutura é idêntica).
+        const paramsGroup = {
+            bindings: [{ binding: 0, type: 'uniform' as const, buffer: this.paramsBuffer }],
+        };
+        const particlesGroup = {
+            bindings: [{ binding: 0, type: 'storage' as const, buffer: particlesBuf }],
+        };
+        const neighborsGroup = {
+            bindings: [
+                { binding: 0, type: 'read-only-storage' as const, buffer: nlist },
+                { binding: 1, type: 'read-only-storage' as const, buffer: ncount },
+            ],
+        };
+        const collidersGroup = {
+            bindings: [
+                { binding: 0, type: 'read-only-storage' as const, buffer: this.collidersBuffer },
+            ],
+        };
+
+        if (this.densityKernel === null) {
+            this.densityKernel = createComputeKernel(this.core, {
+                discriminator: 'sph_density',
+                shaderSource: b + '\n' + sphDensityKernel,
+                entryPoint: 'sph_density_main',
+                bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
         }
-        if (this.collidersBg === null)
-            this.collidersBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'sph_colliders_bg',
-                layout: this.collidersLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.collidersBuffer }],
-            });
-
-        const layoutsNoNeigh = [this.paramsLayout, this.particlesLayout];
-        const layoutsWithNeigh = [this.paramsLayout, this.particlesLayout, this.neighborsLayout];
-        const layoutsCollision = [this.paramsLayout, this.particlesLayout, this.collidersLayout];
-
-        if (this.densityPipeline === null)
-            this.densityPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'sph_density_pipeline',
-                layouts: layoutsWithNeigh,
-                shader: this.densityShader,
-                entryPoint: 'sph_density_main',
-            });
-        if (this.pressurePipeline === null)
-            this.pressurePipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'sph_pressure_pipeline',
-                layouts: layoutsNoNeigh,
-                shader: this.pressureShader,
+        if (this.pressureKernel === null) {
+            this.pressureKernel = createComputeKernel(this.core, {
+                discriminator: 'sph_pressure',
+                shaderSource: b + '\n' + sphPressureKernel,
                 entryPoint: 'sph_pressure_main',
+                bindGroups: [paramsGroup, particlesGroup],
             });
-        if (this.forcesPipeline === null)
-            this.forcesPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'sph_forces_pipeline',
-                layouts: layoutsWithNeigh,
-                shader: this.forcesShader,
+        }
+        if (this.forcesKernel === null) {
+            this.forcesKernel = createComputeKernel(this.core, {
+                discriminator: 'sph_forces',
+                shaderSource: b + '\n' + sphForcesKernel,
                 entryPoint: 'sph_forces_main',
+                bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
-        if (this.integratePipeline === null)
-            this.integratePipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'sph_integrate_pipeline',
-                layouts: layoutsNoNeigh,
-                shader: this.integrateShader,
+        }
+        if (this.integrateKernel === null) {
+            this.integrateKernel = createComputeKernel(this.core, {
+                discriminator: 'sph_integrate',
+                shaderSource: b + '\n' + sphIntegrateKernel,
                 entryPoint: 'sph_integrate_main',
+                bindGroups: [paramsGroup, particlesGroup],
             });
-        if (this.collisionPipeline === null)
-            this.collisionPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'sph_collision_pipeline',
-                layouts: layoutsCollision,
-                shader: this.collisionShader,
+        }
+        if (this.collisionKernel === null) {
+            this.collisionKernel = createComputeKernel(this.core, {
+                discriminator: 'sph_collision',
+                shaderSource: b + '\n' + sphCollisionKernel,
                 entryPoint: 'sph_collision_main',
+                bindGroups: [paramsGroup, particlesGroup, collidersGroup],
             });
+        }
     }
 
     private uploadParams(particleCount: number, dtSub: number): void {
@@ -400,66 +270,40 @@ export class SPHFlow extends Flow {
         const count = this.resources.poolCount(this.bodyType);
         if (count === 0) return;
         this.ensureGpuObjects();
+        const density = this.densityKernel;
+        const pressure = this.pressureKernel;
+        const forces = this.forcesKernel;
+        const integrate = this.integrateKernel;
+        const collision = this.collisionKernel;
         if (
-            this.densityPipeline === null
-            || this.pressurePipeline === null
-            || this.forcesPipeline === null
-            || this.integratePipeline === null
-            || this.collisionPipeline === null
-        )
-            return;
-        if (
-            this.paramsBg === null
-            || this.particlesBg === null
-            || this.neighborsBg === null
-            || this.collidersBg === null
+            density === null
+            || pressure === null
+            || forces === null
+            || integrate === null
+            || collision === null
         )
             return;
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
         const dtSub = this.fixedDt / this.substeps;
         const wgs = Math.ceil(count / 64);
+        const dispatchKernel = (label: string, k: ComputeKernel): void => {
+            frame.compute(label, (pass) => {
+                pass.bind.setPipeline(k.pipeline);
+                k.bindGroups.forEach((bg, i) => {
+                    pass.bind.setBindGroup(i, bg);
+                });
+                pass.dispatch.workgroups(wgs);
+            });
+        };
         for (let s = 0; s < this.substeps; s++) {
             this.uploadParams(count, dtSub);
             this.neighborSearch?.rebuild(frame, particlesBuf, count);
-            frame.compute('SPHFlow.density', (pass) => {
-                pass.bind
-                    .setPipeline(this.densityPipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.particlesBg!)
-                    .setBindGroup(2, this.neighborsBg!);
-                pass.dispatch.workgroups(wgs);
-            });
-            frame.compute('SPHFlow.pressure', (pass) => {
-                pass.bind
-                    .setPipeline(this.pressurePipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.particlesBg!);
-                pass.dispatch.workgroups(wgs);
-            });
-            frame.compute('SPHFlow.forces', (pass) => {
-                pass.bind
-                    .setPipeline(this.forcesPipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.particlesBg!)
-                    .setBindGroup(2, this.neighborsBg!);
-                pass.dispatch.workgroups(wgs);
-            });
-            frame.compute('SPHFlow.integrate', (pass) => {
-                pass.bind
-                    .setPipeline(this.integratePipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.particlesBg!);
-                pass.dispatch.workgroups(wgs);
-            });
-            frame.compute('SPHFlow.collision', (pass) => {
-                pass.bind
-                    .setPipeline(this.collisionPipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.particlesBg!)
-                    .setBindGroup(2, this.collidersBg!);
-                pass.dispatch.workgroups(wgs);
-            });
+            dispatchKernel('SPHFlow.density', density);
+            dispatchKernel('SPHFlow.pressure', pressure);
+            dispatchKernel('SPHFlow.forces', forces);
+            dispatchKernel('SPHFlow.integrate', integrate);
+            dispatchKernel('SPHFlow.collision', collision);
         }
     }
 }

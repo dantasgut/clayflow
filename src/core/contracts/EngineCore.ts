@@ -31,18 +31,41 @@ export interface ComputeKernelBinding {
     readonly buffer: UniformBufferSpec | StorageBufferSpec;
 }
 
+/**
+ * Bindgroup config para multi-set kernels. Cada `ComputeKernelBindGroup` vira
+ * um GPU bindgroup separado no slot correspondente do pipeline (group 0, 1, ...).
+ */
+export interface ComputeKernelBindGroup {
+    readonly bindings: readonly ComputeKernelBinding[];
+}
+
 export interface ComputeKernelOptions {
     readonly discriminator: string;
     readonly shaderSource: string;
     readonly entryPoint: string;
-    readonly bindings: readonly ComputeKernelBinding[];
+    /**
+     * Single-bindgroup form (atalho para casos simples). Use OU `bindings` OU
+     * `bindGroups`, não os dois.
+     */
+    readonly bindings?: readonly ComputeKernelBinding[];
+    /**
+     * Multi-bindgroup form. Cada entry vira um GPU bindgroup no slot
+     * correspondente (`bindGroups[0]` → @group(0), [1] → @group(1)...).
+     */
+    readonly bindGroups?: readonly ComputeKernelBindGroup[];
     readonly preferAsync?: boolean;
 }
 
 export interface ComputeKernel {
     readonly pipeline: ComputePipelineSpec;
+    /** Primeiro bindgroup. Atalho para casos single-set; equivale a `bindGroups[0]`. */
     readonly bindGroup: BindGroupSpec;
+    /** Primeiro layout. Atalho equivalente a `layouts[0]`. */
     readonly layout: LayoutSpec;
+    /** Todos os bindgroups (ordem = slot do pipeline). */
+    readonly bindGroups: readonly BindGroupSpec[];
+    /** Todos os layouts (ordem = slot do pipeline). */
+    readonly layouts: readonly LayoutSpec[];
 }
 
 export interface CanvasOptions {

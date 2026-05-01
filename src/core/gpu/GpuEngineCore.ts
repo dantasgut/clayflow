@@ -228,20 +228,36 @@ export class GpuEngineCore implements EngineCore {
     }
 
     compute(opts: ComputeKernelOptions): ComputeKernel {
-        // Idempotente via specHash (cache em this.store).
+        // Idempotente via specHash (cache em this.store). Suporta single-bindgroup
+        // (`opts.bindings`) e multi-bindgroup (`opts.bindGroups`).
         // Mesma lógica de scene/flows/createComputeKernel — duplicada aqui para
         // evitar dependência core → scene. createComputeKernel permanece como
         // helper público do scene layer (alias funcional).
-        const layout = this.create<LayoutSpec>({
-            kind: 'layout',
-            discriminator: `${opts.discriminator}_layout`,
-            entries: opts.bindings.map((b) => ({
-                binding: b.binding,
-                visibility: GPUShaderStage.COMPUTE,
-                kind: 'buffer' as const,
-                type: b.type,
-            })),
-        });
+        const groups =
+            opts.bindGroups ?? (opts.bindings !== undefined ? [{ bindings: opts.bindings }] : []);
+        if (groups.length === 0) {
+            throw new Error(
+                `compute("${opts.discriminator}"): forneça 'bindings' ou 'bindGroups'.`,
+            );
+        }
+        const total = groups.length;
+        const layoutDiscriminator = (i: number): string =>
+            total === 1 ? `${opts.discriminator}_layout` : `${opts.discriminator}_layout_${i}`;
+        const bgDiscriminator = (i: number): string =>
+            total === 1 ? `${opts.discriminator}_bg` : `${opts.discriminator}_bg_${i}`;
+
+        const layouts: LayoutSpec[] = groups.map((g, i) =>
+            this.create<LayoutSpec>({
+                kind: 'layout',
+                discriminator: layoutDiscriminator(i),
+                entries: g.bindings.map((b) => ({
+                    binding: b.binding,
+                    visibility: GPUShaderStage.COMPUTE,
+                    kind: 'buffer' as const,
+                    type: b.type,
+                })),
+            }),
+        );
         const shader = this.create<ShaderModuleSpec>({
             kind: 'shader',
             discriminator: `${opts.discriminator}_shader`,
@@ -251,7 +267,7 @@ export class GpuEngineCore implements EngineCore {
             kind: 'pipeline',
             subkind: 'compute',
             discriminator: `${opts.discriminator}_pipeline`,
-            layouts: [layout],
+            layouts,
             shader,
             entryPoint: opts.entryPoint,
         };
@@ -260,17 +276,25 @@ export class GpuEngineCore implements EngineCore {
         } else {
             this.create<ComputePipelineSpec>(pipelineSpec);
         }
-        const bindGroup = this.create<BindGroupSpec>({
-            kind: 'bindgroup',
-            discriminator: `${opts.discriminator}_bg`,
-            layout,
-            bindings: opts.bindings.map((b) => ({
-                binding: b.binding,
-                kind: 'buffer' as const,
-                buffer: b.buffer,
-            })),
-        });
-        return { pipeline: pipelineSpec, bindGroup, layout };
+        const bindGroups: BindGroupSpec[] = groups.map((g, i) =>
+            this.create<BindGroupSpec>({
+                kind: 'bindgroup',
+                discriminator: bgDiscriminator(i),
+                layout: layouts[i]!,
+                bindings: g.bindings.map((b) => ({
+                    binding: b.binding,
+                    kind: 'buffer' as const,
+                    buffer: b.buffer,
+                })),
+            }),
+        );
+        return {
+            pipeline: pipelineSpec,
+            bindGroup: bindGroups[0]!,
+            layout: layouts[0]!,
+            bindGroups,
+            layouts,
+        };
     }
 
     private storeWithMetadata(hash: string, spec: ResourceSpec, obj: StoredGpuObject): void {

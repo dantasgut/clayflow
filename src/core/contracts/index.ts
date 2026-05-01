@@ -17,4 +17,5 @@ export type {
     ComputeKernelOptions,
     ComputeKernelBinding,
     ComputeKernelBindingType,
+    ComputeKernelBindGroup,
 } from './EngineCore';
