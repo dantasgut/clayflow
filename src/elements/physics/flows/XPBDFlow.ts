@@ -46,7 +46,7 @@ export class XPBDFlow extends Flow {
         options: XPBDFlowOptions = {},
     ) {
         super();
-        this.bodyType = options.bodyType ?? 'SoftBody:XPBD';
+        this.bodyType = options.bodyType ?? 'XPBDSoftSchema';
         this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.solverIters = Math.max(1, options.solverIters ?? 4);

@@ -54,12 +54,12 @@ describe('ExecutionSystem broadcasts', () => {
         flows.register(f2);
         new ExecutionSystem(fakeCore(), events, flows);
         events.emit('poolReallocated', {
-            poolKey: 'RigidBody:LCP',
+            poolKey: 'LCPSchema',
             oldByteSize: 256,
             newByteSize: 512,
         });
-        expect(f1.onPoolCalls).toEqual(['RigidBody:LCP']);
-        expect(f2.onPoolCalls).toEqual(['RigidBody:LCP']);
+        expect(f1.onPoolCalls).toEqual(['LCPSchema']);
+        expect(f2.onPoolCalls).toEqual(['LCPSchema']);
     });
 
     it('canvasReconfigured propaga para todos os flows', () => {

@@ -15,7 +15,7 @@ import type { ReadyEvent } from './ReadyEvent';
 export interface FlowReadyPayload {
     /** Identificador do flow (`Flow.type`, e.g. 'ForwardFlow'). */
     readonly type: string;
-    /** Body type associado ao flow (e.g. 'RigidBody:LCP'); vazio se não-bound. */
+    /** Body type associado ao flow (e.g. 'LCPSchema'); vazio se não-bound. */
     readonly bodyType?: string;
 }
 

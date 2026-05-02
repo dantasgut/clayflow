@@ -29,10 +29,10 @@ export abstract class Flow {
     /** Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug. */
     abstract readonly type: string;
     /**
-     * Tipo de Resource consumido como "corpo" deste flow (e.g. 'RigidBody:LCP'
-     * para LCPFlow). Vazio quando o flow não é body-bound. Usado por
-     * FlowRegistry.resolve(bodyType) para encontrar o flow responsável por
-     * cada Resource.
+     * Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
+     * para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
+     * quando o flow não é body-bound. Usado por FlowRegistry.resolve(bodyType)
+     * para encontrar o flow responsável por cada Resource.
      */
     abstract readonly bodyType: string;
     /** Fase do pipeline em que o flow executa. */

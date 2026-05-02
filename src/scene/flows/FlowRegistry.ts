@@ -17,7 +17,7 @@ const PHASE_ORDER: readonly Phase[] = ['physics', 'shadow', 'forward', 'post', '
  * ordenados por priority decrescente.
  *
  * `bodyType` index permite resolver "qual Flow é responsável por
- * RigidBody:LCP?" — usado por Resources que declaram FlowDescriptors
+ * LCPSchema?" — usado por Resources que declaram FlowDescriptors
  * para auto-roteamento.
  */
 export class FlowRegistry {

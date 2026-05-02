@@ -26,7 +26,7 @@ const RB_SIM_PARAMS_BYTE_SIZE = 80;
  * Opções do LCPFlow. Substeps maior = mais estável mas custa mais por frame.
  */
 export interface LCPFlowOptions {
-    /** Pool key dos RigidBodies LCP (default: 'RigidBody:LCP'). */
+    /** Pool key dos RigidBodies LCP (default: 'LCPSchema'). */
     readonly bodiesPoolKey?: string;
     /** Δt fixo de simulação em segundos. Default: 1/60. */
     readonly fixedDt?: number;
@@ -41,7 +41,7 @@ export interface LCPFlowOptions {
  */
 export class LCPFlow extends Flow {
     readonly type = 'LCPFlow';
-    readonly bodyType = 'RigidBody:LCP';
+    readonly bodyType = 'LCPSchema';
     readonly phase: Phase = 'physics';
     override priority = 10;
 
@@ -59,7 +59,7 @@ export class LCPFlow extends Flow {
         options: LCPFlowOptions = {},
     ) {
         super();
-        this.bodiesPoolKey = options.bodiesPoolKey ?? 'RigidBody:LCP';
+        this.bodiesPoolKey = options.bodiesPoolKey ?? 'LCPSchema';
         this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 1);
     }
@@ -71,7 +71,7 @@ export class LCPFlow extends Flow {
                 role: 'compute',
                 shaderSource: PREDICT_SHADER,
                 entryPoints: ['rb_predict_main'],
-                consumes: ['RigidBody:LCP', 'GravityField'],
+                consumes: ['LCPSchema', 'GravityField'],
             },
         ];
     }

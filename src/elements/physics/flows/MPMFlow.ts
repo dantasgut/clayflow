@@ -61,7 +61,7 @@ export class MPMFlow extends Flow {
         options: MPMFlowOptions = {},
     ) {
         super();
-        this.bodyType = options.bodyType ?? 'MPMParticle:MPM';
+        this.bodyType = options.bodyType ?? 'MPMFluidSchema';
         this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.gridDim = options.gridDim ?? [32, 32, 32];
