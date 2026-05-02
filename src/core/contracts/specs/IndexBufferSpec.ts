@@ -8,6 +8,7 @@ import type { BufferSpec } from './BufferSpec';
  * Use uint32 quando vertex count > 65535, senão uint16 economiza memória.
  */
 export interface IndexBufferSpec extends BufferSpec {
+    /** Subdiscriminador concreto — sempre `'index'`. */
     readonly subkind: 'index';
     /** Tamanho total do buffer em bytes (= count × bytesPerIndex). */
     readonly byteSize: number;

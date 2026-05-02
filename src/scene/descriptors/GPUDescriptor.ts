@@ -34,6 +34,7 @@ export type GPUDescriptorRole =
 export interface GPUDescriptor {
     /** Identificador local do descriptor dentro do Resource (e.g. 'view', 'mass'). */
     readonly id: string;
+    /** Papel — controla tipo de buffer/textura e visibility no shader. */
     readonly role: GPUDescriptorRole;
     /**
      * Schema do field (StructSchema ou TensorSchema). Define stride,

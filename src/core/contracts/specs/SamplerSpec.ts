@@ -7,6 +7,7 @@
  * mipmaps use `{magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear'}`.
  */
 export interface SamplerSpec {
+    /** Discriminador de tipo — sempre `'sampler'`. */
     readonly kind: 'sampler';
     /** Discriminador semântico. Parte do specHash. */
     readonly discriminator?: string;

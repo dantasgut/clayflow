@@ -3,6 +3,18 @@ import type { EventBus } from '../events/EventBus';
 import { type FlowRegistry } from '../flows/FlowRegistry';
 import type { EntityId } from '../world/EntityId';
 
+/**
+ * ExecutionSystem orquestra o dispatch dos Flows ativos em cada frame.
+ * Reage a:
+ *   - `frameTick` (do GameLoop) → executa `record(frame)` + `submit()`.
+ *   - `poolReallocated` → broadcast para todos flows invalidarem caches.
+ *   - `canvasReconfigured` → broadcast onCanvasResized.
+ *   - `entitiesRemoved` → broadcast onEntitiesRemoved.
+ *
+ * Modo `captureErrors=true` envolve cada frame em error scope GPU; erros
+ * viram `engineError` event sem propagar exception. Ativável via
+ * `Application.create({ captureErrors: true })`.
+ */
 export class ExecutionSystem {
     private elapsed = 0;
     private lastFrameAt = 0;
@@ -32,12 +44,14 @@ export class ExecutionSystem {
         });
     }
 
+    /** Notifica todos os flows que um pool teve buffer realocado. */
     broadcastPoolReallocated(poolKey: string): void {
         for (const flow of this.flows.allFlows()) {
             flow.onPoolReallocated(poolKey);
         }
     }
 
+    /** Notifica todos os flows que entidades foram removidas (no-op se vazia). */
     broadcastEntitiesRemoved(entityIds: readonly EntityId[]): void {
         if (entityIds.length === 0) return;
         for (const flow of this.flows.allFlows()) {
@@ -45,6 +59,7 @@ export class ExecutionSystem {
         }
     }
 
+    /** Notifica todos os flows que o canvas foi redimensionado. */
     broadcastCanvasResized(width: number, height: number): void {
         for (const flow of this.flows.allFlows()) {
             flow.onCanvasResized(width, height);
@@ -84,6 +99,7 @@ export class ExecutionSystem {
         void dt;
     }
 
+    /** Timestamp (ms) do último `frameComplete` emitido. Útil para sleep detection. */
     lastFrameTimestamp(): number {
         return this.lastFrameAt;
     }

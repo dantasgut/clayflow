@@ -19,7 +19,9 @@ import type { Application } from '../app/Application';
  * Type-only cycle Application↔EnginePlugin é aceito (madge --exclude documentado).
  */
 export interface EnginePlugin {
+    /** Identificador único do plugin (para logs/dedup). */
     readonly name: string;
+    /** Hook de instalação — chamado antes do GameLoop iniciar; registra flows/listeners/sistemas. */
     install(app: Application): void;
     /**
      * Optional. Cleanup quando Application.dispose() é chamado.

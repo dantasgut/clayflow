@@ -22,12 +22,23 @@ const PREDICT_SHADER = [
 
 const RB_SIM_PARAMS_BYTE_SIZE = 80;
 
+/**
+ * Opções do LCPFlow. Substeps maior = mais estável mas custa mais por frame.
+ */
 export interface LCPFlowOptions {
+    /** Pool key dos RigidBodies LCP (default: 'RigidBody:LCP'). */
     readonly bodiesPoolKey?: string;
+    /** Δt fixo de simulação em segundos. Default: 1/60. */
     readonly fixedDt?: number;
+    /** Quantos substeps por frame (Δt = fixedDt / substeps). Default: 1. */
     readonly substeps?: number;
 }
 
+/**
+ * LCPFlow — solver de RigidBody via LCP (Linear Complementarity Problem).
+ * Phase `physics`. Predict step (gravity + damping) atualmente; collision
+ * solve em desenvolvimento. Integrado por substeps configuráveis.
+ */
 export class LCPFlow extends Flow {
     readonly type = 'LCPFlow';
     readonly bodyType = 'RigidBody:LCP';

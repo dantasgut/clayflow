@@ -3,7 +3,13 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/**
+ * Campo de empuxo — Princípio de Arquimedes. Aplica força vertical
+ * proporcional ao volume submerso × fluidDensity × gravity. Bodies
+ * acima do fluidLevel não recebem empuxo.
+ */
 export class BuoyancyField extends ForceField {
+    /** StructSchema do BuoyancyField (fluidDensity + fluidLevel + gravity). */
     static readonly schema = new StructSchema('BuoyancyField', {
         fluidDensity: FieldType.f32,
         fluidLevel: FieldType.f32,

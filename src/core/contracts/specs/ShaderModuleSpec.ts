@@ -7,6 +7,7 @@
  * geram nova GPU object (Vite HMR funciona out-of-the-box).
  */
 export interface ShaderModuleSpec {
+    /** Discriminador de tipo — sempre `'shader'`. */
     readonly kind: 'shader';
     /** Discriminador semântico (e.g. 'lcp_predict_shader'). Parte do specHash. */
     readonly discriminator?: string;

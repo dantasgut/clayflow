@@ -6,7 +6,12 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
+/**
+ * ShadowMap config — view-projection matrix da luz + biases para evitar
+ * acne/peter-panning. Pool storage para suportar múltiplas luzes.
+ */
 export class ShadowMap extends Entity implements Resource {
+    /** StructSchema do ShadowMap (lightViewProj + bias + normalBias + size). */
     static readonly schema = new StructSchema('ShadowMap', {
         lightViewProj: FieldType.mat4x4f,
         bias: FieldType.f32,

@@ -55,6 +55,10 @@ export class PostFlow extends Flow {
         this.canvas = options?.canvas ?? null;
     }
 
+    /**
+     * Liga este PostFlow a um ForwardFlow upstream (PostFlow lê o offscreen
+     * texture do Forward como input do ping-pong). Builder fluente.
+     */
     bindForwardFlow(flow: ForwardFlow): this {
         this.forwardFlow = flow;
         return this;
@@ -70,6 +74,10 @@ export class PostFlow extends Flow {
         }));
     }
 
+    /**
+     * Empilha um efeito no chain. A ordem é importante: efeitos são aplicados
+     * em sequência (`Bloom → ToneMapping → Fxaa → ...`). Builder fluente.
+     */
     addEffect(effect: PostProcessEffect): this {
         this.effects.push(effect);
         return this;

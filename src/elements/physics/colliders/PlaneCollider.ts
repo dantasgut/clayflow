@@ -3,7 +3,9 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Collider } from './Collider';
 
+/** Collider de plano infinito — normal + offset (distance from origin). */
 export class PlaneCollider extends Collider {
+    /** StructSchema do PlaneCollider (normal + offset). */
     static readonly schema = new StructSchema('PlaneCollider', {
         normal: FieldType.vec4f,
         offset: FieldType.f32,

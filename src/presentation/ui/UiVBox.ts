@@ -5,9 +5,16 @@ import { UiElement } from './UiElement';
  * `UiHBox` (gap, padding, fixed-or-flex height).
  */
 export class UiVBox extends UiElement {
+    /** Espaço (px) entre filhos consecutivos. Default: 4. */
     gap = 4;
+    /** Padding interno (px) em todos os lados. Default: 0. */
     padding = 0;
 
+    /**
+     * Recalcula bounds dos filhos. Filhos com `height > 0` mantêm tamanho
+     * fixo; os demais dividem o espaço restante igualmente (flex). Chamar
+     * sempre que filhos forem adicionados/removidos ou bounds do container mudar.
+     */
     layout(): void {
         const innerW = Math.max(0, this.bounds.width - this.padding * 2);
         const innerH = Math.max(0, this.bounds.height - this.padding * 2);

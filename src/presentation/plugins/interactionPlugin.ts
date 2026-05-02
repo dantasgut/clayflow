@@ -1,8 +1,24 @@
 import type { EnginePlugin } from './EnginePlugin';
 import { InteractionSystem } from '../input/InteractionSystem';
 
+/**
+ * Opções do interactionPlugin.
+ */
 export interface InteractionPluginOptions {
+    /**
+     * Window onde keyboard listeners são registrados. Default: `window` global.
+     * Use null para desabilitar keyboard input (apenas pointer/touch).
+     */
     readonly window?: Window | null;
+}
+
+/**
+ * Plugin de interaction com getter público para o `InteractionSystem`
+ * após install. Null antes de `app.use(plugin)`.
+ */
+export interface InteractionPluginInstance extends EnginePlugin {
+    /** InteractionSystem ativo (ou null antes do install). */
+    readonly system: InteractionSystem | null;
 }
 
 /**
@@ -21,10 +37,11 @@ export interface InteractionPluginOptions {
  */
 export function interactionPlugin(
     options: InteractionPluginOptions = {},
-): EnginePlugin & { system: InteractionSystem | null } {
+): InteractionPluginInstance {
     const state: { system: InteractionSystem | null } = { system: null };
     return {
         name: 'interaction',
+        /** Acesso ao InteractionSystem após `app.use(plugin)`. Null antes do install. */
         get system() {
             return state.system;
         },

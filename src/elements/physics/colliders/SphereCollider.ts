@@ -3,7 +3,9 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Collider } from './Collider';
 
+/** Collider esférico — center + radius. */
 export class SphereCollider extends Collider {
+    /** StructSchema do SphereCollider (center + radius). */
     static readonly schema = new StructSchema('SphereCollider', {
         center: FieldType.vec4f,
         radius: FieldType.f32,

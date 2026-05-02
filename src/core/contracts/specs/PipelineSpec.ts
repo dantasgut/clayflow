@@ -15,7 +15,9 @@ export type PipelineSubkind = 'compute' | 'render';
  * espera nos slots `@group(0)`, `@group(1)`, etc.
  */
 export interface PipelineSpec {
+    /** Discriminador de tipo — sempre `'pipeline'`. */
     readonly kind: 'pipeline';
+    /** Subkind concreto ('compute' ou 'render'). */
     readonly subkind: PipelineSubkind;
     /** Discriminador semântico (e.g. 'lcp_predict_pipeline'). Parte do specHash. */
     readonly discriminator?: string;

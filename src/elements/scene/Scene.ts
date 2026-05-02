@@ -7,11 +7,16 @@ export class Scene extends Entity {
         super();
     }
 
+    /**
+     * Insere uma entidade na cena: adiciona como part do Scene (composição) +
+     * registra no World (visibilidade para flows). Retorna o EntityId atribuído.
+     */
     addEntity(entity: Entity): EntityId {
         super.add(entity);
         return this.world.insert(entity);
     }
 
+    /** Remove a entidade do World (flows param de processá-la no próximo tick). */
     removeEntity(entity: Entity): void {
         this.world.remove(entity);
     }

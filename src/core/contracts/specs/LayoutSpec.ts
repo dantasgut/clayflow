@@ -10,6 +10,7 @@ import type { BindingLayoutEntry } from '../bindings/BindingLayoutEntry';
  * todos compatíveis com o mesmo layout.
  */
 export interface LayoutSpec {
+    /** Discriminador de tipo — sempre `'layout'`. */
     readonly kind: 'layout';
     /** Discriminador semântico (e.g. 'forward_camera_layout'). Parte do specHash. */
     readonly discriminator?: string;

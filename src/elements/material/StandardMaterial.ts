@@ -5,7 +5,12 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 import forwardWGSL from '../gpu/wgsl/forward.wgsl?raw';
 import { Material } from './Material';
 
+/**
+ * Material PBR padrão — albedo + metallic-roughness. Renderizado pelo
+ * `forward.wgsl` (BRDF Cook-Torrance simplificado).
+ */
 export class StandardMaterial extends Material {
+    /** StructSchema do StandardMaterial (albedo + roughness + metallic). */
     static readonly schema = new StructSchema('StandardMaterial', {
         albedo: FieldType.vec4f,
         roughness: FieldType.f32,

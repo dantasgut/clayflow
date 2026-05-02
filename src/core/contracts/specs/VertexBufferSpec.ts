@@ -6,6 +6,7 @@ import type { BufferSpec } from './BufferSpec';
  * uvs separados ou interleaved).
  */
 export interface VertexBufferSpec extends BufferSpec {
+    /** Subdiscriminador concreto — sempre `'vertex'`. */
     readonly subkind: 'vertex';
     /** Tamanho total do buffer em bytes (= count × stride). */
     readonly byteSize: number;

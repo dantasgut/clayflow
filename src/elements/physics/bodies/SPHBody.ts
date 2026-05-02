@@ -14,6 +14,7 @@ import { PhysicsBody } from './PhysicsBody';
  *   color: xyz=XSPH velocity correction, w=pad
  */
 export class SPHBody extends PhysicsBody {
+    /** StructSchema da partícula SPH (4 vec4f = 64 bytes). */
     static readonly schema = new StructSchema('SPHParticle', {
         pos: FieldType.vec4f,
         vel: FieldType.vec4f,

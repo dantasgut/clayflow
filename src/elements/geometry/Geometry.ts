@@ -14,6 +14,8 @@ export abstract class Geometry extends Entity implements Resource {
         return [];
     }
 
+    /** Número de vértices na geometria — usado para `pass.draw(count)`. */
     abstract get vertexCount(): number;
+    /** Número de índices (0 = sem index buffer, draw não-indexed). */
     abstract get indexCount(): number;
 }

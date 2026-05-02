@@ -7,6 +7,7 @@
  * somado por todos os mip levels e sample count.
  */
 export interface TextureSpec {
+    /** Discriminador de tipo — sempre `'texture'`. */
     readonly kind: 'texture';
     /** Discriminador semântico (e.g. 'shadow_depth', 'forward_color:800x600'). */
     readonly discriminator?: string;

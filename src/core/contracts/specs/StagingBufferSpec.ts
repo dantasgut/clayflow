@@ -9,6 +9,7 @@ import type { BufferSpec } from './BufferSpec';
  * Não é usado dentro de shaders (não tem `read` access em WGSL).
  */
 export interface StagingBufferSpec extends BufferSpec {
+    /** Subdiscriminador concreto — sempre `'staging'`. */
     readonly subkind: 'staging';
     /** Tamanho em bytes do buffer (deve acomodar os dados a serem readback). */
     readonly byteSize: number;

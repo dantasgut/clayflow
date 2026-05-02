@@ -3,7 +3,12 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/**
+ * Campo de vórtice — torque rotacional ao redor de um eixo (axis) com
+ * falloff radial a partir do center. Cria efeitos de tornado, redemoinho.
+ */
 export class VortexField extends ForceField {
+    /** StructSchema do VortexField (axis+center+magnitude+falloff). */
     static readonly schema = new StructSchema('VortexField', {
         axis: FieldType.vec4f,
         center: FieldType.vec4f,

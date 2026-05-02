@@ -3,7 +3,9 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Collider } from './Collider';
 
+/** Collider AABB — half-extents em XYZ + center offset. */
 export class BoxCollider extends Collider {
+    /** StructSchema do BoxCollider (halfExtents + center, 32 bytes). */
     static readonly schema = new StructSchema('BoxCollider', {
         halfExtents: FieldType.vec4f,
         center: FieldType.vec4f,

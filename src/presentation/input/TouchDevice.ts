@@ -14,6 +14,7 @@ export class TouchDevice {
         private readonly input: Input,
     ) {}
 
+    /** Registra listeners de touch no canvas. */
     attach(): void {
         this.canvas.addEventListener('touchstart', this.onTouch, { passive: true });
         this.canvas.addEventListener('touchmove', this.onTouch, { passive: true });
@@ -21,6 +22,7 @@ export class TouchDevice {
         this.canvas.addEventListener('touchcancel', this.onEnd, { passive: true });
     }
 
+    /** Remove listeners de touch. */
     detach(): void {
         this.canvas.removeEventListener('touchstart', this.onTouch);
         this.canvas.removeEventListener('touchmove', this.onTouch);

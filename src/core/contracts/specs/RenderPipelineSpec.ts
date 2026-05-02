@@ -62,10 +62,13 @@ export interface FragmentStage {
  * pipelines pesados como Forward com shadow PCF + 4 cascades).
  */
 export interface RenderPipelineSpec extends PipelineSpec {
+    /** Discriminador concreto — sempre `'render'`. */
     readonly subkind: 'render';
+    /** Vertex stage — shader + entry point + buffer layouts. */
     readonly vertex: VertexStage;
     /** Opcional para pipelines depth-only (e.g. shadow map vs. light POV). */
     readonly fragment?: FragmentStage;
+    /** Primitive assembly config (topology, cull mode, etc.). */
     readonly primitive?: PrimitiveSpec;
     /** Depth-stencil attachment config. Omitir = sem depth test. */
     readonly depthStencil?: DepthSpec;

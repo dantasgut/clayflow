@@ -7,9 +7,12 @@ import { UiElement } from './UiElement';
  * recebem largura distribuída (flex). Filhos com width>0 são `fixed`.
  */
 export class UiHBox extends UiElement {
+    /** Espaço (px) entre filhos consecutivos. Default: 4. */
     gap = 4;
+    /** Padding interno (px) em todos os lados. Default: 0. */
     padding = 0;
 
+    /** Recalcula bounds dos filhos (fixed-width preservado, flex divide o resto). */
     layout(): void {
         const innerW = Math.max(0, this.bounds.width - this.padding * 2);
         const innerH = Math.max(0, this.bounds.height - this.padding * 2);

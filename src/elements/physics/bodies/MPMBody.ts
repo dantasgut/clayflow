@@ -16,6 +16,7 @@ import { PhysicsBody } from './PhysicsBody';
  *   C_col*: coluna 0/1/2 de C (APIC affine momentum matrix)
  */
 export class MPMBody extends PhysicsBody {
+    /** StructSchema da partícula MPM (8 vec4f = 128 bytes). */
     static readonly schema = new StructSchema('MPMParticle', {
         pos: FieldType.vec4f,
         vel: FieldType.vec4f,

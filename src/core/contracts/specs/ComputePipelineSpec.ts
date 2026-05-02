@@ -11,6 +11,7 @@ import type { ShaderModuleSpec } from './ShaderModuleSpec';
  * (e.g. workgroup size dinâmico via `override WG_SIZE: u32 = 64`).
  */
 export interface ComputePipelineSpec extends PipelineSpec {
+    /** Discriminador concreto — sempre `'compute'`. */
     readonly subkind: 'compute';
     /** Shader module contendo a função compute. */
     readonly shader: ShaderModuleSpec;

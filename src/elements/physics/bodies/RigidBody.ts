@@ -32,6 +32,7 @@ export interface RigidBodyOptions {
  * (encode do shape primitive: sphere/box/etc.) + padding.
  */
 export class RigidBody extends PhysicsBody {
+    /** StructSchema do RigidBody (160 bytes alinhado, 10 vec4 fields). */
     static readonly schema = new StructSchema('RigidBody', {
         pos: FieldType.vec4f,
         vel: FieldType.vec4f,
@@ -45,6 +46,7 @@ export class RigidBody extends PhysicsBody {
         _rb_pad: FieldType.vec4f,
     });
 
+    /** Algoritmo solver default. */
     static readonly defaultAlgorithm: RigidBodyAlgorithm = 'LCP';
 
     private readonly algorithm: RigidBodyAlgorithm;

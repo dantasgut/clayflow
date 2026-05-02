@@ -269,6 +269,7 @@ export interface EngineCore {
      * chame `submit()` para enfileirar na queue GPU.
      */
     record(body: (frame: Frame) => void): void;
+    /** Variante com label (aparece em DevTools/RenderDoc para identificar o command buffer). */
     record(label: string, body: (frame: Frame) => void): void;
     /** Enfileira o último command buffer construído por `record()` na queue GPU. */
     submit(): void;

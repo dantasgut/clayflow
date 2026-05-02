@@ -14,6 +14,7 @@ import { PhysicsBody } from './PhysicsBody';
  *   curl:   curl(v) para vorticity confinement, w=pad
  */
 export class PBFBody extends PhysicsBody {
+    /** StructSchema da partícula PBF (4 vec4f = 64 bytes). */
     static readonly schema = new StructSchema('PBFParticle', {
         pos: FieldType.vec4f,
         vel: FieldType.vec4f,

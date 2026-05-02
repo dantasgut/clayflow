@@ -3,7 +3,12 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Constraint } from './Constraint';
 
+/**
+ * Constraint mola entre 2 bodies — F = -k·(|d| - rest)·d̂ - c·v_rel.
+ * `color` é populado por graph coloring para safe parallel solve.
+ */
 export class SpringConstraint extends Constraint {
+    /** StructSchema do SpringConstraint (bodyA/B, k, c, restLength, color). */
     static readonly schema = new StructSchema('SpringConstraint', {
         bodyA: FieldType.u32,
         bodyB: FieldType.u32,

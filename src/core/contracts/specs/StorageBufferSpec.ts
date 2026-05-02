@@ -9,6 +9,7 @@ import type { BufferSpec } from './BufferSpec';
  * search results, etc.
  */
 export interface StorageBufferSpec extends BufferSpec {
+    /** Subdiscriminador concreto — sempre `'storage'`. */
     readonly subkind: 'storage';
     /** Tamanho em bytes. Deve acomodar todos os elementos com align WGSL. */
     readonly byteSize: number;

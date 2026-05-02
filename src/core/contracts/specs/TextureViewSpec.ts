@@ -7,8 +7,11 @@ import type { TextureSpec } from './TextureSpec';
  * subresources distintos.
  */
 export interface TextureViewSpec {
+    /** Discriminador de tipo — sempre `'textureview'`. */
     readonly kind: 'textureview';
+    /** Discriminador semântico (parte do specHash). */
     readonly discriminator?: string;
+    /** Label para debugging (DevTools/RenderDoc). */
     readonly label?: string;
     /** Texture-fonte sobre a qual a view é construída. */
     readonly source: TextureSpec;

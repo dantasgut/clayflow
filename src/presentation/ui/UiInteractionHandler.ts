@@ -23,6 +23,7 @@ export class UiInteractionHandler {
         private readonly canvas: HTMLCanvasElement,
     ) {}
 
+    /** Liga listeners de pointer ao canvas. Idempotente. */
     attach(): void {
         if (this.attached) return;
         this.canvas.addEventListener('pointerdown', this.onDown);
@@ -32,6 +33,7 @@ export class UiInteractionHandler {
         this.attached = true;
     }
 
+    /** Remove listeners e limpa estado de hover/press/drag. Idempotente. */
     detach(): void {
         if (!this.attached) return;
         this.canvas.removeEventListener('pointerdown', this.onDown);

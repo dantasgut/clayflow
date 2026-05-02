@@ -10,6 +10,7 @@ import type { LayoutSpec } from './LayoutSpec';
  * para os specs concretos (UniformBufferSpec, TextureViewSpec, etc.).
  */
 export interface BindGroupSpec {
+    /** Discriminador de tipo — sempre `'bindgroup'`. */
     readonly kind: 'bindgroup';
     /** Discriminador semântico (e.g. 'forward_camera_bg:42'). Parte do specHash. */
     readonly discriminator?: string;

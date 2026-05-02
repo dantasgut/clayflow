@@ -4,9 +4,17 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { PhysicsBody } from './PhysicsBody';
 
+/**
+ * Solver algorithms para soft body deformation:
+ *   - `XPBD`: Position-Based Dynamics — distance constraints, fast, robusto.
+ *   - `FEM`: Finite Element Method — tetrahedral mesh, mais preciso.
+ *   - `MPM`: Material Point Method — partículas + grid Eulerian.
+ */
 export type SoftBodyAlgorithm = 'XPBD' | 'FEM' | 'MPM';
 
+/** Opções de criação do SoftBody. */
 export interface SoftBodyOptions {
+    /** Algoritmo solver. Default: 'XPBD'. */
     readonly algorithm?: SoftBodyAlgorithm;
 }
 
@@ -17,12 +25,14 @@ export interface SoftBodyOptions {
  *   vel:  xyz=velocidade,     w=reservado
  */
 export class SoftBody extends PhysicsBody {
+    /** StructSchema do SoftBody (48 bytes = 3 vec4f: pos+pred+vel). */
     static readonly schema = new StructSchema('SoftBody', {
         pos: FieldType.vec4f,
         pred: FieldType.vec4f,
         vel: FieldType.vec4f,
     });
 
+    /** Algoritmo solver default. */
     static readonly defaultAlgorithm: SoftBodyAlgorithm = 'XPBD';
 
     private readonly algorithm: SoftBodyAlgorithm;
@@ -41,6 +51,7 @@ export class SoftBody extends PhysicsBody {
         });
     }
 
+    /** Pool storage para coalescer N SoftBodies em 1 buffer GPU. */
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
@@ -52,6 +63,7 @@ export class SoftBody extends PhysicsBody {
         ];
     }
 
+    /** Roteia o body para o solver flow correspondente (XPBDFlow/FEMFlow/MPMFlow). */
     getFlowDescriptors(): readonly FlowDescriptor[] {
         return [{ algorithm: this.algorithm, bodyType: 'SoftBody' }];
     }

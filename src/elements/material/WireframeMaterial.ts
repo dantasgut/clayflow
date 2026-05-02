@@ -5,7 +5,9 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 import forwardWGSL from '../gpu/wgsl/forward.wgsl?raw';
 import { Material } from './Material';
 
+/** Material wireframe — desenha as edges das primitivas (topology line-list). */
 export class WireframeMaterial extends Material {
+    /** StructSchema do WireframeMaterial (color + roughness + metallic). */
     static readonly schema = new StructSchema('WireframeMaterial', {
         color: FieldType.vec4f,
         roughness: FieldType.f32,

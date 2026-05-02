@@ -14,9 +14,13 @@ import { DebugFlow } from './DebugFlow';
  * passa essas refs do `SceneContext` quando chama `registerPresentationDefaults`.
  */
 export interface PresentationDefaultsOptions {
+    /** Canvas onde os flows renderizam. */
     readonly canvas: HTMLCanvasElement;
+    /** EngineCore (Camada 1) — passado para os flows criarem GPU specs. */
     readonly core: EngineCore;
+    /** World (Camada 2) — flows query Resources via World.queryBySchemaName. */
     readonly world: World;
+    /** ResourceSystem para acesso aos pools (poolBufferSpec, poolBindGroup). */
     readonly resources: ResourceSystem;
     /** EventBus opcional — usado pelo DebugFlow para emitir profilerStats. */
     readonly events?: EventBus;

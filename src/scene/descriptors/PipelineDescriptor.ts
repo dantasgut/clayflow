@@ -24,6 +24,7 @@ export type PipelineDescriptorRole = 'compute' | 'render';
 export interface PipelineDescriptor {
     /** Identificador único do pipeline (e.g. 'pipeline_standard', 'pipeline_lcp_predict'). */
     readonly id: string;
+    /** Tipo do pipeline ('compute' para GPGPU, 'render' para vertex+fragment). */
     readonly role: PipelineDescriptorRole;
     /** WGSL source completo contendo todos os entry points listados. */
     readonly shaderSource: string;

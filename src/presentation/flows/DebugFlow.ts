@@ -64,9 +64,11 @@ export class DebugFlow extends Flow {
         return this;
     }
 
+    /** Habilita/desabilita emissão de profilerStats event a cada frame. */
     setEnabled(value: boolean): void {
         this.enabled = value;
     }
+    /** True se DebugFlow está coletando + emitindo stats. */
     isEnabled(): boolean {
         return this.enabled;
     }

@@ -3,7 +3,12 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Constraint } from './Constraint';
 
+/**
+ * Constraint articulação entre 2 bodies — kind discrimina hinge/ball/slider/etc.
+ * limits codifica ângulos/extensões mín/máx específicos do kind.
+ */
 export class JointConstraint extends Constraint {
+    /** StructSchema do JointConstraint (bodyA/B + kind + anchors + limits). */
     static readonly schema = new StructSchema('JointConstraint', {
         bodyA: FieldType.u32,
         bodyB: FieldType.u32,

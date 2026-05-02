@@ -5,8 +5,10 @@ import { UiElement } from './UiElement';
  * sobreposto por ordem de inserção. Útil para HUDs (background + overlay).
  */
 export class UiStack extends UiElement {
+    /** Inset uniforme em todos os lados do container (CSS px). Default: 0. */
     padding = 0;
 
+    /** Recalcula `bounds` de cada filho (todos ocupam a área do stack menos padding). */
     layout(): void {
         const x = this.bounds.x + this.padding;
         const y = this.bounds.y + this.padding;

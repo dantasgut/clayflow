@@ -9,6 +9,7 @@ import type { BufferSpec } from './BufferSpec';
  * Para datasets maiores ou writable, use `StorageBufferSpec`.
  */
 export interface UniformBufferSpec extends BufferSpec {
+    /** Subdiscriminador concreto — sempre `'uniform'`. */
     readonly subkind: 'uniform';
     /** Tamanho em bytes. Alinhe com schema.stride para layouts WGSL corretos. */
     readonly byteSize: number;

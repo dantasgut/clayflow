@@ -149,6 +149,12 @@ export class Application {
         }
     }
 
+    /**
+     * Construtor async — inicializa GPU device + canvas, registra os Flows
+     * default + plugins (`options.plugins`), e retorna a `Application` pronta
+     * para `start()`. Se `options.scene` é fornecido usa contexto isolado
+     * (multi-Application); caso contrário usa o singleton default.
+     */
     static async create(options: ApplicationOptions): Promise<Application> {
         const scene: SceneContext = options.scene ?? defaultScene;
         const ownsScene = options.scene !== undefined;
