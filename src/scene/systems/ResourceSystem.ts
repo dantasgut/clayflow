@@ -76,6 +76,11 @@ export class ResourceSystem {
         return this.pools.get(poolKey)?.slotByEntity.get(entityId);
     }
 
+    /** EntityId que ocupa o slot dado dentro do pool. Inverso de `poolSlotOf`. */
+    poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined {
+        return this.pools.get(poolKey)?.entityBySlot.get(slot);
+    }
+
     /** StorageBufferSpec do pool — uso direto em pipelines custom. */
     poolBufferSpec(poolKey: string): StorageBufferSpec | undefined {
         return this.pools.get(poolKey)?.bufferSpec;
