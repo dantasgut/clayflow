@@ -6,7 +6,11 @@
 
 # Class: SphereEmitterShape
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:3](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/SphereEmitterShape.ts#L3)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:3](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/SphereEmitterShape.ts#L3)
+
+Shape de emissão — define o volume de onde partículas spawnam e
+a direção inicial. Implementações: SphereEmitterShape (esfera),
+ConeEmitterShape (cone direcional), etc.
 
 ## Implements
 
@@ -18,7 +22,7 @@ Defined in: [elements/particles/shapes/SphereEmitterShape.ts:3](https://github.c
 
 > **new SphereEmitterShape**(`radius?`, `center?`, `speed?`): `SphereEmitterShape`
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/SphereEmitterShape.ts#L4)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:4](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/SphereEmitterShape.ts#L4)
 
 #### Parameters
 
@@ -44,7 +48,10 @@ readonly \[`number`, `number`, `number`\] = `...`
 
 > **sample**(`rng`): [`SpawnSample`](../interfaces/SpawnSample.md)
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
+
+Sampleia um novo spawn point. `rng` é uma função pseudo-random
+(default: Math.random). Retorna position + velocity para a partícula.
 
 #### Parameters
 

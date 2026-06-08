@@ -8,4 +8,9 @@
 
 > **GltfInterpolation** = `"LINEAR"` \| `"STEP"` \| `"CUBICSPLINE"`
 
-Defined in: [presentation/assets/GltfLoader.ts:34](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L34)
+Defined in: [presentation/assets/GltfLoader.ts:81](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L81)
+
+Modo de interpolação entre keyframes.
+  - `LINEAR`: lerp normal.
+  - `STEP`: hold (sem interpolação).
+  - `CUBICSPLINE`: 3 valores por keyframe (in-tangent, value, out-tangent).

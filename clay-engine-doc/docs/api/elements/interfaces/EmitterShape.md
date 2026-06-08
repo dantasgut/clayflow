@@ -6,7 +6,11 @@
 
 # Interface: EmitterShape
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:6](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/EmitterShape.ts#L6)
+Defined in: [elements/particles/shapes/EmitterShape.ts:17](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/EmitterShape.ts#L17)
+
+Shape de emissão — define o volume de onde partículas spawnam e
+a direção inicial. Implementações: SphereEmitterShape (esfera),
+ConeEmitterShape (cone direcional), etc.
 
 ## Methods
 
@@ -14,7 +18,10 @@ Defined in: [elements/particles/shapes/EmitterShape.ts:6](https://github.com/dan
 
 > **sample**(`rng`): [`SpawnSample`](SpawnSample.md)
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/EmitterShape.ts#L7)
+Defined in: [elements/particles/shapes/EmitterShape.ts:22](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/EmitterShape.ts#L22)
+
+Sampleia um novo spawn point. `rng` é uma função pseudo-random
+(default: Math.random). Retorna position + velocity para a partícula.
 
 #### Parameters
 

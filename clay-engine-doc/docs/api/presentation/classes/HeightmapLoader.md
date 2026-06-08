@@ -6,7 +6,12 @@
 
 # Class: HeightmapLoader
 
-Defined in: [presentation/assets/HeightmapLoader.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/HeightmapLoader.ts#L7)
+Defined in: [presentation/assets/HeightmapLoader.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/HeightmapLoader.ts#L21)
+
+HeightmapLoader carrega imagens (PNG/JPG) e extrai o canal R como
+altura normalizada. 8-bit precision (256 níveis distintos). Para
+heightmaps de alta resolução use 16-bit PNG ou EXR (não-suportado
+neste loader — usar TextureLoader + decode manual).
 
 ## Constructors
 
@@ -24,7 +29,9 @@ Defined in: [presentation/assets/HeightmapLoader.ts:7](https://github.com/dantas
 
 > **load**(`url`): `Promise`\<[`Heightmap`](../interfaces/Heightmap.md)\>
 
-Defined in: [presentation/assets/HeightmapLoader.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/HeightmapLoader.ts#L8)
+Defined in: [presentation/assets/HeightmapLoader.ts:23](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/HeightmapLoader.ts#L23)
+
+Carrega heightmap via fetch + decode + extração canal R.
 
 #### Parameters
 

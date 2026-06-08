@@ -6,7 +6,10 @@
 
 # Interface: SpawnSample
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:1](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/EmitterShape.ts#L1)
+Defined in: [elements/particles/shapes/EmitterShape.ts:5](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/EmitterShape.ts#L5)
+
+Sample retornado por `EmitterShape.sample()` — posição + velocidade
+iniciais para uma partícula recém-spawned.
 
 ## Properties
 
@@ -14,7 +17,9 @@ Defined in: [elements/particles/shapes/EmitterShape.ts:1](https://github.com/dan
 
 > `readonly` **position**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:2](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/EmitterShape.ts#L2)
+Defined in: [elements/particles/shapes/EmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/EmitterShape.ts#L7)
+
+Posição inicial em world coords.
 
 ***
 
@@ -22,4 +27,6 @@ Defined in: [elements/particles/shapes/EmitterShape.ts:2](https://github.com/dan
 
 > `readonly` **velocity**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:3](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/shapes/EmitterShape.ts#L3)
+Defined in: [elements/particles/shapes/EmitterShape.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/shapes/EmitterShape.ts#L9)
+
+Velocidade inicial em world units / segundo.

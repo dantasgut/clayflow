@@ -12,14 +12,14 @@ A engine está em `feature/hardening` (a ser merged em `develop`) com cobertura 
 
 ## Arquitetura em 1 minuto
 
-| Camada | Responsabilidade | Diretório |
-|---|---|---|
-| **C1 — Hardware** | EngineCore facade sobre WebGPU; spec-as-identity (UUIDv5) | `src/core/` |
-| **C2 — Sync** | World/EventBus/ResourceSystem/Flow/LayoutInferencer | `src/scene/` |
-| **C3 — Elements** | Resources user-facing: geometry, material, physics bodies, constraints | `src/elements/` |
-| **C4 — Presentation** | Application, GameLoop, ForwardFlow, PostFlow, UIFlow, controllers | `src/presentation/` |
+| Camada                | Responsabilidade                                                       | Diretório           |
+| --------------------- | ---------------------------------------------------------------------- | ------------------- |
+| **C1 — Hardware**     | EngineCore facade sobre WebGPU; spec-as-identity (UUIDv5)              | `src/core/`         |
+| **C2 — Sync**         | World/EventBus/ResourceSystem/Flow/LayoutInferencer                    | `src/scene/`        |
+| **C3 — Elements**     | Resources user-facing: geometry, material, physics bodies, constraints | `src/elements/`     |
+| **C4 — Presentation** | Application, GameLoop, ForwardFlow, PostFlow, UIFlow, controllers      | `src/presentation/` |
 
-Detalhes em [`clay-engine-doc/docs/guides/architecture_resource_loaders.md`](_media/architecture_resource_loaders.md).
+Detalhes em [Arquitetura do Motor](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/architecture_resource_loaders.md).
 
 ## Quickstart
 
@@ -39,7 +39,7 @@ import { Application } from 'webgpu-engine';
 
 const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 const app = await Application.create({ canvas });
-app.start();   // GameLoop começa a emitir frameTick
+app.start(); // GameLoop começa a emitir frameTick
 ```
 
 ## Receitas
@@ -47,12 +47,8 @@ app.start();   // GameLoop começa a emitir frameTick
 ### 1. Cubo girando
 
 ```typescript
-import {
-    Application, OrbitController, InteractionSystem,
-} from 'webgpu-engine';
-import {
-    BoxGeometry, Camera, DirectionalLight, StandardMaterial, Transform,
-} from 'webgpu-engine';
+import { Application, OrbitController, InteractionSystem } from 'webgpu-engine';
+import { BoxGeometry, Camera, DirectionalLight, StandardMaterial, Transform } from 'webgpu-engine';
 
 const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 const app = await Application.create({ canvas });
@@ -62,15 +58,23 @@ app.world.insert(camera);
 
 const interaction = new InteractionSystem({ canvas, window }, app.events);
 interaction.attach();
-interaction.addController(new OrbitController(camera, {
-    target: [0, 0, 0], distance: 5,
-    autoRotate: true, autoRotateSpeed: 0.4,
+interaction.addController(
+  new OrbitController(camera, {
+    target: [0, 0, 0],
+    distance: 5,
+    autoRotate: true,
+    autoRotateSpeed: 0.4,
     damping: 0.85,
-}));
+  }),
+);
 
-app.world.insert(new DirectionalLight({
-    direction: [0.4, -1, 0.6, 0], color: [1, 1, 0.95, 1], castShadow: true,
-}));
+app.world.insert(
+  new DirectionalLight({
+    direction: [0.4, -1, 0.6, 0],
+    color: [1, 1, 0.95, 1],
+    castShadow: true,
+  }),
+);
 
 const cube = new BoxGeometry({ size: [1, 1, 1] });
 cube.add(new StandardMaterial({ albedo: [0.85, 0.4, 0.25, 1], roughness: 0.4 }));
@@ -84,9 +88,7 @@ app.start();
 
 ```typescript
 import { Application } from 'webgpu-engine';
-import {
-    Camera, GravityField, RigidBody, LCPFlow,
-} from 'webgpu-engine';
+import { Camera, GravityField, RigidBody, LCPFlow } from 'webgpu-engine';
 
 const app = await Application.create({ canvas });
 app.world.insert(new Camera({ aspect: canvas.width / canvas.height }));
@@ -100,21 +102,26 @@ app.start();
 ### 3. Scene com sombras + post-processing
 
 ```typescript
+import { Application, Bloom, ToneMapping, Fxaa, Vignette } from 'webgpu-engine';
 import {
-    Application,
-    Bloom, ToneMapping, Fxaa, Vignette,
-} from 'webgpu-engine';
-import {
-    BoxGeometry, Camera, DirectionalLight, PlaneGeometry,
-    StandardMaterial, Transform,
+  BoxGeometry,
+  Camera,
+  DirectionalLight,
+  PlaneGeometry,
+  StandardMaterial,
+  Transform,
 } from 'webgpu-engine';
 
 const app = await Application.create({ canvas });
 
 app.world.insert(new Camera({ aspect: canvas.width / canvas.height }));
-app.world.insert(new DirectionalLight({
-    direction: [0.4, -1, 0.6, 0], castShadow: true, color: [1, 1, 0.95, 1],
-}));
+app.world.insert(
+  new DirectionalLight({
+    direction: [0.4, -1, 0.6, 0],
+    castShadow: true,
+    color: [1, 1, 0.95, 1],
+  }),
+);
 
 const ground = new PlaneGeometry({ size: [10, 10] });
 ground.add(new StandardMaterial({ albedo: [0.4, 0.4, 0.45, 1], roughness: 0.9 }));
@@ -156,9 +163,9 @@ npm run doc          # TypeDoc → docs/
 
 ## Documentação adicional
 
-- [Arquitetura completa](_media/architecture_resource_loaders.md)
-- [Estabilidade e persistência](_media/estabilidade_e_persistencia.md)
-- TypeDoc: `npm run doc` gera em `docs/`
+- [Arquitetura completa](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/architecture_resource_loaders.md)
+- [Colisões e estabilidade](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/colisoes.md)
+- TypeDoc: `npm run doc` gera em `clay-engine-doc/docs/api/`
 
 ## Licença
 

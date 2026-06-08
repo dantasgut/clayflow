@@ -6,7 +6,12 @@
 
 # Class: FluidBody
 
-Defined in: [elements/physics/bodies/FluidBody.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/FluidBody.ts#L13)
+Defined in: [elements/physics/bodies/FluidBody.ts:28](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/FluidBody.ts#L28)
+
+FluidBody — partícula de fluido (water, smoke, gel). Data class pura:
+estado runtime serializável governado pelo `schema` recebido. Pool key =
+`schema.name` roteia para SPHFlow/PBFFlow/MPMFlow conforme o schema
+escolhido.
 
 ## Extends
 
@@ -16,19 +21,15 @@ Defined in: [elements/physics/bodies/FluidBody.ts:13](https://github.com/dantasg
 
 ### Constructor
 
-> **new FluidBody**(`values?`, `options?`): `FluidBody`
+> **new FluidBody**(`options`): `FluidBody`
 
-Defined in: [elements/physics/bodies/FluidBody.ts:27](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/FluidBody.ts#L27)
+Defined in: [elements/physics/bodies/FluidBody.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/FluidBody.ts#L31)
 
 #### Parameters
 
-##### values?
+##### options
 
-`Record`\<`string`, `unknown`\> = `{}`
-
-##### options?
-
-[`FluidBodyOptions`](../interfaces/FluidBodyOptions.md) = `{}`
+[`FluidBodyOptions`](../interfaces/FluidBodyOptions.md)
 
 #### Returns
 
@@ -44,7 +45,11 @@ Defined in: [elements/physics/bodies/FluidBody.ts:27](https://github.com/dantasg
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/PhysicsBody.ts#L10)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:16](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/PhysicsBody.ts#L16)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Inherited from
 
@@ -56,27 +61,13 @@ Defined in: [elements/physics/bodies/PhysicsBody.ts:10](https://github.com/danta
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/PhysicsBody.ts#L9)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/PhysicsBody.ts#L15)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
 [`PhysicsBody`](PhysicsBody.md).[`state`](PhysicsBody.md#state)
-
-***
-
-### defaultAlgorithm
-
-> `readonly` `static` **defaultAlgorithm**: [`FluidBodyAlgorithm`](../type-aliases/FluidBodyAlgorithm.md) = `'SPH'`
-
-Defined in: [elements/physics/bodies/FluidBody.ts:23](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/FluidBody.ts#L23)
-
-***
-
-### schema
-
-> `readonly` `static` **schema**: `StructSchema`
-
-Defined in: [elements/physics/bodies/FluidBody.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/FluidBody.ts#L14)
 
 ## Accessors
 
@@ -86,7 +77,10 @@ Defined in: [elements/physics/bodies/FluidBody.ts:14](https://github.com/dantasg
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -102,7 +96,10 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -124,7 +121,9 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/bodies/FluidBody.ts:40](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/FluidBody.ts#L40)
+Defined in: [elements/physics/bodies/FluidBody.ts:38](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/FluidBody.ts#L38)
+
+Pool storage para coalescer N FluidBodies do mesmo schema em 1 buffer GPU.
 
 #### Returns
 
@@ -136,27 +135,15 @@ readonly `GPUDescriptor`[]
 
 ***
 
-### getFlowDescriptors()
-
-> **getFlowDescriptors**(): readonly `FlowDescriptor`[]
-
-Defined in: [elements/physics/bodies/FluidBody.ts:49](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/FluidBody.ts#L49)
-
-#### Returns
-
-readonly `FlowDescriptor`[]
-
-#### Overrides
-
-[`PhysicsBody`](PhysicsBody.md).[`getFlowDescriptors`](PhysicsBody.md#getflowdescriptors)
-
-***
-
 ### getPipelineDescriptors()
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/PhysicsBody.ts#L14)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:20](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/PhysicsBody.ts#L20)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 

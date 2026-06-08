@@ -6,7 +6,15 @@
 
 # Class: AudioLoader
 
-Defined in: [presentation/assets/AudioLoader.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L10)
+Defined in: [presentation/assets/AudioLoader.ts:30](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L30)
+
+AudioLoader carrega arquivos de audio (mp3, ogg, wav) via fetch +
+Web Audio API decodeAudioData. Cria um AudioContext lazy na primeira
+chamada (compartilhado entre loads/plays).
+
+Suporte limitado: não faz spatial audio (PannerNode), apenas decode +
+play simples com volume + loop. Apps que precisam de mais devem
+acessar `audio.decoded` direto e usar Web Audio API completa.
 
 ## Constructors
 
@@ -24,7 +32,10 @@ Defined in: [presentation/assets/AudioLoader.ts:10](https://github.com/dantasgut
 
 > **load**(`url`): `Promise`\<[`LoadedAudio`](../interfaces/LoadedAudio.md)\>
 
-Defined in: [presentation/assets/AudioLoader.ts:19](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L19)
+Defined in: [presentation/assets/AudioLoader.ts:43](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L43)
+
+Carrega um audio asset. Em ambientes sem AudioContext, retorna
+LoadedAudio com `decoded: null` mas preserva o `buffer` raw.
 
 #### Parameters
 
@@ -42,7 +53,11 @@ Defined in: [presentation/assets/AudioLoader.ts:19](https://github.com/dantasgut
 
 > **play**(`audio`, `options?`): `AudioBufferSourceNode` \| `null`
 
-Defined in: [presentation/assets/AudioLoader.ts:39](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L39)
+Defined in: [presentation/assets/AudioLoader.ts:70](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L70)
+
+Reproduz um audio decoded com gain (volume) e loop opcionais.
+Returns o source node (chame `.stop()` para interromper) ou null
+se sem AudioContext / sem decoded.
 
 #### Parameters
 

@@ -15,7 +15,7 @@ A engine está em `feature/hardening` (a ser merged em `develop`) com cobertura 
 | **C3 — Elements**     | Resources user-facing: geometry, material, physics bodies, constraints | `src/elements/`     |
 | **C4 — Presentation** | Application, GameLoop, ForwardFlow, PostFlow, UIFlow, controllers      | `src/presentation/` |
 
-Detalhes em [`clay-engine-doc/docs/guides/architecture_resource_loaders.md`](clay-engine-doc/docs/guides/architecture_resource_loaders.md).
+Detalhes em [Arquitetura do Motor](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/architecture_resource_loaders.md).
 
 ## Quickstart
 
@@ -159,9 +159,9 @@ npm run doc          # TypeDoc → docs/
 
 ## Documentação adicional
 
-- [Arquitetura completa](clay-engine-doc/docs/guides/architecture_resource_loaders.md)
-- [Estabilidade e persistência](clay-engine-doc/docs/guides/estabilidade_e_persistencia.md)
-- TypeDoc: `npm run doc` gera em `docs/`
+- [Arquitetura completa](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/architecture_resource_loaders.md)
+- [Colisões e estabilidade](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/colisoes.md)
+- TypeDoc: `npm run doc` gera em `clay-engine-doc/docs/api/`
 
 ## Licença
 

@@ -6,7 +6,11 @@
 
 # Interface: Heightmap
 
-Defined in: [presentation/assets/HeightmapLoader.ts:1](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/HeightmapLoader.ts#L1)
+Defined in: [presentation/assets/HeightmapLoader.ts:6](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/HeightmapLoader.ts#L6)
+
+Heightmap carregado — array de alturas normalizadas (0..1) em layout
+row-major `heights[y*width + x]`. Apps usam para gerar terrain meshes
+via `ParametricGeometry` ou displacement mapping.
 
 ## Properties
 
@@ -14,7 +18,9 @@ Defined in: [presentation/assets/HeightmapLoader.ts:1](https://github.com/dantas
 
 > `readonly` **height**: `number`
 
-Defined in: [presentation/assets/HeightmapLoader.ts:3](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/HeightmapLoader.ts#L3)
+Defined in: [presentation/assets/HeightmapLoader.ts:10](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/HeightmapLoader.ts#L10)
+
+Altura em texels.
 
 ***
 
@@ -22,7 +28,9 @@ Defined in: [presentation/assets/HeightmapLoader.ts:3](https://github.com/dantas
 
 > `readonly` **heights**: `Float32Array`
 
-Defined in: [presentation/assets/HeightmapLoader.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/HeightmapLoader.ts#L4)
+Defined in: [presentation/assets/HeightmapLoader.ts:12](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/HeightmapLoader.ts#L12)
+
+Float32Array com width × height alturas (canal R do PNG, normalizado 0..1).
 
 ***
 
@@ -30,4 +38,6 @@ Defined in: [presentation/assets/HeightmapLoader.ts:4](https://github.com/dantas
 
 > `readonly` **width**: `number`
 
-Defined in: [presentation/assets/HeightmapLoader.ts:2](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/HeightmapLoader.ts#L2)
+Defined in: [presentation/assets/HeightmapLoader.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/HeightmapLoader.ts#L8)
+
+Largura em texels.

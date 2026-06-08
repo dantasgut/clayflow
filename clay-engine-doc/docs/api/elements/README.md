@@ -9,13 +9,14 @@
 Camada 3 — Elements API pública.
 
 Resources user-facing: geometrias paramétricas, materiais, lights,
-physics bodies (RigidBody, SoftBody, MPMBody, SPHBody, PBFBody), colliders,
+physics bodies (RigidBody, SoftBody, FluidBody — data classes que recebem
+`schema` na instanciação a partir de `bodies/schemas/`), colliders,
 constraints, force fields, particle emitters, e os Flows que processam
 cada categoria (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, SPHFlow, PBFFlow).
 
 Cada classe expõe `getDescriptors()` (camadas C2 alocam buffers/bindings
-automaticamente) e, quando relevante, `getFlowDescriptors()` (associa o
-resource a um pool por algoritmo).
+automaticamente). Pool key = `schema.name` roteia bodies para os flows
+pelo `Flow.bodyType` registrado.
 
 ## Classes
 
@@ -44,7 +45,6 @@ resource a um pool por algoritmo).
 - [Light](classes/Light.md)
 - [Material](classes/Material.md)
 - [MeshCollider](classes/MeshCollider.md)
-- [MPMBody](classes/MPMBody.md)
 - [MPMFlow](classes/MPMFlow.md)
 - [NeighborSearchGrid](classes/NeighborSearchGrid.md)
 - [NeighborSearchPipeline](classes/NeighborSearchPipeline.md)
@@ -52,7 +52,6 @@ resource a um pool por algoritmo).
 - [ParametricGeometry](classes/ParametricGeometry.md)
 - [ParametricSurfaceGeometry](classes/ParametricSurfaceGeometry.md)
 - [ParticleEmitter](classes/ParticleEmitter.md)
-- [PBFBody](classes/PBFBody.md)
 - [PBFFlow](classes/PBFFlow.md)
 - [PhysicsBody](classes/PhysicsBody.md)
 - [PlaneCollider](classes/PlaneCollider.md)
@@ -66,7 +65,6 @@ resource a um pool por algoritmo).
 - [ScriptedParticleEmitter](classes/ScriptedParticleEmitter.md)
 - [ShadowMap](classes/ShadowMap.md)
 - [SoftBody](classes/SoftBody.md)
-- [SPHBody](classes/SPHBody.md)
 - [SphereCollider](classes/SphereCollider.md)
 - [SphereEmitterShape](classes/SphereEmitterShape.md)
 - [SphereGeometry](classes/SphereGeometry.md)
@@ -94,7 +92,15 @@ resource a um pool por algoritmo).
 
 ## Type Aliases
 
-- [FluidBodyAlgorithm](type-aliases/FluidBodyAlgorithm.md)
 - [ParametricFunction](type-aliases/ParametricFunction.md)
-- [RigidBodyAlgorithm](type-aliases/RigidBodyAlgorithm.md)
-- [SoftBodyAlgorithm](type-aliases/SoftBodyAlgorithm.md)
+
+## Variables
+
+- [FEMSchema](variables/FEMSchema.md)
+- [LCPSchema](variables/LCPSchema.md)
+- [MPMFluidSchema](variables/MPMFluidSchema.md)
+- [MPMSoftSchema](variables/MPMSoftSchema.md)
+- [PBFSchema](variables/PBFSchema.md)
+- [SPHSchema](variables/SPHSchema.md)
+- [XPBDRigidSchema](variables/XPBDRigidSchema.md)
+- [XPBDSoftSchema](variables/XPBDSoftSchema.md)

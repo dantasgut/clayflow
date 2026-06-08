@@ -6,7 +6,10 @@
 
 # Interface: GltfMaterial
 
-Defined in: [presentation/assets/GltfLoader.ts:26](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L26)
+Defined in: [presentation/assets/GltfLoader.ts:62](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L62)
+
+Material glTF metallic-roughness (PBR). Mapeamento direto pra
+`StandardMaterial` da engine: baseColor → albedo, etc.
 
 ## Properties
 
@@ -14,7 +17,9 @@ Defined in: [presentation/assets/GltfLoader.ts:26](https://github.com/dantasgut/
 
 > `readonly` **baseColorFactor**: readonly \[`number`, `number`, `number`, `number`\]
 
-Defined in: [presentation/assets/GltfLoader.ts:28](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L28)
+Defined in: [presentation/assets/GltfLoader.ts:66](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L66)
+
+Cor base RGBA (multiplicada com baseColorTexture quando presente).
 
 ***
 
@@ -22,7 +27,9 @@ Defined in: [presentation/assets/GltfLoader.ts:28](https://github.com/dantasgut/
 
 > `readonly` **metallicFactor**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:30](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L30)
+Defined in: [presentation/assets/GltfLoader.ts:70](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L70)
+
+Metallic 0..1 (0 = dielétrico, 1 = metal).
 
 ***
 
@@ -30,7 +37,9 @@ Defined in: [presentation/assets/GltfLoader.ts:30](https://github.com/dantasgut/
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:27](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L27)
+Defined in: [presentation/assets/GltfLoader.ts:64](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L64)
+
+Nome legível (debug).
 
 ***
 
@@ -38,4 +47,6 @@ Defined in: [presentation/assets/GltfLoader.ts:27](https://github.com/dantasgut/
 
 > `readonly` **roughnessFactor**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:29](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L29)
+Defined in: [presentation/assets/GltfLoader.ts:68](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L68)
+
+Roughness 0..1 (0 = mirror, 1 = totalmente difuso).

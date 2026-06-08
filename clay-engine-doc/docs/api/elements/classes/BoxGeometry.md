@@ -6,7 +6,13 @@
 
 # Class: BoxGeometry
 
-Defined in: [elements/geometry/BoxGeometry.ts:6](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/BoxGeometry.ts#L6)
+Defined in: [elements/geometry/BoxGeometry.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/BoxGeometry.ts#L13)
+
+BoxGeometry — paralelepípedo retangular gerado proceduralmente a partir
+de `size: [w, h, d]`. 24 vértices (4 por face × 6 faces, normais
+únicas por face) e 36 índices (2 triangles por face).
+
+Default size: [1, 1, 1] (cubo unitário centrado na origem).
 
 ## Extends
 
@@ -18,7 +24,7 @@ Defined in: [elements/geometry/BoxGeometry.ts:6](https://github.com/dantasgut/cl
 
 > **new BoxGeometry**(`values?`): `BoxGeometry`
 
-Defined in: [elements/geometry/BoxGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/BoxGeometry.ts#L14)
+Defined in: [elements/geometry/BoxGeometry.ts:23](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/BoxGeometry.ts#L23)
 
 #### Parameters
 
@@ -40,7 +46,11 @@ Defined in: [elements/geometry/BoxGeometry.ts:14](https://github.com/dantasgut/c
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L9)
+Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L9)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Inherited from
 
@@ -52,7 +62,9 @@ Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayf
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L8)
+Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L8)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
@@ -64,7 +76,9 @@ Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayf
 
 > `readonly` `static` **schema**: `StructSchema` = `BoxGeometry.vertexStruct`
 
-Defined in: [elements/geometry/BoxGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/BoxGeometry.ts#L12)
+Defined in: [elements/geometry/BoxGeometry.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/BoxGeometry.ts#L21)
+
+Alias para vertexStruct.
 
 ***
 
@@ -72,7 +86,9 @@ Defined in: [elements/geometry/BoxGeometry.ts:12](https://github.com/dantasgut/c
 
 > `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/BoxGeometry.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/BoxGeometry.ts#L7)
+Defined in: [elements/geometry/BoxGeometry.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/BoxGeometry.ts#L15)
+
+Vertex layout: position (vec3) + normal (vec3) + uv (vec2).
 
 ## Accessors
 
@@ -82,7 +98,10 @@ Defined in: [elements/geometry/BoxGeometry.ts:7](https://github.com/dantasgut/cl
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -100,7 +119,9 @@ readonly [`Entity`](Entity.md)[]
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/BoxGeometry.ts:37](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/BoxGeometry.ts#L37)
+Defined in: [elements/geometry/BoxGeometry.ts:58](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/BoxGeometry.ts#L58)
+
+Index count (= 36 para box: 2 triangles × 6 faces × 3 indices).
 
 ##### Returns
 
@@ -118,7 +139,9 @@ Defined in: [elements/geometry/BoxGeometry.ts:37](https://github.com/dantasgut/c
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/BoxGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/BoxGeometry.ts#L36)
+Defined in: [elements/geometry/BoxGeometry.ts:54](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/BoxGeometry.ts#L54)
+
+Vertex count (= 24 para box).
 
 ##### Returns
 
@@ -134,7 +157,10 @@ Defined in: [elements/geometry/BoxGeometry.ts:36](https://github.com/dantasgut/c
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -156,7 +182,9 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/BoxGeometry.ts:29](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/BoxGeometry.ts#L29)
+Defined in: [elements/geometry/BoxGeometry.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/BoxGeometry.ts#L41)
+
+Declara VBO + IBO para alocação automática pelo ResourceSystem.
 
 #### Returns
 
@@ -172,7 +200,11 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L13)
+Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L13)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 

@@ -5,7 +5,7 @@ title: Getting Started
 
 # Getting Started
 
-Boot a Clay Engine application in 3 steps. Veja também o [README](https://github.com/anthropics/...) para receitas mais elaboradas.
+Boot a Clay Engine application in 3 steps. Veja também o [repositório no GitHub](https://github.com/dantasgut/clayflow) para receitas mais elaboradas.
 
 ## 1. Install
 
@@ -90,8 +90,8 @@ Pronto: você tem um cubo com sombra, OrbitController com damping, luz direciona
 
 ## Próximos passos
 
-- **Adicionar física**: veja [physics-flows](physics-flows). RigidBody → `LCPFlow`, SoftBody → `XPBDFlow` (com `DistanceConstraint`), MPMBody → `MPMFlow`, etc.
-- **Pós-processamento**: `app.defaults.post.addEffect(new Bloom())`. Veja [post-processing](post-processing).
+- **Adicionar física**: veja [Physics Flows](./physics_flows.md). RigidBody → `LCPFlow`, SoftBody → `XPBDFlow` (com `DistanceConstraint`), FluidBody + `MPMFluidSchema` → `MPMFlow`, etc.
+- **Pós-processamento**: `app.defaults.post.addEffect(new Bloom())`. Veja [Pós-processamento](./post_processing.md).
 - **UI overlay**: `app.defaults.ui.ui.add(new UiPanel())` + `UiInteractionHandler` para hit-test.
 - **Loaders**: `await new GltfLoader().load('/assets/model.glb')` (suporta GLB binário, animações, skinning).
 - **Profiling**: `app.defaults.debug.setEnabled(true)` e subscribe ao evento `profilerStats` (FPS, frame time, médias).

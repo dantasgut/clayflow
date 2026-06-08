@@ -6,7 +6,15 @@
 
 # Class: ParametricGeometry
 
-Defined in: [elements/geometry/ParametricGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/ParametricGeometry.ts#L8)
+Defined in: [elements/geometry/ParametricGeometry.ts:26](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/ParametricGeometry.ts#L26)
+
+ParametricGeometry gera uma malha tessellated a partir de uma função
+paramétrica `f(u, v) → [x, y, z]`. Útil para superfícies matemáticas
+(sphere, torus, möbius, etc.) sem pré-computar mesh data.
+
+Subdivisão é controlada por `uSteps × vSteps` (default 32×32 = 1024 quads).
+Normais são placeholder (always [0, 1, 0]) — apps que precisam de
+shading correto devem post-processar com derivada cross-product.
 
 ## Extends
 
@@ -22,7 +30,7 @@ Defined in: [elements/geometry/ParametricGeometry.ts:8](https://github.com/danta
 
 > **new ParametricGeometry**(`values?`): `ParametricGeometry`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:16](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/ParametricGeometry.ts#L16)
+Defined in: [elements/geometry/ParametricGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/ParametricGeometry.ts#L36)
 
 #### Parameters
 
@@ -44,7 +52,11 @@ Defined in: [elements/geometry/ParametricGeometry.ts:16](https://github.com/dant
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L9)
+Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L9)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Inherited from
 
@@ -56,7 +68,9 @@ Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayf
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L8)
+Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L8)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
@@ -68,7 +82,9 @@ Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayf
 
 > `readonly` `static` **schema**: `StructSchema` = `ParametricGeometry.vertexStruct`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/ParametricGeometry.ts#L14)
+Defined in: [elements/geometry/ParametricGeometry.ts:34](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/ParametricGeometry.ts#L34)
+
+Alias para vertexStruct — Schema interface comum.
 
 ***
 
@@ -76,7 +92,9 @@ Defined in: [elements/geometry/ParametricGeometry.ts:14](https://github.com/dant
 
 > `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/ParametricGeometry.ts#L9)
+Defined in: [elements/geometry/ParametricGeometry.ts:28](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/ParametricGeometry.ts#L28)
+
+Vertex layout: position (vec3) + normal (vec3) + uv (vec2).
 
 ## Accessors
 
@@ -86,7 +104,10 @@ Defined in: [elements/geometry/ParametricGeometry.ts:9](https://github.com/danta
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -104,7 +125,9 @@ readonly [`Entity`](Entity.md)[]
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:37](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/ParametricGeometry.ts#L37)
+Defined in: [elements/geometry/ParametricGeometry.ts:70](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/ParametricGeometry.ts#L70)
+
+Número total de índices (= uSteps × vSteps × 6, 2 triangles por quad).
 
 ##### Returns
 
@@ -122,7 +145,9 @@ Defined in: [elements/geometry/ParametricGeometry.ts:37](https://github.com/dant
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/ParametricGeometry.ts#L36)
+Defined in: [elements/geometry/ParametricGeometry.ts:66](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/ParametricGeometry.ts#L66)
+
+Número total de vértices (= (uSteps+1) × (vSteps+1)).
 
 ##### Returns
 
@@ -138,7 +163,10 @@ Defined in: [elements/geometry/ParametricGeometry.ts:36](https://github.com/dant
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -160,7 +188,9 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/ParametricGeometry.ts:29](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/ParametricGeometry.ts#L29)
+Defined in: [elements/geometry/ParametricGeometry.ts:53](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/ParametricGeometry.ts#L53)
+
+Declara VBO (vertex buffer) + IBO (index buffer) para o ResourceSystem.
 
 #### Returns
 
@@ -176,7 +206,11 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L13)
+Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L13)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 

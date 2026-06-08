@@ -6,7 +6,11 @@
 
 # Interface: GltfAnimationSampler
 
-Defined in: [presentation/assets/GltfLoader.ts:36](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L36)
+Defined in: [presentation/assets/GltfLoader.ts:88](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L88)
+
+Sampler de uma animation: pares (input → output) que descrevem keyframes.
+Múltiplos channels podem compartilhar o mesmo sampler (e.g. translation
+de vários nodes seguindo o mesmo timing).
 
 ## Properties
 
@@ -14,7 +18,9 @@ Defined in: [presentation/assets/GltfLoader.ts:36](https://github.com/dantasgut/
 
 > `readonly` **input**: `Float32Array`
 
-Defined in: [presentation/assets/GltfLoader.ts:37](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L37)
+Defined in: [presentation/assets/GltfLoader.ts:90](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L90)
+
+Tempos dos keyframes em segundos (monotonicamente crescente).
 
 ***
 
@@ -22,7 +28,9 @@ Defined in: [presentation/assets/GltfLoader.ts:37](https://github.com/dantasgut/
 
 > `readonly` **interpolation**: [`GltfInterpolation`](../type-aliases/GltfInterpolation.md)
 
-Defined in: [presentation/assets/GltfLoader.ts:39](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L39)
+Defined in: [presentation/assets/GltfLoader.ts:94](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L94)
+
+Modo de interpolação entre keyframes (LINEAR / STEP / CUBICSPLINE).
 
 ***
 
@@ -30,4 +38,6 @@ Defined in: [presentation/assets/GltfLoader.ts:39](https://github.com/dantasgut/
 
 > `readonly` **output**: `Float32Array`
 
-Defined in: [presentation/assets/GltfLoader.ts:38](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L38)
+Defined in: [presentation/assets/GltfLoader.ts:92](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L92)
+
+Valores nos keyframes (vec3 para translation/scale, vec4 quaternion).

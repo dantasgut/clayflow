@@ -6,7 +6,15 @@
 
 # Interface: InputState
 
-Defined in: [presentation/input/Input.ts:1](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L1)
+Defined in: [presentation/input/Input.ts:10](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L10)
+
+State agregado de input — keyboard + pointer + wheel + pinch — atualizado
+pelos input devices (KeyboardDevice, PointerDevice, TouchDevice) e
+consumido por controllers (FlyController, OrbitController, FpsController).
+
+Deltas (`pointerDeltaX/Y`, `wheel`, `pinchDelta`) acumulam entre frames
+e são zerados via `consumeFrameDeltas()` (chamado pelo InteractionSystem
+no fim de cada tick após controllers terem lido).
 
 ## Properties
 
@@ -14,7 +22,9 @@ Defined in: [presentation/input/Input.ts:1](https://github.com/dantasgut/clayflo
 
 > **keys**: `Set`\<`string`\>
 
-Defined in: [presentation/input/Input.ts:2](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L2)
+Defined in: [presentation/input/Input.ts:12](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L12)
+
+Conjunto de codes (KeyboardEvent.code) atualmente pressionadas.
 
 ***
 
@@ -22,7 +32,7 @@ Defined in: [presentation/input/Input.ts:2](https://github.com/dantasgut/clayflo
 
 > **pinchDelta**: `number`
 
-Defined in: [presentation/input/Input.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L10)
+Defined in: [presentation/input/Input.ts:26](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L26)
 
 Variação de pinch (distance delta entre 2 dedos) consumida por frame.
 
@@ -32,7 +42,9 @@ Variação de pinch (distance delta entre 2 dedos) consumida por frame.
 
 > **pointerButtons**: `number`
 
-Defined in: [presentation/input/Input.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L7)
+Defined in: [presentation/input/Input.ts:22](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L22)
+
+Bitmask de botões pressionados (1=left, 2=right, 4=middle).
 
 ***
 
@@ -40,7 +52,9 @@ Defined in: [presentation/input/Input.ts:7](https://github.com/dantasgut/clayflo
 
 > **pointerDeltaX**: `number`
 
-Defined in: [presentation/input/Input.ts:5](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L5)
+Defined in: [presentation/input/Input.ts:18](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L18)
+
+Delta X acumulado desde o último consumeFrameDeltas.
 
 ***
 
@@ -48,7 +62,9 @@ Defined in: [presentation/input/Input.ts:5](https://github.com/dantasgut/clayflo
 
 > **pointerDeltaY**: `number`
 
-Defined in: [presentation/input/Input.ts:6](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L6)
+Defined in: [presentation/input/Input.ts:20](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L20)
+
+Delta Y acumulado.
 
 ***
 
@@ -56,7 +72,9 @@ Defined in: [presentation/input/Input.ts:6](https://github.com/dantasgut/clayflo
 
 > **pointerX**: `number`
 
-Defined in: [presentation/input/Input.ts:3](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L3)
+Defined in: [presentation/input/Input.ts:14](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L14)
+
+Posição X do pointer em coords de canvas (último move).
 
 ***
 
@@ -64,7 +82,9 @@ Defined in: [presentation/input/Input.ts:3](https://github.com/dantasgut/clayflo
 
 > **pointerY**: `number`
 
-Defined in: [presentation/input/Input.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L4)
+Defined in: [presentation/input/Input.ts:16](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L16)
+
+Posição Y do pointer em coords de canvas.
 
 ***
 
@@ -72,4 +92,6 @@ Defined in: [presentation/input/Input.ts:4](https://github.com/dantasgut/clayflo
 
 > **wheel**: `number`
 
-Defined in: [presentation/input/Input.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L8)
+Defined in: [presentation/input/Input.ts:24](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L24)
+
+Wheel delta acumulado (positive = scroll up).

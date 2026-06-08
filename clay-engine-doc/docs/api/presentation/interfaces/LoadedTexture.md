@@ -6,7 +6,10 @@
 
 # Interface: LoadedTexture
 
-Defined in: [presentation/assets/TextureLoader.ts:1](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/TextureLoader.ts#L1)
+Defined in: [presentation/assets/TextureLoader.ts:5](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/TextureLoader.ts#L5)
+
+Texture asset carregada — bitmap + dimensões. Apps usam o bitmap
+para uploadar via `core.writeTexture(spec, bitmap, layout, size)`.
 
 ## Properties
 
@@ -14,7 +17,9 @@ Defined in: [presentation/assets/TextureLoader.ts:1](https://github.com/dantasgu
 
 > `readonly` **bitmap**: `ImageBitmap`
 
-Defined in: [presentation/assets/TextureLoader.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/TextureLoader.ts#L4)
+Defined in: [presentation/assets/TextureLoader.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/TextureLoader.ts#L11)
+
+ImageBitmap (decodificado pelo browser).
 
 ***
 
@@ -22,7 +27,9 @@ Defined in: [presentation/assets/TextureLoader.ts:4](https://github.com/dantasgu
 
 > `readonly` **height**: `number`
 
-Defined in: [presentation/assets/TextureLoader.ts:3](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/TextureLoader.ts#L3)
+Defined in: [presentation/assets/TextureLoader.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/TextureLoader.ts#L9)
+
+Altura em pixels.
 
 ***
 
@@ -30,4 +37,6 @@ Defined in: [presentation/assets/TextureLoader.ts:3](https://github.com/dantasgu
 
 > `readonly` **width**: `number`
 
-Defined in: [presentation/assets/TextureLoader.ts:2](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/TextureLoader.ts#L2)
+Defined in: [presentation/assets/TextureLoader.ts:7](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/TextureLoader.ts#L7)
+
+Largura em pixels.

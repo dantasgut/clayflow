@@ -6,7 +6,11 @@
 
 # Interface: GltfMesh
 
-Defined in: [presentation/assets/GltfLoader.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L11)
+Defined in: [presentation/assets/GltfLoader.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L29)
+
+Mesh em glTF — agregado de primitives. Cada primitive tem seu próprio
+material e atributos vertex (positions/normals/uvs/etc.). Padrão glTF
+permite mesh com múltiplos primitives quando partes têm materials diferentes.
 
 ## Properties
 
@@ -14,7 +18,9 @@ Defined in: [presentation/assets/GltfLoader.ts:11](https://github.com/dantasgut/
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:12](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L12)
+Defined in: [presentation/assets/GltfLoader.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L31)
+
+Nome legível (debug).
 
 ***
 
@@ -22,4 +28,6 @@ Defined in: [presentation/assets/GltfLoader.ts:12](https://github.com/dantasgut/
 
 > `readonly` **primitives**: readonly [`GltfPrimitive`](GltfPrimitive.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L13)
+Defined in: [presentation/assets/GltfLoader.ts:33](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L33)
+
+Primitives sub-mesh — múltiplos quando partes têm materials diferentes.

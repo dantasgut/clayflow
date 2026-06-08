@@ -6,7 +6,11 @@
 
 # Class: GamepadDevice
 
-Defined in: [presentation/input/GamepadDevice.ts:1](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/GamepadDevice.ts#L1)
+Defined in: [presentation/input/GamepadDevice.ts:6](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/GamepadDevice.ts#L6)
+
+Gamepad polling — Gamepad API não emite eventos para axis/button
+changes, então o app deve chamar `poll()` a cada frame para ler estado
+atual de todos os gamepads conectados.
 
 ## Constructors
 
@@ -24,7 +28,9 @@ Defined in: [presentation/input/GamepadDevice.ts:1](https://github.com/dantasgut
 
 > **poll**(): readonly `Gamepad`[]
 
-Defined in: [presentation/input/GamepadDevice.ts:2](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/GamepadDevice.ts#L2)
+Defined in: [presentation/input/GamepadDevice.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/GamepadDevice.ts#L8)
+
+Snapshot dos gamepads atualmente conectados (filtra slots vazios).
 
 #### Returns
 

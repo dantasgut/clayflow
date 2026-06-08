@@ -65,6 +65,7 @@ Para implementar Resources/Flows customizados, importe diretamente de
 
 - [ApplicationOptions](interfaces/ApplicationOptions.md)
 - [ControllerContext](interfaces/ControllerContext.md)
+- [EnginePlugin](interfaces/EnginePlugin.md)
 - [GltfAnimation](interfaces/GltfAnimation.md)
 - [GltfAnimationChannel](interfaces/GltfAnimationChannel.md)
 - [GltfAnimationSampler](interfaces/GltfAnimationSampler.md)
@@ -76,11 +77,13 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [GltfSkin](interfaces/GltfSkin.md)
 - [Heightmap](interfaces/Heightmap.md)
 - [InputState](interfaces/InputState.md)
+- [InteractionPluginOptions](interfaces/InteractionPluginOptions.md)
 - [InteractionSystemOptions](interfaces/InteractionSystemOptions.md)
 - [LoadedAudio](interfaces/LoadedAudio.md)
 - [LoadedFont](interfaces/LoadedFont.md)
 - [LoadedTexture](interfaces/LoadedTexture.md)
 - [OrbitControllerOptions](interfaces/OrbitControllerOptions.md)
+- [PhysicsPluginOptions](interfaces/PhysicsPluginOptions.md)
 - [PostProcessOptions](interfaces/PostProcessOptions.md)
 - [PresentationDefaults](interfaces/PresentationDefaults.md)
 - [PresentationDefaultsOptions](interfaces/PresentationDefaultsOptions.md)
@@ -93,4 +96,6 @@ Para implementar Resources/Flows customizados, importe diretamente de
 
 ## Functions
 
+- [interactionPlugin](functions/interactionPlugin.md)
+- [physicsPlugin](functions/physicsPlugin.md)
 - [registerPresentationDefaults](functions/registerPresentationDefaults.md)

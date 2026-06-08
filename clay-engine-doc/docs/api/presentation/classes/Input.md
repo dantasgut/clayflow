@@ -6,7 +6,11 @@
 
 # Class: Input
 
-Defined in: [presentation/input/Input.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L13)
+Defined in: [presentation/input/Input.ts:34](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L34)
+
+Input centraliza o estado dos input devices em uma struct compartilhada.
+Devices escrevem em `state` quando handlers de DOM eventos disparam;
+controllers lêem em cada tick.
 
 ## Constructors
 
@@ -24,7 +28,9 @@ Defined in: [presentation/input/Input.ts:13](https://github.com/dantasgut/clayfl
 
 > `readonly` **state**: [`InputState`](../interfaces/InputState.md)
 
-Defined in: [presentation/input/Input.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L14)
+Defined in: [presentation/input/Input.ts:36](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L36)
+
+Estado compartilhado mutável — devices escrevem, controllers lêem.
 
 ## Methods
 
@@ -32,7 +38,11 @@ Defined in: [presentation/input/Input.ts:14](https://github.com/dantasgut/clayfl
 
 > **consumeFrameDeltas**(): `void`
 
-Defined in: [presentation/input/Input.ts:29](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L29)
+Defined in: [presentation/input/Input.ts:57](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L57)
+
+Zera todos os deltas (pointer, wheel, pinch). Chamado pelo
+InteractionSystem ao fim de cada tick para evitar acúmulo entre
+frames — controllers devem ter lido os deltas antes.
 
 #### Returns
 
@@ -44,7 +54,9 @@ Defined in: [presentation/input/Input.ts:29](https://github.com/dantasgut/clayfl
 
 > **isKeyDown**(`code`): `boolean`
 
-Defined in: [presentation/input/Input.ts:25](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/Input.ts#L25)
+Defined in: [presentation/input/Input.ts:48](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/Input.ts#L48)
+
+Convenience: testa se uma key está pressionada agora.
 
 #### Parameters
 

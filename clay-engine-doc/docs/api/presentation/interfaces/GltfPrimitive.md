@@ -6,7 +6,11 @@
 
 # Interface: GltfPrimitive
 
-Defined in: [presentation/assets/GltfLoader.ts:16](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L16)
+Defined in: [presentation/assets/GltfLoader.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L41)
+
+Primitive (sub-mesh) com atributos vertex deinterleaved e índices
+opcionais. Todos os atributos são `null` se ausentes no source glTF
+(e.g. mesh sem UVs).
 
 ## Properties
 
@@ -14,7 +18,9 @@ Defined in: [presentation/assets/GltfLoader.ts:16](https://github.com/dantasgut/
 
 > `readonly` **indices**: `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\> \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:22](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L22)
+Defined in: [presentation/assets/GltfLoader.ts:53](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L53)
+
+Índices de triângulos (uint16 ou uint32) ou null para non-indexed.
 
 ***
 
@@ -22,7 +28,9 @@ Defined in: [presentation/assets/GltfLoader.ts:22](https://github.com/dantasgut/
 
 > `readonly` **joints**: `Uint16Array`\<`ArrayBufferLike`\> \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:20](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L20)
+Defined in: [presentation/assets/GltfLoader.ts:49](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L49)
+
+Joint indices (4 por vértice, JOINTS_0) — para meshes skinned.
 
 ***
 
@@ -30,7 +38,9 @@ Defined in: [presentation/assets/GltfLoader.ts:20](https://github.com/dantasgut/
 
 > `readonly` **materialIndex**: `number` \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:23](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L23)
+Defined in: [presentation/assets/GltfLoader.ts:55](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L55)
+
+Índice em `GltfDocument.materials` ou null para default material.
 
 ***
 
@@ -38,7 +48,9 @@ Defined in: [presentation/assets/GltfLoader.ts:23](https://github.com/dantasgut/
 
 > `readonly` **normals**: `Float32Array`\<`ArrayBufferLike`\> \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:18](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L18)
+Defined in: [presentation/assets/GltfLoader.ts:45](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L45)
+
+Normais XYZ flat ou null.
 
 ***
 
@@ -46,7 +58,9 @@ Defined in: [presentation/assets/GltfLoader.ts:18](https://github.com/dantasgut/
 
 > `readonly` **positions**: `Float32Array`
 
-Defined in: [presentation/assets/GltfLoader.ts:17](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L17)
+Defined in: [presentation/assets/GltfLoader.ts:43](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L43)
+
+Posições XYZ flat (3 floats por vértice).
 
 ***
 
@@ -54,7 +68,9 @@ Defined in: [presentation/assets/GltfLoader.ts:17](https://github.com/dantasgut/
 
 > `readonly` **uvs**: `Float32Array`\<`ArrayBufferLike`\> \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:19](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L19)
+Defined in: [presentation/assets/GltfLoader.ts:47](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L47)
+
+UVs flat (2 floats por vértice) ou null.
 
 ***
 
@@ -62,4 +78,6 @@ Defined in: [presentation/assets/GltfLoader.ts:19](https://github.com/dantasgut/
 
 > `readonly` **weights**: `Float32Array`\<`ArrayBufferLike`\> \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:21](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L21)
+Defined in: [presentation/assets/GltfLoader.ts:51](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L51)
+
+Joint weights (4 por vértice, WEIGHTS_0) — para meshes skinned.

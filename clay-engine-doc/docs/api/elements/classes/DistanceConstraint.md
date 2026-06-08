@@ -6,7 +6,7 @@
 
 # Class: DistanceConstraint
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/constraints/DistanceConstraint.ts#L13)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/constraints/DistanceConstraint.ts#L13)
 
 DistanceConstraint segue o struct WGSL `DistanceConstraint` (16 bytes):
   i: u32           — índice do body A no pool de partículas
@@ -24,7 +24,7 @@ DistanceConstraint segue o struct WGSL `DistanceConstraint` (16 bytes):
 
 > **new DistanceConstraint**(`values?`): `DistanceConstraint`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:21](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/constraints/DistanceConstraint.ts#L21)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:22](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/constraints/DistanceConstraint.ts#L22)
 
 #### Parameters
 
@@ -46,7 +46,11 @@ Defined in: [elements/physics/constraints/DistanceConstraint.ts:21](https://gith
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/physics/constraints/Constraint.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/constraints/Constraint.ts#L9)
+Defined in: [elements/physics/constraints/Constraint.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/constraints/Constraint.ts#L9)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Inherited from
 
@@ -58,7 +62,9 @@ Defined in: [elements/physics/constraints/Constraint.ts:9](https://github.com/da
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/constraints/Constraint.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/constraints/Constraint.ts#L8)
+Defined in: [elements/physics/constraints/Constraint.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/constraints/Constraint.ts#L8)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
@@ -70,7 +76,9 @@ Defined in: [elements/physics/constraints/Constraint.ts:8](https://github.com/da
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/constraints/DistanceConstraint.ts#L14)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/constraints/DistanceConstraint.ts#L15)
+
+StructSchema do DistanceConstraint (16 bytes: i/j/rest_length/compliance).
 
 ## Accessors
 
@@ -80,7 +88,10 @@ Defined in: [elements/physics/constraints/DistanceConstraint.ts:14](https://gith
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -96,7 +107,10 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -118,7 +132,12 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:31](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/constraints/DistanceConstraint.ts#L31)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/constraints/DistanceConstraint.ts#L32)
+
+Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
+que este resource expõe ao `ResourceSystem`. Cada descriptor define
+`id`, `role`, `schema` (StructSchema) e opcionalmente `storage`
+(`'pool'` para coalescer N members do mesmo schema em 1 buffer).
 
 #### Returns
 
@@ -134,7 +153,11 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/constraints/Constraint.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/constraints/Constraint.ts#L13)
+Defined in: [elements/physics/constraints/Constraint.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/constraints/Constraint.ts#L13)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 

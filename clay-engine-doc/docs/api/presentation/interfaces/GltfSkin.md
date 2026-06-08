@@ -6,7 +6,11 @@
 
 # Interface: GltfSkin
 
-Defined in: [presentation/assets/GltfLoader.ts:54](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L54)
+Defined in: [presentation/assets/GltfLoader.ts:128](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L128)
+
+Skin (esqueleto) glTF — lista de joints e suas inverse-bind-matrices.
+Joint = node especial usado como bone. IBMs são as matrices que
+"desfazem" o bind pose para que vertex skinning funcione corretamente.
 
 ## Properties
 
@@ -14,7 +18,9 @@ Defined in: [presentation/assets/GltfLoader.ts:54](https://github.com/dantasgut/
 
 > `readonly` **inverseBindMatrices**: `Float32Array`\<`ArrayBufferLike`\> \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:56](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L56)
+Defined in: [presentation/assets/GltfLoader.ts:132](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L132)
+
+Float32Array com mat4 × jointCount (16 floats por joint).
 
 ***
 
@@ -22,7 +28,9 @@ Defined in: [presentation/assets/GltfLoader.ts:56](https://github.com/dantasgut/
 
 > `readonly` **joints**: readonly `number`[]
 
-Defined in: [presentation/assets/GltfLoader.ts:57](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L57)
+Defined in: [presentation/assets/GltfLoader.ts:134](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L134)
+
+Índices em `GltfDocument.nodes` que servem como joints.
 
 ***
 
@@ -30,7 +38,9 @@ Defined in: [presentation/assets/GltfLoader.ts:57](https://github.com/dantasgut/
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:55](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L55)
+Defined in: [presentation/assets/GltfLoader.ts:130](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L130)
+
+Nome legível (debug).
 
 ***
 
@@ -38,4 +48,6 @@ Defined in: [presentation/assets/GltfLoader.ts:55](https://github.com/dantasgut/
 
 > `readonly` **skeleton**: `number` \| `null`
 
-Defined in: [presentation/assets/GltfLoader.ts:58](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L58)
+Defined in: [presentation/assets/GltfLoader.ts:136](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L136)
+
+Node raiz do esqueleto (opcional, para skin attachment).

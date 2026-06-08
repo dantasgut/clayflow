@@ -6,7 +6,19 @@
 
 # Class: GraphColorSolver
 
-Defined in: [elements/gpu/GraphColorSolver.ts:6](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/GraphColorSolver.ts#L6)
+Defined in: [elements/gpu/GraphColorSolver.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/GraphColorSolver.ts#L27)
+
+GraphColorSolver — Greedy graph coloring para batch parallel
+constraint solver em XPBD/PBD. Atribui a cada aresta uma "cor"
+(inteiro ≥ 0) tal que arestas adjacentes (compartilhando vértice)
+têm cores diferentes.
+
+Constraints com mesma cor podem ser resolvidas em paralelo na GPU
+(não há writes conflitantes em vértices). Algorithm Greedy:
+O(E + V·max_color), serial CPU; max_color ≤ 1 + max degree.
+
+Usado em construct phase de XPBD/FEM para gerar batches de constraints
+paralelizáveis (cada cor = um dispatch separado).
 
 ## Constructors
 
@@ -24,7 +36,10 @@ Defined in: [elements/gpu/GraphColorSolver.ts:6](https://github.com/dantasgut/cl
 
 > `static` **color**(`edges`): `Uint32Array`
 
-Defined in: [elements/gpu/GraphColorSolver.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/GraphColorSolver.ts#L7)
+Defined in: [elements/gpu/GraphColorSolver.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/GraphColorSolver.ts#L32)
+
+Atribui cores às arestas para batch parallel solve. Returns
+Uint32Array onde `result[i]` é a cor (inteiro ≥ 0) da aresta `edges[i]`.
 
 #### Parameters
 
@@ -42,7 +57,10 @@ readonly [`Edge`](../interfaces/Edge.md)[]
 
 > `static` **maxColor**(`colors`): `number`
 
-Defined in: [elements/gpu/GraphColorSolver.ts:26](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/GraphColorSolver.ts#L26)
+Defined in: [elements/gpu/GraphColorSolver.ts:55](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/GraphColorSolver.ts#L55)
+
+Retorna o número total de cores usadas (= max color + 1). O solver
+dispatcha N passes (1 por cor) para resolver todos os constraints.
 
 #### Parameters
 
