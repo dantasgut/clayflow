@@ -185,6 +185,9 @@ const BUILTIN_FUNCTIONS = new Set([
 ]);
 
 const FN_DEF_REGEX = /\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[(<]/g;
+// Structs em WGSL podem ser usadas como construtores (`MyStruct(field1, ...)`),
+// então também contam como identificadores chamáveis.
+const STRUCT_DEF_REGEX = /\bstruct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/g;
 // Negative lookbehind para `@` exclui atributos WGSL (`@workgroup_size(1)`,
 // `@group(0)`, `@binding(0)`, `@location(0)`, `@compute`, `@vertex`, etc.).
 const CALL_REGEX = /(?<!@)\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
@@ -197,6 +200,10 @@ export function validateWgslReferences(source: string, context: string): void {
         defined.add(m[1]!);
     }
     FN_DEF_REGEX.lastIndex = 0;
+    while ((m = STRUCT_DEF_REGEX.exec(stripped)) !== null) {
+        defined.add(m[1]!);
+    }
+    STRUCT_DEF_REGEX.lastIndex = 0;
     const calls = new Set<string>();
     while ((m = CALL_REGEX.exec(stripped)) !== null) {
         calls.add(m[1]!);
