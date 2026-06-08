@@ -1,58 +1,48 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
-import type { FlowDescriptor } from '../../../scene/descriptors/FlowDescriptor';
-import { FieldType } from '../../../scene/descriptors/FieldType';
-import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { PhysicsBody } from './PhysicsBody';
 
-export type SoftBodyAlgorithm = 'XPBD' | 'FEM' | 'MPM';
-
+/**
+ * Opções de criação do SoftBody.
+ */
 export interface SoftBodyOptions {
-    readonly algorithm?: SoftBodyAlgorithm;
+    /**
+     * Schema que descreve o struct WGSL consumido pelo flow integrador.
+     * Importado de `bodies/schemas/` (`XPBDSoftSchema`, `FEMSchema`,
+     * `MPMSoftSchema`).
+     */
+    readonly schema: StructSchema;
+    /**
+     * Valores iniciais por field do schema. Fields ausentes recebem default
+     * via `schema.applyDefaults`. Estrutura aceita está no schema.
+     */
+    readonly data?: Record<string, unknown>;
 }
 
 /**
- * SoftBody segue contrato `Particle` WGSL legacy (48B = 3 vec4f).
- *   pos:  xyz=posição,        w=invMass (0=fixada)
- *   pred: xyz=posição prev.,  w=reservado
- *   vel:  xyz=velocidade,     w=reservado
+ * SoftBody — corpo deformável discreto (cloth, jelly, finite element node).
+ * Data class pura: estado runtime serializável governado pelo `schema`
+ * recebido. Pool key = `schema.name` roteia para XPBDFlow/FEMFlow/MPMFlow
+ * conforme o schema escolhido.
  */
 export class SoftBody extends PhysicsBody {
-    static readonly schema = new StructSchema('SoftBody', {
-        pos: FieldType.vec4f,
-        pred: FieldType.vec4f,
-        vel: FieldType.vec4f,
-    });
+    private readonly schema: StructSchema;
 
-    static readonly defaultAlgorithm: SoftBodyAlgorithm = 'XPBD';
-
-    private readonly algorithm: SoftBodyAlgorithm;
-
-    constructor(values: Record<string, unknown> = {}, options: SoftBodyOptions = {}) {
+    constructor(options: SoftBodyOptions) {
         super();
-        this.algorithm = options.algorithm ?? SoftBody.defaultAlgorithm;
-        const position = (values.position ?? [0, 0, 0, 1]) as readonly number[];
-        const velocity = (values.velocity ?? [0, 0, 0, 0]) as readonly number[];
-        const mass = (values.mass ?? 1) as number;
-        const invMass = mass > 0 ? 1 / mass : 0;
-        this.data = SoftBody.schema.applyDefaults({
-            pos: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, invMass],
-            pred: [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0, 0],
-            vel: [velocity[0] ?? 0, velocity[1] ?? 0, velocity[2] ?? 0, 0],
-        });
+        this.schema = options.schema;
+        this.data = this.schema.applyDefaults(options.data ?? {});
     }
 
+    /** Pool storage para coalescer N SoftBodies do mesmo schema em 1 buffer GPU. */
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
                 id: 'body',
                 role: 'storage-rw',
-                schema: SoftBody.schema,
+                schema: this.schema,
                 storage: 'pool',
             },
         ];
-    }
-
-    getFlowDescriptors(): readonly FlowDescriptor[] {
-        return [{ algorithm: this.algorithm, bodyType: 'SoftBody' }];
     }
 }

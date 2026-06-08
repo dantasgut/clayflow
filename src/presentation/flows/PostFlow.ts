@@ -55,6 +55,10 @@ export class PostFlow extends Flow {
         this.canvas = options?.canvas ?? null;
     }
 
+    /**
+     * Liga este PostFlow a um ForwardFlow upstream (PostFlow lê o offscreen
+     * texture do Forward como input do ping-pong). Builder fluente.
+     */
     bindForwardFlow(flow: ForwardFlow): this {
         this.forwardFlow = flow;
         return this;
@@ -70,6 +74,10 @@ export class PostFlow extends Flow {
         }));
     }
 
+    /**
+     * Empilha um efeito no chain. A ordem é importante: efeitos são aplicados
+     * em sequência (`Bloom → ToneMapping → Fxaa → ...`). Builder fluente.
+     */
     addEffect(effect: PostProcessEffect): this {
         this.effects.push(effect);
         return this;
@@ -80,9 +88,27 @@ export class PostFlow extends Flow {
     }
 
     override onCanvasResized(_width: number, _height: number): void {
+        // Ordem CRÍTICA para evitar use-after-free na GPU:
+        //  1. Destruir bindgroups cacheados PRIMEIRO — eles referenciam as
+        //     pingpong/output views via specHash; sem isso, o GPU bindgroup
+        //     fica com handle para texture destruída → validation error
+        //     "Destroyed texture used in a submit".
+        //  2. Depois destruir views.
+        //  3. Depois destruir textures.
+        for (const bg of this.bindGroupCache.values()) {
+            this.core.destroy(bg);
+        }
+        this.bindGroupCache.clear();
+        if (this.pingpongViews !== null) {
+            this.core.destroy(this.pingpongViews[0]);
+            this.core.destroy(this.pingpongViews[1]);
+        }
+        if (this.pingpongTextures !== null) {
+            this.core.destroy(this.pingpongTextures[0]);
+            this.core.destroy(this.pingpongTextures[1]);
+        }
         this.pingpongTextures = null;
         this.pingpongViews = null;
-        this.bindGroupCache.clear();
         this.currentSize = { w: 0, h: 0 };
     }
 

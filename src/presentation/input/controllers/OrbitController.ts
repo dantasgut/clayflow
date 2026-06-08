@@ -2,10 +2,17 @@ import type { Camera } from '../../../elements/scene/Camera';
 import { InputDrivenController } from '../InputDrivenController';
 import type { ControllerContext } from '../InputDrivenController';
 
+/**
+ * Opções do OrbitController. Todas opcionais com defaults sensíveis.
+ */
 export interface OrbitControllerOptions {
+    /** Ponto que a câmera orbita. Default: [0, 0, 0] (origem). */
     readonly target?: readonly [number, number, number];
+    /** Distância inicial entre câmera e target (raio do orbit). Default: 5. */
     readonly distance?: number;
+    /** Quando true, rotaciona automaticamente sem input do usuário. */
     readonly autoRotate?: boolean;
+    /** Radianos/segundo de auto-rotação (se habilitada). Default: 0.5. */
     readonly autoRotateSpeed?: number;
     /** Coeficiente de damping em [0, 1]: 0 = sem damping (parada brusca),
      * 1 = sem amortecimento (gira eternamente). Default 0.85. */
@@ -46,6 +53,11 @@ export class OrbitController extends InputDrivenController {
         this.pinchSensitivity = options.pinchSensitivity ?? 0.01;
     }
 
+    /**
+     * Atualiza Camera per-frame. Lê input deltas (drag, wheel, pinch),
+     * injeta velocidades em theta/phi/distance, integra com damping,
+     * recalcula camera.position via spherical → cartesian.
+     */
     update(ctx: ControllerContext): void {
         const { input, dt } = ctx;
         const dragging = (input.state.pointerButtons & 1) !== 0;

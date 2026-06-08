@@ -11,6 +11,7 @@ import { Constraint } from './Constraint';
  *   compliance: f32  — m/N (0 = totalmente rígido)
  */
 export class DistanceConstraint extends Constraint {
+    /** StructSchema do DistanceConstraint (16 bytes: i/j/rest_length/compliance). */
     static readonly schema = new StructSchema('DistanceConstraint', {
         i: FieldType.u32,
         j: FieldType.u32,

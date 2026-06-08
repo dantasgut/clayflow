@@ -16,8 +16,15 @@ import { Time } from './Time';
 import { registerPresentationDefaults, type PresentationDefaults } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
 
+/**
+ * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
+ * defaults sensíveis para o resto. Use `scene` para multi-Application,
+ * `captureErrors`/`memoryBudgetMB` para resiliência em produção.
+ */
 export interface ApplicationOptions {
+    /** HTMLCanvasElement onde a engine renderiza. Deve estar attachado ao DOM. */
     canvas: HTMLCanvasElement;
+    /** Configuração do swapchain (alphaMode, colorSpace). Default: opaque/srgb. */
     canvasOptions?: CanvasOptions;
     /** Auto-attach window.resize listener (default true em ambiente browser). */
     autoResize?: boolean;
@@ -63,10 +70,18 @@ export interface ApplicationOptions {
  * `Flow.onCanvasResized`.
  */
 export class Application {
+    /** World ECS-like — query/insert/remove de Resources. Atalho para `scene.world`. */
     readonly world: World;
+    /** FlowRegistry — registro de Flows ativos. Atalho para `scene.flows`. */
     readonly flows: FlowRegistry;
+    /** Resource especial com `dt` e `elapsed` atualizados pelo GameLoop. */
     readonly time: Time;
+    /**
+     * Refs para os Flows default (Forward, Shadow, Post, UI, Debug). Útil
+     * para customizar (e.g. `app.defaults.post.addEffect(new Bloom(...))`).
+     */
     readonly defaults: PresentationDefaults;
+    /** Canvas HTML attachado. Mesmo objeto passado em `create({canvas})`. */
     readonly canvas: HTMLCanvasElement;
     private readonly scene: SceneContext;
     private readonly ownsScene: boolean;
@@ -134,6 +149,12 @@ export class Application {
         }
     }
 
+    /**
+     * Construtor async — inicializa GPU device + canvas, registra os Flows
+     * default + plugins (`options.plugins`), e retorna a `Application` pronta
+     * para `start()`. Se `options.scene` é fornecido usa contexto isolado
+     * (multi-Application); caso contrário usa o singleton default.
+     */
     static async create(options: ApplicationOptions): Promise<Application> {
         const scene: SceneContext = options.scene ?? defaultScene;
         const ownsScene = options.scene !== undefined;
@@ -166,14 +187,17 @@ export class Application {
         return this;
     }
 
+    /** Inicia o GameLoop (RAF). Chama isso após inserir entidades no World. */
     start(): void {
         this.loop.start();
     }
 
+    /** Pausa o GameLoop (RAF). Reversível via `start()`. */
     stop(): void {
         this.loop.stop();
     }
 
+    /** True se o GameLoop está ativo (RAF agendado). */
     isRunning(): boolean {
         return this.loop.isRunning();
     }
@@ -220,6 +244,11 @@ export class Application {
         }, this.resizeDebounceMs);
     }
 
+    /**
+     * Para o loop, dispõe plugins (ordem reversa de instalação), remove
+     * event listeners (resize, memory) e — se foi criada com `scene` próprio
+     * — chama `scene.dispose()` para liberar GPU device.
+     */
     dispose(): void {
         this.stop();
         // Plugins disposed em ordem reversa (último-registrado, primeiro-disposto).
@@ -244,21 +273,27 @@ export class Application {
         if (this.ownsScene) this.scene.dispose();
     }
 
+    /** Acesso direto à Camada 1 (EngineCore) para casos avançados. */
     get core(): EngineCore {
         return this.scene.core;
     }
+    /** EventBus do scene — pub/sub tipado para todos os eventos da engine. */
     get events(): EventBus {
         return this.scene.events;
     }
+    /** ResourceSystem — gerencia lifecycle de Resources e pools GPU. */
     get resources(): ResourceSystem {
         return this.scene.resourceSystem;
     }
+    /** Registry de ConsumerResolvers — usado por LayoutInferencer. */
     get consumers(): ConsumerResolverRegistry {
         return this.scene.consumers;
     }
+    /** LayoutInferencer — deriva bindings GPU a partir de WGSL parsed AST. */
     get layoutInferencer(): LayoutInferencer {
         return this.scene.layoutInferencer;
     }
+    /** ExecutionSystem — orquestra dispatch de Flows por frameTick. */
     get executionSystem(): ExecutionSystem {
         return this.scene.executionSystem;
     }

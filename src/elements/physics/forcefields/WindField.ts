@@ -3,7 +3,12 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/**
+ * Campo de vento — força direcional + turbulence noise sobre todos os
+ * physics bodies. Útil para folhas, panos, partículas atmosféricas.
+ */
 export class WindField extends ForceField {
+    /** StructSchema do WindField (direction+magnitude+turbulence). */
     static readonly schema = new StructSchema('WindField', {
         direction: FieldType.vec4f,
         magnitude: FieldType.f32,

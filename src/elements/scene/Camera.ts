@@ -6,7 +6,13 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
+/**
+ * Camera perspectiva — view + projection + viewProjection matrices
+ * cacheadas + parâmetros (fov/near/far/aspect). Atualizada por
+ * `OrbitCameraController` ou pelo app diretamente.
+ */
 export class Camera extends Entity implements Resource {
+    /** StructSchema do Camera (view + projection + viewProj + pos + params). */
     static readonly schema = new StructSchema('Camera', {
         view: FieldType.mat4x4f,
         projection: FieldType.mat4x4f,

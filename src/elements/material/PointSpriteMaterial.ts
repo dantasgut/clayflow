@@ -5,7 +5,12 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 import forwardWGSL from '../gpu/wgsl/forward.wgsl?raw';
 import { Material } from './Material';
 
+/**
+ * Material para point clouds — cada vertex vira um sprite/billboard de
+ * `radius` pixels (topology point-list).
+ */
 export class PointSpriteMaterial extends Material {
+    /** StructSchema do PointSpriteMaterial (color + radius). */
     static readonly schema = new StructSchema('PointSpriteMaterial', {
         color: FieldType.vec4f,
         radius: FieldType.f32,

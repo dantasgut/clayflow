@@ -1,13 +1,10 @@
 import type {
-    BindGroupSpec,
-    ComputePipelineSpec,
     EngineCore,
     Frame,
-    LayoutSpec,
-    ShaderModuleSpec,
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../core/contracts/index';
+import { createComputeKernel, type ComputeKernel } from '../../scene/flows/createComputeKernel';
 import nsSimParamsStruct from './wgsl/structs/ns_sim_params.wgsl?raw';
 import nsAssignCount from './wgsl/kernels/ns_assign_count.wgsl?raw';
 import nsScanLocal from './wgsl/kernels/ns_scan_local.wgsl?raw';
@@ -16,16 +13,42 @@ import nsScanCombine from './wgsl/kernels/ns_scan_combine.wgsl?raw';
 import nsScatter from './wgsl/kernels/ns_scatter.wgsl?raw';
 import nsFind from './wgsl/kernels/ns_find.wgsl?raw';
 
+/**
+ * Configuração do NeighborSearchPipeline. Define o grid uniform usado
+ * para spatial hashing e capacidades dos buffers.
+ */
 export interface NeighborSearchOptions {
+    /** Dimensões do grid (cells por eixo). Default: [32, 32, 32]. */
     readonly gridDim?: readonly [number, number, number];
+    /** Tamanho de uma cell em world units. Default: 0.1. */
     readonly cellSize?: number;
+    /** Origem (canto -X-Y-Z) do grid em world coords. */
     readonly origin?: readonly [number, number, number];
+    /** Capacidade máxima de partículas (alocação fixa do buffer). */
     readonly maxParticles: number;
+    /** Máximo de vizinhos retornados por partícula (truncate). */
     readonly maxNeighbors: number;
+    /**
+     * Stride do particle struct em floats (e.g. 16 para SPHParticle = 64 bytes).
+     * O kernel `assign_count` lê o particle.position desde esse offset.
+     */
     readonly particleStrideF32: number;
+    /** Discriminador único para isolar buffers entre múltiplas instâncias. */
     readonly discriminator: string;
 }
 
+/**
+ * NeighborSearchPipeline implementa busca de vizinhos GPU via spatial
+ * hashing + parallel prefix scan + scatter. Pipeline com 6 kernels:
+ *   1. `assign_count`: cada partícula computa cell index + atomicAdd em cellCount.
+ *   2. `scan_local` + `scan_groups` + `scan_combine`: prefix sum sobre
+ *      cellCount → cellStart (offsets para cada cell).
+ *   3. `scatter`: cada partícula é escrita em sortedParticles[cellStart[cell] + cursor].
+ *   4. `find`: cada partícula busca vizinhos nas 27 cells adjacentes via
+ *      sortedParticles[cellStart[c]..cellStart[c]+cellCount[c]].
+ *
+ * Usado por SPHFlow e PBFFlow para acelerar density/forces computation.
+ */
 export class NeighborSearchPipeline {
     private readonly disc: string;
     private readonly gridDim: readonly [number, number, number];
@@ -46,37 +69,12 @@ export class NeighborSearchPipeline {
     private neighborListBuffer: StorageBufferSpec | null = null;
     private neighborCountBuffer: StorageBufferSpec | null = null;
 
-    private paramsLayout: LayoutSpec | null = null;
-    private assignLayout: LayoutSpec | null = null;
-    private cellCountLayout: LayoutSpec | null = null;
-    private scanLocalLayout: LayoutSpec | null = null;
-    private scanGroupsLayout: LayoutSpec | null = null;
-    private scanCombineLayout: LayoutSpec | null = null;
-    private scatterLayout: LayoutSpec | null = null;
-    private findLayout: LayoutSpec | null = null;
-
-    private paramsBg: BindGroupSpec | null = null;
-    private assignBg: BindGroupSpec | null = null;
-    private cellCountBg: BindGroupSpec | null = null;
-    private scanLocalBg: BindGroupSpec | null = null;
-    private scanGroupsBg: BindGroupSpec | null = null;
-    private scanCombineBg: BindGroupSpec | null = null;
-    private scatterBg: BindGroupSpec | null = null;
-    private findBg: BindGroupSpec | null = null;
-
-    private assignShader: ShaderModuleSpec | null = null;
-    private scanLocalShader: ShaderModuleSpec | null = null;
-    private scanGroupsShader: ShaderModuleSpec | null = null;
-    private scanCombineShader: ShaderModuleSpec | null = null;
-    private scatterShader: ShaderModuleSpec | null = null;
-    private findShader: ShaderModuleSpec | null = null;
-
-    private assignPipeline: ComputePipelineSpec | null = null;
-    private scanLocalPipeline: ComputePipelineSpec | null = null;
-    private scanGroupsPipeline: ComputePipelineSpec | null = null;
-    private scanCombinePipeline: ComputePipelineSpec | null = null;
-    private scatterPipeline: ComputePipelineSpec | null = null;
-    private findPipeline: ComputePipelineSpec | null = null;
+    private assignKernel: ComputeKernel | null = null;
+    private scanLocalKernel: ComputeKernel | null = null;
+    private scanGroupsKernel: ComputeKernel | null = null;
+    private scanCombineKernel: ComputeKernel | null = null;
+    private scatterKernel: ComputeKernel | null = null;
+    private findKernel: ComputeKernel | null = null;
 
     private currentParticleCount = 0;
     private currentParticlesBuffer: StorageBufferSpec | null = null;
@@ -104,12 +102,12 @@ export class NeighborSearchPipeline {
      * Chamado por SPHFlow/PBFFlow quando o pool de partículas reallocate.
      */
     invalidateParticlesBinding(): void {
-        this.assignBg = null;
-        this.findBg = null;
+        this.assignKernel = null;
+        this.findKernel = null;
         this.currentParticlesBuffer = null;
     }
 
-    private ensureBuffersAndLayouts(): void {
+    private ensureBuffers(): void {
         if (this.paramsBuffer === null) {
             this.paramsBuffer = this.core.create<UniformBufferSpec>({
                 kind: 'buffer',
@@ -183,190 +181,19 @@ export class NeighborSearchPipeline {
                 byteSize: this.maxParticles * 4,
             });
         }
-        if (this.paramsLayout === null) {
-            this.paramsLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_params_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'uniform',
-                    },
-                ],
-            });
-        }
-        if (this.assignLayout === null) {
-            this.assignLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_assign_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 1,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
-        if (this.cellCountLayout === null) {
-            this.cellCountLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_cellcount_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
-        if (this.scanLocalLayout === null) {
-            this.scanLocalLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_scan_local_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 1,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                    {
-                        binding: 2,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
-        if (this.scanGroupsLayout === null) {
-            this.scanGroupsLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_scan_groups_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
-        if (this.scanCombineLayout === null) {
-            this.scanCombineLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_scan_combine_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                    {
-                        binding: 1,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                ],
-            });
-        }
-        if (this.scatterLayout === null) {
-            this.scatterLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_scatter_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 1,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                    {
-                        binding: 2,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
-        if (this.findLayout === null) {
-            this.findLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'ns_find_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 1,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 2,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 3,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                    {
-                        binding: 4,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                    {
-                        binding: 5,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
     }
 
-    private ensureBindGroups(particlesBuffer: StorageBufferSpec): void {
-        if (this.paramsLayout === null || this.paramsBuffer === null) return;
+    private ensureKernels(particlesBuffer: StorageBufferSpec): void {
+        if (this.currentParticlesBuffer !== particlesBuffer) {
+            // Particles buffer mudou — invalida kernels que o referenciam.
+            this.assignKernel = null;
+            this.findKernel = null;
+            this.currentParticlesBuffer = particlesBuffer;
+        }
+
         if (
-            this.cellCountBuffer === null
+            this.paramsBuffer === null
+            || this.cellCountBuffer === null
             || this.cellStartBuffer === null
             || this.cellCursorBuffer === null
             || this.cellIdsBuffer === null
@@ -377,204 +204,177 @@ export class NeighborSearchPipeline {
         )
             return;
 
-        if (this.currentParticlesBuffer !== particlesBuffer) {
-            this.assignBg = null;
-            this.findBg = null;
-            this.currentParticlesBuffer = particlesBuffer;
-        }
-
-        if (this.paramsBg === null) {
-            this.paramsBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_params_bg:${this.disc}`,
-                layout: this.paramsLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.paramsBuffer }],
-            });
-        }
-        if (this.assignBg === null && this.assignLayout !== null) {
-            this.assignBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_assign_bg:${this.disc}`,
-                layout: this.assignLayout,
-                bindings: [
-                    { binding: 0, kind: 'buffer', buffer: particlesBuffer },
-                    { binding: 1, kind: 'buffer', buffer: this.cellIdsBuffer },
-                ],
-            });
-        }
-        if (this.cellCountBg === null && this.cellCountLayout !== null) {
-            this.cellCountBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_cellcount_bg:${this.disc}`,
-                layout: this.cellCountLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.cellCountBuffer }],
-            });
-        }
-        if (this.scanLocalBg === null && this.scanLocalLayout !== null) {
-            this.scanLocalBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_scan_local_bg:${this.disc}`,
-                layout: this.scanLocalLayout,
-                bindings: [
-                    { binding: 0, kind: 'buffer', buffer: this.cellCountBuffer },
-                    { binding: 1, kind: 'buffer', buffer: this.cellStartBuffer },
-                    { binding: 2, kind: 'buffer', buffer: this.groupSumsBuffer },
-                ],
-            });
-        }
-        if (this.scanGroupsBg === null && this.scanGroupsLayout !== null) {
-            this.scanGroupsBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_scan_groups_bg:${this.disc}`,
-                layout: this.scanGroupsLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.groupSumsBuffer }],
-            });
-        }
-        if (this.scanCombineBg === null && this.scanCombineLayout !== null) {
-            this.scanCombineBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_scan_combine_bg:${this.disc}`,
-                layout: this.scanCombineLayout,
-                bindings: [
-                    { binding: 0, kind: 'buffer', buffer: this.cellStartBuffer },
-                    { binding: 1, kind: 'buffer', buffer: this.groupSumsBuffer },
-                ],
-            });
-        }
-        if (this.scatterBg === null && this.scatterLayout !== null) {
-            this.scatterBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_scatter_bg:${this.disc}`,
-                layout: this.scatterLayout,
-                bindings: [
-                    { binding: 0, kind: 'buffer', buffer: this.cellIdsBuffer },
-                    { binding: 1, kind: 'buffer', buffer: this.cellCursorBuffer },
-                    { binding: 2, kind: 'buffer', buffer: this.sortedParticlesBuffer },
-                ],
-            });
-        }
-        if (this.findBg === null && this.findLayout !== null) {
-            this.findBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: `ns_find_bg:${this.disc}`,
-                layout: this.findLayout,
-                bindings: [
-                    { binding: 0, kind: 'buffer', buffer: particlesBuffer },
-                    { binding: 1, kind: 'buffer', buffer: this.cellStartBuffer },
-                    { binding: 2, kind: 'buffer', buffer: this.cellCountBuffer },
-                    { binding: 3, kind: 'buffer', buffer: this.sortedParticlesBuffer },
-                    { binding: 4, kind: 'buffer', buffer: this.neighborListBuffer },
-                    { binding: 5, kind: 'buffer', buffer: this.neighborCountBuffer },
-                ],
-            });
-        }
-    }
-
-    private ensurePipelines(): void {
         const b = this.base();
-        if (this.assignShader === null)
-            this.assignShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ns_assign_count',
-                source: b + '\n' + nsAssignCount,
-            });
-        if (this.scanLocalShader === null)
-            this.scanLocalShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ns_scan_local',
-                source: b + '\n' + nsScanLocal,
-            });
-        if (this.scanGroupsShader === null)
-            this.scanGroupsShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ns_scan_groups',
-                source: b + '\n' + nsScanGroups,
-            });
-        if (this.scanCombineShader === null)
-            this.scanCombineShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ns_scan_combine',
-                source: b + '\n' + nsScanCombine,
-            });
-        if (this.scatterShader === null)
-            this.scatterShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ns_scatter',
-                source: b + '\n' + nsScatter,
-            });
-        if (this.findShader === null)
-            this.findShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ns_find',
-                source: b + '\n' + nsFind,
-            });
+        const paramsGroup = {
+            bindings: [{ binding: 0, type: 'uniform' as const, buffer: this.paramsBuffer }],
+        };
 
-        if (
-            this.paramsLayout === null
-            || this.assignLayout === null
-            || this.cellCountLayout === null
-            || this.scanLocalLayout === null
-            || this.scanGroupsLayout === null
-            || this.scanCombineLayout === null
-            || this.scatterLayout === null
-            || this.findLayout === null
-        )
-            return;
-
-        if (this.assignPipeline === null)
-            this.assignPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: `ns_assign_pipe:${this.disc}`,
-                layouts: [this.paramsLayout, this.assignLayout, this.cellCountLayout],
-                shader: this.assignShader,
+        if (this.assignKernel === null) {
+            this.assignKernel = createComputeKernel(this.core, {
+                discriminator: `ns_assign:${this.disc}`,
+                shaderSource: b + '\n' + nsAssignCount,
                 entryPoint: 'ns_assign_count_main',
+                bindGroups: [
+                    paramsGroup,
+                    {
+                        bindings: [
+                            {
+                                binding: 0,
+                                type: 'read-only-storage' as const,
+                                buffer: particlesBuffer,
+                            },
+                            {
+                                binding: 1,
+                                type: 'storage' as const,
+                                buffer: this.cellIdsBuffer,
+                            },
+                        ],
+                    },
+                    {
+                        bindings: [
+                            { binding: 0, type: 'storage' as const, buffer: this.cellCountBuffer },
+                        ],
+                    },
+                ],
             });
-        if (this.scanLocalPipeline === null)
-            this.scanLocalPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: `ns_scan_local_pipe:${this.disc}`,
-                layouts: [this.paramsLayout, this.scanLocalLayout],
-                shader: this.scanLocalShader,
+        }
+        if (this.scanLocalKernel === null) {
+            this.scanLocalKernel = createComputeKernel(this.core, {
+                discriminator: `ns_scan_local:${this.disc}`,
+                shaderSource: b + '\n' + nsScanLocal,
                 entryPoint: 'ns_scan_local_main',
+                bindGroups: [
+                    paramsGroup,
+                    {
+                        bindings: [
+                            {
+                                binding: 0,
+                                type: 'read-only-storage' as const,
+                                buffer: this.cellCountBuffer,
+                            },
+                            {
+                                binding: 1,
+                                type: 'storage' as const,
+                                buffer: this.cellStartBuffer,
+                            },
+                            {
+                                binding: 2,
+                                type: 'storage' as const,
+                                buffer: this.groupSumsBuffer,
+                            },
+                        ],
+                    },
+                ],
             });
-        if (this.scanGroupsPipeline === null)
-            this.scanGroupsPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: `ns_scan_groups_pipe:${this.disc}`,
-                layouts: [this.paramsLayout, this.scanGroupsLayout],
-                shader: this.scanGroupsShader,
+        }
+        if (this.scanGroupsKernel === null) {
+            this.scanGroupsKernel = createComputeKernel(this.core, {
+                discriminator: `ns_scan_groups:${this.disc}`,
+                shaderSource: b + '\n' + nsScanGroups,
                 entryPoint: 'ns_scan_groups_main',
+                bindGroups: [
+                    paramsGroup,
+                    {
+                        bindings: [
+                            { binding: 0, type: 'storage' as const, buffer: this.groupSumsBuffer },
+                        ],
+                    },
+                ],
             });
-        if (this.scanCombinePipeline === null)
-            this.scanCombinePipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: `ns_scan_combine_pipe:${this.disc}`,
-                layouts: [this.paramsLayout, this.scanCombineLayout],
-                shader: this.scanCombineShader,
+        }
+        if (this.scanCombineKernel === null) {
+            this.scanCombineKernel = createComputeKernel(this.core, {
+                discriminator: `ns_scan_combine:${this.disc}`,
+                shaderSource: b + '\n' + nsScanCombine,
                 entryPoint: 'ns_scan_combine_main',
+                bindGroups: [
+                    paramsGroup,
+                    {
+                        bindings: [
+                            { binding: 0, type: 'storage' as const, buffer: this.cellStartBuffer },
+                            {
+                                binding: 1,
+                                type: 'read-only-storage' as const,
+                                buffer: this.groupSumsBuffer,
+                            },
+                        ],
+                    },
+                ],
             });
-        if (this.scatterPipeline === null)
-            this.scatterPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: `ns_scatter_pipe:${this.disc}`,
-                layouts: [this.paramsLayout, this.scatterLayout],
-                shader: this.scatterShader,
+        }
+        if (this.scatterKernel === null) {
+            this.scatterKernel = createComputeKernel(this.core, {
+                discriminator: `ns_scatter:${this.disc}`,
+                shaderSource: b + '\n' + nsScatter,
                 entryPoint: 'ns_scatter_main',
+                bindGroups: [
+                    paramsGroup,
+                    {
+                        bindings: [
+                            {
+                                binding: 0,
+                                type: 'read-only-storage' as const,
+                                buffer: this.cellIdsBuffer,
+                            },
+                            {
+                                binding: 1,
+                                type: 'storage' as const,
+                                buffer: this.cellCursorBuffer,
+                            },
+                            {
+                                binding: 2,
+                                type: 'storage' as const,
+                                buffer: this.sortedParticlesBuffer,
+                            },
+                        ],
+                    },
+                ],
             });
-        if (this.findPipeline === null)
-            this.findPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: `ns_find_pipe:${this.disc}`,
-                layouts: [this.paramsLayout, this.findLayout],
-                shader: this.findShader,
+        }
+        if (this.findKernel === null) {
+            this.findKernel = createComputeKernel(this.core, {
+                discriminator: `ns_find:${this.disc}`,
+                shaderSource: b + '\n' + nsFind,
                 entryPoint: 'ns_find_main',
+                bindGroups: [
+                    paramsGroup,
+                    {
+                        bindings: [
+                            {
+                                binding: 0,
+                                type: 'read-only-storage' as const,
+                                buffer: particlesBuffer,
+                            },
+                            {
+                                binding: 1,
+                                type: 'read-only-storage' as const,
+                                buffer: this.cellStartBuffer,
+                            },
+                            {
+                                binding: 2,
+                                type: 'read-only-storage' as const,
+                                buffer: this.cellCountBuffer,
+                            },
+                            {
+                                binding: 3,
+                                type: 'read-only-storage' as const,
+                                buffer: this.sortedParticlesBuffer,
+                            },
+                            {
+                                binding: 4,
+                                type: 'storage' as const,
+                                buffer: this.neighborListBuffer,
+                            },
+                            {
+                                binding: 5,
+                                type: 'storage' as const,
+                                buffer: this.neighborCountBuffer,
+                            },
+                        ],
+                    },
+                ],
             });
+        }
     }
 
     private uploadParams(particleCount: number): void {
@@ -597,10 +397,19 @@ export class NeighborSearchPipeline {
         this.core.write(this.paramsBuffer, new Uint8Array(buf));
     }
 
+    /**
+     * Buffer de neighbor indices flat — `neighborList[p*maxNeighbors + n]`
+     * dá o índice da n-ésima partícula vizinha de p (até `neighborCount[p]`).
+     * Null antes de `rebuild` ser chamado pela primeira vez.
+     */
     get neighborList(): StorageBufferSpec | null {
         return this.neighborListBuffer;
     }
 
+    /**
+     * Buffer de contadores — `neighborCount[p]` é o número de vizinhos
+     * encontrados para a partícula p (≤ maxNeighbors).
+     */
     get neighborCount(): StorageBufferSpec | null {
         return this.neighborCountBuffer;
     }
@@ -610,86 +419,64 @@ export class NeighborSearchPipeline {
         this.core.write(buf, arr);
     }
 
+    /**
+     * Reconstrói os buffers de vizinhos para o estado atual de partículas.
+     * Chamado uma vez por frame (no início do dispatch do flow consumidor).
+     * Se particleCount=0, no-op.
+     *
+     * Sequência de kernels: assign_count → scan_local → scan_groups →
+     * scan_combine → copy(cellStart, cellCursor) → scatter → find.
+     */
     rebuild(frame: Frame, particlesBuffer: StorageBufferSpec, particleCount: number): void {
         if (particleCount === 0) return;
-        this.ensureBuffersAndLayouts();
-        this.ensureBindGroups(particlesBuffer);
-        this.ensurePipelines();
+        this.ensureBuffers();
+        this.ensureKernels(particlesBuffer);
+        const assign = this.assignKernel;
+        const scanLocal = this.scanLocalKernel;
+        const scanGroups = this.scanGroupsKernel;
+        const scanCombine = this.scanCombineKernel;
+        const scatter = this.scatterKernel;
+        const find = this.findKernel;
         if (
-            this.assignPipeline === null
-            || this.scanLocalPipeline === null
-            || this.scanGroupsPipeline === null
-            || this.scanCombinePipeline === null
-            || this.scatterPipeline === null
-            || this.findPipeline === null
-        )
-            return;
-        if (
-            this.paramsBg === null
-            || this.assignBg === null
-            || this.cellCountBg === null
-            || this.scanLocalBg === null
-            || this.scanGroupsBg === null
-            || this.scanCombineBg === null
-            || this.scatterBg === null
-            || this.findBg === null
+            assign === null
+            || scanLocal === null
+            || scanGroups === null
+            || scanCombine === null
+            || scatter === null
+            || find === null
+            || this.cellCountBuffer === null
+            || this.neighborCountBuffer === null
+            || this.cellStartBuffer === null
+            || this.cellCursorBuffer === null
         )
             return;
 
         this.uploadParams(particleCount);
-        this.clearBuffer(this.cellCountBuffer!, this.cellCount * 4);
-        this.clearBuffer(this.neighborCountBuffer!, particleCount * 4);
+        this.clearBuffer(this.cellCountBuffer, this.cellCount * 4);
+        this.clearBuffer(this.neighborCountBuffer, particleCount * 4);
         this.currentParticleCount = particleCount;
 
         const partWg = Math.ceil(particleCount / 64);
         const cellWg = Math.ceil(this.cellCount / 256);
+        const dispatchKernel = (label: string, k: ComputeKernel, wg: number): void => {
+            frame.compute(label, (pass) => {
+                pass.bind.setPipeline(k.pipeline);
+                k.bindGroups.forEach((bg, i) => {
+                    pass.bind.setBindGroup(i, bg);
+                });
+                pass.dispatch.workgroups(wg);
+            });
+        };
 
-        frame.compute('NS.assign_count', (pass) => {
-            pass.bind
-                .setPipeline(this.assignPipeline!)
-                .setBindGroup(0, this.paramsBg!)
-                .setBindGroup(1, this.assignBg!)
-                .setBindGroup(2, this.cellCountBg!);
-            pass.dispatch.workgroups(partWg);
-        });
-        frame.compute('NS.scan_local', (pass) => {
-            pass.bind
-                .setPipeline(this.scanLocalPipeline!)
-                .setBindGroup(0, this.paramsBg!)
-                .setBindGroup(1, this.scanLocalBg!);
-            pass.dispatch.workgroups(cellWg);
-        });
-        frame.compute('NS.scan_groups', (pass) => {
-            pass.bind
-                .setPipeline(this.scanGroupsPipeline!)
-                .setBindGroup(0, this.paramsBg!)
-                .setBindGroup(1, this.scanGroupsBg!);
-            pass.dispatch.workgroups(1);
-        });
-        frame.compute('NS.scan_combine', (pass) => {
-            pass.bind
-                .setPipeline(this.scanCombinePipeline!)
-                .setBindGroup(0, this.paramsBg!)
-                .setBindGroup(1, this.scanCombineBg!);
-            pass.dispatch.workgroups(cellWg);
-        });
+        dispatchKernel('NS.assign_count', assign, partWg);
+        dispatchKernel('NS.scan_local', scanLocal, cellWg);
+        dispatchKernel('NS.scan_groups', scanGroups, 1);
+        dispatchKernel('NS.scan_combine', scanCombine, cellWg);
         // cell_cursor recebe cópia de cell_start: scatter usa atomicAdd em
         // cell_cursor para alocar o slot dentro do range [start, start+count).
-        frame.copy(this.cellStartBuffer!, this.cellCursorBuffer!, this.cellCount * 4);
-        frame.compute('NS.scatter', (pass) => {
-            pass.bind
-                .setPipeline(this.scatterPipeline!)
-                .setBindGroup(0, this.paramsBg!)
-                .setBindGroup(1, this.scatterBg!);
-            pass.dispatch.workgroups(partWg);
-        });
-        frame.compute('NS.find', (pass) => {
-            pass.bind
-                .setPipeline(this.findPipeline!)
-                .setBindGroup(0, this.paramsBg!)
-                .setBindGroup(1, this.findBg!);
-            pass.dispatch.workgroups(partWg);
-        });
+        frame.copy(this.cellStartBuffer, this.cellCursorBuffer, this.cellCount * 4);
+        dispatchKernel('NS.scatter', scatter, partWg);
+        dispatchKernel('NS.find', find, partWg);
         void this.currentParticleCount;
     }
 }

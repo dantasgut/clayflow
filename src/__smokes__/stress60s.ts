@@ -119,6 +119,7 @@ async function main(): Promise<void> {
     const SAMPLE_EVERY = 600;
     const samples: { frame: number; bytes: number }[] = [];
     let frameCount = 0;
+    let finalized = false;
     const startWall = performance.now();
 
     app.events.on('frameComplete', () => {
@@ -128,7 +129,8 @@ async function main(): Promise<void> {
             samples.push({ frame: frameCount, bytes: u.totalBytes });
             log(`frame ${frameCount}: ${(u.totalBytes / 1024 / 1024).toFixed(2)}MB`);
         }
-        if (frameCount >= TARGET_FRAMES) {
+        if (frameCount >= TARGET_FRAMES && !finalized) {
+            finalized = true;
             app.stop();
             finalize();
         }

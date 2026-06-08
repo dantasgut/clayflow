@@ -3,7 +3,12 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/**
+ * Campo de arrasto — frenagem proporcional à velocidade (linear + quadrática).
+ * F = -linear·v - quadratic·|v|·v. Simula resistência ao ar/fluido.
+ */
 export class DragField extends ForceField {
+    /** StructSchema do DragField (linearCoeff + quadraticCoeff). */
     static readonly schema = new StructSchema('DragField', {
         linearCoeff: FieldType.f32,
         quadraticCoeff: FieldType.f32,

@@ -6,7 +6,12 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
+/**
+ * Transform 3D — position + rotation (quaternion) + scale + matrix model
+ * cacheada. Compõe meshes/cameras/lights na cena.
+ */
 export class Transform extends Entity implements Resource {
+    /** StructSchema do Transform (position + rotation + scale + model matrix). */
     static readonly schema = new StructSchema('Transform', {
         position: FieldType.vec4f,
         rotation: FieldType.vec4f,

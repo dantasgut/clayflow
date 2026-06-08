@@ -28,10 +28,15 @@ export class UIFlow extends Flow {
         this.gpu = new UiGpuPipeline(core, canvas);
     }
 
+    /** Acesso à árvore de UI — adicione panels/labels/buttons via `ui.add(...)`. */
     get ui(): UiTree {
         return this.tree;
     }
 
+    /**
+     * Define a fonte usada pelo UI (atlas + texture). Chamado uma vez
+     * após carregar a fonte via `Application.assets.loadFont(url)`.
+     */
     setFont(font: LoadedFont): this {
         this.gpu.setFont(font);
         this.flattener.setTextLayout(new UiTextLayout(font));

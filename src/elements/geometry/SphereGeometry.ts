@@ -3,12 +3,19 @@ import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Geometry } from './Geometry';
 
+/**
+ * SphereGeometry — esfera gerada via lat/lon tessellation. Default 16
+ * latitude segments × 32 longitude segments = 512 quads = 1024 triangles.
+ * Aumente `latSegments`/`lonSegments` para superfícies mais smooth.
+ */
 export class SphereGeometry extends Geometry {
+    /** Vertex layout idêntico a BoxGeometry: position + normal + uv. */
     static readonly vertexStruct = new StructSchema('SphereVertex', {
         position: FieldType.vec3f,
         normal: FieldType.vec3f,
         uv: FieldType.vec2f,
     });
+    /** Alias para vertexStruct. */
     static readonly schema = SphereGeometry.vertexStruct;
 
     constructor(values: Record<string, unknown> = {}) {
@@ -28,6 +35,7 @@ export class SphereGeometry extends Geometry {
         };
     }
 
+    /** Declara VBO + IBO. */
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
@@ -40,9 +48,11 @@ export class SphereGeometry extends Geometry {
         ];
     }
 
+    /** = (lat+1) × (lon+1). */
     get vertexCount(): number {
         return this.data.vertexCount as number;
     }
+    /** = lat × lon × 6 (2 triangles por quad). */
     get indexCount(): number {
         return this.data.indexCount as number;
     }

@@ -3,7 +3,13 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/**
+ * Campo gravitacional — uniforme (acceleration constante) ou point-source
+ * (Newton: F = G·m·M/r²) conforme `sourceMode`. Aplicado a todos os physics
+ * bodies pelo flow.
+ */
 export class GravityField extends ForceField {
+    /** StructSchema do GravityField (uniform de 64 bytes). */
     static readonly schema = new StructSchema('GravityField', {
         sourceMode: FieldType.u32,
         _pad0: FieldType.u32,

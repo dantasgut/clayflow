@@ -6,7 +6,13 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
+/**
+ * Grid Eulerian (estacionário) — armazena velocidades e quantidades em
+ * células fixas no espaço. Usado por MPM (P2G/G2P) e FLIP. Para neighbor
+ * search Lagrangian (SPH/PBF), use `NeighborSearchGrid`.
+ */
 export class EulerianGrid extends Entity implements Resource {
+    /** StructSchema do EulerianGrid (gridDim + cellSize + origin + cellCount). */
     static readonly schema = new StructSchema('EulerianGrid', {
         gridDim: FieldType.vec3u,
         cellSize: FieldType.f32,

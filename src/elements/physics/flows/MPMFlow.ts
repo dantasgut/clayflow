@@ -1,16 +1,13 @@
 import type {
-    BindGroupSpec,
-    ComputePipelineSpec,
     EngineCore,
     Frame,
-    LayoutSpec,
-    ShaderModuleSpec,
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
+import { createComputeKernel, type ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import type { GravityField } from '../forcefields/GravityField';
@@ -49,25 +46,13 @@ export class MPMFlow extends Flow {
     private readonly cellSize: number;
     private readonly gridOrigin: readonly [number, number, number];
 
-    private p2gShader: ShaderModuleSpec | null = null;
-    private gridUpdateShader: ShaderModuleSpec | null = null;
-    private g2pShader: ShaderModuleSpec | null = null;
-    private clearGridShader: ShaderModuleSpec | null = null;
-    private clearGridPipeline: ComputePipelineSpec | null = null;
     private paramsBuffer: UniformBufferSpec | null = null;
     private gridBuffer: StorageBufferSpec | null = null;
     private collidersBuffer: StorageBufferSpec | null = null;
-    private paramsLayout: LayoutSpec | null = null;
-    private gridLayout: LayoutSpec | null = null;
-    private particlesLayout: LayoutSpec | null = null;
-    private collidersLayout: LayoutSpec | null = null;
-    private paramsBg: BindGroupSpec | null = null;
-    private gridBg: BindGroupSpec | null = null;
-    private particlesBg: BindGroupSpec | null = null;
-    private collidersBg: BindGroupSpec | null = null;
-    private p2gPipeline: ComputePipelineSpec | null = null;
-    private gridUpdatePipeline: ComputePipelineSpec | null = null;
-    private g2pPipeline: ComputePipelineSpec | null = null;
+    private clearGridKernel: ComputeKernel | null = null;
+    private p2gKernel: ComputeKernel | null = null;
+    private gridUpdateKernel: ComputeKernel | null = null;
+    private g2pKernel: ComputeKernel | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -76,7 +61,7 @@ export class MPMFlow extends Flow {
         options: MPMFlowOptions = {},
     ) {
         super();
-        this.bodyType = options.bodyType ?? 'MPMParticle:MPM';
+        this.bodyType = options.bodyType ?? 'MPMFluidSchema';
         this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.gridDim = options.gridDim ?? [32, 32, 32];
@@ -125,7 +110,10 @@ export class MPMFlow extends Flow {
 
     override onPoolReallocated(poolKey: string): void {
         if (poolKey === this.bodyType) {
-            this.particlesBg = null;
+            // Pool buffer mudou — invalida kernels que referenciam o particles buffer.
+            this.p2gKernel = null;
+            this.gridUpdateKernel = null;
+            this.g2pKernel = null;
         }
     }
 
@@ -143,34 +131,6 @@ export class MPMFlow extends Flow {
             sdfLib,
             mpmWeightsLib,
         ].join('\n');
-        if (this.p2gShader === null) {
-            this.p2gShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'mpm_p2g_shader',
-                source: baseSrc + '\n' + mpmP2GKernel,
-            });
-        }
-        if (this.gridUpdateShader === null) {
-            this.gridUpdateShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'mpm_grid_update_shader',
-                source: baseSrc + '\n' + mpmGridUpdateKernel,
-            });
-        }
-        if (this.g2pShader === null) {
-            this.g2pShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'mpm_g2p_shader',
-                source: baseSrc + '\n' + mpmG2PKernel,
-            });
-        }
-        if (this.clearGridShader === null) {
-            this.clearGridShader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'mpm_clear_grid_shader',
-                source: baseSrc + '\n' + mpmClearGridKernel,
-            });
-        }
         if (this.paramsBuffer === null) {
             this.paramsBuffer = this.core.create<UniformBufferSpec>({
                 kind: 'buffer',
@@ -195,139 +155,56 @@ export class MPMFlow extends Flow {
                 byteSize: COLLIDER_DESC_SIZE,
             });
         }
-        if (this.paramsLayout === null) {
-            this.paramsLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'mpm_params_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'uniform',
-                    },
-                ],
-            });
-        }
-        if (this.gridLayout === null) {
-            this.gridLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'mpm_grid_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
-        if (this.particlesLayout === null) {
-            this.particlesLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'mpm_particles_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'storage',
-                    },
-                ],
-            });
-        }
-        if (this.collidersLayout === null) {
-            this.collidersLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'mpm_colliders_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                ],
-            });
-        }
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
-        if (this.paramsBg === null) {
-            this.paramsBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'mpm_params_bg',
-                layout: this.paramsLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.paramsBuffer }],
-            });
-        }
-        if (this.gridBg === null) {
-            this.gridBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'mpm_grid_bg',
-                layout: this.gridLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.gridBuffer }],
-            });
-        }
-        if (this.particlesBg === null) {
-            this.particlesBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'mpm_particles_bg',
-                layout: this.particlesLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: particlesBuf }],
-            });
-        }
-        if (this.collidersBg === null) {
-            this.collidersBg = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'mpm_colliders_bg',
-                layout: this.collidersLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.collidersBuffer }],
-            });
-        }
-        if (this.p2gPipeline === null) {
-            this.p2gPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'mpm_p2g_pipeline',
-                layouts: [this.paramsLayout, this.gridLayout, this.particlesLayout],
-                shader: this.p2gShader,
-                entryPoint: 'mpm_p2g_main',
-            });
-        }
-        if (this.gridUpdatePipeline === null) {
-            this.gridUpdatePipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'mpm_grid_update_pipeline',
-                layouts: [
-                    this.paramsLayout,
-                    this.gridLayout,
-                    this.particlesLayout,
-                    this.collidersLayout,
-                ],
-                shader: this.gridUpdateShader,
-                entryPoint: 'mpm_grid_update_main',
-            });
-        }
-        if (this.g2pPipeline === null) {
-            this.g2pPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'mpm_g2p_pipeline',
-                layouts: [this.paramsLayout, this.gridLayout, this.particlesLayout],
-                shader: this.g2pShader,
-                entryPoint: 'mpm_g2p_main',
-            });
-        }
-        if (this.clearGridPipeline === null && this.clearGridShader !== null) {
-            this.clearGridPipeline = this.core.create<ComputePipelineSpec>({
-                kind: 'pipeline',
-                subkind: 'compute',
-                discriminator: 'mpm_clear_grid_pipeline',
-                layouts: [this.paramsLayout, this.gridLayout],
-                shader: this.clearGridShader,
+
+        // Bindgroups por slot (compartilhados conceitualmente entre os 4 kernels;
+        // cada kernel cria sua própria cópia via discriminator único).
+        const paramsGroup = {
+            bindings: [{ binding: 0, type: 'uniform' as const, buffer: this.paramsBuffer }],
+        };
+        const gridGroup = {
+            bindings: [{ binding: 0, type: 'storage' as const, buffer: this.gridBuffer }],
+        };
+        const particlesGroup = {
+            bindings: [{ binding: 0, type: 'storage' as const, buffer: particlesBuf }],
+        };
+        const collidersGroup = {
+            bindings: [
+                { binding: 0, type: 'read-only-storage' as const, buffer: this.collidersBuffer },
+            ],
+        };
+
+        if (this.clearGridKernel === null) {
+            this.clearGridKernel = createComputeKernel(this.core, {
+                discriminator: 'mpm_clear_grid',
+                shaderSource: baseSrc + '\n' + mpmClearGridKernel,
                 entryPoint: 'mpm_clear_grid_main',
+                bindGroups: [paramsGroup, gridGroup],
+            });
+        }
+        if (this.p2gKernel === null) {
+            this.p2gKernel = createComputeKernel(this.core, {
+                discriminator: 'mpm_p2g',
+                shaderSource: baseSrc + '\n' + mpmP2GKernel,
+                entryPoint: 'mpm_p2g_main',
+                bindGroups: [paramsGroup, gridGroup, particlesGroup],
+            });
+        }
+        if (this.gridUpdateKernel === null) {
+            this.gridUpdateKernel = createComputeKernel(this.core, {
+                discriminator: 'mpm_grid_update',
+                shaderSource: baseSrc + '\n' + mpmGridUpdateKernel,
+                entryPoint: 'mpm_grid_update_main',
+                bindGroups: [paramsGroup, gridGroup, particlesGroup, collidersGroup],
+            });
+        }
+        if (this.g2pKernel === null) {
+            this.g2pKernel = createComputeKernel(this.core, {
+                discriminator: 'mpm_g2p',
+                shaderSource: baseSrc + '\n' + mpmG2PKernel,
+                entryPoint: 'mpm_g2p_main',
+                bindGroups: [paramsGroup, gridGroup, particlesGroup],
             });
         }
     }
@@ -384,56 +261,43 @@ export class MPMFlow extends Flow {
         const count = this.resources.poolCount(this.bodyType);
         if (count === 0) return;
         this.ensureGpuObjects();
-        if (
-            this.p2gPipeline === null
-            || this.gridUpdatePipeline === null
-            || this.g2pPipeline === null
-        )
-            return;
-        if (
-            this.paramsBg === null
-            || this.gridBg === null
-            || this.particlesBg === null
-            || this.collidersBg === null
-        )
-            return;
+        const clear = this.clearGridKernel;
+        const p2g = this.p2gKernel;
+        const gridUpdate = this.gridUpdateKernel;
+        const g2p = this.g2pKernel;
+        if (clear === null || p2g === null || gridUpdate === null || g2p === null) return;
+
         const dtSub = this.fixedDt / this.substeps;
         const particleWg = Math.ceil(count / 64);
         const gridWg = Math.ceil(this.gridCellCount() / 64);
         for (let s = 0; s < this.substeps; s++) {
             this.uploadParams(count, dtSub);
-            if (this.clearGridPipeline !== null) {
-                frame.compute('MPMFlow.clear_grid', (pass) => {
-                    pass.bind
-                        .setPipeline(this.clearGridPipeline!)
-                        .setBindGroup(0, this.paramsBg!)
-                        .setBindGroup(1, this.gridBg!);
-                    pass.dispatch.workgroups(gridWg);
+            frame.compute('MPMFlow.clear_grid', (pass) => {
+                pass.bind.setPipeline(clear.pipeline);
+                clear.bindGroups.forEach((bg, i) => {
+                    pass.bind.setBindGroup(i, bg);
                 });
-            }
+                pass.dispatch.workgroups(gridWg);
+            });
             frame.compute('MPMFlow.p2g', (pass) => {
-                pass.bind
-                    .setPipeline(this.p2gPipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.gridBg!)
-                    .setBindGroup(2, this.particlesBg!);
+                pass.bind.setPipeline(p2g.pipeline);
+                p2g.bindGroups.forEach((bg, i) => {
+                    pass.bind.setBindGroup(i, bg);
+                });
                 pass.dispatch.workgroups(particleWg);
             });
             frame.compute('MPMFlow.grid_update', (pass) => {
-                pass.bind
-                    .setPipeline(this.gridUpdatePipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.gridBg!)
-                    .setBindGroup(2, this.particlesBg!)
-                    .setBindGroup(3, this.collidersBg!);
+                pass.bind.setPipeline(gridUpdate.pipeline);
+                gridUpdate.bindGroups.forEach((bg, i) => {
+                    pass.bind.setBindGroup(i, bg);
+                });
                 pass.dispatch.workgroups(gridWg);
             });
             frame.compute('MPMFlow.g2p', (pass) => {
-                pass.bind
-                    .setPipeline(this.g2pPipeline!)
-                    .setBindGroup(0, this.paramsBg!)
-                    .setBindGroup(1, this.gridBg!)
-                    .setBindGroup(2, this.particlesBg!);
+                pass.bind.setPipeline(g2p.pipeline);
+                g2p.bindGroups.forEach((bg, i) => {
+                    pass.bind.setBindGroup(i, bg);
+                });
                 pass.dispatch.workgroups(particleWg);
             });
         }

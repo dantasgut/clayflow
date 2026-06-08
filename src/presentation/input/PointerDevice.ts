@@ -1,11 +1,17 @@
 import type { Input } from './Input';
 
+/**
+ * Device de mouse/touch unificado (Pointer Events API). Popula
+ * `Input.state.pointerX/Y/Buttons/DeltaX/DeltaY/wheel`. Use deltas para
+ * camera orbit; absolute coords para UI hit-testing.
+ */
 export class PointerDevice {
     constructor(
         private readonly canvas: HTMLCanvasElement,
         private readonly input: Input,
     ) {}
 
+    /** Registra listeners no canvas. */
     attach(): void {
         this.canvas.addEventListener('pointerdown', this.onDown);
         this.canvas.addEventListener('pointerup', this.onUp);
@@ -13,6 +19,7 @@ export class PointerDevice {
         this.canvas.addEventListener('wheel', this.onWheel, { passive: true });
     }
 
+    /** Remove listeners. */
     detach(): void {
         this.canvas.removeEventListener('pointerdown', this.onDown);
         this.canvas.removeEventListener('pointerup', this.onUp);

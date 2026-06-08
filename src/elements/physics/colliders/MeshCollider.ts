@@ -3,7 +3,12 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Collider } from './Collider';
 
+/**
+ * Collider triangle-mesh estático — referencia faixa do triangle pool
+ * (firstTriangle + triangleCount). Para shapes deformáveis, use SoftBody.
+ */
 export class MeshCollider extends Collider {
+    /** StructSchema do MeshCollider (triangleCount + firstTriangle). */
     static readonly schema = new StructSchema('MeshCollider', {
         triangleCount: FieldType.u32,
         firstTriangle: FieldType.u32,

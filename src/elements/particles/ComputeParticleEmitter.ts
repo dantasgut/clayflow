@@ -4,7 +4,12 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { ParticleEmitter } from './ParticleEmitter';
 import type { ParticleEmitterOptions } from './ParticleEmitter';
 
+/**
+ * Emitter cuja simulação roda inteiramente em compute shader GPU.
+ * Apropriado para 10k+ partículas com lógica simples (gravity + drag).
+ */
 export class ComputeParticleEmitter extends ParticleEmitter {
+    /** StructSchema da partícula compute (position + velocity + ageAndLife + params). */
     static readonly schema = new StructSchema('ComputeParticle', {
         position: FieldType.vec4f,
         velocity: FieldType.vec4f,

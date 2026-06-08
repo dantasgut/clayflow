@@ -1,25 +1,54 @@
+/**
+ * Posição e dimensões de um glyph dentro do atlas. UIFlow usa estes
+ * valores para gerar UV coordinates dos quads texturados.
+ */
 export interface FontGlyph {
+    /** Caractere representado (e.g. 'A'). */
     readonly char: string;
+    /** X do canto superior esquerdo no atlas (pixels). */
     readonly x: number;
+    /** Y do canto superior esquerdo no atlas. */
     readonly y: number;
+    /** Largura visual do glyph (em pixels). */
     readonly width: number;
+    /** Altura do glyph (geralmente igual ao fontSize). */
     readonly height: number;
+    /** Quanto avançar o cursor para o próximo glyph (kerning simplificado). */
     readonly advance: number;
 }
 
+/**
+ * Font carregada pelo `FontLoader`. Inclui ImageBitmap atlas + glyph
+ * metadata para text layout. `atlas` é null em ambientes sem
+ * OffscreenCanvas (Node-side, alguns mobile browsers).
+ */
 export interface LoadedFont {
+    /** Nome da font family (e.g. 'Inter', 'monospace'). */
     readonly family: string;
+    /** URL do arquivo .woff/.ttf/.otf. */
     readonly url: string;
+    /** ImageBitmap renderizado com todos os glyphs (RGBA). */
     readonly atlas: ImageBitmap | null;
+    /** Largura do atlas em pixels. */
     readonly atlasWidth: number;
+    /** Altura do atlas em pixels. */
     readonly atlasHeight: number;
+    /** Map char → glyph metadata (UV + advance). */
     readonly glyphs: ReadonlyMap<string, FontGlyph>;
+    /** Pixel size usado para renderizar o atlas. */
     readonly fontSize: number;
 }
 
+/**
+ * Opções de carregamento. `chars` permite limitar o atlas aos caracteres
+ * efetivamente usados (atlas menor → menos GPU memory).
+ */
 export interface FontLoaderOptions {
+    /** Tamanho em pixels para renderizar os glyphs. Default: 32. */
     readonly fontSize?: number;
+    /** String com todos os chars a incluir. Default: ASCII printable. */
     readonly chars?: string;
+    /** Padding entre glyphs no atlas (evita bleeding). Default: 2px. */
     readonly padding?: number;
 }
 
@@ -28,7 +57,20 @@ const DEFAULT_CHARS =
     + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`'
     + 'abcdefghijklmnopqrstuvwxyz{|}~';
 
+/**
+ * FontLoader carrega arquivos de font (woff, ttf, otf) e gera um atlas
+ * de glyphs em ImageBitmap. UIFlow usa o atlas + glyph metadata para
+ * renderizar texto via quads texturados.
+ *
+ * Implementação: usa FontFace API (browser) para registrar a font e
+ * OffscreenCanvas para renderizar cada char. Fallback gracioso se APIs
+ * não disponíveis (retorna LoadedFont com atlas=null).
+ */
 export class FontLoader {
+    /**
+     * Carrega font + gera atlas. Retorna LoadedFont mesmo se renderização
+     * falhar (atlas=null nesse caso) para que o app não quebre.
+     */
     async load(family: string, url: string, options: FontLoaderOptions = {}): Promise<LoadedFont> {
         const fontSize = options.fontSize ?? 32;
         const chars = options.chars ?? DEFAULT_CHARS;

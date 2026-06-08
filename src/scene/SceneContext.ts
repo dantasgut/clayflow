@@ -18,13 +18,21 @@ import { World } from './world/World';
  * paralelos isolados).
  */
 export interface SceneContext {
+    /** EngineCore — Camada 1, abstração GPU device. */
     readonly core: EngineCore;
+    /** EventBus pub/sub tipado. */
     readonly events: EventBus;
+    /** FlowRegistry — Flows registrados deste scene. */
     readonly flows: FlowRegistryType;
+    /** World ECS-like — Resources indexados por schema/tag. */
     readonly world: World;
+    /** ResourceSystem — alocação/upload/dispose de buffers GPU. */
     readonly resourceSystem: ResourceSystem;
+    /** ExecutionSystem — orquestra dispatch de Flows por frame. */
     readonly executionSystem: ExecutionSystem;
+    /** LayoutInferencer — deriva bindings GPU de WGSL parsed AST. */
     readonly layoutInferencer: LayoutInferencer;
+    /** ConsumerResolverRegistry — resolve `consumes:[]` em PipelineDescriptors. */
     readonly consumers: ConsumerResolverRegistry;
     /**
      * Cancela inflight readbacks, libera GpuResourceStore, remove listeners

@@ -35,10 +35,22 @@ interface ShadowSlot {
     transformBindGroup: BindGroupSpec;
 }
 
+/**
+ * Opções do ShadowFlow. Apenas `mapSize` por enquanto.
+ */
 export interface ShadowFlowOptions {
+    /** Resolução do shadow map (mapSize × mapSize). Default: 1024. */
     readonly mapSize?: number;
 }
 
+/**
+ * ShadowFlow — depth-only render pass do POV de uma directional light.
+ * Identifica o primeiro DirectionalLight com `castShadow=1` no World
+ * e renderiza geometria do mundo em depth32float (mapSize × mapSize).
+ *
+ * O depth view resultante é consumido pelo ForwardFlow para PCF shadow
+ * sampling. Single light by design (multi-light shadows = future work).
+ */
 export class ShadowFlow extends Flow {
     readonly type = 'ShadowFlow';
     readonly bodyType = '';
@@ -77,6 +89,7 @@ export class ShadowFlow extends Flow {
         this.mapSize = options.mapSize ?? SHADOW_MAP_SIZE;
     }
 
+    /** Habilita async pipeline compilation. Sync mode (default) bloqueia primeiro dispatch. */
     setPreferAsync(enabled: boolean): this {
         if (enabled === this.preferAsyncPipeline) return this;
         this.preferAsyncPipeline = enabled;
@@ -123,6 +136,7 @@ export class ShadowFlow extends Flow {
         });
     }
 
+    /** View do shadow map para ForwardFlow consumir como bind group input. */
     get depthTextureView(): TextureViewSpec | null {
         return this.depthView;
     }
@@ -133,10 +147,12 @@ export class ShadowFlow extends Flow {
         }
     }
 
+    /** mat4×4 view × projection da light POV. ForwardFlow uploada para shadow PCF sample. */
     get currentLightViewProj(): readonly number[] {
         return this.lightViewProj;
     }
 
+    /** Direção da light em world coords (vec4, w=0). Usada para diffuse shading. */
     get currentLightDirection(): readonly [number, number, number, number] {
         return this.lightDirection;
     }

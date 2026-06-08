@@ -1,71 +1,163 @@
+/**
+ * Node em uma cena glTF. Representa um transform na hierarquia, opcionalmente
+ * referenciando uma mesh (geometria) e/ou skin (skeleton para animação).
+ * Filhos são índices em GltfDocument.nodes (referência por inteiro,
+ * não por ponteiro — o documento é totalmente self-contained).
+ */
 export interface GltfNode {
+    /** Nome legível do node (debugging). */
     readonly name?: string;
+    /** Índice em `GltfDocument.meshes`, undefined se o node é só transform. */
     readonly meshIndex?: number;
+    /** Índice em `GltfDocument.skins`, undefined se o node não é skinned. */
     readonly skinIndex?: number;
+    /** Translação local (relativa ao parent). */
     readonly translation: readonly [number, number, number];
+    /** Rotação local como quaternion (x, y, z, w). */
     readonly rotation: readonly [number, number, number, number];
+    /** Scale local. */
     readonly scale: readonly [number, number, number];
+    /** Índices dos nodes filhos em `GltfDocument.nodes`. */
     readonly children: readonly number[];
 }
 
+/**
+ * Mesh em glTF — agregado de primitives. Cada primitive tem seu próprio
+ * material e atributos vertex (positions/normals/uvs/etc.). Padrão glTF
+ * permite mesh com múltiplos primitives quando partes têm materials diferentes.
+ */
 export interface GltfMesh {
+    /** Nome legível (debug). */
     readonly name?: string;
+    /** Primitives sub-mesh — múltiplos quando partes têm materials diferentes. */
     readonly primitives: readonly GltfPrimitive[];
 }
 
+/**
+ * Primitive (sub-mesh) com atributos vertex deinterleaved e índices
+ * opcionais. Todos os atributos são `null` se ausentes no source glTF
+ * (e.g. mesh sem UVs).
+ */
 export interface GltfPrimitive {
+    /** Posições XYZ flat (3 floats por vértice). */
     readonly positions: Float32Array;
+    /** Normais XYZ flat ou null. */
     readonly normals: Float32Array | null;
+    /** UVs flat (2 floats por vértice) ou null. */
     readonly uvs: Float32Array | null;
+    /** Joint indices (4 por vértice, JOINTS_0) — para meshes skinned. */
     readonly joints: Uint16Array | null;
+    /** Joint weights (4 por vértice, WEIGHTS_0) — para meshes skinned. */
     readonly weights: Float32Array | null;
+    /** Índices de triângulos (uint16 ou uint32) ou null para non-indexed. */
     readonly indices: Uint16Array | Uint32Array | null;
+    /** Índice em `GltfDocument.materials` ou null para default material. */
     readonly materialIndex: number | null;
 }
 
+/**
+ * Material glTF metallic-roughness (PBR). Mapeamento direto pra
+ * `StandardMaterial` da engine: baseColor → albedo, etc.
+ */
 export interface GltfMaterial {
+    /** Nome legível (debug). */
     readonly name?: string;
+    /** Cor base RGBA (multiplicada com baseColorTexture quando presente). */
     readonly baseColorFactor: readonly [number, number, number, number];
+    /** Roughness 0..1 (0 = mirror, 1 = totalmente difuso). */
     readonly roughnessFactor: number;
+    /** Metallic 0..1 (0 = dielétrico, 1 = metal). */
     readonly metallicFactor: number;
 }
 
+/** Caminho do target em uma animation channel — determina qual atributo do node muda. */
 export type GltfAnimationPath = 'translation' | 'rotation' | 'scale' | 'weights';
+/**
+ * Modo de interpolação entre keyframes.
+ *   - `LINEAR`: lerp normal.
+ *   - `STEP`: hold (sem interpolação).
+ *   - `CUBICSPLINE`: 3 valores por keyframe (in-tangent, value, out-tangent).
+ */
 export type GltfInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
 
+/**
+ * Sampler de uma animation: pares (input → output) que descrevem keyframes.
+ * Múltiplos channels podem compartilhar o mesmo sampler (e.g. translation
+ * de vários nodes seguindo o mesmo timing).
+ */
 export interface GltfAnimationSampler {
-    readonly input: Float32Array; // tempos (segundos)
-    readonly output: Float32Array; // valores (vec3 ou vec4)
+    /** Tempos dos keyframes em segundos (monotonicamente crescente). */
+    readonly input: Float32Array;
+    /** Valores nos keyframes (vec3 para translation/scale, vec4 quaternion). */
+    readonly output: Float32Array;
+    /** Modo de interpolação entre keyframes (LINEAR / STEP / CUBICSPLINE). */
     readonly interpolation: GltfInterpolation;
 }
 
+/**
+ * Channel de animation — liga um sampler a um (node, path) específico.
+ * Múltiplas channels formam uma `GltfAnimation` completa.
+ */
 export interface GltfAnimationChannel {
+    /** Índice em `GltfAnimation.samplers`. */
     readonly samplerIndex: number;
+    /** Índice em `GltfDocument.nodes` que será animado. */
     readonly targetNode: number;
+    /** Atributo do node alvo (translation/rotation/scale/weights). */
     readonly targetPath: GltfAnimationPath;
 }
 
+/**
+ * Animation completa — coleção de samplers + channels que, quando avaliados
+ * num tempo `t`, transformam nodes da scene.
+ */
 export interface GltfAnimation {
+    /** Nome legível (debug). */
     readonly name?: string;
+    /** Samplers compartilhados entre channels (input/output/interpolation). */
     readonly samplers: readonly GltfAnimationSampler[];
+    /** Channels que mapeiam samplers para (node, path) específicos. */
     readonly channels: readonly GltfAnimationChannel[];
 }
 
+/**
+ * Skin (esqueleto) glTF — lista de joints e suas inverse-bind-matrices.
+ * Joint = node especial usado como bone. IBMs são as matrices que
+ * "desfazem" o bind pose para que vertex skinning funcione corretamente.
+ */
 export interface GltfSkin {
+    /** Nome legível (debug). */
     readonly name?: string;
-    readonly inverseBindMatrices: Float32Array | null; // mat4 × jointCount
-    readonly joints: readonly number[]; // node indices
-    readonly skeleton: number | null; // root node (optional)
+    /** Float32Array com mat4 × jointCount (16 floats por joint). */
+    readonly inverseBindMatrices: Float32Array | null;
+    /** Índices em `GltfDocument.nodes` que servem como joints. */
+    readonly joints: readonly number[];
+    /** Node raiz do esqueleto (opcional, para skin attachment). */
+    readonly skeleton: number | null;
 }
 
+/**
+ * Documento glTF parsed — saída do `gltfLoad()`. Self-contained: todos
+ * os índices dentro do documento são números resolvíveis nas suas listas.
+ * Use os índices para reconstruir a scene tree (recursivamente seguindo
+ * `nodes[i].children`).
+ */
 export interface GltfDocument {
+    /** AST raw do JSON parsed (sem normalização) — útil para debug. */
     readonly raw: unknown;
+    /** URL de origem (usada para resolver buffers externos via fetch). */
     readonly url: string;
+    /** Lista de todos os nodes do glTF (transform tree). */
     readonly nodes: readonly GltfNode[];
+    /** Lista de todas as meshes — referenciadas por node.meshIndex. */
     readonly meshes: readonly GltfMesh[];
+    /** Lista de todos os materials — referenciados por primitive.materialIndex. */
     readonly materials: readonly GltfMaterial[];
+    /** Lista de todas as animations — aplicáveis em runtime ao traversal. */
     readonly animations: readonly GltfAnimation[];
+    /** Lista de todos os skins (esqueletos) — referenciados por node.skinIndex. */
     readonly skins: readonly GltfSkin[];
+    /** Índice em `nodes` da scene root (entry point para traversal). */
     readonly scene: number;
 }
 
@@ -170,6 +262,18 @@ const GLB_MAGIC = 0x46546c67; // "glTF"
 const GLB_CHUNK_JSON = 0x4e4f534a; // "JSON"
 const GLB_CHUNK_BIN = 0x004e4942; // "BIN\0"
 
+/**
+ * GltfLoader carrega arquivos glTF (`.gltf` JSON ou `.glb` binário) em
+ * `GltfDocument`. Resolve buffers externos via fetch, decodifica
+ * `data:` URIs base64, e parsa o BIN chunk de GLBs.
+ *
+ * Suporte limitado vs. spec completa:
+ *   - Mesh primitives: positions, normals, uvs, joints/weights, indices.
+ *   - Materials: PBR metallic-roughness factors (não carrega textures).
+ *   - Animations: samplers (LINEAR/STEP/CUBICSPLINE) + channels.
+ *   - Skins: jointCount + IBMs.
+ *   - Não-suportado: morphtargets, sparse accessors, KHR extensions.
+ */
 export class GltfLoader {
     /**
      * Load a glTF document from URL. Suporta:

@@ -31,6 +31,18 @@ interface PoolEntry {
 
 const INITIAL_POOL_CAPACITY = 16;
 
+/**
+ * ResourceSystem é a Camada 2 que gerencia lifecycle dos Resources GPU
+ * — alocação, upload, pool growth, dispose. Reage a `resourcesChanged`
+ * (insert/remove de World) e `resourceDirty` (modificação manual).
+ *
+ * Strategies de storage:
+ *   - **individual**: 1 GPUBuffer por Resource. Para single-instance
+ *     (Camera, ShadowParams).
+ *   - **pool**: 1 GPUBuffer compartilhado coalescing N members do mesmo
+ *     schema (RigidBodies, particles). Cresce 2× quando capacity atinge
+ *     limite, emite `poolReallocated`.
+ */
 export class ResourceSystem {
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
     private readonly pools = new Map<string, PoolEntry>();
@@ -49,22 +61,35 @@ export class ResourceSystem {
         });
     }
 
+    /** BindGroupSpec do pool — input para flows que consomem o pool inteiro. */
     poolBindGroup(poolKey: string): BindGroupSpec | undefined {
         return this.pools.get(poolKey)?.bindGroupSpec;
     }
 
+    /** Número atual de members no pool (≤ capacity). 0 se pool não existe. */
     poolCount(poolKey: string): number {
         return this.pools.get(poolKey)?.count ?? 0;
     }
 
+    /** Slot index de um entityId dentro do pool (offset = slot × stride). */
     poolSlotOf(poolKey: string, entityId: EntityId): number | undefined {
         return this.pools.get(poolKey)?.slotByEntity.get(entityId);
     }
 
+    /** EntityId que ocupa o slot dado dentro do pool. Inverso de `poolSlotOf`. */
+    poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined {
+        return this.pools.get(poolKey)?.entityBySlot.get(slot);
+    }
+
+    /** StorageBufferSpec do pool — uso direto em pipelines custom. */
     poolBufferSpec(poolKey: string): StorageBufferSpec | undefined {
         return this.pools.get(poolKey)?.bufferSpec;
     }
 
+    /**
+     * Resolve o poolKey para um Resource (concatenação schema.name +
+     * configuração), ou undefined se Resource não está em pool storage.
+     */
     poolKeyForResource(resource: Resource): string | undefined {
         for (const desc of resource.getDescriptors()) {
             if (desc.storage === 'pool' && desc.schema !== undefined) {

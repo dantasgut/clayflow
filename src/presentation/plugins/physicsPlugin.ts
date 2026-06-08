@@ -6,6 +6,7 @@ import { MPMFlow } from '../../elements/physics/flows/MPMFlow';
 import { SPHFlow } from '../../elements/physics/flows/SPHFlow';
 import { PBFFlow } from '../../elements/physics/flows/PBFFlow';
 
+/** Opções do `physicsPlugin()`. */
 export interface PhysicsPluginOptions {
     /**
      * Subset de flows a registrar. Default: todos.

@@ -21,7 +21,7 @@ export interface FEMFlowOptions {
 
 export class FEMFlow extends Flow {
     readonly type = 'FEMFlow';
-    readonly bodyType = 'SoftBody:FEM';
+    readonly bodyType = 'FEMSchema';
     readonly phase: Phase = 'physics';
 
     private readonly fixedDt: number;

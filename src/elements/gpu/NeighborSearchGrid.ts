@@ -6,7 +6,13 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
+/**
+ * Grid uniforme de spatial hashing — particiona o espaço em células de
+ * lado `cellSize` para acelerar neighbor search SPH/PBF (O(N) vs. O(N²)).
+ * Compartilhado entre `NeighborSearchPipeline` e os flows fluido.
+ */
 export class NeighborSearchGrid extends Entity implements Resource {
+    /** StructSchema do NeighborSearchGrid (cellSize + gridDim + origin + cellCount). */
     static readonly schema = new StructSchema('NeighborSearchGrid', {
         cellSize: FieldType.f32,
         gridDim: FieldType.vec3u,

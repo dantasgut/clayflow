@@ -2,16 +2,28 @@ import type { BindingLayoutEntry } from '../../core/contracts/index';
 import type { GPUDescriptor, GPUDescriptorRole } from '../descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
 
+/**
+ * Binding extraído do parsing WGSL — todos os atributos `@group(N) @binding(M)`
+ * declarados no source, com tipo + stages que referenciam.
+ */
 export interface WgslBinding {
+    /** Slot de bindgroup (`@group(N)`). */
     readonly group: number;
+    /** Slot de binding dentro do bindgroup (`@binding(M)`). */
     readonly binding: number;
+    /** Nome da variável no WGSL. */
     readonly name: string;
+    /** Address space (uniform/storage/etc.) — opcional, inferido por type. */
     readonly addressSpace?: 'uniform' | 'storage' | 'private' | 'workgroup' | 'function';
+    /** Access mode para storage buffers (read / write / read_write). */
     readonly access?: 'read' | 'write' | 'read_write';
+    /** Texto WGSL do tipo (e.g. 'array<vec4f>', 'mat4x4<f32>'). */
     readonly typeText: string;
+    /** Set de stages que referenciam este binding (vertex, fragment, compute). */
     readonly stages: ReadonlySet<'vertex' | 'fragment' | 'compute'>;
 }
 
+/** Resultado do parseWGSL — lista de bindings extraídos. */
 export interface WgslBindingInfo {
     readonly bindings: readonly WgslBinding[];
 }
@@ -21,7 +33,19 @@ const ATTRIBUTE_PATTERN =
 const ENTRY_PATTERN =
     /@(?<stage>vertex|fragment|compute)\b(?:\s*@\w+(?:\([^)]*\))?)*\s+fn\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)/g;
 
+/**
+ * LayoutInferencer extrai a estrutura de bindings de um WGSL source via
+ * regex parsing (sem dependência de full WGSL parser). Detecta:
+ *   - `@group(N) @binding(M) var<...> name: Type;` → cria WgslBinding.
+ *   - `@vertex fn main(...)`, `@fragment fn`, `@compute fn` → identifica stages.
+ *   - Quais bindings cada stage referencia (via name lookup nos function bodies).
+ *
+ * Output (WgslBindingInfo) é usado para gerar layouts/bindgroups
+ * automaticamente a partir do shader source — evita declarar layouts
+ * manualmente quando a estrutura está toda no shader.
+ */
 export class LayoutInferencer {
+    /** Parsa um WGSL source e retorna lista de bindings encontrados. */
     parseWGSL(source: string): WgslBindingInfo {
         const bindings: WgslBinding[] = [];
         const stageBlocks = this.collectEntryBlocks(source);
@@ -58,6 +82,11 @@ export class LayoutInferencer {
         return { bindings };
     }
 
+    /**
+     * Mapeia o role declarado no GPUDescriptor para o bitmask `GPUBufferUsage.*`
+     * que será passado a `device.createBuffer({usage})`. Storage/vertex/index
+     * incluem COPY_SRC|COPY_DST para suportar readback e CPU writes.
+     */
     inferUsageFromRole(role: GPUDescriptorRole): number {
         const U = GPUBufferUsage;
         switch (role) {
@@ -82,6 +111,12 @@ export class LayoutInferencer {
         }
     }
 
+    /**
+     * Deriva uma `BindingLayoutEntry` (binding + visibility + type-specific
+     * config) combinando informação do GPUDescriptor (role) e WgslBinding
+     * opcional (stages que usam o binding). Quando os dois conflitam, o
+     * GPUDescriptor explícito tem precedência.
+     */
     inferLayoutEntry(
         descriptor: GPUDescriptor,
         binding: WgslBinding | undefined,
@@ -164,6 +199,11 @@ export class LayoutInferencer {
             : v;
     }
 
+    /**
+     * Parsa o WGSL source e mapeia cada entry point declarado em
+     * `pipeline.entryPoints` para seu stage (`vertex`/`fragment`/`compute`),
+     * lendo a annotation `@vertex`/`@fragment`/`@compute` antes de cada `fn`.
+     */
     extractEntryStages(
         source: string,
         pipeline: PipelineDescriptor,

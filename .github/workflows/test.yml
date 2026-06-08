@@ -31,6 +31,8 @@ jobs:
         run: npx tsc --noEmit
       - name: Unit tests + coverage
         run: npm run test:coverage
+      - name: Doc coverage (JSDoc on public exports)
+        run: npm run doc:coverage
       - name: Build lib
         run: npm run build:lib
 

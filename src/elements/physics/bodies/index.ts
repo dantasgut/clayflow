@@ -1,10 +1,17 @@
 export { PhysicsBody } from './PhysicsBody';
 export { RigidBody } from './RigidBody';
-export type { RigidBodyAlgorithm, RigidBodyOptions } from './RigidBody';
+export type { RigidBodyOptions } from './RigidBody';
 export { SoftBody } from './SoftBody';
-export type { SoftBodyAlgorithm, SoftBodyOptions } from './SoftBody';
+export type { SoftBodyOptions } from './SoftBody';
 export { FluidBody } from './FluidBody';
-export type { FluidBodyAlgorithm, FluidBodyOptions } from './FluidBody';
-export { MPMBody } from './MPMBody';
-export { SPHBody } from './SPHBody';
-export { PBFBody } from './PBFBody';
+export type { FluidBodyOptions } from './FluidBody';
+export {
+    LCPSchema,
+    XPBDRigidSchema,
+    XPBDSoftSchema,
+    FEMSchema,
+    MPMSoftSchema,
+    MPMFluidSchema,
+    SPHSchema,
+    PBFSchema,
+} from './schemas';
