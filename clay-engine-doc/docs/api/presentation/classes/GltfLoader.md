@@ -6,7 +6,18 @@
 
 # Class: GltfLoader
 
-Defined in: [presentation/assets/GltfLoader.ts:111](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L111)
+Defined in: [presentation/assets/GltfLoader.ts:277](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L277)
+
+GltfLoader carrega arquivos glTF (`.gltf` JSON ou `.glb` binário) em
+`GltfDocument`. Resolve buffers externos via fetch, decodifica
+`data:` URIs base64, e parsa o BIN chunk de GLBs.
+
+Suporte limitado vs. spec completa:
+  - Mesh primitives: positions, normals, uvs, joints/weights, indices.
+  - Materials: PBR metallic-roughness factors (não carrega textures).
+  - Animations: samplers (LINEAR/STEP/CUBICSPLINE) + channels.
+  - Skins: jointCount + IBMs.
+  - Não-suportado: morphtargets, sparse accessors, KHR extensions.
 
 ## Constructors
 
@@ -24,7 +35,7 @@ Defined in: [presentation/assets/GltfLoader.ts:111](https://github.com/dantasgut
 
 > **load**(`url`): `Promise`\<[`GltfDocument`](../interfaces/GltfDocument.md)\>
 
-Defined in: [presentation/assets/GltfLoader.ts:121](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L121)
+Defined in: [presentation/assets/GltfLoader.ts:287](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L287)
 
 Load a glTF document from URL. Suporta:
   - .gltf JSON com buffers externos (URI)
@@ -50,7 +61,7 @@ sniffing nos primeiros 4 bytes da resposta.
 
 > **parse**(`data`, `url`): `Promise`\<[`GltfDocument`](../interfaces/GltfDocument.md)\>
 
-Defined in: [presentation/assets/GltfLoader.ts:131](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L131)
+Defined in: [presentation/assets/GltfLoader.ts:297](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L297)
 
 Parse de um glTF (.gltf JSON ou .glb binário) já em memória. Útil para
 testes determinísticos e para casos em que o cliente já possui os bytes.

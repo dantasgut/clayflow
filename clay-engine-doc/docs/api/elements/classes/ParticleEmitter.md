@@ -6,7 +6,11 @@
 
 # Abstract Class: ParticleEmitter
 
-Defined in: [elements/particles/ParticleEmitter.ts:15](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/ParticleEmitter.ts#L15)
+Defined in: [elements/particles/ParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/ParticleEmitter.ts#L29)
+
+ParticleEmitter é a base de emissores de partículas. Subclasses concretas:
+  - `ComputeParticleEmitter`: emissão e simulação inteiramente em compute shaders.
+  - `ScriptedParticleEmitter`: emissão CPU-driven (callback custom por partícula).
 
 ## Extends
 
@@ -27,7 +31,7 @@ Defined in: [elements/particles/ParticleEmitter.ts:15](https://github.com/dantas
 
 > **new ParticleEmitter**(`options?`): `ParticleEmitter`
 
-Defined in: [elements/particles/ParticleEmitter.ts:19](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/ParticleEmitter.ts#L19)
+Defined in: [elements/particles/ParticleEmitter.ts:33](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/ParticleEmitter.ts#L33)
 
 #### Parameters
 
@@ -49,7 +53,11 @@ Defined in: [elements/particles/ParticleEmitter.ts:19](https://github.com/dantas
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/particles/ParticleEmitter.ts:17](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/ParticleEmitter.ts#L17)
+Defined in: [elements/particles/ParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/ParticleEmitter.ts#L31)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Implementation of
 
@@ -61,7 +69,9 @@ Defined in: [elements/particles/ParticleEmitter.ts:17](https://github.com/dantas
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/particles/ParticleEmitter.ts:16](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/ParticleEmitter.ts#L16)
+Defined in: [elements/particles/ParticleEmitter.ts:30](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/ParticleEmitter.ts#L30)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Implementation of
 
@@ -75,7 +85,10 @@ Defined in: [elements/particles/ParticleEmitter.ts:16](https://github.com/dantas
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -91,7 +104,10 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -113,7 +129,9 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > `abstract` **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/particles/ParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/ParticleEmitter.ts#L29)
+Defined in: [elements/particles/ParticleEmitter.ts:44](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/ParticleEmitter.ts#L44)
+
+Subclasses declaram pool de partículas + buffers auxiliares (life, velocity).
 
 #### Returns
 
@@ -129,7 +147,9 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/particles/ParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/particles/ParticleEmitter.ts#L31)
+Defined in: [elements/particles/ParticleEmitter.ts:47](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/particles/ParticleEmitter.ts#L47)
+
+Sem pipelines próprios — flow consumidor cria.
 
 #### Returns
 

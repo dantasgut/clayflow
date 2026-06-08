@@ -6,7 +6,12 @@
 
 # Class: FlyController
 
-Defined in: [presentation/input/controllers/FlyController.ts:30](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/controllers/FlyController.ts#L30)
+Defined in: [presentation/input/controllers/FlyController.ts:30](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/FlyController.ts#L30)
+
+Base abstrata de controllers (OrbitController, FpsController, FlyController).
+Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
+em cada tick. Lê `ctx.input` e modifica resources do World (Camera,
+Transform) conforme input.
 
 ## Extends
 
@@ -18,7 +23,7 @@ Defined in: [presentation/input/controllers/FlyController.ts:30](https://github.
 
 > **new FlyController**(`camera`, `options?`): `FlyController`
 
-Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/controllers/FlyController.ts#L38)
+Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/FlyController.ts#L38)
 
 #### Parameters
 
@@ -44,7 +49,9 @@ Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.
 
 > **update**(`ctx`): `void`
 
-Defined in: [presentation/input/controllers/FlyController.ts:52](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/controllers/FlyController.ts#L52)
+Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/FlyController.ts#L55)
+
+Hook chamado a cada frameTick — leia input, atualize state externo.
 
 #### Parameters
 

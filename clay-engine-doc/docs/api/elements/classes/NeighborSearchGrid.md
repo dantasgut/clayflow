@@ -6,7 +6,11 @@
 
 # Class: NeighborSearchGrid
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchGrid.ts#L9)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:14](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchGrid.ts#L14)
+
+Grid uniforme de spatial hashing — particiona o espaço em células de
+lado `cellSize` para acelerar neighbor search SPH/PBF (O(N) vs. O(N²)).
+Compartilhado entre `NeighborSearchPipeline` e os flows fluido.
 
 ## Extends
 
@@ -22,7 +26,7 @@ Defined in: [elements/gpu/NeighborSearchGrid.ts:9](https://github.com/dantasgut/
 
 > **new NeighborSearchGrid**(`values?`): `NeighborSearchGrid`
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:23](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchGrid.ts#L23)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchGrid.ts#L29)
 
 #### Parameters
 
@@ -44,7 +48,11 @@ Defined in: [elements/gpu/NeighborSearchGrid.ts:23](https://github.com/dantasgut
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:21](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchGrid.ts#L21)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchGrid.ts#L27)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Implementation of
 
@@ -56,7 +64,9 @@ Defined in: [elements/gpu/NeighborSearchGrid.ts:21](https://github.com/dantasgut
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:20](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchGrid.ts#L20)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:26](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchGrid.ts#L26)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Implementation of
 
@@ -68,7 +78,9 @@ Defined in: [elements/gpu/NeighborSearchGrid.ts:20](https://github.com/dantasgut
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchGrid.ts#L10)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:16](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchGrid.ts#L16)
+
+StructSchema do NeighborSearchGrid (cellSize + gridDim + origin + cellCount).
 
 ## Accessors
 
@@ -78,7 +90,10 @@ Defined in: [elements/gpu/NeighborSearchGrid.ts:10](https://github.com/dantasgut
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -94,7 +109,10 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -116,7 +134,12 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:36](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchGrid.ts#L36)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:42](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchGrid.ts#L42)
+
+Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
+que este resource expõe ao `ResourceSystem`. Cada descriptor define
+`id`, `role`, `schema` (StructSchema) e opcionalmente `storage`
+(`'pool'` para coalescer N members do mesmo schema em 1 buffer).
 
 #### Returns
 
@@ -132,7 +155,11 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:40](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchGrid.ts#L40)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:46](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchGrid.ts#L46)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 

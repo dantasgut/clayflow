@@ -6,12 +6,12 @@
 
 # Class: SoftBody
 
-Defined in: [elements/physics/bodies/SoftBody.ts:19](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L19)
+Defined in: [elements/physics/bodies/SoftBody.ts:28](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/SoftBody.ts#L28)
 
-SoftBody segue contrato `Particle` WGSL legacy (48B = 3 vec4f).
-  pos:  xyz=posição,        w=invMass (0=fixada)
-  pred: xyz=posição prev.,  w=reservado
-  vel:  xyz=velocidade,     w=reservado
+SoftBody — corpo deformável discreto (cloth, jelly, finite element node).
+Data class pura: estado runtime serializável governado pelo `schema`
+recebido. Pool key = `schema.name` roteia para XPBDFlow/FEMFlow/MPMFlow
+conforme o schema escolhido.
 
 ## Extends
 
@@ -21,19 +21,15 @@ SoftBody segue contrato `Particle` WGSL legacy (48B = 3 vec4f).
 
 ### Constructor
 
-> **new SoftBody**(`values?`, `options?`): `SoftBody`
+> **new SoftBody**(`options`): `SoftBody`
 
-Defined in: [elements/physics/bodies/SoftBody.ts:30](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L30)
+Defined in: [elements/physics/bodies/SoftBody.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/SoftBody.ts#L31)
 
 #### Parameters
 
-##### values?
+##### options
 
-`Record`\<`string`, `unknown`\> = `{}`
-
-##### options?
-
-[`SoftBodyOptions`](../interfaces/SoftBodyOptions.md) = `{}`
+[`SoftBodyOptions`](../interfaces/SoftBodyOptions.md)
 
 #### Returns
 
@@ -49,7 +45,11 @@ Defined in: [elements/physics/bodies/SoftBody.ts:30](https://github.com/dantasgu
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/PhysicsBody.ts#L10)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:16](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/PhysicsBody.ts#L16)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Inherited from
 
@@ -61,27 +61,13 @@ Defined in: [elements/physics/bodies/PhysicsBody.ts:10](https://github.com/danta
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/PhysicsBody.ts#L9)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/PhysicsBody.ts#L15)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
 [`PhysicsBody`](PhysicsBody.md).[`state`](PhysicsBody.md#state)
-
-***
-
-### defaultAlgorithm
-
-> `readonly` `static` **defaultAlgorithm**: [`SoftBodyAlgorithm`](../type-aliases/SoftBodyAlgorithm.md) = `'XPBD'`
-
-Defined in: [elements/physics/bodies/SoftBody.ts:26](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L26)
-
-***
-
-### schema
-
-> `readonly` `static` **schema**: `StructSchema`
-
-Defined in: [elements/physics/bodies/SoftBody.ts:20](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L20)
 
 ## Accessors
 
@@ -91,7 +77,10 @@ Defined in: [elements/physics/bodies/SoftBody.ts:20](https://github.com/dantasgu
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -107,7 +96,10 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -129,7 +121,9 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/bodies/SoftBody.ts:44](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L44)
+Defined in: [elements/physics/bodies/SoftBody.ts:38](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/SoftBody.ts#L38)
+
+Pool storage para coalescer N SoftBodies do mesmo schema em 1 buffer GPU.
 
 #### Returns
 
@@ -141,27 +135,15 @@ readonly `GPUDescriptor`[]
 
 ***
 
-### getFlowDescriptors()
-
-> **getFlowDescriptors**(): readonly `FlowDescriptor`[]
-
-Defined in: [elements/physics/bodies/SoftBody.ts:53](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L53)
-
-#### Returns
-
-readonly `FlowDescriptor`[]
-
-#### Overrides
-
-[`PhysicsBody`](PhysicsBody.md).[`getFlowDescriptors`](PhysicsBody.md#getflowdescriptors)
-
-***
-
 ### getPipelineDescriptors()
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/PhysicsBody.ts#L14)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:20](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/PhysicsBody.ts#L20)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 

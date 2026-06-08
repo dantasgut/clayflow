@@ -6,7 +6,7 @@
 
 # Class: Application
 
-Defined in: [presentation/app/Application.ts:47](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L47)
+Defined in: [presentation/app/Application.ts:72](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L72)
 
 Application — bootstrap das 4 camadas da engine sobre um `<canvas>`.
 
@@ -31,7 +31,9 @@ Resize: por padrão (`autoResize: true` em browser) anexa um listener em
 
 > `readonly` **canvas**: `HTMLCanvasElement`
 
-Defined in: [presentation/app/Application.ts:52](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L52)
+Defined in: [presentation/app/Application.ts:85](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L85)
+
+Canvas HTML attachado. Mesmo objeto passado em `create({canvas})`.
 
 ***
 
@@ -39,7 +41,10 @@ Defined in: [presentation/app/Application.ts:52](https://github.com/dantasgut/cl
 
 > `readonly` **defaults**: [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/app/Application.ts:51](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L51)
+Defined in: [presentation/app/Application.ts:83](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L83)
+
+Refs para os Flows default (Forward, Shadow, Post, UI, Debug). Útil
+para customizar (e.g. `app.defaults.post.addEffect(new Bloom(...))`).
 
 ***
 
@@ -47,7 +52,9 @@ Defined in: [presentation/app/Application.ts:51](https://github.com/dantasgut/cl
 
 > `readonly` **flows**: `FlowRegistry`
 
-Defined in: [presentation/app/Application.ts:49](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L49)
+Defined in: [presentation/app/Application.ts:76](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L76)
+
+FlowRegistry — registro de Flows ativos. Atalho para `scene.flows`.
 
 ***
 
@@ -55,7 +62,9 @@ Defined in: [presentation/app/Application.ts:49](https://github.com/dantasgut/cl
 
 > `readonly` **time**: [`Time`](Time.md)
 
-Defined in: [presentation/app/Application.ts:50](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L50)
+Defined in: [presentation/app/Application.ts:78](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L78)
+
+Resource especial com `dt` e `elapsed` atualizados pelo GameLoop.
 
 ***
 
@@ -63,7 +72,9 @@ Defined in: [presentation/app/Application.ts:50](https://github.com/dantasgut/cl
 
 > `readonly` **world**: `World`
 
-Defined in: [presentation/app/Application.ts:48](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L48)
+Defined in: [presentation/app/Application.ts:74](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L74)
+
+World ECS-like — query/insert/remove de Resources. Atalho para `scene.world`.
 
 ## Accessors
 
@@ -73,7 +84,9 @@ Defined in: [presentation/app/Application.ts:48](https://github.com/dantasgut/cl
 
 > **get** **consumers**(): `ConsumerResolverRegistry`
 
-Defined in: [presentation/app/Application.ts:144](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L144)
+Defined in: [presentation/app/Application.ts:289](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L289)
+
+Registry de ConsumerResolvers — usado por LayoutInferencer.
 
 ##### Returns
 
@@ -85,13 +98,15 @@ Defined in: [presentation/app/Application.ts:144](https://github.com/dantasgut/c
 
 #### Get Signature
 
-> **get** **core**(): `GpuEngineCore`
+> **get** **core**(): `EngineCore`
 
-Defined in: [presentation/app/Application.ts:141](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L141)
+Defined in: [presentation/app/Application.ts:277](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L277)
+
+Acesso direto à Camada 1 (EngineCore) para casos avançados.
 
 ##### Returns
 
-`GpuEngineCore`
+`EngineCore`
 
 ***
 
@@ -99,13 +114,15 @@ Defined in: [presentation/app/Application.ts:141](https://github.com/dantasgut/c
 
 #### Get Signature
 
-> **get** **events**(): `DefaultEventBus`
+> **get** **events**(): `EventBus`
 
-Defined in: [presentation/app/Application.ts:142](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L142)
+Defined in: [presentation/app/Application.ts:281](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L281)
+
+EventBus do scene — pub/sub tipado para todos os eventos da engine.
 
 ##### Returns
 
-`DefaultEventBus`
+`EventBus`
 
 ***
 
@@ -115,7 +132,9 @@ Defined in: [presentation/app/Application.ts:142](https://github.com/dantasgut/c
 
 > **get** **executionSystem**(): `ExecutionSystem`
 
-Defined in: [presentation/app/Application.ts:146](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L146)
+Defined in: [presentation/app/Application.ts:297](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L297)
+
+ExecutionSystem — orquestra dispatch de Flows por frameTick.
 
 ##### Returns
 
@@ -129,7 +148,9 @@ Defined in: [presentation/app/Application.ts:146](https://github.com/dantasgut/c
 
 > **get** **layoutInferencer**(): `LayoutInferencer`
 
-Defined in: [presentation/app/Application.ts:145](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L145)
+Defined in: [presentation/app/Application.ts:293](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L293)
+
+LayoutInferencer — deriva bindings GPU a partir de WGSL parsed AST.
 
 ##### Returns
 
@@ -143,7 +164,9 @@ Defined in: [presentation/app/Application.ts:145](https://github.com/dantasgut/c
 
 > **get** **resources**(): `ResourceSystem`
 
-Defined in: [presentation/app/Application.ts:143](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L143)
+Defined in: [presentation/app/Application.ts:285](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L285)
+
+ResourceSystem — gerencia lifecycle de Resources e pools GPU.
 
 ##### Returns
 
@@ -155,7 +178,11 @@ Defined in: [presentation/app/Application.ts:143](https://github.com/dantasgut/c
 
 > **dispose**(): `void`
 
-Defined in: [presentation/app/Application.ts:129](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L129)
+Defined in: [presentation/app/Application.ts:252](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L252)
+
+Para o loop, dispõe plugins (ordem reversa de instalação), remove
+event listeners (resize, memory) e — se foi criada com `scene` próprio
+— chama `scene.dispose()` para liberar GPU device.
 
 #### Returns
 
@@ -167,7 +194,7 @@ Defined in: [presentation/app/Application.ts:129](https://github.com/dantasgut/c
 
 > **handleResize**(): `void`
 
-Defined in: [presentation/app/Application.ts:108](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L108)
+Defined in: [presentation/app/Application.ts:224](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L224)
 
 Re-sincroniza canvas.width/height com clientWidth/clientHeight × DPR,
 reconfigura o swapchain do core, e emite `canvasReconfigured` para
@@ -183,7 +210,9 @@ que Flows recriem suas textures size-dependent.
 
 > **isRunning**(): `boolean`
 
-Defined in: [presentation/app/Application.ts:99](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L99)
+Defined in: [presentation/app/Application.ts:201](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L201)
+
+True se o GameLoop está ativo (RAF agendado).
 
 #### Returns
 
@@ -191,11 +220,32 @@ Defined in: [presentation/app/Application.ts:99](https://github.com/dantasgut/cl
 
 ***
 
+### requestNewDevice()
+
+> **requestNewDevice**(): `Promise`\<`void`\>
+
+Defined in: [presentation/app/Application.ts:213](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L213)
+
+Recupera após `deviceLost`. Re-cria GPUDevice (via navigator.gpu) e
+re-attacha o canvas. Ao final, emite `deviceRecovered` para que
+sistemas reativos (ResourceSystem, Flows) reconstruam buffers/pipelines.
+
+Recomendado consumir via `app.events.on('deviceLost', () => app.requestNewDevice())`
+— ou implementar política mais sofisticada (e.g. backoff, max retries).
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### start()
 
 > **start**(): `void`
 
-Defined in: [presentation/app/Application.ts:91](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L91)
+Defined in: [presentation/app/Application.ts:191](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L191)
+
+Inicia o GameLoop (RAF). Chama isso após inserir entidades no World.
 
 #### Returns
 
@@ -207,7 +257,9 @@ Defined in: [presentation/app/Application.ts:91](https://github.com/dantasgut/cl
 
 > **stop**(): `void`
 
-Defined in: [presentation/app/Application.ts:95](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L95)
+Defined in: [presentation/app/Application.ts:196](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L196)
+
+Pausa o GameLoop (RAF). Reversível via `start()`.
 
 #### Returns
 
@@ -215,11 +267,38 @@ Defined in: [presentation/app/Application.ts:95](https://github.com/dantasgut/cl
 
 ***
 
+### use()
+
+> **use**(`plugin`): `this`
+
+Defined in: [presentation/app/Application.ts:184](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L184)
+
+Instala um plugin. O `plugin.install(this)` roda imediatamente, então
+pode registrar flows, eventos, etc. Múltiplos plugins instalados
+serão `dispose()`-ados em ordem reversa quando `app.dispose()`.
+
+#### Parameters
+
+##### plugin
+
+[`EnginePlugin`](../interfaces/EnginePlugin.md)
+
+#### Returns
+
+`this`
+
+***
+
 ### create()
 
 > `static` **create**(`options`): `Promise`\<`Application`\>
 
-Defined in: [presentation/app/Application.ts:75](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/Application.ts#L75)
+Defined in: [presentation/app/Application.ts:158](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Application.ts#L158)
+
+Construtor async — inicializa GPU device + canvas, registra os Flows
+default + plugins (`options.plugins`), e retorna a `Application` pronta
+para `start()`. Se `options.scene` é fornecido usa contexto isolado
+(multi-Application); caso contrário usa o singleton default.
 
 #### Parameters
 

@@ -6,12 +6,28 @@
 
 # Interface: RigidBodyOptions
 
-Defined in: [elements/physics/bodies/RigidBody.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/RigidBody.ts#L9)
+Defined in: [elements/physics/bodies/RigidBody.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/RigidBody.ts#L8)
+
+Opções de criação do RigidBody.
 
 ## Properties
 
-### algorithm?
+### data?
 
-> `readonly` `optional` **algorithm?**: [`RigidBodyAlgorithm`](../type-aliases/RigidBodyAlgorithm.md)
+> `readonly` `optional` **data?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [elements/physics/bodies/RigidBody.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/RigidBody.ts#L10)
+Defined in: [elements/physics/bodies/RigidBody.ts:18](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/RigidBody.ts#L18)
+
+Valores iniciais por field do schema. Fields ausentes recebem default
+via `schema.applyDefaults`. Estrutura aceita está no schema.
+
+***
+
+### schema
+
+> `readonly` **schema**: `StructSchema`
+
+Defined in: [elements/physics/bodies/RigidBody.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/RigidBody.ts#L13)
+
+Schema que descreve o struct WGSL consumido pelo flow integrador.
+Importado de `bodies/schemas/` (`LCPSchema`, `XPBDRigidSchema`).

@@ -6,7 +6,11 @@
 
 # Class: SphereGeometry
 
-Defined in: [elements/geometry/SphereGeometry.ts:6](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/SphereGeometry.ts#L6)
+Defined in: [elements/geometry/SphereGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/SphereGeometry.ts#L11)
+
+SphereGeometry — esfera gerada via lat/lon tessellation. Default 16
+latitude segments × 32 longitude segments = 512 quads = 1024 triangles.
+Aumente `latSegments`/`lonSegments` para superfícies mais smooth.
 
 ## Extends
 
@@ -18,7 +22,7 @@ Defined in: [elements/geometry/SphereGeometry.ts:6](https://github.com/dantasgut
 
 > **new SphereGeometry**(`values?`): `SphereGeometry`
 
-Defined in: [elements/geometry/SphereGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/SphereGeometry.ts#L14)
+Defined in: [elements/geometry/SphereGeometry.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/SphereGeometry.ts#L21)
 
 #### Parameters
 
@@ -40,7 +44,11 @@ Defined in: [elements/geometry/SphereGeometry.ts:14](https://github.com/dantasgu
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L9)
+Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L9)
+
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload.
 
 #### Inherited from
 
@@ -52,7 +60,9 @@ Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayf
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L8)
+Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L8)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
@@ -64,7 +74,9 @@ Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayf
 
 > `readonly` `static` **schema**: `StructSchema` = `SphereGeometry.vertexStruct`
 
-Defined in: [elements/geometry/SphereGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/SphereGeometry.ts#L12)
+Defined in: [elements/geometry/SphereGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/SphereGeometry.ts#L19)
+
+Alias para vertexStruct.
 
 ***
 
@@ -72,7 +84,9 @@ Defined in: [elements/geometry/SphereGeometry.ts:12](https://github.com/dantasgu
 
 > `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/SphereGeometry.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/SphereGeometry.ts#L7)
+Defined in: [elements/geometry/SphereGeometry.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/SphereGeometry.ts#L13)
+
+Vertex layout idêntico a BoxGeometry: position + normal + uv.
 
 ## Accessors
 
@@ -82,7 +96,10 @@ Defined in: [elements/geometry/SphereGeometry.ts:7](https://github.com/dantasgut
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L9)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
@@ -100,7 +117,9 @@ readonly [`Entity`](Entity.md)[]
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/SphereGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/SphereGeometry.ts#L36)
+Defined in: [elements/geometry/SphereGeometry.ts:56](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/SphereGeometry.ts#L56)
+
+= lat × lon × 6 (2 triangles por quad).
 
 ##### Returns
 
@@ -118,7 +137,9 @@ Defined in: [elements/geometry/SphereGeometry.ts:36](https://github.com/dantasgu
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/SphereGeometry.ts:35](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/SphereGeometry.ts#L35)
+Defined in: [elements/geometry/SphereGeometry.ts:52](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/SphereGeometry.ts#L52)
+
+= (lat+1) × (lon+1).
 
 ##### Returns
 
@@ -134,7 +155,10 @@ Defined in: [elements/geometry/SphereGeometry.ts:35](https://github.com/dantasgu
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/contracts/Entity.ts#L4)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Parameters
 
@@ -156,7 +180,9 @@ Defined in: [scene/contracts/Entity.ts:4](https://github.com/dantasgut/clayflow/
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/SphereGeometry.ts:28](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/SphereGeometry.ts#L28)
+Defined in: [elements/geometry/SphereGeometry.ts:39](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/SphereGeometry.ts#L39)
+
+Declara VBO + IBO.
 
 #### Returns
 
@@ -172,7 +198,11 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/geometry/Geometry.ts#L13)
+Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L13)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 

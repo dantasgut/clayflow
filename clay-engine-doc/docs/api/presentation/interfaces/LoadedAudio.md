@@ -6,7 +6,11 @@
 
 # Interface: LoadedAudio
 
-Defined in: [presentation/assets/AudioLoader.ts:1](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L1)
+Defined in: [presentation/assets/AudioLoader.ts:6](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L6)
+
+Audio asset carregado pelo `AudioLoader`. `decoded` é null em ambientes
+sem AudioContext (Node-side rendering, tests, browsers que negaram
+permissão de audio).
 
 ## Properties
 
@@ -14,7 +18,9 @@ Defined in: [presentation/assets/AudioLoader.ts:1](https://github.com/dantasgut/
 
 > `readonly` **buffer**: `ArrayBuffer`
 
-Defined in: [presentation/assets/AudioLoader.ts:3](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L3)
+Defined in: [presentation/assets/AudioLoader.ts:10](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L10)
+
+Bytes raw do arquivo audio (preservados para re-decode ou análise).
 
 ***
 
@@ -22,7 +28,9 @@ Defined in: [presentation/assets/AudioLoader.ts:3](https://github.com/dantasgut/
 
 > `readonly` **decoded**: `AudioBuffer` \| `null`
 
-Defined in: [presentation/assets/AudioLoader.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L4)
+Defined in: [presentation/assets/AudioLoader.ts:12](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L12)
+
+AudioBuffer decoded pelo Web Audio API, ou null se decode falhou.
 
 ***
 
@@ -30,7 +38,9 @@ Defined in: [presentation/assets/AudioLoader.ts:4](https://github.com/dantasgut/
 
 > `readonly` **duration**: `number`
 
-Defined in: [presentation/assets/AudioLoader.ts:5](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L5)
+Defined in: [presentation/assets/AudioLoader.ts:14](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L14)
+
+Duração em segundos (0 se decode falhou).
 
 ***
 
@@ -38,7 +48,9 @@ Defined in: [presentation/assets/AudioLoader.ts:5](https://github.com/dantasgut/
 
 > `readonly` **numberOfChannels**: `number`
 
-Defined in: [presentation/assets/AudioLoader.ts:6](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L6)
+Defined in: [presentation/assets/AudioLoader.ts:16](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L16)
+
+Número de canais (1 = mono, 2 = stereo, etc.).
 
 ***
 
@@ -46,7 +58,9 @@ Defined in: [presentation/assets/AudioLoader.ts:6](https://github.com/dantasgut/
 
 > `readonly` **sampleRate**: `number`
 
-Defined in: [presentation/assets/AudioLoader.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L7)
+Defined in: [presentation/assets/AudioLoader.ts:18](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L18)
+
+Sample rate em Hz (e.g. 44100).
 
 ***
 
@@ -54,4 +68,6 @@ Defined in: [presentation/assets/AudioLoader.ts:7](https://github.com/dantasgut/
 
 > `readonly` **url**: `string`
 
-Defined in: [presentation/assets/AudioLoader.ts:2](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/AudioLoader.ts#L2)
+Defined in: [presentation/assets/AudioLoader.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/AudioLoader.ts#L8)
+
+URL de origem (debug).

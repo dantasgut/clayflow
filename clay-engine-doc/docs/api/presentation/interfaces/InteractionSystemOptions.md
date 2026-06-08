@@ -6,7 +6,10 @@
 
 # Interface: InteractionSystemOptions
 
-Defined in: [presentation/input/InteractionSystem.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/InteractionSystem.ts#L9)
+Defined in: [presentation/input/InteractionSystem.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L13)
+
+Configuração do InteractionSystem. `window` permite injeção em tests
+(jsdom) ou para múltiplos canvases compartilharem o mesmo Window.
 
 ## Properties
 
@@ -14,7 +17,9 @@ Defined in: [presentation/input/InteractionSystem.ts:9](https://github.com/danta
 
 > `readonly` **canvas**: `HTMLCanvasElement`
 
-Defined in: [presentation/input/InteractionSystem.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/InteractionSystem.ts#L10)
+Defined in: [presentation/input/InteractionSystem.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L15)
+
+Canvas onde pointer/touch events são capturados.
 
 ***
 
@@ -22,4 +27,6 @@ Defined in: [presentation/input/InteractionSystem.ts:10](https://github.com/dant
 
 > `readonly` **window**: `Window` \| `null`
 
-Defined in: [presentation/input/InteractionSystem.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/InteractionSystem.ts#L11)
+Defined in: [presentation/input/InteractionSystem.ts:17](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L17)
+
+Window onde keyboard events são capturados. Null = fallback para canvas.

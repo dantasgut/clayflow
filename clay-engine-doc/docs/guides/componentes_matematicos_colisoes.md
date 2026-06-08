@@ -1,7 +1,0 @@
-| Conceito | O que resolve | Fórmula / Termo Chave |
-| :--- | :--- | :--- |
-| **Massa Efetiva ($K$)** | Calcula a "resistência" total do par ao impacto, unindo massa e inércia rotacional. | $K = \frac{1}{m_A} + \frac{1}{m_B} + \frac{(r_A \times n)^2}{I_A} + \frac{(r_B \times n)^2}{I_B}$. O impulso escalar é $J = \frac{\Delta v}{K}$. |
-| **Impulso Normal** | Garante a não-penetração e o efeito de rebote (restituição). | $J_n = \text{max}(J_{acumulado} + \text{impulso}, 0)$. O *clamp* em 0 impede que o contato "grude" ou puxe o objeto. |
-| **Limite de Coulomb** | Define o atrito máximo que uma superfície pode exercer antes de escorregar. | $|J_t| \le \mu \cdot J_n$. O impulso de atrito (tangencial) é limitado pela força normal $J_n$ e o coeficiente $\mu$. |
-| **Bias Term** | A "mola" que empurra objetos para fora quando há sobreposição. | $Bias = \frac{\beta}{\Delta t} \cdot \text{penetração}$. É o termo usado no método de Baumgarte para corrigir o erro de posição. |
-| **Gyroscopic Forces** | (3D) Mantém a estabilidade de objetos que giram muito rápido em torno de seus eixos. | $\tau_{gyro} = \omega \times (I \cdot \omega)$. Corrige o torque fictício gerado pela integração numérica da rotação. |

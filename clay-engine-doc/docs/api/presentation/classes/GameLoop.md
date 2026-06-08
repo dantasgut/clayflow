@@ -6,7 +6,17 @@
 
 # Class: GameLoop
 
-Defined in: [presentation/app/GameLoop.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/GameLoop.ts#L4)
+Defined in: [presentation/app/GameLoop.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/GameLoop.ts#L15)
+
+GameLoop encapsula o requestAnimationFrame loop. Cada frame:
+  1. Computa `dt` (tempo desde último frame, clamped em 1/30 para
+     evitar saltos enormes após pause/blur).
+  2. Atualiza `Time.data.elapsed`.
+  3. Emite `frameTick` event no EventBus.
+  4. Agenda próximo RAF.
+
+Application instancia + start/stop. ExecutionSystem ouve frameTick
+para dispatch dos Flows.
 
 ## Constructors
 
@@ -14,7 +24,7 @@ Defined in: [presentation/app/GameLoop.ts:4](https://github.com/dantasgut/clayfl
 
 > **new GameLoop**(`events`, `time`): `GameLoop`
 
-Defined in: [presentation/app/GameLoop.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/GameLoop.ts#L8)
+Defined in: [presentation/app/GameLoop.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/GameLoop.ts#L19)
 
 #### Parameters
 
@@ -36,7 +46,9 @@ Defined in: [presentation/app/GameLoop.ts:8](https://github.com/dantasgut/clayfl
 
 > **isRunning**(): `boolean`
 
-Defined in: [presentation/app/GameLoop.ts:33](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/GameLoop.ts#L33)
+Defined in: [presentation/app/GameLoop.ts:47](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/GameLoop.ts#L47)
+
+True se o loop está ativo (RAF agendado).
 
 #### Returns
 
@@ -48,7 +60,9 @@ Defined in: [presentation/app/GameLoop.ts:33](https://github.com/dantasgut/clayf
 
 > **start**(): `void`
 
-Defined in: [presentation/app/GameLoop.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/GameLoop.ts#L13)
+Defined in: [presentation/app/GameLoop.ts:25](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/GameLoop.ts#L25)
+
+Inicia o RAF loop. No-op se já rodando.
 
 #### Returns
 
@@ -60,7 +74,9 @@ Defined in: [presentation/app/GameLoop.ts:13](https://github.com/dantasgut/clayf
 
 > **stop**(): `void`
 
-Defined in: [presentation/app/GameLoop.ts:27](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/app/GameLoop.ts#L27)
+Defined in: [presentation/app/GameLoop.ts:40](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/GameLoop.ts#L40)
+
+Cancela o RAF agendado. No-op se não rodando.
 
 #### Returns
 

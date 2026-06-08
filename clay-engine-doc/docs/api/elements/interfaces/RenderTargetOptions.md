@@ -6,7 +6,10 @@
 
 # Interface: RenderTargetOptions
 
-Defined in: [elements/scene/RenderTarget.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/scene/RenderTarget.ts#L7)
+Defined in: [elements/scene/RenderTarget.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L11)
+
+Opções de configuração de um render target. `sizeFromCanvas` aplica
+apenas a `CanvasRenderTarget` (faz a textura espelhar canvas dimensions).
 
 ## Properties
 
@@ -14,7 +17,9 @@ Defined in: [elements/scene/RenderTarget.ts:7](https://github.com/dantasgut/clay
 
 > `optional` **colorFormat?**: `GPUTextureFormat`
 
-Defined in: [elements/scene/RenderTarget.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/scene/RenderTarget.ts#L10)
+Defined in: [elements/scene/RenderTarget.ts:17](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L17)
+
+Formato do color attachment. Default: 'bgra8unorm' (canvas) ou 'rgba16float' (offscreen).
 
 ***
 
@@ -22,7 +27,9 @@ Defined in: [elements/scene/RenderTarget.ts:10](https://github.com/dantasgut/cla
 
 > `optional` **depthFormat?**: `GPUTextureFormat`
 
-Defined in: [elements/scene/RenderTarget.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/scene/RenderTarget.ts#L11)
+Defined in: [elements/scene/RenderTarget.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L19)
+
+Formato do depth-stencil attachment. Default: 'depth24plus'.
 
 ***
 
@@ -30,7 +37,9 @@ Defined in: [elements/scene/RenderTarget.ts:11](https://github.com/dantasgut/cla
 
 > `optional` **height?**: `number`
 
-Defined in: [elements/scene/RenderTarget.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/scene/RenderTarget.ts#L9)
+Defined in: [elements/scene/RenderTarget.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L15)
+
+Altura em pixels. Default: 0 ou 1024.
 
 ***
 
@@ -38,7 +47,9 @@ Defined in: [elements/scene/RenderTarget.ts:9](https://github.com/dantasgut/clay
 
 > `optional` **sampleCount?**: `1` \| `4`
 
-Defined in: [elements/scene/RenderTarget.ts:12](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/scene/RenderTarget.ts#L12)
+Defined in: [elements/scene/RenderTarget.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L21)
+
+MSAA: 1 (sem antialiasing) ou 4. Default: 1.
 
 ***
 
@@ -46,7 +57,10 @@ Defined in: [elements/scene/RenderTarget.ts:12](https://github.com/dantasgut/cla
 
 > `optional` **sizeFromCanvas?**: `boolean`
 
-Defined in: [elements/scene/RenderTarget.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/scene/RenderTarget.ts#L13)
+Defined in: [elements/scene/RenderTarget.ts:26](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L26)
+
+Quando true (default em CanvasRenderTarget), as dimensões espelham
+`canvas.width × canvas.height × DPR`. Listener de resize ajusta automaticamente.
 
 ***
 
@@ -54,4 +68,6 @@ Defined in: [elements/scene/RenderTarget.ts:13](https://github.com/dantasgut/cla
 
 > `optional` **width?**: `number`
 
-Defined in: [elements/scene/RenderTarget.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/scene/RenderTarget.ts#L8)
+Defined in: [elements/scene/RenderTarget.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L13)
+
+Largura em pixels (ignorado se sizeFromCanvas=true). Default: 0 ou 1024.

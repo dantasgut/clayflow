@@ -6,7 +6,7 @@
 
 # Class: OrbitController
 
-Defined in: [presentation/input/controllers/OrbitController.ts:23](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/controllers/OrbitController.ts#L23)
+Defined in: [presentation/input/controllers/OrbitController.ts:30](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/OrbitController.ts#L30)
 
 OrbitController com damping (inércia) por canal: theta, phi, distance.
 Cada canal acumula `velocity_X = lerp(velocity_X, raw_input, damping)` por
@@ -23,7 +23,7 @@ frame, decaindo gradualmente após o usuário soltar. Suporta pinch-zoom
 
 > **new OrbitController**(`camera`, `options?`): `OrbitController`
 
-Defined in: [presentation/input/controllers/OrbitController.ts:36](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/controllers/OrbitController.ts#L36)
+Defined in: [presentation/input/controllers/OrbitController.ts:43](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/OrbitController.ts#L43)
 
 #### Parameters
 
@@ -49,7 +49,11 @@ Defined in: [presentation/input/controllers/OrbitController.ts:36](https://githu
 
 > **update**(`ctx`): `void`
 
-Defined in: [presentation/input/controllers/OrbitController.ts:46](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/input/controllers/OrbitController.ts#L46)
+Defined in: [presentation/input/controllers/OrbitController.ts:61](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/OrbitController.ts#L61)
+
+Atualiza Camera per-frame. Lê input deltas (drag, wheel, pinch),
+injeta velocidades em theta/phi/distance, integra com damping,
+recalcula camera.position via spherical → cartesian.
 
 #### Parameters
 

@@ -6,7 +6,7 @@
 
 # Interface: LCPFlowOptions
 
-Defined in: [elements/physics/flows/LCPFlow.ts:26](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/LCPFlow.ts#L26)
+Defined in: [elements/physics/flows/LCPFlow.ts:103](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/LCPFlow.ts#L103)
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: [elements/physics/flows/LCPFlow.ts:26](https://github.com/dantasgut/
 
 > `readonly` `optional` **bodiesPoolKey?**: `string`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:27](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/LCPFlow.ts#L27)
+Defined in: [elements/physics/flows/LCPFlow.ts:104](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/LCPFlow.ts#L104)
 
 ***
 
@@ -22,7 +22,15 @@ Defined in: [elements/physics/flows/LCPFlow.ts:27](https://github.com/dantasgut/
 
 > `readonly` `optional` **fixedDt?**: `number`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:28](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/LCPFlow.ts#L28)
+Defined in: [elements/physics/flows/LCPFlow.ts:105](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/LCPFlow.ts#L105)
+
+***
+
+### solveIters?
+
+> `readonly` `optional` **solveIters?**: `number`
+
+Defined in: [elements/physics/flows/LCPFlow.ts:107](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/LCPFlow.ts#L107)
 
 ***
 
@@ -30,4 +38,4 @@ Defined in: [elements/physics/flows/LCPFlow.ts:28](https://github.com/dantasgut/
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:29](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/LCPFlow.ts#L29)
+Defined in: [elements/physics/flows/LCPFlow.ts:106](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/LCPFlow.ts#L106)

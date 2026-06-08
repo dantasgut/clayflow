@@ -6,7 +6,12 @@
 
 # Interface: GltfDocument
 
-Defined in: [presentation/assets/GltfLoader.ts:61](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L61)
+Defined in: [presentation/assets/GltfLoader.ts:145](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L145)
+
+Documento glTF parsed — saída do `gltfLoad()`. Self-contained: todos
+os índices dentro do documento são números resolvíveis nas suas listas.
+Use os índices para reconstruir a scene tree (recursivamente seguindo
+`nodes[i].children`).
 
 ## Properties
 
@@ -14,7 +19,9 @@ Defined in: [presentation/assets/GltfLoader.ts:61](https://github.com/dantasgut/
 
 > `readonly` **animations**: readonly [`GltfAnimation`](GltfAnimation.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:67](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L67)
+Defined in: [presentation/assets/GltfLoader.ts:157](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L157)
+
+Lista de todas as animations — aplicáveis em runtime ao traversal.
 
 ***
 
@@ -22,7 +29,9 @@ Defined in: [presentation/assets/GltfLoader.ts:67](https://github.com/dantasgut/
 
 > `readonly` **materials**: readonly [`GltfMaterial`](GltfMaterial.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:66](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L66)
+Defined in: [presentation/assets/GltfLoader.ts:155](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L155)
+
+Lista de todos os materials — referenciados por primitive.materialIndex.
 
 ***
 
@@ -30,7 +39,9 @@ Defined in: [presentation/assets/GltfLoader.ts:66](https://github.com/dantasgut/
 
 > `readonly` **meshes**: readonly [`GltfMesh`](GltfMesh.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:65](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L65)
+Defined in: [presentation/assets/GltfLoader.ts:153](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L153)
+
+Lista de todas as meshes — referenciadas por node.meshIndex.
 
 ***
 
@@ -38,7 +49,9 @@ Defined in: [presentation/assets/GltfLoader.ts:65](https://github.com/dantasgut/
 
 > `readonly` **nodes**: readonly [`GltfNode`](GltfNode.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:64](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L64)
+Defined in: [presentation/assets/GltfLoader.ts:151](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L151)
+
+Lista de todos os nodes do glTF (transform tree).
 
 ***
 
@@ -46,7 +59,9 @@ Defined in: [presentation/assets/GltfLoader.ts:64](https://github.com/dantasgut/
 
 > `readonly` **raw**: `unknown`
 
-Defined in: [presentation/assets/GltfLoader.ts:62](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L62)
+Defined in: [presentation/assets/GltfLoader.ts:147](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L147)
+
+AST raw do JSON parsed (sem normalização) — útil para debug.
 
 ***
 
@@ -54,7 +69,9 @@ Defined in: [presentation/assets/GltfLoader.ts:62](https://github.com/dantasgut/
 
 > `readonly` **scene**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:69](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L69)
+Defined in: [presentation/assets/GltfLoader.ts:161](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L161)
+
+Índice em `nodes` da scene root (entry point para traversal).
 
 ***
 
@@ -62,7 +79,9 @@ Defined in: [presentation/assets/GltfLoader.ts:69](https://github.com/dantasgut/
 
 > `readonly` **skins**: readonly [`GltfSkin`](GltfSkin.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:68](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L68)
+Defined in: [presentation/assets/GltfLoader.ts:159](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L159)
+
+Lista de todos os skins (esqueletos) — referenciados por node.skinIndex.
 
 ***
 
@@ -70,4 +89,6 @@ Defined in: [presentation/assets/GltfLoader.ts:68](https://github.com/dantasgut/
 
 > `readonly` **url**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:63](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/assets/GltfLoader.ts#L63)
+Defined in: [presentation/assets/GltfLoader.ts:149](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L149)
+
+URL de origem (usada para resolver buffers externos via fetch).

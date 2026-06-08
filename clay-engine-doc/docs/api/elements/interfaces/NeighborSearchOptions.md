@@ -6,7 +6,10 @@
 
 # Interface: NeighborSearchOptions
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:19](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L19)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:20](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L20)
+
+Configuração do NeighborSearchPipeline. Define o grid uniform usado
+para spatial hashing e capacidades dos buffers.
 
 ## Properties
 
@@ -14,7 +17,9 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:19](https://github.com/danta
 
 > `readonly` `optional` **cellSize?**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:21](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L21)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:24](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L24)
+
+Tamanho de uma cell em world units. Default: 0.1.
 
 ***
 
@@ -22,7 +27,9 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:21](https://github.com/danta
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:26](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L26)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:37](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L37)
+
+Discriminador único para isolar buffers entre múltiplas instâncias.
 
 ***
 
@@ -30,7 +37,9 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:26](https://github.com/danta
 
 > `readonly` `optional` **gridDim?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:20](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L20)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:22](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L22)
+
+Dimensões do grid (cells por eixo). Default: [32, 32, 32].
 
 ***
 
@@ -38,7 +47,9 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:20](https://github.com/danta
 
 > `readonly` **maxNeighbors**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:24](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L24)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:30](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L30)
+
+Máximo de vizinhos retornados por partícula (truncate).
 
 ***
 
@@ -46,7 +57,9 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:24](https://github.com/danta
 
 > `readonly` **maxParticles**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:23](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L23)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:28](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L28)
+
+Capacidade máxima de partículas (alocação fixa do buffer).
 
 ***
 
@@ -54,7 +67,9 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:23](https://github.com/danta
 
 > `readonly` `optional` **origin?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:22](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L22)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:26](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L26)
+
+Origem (canto -X-Y-Z) do grid em world coords.
 
 ***
 
@@ -62,4 +77,7 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:22](https://github.com/danta
 
 > `readonly` **particleStrideF32**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:25](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/gpu/NeighborSearchPipeline.ts#L25)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:35](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/NeighborSearchPipeline.ts#L35)
+
+Stride do particle struct em floats (e.g. 16 para SPHParticle = 64 bytes).
+O kernel `assign_count` lê o particle.position desde esse offset.

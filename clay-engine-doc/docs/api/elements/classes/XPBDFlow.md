@@ -6,7 +6,7 @@
 
 # Class: XPBDFlow
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:32](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L32)
+Defined in: [elements/physics/flows/XPBDFlow.ts:25](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L25)
 
 ## Extends
 
@@ -18,7 +18,7 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:32](https://github.com/dantasgut
 
 > **new XPBDFlow**(`core`, `world`, `resources`, `options?`): `XPBDFlow`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:56](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L56)
+Defined in: [elements/physics/flows/XPBDFlow.ts:42](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L42)
 
 #### Parameters
 
@@ -52,7 +52,12 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:56](https://github.com/dantasgut
 
 > `readonly` **bodyType**: `string`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:34](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L34)
+Defined in: [elements/physics/flows/XPBDFlow.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L27)
+
+Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
+para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
+quando o flow não é body-bound. Usado por FlowRegistry.resolve(bodyType)
+para encontrar o flow responsável por cada Resource.
 
 #### Overrides
 
@@ -64,7 +69,9 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:34](https://github.com/dantasgut
 
 > `readonly` **phase**: `Phase` = `'physics'`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:35](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L35)
+Defined in: [elements/physics/flows/XPBDFlow.ts:28](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L28)
+
+Fase do pipeline em que o flow executa.
 
 #### Overrides
 
@@ -76,7 +83,11 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:35](https://github.com/dantasgut
 
 > **priority**: `number` = `5`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:36](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L36)
+Defined in: [elements/physics/flows/XPBDFlow.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L29)
+
+Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
+Útil quando dois flows compartilham phase mas têm dependência de ordem
+(e.g. um flow gera dado que outro consome).
 
 #### Overrides
 
@@ -88,7 +99,9 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:36](https://github.com/dantasgut
 
 > `readonly` **type**: `"XPBDFlow"` = `'XPBDFlow'`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:33](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L33)
+Defined in: [elements/physics/flows/XPBDFlow.ts:26](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L26)
+
+Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 #### Overrides
 
@@ -100,7 +113,11 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:33](https://github.com/dantasgut
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:260](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L260)
+Defined in: [elements/physics/flows/XPBDFlow.ts:206](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L206)
+
+Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
+contém o command encoder ativo — use `frame.compute(...)` ou
+`frame.render(target, ...)` para emitir comandos GPU.
 
 #### Parameters
 
@@ -122,7 +139,11 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:260](https://github.com/dantasgu
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:71](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L71)
+Defined in: [elements/physics/flows/XPBDFlow.ts:57](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L57)
+
+Retorna os descritores de pipelines GPU que este flow precisa criar
+(para introspeção arquitetural / debugging — o flow ainda materializa
+via core.create internamente).
 
 #### Returns
 
@@ -138,7 +159,12 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:100](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L100)
+Defined in: [elements/physics/flows/XPBDFlow.ts:92](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L92)
+
+Indica se o flow tem trabalho válido para esta frame. Default: true
+(sempre dispatch). Override para gating em prerequisites: e.g. presença
+de Camera no World, pool não-vazio, pipeline async ainda compilando.
+ExecutionSystem skipa flows com `isReady() === false`.
 
 #### Returns
 
@@ -154,11 +180,13 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:100](https://github.com/dantasgu
 
 > **onCanvasResized**(`_width`, `_height`): `void`
 
-Defined in: [scene/flows/Flow.ts:43](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/flows/Flow.ts#L43)
+Defined in: [scene/flows/Flow.ts:96](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L96)
 
 Chamado quando o canvas é redimensionado. Subclasses que mantêm
 textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
-devem invalidar para recriarem na próxima dispatch.
+devem destruir e nullificar para recriarem na próxima dispatch.
+Importante: destruir bindgroups que referenciam essas textures ANTES
+para evitar use-after-free na GPU.
 
 #### Parameters
 
@@ -184,10 +212,11 @@ devem invalidar para recriarem na próxima dispatch.
 
 > **onEntitiesRemoved**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:34](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/flows/Flow.ts#L34)
+Defined in: [scene/flows/Flow.ts:85](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L85)
 
 Chamado quando entidades são removidas do World. Subclasses que
-cacheiam slots por EntityId devem limpar os entries afetados.
+cacheiam slots por EntityId devem limpar os entries afetados para
+evitar leaks de slots órfãos.
 
 #### Parameters
 
@@ -209,7 +238,10 @@ readonly `number`[]
 
 > **onEvent**(`_event`, `_payload`): `void`
 
-Defined in: [scene/flows/Flow.ts:15](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/scene/flows/Flow.ts#L15)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L65)
+
+Hook genérico de eventos. Default no-op. A maioria dos flows usa os
+hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 #### Parameters
 
@@ -235,7 +267,7 @@ Defined in: [scene/flows/Flow.ts:15](https://github.com/dantasgut/clayflow/blob/
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:104](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/flows/XPBDFlow.ts#L104)
+Defined in: [elements/physics/flows/XPBDFlow.ts:96](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/flows/XPBDFlow.ts#L96)
 
 Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
 ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam

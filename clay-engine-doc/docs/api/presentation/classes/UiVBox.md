@@ -6,7 +6,7 @@
 
 # Class: UiVBox
 
-Defined in: [presentation/ui/UiVBox.ts:7](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiVBox.ts#L7)
+Defined in: [presentation/ui/UiVBox.ts:7](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L7)
 
 Container vertical: filhos empilhados de cima para baixo. Mesma semântica de
 `UiHBox` (gap, padding, fixed-or-flex height).
@@ -35,7 +35,9 @@ Container vertical: filhos empilhados de cima para baixo. Mesma semântica de
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L9)
+Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L27)
+
+Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 #### Inherited from
 
@@ -47,7 +49,9 @@ Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayfl
 
 > **children**: [`UiElement`](UiElement.md)[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L11)
+Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L31)
+
+Filhos diretos. Renderizados após o pai (z-order natural).
 
 #### Inherited from
 
@@ -59,7 +63,9 @@ Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayf
 
 > **gap**: `number` = `4`
 
-Defined in: [presentation/ui/UiVBox.ts:8](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiVBox.ts#L8)
+Defined in: [presentation/ui/UiVBox.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L9)
+
+Espaço (px) entre filhos consecutivos. Default: 4.
 
 ***
 
@@ -67,7 +73,9 @@ Defined in: [presentation/ui/UiVBox.ts:8](https://github.com/dantasgut/clayflow/
 
 > **padding**: `number` = `0`
 
-Defined in: [presentation/ui/UiVBox.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiVBox.ts#L9)
+Defined in: [presentation/ui/UiVBox.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L11)
+
+Padding interno (px) em todos os lados. Default: 0.
 
 ***
 
@@ -75,7 +83,9 @@ Defined in: [presentation/ui/UiVBox.ts:9](https://github.com/dantasgut/clayflow/
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L10)
+Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L29)
+
+Quando false, o elemento e seus filhos não são renderizados.
 
 #### Inherited from
 
@@ -87,7 +97,9 @@ Defined in: [presentation/ui/UiElement.ts:10](https://github.com/dantasgut/clayf
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L13)
+Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L34)
+
+Anexa um UiElement filho. Chaining fluente.
 
 #### Parameters
 
@@ -109,7 +121,11 @@ Defined in: [presentation/ui/UiElement.ts:13](https://github.com/dantasgut/clayf
 
 > **layout**(): `void`
 
-Defined in: [presentation/ui/UiVBox.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiVBox.ts#L11)
+Defined in: [presentation/ui/UiVBox.ts:18](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L18)
+
+Recalcula bounds dos filhos. Filhos com `height > 0` mantêm tamanho
+fixo; os demais dividem o espaço restante igualmente (flex). Chamar
+sempre que filhos forem adicionados/removidos ou bounds do container mudar.
 
 #### Returns
 

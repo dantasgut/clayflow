@@ -6,7 +6,7 @@
 
 # Class: UiHBox
 
-Defined in: [presentation/ui/UiHBox.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiHBox.ts#L9)
+Defined in: [presentation/ui/UiHBox.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiHBox.ts#L9)
 
 Container que arruma filhos lado-a-lado horizontalmente, com `gap` entre eles
 e `padding` interno. O layout é aplicado em `UiHBox.layout()` que computa os
@@ -37,7 +37,9 @@ recebem largura distribuída (flex). Filhos com width>0 são `fixed`.
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L9)
+Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L27)
+
+Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 #### Inherited from
 
@@ -49,7 +51,9 @@ Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayfl
 
 > **children**: [`UiElement`](UiElement.md)[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L11)
+Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L31)
+
+Filhos diretos. Renderizados após o pai (z-order natural).
 
 #### Inherited from
 
@@ -61,7 +65,9 @@ Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayf
 
 > **gap**: `number` = `4`
 
-Defined in: [presentation/ui/UiHBox.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiHBox.ts#L10)
+Defined in: [presentation/ui/UiHBox.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiHBox.ts#L11)
+
+Espaço (px) entre filhos consecutivos. Default: 4.
 
 ***
 
@@ -69,7 +75,9 @@ Defined in: [presentation/ui/UiHBox.ts:10](https://github.com/dantasgut/clayflow
 
 > **padding**: `number` = `0`
 
-Defined in: [presentation/ui/UiHBox.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiHBox.ts#L11)
+Defined in: [presentation/ui/UiHBox.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiHBox.ts#L13)
+
+Padding interno (px) em todos os lados. Default: 0.
 
 ***
 
@@ -77,7 +85,9 @@ Defined in: [presentation/ui/UiHBox.ts:11](https://github.com/dantasgut/clayflow
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L10)
+Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L29)
+
+Quando false, o elemento e seus filhos não são renderizados.
 
 #### Inherited from
 
@@ -89,7 +99,9 @@ Defined in: [presentation/ui/UiElement.ts:10](https://github.com/dantasgut/clayf
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L13)
+Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L34)
+
+Anexa um UiElement filho. Chaining fluente.
 
 #### Parameters
 
@@ -111,7 +123,9 @@ Defined in: [presentation/ui/UiElement.ts:13](https://github.com/dantasgut/clayf
 
 > **layout**(): `void`
 
-Defined in: [presentation/ui/UiHBox.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiHBox.ts#L13)
+Defined in: [presentation/ui/UiHBox.ts:16](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiHBox.ts#L16)
+
+Recalcula bounds dos filhos (fixed-width preservado, flex divide o resto).
 
 #### Returns
 

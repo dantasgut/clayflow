@@ -6,12 +6,29 @@
 
 # Interface: SoftBodyOptions
 
-Defined in: [elements/physics/bodies/SoftBody.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L9)
+Defined in: [elements/physics/bodies/SoftBody.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/SoftBody.ts#L8)
+
+Opções de criação do SoftBody.
 
 ## Properties
 
-### algorithm?
+### data?
 
-> `readonly` `optional` **algorithm?**: [`SoftBodyAlgorithm`](../type-aliases/SoftBodyAlgorithm.md)
+> `readonly` `optional` **data?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [elements/physics/bodies/SoftBody.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/elements/physics/bodies/SoftBody.ts#L10)
+Defined in: [elements/physics/bodies/SoftBody.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/SoftBody.ts#L19)
+
+Valores iniciais por field do schema. Fields ausentes recebem default
+via `schema.applyDefaults`. Estrutura aceita está no schema.
+
+***
+
+### schema
+
+> `readonly` **schema**: `StructSchema`
+
+Defined in: [elements/physics/bodies/SoftBody.ts:14](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/SoftBody.ts#L14)
+
+Schema que descreve o struct WGSL consumido pelo flow integrador.
+Importado de `bodies/schemas/` (`XPBDSoftSchema`, `FEMSchema`,
+`MPMSoftSchema`).

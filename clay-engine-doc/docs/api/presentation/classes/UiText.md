@@ -6,7 +6,11 @@
 
 # Class: UiText
 
-Defined in: [presentation/ui/UiText.ts:3](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiText.ts#L3)
+Defined in: [presentation/ui/UiText.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiText.ts#L8)
+
+Elemento de texto. UiTextLayout faz word-wrap dentro de `bounds.width`
+(se >0) e gera glyph quads usando o atlas da `LoadedFont` setada em UIFlow.
+Sem font setada via `UIFlow.setFont(...)`, UiText é skipado no flatten.
 
 ## Extends
 
@@ -32,7 +36,9 @@ Defined in: [presentation/ui/UiText.ts:3](https://github.com/dantasgut/clayflow/
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L9)
+Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L27)
+
+Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 #### Inherited from
 
@@ -44,7 +50,9 @@ Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayfl
 
 > **children**: [`UiElement`](UiElement.md)[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L11)
+Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L31)
+
+Filhos diretos. Renderizados após o pai (z-order natural).
 
 #### Inherited from
 
@@ -56,7 +64,9 @@ Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayf
 
 > **color**: readonly \[`number`, `number`, `number`, `number`\]
 
-Defined in: [presentation/ui/UiText.ts:5](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiText.ts#L5)
+Defined in: [presentation/ui/UiText.ts:12](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiText.ts#L12)
+
+Cor RGBA (multiplica com alpha do glyph atlas). Default branco.
 
 ***
 
@@ -64,7 +74,9 @@ Defined in: [presentation/ui/UiText.ts:5](https://github.com/dantasgut/clayflow/
 
 > **fontSize**: `number` = `14`
 
-Defined in: [presentation/ui/UiText.ts:6](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiText.ts#L6)
+Defined in: [presentation/ui/UiText.ts:14](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiText.ts#L14)
+
+Tamanho da fonte em pixels (escala em relação ao atlas font size).
 
 ***
 
@@ -72,7 +84,9 @@ Defined in: [presentation/ui/UiText.ts:6](https://github.com/dantasgut/clayflow/
 
 > **text**: `string` = `''`
 
-Defined in: [presentation/ui/UiText.ts:4](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiText.ts#L4)
+Defined in: [presentation/ui/UiText.ts:10](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiText.ts#L10)
+
+String a renderizar. Suporta `\n` para quebras explícitas.
 
 ***
 
@@ -80,7 +94,9 @@ Defined in: [presentation/ui/UiText.ts:4](https://github.com/dantasgut/clayflow/
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:10](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L10)
+Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L29)
+
+Quando false, o elemento e seus filhos não são renderizados.
 
 #### Inherited from
 
@@ -92,7 +108,9 @@ Defined in: [presentation/ui/UiElement.ts:10](https://github.com/dantasgut/clayf
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:13](https://github.com/dantasgut/clayflow/blob/118ab558e6968dd49ad5ed91cd5a2040f53db915/src/presentation/ui/UiElement.ts#L13)
+Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L34)
+
+Anexa um UiElement filho. Chaining fluente.
 
 #### Parameters
 
