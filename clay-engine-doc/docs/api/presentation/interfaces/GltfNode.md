@@ -6,7 +6,7 @@
 
 # Interface: GltfNode
 
-Defined in: [presentation/assets/GltfLoader.ts:7](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L7)
+Defined in: [presentation/assets/GltfLoader.ts:7](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L7)
 
 Node em uma cena glTF. Representa um transform na hierarquia, opcionalmente
 referenciando uma mesh (geometria) e/ou skin (skeleton para animação).
@@ -19,7 +19,7 @@ não por ponteiro — o documento é totalmente self-contained).
 
 > `readonly` **children**: readonly `number`[]
 
-Defined in: [presentation/assets/GltfLoader.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L21)
+Defined in: [presentation/assets/GltfLoader.ts:21](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L21)
 
 Índices dos nodes filhos em `GltfDocument.nodes`.
 
@@ -29,7 +29,7 @@ Defined in: [presentation/assets/GltfLoader.ts:21](https://github.com/dantasgut/
 
 > `readonly` `optional` **meshIndex?**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L11)
+Defined in: [presentation/assets/GltfLoader.ts:11](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L11)
 
 Índice em `GltfDocument.meshes`, undefined se o node é só transform.
 
@@ -39,7 +39,7 @@ Defined in: [presentation/assets/GltfLoader.ts:11](https://github.com/dantasgut/
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L9)
+Defined in: [presentation/assets/GltfLoader.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L9)
 
 Nome legível do node (debugging).
 
@@ -49,7 +49,7 @@ Nome legível do node (debugging).
 
 > `readonly` **rotation**: readonly \[`number`, `number`, `number`, `number`\]
 
-Defined in: [presentation/assets/GltfLoader.ts:17](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L17)
+Defined in: [presentation/assets/GltfLoader.ts:17](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L17)
 
 Rotação local como quaternion (x, y, z, w).
 
@@ -59,7 +59,7 @@ Rotação local como quaternion (x, y, z, w).
 
 > `readonly` **scale**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [presentation/assets/GltfLoader.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L19)
+Defined in: [presentation/assets/GltfLoader.ts:19](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L19)
 
 Scale local.
 
@@ -69,7 +69,7 @@ Scale local.
 
 > `readonly` `optional` **skinIndex?**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L13)
+Defined in: [presentation/assets/GltfLoader.ts:13](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L13)
 
 Índice em `GltfDocument.skins`, undefined se o node não é skinned.
 
@@ -79,6 +79,6 @@ Defined in: [presentation/assets/GltfLoader.ts:13](https://github.com/dantasgut/
 
 > `readonly` **translation**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [presentation/assets/GltfLoader.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L15)
+Defined in: [presentation/assets/GltfLoader.ts:15](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L15)
 
 Translação local (relativa ao parent).

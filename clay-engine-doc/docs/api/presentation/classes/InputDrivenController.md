@@ -6,7 +6,7 @@
 
 # Abstract Class: InputDrivenController
 
-Defined in: [presentation/input/InputDrivenController.ts:20](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InputDrivenController.ts#L20)
+Defined in: [presentation/input/InputDrivenController.ts:20](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InputDrivenController.ts#L20)
 
 Base abstrata de controllers (OrbitController, FpsController, FlyController).
 Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
@@ -35,7 +35,7 @@ Transform) conforme input.
 
 > `abstract` **update**(`ctx`): `void`
 
-Defined in: [presentation/input/InputDrivenController.ts:22](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InputDrivenController.ts#L22)
+Defined in: [presentation/input/InputDrivenController.ts:22](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InputDrivenController.ts#L22)
 
 Hook chamado a cada frameTick — leia input, atualize state externo.
 

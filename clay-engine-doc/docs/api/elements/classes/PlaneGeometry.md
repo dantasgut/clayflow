@@ -6,7 +6,7 @@
 
 # Class: PlaneGeometry
 
-Defined in: [elements/geometry/PlaneGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PlaneGeometry.ts#L11)
+Defined in: [elements/geometry/PlaneGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PlaneGeometry.ts#L11)
 
 PlaneGeometry — quad plano em XZ (normal +Y) com `size: [w, h]`.
 4 vertices + 6 indices (1 quad = 2 triangles). Útil para chão,
@@ -22,7 +22,7 @@ shadow receivers, water surface.
 
 > **new PlaneGeometry**(`values?`): `PlaneGeometry`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PlaneGeometry.ts#L21)
+Defined in: [elements/geometry/PlaneGeometry.ts:21](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PlaneGeometry.ts#L21)
 
 #### Parameters
 
@@ -44,7 +44,7 @@ Defined in: [elements/geometry/PlaneGeometry.ts:21](https://github.com/dantasgut
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L9)
+Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/Geometry.ts#L9)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -60,7 +60,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L8)
+Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/Geometry.ts#L8)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -74,7 +74,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema` = `PlaneGeometry.vertexStruct`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PlaneGeometry.ts#L19)
+Defined in: [elements/geometry/PlaneGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PlaneGeometry.ts#L19)
 
 Alias para vertexStruct.
 
@@ -84,7 +84,7 @@ Alias para vertexStruct.
 
 > `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PlaneGeometry.ts#L13)
+Defined in: [elements/geometry/PlaneGeometry.ts:13](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PlaneGeometry.ts#L13)
 
 Vertex layout: position + normal + uv.
 
@@ -96,7 +96,7 @@ Vertex layout: position + normal + uv.
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -117,7 +117,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:77](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PlaneGeometry.ts#L77)
+Defined in: [elements/geometry/PlaneGeometry.ts:77](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PlaneGeometry.ts#L77)
 
 = 6 (2 triangles × 3 indices).
 
@@ -137,7 +137,7 @@ Defined in: [elements/geometry/PlaneGeometry.ts:77](https://github.com/dantasgut
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:73](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PlaneGeometry.ts#L73)
+Defined in: [elements/geometry/PlaneGeometry.ts:73](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PlaneGeometry.ts#L73)
 
 = 4 (4 cantos do quad).
 
@@ -155,7 +155,7 @@ Defined in: [elements/geometry/PlaneGeometry.ts:73](https://github.com/dantasgut
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -180,7 +180,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/PlaneGeometry.ts:65](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PlaneGeometry.ts#L65)
+Defined in: [elements/geometry/PlaneGeometry.ts:65](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PlaneGeometry.ts#L65)
 
 Declara VBO + IBO.
 
@@ -198,7 +198,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L13)
+Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/Geometry.ts#L13)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

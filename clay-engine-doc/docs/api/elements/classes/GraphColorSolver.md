@@ -6,7 +6,7 @@
 
 # Class: GraphColorSolver
 
-Defined in: [elements/gpu/GraphColorSolver.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/GraphColorSolver.ts#L27)
+Defined in: [elements/gpu/GraphColorSolver.ts:27](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/gpu/GraphColorSolver.ts#L27)
 
 GraphColorSolver — Greedy graph coloring para batch parallel
 constraint solver em XPBD/PBD. Atribui a cada aresta uma "cor"
@@ -36,7 +36,7 @@ paralelizáveis (cada cor = um dispatch separado).
 
 > `static` **color**(`edges`): `Uint32Array`
 
-Defined in: [elements/gpu/GraphColorSolver.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/GraphColorSolver.ts#L32)
+Defined in: [elements/gpu/GraphColorSolver.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/gpu/GraphColorSolver.ts#L32)
 
 Atribui cores às arestas para batch parallel solve. Returns
 Uint32Array onde `result[i]` é a cor (inteiro ≥ 0) da aresta `edges[i]`.
@@ -57,7 +57,7 @@ readonly [`Edge`](../interfaces/Edge.md)[]
 
 > `static` **maxColor**(`colors`): `number`
 
-Defined in: [elements/gpu/GraphColorSolver.ts:55](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/gpu/GraphColorSolver.ts#L55)
+Defined in: [elements/gpu/GraphColorSolver.ts:55](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/gpu/GraphColorSolver.ts#L55)
 
 Retorna o número total de cores usadas (= max color + 1). O solver
 dispatcha N passes (1 por cor) para resolver todos os constraints.

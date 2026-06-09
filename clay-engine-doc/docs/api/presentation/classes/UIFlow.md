@@ -6,7 +6,7 @@
 
 # Class: UIFlow
 
-Defined in: [presentation/flows/UIFlow.ts:17](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L17)
+Defined in: [presentation/flows/UIFlow.ts:17](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L17)
 
 UIFlow orquestra o pipeline de UI: mantém o `UiTree` (modelo), delega
 flatten/text-layout para `UiFlattener`/`UiTextLayout`, e o resto (GPU) para
@@ -22,7 +22,7 @@ flatten/text-layout para `UiFlattener`/`UiTextLayout`, e o resto (GPU) para
 
 > **new UIFlow**(`core`, `canvas`): `UIFlow`
 
-Defined in: [presentation/flows/UIFlow.ts:26](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L26)
+Defined in: [presentation/flows/UIFlow.ts:26](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L26)
 
 #### Parameters
 
@@ -48,7 +48,7 @@ Defined in: [presentation/flows/UIFlow.ts:26](https://github.com/dantasgut/clayf
 
 > `readonly` **bodyType**: `""` = `''`
 
-Defined in: [presentation/flows/UIFlow.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L19)
+Defined in: [presentation/flows/UIFlow.ts:19](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L19)
 
 Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
 para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
@@ -65,7 +65,7 @@ para encontrar o flow responsável por cada Resource.
 
 > `readonly` **phase**: `Phase` = `'ui'`
 
-Defined in: [presentation/flows/UIFlow.ts:20](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L20)
+Defined in: [presentation/flows/UIFlow.ts:20](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L20)
 
 Fase do pipeline em que o flow executa.
 
@@ -79,7 +79,7 @@ Fase do pipeline em que o flow executa.
 
 > **priority**: `number` = `0`
 
-Defined in: [scene/flows/Flow.ts:45](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L45)
+Defined in: [scene/flows/Flow.ts:45](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/flows/Flow.ts#L45)
 
 Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 Útil quando dois flows compartilham phase mas têm dependência de ordem
@@ -95,7 +95,7 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"UIFlow"` = `'UIFlow'`
 
-Defined in: [presentation/flows/UIFlow.ts:18](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L18)
+Defined in: [presentation/flows/UIFlow.ts:18](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L18)
 
 Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
@@ -111,7 +111,7 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > **get** **ui**(): [`UiTree`](UiTree.md)
 
-Defined in: [presentation/flows/UIFlow.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L32)
+Defined in: [presentation/flows/UIFlow.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L32)
 
 Acesso à árvore de UI — adicione panels/labels/buttons via `ui.add(...)`.
 
@@ -125,7 +125,7 @@ Acesso à árvore de UI — adicione panels/labels/buttons via `ui.add(...)`.
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [presentation/flows/UIFlow.ts:62](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L62)
+Defined in: [presentation/flows/UIFlow.ts:62](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L62)
 
 Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
 contém o command encoder ativo — use `frame.compute(...)` ou
@@ -151,7 +151,7 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [presentation/flows/UIFlow.ts:46](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L46)
+Defined in: [presentation/flows/UIFlow.ts:46](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L46)
 
 Retorna os descritores de pipelines GPU que este flow precisa criar
 (para introspeção arquitetural / debugging — o flow ainda materializa
@@ -171,7 +171,7 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [presentation/flows/UIFlow.ts:58](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L58)
+Defined in: [presentation/flows/UIFlow.ts:58](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L58)
 
 Indica se o flow tem trabalho válido para esta frame. Default: true
 (sempre dispatch). Override para gating em prerequisites: e.g. presença
@@ -192,7 +192,7 @@ ExecutionSystem skipa flows com `isReady() === false`.
 
 > **onCanvasResized**(`_width`, `_height`): `void`
 
-Defined in: [scene/flows/Flow.ts:96](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L96)
+Defined in: [scene/flows/Flow.ts:96](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/flows/Flow.ts#L96)
 
 Chamado quando o canvas é redimensionado. Subclasses que mantêm
 textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
@@ -224,7 +224,7 @@ para evitar use-after-free na GPU.
 
 > **onEntitiesRemoved**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:85](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L85)
+Defined in: [scene/flows/Flow.ts:85](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/flows/Flow.ts#L85)
 
 Chamado quando entidades são removidas do World. Subclasses que
 cacheiam slots por EntityId devem limpar os entries afetados para
@@ -250,7 +250,7 @@ readonly `number`[]
 
 > **onEvent**(`_event`, `_payload`): `void`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L65)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/flows/Flow.ts#L65)
 
 Hook genérico de eventos. Default no-op. A maioria dos flows usa os
 hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
@@ -279,7 +279,7 @@ hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 > **onPoolReallocated**(`_poolKey`): `void`
 
-Defined in: [scene/flows/Flow.ts:76](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/flows/Flow.ts#L76)
+Defined in: [scene/flows/Flow.ts:76](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/flows/Flow.ts#L76)
 
 Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
 ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
@@ -307,7 +307,7 @@ ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
 
 > **setFont**(`font`): `this`
 
-Defined in: [presentation/flows/UIFlow.ts:40](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/flows/UIFlow.ts#L40)
+Defined in: [presentation/flows/UIFlow.ts:40](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/UIFlow.ts#L40)
 
 Define a fonte usada pelo UI (atlas + texture). Chamado uma vez
 após carregar a fonte via `Application.assets.loadFont(url)`.

@@ -15,6 +15,7 @@ import { GameLoop } from './GameLoop';
 import { Time } from './Time';
 import { registerPresentationDefaults, type PresentationDefaults } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
+import { autoRegisterFlows } from '../../elements/physics/flows/defaultFlows';
 
 /**
  * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
@@ -94,6 +95,7 @@ export class Application {
     private memoryWarningEmitted = false;
     private memoryUnsubscribe: (() => void) | null = null;
     private readonly plugins: EnginePlugin[] = [];
+    private flowAutoUnsubscribe: (() => void) | null = null;
 
     private constructor(
         options: ApplicationOptions,
@@ -111,6 +113,13 @@ export class Application {
         this.loop = new GameLoop(scene.events, this.time);
         this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
         scene.world.insert(this.time);
+
+        // Auto-registro de Flow por schema: ao inserir um body cujo schema tem
+        // factory default e ainda não há flow para ele, registra automaticamente.
+        // Registro manual prévio tem precedência (resolve !== undefined ⇒ no-op).
+        this.flowAutoUnsubscribe = scene.events.on('resourcesChanged', ({ added }) => {
+            autoRegisterFlows(added, scene.flows, scene.core, scene.world, scene.resourceSystem);
+        });
 
         const autoResize = options.autoResize ?? typeof window !== 'undefined';
         if (autoResize && typeof window !== 'undefined') {
@@ -267,6 +276,10 @@ export class Application {
         if (this.memoryUnsubscribe !== null) {
             this.memoryUnsubscribe();
             this.memoryUnsubscribe = null;
+        }
+        if (this.flowAutoUnsubscribe !== null) {
+            this.flowAutoUnsubscribe();
+            this.flowAutoUnsubscribe = null;
         }
         // Só dispose o scene se foi criado para esta Application (option scene).
         // Singleton default sobrevive entre Applications.

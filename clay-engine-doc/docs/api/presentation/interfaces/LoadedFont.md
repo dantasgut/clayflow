@@ -6,7 +6,7 @@
 
 # Interface: LoadedFont
 
-Defined in: [presentation/assets/FontLoader.ts:25](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L25)
+Defined in: [presentation/assets/FontLoader.ts:25](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L25)
 
 Font carregada pelo `FontLoader`. Inclui ImageBitmap atlas + glyph
 metadata para text layout. `atlas` é null em ambientes sem
@@ -18,7 +18,7 @@ OffscreenCanvas (Node-side, alguns mobile browsers).
 
 > `readonly` **atlas**: `ImageBitmap` \| `null`
 
-Defined in: [presentation/assets/FontLoader.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L31)
+Defined in: [presentation/assets/FontLoader.ts:31](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L31)
 
 ImageBitmap renderizado com todos os glyphs (RGBA).
 
@@ -28,7 +28,7 @@ ImageBitmap renderizado com todos os glyphs (RGBA).
 
 > `readonly` **atlasHeight**: `number`
 
-Defined in: [presentation/assets/FontLoader.ts:35](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L35)
+Defined in: [presentation/assets/FontLoader.ts:35](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L35)
 
 Altura do atlas em pixels.
 
@@ -38,7 +38,7 @@ Altura do atlas em pixels.
 
 > `readonly` **atlasWidth**: `number`
 
-Defined in: [presentation/assets/FontLoader.ts:33](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L33)
+Defined in: [presentation/assets/FontLoader.ts:33](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L33)
 
 Largura do atlas em pixels.
 
@@ -48,7 +48,7 @@ Largura do atlas em pixels.
 
 > `readonly` **family**: `string`
 
-Defined in: [presentation/assets/FontLoader.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L27)
+Defined in: [presentation/assets/FontLoader.ts:27](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L27)
 
 Nome da font family (e.g. 'Inter', 'monospace').
 
@@ -58,7 +58,7 @@ Nome da font family (e.g. 'Inter', 'monospace').
 
 > `readonly` **fontSize**: `number`
 
-Defined in: [presentation/assets/FontLoader.ts:39](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L39)
+Defined in: [presentation/assets/FontLoader.ts:39](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L39)
 
 Pixel size usado para renderizar o atlas.
 
@@ -68,7 +68,7 @@ Pixel size usado para renderizar o atlas.
 
 > `readonly` **glyphs**: `ReadonlyMap`\<`string`, `FontGlyph`\>
 
-Defined in: [presentation/assets/FontLoader.ts:37](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L37)
+Defined in: [presentation/assets/FontLoader.ts:37](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L37)
 
 Map char → glyph metadata (UV + advance).
 
@@ -78,6 +78,6 @@ Map char → glyph metadata (UV + advance).
 
 > `readonly` **url**: `string`
 
-Defined in: [presentation/assets/FontLoader.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/FontLoader.ts#L29)
+Defined in: [presentation/assets/FontLoader.ts:29](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/FontLoader.ts#L29)
 
 URL do arquivo .woff/.ttf/.otf.

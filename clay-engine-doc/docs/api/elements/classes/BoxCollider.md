@@ -6,7 +6,7 @@
 
 # Class: BoxCollider
 
-Defined in: [elements/physics/colliders/BoxCollider.ts:7](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/colliders/BoxCollider.ts#L7)
+Defined in: [elements/physics/colliders/BoxCollider.ts:7](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/colliders/BoxCollider.ts#L7)
 
 Collider AABB — half-extents em XYZ + center offset.
 
@@ -20,7 +20,7 @@ Collider AABB — half-extents em XYZ + center offset.
 
 > **new BoxCollider**(`values?`): `BoxCollider`
 
-Defined in: [elements/physics/colliders/BoxCollider.ts:14](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/colliders/BoxCollider.ts#L14)
+Defined in: [elements/physics/colliders/BoxCollider.ts:14](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/colliders/BoxCollider.ts#L14)
 
 #### Parameters
 
@@ -42,7 +42,7 @@ Defined in: [elements/physics/colliders/BoxCollider.ts:14](https://github.com/da
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/physics/colliders/Collider.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/colliders/Collider.ts#L9)
+Defined in: [elements/physics/colliders/Collider.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/colliders/Collider.ts#L9)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -58,7 +58,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/colliders/Collider.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/colliders/Collider.ts#L8)
+Defined in: [elements/physics/colliders/Collider.ts:8](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/colliders/Collider.ts#L8)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -72,7 +72,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/physics/colliders/BoxCollider.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/colliders/BoxCollider.ts#L9)
+Defined in: [elements/physics/colliders/BoxCollider.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/colliders/BoxCollider.ts#L9)
 
 StructSchema do BoxCollider (halfExtents + center, 32 bytes).
 
@@ -84,7 +84,7 @@ StructSchema do BoxCollider (halfExtents + center, 32 bytes).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -103,7 +103,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -128,7 +128,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/colliders/BoxCollider.ts:22](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/colliders/BoxCollider.ts#L22)
+Defined in: [elements/physics/colliders/BoxCollider.ts:22](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/colliders/BoxCollider.ts#L22)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -149,7 +149,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/colliders/Collider.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/colliders/Collider.ts#L13)
+Defined in: [elements/physics/colliders/Collider.ts:13](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/colliders/Collider.ts#L13)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

@@ -6,7 +6,7 @@
 
 # Class: UiInteractionHandler
 
-Defined in: [presentation/ui/UiInteractionHandler.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiInteractionHandler.ts#L15)
+Defined in: [presentation/ui/UiInteractionHandler.ts:15](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiInteractionHandler.ts#L15)
 
 Acopla pointer events de um canvas a um UiTree, suportando hover, click, e
 drag em UiSlider. Hit-test percorre a árvore de fora-pra-dentro respeitando
@@ -22,7 +22,7 @@ Detach via `h.detach()`. Idempotente para attach/detach repetidos.
 
 > **new UiInteractionHandler**(`tree`, `canvas`): `UiInteractionHandler`
 
-Defined in: [presentation/ui/UiInteractionHandler.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiInteractionHandler.ts#L21)
+Defined in: [presentation/ui/UiInteractionHandler.ts:21](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiInteractionHandler.ts#L21)
 
 #### Parameters
 
@@ -44,7 +44,7 @@ Defined in: [presentation/ui/UiInteractionHandler.ts:21](https://github.com/dant
 
 > **attach**(): `void`
 
-Defined in: [presentation/ui/UiInteractionHandler.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiInteractionHandler.ts#L27)
+Defined in: [presentation/ui/UiInteractionHandler.ts:27](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiInteractionHandler.ts#L27)
 
 Liga listeners de pointer ao canvas. Idempotente.
 
@@ -58,7 +58,7 @@ Liga listeners de pointer ao canvas. Idempotente.
 
 > **detach**(): `void`
 
-Defined in: [presentation/ui/UiInteractionHandler.ts:37](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiInteractionHandler.ts#L37)
+Defined in: [presentation/ui/UiInteractionHandler.ts:37](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiInteractionHandler.ts#L37)
 
 Remove listeners e limpa estado de hover/press/drag. Idempotente.
 

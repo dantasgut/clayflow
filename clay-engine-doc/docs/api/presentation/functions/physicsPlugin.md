@@ -8,7 +8,7 @@
 
 > **physicsPlugin**(`options?`): [`EnginePlugin`](../interfaces/EnginePlugin.md)
 
-Defined in: [presentation/plugins/physicsPlugin.ts:34](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/plugins/physicsPlugin.ts#L34)
+Defined in: [presentation/plugins/physicsPlugin.ts:34](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/plugins/physicsPlugin.ts#L34)
 
 Registra todos os physics flows no `Application.flows`. Substitui o
 boilerplate de:

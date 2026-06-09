@@ -8,7 +8,7 @@
 
 > `const` **FEMSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/FEMSchema.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/schemas/FEMSchema.ts#L11)
+Defined in: [elements/physics/bodies/schemas/FEMSchema.ts:11](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/schemas/FEMSchema.ts#L11)
 
 Schema dos nós soft body integrados pelo FEMFlow (3 vec4f = 48B).
 Layout idêntico ao XPBDSoftSchema (mesmo struct WGSL `Particle`); schema

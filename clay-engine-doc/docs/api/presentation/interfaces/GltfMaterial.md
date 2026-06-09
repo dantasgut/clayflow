@@ -6,7 +6,7 @@
 
 # Interface: GltfMaterial
 
-Defined in: [presentation/assets/GltfLoader.ts:62](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L62)
+Defined in: [presentation/assets/GltfLoader.ts:62](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L62)
 
 Material glTF metallic-roughness (PBR). Mapeamento direto pra
 `StandardMaterial` da engine: baseColor → albedo, etc.
@@ -17,7 +17,7 @@ Material glTF metallic-roughness (PBR). Mapeamento direto pra
 
 > `readonly` **baseColorFactor**: readonly \[`number`, `number`, `number`, `number`\]
 
-Defined in: [presentation/assets/GltfLoader.ts:66](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L66)
+Defined in: [presentation/assets/GltfLoader.ts:66](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L66)
 
 Cor base RGBA (multiplicada com baseColorTexture quando presente).
 
@@ -27,7 +27,7 @@ Cor base RGBA (multiplicada com baseColorTexture quando presente).
 
 > `readonly` **metallicFactor**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:70](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L70)
+Defined in: [presentation/assets/GltfLoader.ts:70](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L70)
 
 Metallic 0..1 (0 = dielétrico, 1 = metal).
 
@@ -37,7 +37,7 @@ Metallic 0..1 (0 = dielétrico, 1 = metal).
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:64](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L64)
+Defined in: [presentation/assets/GltfLoader.ts:64](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L64)
 
 Nome legível (debug).
 
@@ -47,6 +47,6 @@ Nome legível (debug).
 
 > `readonly` **roughnessFactor**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:68](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L68)
+Defined in: [presentation/assets/GltfLoader.ts:68](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L68)
 
 Roughness 0..1 (0 = mirror, 1 = totalmente difuso).

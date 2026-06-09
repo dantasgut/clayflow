@@ -6,7 +6,7 @@
 
 # Class: FlyController
 
-Defined in: [presentation/input/controllers/FlyController.ts:30](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/FlyController.ts#L30)
+Defined in: [presentation/input/controllers/FlyController.ts:30](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/controllers/FlyController.ts#L30)
 
 Base abstrata de controllers (OrbitController, FpsController, FlyController).
 Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
@@ -23,7 +23,7 @@ Transform) conforme input.
 
 > **new FlyController**(`camera`, `options?`): `FlyController`
 
-Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/FlyController.ts#L38)
+Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/controllers/FlyController.ts#L38)
 
 #### Parameters
 
@@ -49,7 +49,7 @@ Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.
 
 > **update**(`ctx`): `void`
 
-Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/controllers/FlyController.ts#L55)
+Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/controllers/FlyController.ts#L55)
 
 Hook chamado a cada frameTick — leia input, atualize state externo.
 
