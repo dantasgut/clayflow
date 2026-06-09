@@ -108,7 +108,7 @@ simulação visualmente idêntica à atual.
 - [x] T028 [P] Regenerar API (`npm run doc`) refletindo os novos construtores/tipos públicos
 - [ ] T029 Validar SC-001 reescrevendo a cena de referência do `claflow-web` (`../claflow-web/src/components/WebGPUCanvas.tsx`) com a fachada — zero `schema`/`data`/`vec4`/`invMass`/`flows.register`; comportamento idêntico (SC-006). (Repo irmão; após repointar dep `file:../clayflow`.)
 - [x] T030 Rodar o gate completo: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run test:coverage && npm run build:lib`
-- [ ] T031 Atualizar `Status` da spec para "Implemented" e abrir PR `feature/001-physics-authoring-facade → develop`
+- [x] T031 Atualizar `Status` da spec para "Implemented" e abrir PR `feature/001-physics-authoring-facade → develop`
 
 ---
 
