@@ -8,7 +8,7 @@
 
 > `const` **MPMFluidSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/MPMFluidSchema.ts:10](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/bodies/schemas/MPMFluidSchema.ts#L10)
+Defined in: [elements/physics/bodies/schemas/MPMFluidSchema.ts:10](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/schemas/MPMFluidSchema.ts#L10)
 
 Schema da partícula MPM aplicada a fluidos (8 vec4f = 128B).
 Layout idêntico ao MPMSoftSchema (mesmo struct WGSL `MPMParticle`); schema

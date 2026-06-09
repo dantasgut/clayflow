@@ -6,7 +6,7 @@
 
 # Class: OffscreenRenderTarget
 
-Defined in: [elements/scene/RenderTarget.ts:66](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L66)
+Defined in: [elements/scene/RenderTarget.ts:66](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/RenderTarget.ts#L66)
 
 Render target offscreen — texture independente do canvas swapchain.
 Usado para passes intermediários (shadow maps, refraction texture,
@@ -26,7 +26,7 @@ mirror reflection) que serão sampled em passes posteriores.
 
 > **new OffscreenRenderTarget**(`options`): `OffscreenRenderTarget`
 
-Defined in: [elements/scene/RenderTarget.ts:70](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L70)
+Defined in: [elements/scene/RenderTarget.ts:70](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/RenderTarget.ts#L70)
 
 #### Parameters
 
@@ -48,7 +48,7 @@ Defined in: [elements/scene/RenderTarget.ts:70](https://github.com/dantasgut/cla
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/scene/RenderTarget.ts:68](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L68)
+Defined in: [elements/scene/RenderTarget.ts:68](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/RenderTarget.ts#L68)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -64,7 +64,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/RenderTarget.ts:67](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L67)
+Defined in: [elements/scene/RenderTarget.ts:67](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/RenderTarget.ts#L67)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -80,7 +80,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -99,7 +99,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -124,7 +124,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/RenderTarget.ts:82](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L82)
+Defined in: [elements/scene/RenderTarget.ts:82](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/RenderTarget.ts#L82)
 
 Render target não declara descriptors GPU — gerenciado pelo flow consumidor.
 
@@ -142,7 +142,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/RenderTarget.ts:87](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/scene/RenderTarget.ts#L87)
+Defined in: [elements/scene/RenderTarget.ts:87](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/RenderTarget.ts#L87)
 
 Sem pipelines próprios.
 

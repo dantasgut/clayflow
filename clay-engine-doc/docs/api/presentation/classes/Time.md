@@ -6,7 +6,7 @@
 
 # Class: Time
 
-Defined in: [presentation/app/Time.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L13)
+Defined in: [presentation/app/Time.ts:13](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L13)
 
 Resource Time — uniforme GPU com dt/elapsed/fixedDt/scale, atualizado
 pelo GameLoop a cada frame. Shaders consomem via `consumes: ['Time']`.
@@ -25,7 +25,7 @@ pelo GameLoop a cada frame. Shaders consomem via `consumes: ['Time']`.
 
 > **new Time**(): `Time`
 
-Defined in: [presentation/app/Time.ts:25](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L25)
+Defined in: [presentation/app/Time.ts:25](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L25)
 
 #### Returns
 
@@ -41,7 +41,7 @@ Defined in: [presentation/app/Time.ts:25](https://github.com/dantasgut/clayflow/
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [presentation/app/Time.ts:23](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L23)
+Defined in: [presentation/app/Time.ts:23](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L23)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -57,7 +57,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [presentation/app/Time.ts:22](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L22)
+Defined in: [presentation/app/Time.ts:22](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L22)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -71,7 +71,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [presentation/app/Time.ts:15](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L15)
+Defined in: [presentation/app/Time.ts:15](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L15)
 
 StructSchema do Time (4 floats: dt, elapsed, fixedDt, scale).
 
@@ -83,7 +83,7 @@ StructSchema do Time (4 floats: dt, elapsed, fixedDt, scale).
 
 > **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -102,7 +102,7 @@ readonly [`Entity`](../../elements/classes/Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -127,7 +127,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [presentation/app/Time.ts:36](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L36)
+Defined in: [presentation/app/Time.ts:36](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L36)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -148,7 +148,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [presentation/app/Time.ts:40](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L40)
+Defined in: [presentation/app/Time.ts:40](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L40)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -168,7 +168,7 @@ readonly `PipelineDescriptor`[]
 
 > **update**(`dt`): `void`
 
-Defined in: [presentation/app/Time.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/app/Time.ts#L31)
+Defined in: [presentation/app/Time.ts:31](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Time.ts#L31)
 
 Avança o tempo: atualiza dt e acumula em elapsed. Chamado pelo GameLoop.
 

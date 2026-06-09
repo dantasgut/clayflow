@@ -6,7 +6,7 @@
 
 # Class: VortexField
 
-Defined in: [elements/physics/forcefields/VortexField.ts:10](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/forcefields/VortexField.ts#L10)
+Defined in: [elements/physics/forcefields/VortexField.ts:10](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/forcefields/VortexField.ts#L10)
 
 Campo de vórtice — torque rotacional ao redor de um eixo (axis) com
 falloff radial a partir do center. Cria efeitos de tornado, redemoinho.
@@ -21,7 +21,7 @@ falloff radial a partir do center. Cria efeitos de tornado, redemoinho.
 
 > **new VortexField**(`values?`): `VortexField`
 
-Defined in: [elements/physics/forcefields/VortexField.ts:21](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/forcefields/VortexField.ts#L21)
+Defined in: [elements/physics/forcefields/VortexField.ts:21](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/forcefields/VortexField.ts#L21)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [elements/physics/forcefields/VortexField.ts:21](https://github.com/
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/physics/forcefields/ForceField.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/forcefields/ForceField.ts#L9)
+Defined in: [elements/physics/forcefields/ForceField.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/forcefields/ForceField.ts#L9)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -59,7 +59,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/forcefields/ForceField.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/forcefields/ForceField.ts#L8)
+Defined in: [elements/physics/forcefields/ForceField.ts:8](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/forcefields/ForceField.ts#L8)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -73,7 +73,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/physics/forcefields/VortexField.ts:12](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/forcefields/VortexField.ts#L12)
+Defined in: [elements/physics/forcefields/VortexField.ts:12](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/forcefields/VortexField.ts#L12)
 
 StructSchema do VortexField (axis+center+magnitude+falloff).
 
@@ -85,7 +85,7 @@ StructSchema do VortexField (axis+center+magnitude+falloff).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -104,7 +104,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -129,7 +129,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/forcefields/VortexField.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/forcefields/VortexField.ts#L31)
+Defined in: [elements/physics/forcefields/VortexField.ts:31](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/forcefields/VortexField.ts#L31)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -150,7 +150,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/forcefields/ForceField.ts:13](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/physics/forcefields/ForceField.ts#L13)
+Defined in: [elements/physics/forcefields/ForceField.ts:13](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/forcefields/ForceField.ts#L13)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

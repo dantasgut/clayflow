@@ -90,7 +90,7 @@ Pronto: você tem um cubo com sombra, OrbitController com damping, luz direciona
 
 ## Próximos passos
 
-- **Adicionar física**: veja [Physics Flows](./physics_flows.md). RigidBody → `LCPFlow`, SoftBody → `XPBDFlow` (com `DistanceConstraint`), FluidBody + `MPMFluidSchema` → `MPMFlow`, etc.
+- **Adicionar física**: crie bodies em vocabulário de domínio — `new RigidBody({ shape: 'sphere', radius: 0.4, mass: 1 })`, `new SoftBody({ algorithm: 'XPBD', position, mass })`, `new FluidBody({ algorithm: 'MPM', position })` — e `app.world.insert(body)`. O Flow correspondente é **auto-registrado** (sem `flows.register` manual). Veja [Physics Flows](./physics_flows.md).
 - **Pós-processamento**: `app.defaults.post.addEffect(new Bloom())`. Veja [Pós-processamento](./post_processing.md).
 - **UI overlay**: `app.defaults.ui.ui.add(new UiPanel())` + `UiInteractionHandler` para hit-test.
 - **Loaders**: `await new GltfLoader().load('/assets/model.glb')` (suporta GLB binário, animações, skinning).

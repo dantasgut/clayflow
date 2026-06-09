@@ -6,7 +6,7 @@
 
 # Class: InteractionSystem
 
-Defined in: [presentation/input/InteractionSystem.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L31)
+Defined in: [presentation/input/InteractionSystem.ts:31](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L31)
 
 InteractionSystem encapsula todos os input devices (keyboard, pointer,
 touch, gamepad) num Input shared state. Tick por frame propaga state
@@ -24,7 +24,7 @@ Lifecycle:
 
 > **new InteractionSystem**(`options`, `events`): `InteractionSystem`
 
-Defined in: [presentation/input/InteractionSystem.ts:44](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L44)
+Defined in: [presentation/input/InteractionSystem.ts:44](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L44)
 
 #### Parameters
 
@@ -46,7 +46,7 @@ Defined in: [presentation/input/InteractionSystem.ts:44](https://github.com/dant
 
 > `readonly` **gamepad**: [`GamepadDevice`](GamepadDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L41)
+Defined in: [presentation/input/InteractionSystem.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L41)
 
 GamepadDevice — polling-based (Gamepad API não dispatch events).
 
@@ -56,7 +56,7 @@ GamepadDevice — polling-based (Gamepad API não dispatch events).
 
 > `readonly` **input**: [`Input`](Input.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:33](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L33)
+Defined in: [presentation/input/InteractionSystem.ts:33](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L33)
 
 Input state shared entre devices e controllers.
 
@@ -66,7 +66,7 @@ Input state shared entre devices e controllers.
 
 > `readonly` **keyboard**: [`KeyboardDevice`](KeyboardDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:35](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L35)
+Defined in: [presentation/input/InteractionSystem.ts:35](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L35)
 
 KeyboardDevice — captura keydown/keyup no `window`.
 
@@ -76,7 +76,7 @@ KeyboardDevice — captura keydown/keyup no `window`.
 
 > `readonly` **pointer**: [`PointerDevice`](PointerDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:37](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L37)
+Defined in: [presentation/input/InteractionSystem.ts:37](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L37)
 
 PointerDevice — captura pointer events no canvas (mouse, pen).
 
@@ -86,7 +86,7 @@ PointerDevice — captura pointer events no canvas (mouse, pen).
 
 > `readonly` **touch**: [`TouchDevice`](TouchDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:39](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L39)
+Defined in: [presentation/input/InteractionSystem.ts:39](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L39)
 
 TouchDevice — captura touch events (multi-touch + pinch).
 
@@ -96,7 +96,7 @@ TouchDevice — captura touch events (multi-touch + pinch).
 
 > **addController**(`controller`): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:77](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L77)
+Defined in: [presentation/input/InteractionSystem.ts:77](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L77)
 
 Adiciona um controller que será atualizado a cada frameTick. Common
 controllers: OrbitController, FpsController, FlyController.
@@ -117,7 +117,7 @@ controllers: OrbitController, FpsController, FlyController.
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:60](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L60)
+Defined in: [presentation/input/InteractionSystem.ts:60](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L60)
 
 Registra DOM event listeners. Chamar uma vez após construção.
 
@@ -131,7 +131,7 @@ Registra DOM event listeners. Chamar uma vez após construção.
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:67](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/input/InteractionSystem.ts#L67)
+Defined in: [presentation/input/InteractionSystem.ts:67](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/InteractionSystem.ts#L67)
 
 Remove DOM listeners. Chamar antes de descartar o InteractionSystem.
 

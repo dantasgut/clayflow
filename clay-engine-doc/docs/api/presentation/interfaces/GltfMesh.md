@@ -6,7 +6,7 @@
 
 # Interface: GltfMesh
 
-Defined in: [presentation/assets/GltfLoader.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L29)
+Defined in: [presentation/assets/GltfLoader.ts:29](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L29)
 
 Mesh em glTF — agregado de primitives. Cada primitive tem seu próprio
 material e atributos vertex (positions/normals/uvs/etc.). Padrão glTF
@@ -18,7 +18,7 @@ permite mesh com múltiplos primitives quando partes têm materials diferentes.
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L31)
+Defined in: [presentation/assets/GltfLoader.ts:31](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L31)
 
 Nome legível (debug).
 
@@ -28,6 +28,6 @@ Nome legível (debug).
 
 > `readonly` **primitives**: readonly [`GltfPrimitive`](GltfPrimitive.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:33](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/assets/GltfLoader.ts#L33)
+Defined in: [presentation/assets/GltfLoader.ts:33](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/assets/GltfLoader.ts#L33)
 
 Primitives sub-mesh — múltiplos quando partes têm materials diferentes.

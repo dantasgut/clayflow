@@ -6,7 +6,7 @@
 
 # Class: PointCloudGeometry
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PointCloudGeometry.ts#L12)
+Defined in: [elements/geometry/PointCloudGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PointCloudGeometry.ts#L12)
 
 Point cloud — array de pontos como geometry. Cada ponto tem position +
 normal (para shading point-sprite). Usado por particle systems e
@@ -22,7 +22,7 @@ scientific visualization.
 
 > **new PointCloudGeometry**(`values?`): `PointCloudGeometry`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PointCloudGeometry.ts#L19)
+Defined in: [elements/geometry/PointCloudGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PointCloudGeometry.ts#L19)
 
 #### Parameters
 
@@ -44,7 +44,7 @@ Defined in: [elements/geometry/PointCloudGeometry.ts:19](https://github.com/dant
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L9)
+Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/Geometry.ts#L9)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -60,7 +60,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/Geometry.ts#L8)
+Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/Geometry.ts#L8)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -74,7 +74,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PointCloudGeometry.ts#L14)
+Defined in: [elements/geometry/PointCloudGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PointCloudGeometry.ts#L14)
 
 StructSchema do ponto (position + normal, 32 bytes).
 
@@ -86,7 +86,7 @@ StructSchema do ponto (position + normal, 32 bytes).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -107,7 +107,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:45](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PointCloudGeometry.ts#L45)
+Defined in: [elements/geometry/PointCloudGeometry.ts:45](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PointCloudGeometry.ts#L45)
 
 Point clouds não usam index buffer — sempre 0.
 
@@ -127,7 +127,7 @@ Point clouds não usam index buffer — sempre 0.
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:41](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PointCloudGeometry.ts#L41)
+Defined in: [elements/geometry/PointCloudGeometry.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PointCloudGeometry.ts#L41)
 
 Número de pontos no buffer (sempre = `maxParticles`).
 
@@ -145,7 +145,7 @@ Número de pontos no buffer (sempre = `maxParticles`).
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -170,7 +170,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:25](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PointCloudGeometry.ts#L25)
+Defined in: [elements/geometry/PointCloudGeometry.ts:25](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PointCloudGeometry.ts#L25)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -191,7 +191,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/elements/geometry/PointCloudGeometry.ts#L36)
+Defined in: [elements/geometry/PointCloudGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/geometry/PointCloudGeometry.ts#L36)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

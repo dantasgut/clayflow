@@ -6,7 +6,7 @@
 
 # Interface: InteractionPluginOptions
 
-Defined in: [presentation/plugins/interactionPlugin.ts:7](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/plugins/interactionPlugin.ts#L7)
+Defined in: [presentation/plugins/interactionPlugin.ts:7](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/plugins/interactionPlugin.ts#L7)
 
 Opções do interactionPlugin.
 
@@ -16,7 +16,7 @@ Opções do interactionPlugin.
 
 > `readonly` `optional` **window?**: `Window` \| `null`
 
-Defined in: [presentation/plugins/interactionPlugin.ts:12](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/plugins/interactionPlugin.ts#L12)
+Defined in: [presentation/plugins/interactionPlugin.ts:12](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/plugins/interactionPlugin.ts#L12)
 
 Window onde keyboard listeners são registrados. Default: `window` global.
 Use null para desabilitar keyboard input (apenas pointer/touch).

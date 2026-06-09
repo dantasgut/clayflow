@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-physics-authoring-facade`
 **Created**: 2026-06-09
-**Status**: Ready for planning
+**Status**: Implemented (T029 claflow-web e T031 PR pendentes)
 **Input**: Equiparar a ergonomia de autoria da física à da renderização — a borda deve falar em vocabulário de domínio (massa, atrito, raio), nunca em layout de buffer GPU (schema, vec4, invMass-no-w), sem desfazer o núcleo data-oriented.
 
 ---

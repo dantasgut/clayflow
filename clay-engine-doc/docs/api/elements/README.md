@@ -81,18 +81,27 @@ pelo `Flow.bodyType` registrado.
 
 - [Edge](interfaces/Edge.md)
 - [EmitterShape](interfaces/EmitterShape.md)
-- [FluidBodyOptions](interfaces/FluidBodyOptions.md)
+- [FluidBodyDomainOptions](interfaces/FluidBodyDomainOptions.md)
+- [FluidBodyRawOptions](interfaces/FluidBodyRawOptions.md)
 - [LCPFlowOptions](interfaces/LCPFlowOptions.md)
 - [NeighborSearchOptions](interfaces/NeighborSearchOptions.md)
 - [ParticleEmitterOptions](interfaces/ParticleEmitterOptions.md)
 - [RenderTargetOptions](interfaces/RenderTargetOptions.md)
-- [RigidBodyOptions](interfaces/RigidBodyOptions.md)
-- [SoftBodyOptions](interfaces/SoftBodyOptions.md)
+- [RigidBodyRawOptions](interfaces/RigidBodyRawOptions.md)
+- [SoftBodyDomainOptions](interfaces/SoftBodyDomainOptions.md)
+- [SoftBodyRawOptions](interfaces/SoftBodyRawOptions.md)
 - [SpawnSample](interfaces/SpawnSample.md)
 
 ## Type Aliases
 
+- [FluidAlgorithm](type-aliases/FluidAlgorithm.md)
+- [FluidBodyOptions](type-aliases/FluidBodyOptions.md)
 - [ParametricFunction](type-aliases/ParametricFunction.md)
+- [RigidBodyDomainOptions](type-aliases/RigidBodyDomainOptions.md)
+- [RigidBodyOptions](type-aliases/RigidBodyOptions.md)
+- [RigidBodyShape](type-aliases/RigidBodyShape.md)
+- [SoftBodyAlgorithm](type-aliases/SoftBodyAlgorithm.md)
+- [SoftBodyOptions](type-aliases/SoftBodyOptions.md)
 
 ## Variables
 

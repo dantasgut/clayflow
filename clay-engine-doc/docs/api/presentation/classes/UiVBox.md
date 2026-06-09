@@ -6,7 +6,7 @@
 
 # Class: UiVBox
 
-Defined in: [presentation/ui/UiVBox.ts:7](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L7)
+Defined in: [presentation/ui/UiVBox.ts:7](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiVBox.ts#L7)
 
 Container vertical: filhos empilhados de cima para baixo. Mesma semântica de
 `UiHBox` (gap, padding, fixed-or-flex height).
@@ -35,7 +35,7 @@ Container vertical: filhos empilhados de cima para baixo. Mesma semântica de
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L27)
+Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiElement.ts#L27)
 
 Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
@@ -49,7 +49,7 @@ Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 > **children**: [`UiElement`](UiElement.md)[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L31)
+Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiElement.ts#L31)
 
 Filhos diretos. Renderizados após o pai (z-order natural).
 
@@ -63,7 +63,7 @@ Filhos diretos. Renderizados após o pai (z-order natural).
 
 > **gap**: `number` = `4`
 
-Defined in: [presentation/ui/UiVBox.ts:9](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L9)
+Defined in: [presentation/ui/UiVBox.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiVBox.ts#L9)
 
 Espaço (px) entre filhos consecutivos. Default: 4.
 
@@ -73,7 +73,7 @@ Espaço (px) entre filhos consecutivos. Default: 4.
 
 > **padding**: `number` = `0`
 
-Defined in: [presentation/ui/UiVBox.ts:11](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L11)
+Defined in: [presentation/ui/UiVBox.ts:11](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiVBox.ts#L11)
 
 Padding interno (px) em todos os lados. Default: 0.
 
@@ -83,7 +83,7 @@ Padding interno (px) em todos os lados. Default: 0.
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L29)
+Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiElement.ts#L29)
 
 Quando false, o elemento e seus filhos não são renderizados.
 
@@ -97,7 +97,7 @@ Quando false, o elemento e seus filhos não são renderizados.
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiElement.ts#L34)
+Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiElement.ts#L34)
 
 Anexa um UiElement filho. Chaining fluente.
 
@@ -121,7 +121,7 @@ Anexa um UiElement filho. Chaining fluente.
 
 > **layout**(): `void`
 
-Defined in: [presentation/ui/UiVBox.ts:18](https://github.com/dantasgut/clayflow/blob/4cb09580ef0c9b3c17652ba759cf5b7ea8d0a04d/src/presentation/ui/UiVBox.ts#L18)
+Defined in: [presentation/ui/UiVBox.ts:18](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/ui/UiVBox.ts#L18)
 
 Recalcula bounds dos filhos. Filhos com `height > 0` mantêm tamanho
 fixo; os demais dividem o espaço restante igualmente (flex). Chamar
