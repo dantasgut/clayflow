@@ -6,12 +6,14 @@
 
 ## Summary
 
-Adicionar uma **fachada de autoria em vocabulário de domínio** sobre os corpos físicos (C3), espelhando o que
-Geometry/Material já fazem para a renderização. O usuário cria física com `mass`, `friction`, `restitution`,
-`radius`/`halfExtents` e um algoritmo semântico — a fachada deriva internamente `schema`+`data`
-(`invMass` em `pos.w`, `I_inv`, `mat_props`, `body_shape`), anexa o colisor coerente e garante o registro
-automático do `Flow`. Aditivo: a forma crua `{ schema, data }` e o `flows.register` manual continuam válidos.
-Sem tocar kernels WGSL, semântica de simulação ou coalescência em pool.
+Dar aos corpos físicos (C3) um **construtor de vocabulário de domínio** seguindo o **mesmo padrão já usado por
+`StandardMaterial`/`BoxGeometry`**: o construtor da classe concreta recebe domínio (`mass`, `friction`,
+`restitution`, `shape`+dims) e produz seu `data` internamente (como `BoxGeometry` gera vértices no construtor),
+mapeando para os campos do schema (`inv_mass` em `pos.w`, `I_inv`, `mat_props`, `body_shape`). É **reviver o
+`new RigidBody({ mass, friction })` do legado**, implementado pelo padrão limpo. Sem factories e sem subsistema
+de CPU paralelo. A forma crua `{ schema, data }` permanece como overload avançado (FR-006). **GPU-First
+preservado**: toda derivação é _setup_ na construção (zero CPU por frame, nenhuma simulação em CPU), idêntico
+ao que a Camada 3 já faz. Sem tocar kernels WGSL, semântica de simulação ou coalescência em pool.
 
 ## Technical Context
 
@@ -65,7 +67,7 @@ specs/001-physics-authoring-facade/
 ├── data-model.md        # Fase 1 — entidades de autoria e mapeamento → schema/data
 ├── quickstart.md        # Fase 1 — a cena do claflow-web reescrita na fachada (SC-001)
 ├── contracts/
-│   └── authoring-api.md  # Fase 1 — superfície pública das factories
+│   └── authoring-api.md  # Fase 1 — superfície pública (construtor de domínio)
 └── tasks.md             # Fase 2 (/speckit-tasks — NÃO criado aqui)
 ```
 
@@ -74,28 +76,27 @@ specs/001-physics-authoring-facade/
 ```text
 src/elements/physics/
 ├── bodies/
-│   ├── RigidBody.ts        # + factories estáticas .sphere()/.box()/.plane() (aditivo ao ctor {schema,data})
-│   ├── SoftBody.ts         # + .xpbd()/.fem()
-│   ├── FluidBody.ts        # + .sph()/.pbf()/.mpm()
-│   ├── authoring/          # NOVO — tradução domínio → data, sem tocar schemas
-│   │   ├── inertia.ts       # I_inv analítico por forma (esfera/caixa) via gl-matrix
-│   │   ├── matProps.ts      # mapeia {friction,restitution,linDamp,angDamp} → vec4 (ordem canônica única)
-│   │   ├── shape.ts         # mapeia forma+dims → body_shape vec4 + colisor correspondente
-│   │   └── index.ts
-│   └── schemas/            # INALTERADO
+│   ├── RigidBody.ts        # construtor de domínio ({mass,friction,restitution,shape,dims}) → data
+│   │                       #   + helpers de setup CO-LOCALIZADOS no arquivo (como generateBox em BoxGeometry):
+│   │                       #   inv_mass, I_inv analítico, mat_props, body_shape. Raw {schema,data} = overload.
+│   ├── SoftBody.ts         # construtor de domínio (algoritmo 'XPBD'|'FEM' + params) → data
+│   ├── FluidBody.ts        # construtor de domínio (algoritmo 'SPH'|'PBF'|'MPM' + params) → data
+│   └── schemas/            # INALTERADO (continuam a verdade de layout)
 ├── flows/
-│   └── registry/           # NOVO ou estende FlowRegistry — mapa schema.name → (core,world,resources)=>Flow
-└── colliders/             # INALTERADO (reusados pela fachada)
+│   └── FlowRegistry        # estende o registro existente: mapa schema.name → (core,world,resources)=>Flow
+└── colliders/             # INALTERADO (a forma do body deriva o colisor coerente)
 
 src/presentation/
 └── Application.ts          # fiação: auto-registro de flow por schema no world.insert (opt-out p/ avançado)
 
-src/elements/physics/__tests__/   # NOVO — testes CPU-side da tradução (massa→invMass, inertia, matProps, shape, routing)
+src/elements/physics/__tests__/   # NOVO — testes CPU-side de setup (mass→inv_mass, inertia, mat_props, shape, routing)
 ```
 
-**Structure Decision**: mudança **aditiva** concentrada em `src/elements/physics/bodies/` (factories +
-subpasta `authoring/` de tradução pura CPU) e um registro algoritmo→flow consumido pela `Application`. Os
-`schemas/`, `colliders/`, `flows/*Flow.ts` e kernels WGSL permanecem intactos. Nenhum arquivo de C1/C2 é tocado.
+**Structure Decision**: mudança **aditiva**, no padrão das classes concretas existentes. O mapeamento
+domínio→`data` vive **dentro de cada classe de body** (helpers co-localizados, como `generateBox` em
+`BoxGeometry`) — **não** há subsistema `authoring/` nem factories. Mais a extensão do `FlowRegistry` para
+auto-registro por schema, consumida pela `Application`. `schemas/`, `colliders/`, `flows/*Flow.ts` e kernels
+WGSL permanecem intactos. Nenhum arquivo de C1/C2 é tocado. Toda derivação é setup-time (GPU-First preservado).
 
 ## Complexity Tracking
 

@@ -44,7 +44,8 @@ material    → mat_props           (D3)  → mat_props vec4 [rest, fric, linD, 
 position    → pos.xyz + Transform (D7)
 ```
 
-Cada derivação é uma função pura em `bodies/authoring/` (testável isoladamente — SC-005).
+Cada derivação é um helper puro **co-localizado na classe do body** (como `generateBox` em `BoxGeometry`),
+testável isoladamente — SC-005. Tudo setup-time; zero CPU por frame.
 
 ## AlgorithmSelector → Flow
 
@@ -63,10 +64,11 @@ resolve o flow na primeira inserção daquele schema (D6).
 
 ## Soft/Fluid (entrada de autoria — esboço)
 
-`SoftBody.xpbd({ position, particles | fromGeometry, mass, compliance?, ... })`,
-`FluidBody.sph({ position, particleCount | particles, ... })` etc. — preenchem `pos`/`vel` (e campos do schema
-respectivo) a partir de parâmetros de domínio; detalhes por-algoritmo refinados na fase de tasks/implementação
-(os schemas já existem e definem os campos).
+Construtor de domínio com `algorithm` discriminante:
+`new SoftBody({ algorithm: 'XPBD' | 'FEM', position, particles | fromGeometry, mass, compliance?, ... })`,
+`new FluidBody({ algorithm: 'SPH' | 'PBF' | 'MPM', position, particleCount | particles, ... })` — preenchem
+`pos`/`vel` (e campos do schema respectivo, selecionado pelo `algorithm`) a partir de parâmetros de domínio;
+detalhes por-algoritmo refinados na fase de tasks/implementação (os schemas já existem e definem os campos).
 
 ## Invariantes
 

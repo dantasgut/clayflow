@@ -47,13 +47,14 @@ a.world.insert(
 a.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
 
 // Chão estático (plano)
-const floor = RigidBody.plane({ normal: [0, 1, 0], offset: -0.5, friction: 0.9 });
+const floor = new RigidBody({ shape: 'plane', normal: [0, 1, 0], offset: -0.5, friction: 0.9 });
 floor.add(new PlaneGeometry({ size: [12, 12] }));
 floor.add(new StandardMaterial({ albedo: [0.35, 0.35, 0.4, 1], roughness: 0.95 }));
 a.world.insert(floor);
 
 // Plataforma estática (caixa)
-const platform = RigidBody.box({
+const platform = new RigidBody({
+  shape: 'box',
   static: true,
   halfExtents: [1.5, 0.15, 1.5],
   position: [0, 0, 0],
@@ -64,7 +65,8 @@ platform.add(new StandardMaterial({ albedo: [0.55, 0.4, 0.25, 1], roughness: 0.7
 a.world.insert(platform);
 
 // Esfera dinâmica
-const ball = RigidBody.sphere({
+const ball = new RigidBody({
+  shape: 'sphere',
   position: [-0.4, 4, 0],
   mass: 1,
   radius: 0.4,
@@ -76,7 +78,8 @@ ball.add(new StandardMaterial({ albedo: [0.9, 0.25, 0.25, 1], roughness: 0.35 })
 a.world.insert(ball);
 
 // Bastão dinâmico
-const bat = RigidBody.box({
+const bat = new RigidBody({
+  shape: 'box',
   position: [0.6, 5.5, 0],
   mass: 1.25,
   halfExtents: [0.075, 0.75, 0.075],
