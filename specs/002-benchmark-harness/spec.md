@@ -17,8 +17,9 @@ FPS, draw calls e memória; execução reproduzível com `npm run bench`; baseli
 ## Contexto e Problema
 
 O roadmap evolutivo do clayflow (F0→F9, ver [`specs/ROADMAP.md`](../ROADMAP.md)) tem como tese ser **mais
-realista e mais rápido que o Three.js** em cenas de escala (mundo aberto, multidões, simulação), validando
-contra o jogo MorphSociety. Hoje não há **nenhuma medição** comparativa: não se sabe quanto o clayflow perde
+realista e mais rápido que o Three.js** em cenas de escala (mundo aberto, multidões, simulação), oferecendo
+capacidades de engine que permitam modernizar jogos como o MorphSociety (que adota o clayflow no próprio
+repositório). Hoje não há **nenhuma medição** comparativa: não se sabe quanto o clayflow perde
 ou ganha, em que cenários, nem se uma mudança futura (F1 GPU-driven, F2 PBR…) melhora ou regride desempenho.
 
 Sem um referencial reproduzível, toda afirmação "mais rápido" é opinião, e regressões de performance passam
@@ -94,8 +95,8 @@ Como desenvolvedor de uma fase futura do roadmap (ex.: F5 terreno/vegetação), 
 benchmark descrevendo-a uma vez, com uma implementação por engine, sem tocar no executor, nas métricas nem no
 relatório.
 
-**Why this priority**: Garante que o harness acompanhe o roadmap inteiro (F1→F9) e a validação contra o
-MorphSociety. Não bloqueia o uso inicial, mas evita que o harness vire código descartável.
+**Why this priority**: Garante que o harness acompanhe o roadmap inteiro (F1→F9), cobrindo cada nova
+capacidade de engine. Não bloqueia o uso inicial, mas evita que o harness vire código descartável.
 
 **Independent Test**: Criar uma cena trivial nova seguindo o guia, rodar o benchmark e verificar que ela aparece
 no relatório e no baseline sem nenhuma alteração fora da própria cena e do seu registro.
@@ -259,12 +260,15 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   configuração se o ruído de uma máquina exigir.
 - **Baselines por máquina**: números de hardware diferentes não são comparados; cada perfil de máquina tem seu
   próprio baseline versionado.
-- **Escopo**: a validação contra o MorphSociety (cenas extraídas do jogo) entra como cenas futuras via US3, a
-  partir dos marcos M1–M5 do roadmap; não faz parte do catálogo inicial.
+- **Escopo**: as cenas são **genéricas de engine** (instâncias, objetos, luzes, personagens, física) e
+  representam padrões de carga de jogos realistas, sem conteúdo nem código de nenhum jogo específico. Novas
+  capacidades do roadmap ganham novas cenas genéricas via US3 (ex.: terreno + vegetação na F5).
 
 ## Non-Goals
 
 - Otimizar o clayflow (isso é F1 em diante) — esta feature só mede.
+- Trazer código, assets ou cenas de jogos (ex.: MorphSociety) para este repositório — a adoção do clayflow
+  pelo jogo acontece no repositório do jogo.
 - Comparar com outras engines além do Three.js (Babylon.js, PlayCanvas) — pode virar cena/adaptador futuro.
 - Rodar benchmark no CI ou em dispositivos móveis.
 - Comparação de qualidade visual pixel a pixel (fica para a F2/F3, que define a paridade visual).
