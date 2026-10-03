@@ -163,9 +163,14 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
 - **FR-006**: Para cada cena × variante × engine, o harness DEVE coletar: tempo de CPU por quadro, tempo de GPU por
   quadro (quando o dispositivo suportar), FPS médio, p95 e p99 do tempo de quadro, número de draw calls por quadro
   e memória GPU estimada.
-- **FR-007**: No clayflow, o tempo de GPU DEVE ser obtido pelo profiler existente do motor (timestamps de GPU); no
-  Three.js, pelo mecanismo equivalente que ele oferece. Quando indisponível, a métrica é registrada como
-  "indisponível", nunca como zero.
+- **FR-007**: No clayflow, o tempo de GPU DEVE ser obtido pelo profiler do motor (timestamps de GPU) cobrindo
+  **todos** os passes do quadro (render e compute); no Three.js, pelo mecanismo equivalente que ele oferece.
+  Quando indisponível, a métrica é registrada como "indisponível", nunca como zero.
+- **FR-007a**: O motor DEVE expor, pela sua API pública, as estatísticas por quadro que o benchmark precisa e
+  que hoje não existem — número de draw calls, dispatches e passes, e o tempo de GPU do quadro inteiro (hoje o
+  profiler só cobre o passe forward e o evento de estatísticas sai com tempos de GPU vazios). É uma capacidade
+  genérica de observabilidade do motor (útil a qualquer aplicação), desligada por padrão e sem custo quando
+  desligada.
 - **FR-008**: Cada execução DEVE registrar o perfil do ambiente: adaptador de GPU, navegador e versão, sistema
   operacional, resolução, versões do clayflow e do Three.js, data e commit.
 
@@ -197,8 +202,8 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   acessar internos — o benchmark mede o que o usuário obtém.
 - **FR-017**: O Three.js e a biblioteca de física de referência DEVEM entrar apenas como dependências de
   desenvolvimento do harness; o pacote publicado do clayflow NÃO pode conter, importar nem depender deles.
-- **FR-018**: O código do harness NÃO DEVE afetar o código da biblioteca (camadas C1–C4) nem o bundle publicado;
-  fica isolado fora de `src/` da lib.
+- **FR-018**: O código do harness (cenas, adaptadores, executor, relatórios) fica isolado fora de `src/` da lib
+  e NÃO entra no bundle publicado. A única mudança na biblioteca é a capacidade de observabilidade do FR-007a.
 - **FR-019**: DEVE existir um guia curto na documentação explicando como rodar o benchmark, interpretar o
   relatório, atualizar o baseline e adicionar cenas.
 
@@ -231,8 +236,9 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   gate em 100% das tentativas; uma execução sem mudança passa no gate em 100% das tentativas.
 - **SC-004**: Adicionar uma cena nova exige alterar apenas os arquivos da própria cena e seu registro no catálogo
   (zero mudanças no executor, métricas, relatório ou baseline).
-- **SC-005**: O pacote publicado do clayflow tem tamanho e lista de dependências idênticos antes e depois da
-  feature (zero referência a Three.js ou à biblioteca de física de referência).
+- **SC-005**: O pacote publicado do clayflow mantém a mesma lista de dependências de runtime e zero referência a
+  Three.js ou à biblioteca de física de referência; o crescimento do bundle limita-se à observabilidade do
+  FR-007a, e ligar/desligar essa observabilidade não altera o tempo de quadro de CPU em mais de 2%.
 - **SC-006**: O primeiro relatório publicado responde objetivamente, por cena, se o clayflow é mais rápido,
   equivalente ou mais lento que o Three.js, e por qual fator — servindo de linha de base declarada para a F1.
 - **SC-007**: A execução completa no modo padrão termina em até 15 minutos numa máquina de desenvolvimento típica,
