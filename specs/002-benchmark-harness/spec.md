@@ -170,7 +170,14 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   que hoje não existem — número de draw calls, dispatches e passes, e o tempo de GPU do quadro inteiro (hoje o
   profiler só cobre o passe forward e o evento de estatísticas sai com tempos de GPU vazios). É uma capacidade
   genérica de observabilidade do motor (útil a qualquer aplicação), desligada por padrão e sem custo quando
-  desligada.
+  desligada. Como hoje o motor cria o dispositivo de GPU sem solicitar a capacidade de timestamps (por isso o
+  profiler nunca mede nada), a criação do dispositivo DEVE solicitá-la sempre que o adaptador a oferecer. A
+  configuração completa do dispositivo (preferência de desempenho, demais capacidades e limites) fica para a
+  fase F0.5 do roadmap.
+- **FR-007b**: A cena do clayflow DEVE usar o melhor caminho público que o motor oferece hoje para cada carga, e
+  o relatório DEVE registrar por cena as limitações conhecidas do motor que afetam o resultado (ex.: "física com
+  readback na CPU por quadro", "sem instancing no render") — a linha de base mede o motor como ele é, e cada fase
+  seguinte demonstra o ganho contra ela.
 - **FR-008**: Cada execução DEVE registrar o perfil do ambiente: adaptador de GPU, navegador e versão, sistema
   operacional, resolução, versões do clayflow e do Three.js, data e commit.
 
@@ -203,7 +210,8 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
 - **FR-017**: O Three.js e a biblioteca de física de referência DEVEM entrar apenas como dependências de
   desenvolvimento do harness; o pacote publicado do clayflow NÃO pode conter, importar nem depender deles.
 - **FR-018**: O código do harness (cenas, adaptadores, executor, relatórios) fica isolado fora de `src/` da lib
-  e NÃO entra no bundle publicado. A única mudança na biblioteca é a capacidade de observabilidade do FR-007a.
+  e NÃO entra no bundle publicado. A única mudança na biblioteca é a capacidade de observabilidade do FR-007a (incluindo a solicitação de
+  timestamps na criação do dispositivo).
 - **FR-019**: DEVE existir um guia curto na documentação explicando como rodar o benchmark, interpretar o
   relatório, atualizar o baseline e adicionar cenas.
 

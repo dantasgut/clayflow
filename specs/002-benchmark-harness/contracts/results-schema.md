@@ -46,6 +46,7 @@ export interface Result {
   readonly status: ResultStatus;
   readonly reason?: string; // obrigatório se status ≠ 'ok'
   readonly until?: string; // fase que deve habilitar (unsupported)
+  readonly limitations?: readonly string[]; // limitações do motor declaradas pela cena (FR-007b)
   readonly metrics?: Metrics; // só se 'ok'
   readonly repetitions?: readonly Metrics[];
   readonly unstable?: boolean; // CV > 5%
@@ -80,4 +81,5 @@ Cabeçalho com o perfil (GPU, navegador, OS, resolução, commit, data) e uma li
 
 `×` = clayflow ÷ Three (> 1 = clayflow mais lento). `*` = memória estimada. Linhas instáveis recebem ⚠ e `vsyncLimited`
 recebe a nota "limitado pela vsync". Abaixo da tabela: resumo "mais rápido / equivalente (±10%) / mais lento"
-por cena (SC-006).
+por cena (SC-006), seguido da seção "Limitações conhecidas do motor" listando, por cena, as `limitations`
+declaradas (FR-007b).

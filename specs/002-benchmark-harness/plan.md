@@ -88,6 +88,7 @@ src/                                   # LIB — mudanças mínimas (FR-007a)
 │   ├── FrameStats.ts                  # NOVO — tipo de domínio { drawCalls, dispatches, passes, gpuTimeMs? }
 │   └── EngineCore.ts                  # + setFrameProfiling(enabled), lastFrameStats()
 ├── core/gpu/
+│   ├── GpuContext.ts                  # requiredFeatures inclui 'timestamp-query' quando o adaptador oferece
 │   ├── GpuFrame.ts                    # contadores por quadro; injeta timestampWrites automáticos nos passes
 │   ├── passes/GpuRenderPass.ts        # draw/drawIndexed/indirect/executeBundles → contador
 │   ├── passes/GpuBundleRenderPass.ts  # conta draws gravados no bundle

@@ -66,14 +66,15 @@ Validação: inteiros positivos; `tolerance` em (0, 1).
 
 ### Result
 
-| Campo                        | Regra                                        |
-| ---------------------------- | -------------------------------------------- |
-| `scene`, `variant`, `engine` | chave composta única por execução            |
-| `status`                     | `ok \| unsupported \| failed \| timeout`     |
-| `reason`                     | obrigatório se `status ≠ ok`                 |
-| `metrics`                    | presente só se `ok` (ver Metrics)            |
-| `repetitions`                | métricas por repetição (para CV/diagnóstico) |
-| `unstable`                   | `true` se CV entre repetições > 5%           |
+| Campo                        | Regra                                                   |
+| ---------------------------- | ------------------------------------------------------- |
+| `scene`, `variant`, `engine` | chave composta única por execução                       |
+| `status`                     | `ok \| unsupported \| failed \| timeout`                |
+| `reason`                     | obrigatório se `status ≠ ok`                            |
+| `limitations`                | lista (pode ser vazia) vinda da implementação (FR-007b) |
+| `metrics`                    | presente só se `ok` (ver Metrics)                       |
+| `repetitions`                | métricas por repetição (para CV/diagnóstico)            |
+| `unstable`                   | `true` se CV entre repetições > 5%                      |
 
 ### Metrics
 

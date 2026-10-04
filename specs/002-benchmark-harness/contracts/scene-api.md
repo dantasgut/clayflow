@@ -33,6 +33,11 @@ export interface SceneContext<TEngine> {
 
 /** Implementação de uma cena para uma engine. */
 export interface SceneImplementation<TEngine> {
+  /**
+   * Limitações conhecidas do motor que afetam o resultado desta implementação (FR-007b), em linguagem de
+   * domínio. Aparecem no relatório ao lado da linha; somem quando a fase que as resolve for entregue.
+   */
+  readonly limitations?: readonly string[];
   /** Monta o conteúdo. Pode ser assíncrono (compilação de pipelines, WASM). */
   setup(ctx: SceneContext<TEngine>): Promise<void> | void;
   /** Trabalho por quadro além do render (ex.: passo de física CPU). Opcional. */
@@ -76,16 +81,18 @@ em uso — o lado clayflow nunca baixa Three.
 
 ## Catálogo inicial
 
-| id                   | Variantes                     | clayflow                                                                           | three                                                       |
-| -------------------- | ----------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `instances`          | `10k`, `100k`, `1m` (`count`) | N entidades Box+StandardMaterial+Transform (sem instancing hoje)                   | `InstancedMesh`                                             |
-| `unique-objects`     | `1k`                          | 1k geometrias com parâmetros distintos (segmentos/dimensões) e materiais distintos | 1k `Mesh` com geometria e `MeshStandardMaterial` próprios   |
-| `point-lights`       | `256`                         | `{ unsupported: 'forward ignora PointLight', until: 'F3' }`                        | 256 `PointLight` sobre plano + 200 objetos                  |
-| `skinned-characters` | `500`                         | `{ unsupported: 'sem skinning/animação', until: 'F4' }`                            | 500 `SkinnedMesh` procedurais (20 ossos) + `AnimationMixer` |
-| `rigid-bodies`       | `10k`                         | 10k `RigidBody` esfera (fachada de domínio) + chão estático                        | Rapier 10k esferas + chão; render `InstancedMesh`           |
+| id                   | Variantes                     | clayflow                                                                                       | three                                                       |
+| -------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `instances`          | `10k`, `100k`, `1m` (`count`) | N entidades Box+StandardMaterial+Transform — limitação: sem instancing (até F1)                | `InstancedMesh`                                             |
+| `unique-objects`     | `1k`                          | 1k geometrias com parâmetros distintos (segmentos/dimensões) e materiais distintos             | 1k `Mesh` com geometria e `MeshStandardMaterial` próprios   |
+| `point-lights`       | `256`                         | `{ unsupported: 'forward ignora PointLight', until: 'F3' }`                                    | 256 `PointLight` sobre plano + 200 objetos                  |
+| `skinned-characters` | `500`                         | `{ unsupported: 'sem skinning/animação', until: 'F4' }`                                        | 500 `SkinnedMesh` procedurais (20 ossos) + `AnimationMixer` |
+| `rigid-bodies`       | `10k`                         | 10k `RigidBody` esfera (fachada de domínio) + chão — limitação: readback por quadro (até F0.5) | Rapier 10k esferas + chão; render `InstancedMesh`           |
 
 ## Regras
 
 - Conteúdo derivado **só** de `rng` e `variant.params` (determinismo, FR-003).
 - O lado clayflow importa apenas de `clayflow` (barrel público) — ESLint bloqueia o resto (FR-016).
 - Cada engine usa a melhor abordagem idiomática pública para a mesma carga (research R8).
+- Limitações do motor que pesam no resultado são declaradas em `limitations` (FR-007b) — nunca contornadas com
+  acesso a internos.

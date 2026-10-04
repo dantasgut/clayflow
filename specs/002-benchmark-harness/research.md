@@ -72,7 +72,14 @@ trackTimestamp: true })` com `await renderer.init()`.
 - **Achado**: o `Profiler` atual só é usado pelo `ForwardFlow` (par fixo 0/1, opt-in) e o `DebugFlow` emite
   `profilerStats` com `stagesNs: {}` sempre vazio. Passes de compute (toda a física) não são medidos, e não há
   contador de draw calls. A spec exige API pública (FR-016) — o harness não pode acessar `core/gpu`.
+- **Achado agravante (auditoria 2026-10-04)**: `createGpuContext` (`core/gpu/GpuContext.ts:17-19`) chama
+  `adapter.requestDevice()` **sem `requiredFeatures`** — `timestamp-query` nunca é habilitado, então
+  `GpuProfilerSystem.isSupported` é sempre `false` e nenhum timestamp é escrito, em nenhuma máquina.
 - **Decisão**: nova capacidade genérica no motor:
+  - `createGpuContext` passa a incluir `'timestamp-query'` em `requiredFeatures` **quando
+    `adapter.features.has('timestamp-query')`** (sem custo quando não usado; sem a feature, segue como hoje).
+    Mudança mínima e deliberada: `powerPreference`, demais features e limites e o relatório de capacidades são
+    escopo da spec `003-core-foundations` (F0.5), que generaliza esta solicitação.
   - `ApplicationOptions.profiling?: boolean` (default `false`) → `core.setFrameProfiling(enabled)`.
   - C1 (`GpuFrame`/passes) conta `drawCalls`, `dispatches`, `passes` por quadro (contadores inteiros — custo
     desprezível, sempre ligados).
@@ -96,6 +103,12 @@ trackTimestamp: true })` com `await renderer.init()`.
   gerador determinístico compartilhado (`mulberry32(seed)`) que produz posições/cores/escala para as duas engines.
 - **Racional**: o benchmark mede "o que o usuário obtém" (FR-016). Forçar o Three a usar `Mesh` individual
   inflaria artificialmente a vantagem do clayflow.
+- **Melhor caminho público atual do clayflow (FR-007b)**: as cenas clayflow usam o que a API pública já oferece de
+  mais eficiente para cada carga (ex.: geometria e material compartilhados quando a fachada permitir; corpos
+  rígidos pela fachada de domínio da spec 001), e declaram em `limitations` as limitações do motor que pesam no
+  resultado (ex.: `rigid-bodies` → "readback de todos os corpos para a CPU por quadro"; `instances` → "sem
+  instancing: 1 draw + 3 uploads por objeto"; ambas → "render LDR 8 bits, sem MSAA"). Isso torna o ganho da F0.5
+  e da F1 rastreável contra a linha de base.
 - **Estado esperado do clayflow hoje**: instâncias = N entidades (sem instancing no render) → 1M deve falhar ou
   estourar tempo; luzes = **não suportado** (o forward ignora `PointLight` até a F3 — inserir luzes que não
   iluminam não seria equivalente); personagens = **não suportado** até a F4. Tudo isso vira a linha de base.
