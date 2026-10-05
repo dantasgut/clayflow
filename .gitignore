@@ -2,6 +2,7 @@ node_modules/**
 dist/**
 prints/**
 .typedoc-cov-trash/**
-coverage/**.DS_Store
+coverage/**
+.DS_Store
 *.log
 .env*

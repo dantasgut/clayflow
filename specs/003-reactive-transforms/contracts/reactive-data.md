@@ -21,6 +21,8 @@ material.data.albedo[0] = 1;      // vale para qualquer recurso
 - Recurso ainda não inserido: mutações não geram eventos (o valor vai no envio inicial da inserção).
 - Recurso removido: mutações são ignoradas.
 - `emit('resourceDirty', { payload: { resource } })` manual continua aceito (compatibilidade) e entra na mesma fila.
+- `TypedArray`/`ArrayBuffer` (vértices, índices) são devolvidos crus — APIs nativas da GPU não aceitam Proxy;
+  mutação no lugar não é rastreada, reatribua o campo (decisão revista na implementação, ver research R1).
 - Limite: referência a array interno capturada antes da inserção não é rastreada — mute via `data.campo[i] = …` ou
   reatribua o campo.
 
@@ -77,7 +79,7 @@ export interface PoolDirectory {
 
 ## Testes (Vitest, CPU)
 
-- Proxy: atribuição, componente, `TypedArray` (índice e `set`/`fill`), `Array` (`splice`, `fill`), `delete`; proxy
+- Proxy: atribuição, componente, `Array` (`splice`, `fill`, `sort`, `reverse`), `TypedArray` devolvido cru, `delete`; proxy
   aninhado estável (`data.position === data.position`); não inserido ⇒ sem evento; removido ⇒ ignorado.
 - Fila: 10 mutações no mesmo recurso ⇒ 1 `core.write` no `frameRecording`; `resourceReady` emitido uma vez.
 - Política: `'always'` envia; `'initial'` envia só na alocação, estado `GpuManaged`, mutação ignorada com aviso único;

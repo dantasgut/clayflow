@@ -6,17 +6,14 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
-/** Vetor homogêneo `[x, y, z, w]`. */
-type Vec4 = readonly [number, number, number, number] | number[];
-
 /** Valores de construção de um `Transform` (todos opcionais). */
 export interface TransformValues {
     /** Posição no mundo `[x, y, z, 1]`. Default `[0, 0, 0, 1]`. */
-    readonly position?: Vec4;
+    readonly position?: readonly number[];
     /** Rotação como quaternion `[x, y, z, w]`. Default identidade `[0, 0, 0, 1]`. */
-    readonly rotation?: Vec4;
+    readonly rotation?: readonly number[];
     /** Escala por eixo `[sx, sy, sz, 1]`. Default `[1, 1, 1, 1]`; negativa espelha. */
-    readonly scale?: Vec4;
+    readonly scale?: readonly number[];
 }
 
 let legacyModelWarned = false;

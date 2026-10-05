@@ -88,6 +88,26 @@ app.start();
 
 Pronto: você tem um cubo com sombra, OrbitController com damping, luz direcional, e o `GameLoop` pulsando frames a 60 Hz.
 
+## Mover e animar objetos
+
+O `Transform` guarda a **intenção** de posicionamento — `position`, `rotation` (quaternion) e `scale`. Depois de
+inserir a entidade, basta mudar o `data`: a mudança aparece no quadro seguinte, sem nenhuma chamada extra.
+
+```typescript
+const t = new Transform({ position: [2, 0, 0, 1], scale: [1, 2, 1, 1] });
+cube.add(t);
+app.world.insert(cube);
+
+app.events.on('frameTick', ({ elapsed }) => {
+  t.data.position[1] = Math.sin(elapsed); // componente
+  // ou: t.data.position = [x, y, z, 1];   // campo inteiro
+});
+```
+
+A matriz de mundo é calculada na GPU pelo `TransformFlow` (fase `transform`) a cada mudança; vale o mesmo para
+qualquer recurso (ex.: `material.data.albedo[0] = 1`). Dados em `Float32Array`/`Uint16Array` (vértices, índices)
+são rastreados quando o campo é reatribuído.
+
 ## Próximos passos
 
 - **Adicionar física**: crie bodies em vocabulário de domínio — `new RigidBody({ shape: 'sphere', radius: 0.4, mass: 1 })`, `new SoftBody({ algorithm: 'XPBD', position, mass })`, `new FluidBody({ algorithm: 'MPM', position })` — e `app.world.insert(body)`. O Flow correspondente é **auto-registrado** (sem `flows.register` manual). Veja [Physics Flows](./physics_flows.md).

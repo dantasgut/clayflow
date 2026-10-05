@@ -21,6 +21,10 @@ Decisões que resolvem as incógnitas do Technical Context. Formato: Decisão / 
 - **Racional**: é o mecanismo que o desenho da refundação prevê ("mutação direta — emite resourceDirty … Proxy ou
   setter", `architecture_resource_loaders.md:3979-3991`) e funciona para **todo** recurso sem tocar cada classe. A
   instalação na alocação garante que só recursos inseridos na cena reajam (FR-004).
+- **Revisão na implementação (smoke)**: `TypedArray`/`ArrayBuffer` passaram a ser devolvidos **crus**. O smoke
+  mostrou que `queue.writeBuffer` rejeita um Proxy de `Float32Array` (as geometrias guardam `vertices`/`indices`
+  em `data`). Campos de schema são `Array` comuns e continuam rastreados por índice; typed arrays são rastreados
+  pela reatribuição do campo.
 - **Limite documentado**: referências a arrays internos capturadas **antes** da inserção (`const p = t.data.position`
   e depois `p[0] = 1`) não são rastreadas — o guia orienta a mutar via `t.data.position[0] = …` ou reatribuir.
 - **Alternativas**: setters explícitos por classe (boilerplate em ~40 classes de recurso, fácil esquecer);

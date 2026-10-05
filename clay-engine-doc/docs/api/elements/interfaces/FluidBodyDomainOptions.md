@@ -6,7 +6,7 @@
 
 # Interface: FluidBodyDomainOptions
 
-Defined in: [elements/physics/bodies/FluidBody.ts:23](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/FluidBody.ts#L23)
+Defined in: [elements/physics/bodies/FluidBody.ts:23](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/bodies/FluidBody.ts#L23)
 
 Opções de domínio do FluidBody — uma partícula de fluido (o fluido completo
 é N partículas no mesmo pool). O algoritmo seleciona o schema. Observação:
@@ -19,7 +19,7 @@ massa — por isso só `pos.xyz` e `vel.xyz` são definidos aqui.
 
 > `readonly` **algorithm**: [`FluidAlgorithm`](../type-aliases/FluidAlgorithm.md)
 
-Defined in: [elements/physics/bodies/FluidBody.ts:25](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/FluidBody.ts#L25)
+Defined in: [elements/physics/bodies/FluidBody.ts:25](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/bodies/FluidBody.ts#L25)
 
 Seleciona o schema/flow integrador (SPH, PBF ou MPM).
 
@@ -29,7 +29,7 @@ Seleciona o schema/flow integrador (SPH, PBF ou MPM).
 
 > `readonly` `optional` **position?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/bodies/FluidBody.ts:27](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/FluidBody.ts#L27)
+Defined in: [elements/physics/bodies/FluidBody.ts:27](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/bodies/FluidBody.ts#L27)
 
 Posição inicial da partícula (mundo). Default [0,0,0].
 
@@ -39,6 +39,6 @@ Posição inicial da partícula (mundo). Default [0,0,0].
 
 > `readonly` `optional` **velocity?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/bodies/FluidBody.ts:29](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/FluidBody.ts#L29)
+Defined in: [elements/physics/bodies/FluidBody.ts:29](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/bodies/FluidBody.ts#L29)
 
 Velocidade inicial da partícula. Default [0,0,0].

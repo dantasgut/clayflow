@@ -6,7 +6,7 @@
 
 # Class: KeyboardDevice
 
-Defined in: [presentation/input/KeyboardDevice.ts:8](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/KeyboardDevice.ts#L8)
+Defined in: [presentation/input/KeyboardDevice.ts:8](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/KeyboardDevice.ts#L8)
 
 Device de teclado — captura keydown/keyup no target (window/element) e
 popula `Input.state.keys` (Set de KeyboardEvent.code). Use `input.isDown(code)`
@@ -18,7 +18,7 @@ para queries no game loop.
 
 > **new KeyboardDevice**(`target`, `input`): `KeyboardDevice`
 
-Defined in: [presentation/input/KeyboardDevice.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/KeyboardDevice.ts#L9)
+Defined in: [presentation/input/KeyboardDevice.ts:9](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/KeyboardDevice.ts#L9)
 
 #### Parameters
 
@@ -40,7 +40,7 @@ Defined in: [presentation/input/KeyboardDevice.ts:9](https://github.com/dantasgu
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/KeyboardDevice.ts:15](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/KeyboardDevice.ts#L15)
+Defined in: [presentation/input/KeyboardDevice.ts:15](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/KeyboardDevice.ts#L15)
 
 Registra listeners no target. Chamado pelo Application após `start()`.
 
@@ -54,7 +54,7 @@ Registra listeners no target. Chamado pelo Application após `start()`.
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/KeyboardDevice.ts:22](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/input/KeyboardDevice.ts#L22)
+Defined in: [presentation/input/KeyboardDevice.ts:22](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/KeyboardDevice.ts#L22)
 
 Remove listeners. Chamado em `Application.dispose()`.
 

@@ -2,11 +2,23 @@
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / XPBDFlow
+[webgpu-engine](../../modules.md) / [elements](../README.md) / TransformFlow
 
-# Class: XPBDFlow
+# Class: TransformFlow
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:25](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L25)
+Defined in: [elements/scene/flows/TransformFlow.ts:43](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L43)
+
+Estágio de transformação — produz, na GPU, a matriz de mundo e a matriz de normais de
+cada `Transform` a partir da sua intenção (posição, rotação, escala), com a convenção
+`M = T · R · S`. O resultado fica no pool `WorldTransform` (mesmo slot do `Transform`),
+que os estágios de sombra e desenho leem por índice de instância.
+
+Reativo: só grava o compute quando algum `Transform` foi enviado (`resourceReady`) ou
+quando os pools foram realocados; numa cena parada, não faz nada.
+
+Substituível: é o estágio padrão da fase `transform`. Registrar outro Flow nessa fase
+permite outras regras de transformação — é a base para a hierarquia opcional, para a
+função `transform` do usuário e para cadeias não euclidianas do roadmap.
 
 ## Extends
 
@@ -16,9 +28,9 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:25](https://github.com/dantasgut
 
 ### Constructor
 
-> **new XPBDFlow**(`core`, `world`, `resources`, `options?`): `XPBDFlow`
+> **new TransformFlow**(`core`, `pools`, `events`): `TransformFlow`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:42](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L42)
+Defined in: [elements/scene/flows/TransformFlow.ts:54](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L54)
 
 #### Parameters
 
@@ -26,21 +38,17 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:42](https://github.com/dantasgut
 
 `EngineCore`
 
-##### world
+##### pools
 
-`World`
+`PoolDirectory`
 
-##### resources
+##### events
 
-`ResourceSystem`
-
-##### options?
-
-`XPBDFlowOptions` = `{}`
+`EventBus`
 
 #### Returns
 
-`XPBDFlow`
+`TransformFlow`
 
 #### Overrides
 
@@ -50,9 +58,9 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:42](https://github.com/dantasgut
 
 ### bodyType
 
-> `readonly` **bodyType**: `string`
+> `readonly` **bodyType**: `""` = `''`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:27](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L27)
+Defined in: [elements/scene/flows/TransformFlow.ts:45](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L45)
 
 Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
 para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
@@ -67,9 +75,9 @@ para encontrar o flow responsável por cada Resource.
 
 ### phase
 
-> `readonly` **phase**: `Phase` = `'physics'`
+> `readonly` **phase**: `Phase` = `'transform'`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:28](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L28)
+Defined in: [elements/scene/flows/TransformFlow.ts:46](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L46)
 
 Fase do pipeline em que o flow executa.
 
@@ -81,15 +89,15 @@ Fase do pipeline em que o flow executa.
 
 ### priority
 
-> **priority**: `number` = `5`
+> **priority**: `number` = `0`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:29](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L29)
+Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/scene/flows/Flow.ts#L46)
 
 Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 Útil quando dois flows compartilham phase mas têm dependência de ordem
 (e.g. um flow gera dado que outro consome).
 
-#### Overrides
+#### Inherited from
 
 `Flow.priority`
 
@@ -97,9 +105,9 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 ### type
 
-> `readonly` **type**: `"XPBDFlow"` = `'XPBDFlow'`
+> `readonly` **type**: `"transform"` = `'transform'`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:26](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L26)
+Defined in: [elements/scene/flows/TransformFlow.ts:44](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L44)
 
 Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
@@ -113,11 +121,9 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:206](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L206)
+Defined in: [elements/scene/flows/TransformFlow.ts:89](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L89)
 
-Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
-contém o command encoder ativo — use `frame.compute(...)` ou
-`frame.render(target, ...)` para emitir comandos GPU.
+Grava o compute de composição quando houve mudança desde o último quadro.
 
 #### Parameters
 
@@ -135,15 +141,27 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 ***
 
+### dispose()
+
+> **dispose**(): `void`
+
+Defined in: [elements/scene/flows/TransformFlow.ts:107](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L107)
+
+Cancela a inscrição em eventos (descarte do estágio).
+
+#### Returns
+
+`void`
+
+***
+
 ### getPipelineDescriptors()
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:57](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L57)
+Defined in: [elements/scene/flows/TransformFlow.ts:68](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L68)
 
-Retorna os descritores de pipelines GPU que este flow precisa criar
-(para introspeção arquitetural / debugging — o flow ainda materializa
-via core.create internamente).
+Pipeline de compute do estágio (introspecção).
 
 #### Returns
 
@@ -159,7 +177,7 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:92](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L92)
+Defined in: [scene/flows/Flow.ts:107](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/scene/flows/Flow.ts#L107)
 
 Indica se o flow tem trabalho válido para esta frame. Default: true
 (sempre dispatch). Override para gating em prerequisites: e.g. presença
@@ -170,7 +188,7 @@ ExecutionSystem skipa flows com `isReady() === false`.
 
 `boolean`
 
-#### Overrides
+#### Inherited from
 
 `Flow.isReady`
 
@@ -267,13 +285,9 @@ hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:96](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/flows/XPBDFlow.ts#L96)
+Defined in: [elements/scene/flows/TransformFlow.ts:81](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/flows/TransformFlow.ts#L81)
 
-Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
-ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
-`BindGroupSpec` dependentes do pool devem invalidar o cache aqui
-(set para null) para que a próxima dispatch reconstrua via
-`resources.poolBindGroup(poolKey)`.
+Pools realocados invalidam o kernel; tudo é recalculado no próximo quadro.
 
 #### Parameters
 

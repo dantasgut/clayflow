@@ -8,7 +8,7 @@
 
 > **registerPresentationDefaults**(`flows`, `options`): [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/flows/defaults.ts:57](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/defaults.ts#L57)
+Defined in: [presentation/flows/defaults.ts:60](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L60)
 
 Cria e registra os 5 Flows default no FlowRegistry, com bindings adequados
 (forward bind shadow, post bind forward, debug bind events).
