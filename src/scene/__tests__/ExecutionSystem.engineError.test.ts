@@ -24,6 +24,8 @@ function fakeCore(
             ?? (async (_filter: GPUErrorFilter, body: () => void) => {
                 body();
             }),
+        setFrameProfiling: vi.fn(),
+        lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
     } as unknown as EngineCore;
 }
 

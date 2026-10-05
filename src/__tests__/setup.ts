@@ -33,3 +33,7 @@ if (typeof (globalThis as { GPUShaderStage?: unknown }).GPUShaderStage === 'unde
         COMPUTE: 0x4,
     };
 }
+
+if (typeof (globalThis as { GPUMapMode?: unknown }).GPUMapMode === 'undefined') {
+    (globalThis as { GPUMapMode: object }).GPUMapMode = { READ: 0x1, WRITE: 0x2 };
+}

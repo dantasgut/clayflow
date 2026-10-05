@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@webgpu/types", "node"],
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "baseUrl": ".",
+    "paths": { "clayflow": ["../src/index.ts"] },
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["**/*.ts", "../src/**/*.ts"],
+  "exclude": ["results/**", "../src/legacy/**", "../src/**/__tests__/**", "../src/__smokes__/**"]
+}

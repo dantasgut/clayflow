@@ -37,6 +37,8 @@ export function renderHarness() {
         destroy: vi.fn(),
         canvasFormat: 'bgra8unorm',
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
+        setFrameProfiling: vi.fn(),
+        lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
     } as unknown as EngineCore;
 
     const worldBuffer = {

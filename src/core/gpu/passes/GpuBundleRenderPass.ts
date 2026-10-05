@@ -27,6 +27,13 @@ export class GpuBundleRenderPass
         private readonly store: GpuResourceStore,
     ) {}
 
+    private draws = 0;
+
+    /** Draws gravados neste bundle — somados ao quadro quando o bundle é executado. */
+    get recordedDraws(): number {
+        return this.draws;
+    }
+
     get bind(): Binder<RenderPipelineSpec> {
         return this;
     }
@@ -101,6 +108,7 @@ export class GpuBundleRenderPass
         firstInstance?: number,
     ): this {
         this.encoder.draw(count, instances, firstVertex, firstInstance);
+        this.draws++;
         return this;
     }
 
@@ -112,18 +120,21 @@ export class GpuBundleRenderPass
         firstInstance?: number,
     ): this {
         this.encoder.drawIndexed(count, instances, firstIndex, baseVertex, firstInstance);
+        this.draws++;
         return this;
     }
 
     indirect(spec: IndirectBufferSpec, offset = 0): this {
         const buf = this.store.require<GPUBuffer>(specHash(spec), 'indirect-buffer');
         this.encoder.drawIndirect(buf, offset);
+        this.draws++;
         return this;
     }
 
     indexedIndirect(spec: IndirectBufferSpec, offset = 0): this {
         const buf = this.store.require<GPUBuffer>(specHash(spec), 'indirect-buffer');
         this.encoder.drawIndexedIndirect(buf, offset);
+        this.draws++;
         return this;
     }
 

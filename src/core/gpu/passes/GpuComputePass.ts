@@ -4,6 +4,7 @@ import type { Dispatcher } from '../../contracts/passes/Dispatcher';
 import type { BindGroupSpec } from '../../contracts/specs/BindGroupSpec';
 import type { ComputePipelineSpec } from '../../contracts/specs/ComputePipelineSpec';
 import type { IndirectBufferSpec } from '../../contracts/specs/IndirectBufferSpec';
+import { type FrameCounters } from '../FrameCounters';
 import { type GpuResourceStore } from '../GpuResourceStore';
 import { specHash } from '../specHash';
 
@@ -11,6 +12,8 @@ export class GpuComputePass implements ComputePass, Binder<ComputePipelineSpec>,
     constructor(
         private readonly encoder: GPUComputePassEncoder,
         private readonly store: GpuResourceStore,
+        /** Contadores do quadro (opcional: passes avulsos em testes não contam). */
+        private readonly counters?: FrameCounters,
     ) {}
 
     get bind(): Binder<ComputePipelineSpec> {
@@ -39,12 +42,14 @@ export class GpuComputePass implements ComputePass, Binder<ComputePipelineSpec>,
 
     workgroups(x: number, y?: number, z?: number): this {
         this.encoder.dispatchWorkgroups(x, y, z);
+        if (this.counters) this.counters.dispatches++;
         return this;
     }
 
     workgroupsIndirect(spec: IndirectBufferSpec, offset = 0): this {
         const buf = this.store.require<GPUBuffer>(specHash(spec), 'indirect-buffer');
         this.encoder.dispatchWorkgroupsIndirect(buf, offset);
+        if (this.counters) this.counters.dispatches++;
         return this;
     }
 

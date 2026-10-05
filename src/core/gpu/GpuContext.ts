@@ -16,7 +16,12 @@ export async function createGpuContext(): Promise<{
     }
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('Failed to acquire GPUAdapter.');
-    const device = await adapter.requestDevice();
+    // Timestamps de GPU só existem com a feature pedida na criação do device; sem custo
+    // quando o profiling não é usado. Configuração completa do device: spec 004.
+    const requiredFeatures: GPUFeatureName[] = adapter.features.has('timestamp-query')
+        ? ['timestamp-query']
+        : [];
+    const device = await adapter.requestDevice({ requiredFeatures });
     const queue = device.queue;
     const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
     return { device, queue, canvasFormat };

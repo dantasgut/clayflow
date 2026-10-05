@@ -20,10 +20,20 @@ describe('createScene', () => {
         const handlerB = vi.fn();
         a.events.on('frameComplete', handlerA);
         b.events.on('frameComplete', handlerB);
-        a.events.emit('frameComplete', { timestamp: 0, dt: 0, elapsed: 0 });
+        a.events.emit('frameComplete', {
+            timestamp: 0,
+            dt: 0,
+            elapsed: 0,
+            stats: { drawCalls: 0, dispatches: 0, passes: 0 },
+        });
         expect(handlerA).toHaveBeenCalledTimes(1);
         expect(handlerB).not.toHaveBeenCalled();
-        b.events.emit('frameComplete', { timestamp: 0, dt: 0, elapsed: 0 });
+        b.events.emit('frameComplete', {
+            timestamp: 0,
+            dt: 0,
+            elapsed: 0,
+            stats: { drawCalls: 0, dispatches: 0, passes: 0 },
+        });
         expect(handlerA).toHaveBeenCalledTimes(1);
         expect(handlerB).toHaveBeenCalledTimes(1);
     });

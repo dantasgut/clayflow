@@ -1,4 +1,5 @@
 import type { Frame } from './Frame';
+import type { FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
 import type { BindGroupSpec } from './specs/BindGroupSpec';
 import type { ComputePipelineSpec } from './specs/ComputePipelineSpec';
@@ -216,6 +217,19 @@ export interface EngineCore {
      * com bytes=0 (custo opaco).
      */
     memoryUsage(topN?: number): MemoryUsageReport;
+
+    /**
+     * Liga/desliga o profiling de GPU por quadro: todo passe sem timestamps explícitos
+     * recebe um par automático e `lastFrameStats().gpuTimeMs` passa a ser preenchido.
+     * `capacity` = timestamps por quadro (default 256 = 128 passes). No-op com aviso único
+     * quando o device não tem `timestamp-query`.
+     */
+    setFrameProfiling(enabled: boolean, capacity?: number): void;
+    /**
+     * Estatísticas da última gravação submetida (draws, dispatches, passes) e a última
+     * leitura de GPU resolvida (`gpuTimeMs`, com defasagem de 1–3 quadros).
+     */
+    lastFrameStats(): FrameStats;
 
     /**
      * Higher-level helper para compute kernels paramétricos. Encapsula a
