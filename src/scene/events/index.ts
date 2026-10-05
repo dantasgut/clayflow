@@ -20,3 +20,4 @@ export type { PoolReallocatedEvent } from './PoolReallocatedEvent';
 export type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 export type { FrameTickEvent } from './FrameTickEvent';
 export type { FrameCompleteEvent } from './FrameCompleteEvent';
+export type { FrameRecordingEvent } from './FrameRecordingEvent';

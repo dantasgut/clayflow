@@ -16,7 +16,7 @@ import type {
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import type { Phase } from '../../scene/flows/Flow';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
+import type { PoolDirectory } from '../../scene/contracts/PoolDirectory';
 import type { World } from '../../scene/world/World';
 import type { EntityId } from '../../scene/world/EntityId';
 import { Camera } from '../../elements/scene/Camera';
@@ -35,20 +35,29 @@ interface RenderableSlot {
     ibo: IndexBufferSpec;
     cameraBuffer: UniformBufferSpec;
     cameraBindGroup: BindGroupSpec;
-    transformBuffer: UniformBufferSpec;
-    transformBindGroup: BindGroupSpec;
     materialBuffer: UniformBufferSpec;
     materialBindGroup: BindGroupSpec;
-    pipeline: RenderPipelineSpec;
-    /** False enquanto createAsync está em flight (preferAsync mode); true se sync ou já resolvido. */
-    pipelineReady: boolean;
+    /** Fonte do shader do material — base das variantes de pipeline. */
+    readonly shader: ShaderModuleSpec;
+    readonly shaderId: string;
 }
+
+/** Variante de pipeline por orientação das faces (escala com determinante negativo espelha). */
+interface PipelineVariant {
+    readonly spec: RenderPipelineSpec;
+    /** False enquanto createAsync está em flight (preferAsync mode); true se sync ou já resolvido. */
+    ready: boolean;
+}
+
+const WORLD_POOL = Transform.worldSchema.name;
 
 /**
  * ForwardFlow é o render pass principal. Itera sobre Renderables (entidades
  * com Geometry + Material + Transform), constrói pipelines per-entity e
  * dispatcha um render pass com:
- *   - 4 bindgroups: camera (group 0), transform (1), material (2), shadow (3)
+ *   - 4 bindgroups: camera (group 0), matrizes de mundo (1), material (2), shadow (3)
+ *   - o grupo 1 é o pool `WorldTransform` produzido pelo `TransformFlow`, lido no vertex
+ *     shader por `instance_index` (o slot da entidade vai como `firstInstance` do draw)
  *   - depth attachment (depth24plus)
  *   - color attachment para canvas ou offscreen target (PostFlow ping-pong)
  *
@@ -79,6 +88,8 @@ export class ForwardFlow extends RenderFlow {
     private shadowDummyView: TextureViewSpec | null = null;
     private shadowBindGroup: BindGroupSpec | null = null;
     private lastShadowDiscriminator: string | null = null;
+    private worldBindGroup: BindGroupSpec | null = null;
+    private readonly pipelineVariants = new Map<string, PipelineVariant>();
 
     private outputColorTexture: TextureSpec | null = null;
     private outputColorView: TextureViewSpec | null = null;
@@ -99,7 +110,7 @@ export class ForwardFlow extends RenderFlow {
     constructor(
         private readonly core: EngineCore,
         private readonly world: World,
-        private readonly resources: ResourceSystem,
+        private readonly resources: PoolDirectory,
         private readonly canvas: HTMLCanvasElement,
     ) {
         super();
@@ -162,10 +173,11 @@ export class ForwardFlow extends RenderFlow {
         return true;
     }
 
-    override onPoolReallocated(_poolKey: string): void {
-        // ForwardFlow não consome diretamente nenhum pool — meshes vivem em VBO/IBO
-        // por entityId, não em pool. Se renderer evoluir para pool de transforms,
-        // invalidar `cachedSlots` aqui.
+    /** O pool de matrizes de mundo foi realocado: o bind group do grupo 1 é recriado. */
+    override onPoolReallocated(poolKey: string): void {
+        if (poolKey !== WORLD_POOL) return;
+        if (this.worldBindGroup !== null) this.core.destroy(this.worldBindGroup);
+        this.worldBindGroup = null;
     }
 
     override onCanvasResized(_width: number, _height: number): void {
@@ -208,8 +220,8 @@ export class ForwardFlow extends RenderFlow {
      * Render pass principal por frame. Sequência:
      *   1. Ensure layouts/depth/shadow/outputColor (idempotente).
      *   2. Coleta renderables do World (Camera + Geometry + Material + Transform).
-     *   3. Upload uniforms per-frame (camera/transform/material).
-     *   4. Render pass: itera renderables, bind groups, draw.indexed.
+     *   3. Upload uniforms per-frame (camera/material) — transformações já estão na GPU.
+     *   4. Render pass: itera renderables, bind groups, draw.indexed com firstInstance = slot.
      */
     override dispatch(frame: Frame): void {
         this.ensureSharedLayouts();
@@ -218,6 +230,8 @@ export class ForwardFlow extends RenderFlow {
         this.ensureOutputColor();
         const renderables = this.collectRenderables();
         if (renderables.length === 0 || this.depthView === null) return;
+        const worldBindGroup = this.ensureWorldBindGroup();
+        if (worldBindGroup === null) return;
         for (const r of renderables) this.uploadPerFrameData(r);
         this.uploadShadowParams();
 
@@ -250,18 +264,105 @@ export class ForwardFlow extends RenderFlow {
         const shadowBg = this.shadowBindGroup;
         frame.render(target, 'ForwardFlow', (pass) => {
             for (const r of renderables) {
-                if (!r.pipelineReady) continue; // skipa slots cujo pipeline async ainda compila
+                const slot = this.resources.poolSlotOf(WORLD_POOL, r.entityId);
+                if (slot === undefined) continue; // ainda sem slot ⇒ não desenha neste quadro
+                const variant = this.pipelineFor(r);
+                if (!variant.ready) continue; // skipa slots cujo pipeline async ainda compila
                 pass.bind
-                    .setPipeline(r.pipeline)
+                    .setPipeline(variant.spec)
                     .setBindGroup(0, r.cameraBindGroup)
-                    .setBindGroup(1, r.transformBindGroup)
+                    .setBindGroup(1, worldBindGroup)
                     .setBindGroup(2, r.materialBindGroup)
                     .setBindGroup(3, shadowBg);
                 pass.geometry.vertex(0, r.vbo).index(r.ibo);
-                pass.draw.indexed(r.geometry.indexCount);
+                pass.draw.indexed(r.geometry.indexCount, 1, 0, 0, slot);
             }
         });
-        void this.resources;
+    }
+
+    /** Bind group único do pool `WorldTransform` (grupo 1), ou null se o pool não existe. */
+    private ensureWorldBindGroup(): BindGroupSpec | null {
+        if (this.worldBindGroup !== null) return this.worldBindGroup;
+        const buffer = this.resources.poolBufferSpec(WORLD_POOL);
+        if (buffer === undefined || this.transformLayout === null) return null;
+        this.worldBindGroup = this.core.create<BindGroupSpec>({
+            kind: 'bindgroup',
+            discriminator: `forward_world_bg:${buffer.discriminator ?? 'pool'}`,
+            layout: this.transformLayout,
+            bindings: [{ binding: 0, kind: 'buffer', buffer }],
+        });
+        return this.worldBindGroup;
+    }
+
+    /**
+     * Pipeline do material na orientação de faces do objeto: escala com determinante
+     * negativo inverte a ordem dos vértices, então usa `frontFace: 'cw'` para manter o
+     * culling correto. Variantes são criadas sob demanda e compartilhadas por material.
+     */
+    private pipelineFor(r: RenderableSlot): PipelineVariant {
+        const frontFace: GPUFrontFace = isMirrored(r.transform) ? 'cw' : 'ccw';
+        const key = `${r.shaderId}:${frontFace}`;
+        const cached = this.pipelineVariants.get(key);
+        if (cached !== undefined) return cached;
+        const spec = this.buildPipelineSpec(r.shader, r.shaderId, frontFace);
+        const variant: PipelineVariant = { spec, ready: !this.preferAsyncPipeline };
+        if (this.preferAsyncPipeline) {
+            void this.core.createAsync<RenderPipelineSpec>(spec).then(() => {
+                variant.ready = true;
+            });
+        } else {
+            this.core.create<RenderPipelineSpec>(spec);
+        }
+        this.pipelineVariants.set(key, variant);
+        return variant;
+    }
+
+    private buildPipelineSpec(
+        shader: ShaderModuleSpec,
+        shaderId: string,
+        frontFace: GPUFrontFace,
+    ): RenderPipelineSpec {
+        if (
+            this.cameraLayout === null
+            || this.transformLayout === null
+            || this.materialLayout === null
+            || this.shadowLayout === null
+        ) {
+            throw new Error('ForwardFlow: layouts compartilhados ausentes.');
+        }
+        return {
+            kind: 'pipeline',
+            subkind: 'render',
+            discriminator: `forward_pipeline:${shaderId}:${frontFace}`,
+            layouts: [
+                this.cameraLayout,
+                this.transformLayout,
+                this.materialLayout,
+                this.shadowLayout,
+            ],
+            vertex: {
+                shader,
+                entryPoint: 'vs_main',
+                buffers: [
+                    {
+                        arrayStride: 32,
+                        stepMode: 'vertex',
+                        attributes: [
+                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                            { shaderLocation: 2, offset: 24, format: 'float32x2' },
+                        ],
+                    },
+                ],
+            },
+            fragment: {
+                shader,
+                entryPoint: 'fs_main',
+                targets: [{ format: this.core.canvasFormat }],
+            },
+            primitive: { topology: 'triangle-list', cullMode: 'back', frontFace },
+            depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+        };
     }
 
     private ensureSharedLayouts(): void {
@@ -288,7 +389,7 @@ export class ForwardFlow extends RenderFlow {
                         binding: 0,
                         visibility: GPUShaderStage.VERTEX,
                         kind: 'buffer',
-                        type: 'uniform',
+                        type: 'read-only-storage',
                     },
                 ],
             });
@@ -549,19 +650,6 @@ export class ForwardFlow extends RenderFlow {
             bindings: [{ binding: 0, kind: 'buffer', buffer: cameraBuffer }],
         });
 
-        const transformBuffer: UniformBufferSpec = this.core.create({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: `forward_transform:${entityId}`,
-            byteSize: alignUp(Transform.schema.stride, 16),
-        });
-        const transformBindGroup: BindGroupSpec = this.core.create({
-            kind: 'bindgroup',
-            discriminator: `forward_transform_bg:${entityId}`,
-            layout: this.transformLayout,
-            bindings: [{ binding: 0, kind: 'buffer', buffer: transformBuffer }],
-        });
-
         const materialBuffer: UniformBufferSpec = this.core.create({
             kind: 'buffer',
             subkind: 'uniform',
@@ -583,40 +671,6 @@ export class ForwardFlow extends RenderFlow {
             discriminator: matPipelineDesc.id,
             source: matPipelineDesc.shaderSource,
         });
-        const pipelineSpec: RenderPipelineSpec = {
-            kind: 'pipeline',
-            subkind: 'render',
-            discriminator: `forward_pipeline:${matPipelineDesc.id}`,
-            layouts: [
-                this.cameraLayout,
-                this.transformLayout,
-                this.materialLayout,
-                this.shadowLayout,
-            ],
-            vertex: {
-                shader,
-                entryPoint: 'vs_main',
-                buffers: [
-                    {
-                        arrayStride: 32,
-                        stepMode: 'vertex',
-                        attributes: [
-                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
-                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                            { shaderLocation: 2, offset: 24, format: 'float32x2' },
-                        ],
-                    },
-                ],
-            },
-            fragment: {
-                shader,
-                entryPoint: 'fs_main',
-                targets: [{ format: this.core.canvasFormat }],
-            },
-            primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
-            depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-        };
-
         const slot: RenderableSlot = {
             entityId,
             geometry,
@@ -626,20 +680,11 @@ export class ForwardFlow extends RenderFlow {
             ibo,
             cameraBuffer,
             cameraBindGroup,
-            transformBuffer,
-            transformBindGroup,
             materialBuffer,
             materialBindGroup,
-            pipeline: pipelineSpec,
-            pipelineReady: !this.preferAsyncPipeline,
+            shader,
+            shaderId: matPipelineDesc.id,
         };
-        if (this.preferAsyncPipeline) {
-            void this.core.createAsync<RenderPipelineSpec>(pipelineSpec).then(() => {
-                slot.pipelineReady = true;
-            });
-        } else {
-            this.core.create<RenderPipelineSpec>(pipelineSpec);
-        }
         void camera;
         this.cachedSlots.set(entityId, slot);
         return slot;
@@ -655,9 +700,14 @@ export class ForwardFlow extends RenderFlow {
                 this.core.write(r.cameraBuffer, Camera.schema.pack(camera.data));
             }
         }
-        this.core.write(r.transformBuffer, Transform.schema.pack(r.transform.data));
         this.core.write(r.materialBuffer, materialPack(r.material));
     }
+}
+
+/** Escala com produto negativo espelha o objeto (inverte a orientação das faces). */
+function isMirrored(transform: Transform): boolean {
+    const scale = transform.data.scale as readonly number[];
+    return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
 }
 
 function isGeometry(r: { constructor: { name: string } }): boolean {

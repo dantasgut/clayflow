@@ -9,7 +9,7 @@ interface RegisteredFlow {
  * Ordem fixa de phases dentro de um frame. ExecutionSystem itera sobre
  * essa ordem e despacha flows de cada phase.
  */
-const PHASE_ORDER: readonly Phase[] = ['physics', 'shadow', 'forward', 'post', 'ui'];
+const PHASE_ORDER: readonly Phase[] = ['physics', 'transform', 'shadow', 'forward', 'post', 'ui'];
 
 /**
  * FlowRegistry mantém os Flows ativos do scene, indexados por phase e

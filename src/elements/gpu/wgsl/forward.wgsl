@@ -9,11 +9,10 @@ struct Camera {
     aspect: f32,
 }
 
-struct Transform {
-    position: vec4<f32>,
-    rotation: vec4<f32>,
-    scale: vec4<f32>,
-    model: mat4x4<f32>,
+// Produto do TransformFlow — mesma forma de `Transform.worldSchema`.
+struct WorldTransform {
+    world: mat4x4<f32>,
+    normal: mat3x3<f32>,
 }
 
 struct StandardMaterial {
@@ -34,7 +33,8 @@ struct ShadowParams {
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
-@group(1) @binding(0) var<uniform> transform: Transform;
+// Pool WorldTransform, indexado pelo slot da entidade (firstInstance do draw).
+@group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
 @group(2) @binding(0) var<uniform> material: StandardMaterial;
 @group(3) @binding(0) var<uniform> shadow: ShadowParams;
 @group(3) @binding(1) var shadow_map: texture_depth_2d;
@@ -53,12 +53,13 @@ struct VsOut {
 }
 
 @vertex
-fn vs_main(in: VsIn) -> VsOut {
+fn vs_main(in: VsIn, @builtin(instance_index) slot: u32) -> VsOut {
     var out: VsOut;
-    let world = transform.model * vec4<f32>(in.position, 1.0);
+    let w = worlds[slot];
+    let world = w.world * vec4<f32>(in.position, 1.0);
     out.clip_position = camera.viewProjection * world;
     out.world_position = world.xyz;
-    out.world_normal = (transform.model * vec4<f32>(in.normal, 0.0)).xyz;
+    out.world_normal = w.normal * in.normal;
     return out;
 }
 

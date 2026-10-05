@@ -3,3 +3,6 @@ dist/**
 prints/**
 .typedoc-cov-trash/**
 coverage/**
+.DS_Store
+*.log
+.env*

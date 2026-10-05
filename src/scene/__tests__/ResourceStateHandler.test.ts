@@ -25,6 +25,11 @@ describe('ResourceStateHandlerRegistry', () => {
         expect(reg.canTransition(ResourceState.Ready, ResourceState.Disposed)).toBe(true);
     });
 
+    it('Dirty → Ready/Disposed válidas (remoção com envio pendente)', () => {
+        expect(reg.canTransition(ResourceState.Dirty, ResourceState.Ready)).toBe(true);
+        expect(reg.canTransition(ResourceState.Dirty, ResourceState.Disposed)).toBe(true);
+    });
+
     it('Destroyed terminal — sem transições válidas', () => {
         expect(reg.get(ResourceState.Destroyed).validTransitions()).toHaveLength(0);
     });

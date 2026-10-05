@@ -72,6 +72,7 @@ pelo `Flow.bodyType` registrado.
 - [SpringConstraint](classes/SpringConstraint.md)
 - [StandardMaterial](classes/StandardMaterial.md)
 - [Transform](classes/Transform.md)
+- [TransformFlow](classes/TransformFlow.md)
 - [VortexField](classes/VortexField.md)
 - [WindField](classes/WindField.md)
 - [WireframeMaterial](classes/WireframeMaterial.md)
@@ -91,6 +92,7 @@ pelo `Flow.bodyType` registrado.
 - [SoftBodyDomainOptions](interfaces/SoftBodyDomainOptions.md)
 - [SoftBodyRawOptions](interfaces/SoftBodyRawOptions.md)
 - [SpawnSample](interfaces/SpawnSample.md)
+- [TransformValues](interfaces/TransformValues.md)
 
 ## Type Aliases
 

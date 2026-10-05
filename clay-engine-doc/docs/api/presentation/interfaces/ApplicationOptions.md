@@ -6,7 +6,7 @@
 
 # Interface: ApplicationOptions
 
-Defined in: [presentation/app/Application.ts:25](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L25)
+Defined in: [presentation/app/Application.ts:25](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L25)
 
 Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
 defaults sensíveis para o resto. Use `scene` para multi-Application,
@@ -18,7 +18,7 @@ defaults sensíveis para o resto. Use `scene` para multi-Application,
 
 > `optional` **autoResize?**: `boolean`
 
-Defined in: [presentation/app/Application.ts:31](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L31)
+Defined in: [presentation/app/Application.ts:31](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L31)
 
 Auto-attach window.resize listener (default true em ambiente browser).
 
@@ -28,7 +28,7 @@ Auto-attach window.resize listener (default true em ambiente browser).
 
 > **canvas**: `HTMLCanvasElement`
 
-Defined in: [presentation/app/Application.ts:27](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L27)
+Defined in: [presentation/app/Application.ts:27](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L27)
 
 HTMLCanvasElement onde a engine renderiza. Deve estar attachado ao DOM.
 
@@ -38,7 +38,7 @@ HTMLCanvasElement onde a engine renderiza. Deve estar attachado ao DOM.
 
 > `optional` **canvasOptions?**: `CanvasOptions`
 
-Defined in: [presentation/app/Application.ts:29](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L29)
+Defined in: [presentation/app/Application.ts:29](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L29)
 
 Configuração do swapchain (alphaMode, colorSpace). Default: opaque/srgb.
 
@@ -48,7 +48,7 @@ Configuração do swapchain (alphaMode, colorSpace). Default: opaque/srgb.
 
 > `optional` **captureErrors?**: `boolean`
 
-Defined in: [presentation/app/Application.ts:40](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L40)
+Defined in: [presentation/app/Application.ts:40](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L40)
 
 Quando true, cada frame abre um WebGPU error scope `validation`. Erros viram
 eventos `engineError` (stage='frame') em vez de exceptions — o GameLoop
@@ -61,7 +61,7 @@ surfacing erros sem crash. Default: false (custo de push/pop por frame).
 
 > `optional` **memoryBudgetMB?**: `number`
 
-Defined in: [presentation/app/Application.ts:46](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L46)
+Defined in: [presentation/app/Application.ts:46](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L46)
 
 Threshold (MiB) de GPU memory acima do qual `memoryWarning` é emitido
 (uma vez por transição abaixo→acima). Default: undefined (sem warning).
@@ -73,7 +73,7 @@ Threshold (MiB) de GPU memory acima do qual `memoryWarning` é emitido
 
 > `optional` **resizeDebounceMs?**: `number`
 
-Defined in: [presentation/app/Application.ts:33](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L33)
+Defined in: [presentation/app/Application.ts:33](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L33)
 
 Debounce em ms para o handler de resize (default 100).
 
@@ -83,7 +83,7 @@ Debounce em ms para o handler de resize (default 100).
 
 > `optional` **scene?**: `SceneContext`
 
-Defined in: [presentation/app/Application.ts:52](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/app/Application.ts#L52)
+Defined in: [presentation/app/Application.ts:52](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/app/Application.ts#L52)
 
 SceneContext customizado. Quando omitido, usa o singleton default
 (compatibilidade). Forneça via `createScene()` para múltiplas

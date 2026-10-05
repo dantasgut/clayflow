@@ -8,6 +8,6 @@
 
 > **FluidAlgorithm** = `"SPH"` \| `"PBF"` \| `"MPM"`
 
-Defined in: [elements/physics/bodies/FluidBody.ts:9](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/FluidBody.ts#L9)
+Defined in: [elements/physics/bodies/FluidBody.ts:9](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/bodies/FluidBody.ts#L9)
 
 Algoritmo de fluido, em vocabulário de domínio.

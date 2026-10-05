@@ -86,7 +86,7 @@ function generateSphere(
             const b = a + 1;
             const c = a + stride;
             const d = c + 1;
-            idx.push(a, c, b, b, c, d);
+            idx.push(a, b, c, b, d, c); // ccw visto de fora (normal para fora)
         }
     }
     return { vertices: new Float32Array(verts), indices: new Uint16Array(idx) };

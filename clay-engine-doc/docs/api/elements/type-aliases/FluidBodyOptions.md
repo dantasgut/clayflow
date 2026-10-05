@@ -8,4 +8,4 @@
 
 > **FluidBodyOptions** = [`FluidBodyDomainOptions`](../interfaces/FluidBodyDomainOptions.md) \| [`FluidBodyRawOptions`](../interfaces/FluidBodyRawOptions.md)
 
-Defined in: [elements/physics/bodies/FluidBody.ts:38](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/physics/bodies/FluidBody.ts#L38)
+Defined in: [elements/physics/bodies/FluidBody.ts:38](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/physics/bodies/FluidBody.ts#L38)

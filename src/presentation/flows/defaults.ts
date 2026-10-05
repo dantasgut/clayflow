@@ -8,6 +8,7 @@ import { ShadowFlow } from './ShadowFlow';
 import { PostFlow } from './PostFlow';
 import { UIFlow } from './UIFlow';
 import { DebugFlow } from './DebugFlow';
+import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
 
 /**
  * Dependências necessárias para construir os Flows default. Application
@@ -22,8 +23,8 @@ export interface PresentationDefaultsOptions {
     readonly world: World;
     /** ResourceSystem para acesso aos pools (poolBufferSpec, poolBindGroup). */
     readonly resources: ResourceSystem;
-    /** EventBus opcional — usado pelo DebugFlow para emitir profilerStats. */
-    readonly events?: EventBus;
+    /** EventBus da cena — o TransformFlow reage a `resourceReady`; o DebugFlow emite profilerStats. */
+    readonly events: EventBus;
 }
 
 /**
@@ -32,6 +33,8 @@ export interface PresentationDefaultsOptions {
  * `defaults.debug.setEnabled(true)`).
  */
 export interface PresentationDefaults {
+    /** Estágio de transformação (fase `transform`): intenção dos Transform → matrizes de mundo. */
+    readonly transform: TransformFlow;
     /** Forward render pass principal (bind-shadows + per-entity pipelines). */
     readonly forward: ForwardFlow;
     /** Shadow map pass (depth-only, light POV). */
@@ -58,6 +61,7 @@ export function registerPresentationDefaults(
     flows: FlowRegistry,
     options: PresentationDefaultsOptions,
 ): PresentationDefaults {
+    const transform = new TransformFlow(options.core, options.resources, options.events);
     const shadow = new ShadowFlow(options.core, options.world, options.resources);
     const forward = new ForwardFlow(
         options.core,
@@ -69,11 +73,12 @@ export function registerPresentationDefaults(
     forward.setRenderToOffscreen(true);
     const ui = new UIFlow(options.core, options.canvas);
     const debug = new DebugFlow();
-    if (options.events !== undefined) debug.bindEvents(options.events);
+    debug.bindEvents(options.events);
+    flows.register(transform);
     flows.register(shadow);
     flows.register(forward);
     flows.register(post);
     flows.register(debug);
     flows.register(ui);
-    return { forward, shadow, post, ui, debug };
+    return { transform, forward, shadow, post, ui, debug };
 }

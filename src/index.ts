@@ -68,11 +68,13 @@ export type {
     PipelineDescriptor,
     FlowDescriptor,
     Resource,
+    PoolDirectory,
     Schema,
     EntityId,
     Phase,
     ProfilerStatsPayload,
     FrameTickEvent,
     FrameCompleteEvent,
+    FrameRecordingEvent,
     SceneContext,
 } from './scene/index';

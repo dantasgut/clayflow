@@ -3,6 +3,7 @@ import type { EntityId } from '../world/EntityId';
 import type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 import type { ChangedEvent } from './ChangedEvent';
 import type { FrameCompleteEvent } from './FrameCompleteEvent';
+import type { FrameRecordingEvent } from './FrameRecordingEvent';
 import type { FrameTickEvent } from './FrameTickEvent';
 import type { PoolReallocatedEvent } from './PoolReallocatedEvent';
 import type { ReadyEvent } from './ReadyEvent';
@@ -150,6 +151,8 @@ export interface EventMap {
     bindGroupReplaced: BindGroupReplacedEvent;
     /** GameLoop emite a cada RAF — sinaliza início do frame. */
     frameTick: FrameTickEvent;
+    /** ExecutionSystem emite antes de gravar o quadro — ResourceSystem envia os recursos sujos. */
+    frameRecording: FrameRecordingEvent;
     /** ExecutionSystem emite após record+submit — fim do frame. */
     frameComplete: FrameCompleteEvent;
     /** Application emite após resize do canvas — flows recriam textures. */

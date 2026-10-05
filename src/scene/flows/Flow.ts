@@ -3,11 +3,12 @@ import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
 
 /**
  * Phase determina a ordem de execução dos Flows dentro de um frame.
- * Ordem fixa: `physics` (integração+colisões) → `shadow` (depth maps)
+ * Ordem fixa: `physics` (integração+colisões) → `transform` (estágios que produzem
+ * transformações de mundo a partir da intenção dos `Transform`) → `shadow` (depth maps)
  * → `forward` (render principal) → `post` (post-processamento) → `ui`.
  * Múltiplos Flows na mesma phase são ordenados por `priority` decrescente.
  */
-export type Phase = 'physics' | 'shadow' | 'forward' | 'post' | 'ui';
+export type Phase = 'physics' | 'transform' | 'shadow' | 'forward' | 'post' | 'ui';
 
 /**
  * Flow é a unidade de trabalho por frame. Cada Flow concentra a lógica

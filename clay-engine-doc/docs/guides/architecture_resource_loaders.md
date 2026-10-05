@@ -1289,7 +1289,7 @@ const bytes = await core.readback(staging);  // exige StagingBufferSpec
 A Camada 2 é a ponte entre o hardware (C1) e os elementos de cena (C3). Ela não conhece geometrias específicas nem solvers concretos — opera sobre **duas abstrações gerenciáveis complementares**:
 
 - **`Resource`** — contrato único de dado GPU. Implementado por classes data-bearing (Camera, Material, Transform, RigidBody, ...). Cada Resource declara `getDescriptors()` retornando uma bag de `GPUDescriptor`. Coalescing é declarativo via `storage: 'individual' | 'pool'` em cada descritor:
-  - `storage: 'individual'` (default): buffer GPU próprio por instância — Camera, Material, Transform.
+  - `storage: 'individual'` (default): buffer GPU próprio por instância — Camera, Material.
   - `storage: 'pool'`: engine agrega N instâncias do mesmo schema em um buffer global contíguo. Pool key = `${schema.name}` (ou `${schema.name}:${algorithm}` quando o Resource declara FlowDescriptor). Membros indexam por slot estável atribuído na inserção; o ResourceSystem mantém isso em `Map<poolKey, PoolEntry>` interno. Flow consome o pool via `consumes: ['SchemaName']` no PipelineDescriptor, que o ConsumerResolver resolve para o `BindGroupSpec` correspondente.
 
 Resources implementam ciclo de vida 7-state (`ResourceStateHandler`, State Pattern), são registrados no `World` ECS e observados pelo `EventBus`. Cardinalidade é declarativa por descritor, não por tipo separado.
@@ -1511,11 +1511,11 @@ classDiagram
             +priority?: number
         }
         class Phase {
-            <<enum nomeado — physics, shadow, forward, post, ui>>
+            <<enum nomeado — physics, transform, shadow, forward, post, ui>>
         }
     }
     note for Flow "Classe abstrata PÚBLICA agnóstica entre compute e render. Engine fornece defaults\nfísicos (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, PBFFlow, SPHFlow) e de render\n(ShadowFlow, ForwardFlow, PostFlow, UIFlow). Dev pode escrever subclasses\nadicionais (ex.: ImpulseRigidFlow, OutlineFlow) e registrá-las no FlowRegistry\ncom phase explícita.\n\ndispatch(frame) abre frame.compute(pass => ...) ou frame.render(target, pass => ...)\nconforme a subclasse precisa. Render-flavor declara slot('target', RenderTarget) — target\nvem por DI como qualquer pool, suportando multi-camera e offscreen. Compute-flavor não tem target.\n\nAvanço de fase interna via state machine própria (S parametrizado, internal state);\ntransições disparadas por eventos do EventBus, nunca por flow.advance() público.\nNão existe FlowStateHandler externo: dispatch(frame) é o único ponto de gravação."
-    note for FlowRegistry "Resolve qual Flow ativar e em qual fase do frame ele roda.\nCada register declara phase (uma de: 'physics', 'shadow', 'forward', 'post', 'ui')\ne opcionalmente bodyType (para Flows físicos) e priority (desempate dentro do bodyType).\n\nExecutionSystem itera fases na ordem fixa physics → shadow → forward → post → ui.\nOrdem dentro da fase = ordem de registro.\n\nDefaults da engine no bootstrap (registerEngineDefaults):\n- 'physics': LCPFlow (pri 10), XPBDFlow (pri 5), FEMFlow, MPMFlow, PBFFlow, SPHFlow.\n- 'shadow':  ShadowFlow.\n- 'forward': ForwardFlow.\n- 'post':    PostFlow (encadeia PostProcessEffect[]).\n- 'ui':      UIFlow.\n\nDev customiza importando flows do scene/index e chamando register/override:\n  import { flows } from '@scene';\n  flows.register(new MyOutlineFlow(), { phase: 'forward' });\n  flows.override('RigidBody', XPBDRigidFlowFactory);"
+    note for FlowRegistry "Resolve qual Flow ativar e em qual fase do frame ele roda.\nCada register declara phase (uma de: 'physics', 'transform', 'shadow', 'forward', 'post', 'ui')\ne opcionalmente bodyType (para Flows físicos) e priority (desempate dentro do bodyType).\n\nExecutionSystem itera fases na ordem fixa physics → transform → shadow → forward → post → ui.\nOrdem dentro da fase = ordem de registro.\n\nDefaults da engine no bootstrap (registerEngineDefaults):\n- 'physics': LCPFlow (pri 10), XPBDFlow (pri 5), FEMFlow, MPMFlow, PBFFlow, SPHFlow.\n- 'shadow':  ShadowFlow.\n- 'forward': ForwardFlow.\n- 'post':    PostFlow (encadeia PostProcessEffect[]).\n- 'ui':      UIFlow.\n\nDev customiza importando flows do scene/index e chamando register/override:\n  import { flows } from '@scene';\n  flows.register(new MyOutlineFlow(), { phase: 'forward' });\n  flows.override('RigidBody', XPBDRigidFlowFactory);"
     note for RenderFlow "Subclasse abstrata de Flow para stages que renderizam — Shadow/Forward/Post/UI/Debug.\nPré-declara slot('target', RenderTarget) que o ConsumerResolver injeta com a textura\ncorrente do RenderTarget Resource (canvas swapchain, shadow map, ping-pong target etc.).\ndispatch(frame) abre frame.render(slots.target, pass => ...) e delega ao state handler."
 
     %% ── SISTEMAS LAYER 2 ─────────────────────────────────────────────────────
@@ -1539,7 +1539,7 @@ classDiagram
     }
     note for LayoutInferencer "Única responsável por preencher o mecânico que a bag deliberadamente omite.\nEntrada: GPUDescriptor[] e PipelineDescriptor[] (role + schema + consumes + storage + WGSL source).\nSaída: ResourceSpec[] completo — inclui group/binding/visibility/usage/layoutId/shaderModuleId.\n\nInferências principais:\n1. Parse WGSL (@group N @binding M @location) → mapeia slots do shader\n2. role → usage flags (vertex → STORAGE|VERTEX|COPY_DST; uniform → UNIFORM|COPY_DST, ...)\n3. stages em que símbolo é usado → visibility bitmask\n4. consumes[] + World.query → bindings de Resources externos (Camera, Transform)\n5. Ordem topológica: shader → layout → buffers/texturas/samplers → pipeline → bindgroup\n6. storage='pool' → inferPool(schema.name, schema, capacity) — buffer global compartilhado\n\nOverride: descriptor pode carregar binding/visibility explícitos quando inferência não basta."
     note for ResourceSystem "Reage a eventos do World (resourcesChanged, resourceDirty).\nRoteia por descriptor.storage:\n- 'individual' → core.create(spec) próprio por instância.\n- 'pool' → poolKey = schema.name (+ algoritmo se getFlowDescriptors presente).\n  Pool aloca buffer global com capacity inicial, realoca 2× ao exceder.\n  Slots seguem POLÍTICA FREE-LIST: remoção marca slot como livre; próxima inserção\n  reusa slot livre antes de crescer. Slots NUNCA migram — Constraints (bodyA/bodyB)\n  referenciam slots e ficam estáveis pra toda a vida da entidade.\n\nRealocação 2× → emite poolReallocated(poolKey). ResourceSystem mantém\nMap<poolKey, BindGroupSpec[]> e re-cria BindGroups afetados, emitindo\nbindGroupReplaced(oldSpec, newSpec).\n\nPipelines com preferAsync=true → ResourceSystem usa core.createAsync; só emite\nReadyEvent<Flow> após o pipeline compilar. Enquanto compila, Flow não entra em\nactiveFlows (ExecutionSystem ignora silenciosamente)."
-    note for ExecutionSystem "Não tem loop imperativo. Reage a dois eventos:\n- ReadyEvent<Flow>: adiciona Flow em activeFlows quando todos seus pipelines compilaram.\n- frameTick: abre core.record('frame', frame => { ... }) UMA vez por frame.\n\nDentro do record, itera activeFlows pelas fases na ordem fixa\nphysics → shadow → forward → post → ui (ordem dentro da fase = registro no FlowRegistry).\nCada Flow.dispatch(frame) grava seus próprios passes — frame.compute(pass => ...)\nou frame.render(target, pass => ...) conforme a subclasse abre.\n\nAo sair do callback, chama core.submit() e emite frameComplete { timestamp, dt, elapsed }.\nBarreiras inter-pass são automáticas (WebGPU). Submit único, encoder único, sem micro-requests."
+    note for ExecutionSystem "Não tem loop imperativo. Reage a dois eventos:\n- ReadyEvent<Flow>: adiciona Flow em activeFlows quando todos seus pipelines compilaram.\n- frameTick: abre core.record('frame', frame => { ... }) UMA vez por frame.\n\nDentro do record, itera activeFlows pelas fases na ordem fixa\nphysics → transform → shadow → forward → post → ui (ordem dentro da fase = registro no FlowRegistry).\nCada Flow.dispatch(frame) grava seus próprios passes — frame.compute(pass => ...)\nou frame.render(target, pass => ...) conforme a subclasse abre.\n\nAo sair do callback, chama core.submit() e emite frameComplete { timestamp, dt, elapsed }.\nBarreiras inter-pass são automáticas (WebGPU). Submit único, encoder único, sem micro-requests."
 
     %% ── FENÔMENOS GLOBAIS ────────────────────────────────────────────────────
     namespace Fenomenos_Globais {
@@ -1906,9 +1906,25 @@ World.insert(rigid bodies)
 - Testabilidade — cada Flow é stateless do lado do orquestrador (estado interno parametrizado por S); testável em isolamento com mocks de slot e Frame
 - Extensibilidade — novo solver = nova subclasse de Flow; zero modificação no ExecutionSystem
 
+### Política de envio por descritor (`upload`) e `GpuManaged`
+
+Cada `GPUDescriptor` declara **quem escreve** o seu buffer:
+
+| `upload`            | Alocação     | Mutação de `data` depois                      | Uso típico |
+| ------------------- | ------------ | --------------------------------------------- | ---------- |
+| `'always'` (default) | CPU envia    | enfileirada e enviada no próximo quadro       | Camera, Material, intenção do `Transform` |
+| `'initial'`         | CPU envia    | ignorada (aviso único) — a GPU é dona          | `RigidBody`, `SoftBody`, `FluidBody` (simulação) |
+| `'never'`           | não envia    | não se aplica — produzido só pela GPU          | saídas de estágios (ex.: `WorldTransform`) |
+
+Um recurso cujos descritores materializados são todos `'initial'`/`'never'` entra em `GpuManaged` após a alocação
+(o handler ignora marcas de sujo). No crescimento de um pool `'initial'`, o conteúdo é copiado **na GPU** do buffer
+antigo para o novo (reempacotar da CPU reverteria a simulação ao estado inicial); pools `'never'` só realocam e o
+produtor recalcula ao receber `poolReallocated`. Um recurso com vários descritores em pool ocupa o **mesmo slot** em
+todos eles.
+
 ### Pools canônicos — `storage: 'pool'` esperados
 
-Abaixo os pools padrão que a engine instancia para Resources com `storage: 'pool'` no GPUDescriptor. Tipos que aparecem em N cópias e exigem coalescing usam o pool; tipos 1:1 por EntityId (Camera, Material por instância de mesh, Transform por entity) ficam como Resource individual (`storage` ausente ou `'individual'`).
+Abaixo os pools padrão que a engine instancia para Resources com `storage: 'pool'` no GPUDescriptor. Tipos que aparecem em N cópias e exigem coalescing usam o pool; tipos 1:1 por EntityId (Camera, Material por instância de mesh) ficam como Resource individual (`storage` ausente ou `'individual'`).
 
 A pool key é `${schema.name}` para Resources sem FlowDescriptor (Light, ShadowMap) ou `${schema.name}:${algorithm}` para Resources de física (RigidBody, SoftBody, FluidBody, Constraints).
 
@@ -1940,7 +1956,7 @@ A pool key é `${schema.name}` para Resources sem FlowDescriptor (Light, ShadowM
 |---|---|---|---|
 | 2a | `Resource` como único contrato; física GPU reinventa coalescing ad-hoc em `RigidBodyGlobalBufferSet`, `SoftBodyGpuBufferSet`, `FEMBufferSpecs`, etc. | Único contrato `Resource` com GPUDescriptor declarando `storage: 'pool'` quando o tipo aparece em N cópias; engine coalesce em `Map<poolKey, PoolEntry>` interno; dev nunca toca o pool | Generaliza coalescing — elimina N implementações duplicadas |
 | 2b | Ciclo de vida fragmentado — guards dispersos (`if state === Ready`), getter `isGpuManaged` ad-hoc, sem State Pattern | `ResourceStateHandler` (State Pattern, flyweight) com 7 estados e capabilities (`canRender`, `needsAllocation`, `suppressCpuUpload`, ...) uniformes para Resource individual e Resource pooled | State Pattern (GoF) — substitui ifs por polimorfismo |
-| 2c | `ExecutionSystem.run(colorView, depthView)` com loop imperativo, passes como campos da classe (`computePass`, `renderPass`), `pipeline.native` vazando, `setPipeline`/`setBindGroup`/`dispatchWorkgroups` flat — física multi-pass impossível | `ExecutionSystem` reativo: abre `core.record(frame => ...)` por frame e itera Flows ativos pelas fases (`physics → shadow → forward → post → ui`); cada Flow grava seus próprios passes via slots tipados (`pass.bind.*`, `pass.dispatch.*`, `pass.geometry.*`, `pass.draw.*`); ReadyEvent<Flow> só dispara após pipelines compilarem | Inversão de controle + callback-scoped + sem micro-requests; zero vazamento de GPU* |
+| 2c | `ExecutionSystem.run(colorView, depthView)` com loop imperativo, passes como campos da classe (`computePass`, `renderPass`), `pipeline.native` vazando, `setPipeline`/`setBindGroup`/`dispatchWorkgroups` flat — física multi-pass impossível | `ExecutionSystem` reativo: abre `core.record(frame => ...)` por frame e itera Flows ativos pelas fases (`physics → transform → shadow → forward → post → ui`); cada Flow grava seus próprios passes via slots tipados (`pass.bind.*`, `pass.dispatch.*`, `pass.geometry.*`, `pass.draw.*`); ReadyEvent<Flow> só dispara após pipelines compilarem | Inversão de controle + callback-scoped + sem micro-requests; zero vazamento de GPU* |
 | 2d | Substeps/multi-pass orquestrado inexistente; solvers precisariam reimplementar ordenação de passes manualmente | Classe abstrata `Flow` (Template Method) com slots tipados (resolvidos via FlowDescriptor para pool ou Resource individual) e state machine reativa; `LCPFlow`, `XPBDFlow`, `MPMFlow`, `SPHFlow`, `PBFFlow`, `FEMFlow` como concretas; avanço exclusivamente via eventos | Template Method + State Pattern — múltiplos solvers com infraestrutura compartilhada |
 | 2e | `GPUDescriptor { id, group, binding, schema, count, usage }` mecânico; cobre só buffer — textura/sampler/view ausentes; `PipelineDescriptor { type: string, shaderId, source }` sem campos fixed-function | Descriptors como **bag semântica**: role discriminado (`'uniform'/'storage-rw'/.../'texture'/'sampler'`), `schema?`/`textureShape?`/`samplerShape?`; PipelineDescriptor com `role: 'compute'\|'render'`, `consumes[]`, fixed-function reutilizando value objects de C1 (DepthSpec/MultisampleSpec/ColorTargetSpec/VertexBufferLayout) | Declarativo — o mecânico é inferido, não declarado |
 | 2f | Sem inferência — Resource declara group/binding/visibility/usage/layoutId à mão em cada descriptor | `LayoutInferencer` em C2 derivando group/binding/visibility/usage/layoutId/shaderModuleId a partir de bag + WGSL AST + `consumes[]` + World; override opcional via campos explícitos no descriptor | DRY — a bag diz o quê, C2 deriva o como |
@@ -2157,7 +2173,7 @@ O padrão é idêntico para física, geometria, material, luz e câmera:
 | `SceneHandle`/`EntityHandle` | A Entity é o handle (`entity.entityId` injetado pelo `World.insert`) | Handle separado era redundante — Entity carrega id e parts |
 | Wrappers `Mesh`/`RigidMesh`/`SoftMesh`/`FluidMesh`/`Cube`/`Sphere`/`Plane` (propostos e descartados) | Composição direta com Resources atômicas via `add` | Wrappers eram açúcar sem ganho arquitetural; engine ship só Resources atômicas |
 | `attach(child)` separado de `add(component)` | `add` único — sem child-entity nativo | Hierarquia não é responsabilidade da engine; ECS já dá os blocos |
-| `Hierarchy` Resource / `Transform.parent` / `TransformSystem` | Engine não prescreve hierarquia | ECS resolve via componente customizado quando o domínio precisa; engine não impõe modelo |
+| `Hierarchy` Resource / `Transform.parent` / `TransformSystem` | Engine não prescreve hierarquia | ECS resolve via componente customizado quando o domínio precisa; engine não impõe modelo. A matriz de mundo é produzida pelo `TransformFlow` (fase `transform`) a partir da intenção do `Transform` — estágio substituível (ver "Transformações") |
 | `Resource.type: string` redundante | Tipo derivado do nome do schema (`new StructSchema('Name', {...})`) | Schema já carrega identidade; sem mecanismo extra |
 | `Resource.currentResourceState: ResourceStateHandler` exposto | `state: ResourceState` simples (atributo público); Handler é interno do ResourceSystem | Capabilities (`canRender`, etc.) são detalhes do ciclo de vida — não vazam pro contrato Resource |
 | Field declarations redundantes (`albedo: vec4 = ...`) | `data: Record<string, unknown>` governado pelo schema; ResourceSystem chama `schema.pack(data)` diretamente | Schema descreve a SHAPE; redeclarar campos defeats o bag |
@@ -2169,6 +2185,16 @@ O padrão é idêntico para física, geometria, material, luz e câmera:
 | `insert(entityId, member)` / `remove(entityId)` / `indexOf(entityId)` no contrato `ResourceSet<T>` | Internals do ResourceSystem com slot estável (free-list) por PoolEntry | Constraints traduzem EntityId → slot na inserção; o dado packed contém slot, não EntityId. Flow recebe `BindGroupSpec` via ConsumerResolver. |
 | Algoritmo físico só configurável via `FlowRegistry.override` global | `getFlowDescriptors?()` opcional no Resource + `static defaultAlgorithm` + override per-instance via `options.algorithm` | Default por classe + override granular — pool key vira `(schema.name, algorithm)`. Bodies de algoritmos diferentes coexistem em pools distintos. |
 | Resource com múltiplos schemas (Struct + Tensor) sem exemplo | Subseção `EulerianGrid` em C3 mostrando padrão (params StructSchema + velocity/mass TensorSchema) | Resources com paramsão + arrays N-dim N são padrão necessário p/ MPM/FLIP/SPH/PBF; estava implícito sem exemplo. |
+
+### Transformações — `Transform` como intenção e `TransformFlow`
+
+O `Transform` guarda só a **intenção** (posição, rotação, escala). Quem converte intenção em matriz é o
+`TransformFlow`, estágio padrão da fase `transform` (entre `physics` e `shadow`): um compute que lê o pool
+`Transform` e escreve o pool `WorldTransform` (`world = T·R·S`, `normal = R·S⁻¹`), só quando algum `Transform` foi
+enviado ou os pools foram realocados. Os estágios de sombra e desenho leem `worlds[instance_index]`, com o slot da
+entidade como `firstInstance` do draw — nenhum dado de transformação é enviado por objeto. A física publica apenas a
+pose no `Transform`. Registrar outro Flow na fase `transform` troca a regra de transformação (base para hierarquia
+opcional, função de transformação do usuário e cadeias não euclidianas do roadmap).
 
 ### Composição ECS — um EntityId, múltiplos Resources
 
@@ -2242,7 +2268,8 @@ classDiagram
         }
         class Transform {
             <<extends Entity, implements Resource>>
-            <<schema 'Transform' — position: vec3f, rotation: vec4f, scale: vec3f>>
+            <<schema 'Transform' — position: vec4f, rotation: vec4f, scale: vec4f (intenção, upload 'always')>>
+            <<worldSchema 'WorldTransform' — world: mat4x4f, normal: mat3x3f (produzido pelo TransformFlow, upload 'never', mesmo slot)>>
         }
         class Camera {
             <<extends Entity, implements Resource>>
@@ -3058,13 +3085,13 @@ para cada (nome, bytes):
 
 ### Fase 7 — Frame loop (reativo, callback-scoped)
 
-`ExecutionSystem` é **reativo**: não possui `run()` com loop imperativo. Abre `core.record(frame => ...)` uma vez por frame e **itera os Flows ativos pelas fases** (`physics → shadow → forward → post → ui` na ordem fixa, ordem de registro dentro de cada fase). Cada `Flow.dispatch(frame)` abre `frame.compute(...)` ou `frame.render(target, ...)` conforme a subclasse precisa. `ReadyEvent<Flow>` é o evento que adiciona um Flow em `activeFlows` — disparado pelo `ResourceSystem` apenas após todos os pipelines do Flow terem compilado. Nada de `pipeline.native`; nada de passes como campo da classe.
+`ExecutionSystem` é **reativo**: não possui `run()` com loop imperativo. Abre `core.record(frame => ...)` uma vez por frame e **itera os Flows ativos pelas fases** (`physics → transform → shadow → forward → post → ui` na ordem fixa, ordem de registro dentro de cada fase). Cada `Flow.dispatch(frame)` abre `frame.compute(...)` ou `frame.render(target, ...)` conforme a subclasse precisa. `ReadyEvent<Flow>` é o evento que adiciona um Flow em `activeFlows` — disparado pelo `ResourceSystem` apenas após todos os pipelines do Flow terem compilado. Nada de `pipeline.native`; nada de passes como campo da classe.
 
 ```typescript
 class ExecutionSystem {
 
   // ZERO state mutável entre frames — passes são callback-scoped.
-  // ExecutionSystem itera Flows ativos por fase fixa (physics → shadow → forward → post → ui)
+  // ExecutionSystem itera Flows ativos por fase fixa (physics → transform → shadow → forward → post → ui)
   // e chama flow.dispatch(frame) direto; o Flow abre frame.compute(...) ou frame.render(...).
   private currentRenderTarget?: RenderTarget;
   private dt = 0;
@@ -3072,7 +3099,7 @@ class ExecutionSystem {
 
   // Ordem fixa de fases. Flows registrados na FlowRegistry estão agrupados por fase;
   // dentro de cada fase a ordem é a ordem de registro.
-  private static readonly PHASES = ['physics', 'shadow', 'forward', 'post', 'ui'] as const;
+  private static readonly PHASES = ['physics', 'transform', 'shadow', 'forward', 'post', 'ui'] as const;
 
   constructor(
     private readonly eventBus: EventBus,
@@ -3781,7 +3808,7 @@ O que a engine faz implicitamente:
 1. **Coalescing** — os 2 `RigidBody` (ambos `algorithm: 'LCP'` por default) viram membros do pool `RigidBody:LCP` (1 buffer global compartilhado).
 2. **Inferência** — `LayoutInferencer` parsea WGSL de `StandardMaterial` + flows, deriva bind groups, compila shaders **uma vez** (dedup via hash de spec).
 3. **Flow selecionado** — bootstrap registrou `LCPFlow` (priority 10) para `bodyType: 'RigidBody'`; FlowRegistry resolve para o pool `RigidBody:LCP`.
-4. **Frame loop reativo** — `ExecutionSystem` abre `core.record(frame => ...)`, itera Flows ativos por fase (`physics → shadow → forward → post → ui`), e cada `Flow.dispatch(frame)` grava seus passes.
+4. **Frame loop reativo** — `ExecutionSystem` abre `core.record(frame => ...)`, itera Flows ativos por fase (`physics → transform → shadow → forward → post → ui`), e cada `Flow.dispatch(frame)` grava seus passes.
 5. **Gravidade radial** — `GravityField` radial do planeta atrai a lua; LCPFlow integra Newton no pool de bodies.
 
 O dev escreveu apenas tipos de alto nível — zero código de buffer, zero WGSL acessado, zero gestão de lifecycle.
@@ -3983,10 +4010,17 @@ const sphere = new SphereGeometry({ radius: 1 }).add(/* ... */);
 scene.add(sphere);
 
 // Edição em runtime:
-sphere.data.radius = 2;              // mutação direta — emite resourceDirty
-// (mecanismo de dirty-marking na mutação: Proxy ou setter explícito — detalhe de implementação)
+sphere.data.radius = 2;              // mutação direta — marca o recurso como sujo
 scene.remove(sphere);                 // remove do World; ResourceSystem libera GPU
 ```
+
+**Implementação (spec 003):** ao alocar, o `ResourceSystem` troca `resource.data` por um proxy reativo
+(`scene/systems/reactiveData.ts`). Atribuição de campo, escrita indexada em `Array`, métodos mutadores e a
+substituição do `data` inteiro marcam o recurso; o recurso entra numa fila e é enviado **uma vez por quadro**, no
+evento `frameRecording` que o `ExecutionSystem` emite antes de gravar os passes (ordem: `frameTick` →
+`frameRecording` → estágios por fase → `submit` → `frameComplete`). `TypedArray`/`ArrayBuffer` são devolvidos crus
+(as APIs nativas não aceitam Proxy): mutações no lugar deles não são rastreadas — reatribua o campo.
+`emit('resourceDirty')` manual continua aceito e entra na mesma fila.
 
 Para mutações que afetam múltiplos componentes (ex.: trocar `radius` deve atualizar geometry + collider), o dev escreve uma função/método auxiliar que toca cada Resource — engine não prescreve essa coordenação.
 
@@ -4408,7 +4442,7 @@ class ExecutionSystem {
 
   private onFrameTick(dt: number, elapsed: number): void {
     this.core.record('frame', frame => {
-      for (const phase of ['physics', 'shadow', 'forward', 'post', 'ui'] as const) {
+      for (const phase of ['physics', 'transform', 'shadow', 'forward', 'post', 'ui'] as const) {
         for (const flow of this.flows.flowsInPhase(phase)) {
           if (this.activeFlows.has(flow)) flow.dispatch(frame);
         }
@@ -5352,7 +5386,7 @@ Camada 4 — Application / GameLoop / Time / Input / Assets / Flows custom
   app.input.on('keyDown', ...)                       → DOM eventos normalizados via EventBus
   app.time.scale = 0.25 / app.pause()/resume() / app.snapshot()/restore()
   GameLoop emite 'frameTick' (multiplica realDt por time.scale)
-  ExecutionSystem reage: core.record(frame => for (phase of [physics, shadow, forward, post, ui])
+  ExecutionSystem reage: core.record(frame => for (phase of [physics, transform, shadow, forward, post, ui])
                                                   for (flow of flows.flowsInPhase(phase)) flow.dispatch(frame))
     fluxo padrão = [Shadow, Forward (offscreen + canvas), Post (Bloom/Tone/...), UI, Debug?]
   events.emit('frameComplete', { timestamp, dt, elapsed })   ← C4 escuta para profiling/UI
@@ -5380,7 +5414,7 @@ Camada 2 — coordena via eventos; ninguém preenche group/binding/usage
                         'pool'       → poolKey = `${schema.name}:${algorithm}` (algorithm opcional)
                                        PoolEntry no Map interno; slot estável (free-list)
                     + lifecycle 7-state mutado pelo ResourceSystem em reação a eventos
-  ExecutionSystem → abre core.record 1× por frame; itera activeFlows pelas fases (physics → shadow → forward → post → ui) e chama core.submit() ao sair
+  ExecutionSystem → abre core.record 1× por frame; itera activeFlows pelas fases (physics → transform → shadow → forward → post → ui) e chama core.submit() ao sair
   Flow            → Template Method + state machine; consome pool via slot { poolKey: '...' }
                     e lê BindGroupSpec/count do ResourceSystem (poolBindGroup/poolCount)
                     FlowRegistry resolve por (bodyType, algorithm)

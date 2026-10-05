@@ -64,4 +64,12 @@ export interface GPUDescriptor {
     readonly group?: number;
     /** Bitmask `GPUShaderStage.*` indicando onde o binding é visível. */
     readonly visibility?: number;
+    /**
+     * Quem escreve o buffer deste descritor:
+     *   - `'always'` (default): a CPU envia na alocação e a cada mutação de `data`.
+     *   - `'initial'`: a CPU envia só na alocação; depois a GPU é dona do dado (o recurso
+     *     entra em `GpuManaged` e mutações posteriores são ignoradas com um aviso).
+     *   - `'never'`: produzido só pela GPU (ex.: saída de um estágio); a CPU nunca escreve.
+     */
+    readonly upload?: 'always' | 'initial' | 'never';
 }

@@ -142,6 +142,38 @@ const font = await new FontLoader().load('Inter', '/fonts/Inter.woff2', { fontSi
 
 GLB binário é detectado por magic — basta passar a URL ou `parse(arrayBuffer, url)`.
 
+## Mudança incompatível: `Transform.model` removido (spec 003)
+
+O `Transform` passou a guardar só a **intenção** de posicionamento: `position`, `rotation` (quaternion) e `scale`.
+A matriz de mundo deixou de ser um campo de dado — ela é produzida na GPU pelo `TransformFlow` (fase `transform`,
+entre a física e a sombra) num segundo descritor do mesmo recurso, o pool `WorldTransform`, que os estágios de
+sombra e desenho leem pelo slot da entidade.
+
+**Antes:**
+
+```typescript
+const t = new Transform({ model: minhaMatriz });
+// mudanças exigiam emitir resourceDirty manualmente
+app.events.emit('resourceDirty', { payload: { resource: t } });
+```
+
+**Depois:**
+
+```typescript
+const t = new Transform({ position: [x, y, z, 1], rotation: [qx, qy, qz, qw], scale: [sx, sy, sz, 1] });
+t.data.position[0] = 5; // a mudança aparece no quadro seguinte, sem chamada manual
+```
+
+- Passar `model` ao construtor emite um aviso (uma vez por execução) e o valor é ignorado.
+- Antes desta versão, objetos sem física apareciam sempre na origem (o `model` nunca era calculado); agora
+  `position`/`rotation`/`scale` posicionam como os exemplos sempre descreveram.
+- Mutações de `data` em qualquer recurso inserido marcam o recurso como sujo automaticamente; o envio à GPU ocorre
+  uma vez por quadro, no evento `frameRecording`. `resourceDirty` manual continua aceito.
+- Corpos simulados (`RigidBody`, `SoftBody`, `FluidBody`) são da GPU depois da inserção: alterar o `data` deles é
+  ignorado com um aviso. A física publica só a pose no `Transform`; a escala visual é sua.
+- Transformações que não cabem em posição/rotação/escala: registre um Flow próprio na fase `transform` (e, no
+  roadmap, o ponto de extensão `transform` da F3).
+
 ## Convivência durante a transição
 
 `webgpu-engine/legacy` continua exportado e funcional, apontando para

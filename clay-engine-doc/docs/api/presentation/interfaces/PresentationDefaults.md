@@ -6,7 +6,7 @@
 
 # Interface: PresentationDefaults
 
-Defined in: [presentation/flows/defaults.ts:34](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/defaults.ts#L34)
+Defined in: [presentation/flows/defaults.ts:35](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L35)
 
 Bag dos Flows default registrados pelo Application. Permite o app
 customizar diretamente (e.g. `defaults.post.addEffect(new Bloom(...))`,
@@ -18,7 +18,7 @@ customizar diretamente (e.g. `defaults.post.addEffect(new Bloom(...))`,
 
 > `readonly` **debug**: [`DebugFlow`](../classes/DebugFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:44](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/defaults.ts#L44)
+Defined in: [presentation/flows/defaults.ts:47](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L47)
 
 Debug overlay — emite profilerStats event quando habilitado.
 
@@ -28,7 +28,7 @@ Debug overlay — emite profilerStats event quando habilitado.
 
 > `readonly` **forward**: [`ForwardFlow`](../classes/ForwardFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:36](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/defaults.ts#L36)
+Defined in: [presentation/flows/defaults.ts:39](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L39)
 
 Forward render pass principal (bind-shadows + per-entity pipelines).
 
@@ -38,7 +38,7 @@ Forward render pass principal (bind-shadows + per-entity pipelines).
 
 > `readonly` **post**: [`PostFlow`](../classes/PostFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:40](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/defaults.ts#L40)
+Defined in: [presentation/flows/defaults.ts:43](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L43)
 
 Post-processing chain (Bloom/Fxaa/etc. em ping-pong).
 
@@ -48,9 +48,19 @@ Post-processing chain (Bloom/Fxaa/etc. em ping-pong).
 
 > `readonly` **shadow**: [`ShadowFlow`](../classes/ShadowFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:38](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/defaults.ts#L38)
+Defined in: [presentation/flows/defaults.ts:41](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L41)
 
 Shadow map pass (depth-only, light POV).
+
+***
+
+### transform
+
+> `readonly` **transform**: [`TransformFlow`](../../elements/classes/TransformFlow.md)
+
+Defined in: [presentation/flows/defaults.ts:37](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L37)
+
+Estágio de transformação (fase `transform`): intenção dos Transform → matrizes de mundo.
 
 ***
 
@@ -58,6 +68,6 @@ Shadow map pass (depth-only, light POV).
 
 > `readonly` **ui**: [`UIFlow`](../classes/UIFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:42](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/presentation/flows/defaults.ts#L42)
+Defined in: [presentation/flows/defaults.ts:45](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L45)
 
 UI pass (quads + glyphs sobre o canvas).

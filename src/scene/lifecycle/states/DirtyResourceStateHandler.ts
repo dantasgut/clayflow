@@ -22,6 +22,6 @@ export class DirtyResourceStateHandler implements ResourceStateHandler {
         return true;
     }
     validTransitions(): readonly ResourceState[] {
-        return [ResourceState.Ready];
+        return [ResourceState.Ready, ResourceState.Disposed];
     }
 }

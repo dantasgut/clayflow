@@ -64,3 +64,4 @@ export type {
     VertexStage,
     FragmentStage,
 } from '../../core/contracts/index';
+export type { PoolDirectory } from './PoolDirectory';
