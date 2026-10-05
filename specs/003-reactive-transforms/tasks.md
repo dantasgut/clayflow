@@ -73,7 +73,7 @@ projetados com tolerância de 1 px; exemplos do README posicionam corretamente.
 - [x] T027 [P] [US1] Teste `src/presentation/flows/__tests__/ShadowFlow.worldTransform.test.ts` com os mesmos critérios de T025 aplicáveis à sombra (layout, bind group, `firstInstance`, sem `write` por objeto, `frontFace`, recriação no realloc)
 - [x] T028 [US1] Refatorar `src/presentation/flows/ShadowFlow.ts` até T027 passar (remover buffer/bind group de transform por slot e o `write` por quadro; `PoolDirectory`; JSDoc)
 - [x] T029 [US1] Smoke `src/__smokes__/transforms.ts` (padrão dos smokes existentes, prefixo `[transforms]`, `TRANSFORMS SMOKE PASSED`/`FAIL:`): cena com câmera fixa, luz com sombra e 6 cubos de cores distintas com posições, rotações e escalas variadas (inclui não uniforme e negativa); após 3 quadros, (1) copia o pool `WorldTransform` para staging e compara com um oráculo `T·R·S`/`R·S⁻¹` calculado no próprio smoke (tolerância 1e-5); (2) lê o alvo offscreen do forward e confere a cor esperada nos centros projetados de cada cubo (tolerância 1 px); registrar no `src/__smokes__/README.md`
-- [ ] T030 [US1] Rodar o smoke `transforms.ts` no Chrome (Vite dev server reiniciado) e os exemplos do README (cubo girando; chão em `y = -0.5`) confirmando o posicionamento; anotar resultado no PR
+- [x] T030 [US1] Rodar o smoke `transforms.ts` no Chrome (Vite dev server reiniciado) e os exemplos do README (cubo girando; chão em `y = -0.5`) confirmando o posicionamento; anotar resultado no PR
 
 **Checkpoint**: motor posiciona objetos — MVP.
 
@@ -108,7 +108,7 @@ privado (Acceptance 1–2; FR-003, FR-005, FR-014, FR-015; SC-006, SC-007).
 - [x] T037 [P] [US3] Teste `src/elements/physics/__tests__/lcpPosePublish.test.ts`: dado um `ArrayBuffer` de readback sintético com posição e quaternion por slot, `applyTransformsFromReadback` (exposto para teste via método protegido/estático conforme padrão do arquivo) atribui `position` e `rotation` normalizados ao `Transform` da entidade, não toca `scale`, não escreve `model`, não acessa `world.events`, e a mutação entra na fila do `ResourceSystem` (um `write` no próximo `frameRecording`)
 - [x] T038 [US3] Refatorar `src/elements/physics/flows/LCPFlow.ts` até T037 passar: remover a construção da matriz e `markTransformDirty` (cast em `world.events`), localizar o `Transform` com `instanceof Transform`, atribuir só `position`/`rotation`; atualizar o JSDoc de `schedulePosRotReadback` (readback permanece até a F2)
 - [x] T039 [US3] Verificar com `grep -rn "as unknown as" src/elements src/presentation` e revisão que nenhum componente acessa membros privados do mundo/barramento (SC-007); remover qualquer ocorrência remanescente relacionada a eventos
-- [ ] T040 [US3] Estender o smoke `src/__smokes__/transforms.ts` com 5 corpos rígidos (`RigidBody` esfera com `Transform` de escala visual `[0.5, 0.5, 0.5, 1]`) sobre chão: após 120 quadros as esferas desceram (y menor que o inicial) e o readback do pool `WorldTransform` mostra escala 0.5 preservada; rodar no Chrome junto com os smokes `integration`, `multiApp` e `stress60s`
+- [x] T040 [US3] Estender o smoke `src/__smokes__/transforms.ts` com 5 corpos rígidos (`RigidBody` esfera com `Transform` de escala visual `[0.5, 0.5, 0.5, 1]`) sobre chão: após 120 quadros as esferas desceram (y menor que o inicial) e o readback do pool `WorldTransform` mostra escala 0.5 preservada; rodar no Chrome junto com os smokes `integration`, `multiApp` e `stress60s`
 
 **Checkpoint**: física sobre o novo mecanismo, sem acoplamento indevido.
 
@@ -116,13 +116,13 @@ privado (Acceptance 1–2; FR-003, FR-005, FR-014, FR-015; SC-006, SC-007).
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T041 [P] Atualizar `README.md`: exemplos passam a funcionar como escritos; nota curta sobre mutação reativa de `data`
-- [ ] T042 [P] Atualizar `clay-engine-doc/docs/guides/getting_started.md` (posicionar e animar objetos por `data`, sem chamadas manuais)
-- [ ] T043 [P] Atualizar `clay-engine-doc/docs/guides/migration_legacy_to_clean.md` com a seção "Mudança incompatível: `Transform.model` removido" (antes/depois, aviso em runtime, alternativa para transformações não-TRS: Flow próprio na fase `transform` / ponto de extensão `transform` na F3) e nota de versão
-- [ ] T044 [P] Atualizar `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: schema do `Transform` (só intenção) + `WorldTransform`; mutação reativa implementada (proxy + fila + `frameRecording`); política `upload` e `GpuManaged`; fase `transform` e `TransformFlow` (resolve a lacuna "quem converte Transform em matriz"); contrato `PoolDirectory`
-- [ ] T045 JSDoc em todos os exports novos/alterados; `npm run doc:coverage` verde; `npm run doc` regenerado; build do site (`clay-engine-doc`) sem links quebrados
-- [ ] T046 Verificar SC-005: teste `src/scene/__tests__/integration/StaticScenePerf.test.ts` com 10 000 entidades estáticas (core mockado contando chamadas) — após o primeiro quadro, quadros seguintes sem nenhum `write` de transform e sem dispatch do `TransformFlow`; registrar no PR o tempo de CPU por quadro da cena `integration` antes/depois (sem piora)
-- [ ] T047 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run test:coverage && npm run doc:coverage && npm run build:lib`; smokes `transforms`, `integration`, `multiApp`, `stress60s` passando no Chrome
+- [x] T041 [P] Atualizar `README.md`: exemplos passam a funcionar como escritos; nota curta sobre mutação reativa de `data`
+- [x] T042 [P] Atualizar `clay-engine-doc/docs/guides/getting_started.md` (posicionar e animar objetos por `data`, sem chamadas manuais)
+- [x] T043 [P] Atualizar `clay-engine-doc/docs/guides/migration_legacy_to_clean.md` com a seção "Mudança incompatível: `Transform.model` removido" (antes/depois, aviso em runtime, alternativa para transformações não-TRS: Flow próprio na fase `transform` / ponto de extensão `transform` na F3) e nota de versão
+- [x] T044 [P] Atualizar `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: schema do `Transform` (só intenção) + `WorldTransform`; mutação reativa implementada (proxy + fila + `frameRecording`); política `upload` e `GpuManaged`; fase `transform` e `TransformFlow` (resolve a lacuna "quem converte Transform em matriz"); contrato `PoolDirectory`
+- [x] T045 JSDoc em todos os exports novos/alterados; `npm run doc:coverage` verde; `npm run doc` regenerado; build do site (`clay-engine-doc`) sem links quebrados
+- [x] T046 Verificar SC-005: teste `src/scene/__tests__/integration/StaticScenePerf.test.ts` com 10 000 entidades estáticas (core mockado contando chamadas) — após o primeiro quadro, quadros seguintes sem nenhum `write` de transform e sem dispatch do `TransformFlow`; registrar no PR o tempo de CPU por quadro da cena `integration` antes/depois (sem piora)
+- [x] T047 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run test:coverage && npm run doc:coverage && npm run build:lib`; smokes `transforms`, `integration`, `multiApp`, `stress60s` passando no Chrome
 
 ---
 

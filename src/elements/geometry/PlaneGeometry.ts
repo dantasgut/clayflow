@@ -57,7 +57,7 @@ export class PlaneGeometry extends Geometry {
             0,
             1,
         ]);
-        const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+        const indices = new Uint16Array([0, 2, 1, 0, 3, 2]); // ccw visto de +Y (normal para cima)
         this.data = { size, vertices, indices, vertexCount: 4, indexCount: 6 };
     }
 
