@@ -1,6 +1,7 @@
 # Tasks: Harness de Benchmark Comparativo (clayflow vs Three.js)
 
 **Feature**: `002-benchmark-harness` | **Branch**: `feature/002-benchmark-harness`
+**Pré-requisito**: spec `003-reactive-transforms` concluída e integrada em `develop` (as cenas posicionam objetos só por posição/rotação/escala).
 **Input**: plan.md, spec.md, research.md (R1–R12), data-model.md, contracts/ (frame-stats-api, scene-api, cli,
 results-schema), quickstart.md
 
@@ -63,7 +64,7 @@ results-schema), quickstart.md
 ### B — Contratos e lógica pura base do harness
 
 - [ ] T025 Criar `bench/core/types.ts` com todos os tipos de `contracts/scene-api.md` (`EngineId`, `CameraSpec`, `VariantDefinition`, `Unsupported`, `SceneContext`, `SceneImplementation` com `limitations?`, `SceneDefinition`, `FrameSample`, `EngineAdapter`) e de `contracts/results-schema.md` (`RunFile`, `EnvironmentProfile`, `ResultStatus`, `Metrics`, `Result` com `limitations?`, `BaselineFile`, `RunConfig`, `RegressionReport`), mais o protocolo página→runner `PageResult` publicado em `window.__benchResult`
-- [ ] T026 [P] `bench/core/rng.ts`: `mulberry32(seed)` e geradores compartilhados de layout (`gridScatter(rng, count, extent)` → posições/escala/cor; `heightJitter`), usados pelas duas engines; teste `bench/core/__tests__/rng.test.ts` (mesma semente ⇒ mesma sequência; sementes diferentes divergem; valores em [0,1); layout determinístico); e `bench/core/mat4.ts` com `composeTRS(position, rotation, scale) → Float32Array(16)` — as cenas clayflow preenchem `Transform.model` com ele, porque o motor não deriva `model` de posição/rotação/escala até a F2 — testado em `bench/core/__tests__/mat4.test.ts`
+- [ ] T026 [P] `bench/core/rng.ts`: `mulberry32(seed)` e geradores compartilhados de layout (`gridScatter(rng, count, extent)` → posições/escala/cor; `heightJitter`), usados pelas duas engines; teste `bench/core/__tests__/rng.test.ts` (mesma semente ⇒ mesma sequência; sementes diferentes divergem; valores em [0,1); layout determinístico)
 - [ ] T027 [P] `bench/core/stats.ts`: `median`, `percentile(p)` (interpolação linear), `mean`, `coefficientOfVariation`, `aggregateRepetitions(reps) → Metrics` (mediana das medianas; `gpuMs` = `null` com < 30 amostras; `vsyncLimited` se FPS a ±2% de 60/120/144; `unstable` se CV > 5%); teste `bench/core/__tests__/stats.test.ts`
 - [ ] T028 [P] `bench/core/profile.ts`: `buildProfile(raw) → EnvironmentProfile` e `profileId` = slug legível (`vendor-device-chromeNNN-os-WxH`) + hash curto estável dos campos de hardware/navegador maior/OS/resolução (R10); teste `bench/core/__tests__/profile.test.ts` (versão menor do Chrome não muda o id; resolução muda; slug só `[a-z0-9-]`)
 
@@ -96,7 +97,7 @@ declaradas e perfil de ambiente; `--scene instances --engine clayflow` roda só 
 
 ### Cenas (cada pasta: `scene.ts` com a `SceneDefinition`, implementações lazy por engine)
 
-- [ ] T037 [P] [US1] `bench/scenes/instances/{scene.ts,clayflow.ts,three.ts}`: variantes `10k`/`100k`/`1m` (`count`), layout `gridScatter`; clayflow = N entidades `BoxGeometry` + `StandardMaterial` + `Transform` (com `model` via `composeTRS`) — recurso compartilhado entre entidades não é suportado —, `limitations: ['sem instancing no render: 1 draw + uploads por objeto (até F2)', 'render LDR 8 bits, sem MSAA (até F4)']`; three = um `InstancedMesh` com `MeshStandardMaterial`
+- [ ] T037 [P] [US1] `bench/scenes/instances/{scene.ts,clayflow.ts,three.ts}`: variantes `10k`/`100k`/`1m` (`count`), layout `gridScatter`; clayflow = N entidades `BoxGeometry` + `StandardMaterial` + `Transform` (só `position`/`rotation`/`scale` — derivação reativa da spec 003) — recurso compartilhado entre entidades não é suportado —, `limitations: ['sem instancing no render: 1 draw + uploads por objeto (até F2)', 'render LDR 8 bits, sem MSAA (até F4)']`; three = um `InstancedMesh` com `MeshStandardMaterial`
 - [ ] T038 [P] [US1] `bench/scenes/unique-objects/{scene.ts,clayflow.ts,three.ts}`: variante `1k`; 1k geometrias com parâmetros distintos (dimensões/segmentos via `rng`) e materiais distintos; clayflow com `StandardMaterial` por objeto; three com `Mesh` + `MeshStandardMaterial` por objeto
 - [ ] T039 [P] [US1] `bench/scenes/point-lights/{scene.ts,three.ts}`: variante `256`; three = plano + 200 objetos + 256 `PointLight` (cores/posições via `rng`); clayflow = `{ unsupported: 'o forward ignora PointLight', until: 'F4' }`
 - [ ] T040 [P] [US1] `bench/scenes/skinned-characters/character.ts`: humanoide procedural (~3k vértices de cápsulas fundidas, `skinIndex`/`skinWeight`), esqueleto de 20 ossos e `AnimationClip` de caminhada sintético (quaternions senoidais) — determinístico, sem assets (R9)
