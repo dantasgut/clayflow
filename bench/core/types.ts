@@ -93,6 +93,11 @@ export interface FrameSample {
 export interface EngineAdapter<THandle> {
     readonly id: EngineId;
     readonly version: string;
+    /**
+     * Limitações do motor que valem para toda cena desta engine (FR-007b) — somadas às da
+     * implementação no resultado.
+     */
+    readonly limitations?: readonly string[];
     init(
         canvas: HTMLCanvasElement,
         resolution: { width: number; height: number },
@@ -105,6 +110,11 @@ export interface EngineAdapter<THandle> {
     /** Executa um quadro (update da cena + render) e devolve a amostra. */
     frame(handle: THandle, scene: SceneImplementation<THandle>, dtSeconds: number): FrameSample;
     memoryBytes(handle: THandle): number;
+    /**
+     * Leitura de GPU mais recente, consultada fora do quadro (para não perder a leitura que
+     * chega depois do último quadro da janela). `id` distingue leituras.
+     */
+    gpuReading?(handle: THandle): { readonly gpuMs: number; readonly id: number } | undefined;
     dispose(handle: THandle): void;
 }
 

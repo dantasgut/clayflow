@@ -65,16 +65,29 @@ export interface FrameSample {
   readonly cpuMs: number;
   readonly drawCalls: number;
   readonly gpuMs?: number;
+  /** Identifica a leitura de GPU — a mesma leitura não é contada duas vezes. */
+  readonly gpuSampleId?: number;
 }
 
 export interface EngineAdapter<THandle> {
   readonly id: EngineId;
   readonly version: string;
-  init(canvas: HTMLCanvasElement, resolution: { width: number; height: number }): Promise<THandle>;
-  capabilities(): { readonly gpuTiming: boolean; readonly memory: 'exact' | 'estimated' };
+  /** Limitações que valem para toda cena da engine (FR-007b) — somadas às da implementação. */
+  readonly limitations?: readonly string[];
+  init(
+    canvas: HTMLCanvasElement,
+    resolution: { width: number; height: number },
+    camera: CameraSpec,
+  ): Promise<THandle>;
+  capabilities(handle: THandle): {
+    readonly gpuTiming: boolean;
+    readonly memory: 'exact' | 'estimated';
+  };
   /** Executa um quadro (update da cena + render) e devolve a amostra. */
   frame(handle: THandle, scene: SceneImplementation<THandle>, dtSeconds: number): FrameSample;
   memoryBytes(handle: THandle): number;
+  /** Leitura de GPU mais recente, consultada após a janela (a dos últimos quadros chega depois deles). */
+  gpuReading?(handle: THandle): { readonly gpuMs: number; readonly id: number } | undefined;
   dispose(handle: THandle): void;
 }
 ```

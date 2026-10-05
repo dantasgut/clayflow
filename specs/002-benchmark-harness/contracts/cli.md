@@ -20,6 +20,7 @@
 | `--tolerance <0..1>`                                                | 0.10                     | tolerância do gate                                                                          |
 | `--from <arquivo.json>`                                             | —                        | `bench:check` compara um resultado existente sem reexecutar                                 |
 | `--port <n>`                                                        | 5180                     | porta do Vite do harness                                                                    |
+| `--no-profiling`                                                    | off                      | desliga o profiling de GPU do clayflow (mede o overhead da observabilidade — SC-005)        |
 
 ## Erros de ambiente (exit 3, falha cedo)
 

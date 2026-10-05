@@ -11,7 +11,16 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
     root: here,
     resolve: { alias: { clayflow: resolve(here, '../src/index.ts') } },
-    server: { port: 5180, strictPort: true, fs: { allow: [resolve(here, '..')] } },
+    server: {
+        port: 5180,
+        strictPort: true,
+        fs: { allow: [resolve(here, '..')] },
+        // Isolamento cross-origin: `performance.now()` com resolução de µs em vez de 100 µs.
+        headers: {
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+        },
+    },
     optimizeDeps: { exclude: ['@dimforge/rapier3d-compat'] },
     logLevel: 'warn',
 });

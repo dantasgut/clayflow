@@ -6,6 +6,7 @@ import {
     mean,
     median,
     MIN_GPU_SAMPLES,
+    minGpuSamples,
     percentile,
     summarizeRepetition,
 } from '../stats';
@@ -62,8 +63,19 @@ describe('summarizeRepetition', () => {
         expect(m.vsyncLimited).toBe(false);
     });
 
-    it('gpuMs null com menos de 30 leituras', () => {
-        expect(summarizeRepetition(samples({ gpuMs: [1, 2] })).gpuMs).toBeNull();
+    it('gpuMs null com menos de 30 leituras quando há quadros de sobra', () => {
+        const frameMs = Array.from({ length: 400 }, () => 10);
+        expect(summarizeRepetition(samples({ frameMs, gpuMs: [1, 2] })).gpuMs).toBeNull();
+    });
+
+    it('cena lenta: basta um quarto dos quadros (mínimo 1)', () => {
+        expect(minGpuSamples(2)).toBe(1);
+        expect(minGpuSamples(11)).toBe(3);
+        expect(minGpuSamples(1000)).toBe(30);
+        expect(summarizeRepetition(samples({ frameMs: [3000, 3000], gpuMs: [4.2] })).gpuMs).toBe(
+            4.2,
+        );
+        expect(summarizeRepetition(samples({ frameMs: [3000, 3000], gpuMs: [] })).gpuMs).toBeNull();
     });
 
     it('marca vsync quando o FPS fica em 60', () => {

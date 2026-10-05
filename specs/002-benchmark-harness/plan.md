@@ -44,7 +44,7 @@ overhead da observabilidade desligada ≈ 0 e ligada ≤ 2% de CPU/quadro (SC-00
 **Constraints**: harness só via API pública (FR-016); nada de `bench/` no pacote publicado, `dependencies` só `uuid`
 (FR-017/018); CI sem GPU — benchmark é gate local (FR-014); sem binários/assets de terceiros commitados (R9)
 
-**Scale/Scope**: 5 cenas / 8 variantes × 2 engines; ~25 arquivos novos em `bench/`, ~8 arquivos tocados na lib
+**Scale/Scope**: 5 cenas / 9 variantes × 2 engines; ~25 arquivos novos em `bench/`, ~8 arquivos tocados na lib
 (C1 passes/frame/profiler, C2 evento, C4 opção + DebugFlow), 1 guia de docs
 
 ## Constitution Check

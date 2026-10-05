@@ -1,7 +1,15 @@
 import type { Metrics, RepetitionSamples } from './types';
 
-/** Mínimo de leituras de GPU numa repetição para a métrica valer (senão `null`). */
+/** Leituras de GPU que bastam numa repetição para a métrica valer (senão `null`). */
 export const MIN_GPU_SAMPLES = 30;
+
+/**
+ * Mínimo exigido numa repetição: 30 leituras, ou um quarto dos quadros quando a cena é tão
+ * lenta que a janela tem poucos quadros (ao menos 1).
+ */
+export function minGpuSamples(frames: number): number {
+    return Math.min(MIN_GPU_SAMPLES, Math.max(1, Math.ceil(frames / 4)));
+}
 /** Coeficiente de variação entre repetições acima do qual a linha é "instável". */
 export const UNSTABLE_CV = 0.05;
 /** Taxas de vsync comuns: FPS a ±2% de uma delas é marcado como limitado pela vsync. */
@@ -53,7 +61,7 @@ export function summarizeRepetition(s: RepetitionSamples): Metrics {
     const fps = frameMean > 0 ? 1000 / frameMean : 0;
     return {
         cpuMs: median(s.cpuMs),
-        gpuMs: s.gpuMs.length >= MIN_GPU_SAMPLES ? median(s.gpuMs) : null,
+        gpuMs: s.gpuMs.length >= minGpuSamples(s.frameMs.length) ? median(s.gpuMs) : null,
         frameMs: {
             mean: frameMean,
             p95: percentile(s.frameMs, 95),

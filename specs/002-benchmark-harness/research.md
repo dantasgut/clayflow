@@ -47,10 +47,16 @@ trackTimestamp: true })` com `await renderer.init()`.
   **10 s**, **3 repetições**; tempo-limite **60 s** por execução. Modo `--quick`: 1 s / 3 s / 1 repetição.
   Valor reportado = **mediana das medianas** das repetições; dispersão = coeficiente de variação entre
   repetições; se CV > 5% a linha recebe aviso "instável".
-- **Racional**: estimativa de duração do modo padrão: 8 variantes × 2 engines × 3 reps × ~13 s ≈ 10–11 min (< 15 min,
+- **Racional**: estimativa de duração do modo padrão: 9 variantes × 2 engines × 3 reps × ~13 s ≈ 12 min (< 15 min,
   SC-007); `--quick` ≈ 1,5–2 min (< 3 min). Mediana é robusta a hitches de GC/compilação. 5% < 10% de tolerância
   do gate (SC-002).
 - **Alternativas**: média (sensível a outliers); número fixo de quadros (cenas lentas demorariam demais).
+- **Ajustes da implementação (smoke real)**: o aquecimento exige também **5 quadros** além do tempo (no Three, a
+  compilação de pipelines da cena de luzes caía dentro da janela); uma repetição que falha ou estoura o tempo
+  decide a linha e as seguintes são puladas (economiza minutos sem mudar o resultado); o fechamento do
+  navegador/servidor tem tempo-limite (uma aba que caiu por falta de memória pendurava o runner); o Vite do
+  harness serve com COOP/COEP (isolamento cross-origin: `performance.now()` com resolução de µs — sem isso a
+  CPU do Three aparecia como 0,00).
 
 ## R6 — Métricas e como cada engine as fornece
 
@@ -71,7 +77,12 @@ trackTimestamp: true })` com `await renderer.init()`.
   não entra em `cpuMs`, só no intervalo de quadro (FPS/p95/p99), e a cena `rigid-bodies` o declara em
   `limitations`.
 - **GPU sampling**: leituras de timestamp são assíncronas e nem todo quadro tem amostra (map em andamento); a
-  métrica de GPU usa a mediana das amostras disponíveis na janela (mínimo 30 amostras, senão "indisponível").
+  métrica de GPU usa a mediana das amostras disponíveis na janela — mínimo de 30 amostras, ou um quarto dos
+  quadros (ao menos 1) quando a cena é tão lenta que a janela tem poucos quadros; abaixo disso, "indisponível".
+  Ao fim da janela a página espera até 1,5 s pela leitura ainda em trânsito (`EngineAdapter.gpuReading`).
+- **Veredito do resumo**: compara o **custo efetivo por quadro** = maior entre intervalo médio, CPU e GPU. Sem
+  vsync o laço do Three submete mais rápido do que a GPU termina (intervalo de 0,1 ms com 0,48 ms de GPU); o
+  intervalo sozinho subestimaria o custo.
 
 ## R7 — Lacuna no motor: observabilidade de quadro (FR-007a)
 
@@ -104,6 +115,9 @@ trackTimestamp: true })` com `await renderer.init()`.
 - **Racional**: é observabilidade que qualquer app precisa (perfil de jogo, overlay de debug) e que as fases
   F1+ vão exigir para provar "CPU constante". Cabe na Constituição: C1 conta/mede, C2 propaga via evento, C4 expõe
   opção — sem vazar tipos WebGPU (`FrameStats` é tipo de domínio simples).
+- **Achado do primeiro smoke**: ~90% da CPU por quadro do clayflow vai para `specHash` (UUIDv5/SHA-1 sobre a spec
+  serializada) recalculado a cada `setBindGroup`/`setPipeline` — o "cache do `specHash`" da spec 004 (F1).
+  Declarado pelo adaptador como limitação de toda cena clayflow; a 002 só mede.
 - **Alternativas**: medir GPU por `queue.onSubmittedWorkDone()` (imprecisa com pipelining); contar draws no harness
   monkey-patching `GPURenderPassEncoder` (viola FR-016 e mede algo que o usuário não vê); pular métricas do
   clayflow (relatório pela metade — inaceitável).

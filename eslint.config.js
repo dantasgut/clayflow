@@ -209,6 +209,8 @@ export default tseslint.config(
             ],
             '@typescript-eslint/unbound-method': 'off',
             '@typescript-eslint/no-extraneous-class': 'off',
+            // Casts explícitos (`as T`) em vez de `!` — o harness proíbe non-null assertion.
+            '@typescript-eslint/non-nullable-type-assertion-style': 'off',
         },
     },
     {

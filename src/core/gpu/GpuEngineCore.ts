@@ -242,7 +242,18 @@ export class GpuEngineCore implements EngineCore {
     }
 
     lastFrameStats(): FrameStats {
-        return this.lastStats;
+        // Contadores da última gravação submetida + a leitura de GPU mais recente resolvida
+        // até agora (pode chegar depois do submit — readback assíncrono).
+        const reading = this.profilerSystem.lastFrameReading;
+        if (reading === undefined) return this.lastStats;
+        return {
+            drawCalls: this.lastStats.drawCalls,
+            dispatches: this.lastStats.dispatches,
+            passes: this.lastStats.passes,
+            gpuTimeMs: reading.gpuTimeMs,
+            gpuFrame: reading.gpuFrame,
+            stagesNs: reading.stagesNs,
+        };
     }
 
     private warnIfProfilingUnsupported(): void {
@@ -414,18 +425,10 @@ export class GpuEngineCore implements EngineCore {
         if (this.profilerSystem.isSupported) {
             this.profilerSystem.submitFrame();
         }
-        const reading = this.profilerSystem.lastFrameReading;
         this.lastStats = {
             drawCalls: this.counters.drawCalls,
             dispatches: this.counters.dispatches,
             passes: this.counters.passes,
-            ...(reading !== undefined
-                ? {
-                      gpuTimeMs: reading.gpuTimeMs,
-                      gpuFrame: reading.gpuFrame,
-                      stagesNs: reading.stagesNs,
-                  }
-                : {}),
         };
         this.frameIndex++;
     }

@@ -6,7 +6,7 @@
 
 # Class: AudioLoader
 
-Defined in: [presentation/assets/AudioLoader.ts:30](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/assets/AudioLoader.ts#L30)
+Defined in: [presentation/assets/AudioLoader.ts:30](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/assets/AudioLoader.ts#L30)
 
 AudioLoader carrega arquivos de audio (mp3, ogg, wav) via fetch +
 Web Audio API decodeAudioData. Cria um AudioContext lazy na primeira
@@ -32,7 +32,7 @@ acessar `audio.decoded` direto e usar Web Audio API completa.
 
 > **load**(`url`): `Promise`\<[`LoadedAudio`](../interfaces/LoadedAudio.md)\>
 
-Defined in: [presentation/assets/AudioLoader.ts:43](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/assets/AudioLoader.ts#L43)
+Defined in: [presentation/assets/AudioLoader.ts:43](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/assets/AudioLoader.ts#L43)
 
 Carrega um audio asset. Em ambientes sem AudioContext, retorna
 LoadedAudio com `decoded: null` mas preserva o `buffer` raw.
@@ -53,7 +53,7 @@ LoadedAudio com `decoded: null` mas preserva o `buffer` raw.
 
 > **play**(`audio`, `options?`): `AudioBufferSourceNode` \| `null`
 
-Defined in: [presentation/assets/AudioLoader.ts:70](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/assets/AudioLoader.ts#L70)
+Defined in: [presentation/assets/AudioLoader.ts:70](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/assets/AudioLoader.ts#L70)
 
 Reproduz um audio decoded com gain (volume) e loop opcionais.
 Returns o source node (chame `.stop()` para interromper) ou null

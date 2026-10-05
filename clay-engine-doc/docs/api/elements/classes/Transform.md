@@ -6,7 +6,7 @@
 
 # Class: Transform
 
-Defined in: [elements/scene/Transform.ts:32](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L32)
+Defined in: [elements/scene/Transform.ts:32](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L32)
 
 Transform 3D — a **intenção** de posicionamento de um objeto: posição, rotação
 (quaternion) e escala. Mutar `data` depois de inserir reposiciona o objeto no
@@ -32,7 +32,7 @@ Mudança incompatível: o antigo campo `model` foi removido — ver o guia de mi
 
 > **new Transform**(`values?`): `Transform`
 
-Defined in: [elements/scene/Transform.ts:52](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L52)
+Defined in: [elements/scene/Transform.ts:52](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L52)
 
 #### Parameters
 
@@ -54,7 +54,7 @@ Defined in: [elements/scene/Transform.ts:52](https://github.com/dantasgut/clayfl
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/scene/Transform.ts:50](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L50)
+Defined in: [elements/scene/Transform.ts:50](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L50)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -70,7 +70,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/Transform.ts:49](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L49)
+Defined in: [elements/scene/Transform.ts:49](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L49)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -84,7 +84,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/scene/Transform.ts:34](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L34)
+Defined in: [elements/scene/Transform.ts:34](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L34)
 
 Intenção do desenvolvedor: posição, rotação e escala (pool `Transform`).
 
@@ -94,7 +94,7 @@ Intenção do desenvolvedor: posição, rotação e escala (pool `Transform`).
 
 > `readonly` `static` **worldSchema**: `StructSchema`
 
-Defined in: [elements/scene/Transform.ts:44](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L44)
+Defined in: [elements/scene/Transform.ts:44](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L44)
 
 Produto do estágio de transformação, só na GPU (pool `WorldTransform`):
 `world = T·R·S` e `normal = R·S⁻¹` (matriz para normais).
@@ -107,7 +107,7 @@ Produto do estágio de transformação, só na GPU (pool `WorldTransform`):
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -126,7 +126,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -151,7 +151,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/Transform.ts:63](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L63)
+Defined in: [elements/scene/Transform.ts:63](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L63)
 
 Intenção (CPU envia a cada mutação) + matriz de mundo (produzida só pela GPU).
 
@@ -169,7 +169,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/Transform.ts:82](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L82)
+Defined in: [elements/scene/Transform.ts:82](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L82)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -189,7 +189,7 @@ readonly `PipelineDescriptor`[]
 
 > `static` **resetLegacyModelWarning**(): `void`
 
-Defined in: [elements/scene/Transform.ts:87](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L87)
+Defined in: [elements/scene/Transform.ts:87](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/scene/Transform.ts#L87)
 
 Reabilita o aviso de `model` legado (uso em testes).
 

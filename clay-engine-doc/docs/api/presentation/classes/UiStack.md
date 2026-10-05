@@ -6,7 +6,7 @@
 
 # Class: UiStack
 
-Defined in: [presentation/ui/UiStack.ts:7](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiStack.ts#L7)
+Defined in: [presentation/ui/UiStack.ts:7](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiStack.ts#L7)
 
 Container Z-stack: cada filho ocupa a área inteira do parent (menos padding),
 sobreposto por ordem de inserção. Útil para HUDs (background + overlay).
@@ -35,7 +35,7 @@ sobreposto por ordem de inserção. Útil para HUDs (background + overlay).
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L27)
+Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L27)
 
 Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
@@ -49,7 +49,7 @@ Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 > **children**: [`UiElement`](UiElement.md)[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L31)
+Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L31)
 
 Filhos diretos. Renderizados após o pai (z-order natural).
 
@@ -63,7 +63,7 @@ Filhos diretos. Renderizados após o pai (z-order natural).
 
 > **padding**: `number` = `0`
 
-Defined in: [presentation/ui/UiStack.ts:9](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiStack.ts#L9)
+Defined in: [presentation/ui/UiStack.ts:9](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiStack.ts#L9)
 
 Inset uniforme em todos os lados do container (CSS px). Default: 0.
 
@@ -73,7 +73,7 @@ Inset uniforme em todos os lados do container (CSS px). Default: 0.
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L29)
+Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L29)
 
 Quando false, o elemento e seus filhos não são renderizados.
 
@@ -87,7 +87,7 @@ Quando false, o elemento e seus filhos não são renderizados.
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L34)
+Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L34)
 
 Anexa um UiElement filho. Chaining fluente.
 
@@ -111,7 +111,7 @@ Anexa um UiElement filho. Chaining fluente.
 
 > **layout**(): `void`
 
-Defined in: [presentation/ui/UiStack.ts:12](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiStack.ts#L12)
+Defined in: [presentation/ui/UiStack.ts:12](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiStack.ts#L12)
 
 Recalcula `bounds` de cada filho (todos ocupam a área do stack menos padding).
 

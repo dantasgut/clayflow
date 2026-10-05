@@ -226,8 +226,9 @@ export interface EngineCore {
      */
     setFrameProfiling(enabled: boolean, capacity?: number): void;
     /**
-     * Estatísticas da última gravação submetida (draws, dispatches, passes) e a última
-     * leitura de GPU resolvida (`gpuTimeMs`, com defasagem de 1–3 quadros).
+     * Estatísticas da última gravação submetida (draws, dispatches, passes) e a leitura de
+     * GPU mais recente resolvida até o momento da chamada (`gpuTimeMs`, com defasagem de
+     * 1–3 quadros; `gpuFrame` diz a que quadro pertence).
      */
     lastFrameStats(): FrameStats;
 

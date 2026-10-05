@@ -241,7 +241,7 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
 
 ### Measurable Outcomes
 
-- **SC-001**: Um mantenedor obtém o relatório comparativo completo (5 cenas, 8 variantes, 2 engines) com
+- **SC-001**: Um mantenedor obtém o relatório comparativo completo (5 cenas, 9 variantes, 2 engines) com
   um único comando, sem passos manuais além de ter um navegador compatível aberto/disponível.
 - **SC-002**: Duas execuções consecutivas na mesma máquina, sem mudança de código, produzem tempos de quadro
   medianos que diferem no máximo 5% por cena — o ruído fica abaixo da tolerância do gate (10%).

@@ -54,8 +54,9 @@ Entidades da spec (Key Entities) refinadas com campos, validações e transiçõ
 
 ### RunConfig
 
-`warmupMs` (default 3000), `windowMs` (10000), `repetitions` (3), `timeoutMs` (60000), `resolution` (1280×720),
-filtros `scenes[]`, `variants[]`, `engines[]`, `quick` (1000/3000/1), `headless` (false), `tolerance` (0.10).
+`warmupMs` (default 3000, e no mínimo 5 quadros), `windowMs` (10000), `repetitions` (3), `timeoutMs` (60000),
+`resolution` (1280×720), filtros `scenes[]`, `variants[]`, `engines[]`, `quick` (1000/3000/1), `headless` (false),
+`tolerance` (0.10), `port` (5180), `profiling` (true; `--no-profiling` mede o overhead — SC-005), `from?`.
 Validação: inteiros positivos; `tolerance` em (0, 1).
 
 ### EnvironmentProfile
@@ -78,7 +79,7 @@ Validação: inteiros positivos; `tolerance` em (0, 1).
 
 ### Metrics
 
-`cpuMs` (mediana), `gpuMs` (mediana | `null` = indisponível), `frameMs { mean, p95, p99 }`, `fps` (=1000/mean),
+`cpuMs` (mediana), `gpuMs` (mediana | `null` = indisponível — menos de `min(30, ⌈quadros/4⌉)` leituras), `frameMs { mean, p95, p99 }`, `fps` (=1000/mean),
 `drawCalls` (mediana), `memoryBytes` + `memoryKind ('exact' | 'estimated')`, `samples { frames, gpu }`,
 `vsyncLimited: boolean` (se o FPS ficar a ±2% de 60/120/144).
 

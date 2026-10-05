@@ -23,6 +23,8 @@ export interface FrameStats {
   readonly gpuTimeMs?: number;
   /** Índice do quadro a que `gpuTimeMs` se refere. */
   readonly gpuFrame?: number;
+  /** Tempo de GPU por rótulo de passe (ns), da mesma leitura de `gpuTimeMs` (usado pelo `DebugFlow`). */
+  readonly stagesNs?: Readonly<Record<string, number>>;
 }
 ```
 
@@ -57,7 +59,10 @@ interface EngineCore {
   // …existentes…
   /** Liga/desliga timestamps automáticos por passe. No-op sem `timestamp-query`. */
   setFrameProfiling(enabled: boolean, capacity?: number): void;
-  /** Estatísticas do último quadro submetido. */
+  /**
+   * Contadores da última gravação submetida + a leitura de GPU mais recente resolvida até o momento
+   * da chamada (a leitura pode chegar depois do submit — readback assíncrono).
+   */
   lastFrameStats(): FrameStats;
 }
 ```
@@ -67,11 +72,14 @@ interface EngineCore {
 0. Criação do dispositivo (`core/gpu/GpuContext.ts`): `requiredFeatures` inclui `'timestamp-query'` quando o
    adaptador a oferece. Sem a feature, `setFrameProfiling(true)` é no-op com aviso único e `gpuTimeMs` fica
    ausente. (Configuração completa do dispositivo: spec `004-core-hardening`, F1.)
-1. `record()` abre o quadro: zera contadores; se profiling ligado, `FrameTimestampAllocator.begin()`.
+1. `record()` abre o quadro: zera contadores; se profiling ligado, `FrameTimestampAllocator.begin()`. O QuerySet
+   tem duas regiões: `[0, 64)` para índices manuais (`profiler.timestampWritesFor`) e a seguinte, de tamanho
+   `profilingCapacity`, para o alocador — índices manuais e automáticos nunca colidem.
 2. Cada `beginRenderPass`/`beginComputePass` sem `timestampWrites` explícito recebe um par do alocador. Passes com
    `timestampWrites` explícito (ex.: `ForwardFlow.setProfileTimestamps`) são respeitados e também somados.
-3. Ao fim do quadro, `resolveQuerySet` + readback assíncrono (já existentes no `GpuProfilerSystem`); quando a
-   leitura chega, `gpuTimeMs` = Σ intervalos válidos; fica disponível em `lastFrameStats()` e nos próximos
+3. Ao fim do quadro, `resolveQuerySet` + cópia para o staging só quando há timestamps a ler e o staging anterior
+   não está mapeando (senão o quadro é pulado — nunca bloqueia); quando a leitura chega, `gpuTimeMs` = Σ
+   intervalos válidos e `stagesNs` = intervalos por rótulo; fica disponível em `lastFrameStats()` e nos próximos
    `frameComplete`.
 4. Estouro de capacidade: passes excedentes ficam sem timestamp, `gpuTimeMs` daquele quadro ausente, aviso único
    no console com a sugestão de `profilingCapacity`.

@@ -121,3 +121,29 @@ device.queue.submit([encoderCronometro.finish()]);
 **(Obs: Para proteção contra ataques de Timing e Spectre/Meltdown as APIs podem exigir ativamentos específicos no About:Flags da Config do navegador pra precisão Real Máxima não degradante, mas localmente developper/localhost funciona.)*
 
 [⬅ Voltar para Bundles](./08_Bundles_e_Comandos.md) | [Próximo: Clímax - Hierarquia 3D ➡](./10_Hierarquia_Objetos_3D.md)
+
+## 9.6 Profiling por quadro no Clay Engine
+
+O motor faz o trabalho das seções anteriores por você. Com `Application.create({ canvas, profiling: true })`
+(ou `core.setFrameProfiling(true, capacidade)`):
+
+- **Timestamps automáticos**: todo passe de render ou compute aberto pelo `Frame` recebe um par
+  `beginningOfPassWriteIndex`/`endOfPassWriteIndex` de um alocador por quadro. Passes que já trazem
+  `timestampWrites` explícitos (ex.: `ForwardFlow.setProfileTimestamps`) são respeitados e entram na soma.
+- **Regiões do QuerySet**: os índices `[0, 64)` continuam livres para uso manual
+  (`core.profiler.timestampWritesFor(first, last)`); o profiling por quadro usa a região seguinte, de tamanho
+  `profilingCapacity` (default 256 timestamps = 128 passes).
+- **Leitura**: ao fim de cada gravação com timestamps, o motor resolve o QuerySet e copia para um buffer de
+  leitura; se o mapeamento anterior ainda estiver em curso, aquele quadro é pulado (nunca bloqueia). Quando a
+  leitura chega, `frameComplete.stats.gpuTimeMs` passa a valer a soma dos intervalos válidos, com
+  `stats.gpuFrame` indicando o quadro de origem (defasagem de 1–3 quadros) e `stats.stagesNs` o tempo por
+  rótulo de passe (o `DebugFlow` repassa em `profilerStats.stagesNs`).
+- **Estouro**: um quadro com mais passes do que a capacidade fica sem `gpuTimeMs` e o console avisa uma vez —
+  aumente `profilingCapacity`.
+- **Gravações auxiliares** (ex.: `pool_grow:*`, a cópia GPU→GPU quando um pool cresce) não abrem passes, não
+  resolvem timestamps e não substituem a última leitura.
+- **Sem `timestamp-query`** no device, o motor avisa uma vez e segue: contadores (`drawCalls`, `dispatches`,
+  `passes`) continuam disponíveis, só o tempo de GPU fica ausente. O device pede a feature sempre que o
+  adaptador a oferece.
+
+O harness de benchmark usa exatamente essa API — ver [Benchmark](./benchmark.md).

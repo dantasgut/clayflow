@@ -6,7 +6,7 @@
 
 # Interface: PresentationDefaultsOptions
 
-Defined in: [presentation/flows/defaults.ts:17](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L17)
+Defined in: [presentation/flows/defaults.ts:17](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/flows/defaults.ts#L17)
 
 Dependências necessárias para construir os Flows default. Application
 passa essas refs do `SceneContext` quando chama `registerPresentationDefaults`.
@@ -17,7 +17,7 @@ passa essas refs do `SceneContext` quando chama `registerPresentationDefaults`.
 
 > `readonly` **canvas**: `HTMLCanvasElement`
 
-Defined in: [presentation/flows/defaults.ts:19](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L19)
+Defined in: [presentation/flows/defaults.ts:19](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/flows/defaults.ts#L19)
 
 Canvas onde os flows renderizam.
 
@@ -27,7 +27,7 @@ Canvas onde os flows renderizam.
 
 > `readonly` **core**: `EngineCore`
 
-Defined in: [presentation/flows/defaults.ts:21](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L21)
+Defined in: [presentation/flows/defaults.ts:21](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/flows/defaults.ts#L21)
 
 EngineCore (Camada 1) — passado para os flows criarem GPU specs.
 
@@ -37,7 +37,7 @@ EngineCore (Camada 1) — passado para os flows criarem GPU specs.
 
 > `readonly` **events**: `EventBus`
 
-Defined in: [presentation/flows/defaults.ts:27](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L27)
+Defined in: [presentation/flows/defaults.ts:27](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/flows/defaults.ts#L27)
 
 EventBus da cena — o TransformFlow reage a `resourceReady`; o DebugFlow emite profilerStats.
 
@@ -47,7 +47,7 @@ EventBus da cena — o TransformFlow reage a `resourceReady`; o DebugFlow emite 
 
 > `readonly` **resources**: `ResourceSystem`
 
-Defined in: [presentation/flows/defaults.ts:25](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L25)
+Defined in: [presentation/flows/defaults.ts:25](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/flows/defaults.ts#L25)
 
 ResourceSystem para acesso aos pools (poolBufferSpec, poolBindGroup).
 
@@ -57,6 +57,6 @@ ResourceSystem para acesso aos pools (poolBufferSpec, poolBindGroup).
 
 > `readonly` **world**: `World`
 
-Defined in: [presentation/flows/defaults.ts:23](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/flows/defaults.ts#L23)
+Defined in: [presentation/flows/defaults.ts:23](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/flows/defaults.ts#L23)
 
 World (Camada 2) — flows query Resources via World.queryBySchemaName.
