@@ -63,7 +63,7 @@ results-schema), quickstart.md
 ### B — Contratos e lógica pura base do harness
 
 - [ ] T025 Criar `bench/core/types.ts` com todos os tipos de `contracts/scene-api.md` (`EngineId`, `CameraSpec`, `VariantDefinition`, `Unsupported`, `SceneContext`, `SceneImplementation` com `limitations?`, `SceneDefinition`, `FrameSample`, `EngineAdapter`) e de `contracts/results-schema.md` (`RunFile`, `EnvironmentProfile`, `ResultStatus`, `Metrics`, `Result` com `limitations?`, `BaselineFile`, `RunConfig`, `RegressionReport`), mais o protocolo página→runner `PageResult` publicado em `window.__benchResult`
-- [ ] T026 [P] `bench/core/rng.ts`: `mulberry32(seed)` e geradores compartilhados de layout (`gridScatter(rng, count, extent)` → posições/escala/cor; `heightJitter`), usados pelas duas engines; teste `bench/core/__tests__/rng.test.ts` (mesma semente ⇒ mesma sequência; sementes diferentes divergem; valores em [0,1); layout determinístico)
+- [ ] T026 [P] `bench/core/rng.ts`: `mulberry32(seed)` e geradores compartilhados de layout (`gridScatter(rng, count, extent)` → posições/escala/cor; `heightJitter`), usados pelas duas engines; teste `bench/core/__tests__/rng.test.ts` (mesma semente ⇒ mesma sequência; sementes diferentes divergem; valores em [0,1); layout determinístico); e `bench/core/mat4.ts` com `composeTRS(position, rotation, scale) → Float32Array(16)` — as cenas clayflow preenchem `Transform.model` com ele, porque o motor não deriva `model` de posição/rotação/escala até a F2 — testado em `bench/core/__tests__/mat4.test.ts`
 - [ ] T027 [P] `bench/core/stats.ts`: `median`, `percentile(p)` (interpolação linear), `mean`, `coefficientOfVariation`, `aggregateRepetitions(reps) → Metrics` (mediana das medianas; `gpuMs` = `null` com < 30 amostras; `vsyncLimited` se FPS a ±2% de 60/120/144; `unstable` se CV > 5%); teste `bench/core/__tests__/stats.test.ts`
 - [ ] T028 [P] `bench/core/profile.ts`: `buildProfile(raw) → EnvironmentProfile` e `profileId` = slug legível (`vendor-device-chromeNNN-os-WxH`) + hash curto estável dos campos de hardware/navegador maior/OS/resolução (R10); teste `bench/core/__tests__/profile.test.ts` (versão menor do Chrome não muda o id; resolução muda; slug só `[a-z0-9-]`)
 
@@ -89,19 +89,19 @@ declaradas e perfil de ambiente; `--scene instances --engine clayflow` roda só 
 
 ### Página e adaptadores
 
-- [ ] T033 [US1] `bench/engines/clayflow.ts`: `EngineAdapter` clayflow só via `clayflow` — `Application.create({ canvas, profiling: true })`, câmera da `CameraSpec`, resolução fixa e DPR 1; `frame()` dirige um quadro e lê `cpuMs` = `frameComplete.dt`, `drawCalls`/`gpuMs` = `frameComplete.stats`; `memoryBytes` = `core.memoryUsage().totalBytes` (`memory: 'exact'`); `capabilities().gpuTiming` conforme `stats.gpuTimeMs` aparecer; desabilitar o GameLoop próprio se a API pública permitir, senão sincronizar a amostragem com `frameComplete` (documentar a escolha no arquivo)
+- [ ] T033 [US1] `bench/engines/clayflow.ts`: `EngineAdapter` clayflow só via `clayflow` — `Application.create({ canvas, profiling: true })`, câmera da `CameraSpec`, resolução fixa e DPR 1; `frame()` dirige um quadro e lê `cpuMs` = `frameComplete.dt`, `drawCalls`/`gpuMs` = `frameComplete.stats`; `memoryBytes` = `core.memoryUsage().totalBytes` (`memory: 'exact'`); `capabilities().gpuTiming` conforme `stats.gpuTimeMs` aparecer; não chama `app.start()`: dispara cada quadro com `app.events.emit('frameTick', { dt, elapsed })` (síncrono, executa o `ExecutionSystem`; `Time` não é atualizado nesse caminho, então as cenas não dependem dele) e lê o `frameComplete` correspondente — o motor não tem `step()` até a F1
 - [ ] T034 [P] [US1] `bench/engines/three.ts`: `EngineAdapter` Three — `WebGPURenderer({ antialias: false, trackTimestamp: true })` + `await renderer.init()`, `setPixelRatio(1)`, `setSize(1280,720)`, `PerspectiveCamera` da `CameraSpec`, luz direcional equivalente à default do clayflow; `frame()` mede `performance.now()` em volta de `scene.update?(dt)` + `renderer.render()`, lê `info.render.drawCalls`, chama `resolveTimestampsAsync('render')`/`('compute')` e usa `info.render.timestamp` (+compute) como `gpuMs`; `memoryBytes` estimado
 - [ ] T035 [P] [US1] `bench/engines/threeMemory.ts`: `estimateThreeMemory(scene)` = Σ `byteLength` de atributos/índices únicos + texturas (largura×altura×4×mips), contando `InstancedMesh.instanceMatrix`; teste `bench/core/__tests__/threeMemory.test.ts` com objetos sintéticos (geometria compartilhada contada uma vez)
 - [ ] T036 [US1] `bench/page/main.ts`: lê `?scene=&variant=&engine=&seed=&warmup=&window=&timeout=`, verifica `navigator.gpu` (falha → `PageResult` `failed` "WebGPU indisponível neste navegador"), carrega a implementação lazy do catálogo, monta adaptador + cena com `mulberry32(seed)`, roda o `FrameSampler`, captura exceções/`device lost` (→ `failed`), timeout (→ `timeout`), coleta `adapter.info` para o perfil, publica `window.__benchResult`
 
 ### Cenas (cada pasta: `scene.ts` com a `SceneDefinition`, implementações lazy por engine)
 
-- [ ] T037 [P] [US1] `bench/scenes/instances/{scene.ts,clayflow.ts,three.ts}`: variantes `10k`/`100k`/`1m` (`count`), layout `gridScatter`; clayflow = N entidades com geometria/material compartilhados quando a API pública permitir, `limitations: ['sem instancing no render: 1 draw + uploads por objeto (até F1)', 'render LDR 8 bits, sem MSAA (até F0.5)']`; three = um `InstancedMesh` com `MeshStandardMaterial`
+- [ ] T037 [P] [US1] `bench/scenes/instances/{scene.ts,clayflow.ts,three.ts}`: variantes `10k`/`100k`/`1m` (`count`), layout `gridScatter`; clayflow = N entidades `BoxGeometry` + `StandardMaterial` + `Transform` (com `model` via `composeTRS`) — recurso compartilhado entre entidades não é suportado —, `limitations: ['sem instancing no render: 1 draw + uploads por objeto (até F2)', 'render LDR 8 bits, sem MSAA (até F4)']`; three = um `InstancedMesh` com `MeshStandardMaterial`
 - [ ] T038 [P] [US1] `bench/scenes/unique-objects/{scene.ts,clayflow.ts,three.ts}`: variante `1k`; 1k geometrias com parâmetros distintos (dimensões/segmentos via `rng`) e materiais distintos; clayflow com `StandardMaterial` por objeto; three com `Mesh` + `MeshStandardMaterial` por objeto
-- [ ] T039 [P] [US1] `bench/scenes/point-lights/{scene.ts,three.ts}`: variante `256`; three = plano + 200 objetos + 256 `PointLight` (cores/posições via `rng`); clayflow = `{ unsupported: 'o forward ignora PointLight', until: 'F3' }`
+- [ ] T039 [P] [US1] `bench/scenes/point-lights/{scene.ts,three.ts}`: variante `256`; three = plano + 200 objetos + 256 `PointLight` (cores/posições via `rng`); clayflow = `{ unsupported: 'o forward ignora PointLight', until: 'F4' }`
 - [ ] T040 [P] [US1] `bench/scenes/skinned-characters/character.ts`: humanoide procedural (~3k vértices de cápsulas fundidas, `skinIndex`/`skinWeight`), esqueleto de 20 ossos e `AnimationClip` de caminhada sintético (quaternions senoidais) — determinístico, sem assets (R9)
-- [ ] T041 [US1] `bench/scenes/skinned-characters/{scene.ts,three.ts}`: variante `500`; three = 500 `SkinnedMesh` de `character.ts` com `AnimationMixer` e fase aleatória (`rng`), `update(dt)` avança os mixers; clayflow = `{ unsupported: 'sem skinning/animação', until: 'F4' }`
-- [ ] T042 [P] [US1] `bench/scenes/rigid-bodies/{scene.ts,clayflow.ts,three.ts}`: variante `10k`; esferas soltas sobre chão estático (posições iniciais via `rng`, passo 1/60); clayflow = `RigidBody` pela fachada de domínio da spec 001, `limitations: ['readback de todos os corpos para a CPU por quadro (até F0.5)', 'sem instancing no render (até F1)']`; three = Rapier (`await RAPIER.init()`, `world.step()` em `update`) + render `InstancedMesh` sincronizado das translações/rotações
+- [ ] T041 [US1] `bench/scenes/skinned-characters/{scene.ts,three.ts}`: variante `500`; three = 500 `SkinnedMesh` de `character.ts` com `AnimationMixer` e fase aleatória (`rng`), `update(dt)` avança os mixers; clayflow = `{ unsupported: 'sem skinning/animação', until: 'F8' }`
+- [ ] T042 [P] [US1] `bench/scenes/rigid-bodies/{scene.ts,clayflow.ts,three.ts}`: variantes `1k` e `10k` (`count`); esferas soltas sobre chão estático (posições iniciais via `rng`, passo 1/60); clayflow = `RigidBody` pela fachada de domínio da spec 001, `limitations: ['readback de todos os corpos para a CPU por quadro (até F2)', 'solver LCP em uma thread e narrowphase O(N·M) (até F5)', 'sem instancing no render (até F2)']` — `10k` deve terminar em `timeout`, registrado como linha de base; three = Rapier (`await RAPIER.init()`, `world.step()` em `update`) + render `InstancedMesh` sincronizado das translações/rotações
 - [ ] T043 [US1] `bench/core/catalog.ts`: registra as 5 `SceneDefinition` (`instances`, `unique-objects`, `point-lights`, `skinned-characters`, `rigid-bodies`) com `phase: 'F0'`, `seed: 1337` e câmeras idênticas por engine
 
 ### Runner (Node)
@@ -148,7 +148,7 @@ suportado" sem erro.
 - [ ] T056 [US3] Teste de extensibilidade `bench/core/__tests__/extensibility.test.ts` (SC-004): uma `SceneDefinition` fictícia definida só no teste, implementada para uma única engine, passa por `validateCatalog` → `planRuns` → `toMarkdown` → `toBaseline`/`compare` sem nenhuma alteração nesses módulos, e a outra engine aparece como "não suportado"
 - [ ] T057 [US3] Documentar no topo de `bench/core/catalog.ts` (JSDoc) o passo a passo de adicionar uma cena (espelha `quickstart.md` §5)
 
-**Checkpoint**: harness pronto para acompanhar F0.5→F9.
+**Checkpoint**: harness pronto para acompanhar F1→F10.
 
 ---
 
@@ -159,7 +159,7 @@ suportado" sem erro.
 - [ ] T060 JSDoc em todos os exports novos da lib (`FrameStats`, `setFrameProfiling`, `lastFrameStats`, `profiling`, `profilingCapacity`, `stats`); `npm run doc:coverage` verde; `npm run doc` regenerado
 - [ ] T061 Verificar SC-005: `npm pack --dry-run` não lista nada de `bench/`; `dependencies` só `uuid`; `grep` em `dist/` sem `three`/`rapier`; overhead da observabilidade — comparar `cpuMs` de `instances/10k` clayflow com `profiling` ligado vs desligado (parâmetro de query `profiling=0` aceito por `bench/page/main.ts` e `bench/engines/clayflow.ts`), diferença ≤ 2%; registrar no PR
 - [ ] T062 Verificar SC-002 e SC-007: duas execuções completas consecutivas (`npm run bench`) com medianas por cena diferindo ≤ 5% e duração ≤ 15 min; `--quick` ≤ 3 min; registrar no PR
-- [ ] T063 Gravar e commitar o baseline da máquina de referência (`npm run bench:baseline` → `bench/baselines/<profileId>.json`) e anexar o `latest.md` do primeiro relatório completo ao PR como linha de base declarada da F0.5/F1 (SC-006)
+- [ ] T063 Gravar e commitar o baseline da máquina de referência (`npm run bench:baseline` → `bench/baselines/<profileId>.json`) e anexar o `latest.md` do primeiro relatório completo ao PR como linha de base declarada da F1/F2 (SC-006)
 - [ ] T064 Atualizar `specs/ROADMAP.md` (F0 marcada como entregue, com link para o relatório no PR) e o `Status` de `specs/002-benchmark-harness/spec.md`
 - [ ] T065 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`
 
@@ -217,7 +217,7 @@ graph LR
 ```text
 Task: "T037 instances (scene/clayflow/three)"
 Task: "T038 unique-objects (scene/clayflow/three)"
-Task: "T039 point-lights (scene/three; clayflow unsupported até F3)"
+Task: "T039 point-lights (scene/three; clayflow unsupported até F4)"
 Task: "T040 character.ts procedural"
 Task: "T042 rigid-bodies (scene/clayflow fachada/three Rapier)"
 ```
@@ -225,7 +225,7 @@ Task: "T042 rigid-bodies (scene/clayflow fachada/three Rapier)"
 ## Implementation Strategy
 
 - **MVP = Setup + Foundational + US1** (T001–T048): relatório comparativo reproduzível com observabilidade do
-  motor. Já responde "onde estamos?" e fixa a linha de base para a F0.5.
+  motor. Já responde "onde estamos?" e fixa a linha de base para a F1.
 - **Incremento 2 = US2** (T049–T054): gate de regressão.
 - **Incremento 3 = US3** (T055–T057): extensibilidade garantida por teste.
 - **Conclusão = Polish** (T058–T065). Pela regra de completude do projeto, a feature só está pronta com **todas**

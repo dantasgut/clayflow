@@ -20,7 +20,7 @@ O roadmap evolutivo do clayflow (F0→F9, ver [`specs/ROADMAP.md`](../ROADMAP.md
 realista e mais rápido que o Three.js** em cenas de escala (mundo aberto, multidões, simulação), oferecendo
 capacidades de engine que permitam modernizar jogos como o MorphSociety (que adota o clayflow no próprio
 repositório). Hoje não há **nenhuma medição** comparativa: não se sabe quanto o clayflow perde
-ou ganha, em que cenários, nem se uma mudança futura (F1 GPU-driven, F2 PBR…) melhora ou regride desempenho.
+ou ganha, em que cenários, nem se uma mudança futura (F1 completar a refundação, F2 ponte compute↔render…) melhora ou regride desempenho.
 
 Sem um referencial reproduzível, toda afirmação "mais rápido" é opinião, e regressões de performance passam
 despercebidas (o CI não tem GPU). Esta feature cria o instrumento de medição que todas as fases seguintes usam
@@ -53,7 +53,7 @@ relatório é produzido contendo, para cada cena × engine, as métricas definid
 2. **Given** o relatório gerado, **When** o mantenedor o lê, **Then** cada linha mostra cena, variante (ex.: 10k /
    100k / 1M), engine, tempo de CPU por quadro, tempo de GPU por quadro, FPS médio, p95 e p99 do tempo de quadro,
    número de draw calls e memória GPU estimada, além do perfil de hardware/navegador em que foi medido.
-3. **Given** que uma cena não é suportada por uma engine (ex.: personagens animados no clayflow antes da F4),
+3. **Given** que uma cena não é suportada por uma engine (ex.: personagens animados no clayflow antes da F8),
    **When** o benchmark roda, **Then** a célula correspondente é marcada como "não suportado" com o motivo, e as
    demais cenas continuam executando normalmente.
 4. **Given** o mantenedor quer medir só um subconjunto, **When** executa o comando filtrando por cena e/ou engine,
@@ -95,7 +95,7 @@ Como desenvolvedor de uma fase futura do roadmap (ex.: F5 terreno/vegetação), 
 benchmark descrevendo-a uma vez, com uma implementação por engine, sem tocar no executor, nas métricas nem no
 relatório.
 
-**Why this priority**: Garante que o harness acompanhe o roadmap inteiro (F1→F9), cobrindo cada nova
+**Why this priority**: Garante que o harness acompanhe o roadmap inteiro (F1→F10), cobrindo cada nova
 capacidade de engine. Não bloqueia o uso inicial, mas evita que o harness vire código descartável.
 
 **Independent Test**: Criar uma cena trivial nova seguindo o guia, rodar o benchmark e verificar que ela aparece
@@ -118,7 +118,7 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
 - **Medição de tempo de GPU indisponível** (feature de timestamp não suportada pelo dispositivo) → a coluna de GPU
   é marcada "indisponível" para aquela execução; as demais métricas seguem; o gate ignora métricas indisponíveis
   em vez de considerá-las regressão.
-- **Cena que estoura memória ou trava a engine** (ex.: 1M instâncias no clayflow antes da F1) → a falha é
+- **Cena que estoura memória ou trava a engine** (ex.: 1M instâncias no clayflow antes da F2) → a falha é
   capturada, a cena é marcada como "falhou" com o erro, há tempo-limite por cena, e o benchmark prossegue nas
   cenas seguintes. Uma cena que **falhava** no baseline e passa a funcionar conta como melhoria; uma cena que
   **funcionava** e passa a falhar conta como regressão.
@@ -148,7 +148,7 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   2. **Objetos únicos** — 1 mil objetos com malhas e materiais distintos;
   3. **Luzes** — 256 luzes pontuais iluminando uma cena fixa;
   4. **Personagens animados** — 500 personagens com esqueleto e animação; no clayflow fica declarada como "não
-     suportado até a F4", mas a implementação de referência no Three.js DEVE existir e ser medida;
+     suportado até a F8", mas a implementação de referência no Three.js DEVE existir e ser medida;
   5. **Física** — 10 mil corpos rígidos caindo e colidindo; clayflow com sua física na GPU, e o lado Three.js com
      uma biblioteca de física de referência executada na CPU.
 - **FR-003**: Cada cena DEVE ser determinística (semente fixa) e visualmente equivalente nas duas engines: mesma
@@ -173,7 +173,7 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   desligada. Como hoje o motor cria o dispositivo de GPU sem solicitar a capacidade de timestamps (por isso o
   profiler nunca mede nada), a criação do dispositivo DEVE solicitá-la sempre que o adaptador a oferecer. A
   configuração completa do dispositivo (preferência de desempenho, demais capacidades e limites) fica para a
-  fase F0.5 do roadmap.
+  fase F1 do roadmap (spec `003-core-hardening`).
 - **FR-007b**: A cena do clayflow DEVE usar o melhor caminho público que o motor oferece hoje para cada carga, e
   o relatório DEVE registrar por cena as limitações conhecidas do motor que afetam o resultado (ex.: "física com
   readback na CPU por quadro", "sem instancing no render") — a linha de base mede o motor como ele é, e cada fase
@@ -285,4 +285,4 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   pelo jogo acontece no repositório do jogo.
 - Comparar com outras engines além do Three.js (Babylon.js, PlayCanvas) — pode virar cena/adaptador futuro.
 - Rodar benchmark no CI ou em dispositivos móveis.
-- Comparação de qualidade visual pixel a pixel (fica para a F2/F3, que define a paridade visual).
+- Comparação de qualidade visual pixel a pixel (fica para a F4, que define a paridade visual).

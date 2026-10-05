@@ -76,7 +76,7 @@ Cabeçalho com o perfil (GPU, navegador, OS, resolução, commit, data) e uma li
 | Cena         | Variante | CPU ms (clay / three / ×)        | GPU ms (clay / three / ×) | FPS (clay / three) | p99 ms (clay / three) | Draw calls (clay / three) | Memória MB (clay / three\*) |
 | ------------ | -------- | -------------------------------- | ------------------------- | ------------------ | --------------------- | ------------------------- | --------------------------- |
 | instances    | 10k      | 4.10 / 0.42 / 9.8×               | 2.0 / 0.9 / 2.2×          | 210 / 1180         | 6.1 / 1.1             | 10000 / 1                 | 12.4 / 3.1\*                |
-| point-lights | 256      | não suportado (até F3) / 1.2 / — | …                         | …                  | …                     | …                         | …                           |
+| point-lights | 256      | não suportado (até F4) / 1.2 / — | …                         | …                  | …                     | …                         | …                           |
 ```
 
 `×` = clayflow ÷ Three (> 1 = clayflow mais lento). `*` = memória estimada. Linhas instáveis recebem ⚠ e `vsyncLimited`

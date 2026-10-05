@@ -81,13 +81,13 @@ em uso — o lado clayflow nunca baixa Three.
 
 ## Catálogo inicial
 
-| id                   | Variantes                     | clayflow                                                                                       | three                                                       |
-| -------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `instances`          | `10k`, `100k`, `1m` (`count`) | N entidades Box+StandardMaterial+Transform — limitação: sem instancing (até F1)                | `InstancedMesh`                                             |
-| `unique-objects`     | `1k`                          | 1k geometrias com parâmetros distintos (segmentos/dimensões) e materiais distintos             | 1k `Mesh` com geometria e `MeshStandardMaterial` próprios   |
-| `point-lights`       | `256`                         | `{ unsupported: 'forward ignora PointLight', until: 'F3' }`                                    | 256 `PointLight` sobre plano + 200 objetos                  |
-| `skinned-characters` | `500`                         | `{ unsupported: 'sem skinning/animação', until: 'F4' }`                                        | 500 `SkinnedMesh` procedurais (20 ossos) + `AnimationMixer` |
-| `rigid-bodies`       | `10k`                         | 10k `RigidBody` esfera (fachada de domínio) + chão — limitação: readback por quadro (até F0.5) | Rapier 10k esferas + chão; render `InstancedMesh`           |
+| id                   | Variantes                     | clayflow                                                                                                                   | three                                                       |
+| -------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `instances`          | `10k`, `100k`, `1m` (`count`) | N entidades Box+StandardMaterial+Transform — limitação: sem instancing (até F2)                                            | `InstancedMesh`                                             |
+| `unique-objects`     | `1k`                          | 1k geometrias com parâmetros distintos (segmentos/dimensões) e materiais distintos                                         | 1k `Mesh` com geometria e `MeshStandardMaterial` próprios   |
+| `point-lights`       | `256`                         | `{ unsupported: 'forward ignora PointLight', until: 'F4' }`                                                                | 256 `PointLight` sobre plano + 200 objetos                  |
+| `skinned-characters` | `500`                         | `{ unsupported: 'sem skinning/animação', until: 'F8' }`                                                                    | 500 `SkinnedMesh` procedurais (20 ossos) + `AnimationMixer` |
+| `rigid-bodies`       | `1k`, `10k`                   | N `RigidBody` esfera (fachada de domínio) + chão — limitações: readback por quadro (até F2), solver em uma thread (até F5) | Rapier N esferas + chão; render `InstancedMesh`             |
 
 ## Regras
 

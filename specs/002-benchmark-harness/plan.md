@@ -7,7 +7,7 @@
 ## Summary
 
 Criar o instrumento de medição do roadmap: um harness em `bench/` (fora da lib) que roda cenas genéricas
-determinísticas — instâncias (10k/100k/1M), 1k objetos únicos, 256 luzes, 500 personagens animados, 10k corpos
+determinísticas — instâncias (10k/100k/1M), 1k objetos únicos, 256 luzes, 500 personagens animados, 1k/10k corpos
 rígidos — no clayflow e no Three.js `WebGPURenderer` (+ Rapier na física), em páginas isoladas conduzidas por
 Playwright sobre o Chrome real, com aquecimento + janela fixa + repetições. Exporta JSON + tabela markdown,
 grava baselines por perfil de máquina e reprova o gate local quando o clayflow regride > 10%.
@@ -128,8 +128,8 @@ bench/                                 # HARNESS — fora da lib (FR-018)
 ├── scenes/
 │   ├── instances/{scene.ts,clayflow.ts,three.ts}
 │   ├── unique-objects/{scene.ts,clayflow.ts,three.ts}
-│   ├── point-lights/{scene.ts,clayflow.ts,three.ts}       # clayflow: unsupported até F3
-│   ├── skinned-characters/{scene.ts,three.ts,character.ts} # clayflow: unsupported até F4
+│   ├── point-lights/{scene.ts,clayflow.ts,three.ts}       # clayflow: unsupported até F8
+│   ├── skinned-characters/{scene.ts,three.ts,character.ts} # clayflow: unsupported até F8
 │   └── rigid-bodies/{scene.ts,clayflow.ts,three.ts}       # three: + Rapier
 ├── baselines/                         # <profileId>.json — versionado
 └── results/                           # gitignored (latest.json, latest.md, histórico)

@@ -66,7 +66,7 @@ interface EngineCore {
 
 0. Criação do dispositivo (`core/gpu/GpuContext.ts`): `requiredFeatures` inclui `'timestamp-query'` quando o
    adaptador a oferece. Sem a feature, `setFrameProfiling(true)` é no-op com aviso único e `gpuTimeMs` fica
-   ausente. (Configuração completa do dispositivo: spec `003-core-foundations`, F0.5.)
+   ausente. (Configuração completa do dispositivo: spec `003-core-hardening`, F1.)
 1. `record()` abre o quadro: zera contadores; se profiling ligado, `FrameTimestampAllocator.begin()`.
 2. Cada `beginRenderPass`/`beginComputePass` sem `timestampWrites` explícito recebe um par do alocador. Passes com
    `timestampWrites` explícito (ex.: `ForwardFlow.setProfileTimestamps`) são respeitados e também somados.

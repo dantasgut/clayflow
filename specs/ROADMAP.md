@@ -1,120 +1,261 @@
-# Roadmap Evolutivo — Clay Engine
+# Roadmap — Clay Engine: correção e evolução
 
-**Objetivo**: construir no clayflow as **capacidades de engine** (renderização, materiais, iluminação, animação,
-mundo aberto, física de jogo, VFX) com **qualidade visual equivalente ou superior** e **desempenho superior** ao
-Three.js, de modo que jogos realistas possam ser modernizados sobre ele.
-
-**Consumidor de referência**: [MorphSociety](https://github.com/dantasgut/morphysociety). O jogo **não** é trazido
-para este repositório — ele é o _cliente_ que orienta quais capacidades priorizar e que, no próprio repo, adota o
-clayflow como dependência (`file:../clayflow` / pacote publicado) à medida que cada capacidade amadurece. Aqui só
-existem engine, testes, smokes e cenas genéricas de benchmark.
-
-**Criado**: 2026-10-03 · **Governança**: [Constituição v1.0.0](../.specify/memory/constitution.md) — cada fase vira
-uma ou mais specs do Spec Kit, com fachada de domínio (Princípio II) e gate completo verde.
+**Criado**: 2026-10-03 · **Reescrito**: 2026-10-05 (após auditoria completa C1–C4 e leitura da arquitetura alvo)
+**Governança**: [Constituição v1.0.0](../.specify/memory/constitution.md) — cada fase vira uma ou mais specs do
+Spec Kit, com fachada de domínio (Princípio II) e gate completo verde.
+**Arquitetura de referência**: [Arquitetura do Motor C1–C4](../clay-engine-doc/docs/guides/architecture_resource_loaders.md)
+— a refundação, autoritativa. O legado ([apêndice de migração](../clay-engine-doc/docs/guides/migration_legacy_to_clean.md))
+deteriorou a arquitetura original e por isso foi substituído; dele só se resgatam _capacidades_ (ex.: física
+escrevendo direto no slot do objeto na GPU, composição de módulos WGSL), nunca estruturas.
 
 ---
 
-## Tese: onde o clayflow pode vencer o Three.js
+## 1. Propósito
 
-O Three.js percorre o scene graph na CPU a cada quadro, emite **um draw call e um update de uniforms por objeto** e
-faz culling na CPU. Em cenas grandes (vegetação, multidões, construções) o gargalo é a CPU, não a GPU.
+O Clay Engine existe para **criar mundos matematicamente customizáveis** na GPU, com um núcleo de kernels de
+compute de propósito geral sobre o qual tudo — cenário, objetos, materiais, texturas, iluminação, forças,
+partículas — é calculado.
 
-O clayflow já tem: física 100% GPU, compute, `drawIndexedIndirect`, `dispatchWorkgroupsIndirect`, render bundles e um
-núcleo data-oriented (`Resource`/schema). A aposta é **renderização GPU-driven**: a GPU decide o que desenhar (culling
-em compute → indirect draw por material), mantendo o custo de CPU por quadro **~constante**, e física, animação e
-render compartilham os mesmos buffers sem round-trip para a CPU.
+- **Transformações programáveis** — as transformações lineares de objetos, cena, câmera e clip são calculadas em
+  compute e podem ser substituídas por matemática do usuário.
+- **Conteúdo paramétrico e procedural** — terrenos e cenários como superfícies paramétricas; árvores, pessoas e
+  animais gerados por procedimento; água como partículas fluidas realistas; luz e texturas realistas.
+- **Espaço também é programável** — começa por cenas euclidianas de jogo, mas permite espaços curvos e torcidos
+  (estilo _Layers of Fear_): deformações de espaço, projeções customizadas, portais.
+- **Compute-first** — compute calcula, vertex e fragment **apresentam**. As duas pipelines conversam por buffers
+  compartilhados (buffers polivalentes da C1), sem passar pela CPU.
+- **Encapsulamento em níveis** — quem não quiser descer o nível usa peças prontas; quem quiser preenche `data`,
+  escreve funções WGSL em pontos de extensão, ou escreve um `Flow` inteiro.
 
-> Em cenas pequenas haverá empate. A vantagem aparece em **escala** — exatamente o perfil de jogos como o MorphSociety.
+Referências matemáticas (ponto de partida, não limite): [`notes/math.md`](../clay-engine-doc/docs/notes/math.md)
+(superfícies paramétricas, homotopias, `P·V·M`, Jacobiana, métrica, curvatura, malha adaptativa),
+[`conceitos_cg_matematica_fisica.md`](../clay-engine-doc/docs/guides/conceitos_cg_matematica_fisica.md),
+[`10_Hierarquia_Objetos_3D.md`](../clay-engine-doc/docs/guides/10_Hierarquia_Objetos_3D.md) e os guias de física.
 
-## Diagnóstico de partida (2026-10-03)
+**Consumidor de referência**: [MorphSociety](https://github.com/dantasgut/morphysociety) — adota o clayflow no
+próprio repositório; nunca é trazido para cá. Desempenho superior ao Three.js em escala continua sendo meta, medida
+pelo harness da F0, como consequência da arquitetura.
 
-| Área             | Estado                                                                                             |
-| ---------------- | -------------------------------------------------------------------------------------------------- |
-| Iluminação       | 🔴 Lambert (`ambient + N·L`) em `forward.wgsl`; roughness/metallic não usados; sem IBL/céu/neblina |
-| Texturas         | 🔴 Infra de textura/sampler existe; `StandardMaterial` sem mapas                                   |
-| Sombras          | 🟡 1 shadow map direcional com PCF; sem cascatas                                                   |
-| Bones/animação   | 🔴 `GltfLoader` lê skins/animações; sem skinning nem sistema de animação                           |
-| Geometria/escala | 🔴 Uniform de Transform por objeto; sem instancing no render, LOD ou frustum culling               |
-| Pós-processo     | 🟡 ToneMapping, SSAO, Bloom, FXAA, ColorGrading, Vignette — mas sobre cena LDR 8 bits, sem MSAA    |
-| Física rígida    | 🟡 LCP/PGS GPU forte; faltam raycast, character controller, heightfield                            |
-| Fluidos          | 🟡 SPH, PBF, MPM simulam na GPU, mas nenhum flow os renderiza (kernels `*_vertex_write` órfãos)    |
-| Tecido / fogo    | 🟡 Bases (XPBD, emissores de partículas), sem features prontas                                     |
+## 2. Princípios que guiam as correções
 
-### Núcleo: o motor não usa a potência que já tem (auditoria 2026-10-04)
+1. **Completar a refundação, não reinventá-la.** O desenho C1–C4 é sólido: spec-as-identity, buffers polivalentes,
+   pass slots, bag declarativa com inferência, `Flow<TSlots,S>` com slots tipados e máquina de estados, `consumes`
+   resolvido por `ConsumerResolver`, pools com slot estável, ciclo de vida com `GpuManaged`. A C1 foi implementada
+   quase ao pé da letra; **os mecanismos da C2 que fazem tudo funcionar não existem ou nada os chama** — por isso
+   C3 e C4 refazem tudo à mão e não se conversam.
+2. **O caminho quente nunca passa pela CPU.** Dado produzido em compute é consumido pelo render no mesmo buffer
+   (`GpuManaged`). Readback só sob demanda (consultas, gameplay).
+3. **Uma fonte de verdade por struct.** O `StructSchema` gera o WGSL; nada de struct duplicado à mão entre TS e WGSL.
+4. **Matemática comum num núcleo único de módulos WGSL**, compartilhado por compute e render, com dependências
+   declaradas e deduplicação por símbolo — o objetivo original de organizar solvers com shaders reusáveis.
+5. **Pontos de extensão explícitos** para a matemática do usuário (§4.3), sem exigir um `Flow` novo para cada
+   customização.
+6. **O motor promete só o que entrega.** Documentação, JSDoc e nomes refletem o comportamento real.
 
-O C1 expõe instancing, dynamic offsets, indirect draw/dispatch, render bundles, compute, pipelines assíncronos,
-texture arrays e MSAA — mas as camadas acima quase não os usam, e o dispositivo é criado no mínimo. Essas lacunas
-viram a fase **F0.5** (fundamentos) e parte da **F1**:
+## 3. Diagnóstico (auditoria 2026-10-04/05)
 
-| #   | Lacuna                                                                                                                                                                                                                                       | Evidência                                                       | Fase |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---- |
-| 1   | Dispositivo sem `powerPreference`, features ou limites: `timestamp-query` nunca habilitado (profiler inoperante), limites padrão cortam pools grandes, sem `shader-f16`/compressão de textura/`float32-filterable`/`indirect-first-instance` | `core/gpu/GpuContext.ts:17-19`                                  | F0.5 |
-| 2   | Física rígida faz round-trip pela CPU a cada quadro (readback do pool inteiro → `Transform` → re-upload pelo forward); `rb_sync_transform.wgsl` existe mas está desligado                                                                    | `LCPFlow.ts:121`, `:594-627`                                    | F0.5 |
-| 3   | Forward por objeto: câmera consultada e escrita por objeto, 3 `writeBuffer` + 4 bind groups + 1 draw por objeto, VBO/IBO por entidade, sem instancing/ordenação/culling; sombra repete tudo                                                  | `ForwardFlow.ts:214-262`, `:648-659`; `ShadowFlow.ts`           | F1   |
-| 4   | Fluidos, softbodies e partículas sem caminho de render (`*_vertex_write` não referenciados; `PointCloudGeometry`/`PointSpriteMaterial` não desenhados)                                                                                       | `ForwardFlow.ts:476`; `elements/gpu/wgsl/kernels/`              | F1   |
-| 5   | Cena renderizada em LDR 8 bits (formato do canvas): tone mapping/bloom sobre valores já cortados; MSAA não usado                                                                                                                             | `ForwardFlow.ts:411`, `:614`                                    | F0.5 |
-| 6   | Tipos identificados por `constructor.name` — quebram sob minificação no build do consumidor                                                                                                                                                  | `ForwardFlow.ts:664,675`; `ShadowFlow.ts:419`; `LCPFlow.ts:684` | F0.5 |
-| 7   | Lista fixa de schemas de geometria renderizáveis (glTF/terreno não renderizam sem editar o flow — fere OCP)                                                                                                                                  | `ForwardFlow.ts:476`; `ShadowFlow.ts:284`                       | F0.5 |
-| 8   | Índices forçados a `uint16`: malhas > 65.535 vértices corrompem; índices `Uint32` do `GltfLoader` são truncados                                                                                                                              | `ForwardFlow.ts:515,534`                                        | F0.5 |
-| 9   | Passo de física fixo por quadro sem acumulador: simulação 2,4× mais rápida a 144 Hz, metade a 30 fps                                                                                                                                         | `LCPFlow.ts:523`; `GameLoop.ts:30`                              | F0.5 |
+### 3.1 Mecanismos da refundação vs código
 
-## Fases
+| Conceito da refundação                                                     | Estado no código                                                                                                                                                                                                                                                     |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fachada C1, spec-as-identity, pass slots, ciclo de frame                   | ✅ Implementado (`core/contracts/*`, `GpuEngineCore.ts`, `GpuFrame.ts`)                                                                                                                                                                                              |
+| Buffers polivalentes (`vertex`/`index`/`indirect` com `STORAGE`)           | ✅ Usages corretos (`GpuEngineCore.ts:30-46`) — mas `ComputeKernelBinding.buffer` aceita só uniform/storage e a visibilidade é fixa em COMPUTE (`EngineCore.ts:63`, `createComputeKernel.ts:50`): um kernel não escreve vertex/index/indirect nem é lido pelo render |
+| `LayoutInferencer.infer` / `inferPool`                                     | 🔴 Não existe; só helpers órfãos, instanciados e não passados a ninguém (`SceneContext.ts:54-57`)                                                                                                                                                                    |
+| `consumes` + `ConsumerResolver`                                            | 🔴 Cascas sem registro nem chamada; `consumes` declarados são letra morta                                                                                                                                                                                            |
+| `Flow<TSlots,S>` (slots + máquina de estados por eventos)                  | 🔴 `Flow` sem `slots` nem `state`; `isReady()` por polling; sequência imperativa no `dispatch` (`Flow.ts:28-109`)                                                                                                                                                    |
+| Seleção de Flow por `FlowDescriptor` (algoritmo ≠ tipo de corpo)           | 🔴 Nenhum Resource implementa `getFlowDescriptors`; schemas por algoritmo (`LCPSchema`, `SPHSchema`); mapa fixo schema→Flow ligado pela C4 (`defaultFlows.ts:26-37`, `Application.ts:120-122`)                                                                       |
+| `flowReady`, `bindGroupReplaced`                                           | 🔴 Nunca emitidos                                                                                                                                                                                                                                                    |
+| Ciclo de vida com capabilities e `GpuManaged`                              | 🟡 Handlers existem; `GpuManaged` nunca usado; estado atribuído direto (`ResourceSystem.ts:111-297`)                                                                                                                                                                 |
+| ResourceSystem alocando a bag inteira                                      | 🟡 Só uniform/storage; vertex/index/indirect/texture/sampler ignorados; um spec por Resource; pool com layout só COMPUTE (`ResourceSystem.ts:136-208`)                                                                                                               |
+| "Reuso de instância proibido"                                              | 🔴 `World.insert` idempotente; recurso compartilhado remapeado para a última raiz (`World.ts:43-47,142-149`)                                                                                                                                                         |
+| Corpos como contêineres de partículas (`FluidBody`, `SoftBody` com arrays) | 🔴 Uma partícula por entidade (`FluidBody.ts:18-21`, `SoftBody.ts`) — N objetos JS, N registros, N uploads                                                                                                                                                           |
+| `Time` governando a física (`scale`, `fixedDt` com substeps)               | 🔴 `fixedDt` próprio por Flow, um passo por quadro, `scale` ignorado, uniform `Time` nunca atualizado                                                                                                                                                                |
+| Câmera composta com `Transform`; controllers mutam o `Transform`           | 🔴 Controllers escrevem matrizes da câmera por referência direta; matemática triplicada; `aspect` não atualiza                                                                                                                                                       |
+| `RenderTarget`, `ShadowMap`, `Input`, `UiTree`, efeitos como Resources     | 🔴 Cascas ou fora do World                                                                                                                                                                                                                                           |
+| Multi-câmera e render-to-texture                                           | ∅ Ausente                                                                                                                                                                                                                                                            |
+| Pause/resume/snapshot/restore/headless                                     | ∅ Ausente                                                                                                                                                                                                                                                            |
+| Fronteira (C4 não conhece C1 nem solvers concretos)                        | 🔴 15 arquivos de C3/C4 importam `core/contracts`; `Application` expõe `core`/`resources`; `scene/index.ts:35` exporta `engine`                                                                                                                                      |
+| Composição WGSL `{{struct:X}}` a partir de `consumes`                      | 🔴 Não existe; shaders montados por `join('\n')` sem dedup                                                                                                                                                                                                           |
+
+### 3.2 Desempenho
+
+| Problema                                                                                                                                           | Evidência                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `specHash` sem cache em todo bind/set/write — re-serializa e faz SHA-1 do WGSL completo a cada `setPipeline`                                       | `specHash.ts:30`, `GpuRenderPass.ts:46-70`                     |
+| Solver LCP em **uma thread** (`@workgroup_size(1)`, 1 workgroup); XPBD idem; narrowphase O(N·M) sem broadphase                                     | `rb_solve_lcp.wgsl:7`, `LCPFlow.ts:564-570`, `XPBDFlow.ts:232` |
+| Forward/sombra por entidade: VBO/IBO, 3 UBOs (câmera duplicada), 4 bind groups, 1 draw; três cópias de geometria (Forward, Shadow, ResourceSystem) | `ForwardFlow.ts:497-660`, `ShadowFlow.ts:316-413`              |
+| Sem dedup de geometria nem instancing; pool `Renderable` citado no desenho e nunca definido                                                        | `ForwardFlow.ts:521`, doc L4441                                |
+| Física rígida: readback do pool inteiro → CPU → `Transform` → re-upload                                                                            | `LCPFlow.ts:590-701`                                           |
+| Dispositivo sem features/limites/`powerPreference` (timestamp-query nunca habilitado)                                                              | `GpuContext.ts:17-19`                                          |
+
+### 3.3 Qualidade e correção
+
+- Shader único Lambert para todos os materiais; roughness/metallic, cor/intensidade de luz, pool de luzes, UVs
+  ignorados; normal sem matriz normal (`forward.wgsl:55-98`); topologia do material ignorada (`ForwardFlow.ts:616`).
+- Cena em LDR 8 bits, sem MSAA; SSAO/FXAA falsos; tone mapping sobre LDR (`effects.wgsl:36-127`).
+- `Transform.model` nunca derivado de posição/rotação/escala (`Transform.ts:25-33`); sombra com frustum fixo ±10.
+- FEM sem solve elástico; emissores sem simulação; Wind/Vortex/Drag/Buoyancy sem consumidor; fluidos sem colisores;
+  23 de 80 arquivos WGSL órfãos — justamente os de ponte simulação→render (`rb_sync_transform`, `*_vertex_write`)
+  e os solvers paralelos (`distance_solve_color/jacobi`, `fem_solve`).
+- `ParametricGeometry` amostra em CPU com normal fixa `[0,1,0]`; índices sempre `uint16`.
+- Matemática WGSL duplicada (`mat3_*` em 3 arquivos, `W_poly6`/`grad_W_spiky` em 3 kernels, SDF reimplementado).
+- Robustez: `constructor.name`, lista fixa de schemas renderizáveis, sem `step()`, vazamentos (slots do forward,
+  listener do `DebugFlow`), flows padrão não substituíveis, câmera um quadro atrasada.
+
+## 4. Modelo alvo
+
+### 4.1 Fluxo de dados compute-first
+
+```mermaid
+flowchart LR
+  subgraph CPU["CPU — só intenção"]
+    D["Resource.data<br/>(entidades preenchidas pelo usuário)"]
+  end
+  subgraph STATE["Estado de cena na GPU (pools, slot estável)"]
+    P1["Transform · Camera · Light · Material · Renderable<br/>Bodies · Fields · Surfaces"]
+  end
+  subgraph COMPUTE["Estágios compute (Flows com slots tipados)"]
+    K1["transform: TRS/hierarquia/função → matriz de mundo"]
+    K2["surface: S(u,v,t) → vértices, normais, métrica"]
+    K3["space: φ(x,t) → espaço curvo/torcido"]
+    K4["solvers: rígido · mole · fluido · partículas<br/>(forças = fields programáveis)"]
+    K5["material/texture: texturas procedurais"]
+    K6["visibilidade: culling → indirect"]
+  end
+  subgraph RENDER["Apresentação (vertex fino + fragment)"]
+    R1["vertex pulling por índice de instância"]
+    R2["fragment PBR · luzes do pool · sombras"]
+    R3["pós-processo HDR"]
+  end
+  D -- "upload só quando Dirty" --> P1
+  P1 --> K1 & K2 & K4
+  K4 --> K1
+  K1 --> K3
+  K2 --> K3
+  K3 --> K6
+  K5 --> R2
+  K6 -- "buffers polivalentes<br/>vertex/index/indirect" --> R1
+  R1 --> R2 --> R3
+```
+
+Regras:
+
+- **Um pool por tipo de dado de cena**, visível a compute, vertex e fragment (visibilidade inferida do WGSL). O
+  render lê pelo índice de instância — fim do UBO por objeto.
+- **Instancing compatível com "reuso de instância proibido"**: memória compartilhada vem de (1) coalescing em pools
+  e (2) **dedup de geometria por conteúdo** (schema + parâmetros) no ResourceSystem; o pool `Renderable`
+  (geometria, material, slot de transform) agrupa draws por (geometria, pipeline) com `draw.indexed(count, instances)`
+  ou indirect.
+- **`GpuManaged`**: quando um compute é dono de um buffer (ex.: física escreve `Transform`), a CPU para de fazer
+  upload; nenhuma escrita de CPU sobrescreve o resultado da GPU.
+- **Câmera = `Camera` + `Transform`**: controllers mutam o `Transform`; um kernel produz view, projection e
+  viewProjection a partir dos parâmetros (ponto `camera`).
+- **Corpos são contêineres de partículas**: `FluidBody`/`SoftBody` carregam arrays (posições, molas internas,
+  tetraedros); constraints entre corpos ficam como Resources próprios.
+- **Hierarquia opcional** (decisão D1): componente `Parent` resolvido pelo kernel de transformação, por níveis.
+
+### 4.2 Núcleo de shaders
+
+- **`WgslModule`** `{ name, source, requires[] }` com resolução topológica e **deduplicação por símbolo**. Módulos
+  de base: `quat`, `mat`, `linalg`, `sdf`, `sph_kernels`, `mpm_weights`, `xpbd`, `lcp`, `noise`, `color`, `brdf`;
+  módulos novos: `parametric` (avaliação, derivadas, métrica, curvatura), `space` (deformações e Jacobiana),
+  `procedural` (L-systems, esqueletos, campos), `sampling`.
+- **Structs gerados do `StructSchema`** (`toWGSL` com std140/std430 e tipos válidos — hoje `u16` gera WGSL inválido),
+  realizando os marcadores `{{struct:X}}` do desenho.
+- O mesmo módulo serve compute e render (ex.: `quat_to_mat4` hoje existe em WGSL e reescrito em TS no `LCPFlow`).
+- Kernels genéricos reutilizáveis pelo núcleo: prefix sum, sort (radix/bitônico), compactação, reduções, construção de
+  grade e busca de vizinhos (já existe em `NeighborSearchPipeline`), BVH — base comum para física, culling,
+  partículas e conteúdo procedural.
+
+### 4.3 Pontos de extensão matemáticos
+
+Cada estágio compute aceita uma função WGSL do usuário com assinatura fixa, composta pelo núcleo de shaders e
+validada na criação. O motor traz implementações prontas para cada um. São os "slots de função" que complementam os
+slots de dados do `Flow<TSlots,S>`.
+
+| Ponto       | Assinatura (conceito)                            | Pronto no motor                            | Exemplos do usuário                                  |
+| ----------- | ------------------------------------------------ | ------------------------------------------ | ---------------------------------------------------- |
+| `transform` | `(slot, data, t) → mat4`                         | TRS, TRS + `Parent`                        | órbitas, cinemática por equações, enxames            |
+| `camera`    | `(data, t) → { view, projection }`               | perspectiva/ortográfica, lookAt            | projeções não lineares, lentes                       |
+| `surface`   | `(u, v, t, data) → vec3` (+ derivadas opcionais) | plano, esfera, toro, terreno por ruído     | homotopias, superfícies arbitrárias                  |
+| `space`     | `(x, t) → x'` (Jacobiana numérica ou fornecida)  | identidade                                 | corredores que se curvam, torções, espaços dobrados  |
+| `field`     | `(x, v, t) → força`                              | gravidade, vento, vórtice, arrasto, empuxo | campos arbitrários                                   |
+| `material`  | `(amostra de superfície) → parâmetros PBR`       | PBR por mapas/constantes                   | texturas procedurais, padrões dependentes da métrica |
+| `emit`      | `(i, t, data) → partícula`                       | ponto, esfera, cone                        | emissores arbitrários                                |
+
+### 4.4 Níveis de encapsulamento
+
+| Nível  | Para quem                   | Como usa                                                                                       |
+| ------ | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| **N0** | Quer coisas prontas         | Peças compostas: `Terrain`, `Water`, `Tree`, `Character`, `StandardMaterial`, presets de cena  |
+| **N1** | Quer ajustar                | Preenche `data` de Resources atômicos (`ParametricSurface({ preset, params })`, campos, luzes) |
+| **N2** | Quer programar a matemática | Funções WGSL nos pontos de extensão (§4.3)                                                     |
+| **N3** | Quer um algoritmo novo      | Escreve um `Flow<TSlots,S>` com slots tipados, usando o núcleo de shaders                      |
+
+## 5. Fases
 
 ```mermaid
 graph LR
-  F0[F0 Benchmark] --> F05[F0.5 Fundamentos do núcleo]
-  F05 --> F1[F1 GPU-driven]
-  F1 --> F2[F2 PBR + Texturas]
-  F2 --> F3[F3 Iluminação]
-  F1 --> F4[F4 Animação]
-  F1 --> F5[F5 Mundo aberto]
-  F3 --> F5
-  F4 --> F6[F6 Física de jogo]
-  F5 --> F6
-  F3 --> F7[F7 VFX]
-  F6 --> F7
-  F2 --> F8[F8 Conteúdo/DX]
-  F7 --> F9[F9 Robustez/Release]
+  F0[F0 Medição] --> F1[F1 Completar a refundação]
+  F1 --> F2[F2 Ponte compute↔render]
+  F2 --> F3[F3 Matemática programável]
+  F2 --> F4[F4 Apresentação de qualidade]
+  F2 --> F5[F5 Física de verdade]
+  F3 --> F6[F6 Espaços não euclidianos]
+  F4 --> F6
+  F2 --> F7[F7 Escala GPU-driven]
+  F3 --> F8[F8 Conteúdo procedural]
+  F4 --> F8
+  F5 --> F8
+  F5 --> F9[F9 VFX]
+  F4 --> F9
+  F6 --> F10[F10 Encapsulamento e release]
+  F7 --> F10
+  F8 --> F10
+  F9 --> F10
 ```
 
-| Fase                           | Specs previstas                                                             | Tamanho | Entregas-chave                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Critério de pronto                                                                                                                                                                                                                                                                               |
-| ------------------------------ | --------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **F0 Benchmark**               | `002-benchmark-harness`                                                     | P       | Cenas idênticas clayflow × Three.js (WebGPU), métricas CPU/GPU/FPS/draw calls, baseline + gate de regressão                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Relatório reproduzível via `npm run bench`                                                                                                                                                                                                                                                       |
-| **F0.5 Fundamentos do núcleo** | `003-core-foundations`                                                      | M       | **Dispositivo**: `powerPreference: 'high-performance'`, solicitação das features/limites oferecidos pelo adaptador com padrões sensatos e opt-out, relatório público de capacidades (`core.capabilities()`) para as camadas escolherem caminhos. **HDR**: forward em `rgba16float` com MSAA 4× + resolve; pós-processo e tone mapping sobre HDR real. **Renderizáveis por capacidade**: registro de geometrias/materiais por trait em vez de lista fixa de schemas e de `constructor.name` (robusto a minificação, aberto a glTF/terreno). **Índices `uint32`** quando necessário. **Passo fixo com acumulador** no scheduler de flows de simulação (+ fator de interpolação para o render). **Física→render na GPU**: contrato C2 de buffer compartilhado entre flows; `rb_sync_transform` ligado, corpos rígidos desenhados a partir do buffer da física, readback só sob demanda. Câmera em buffer único por quadro | Build minificado do consumidor renderiza igual ao dev; malha glTF de 1M vértices correta; mesma trajetória de simulação a 30/60/144 Hz; `bench` reporta GPU do clayflow; cena `rigid-bodies` sem readback por quadro e com CPU/quadro menor que o baseline F0; bloom/tone mapping de valores > 1 |
-| **F1 GPU-driven**              | `004-gpu-scene-buffers`, `005-gpu-culling-indirect`                         | G       | Storage buffers globais (transform/material/bounds), mega-buffer de geometria, culling frustum + Hi-Z em compute, indirect draw por material, bundles estáticos, upload por delta, forward/sombra em lote (instancing, ordenação por estado), caminho de render para geometria produzida em compute (pontos, partículas, superfícies de fluido/softbody via `*_vertex_write`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 100k instâncias a 60 fps; CPU < 2 ms/quadro independente do nº de objetos                                                                                                                                                                                                                        |
-| **F2 PBR + texturas**          | `006-pbr-material`, `007-texture-pipeline`                                  | M       | Cook-Torrance (GGX/Smith/Schlick), mapas albedo/normal/ORM/emissive, tangentes MikkTSpace, texture arrays, KTX2/Basis, mipmaps em compute, HDR linear, clearcoat/sheen/transmission/SSS                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Paridade visual com Three.js em DamagedHelmet/Sponza                                                                                                                                                                                                                                             |
-| **F3 Iluminação**              | `008-clustered-lighting`, `009-ibl-sky`, `010-shadows-csm`                  | G       | Clustered forward+ (compute), IBL gerado do céu, atmosfera física (Hillaire), dia/noite, CSM 4 cascatas, atlas de sombras pontuais/spot, PCSS, neblina volumétrica, auto-exposição, probes de GI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Cena genérica de céu dinâmico + 256 luzes com qualidade ≥ Three.js                                                                                                                                                                                                                               |
-| **F4 Animação**                | `011-gpu-skinning`, `012-animation-system`                                  | G       | Skinning em compute (pré-skin reaproveitado por sombra/física), amostragem de keyframes na GPU para multidões, blending/state machine, morph targets, IK 2 ossos, look-at                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 500 personagens animados a 60 fps                                                                                                                                                                                                                                                                |
-| **F5 Mundo aberto**            | `013-terrain-clipmap`, `014-gpu-vegetation`, `015-water`                    | GG      | Terreno clipmap/CDLOD + streaming + splatting triplanar (heightfield também colisor), vegetação gerada em compute com vento/LOD/impostores, água FFT + SSR integrada a SPH/PBF                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Cena genérica de terreno + 1M tufos de vegetação com FPS > Three.js                                                                                                                                                                                                                              |
-| **F6 Física de jogo**          | `016-queries-raycast`, `017-character-controller`, `018-cloth-and-coupling` | G       | Raycast/shapecast GPU com readback assíncrono, character controller, heightfield collider, CCD, broadphase BVH/hash, `ClothBody` com colisão contra cápsulas do esqueleto, acoplamento rígido↔fluido e tecido↔vento                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Avatar no terreno com roupa simulada; barco flutuando em rio SPH                                                                                                                                                                                                                                 |
-| **F7 VFX**                     | `019-vfx-particles`, `020-temporal-aa`                                      | M       | Partículas GPU com bitonic sort, soft particles, flipbooks, fogo/fumaça (grade euleriana leve), decals, TAA/upscaling, motion blur, DoF, SSR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Fogueira/forja com luz dinâmica                                                                                                                                                                                                                                                                  |
-| **F8 Conteúdo/DX**             | `021-content-pipeline`                                                      | M       | glTF completo (KHR\_\*, Draco, meshopt) em workers, hot reload de WGSL/materiais, inspector, presets (`openWorld`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Assets glTF típicos (MakeHuman, Poly Haven, Khronos) sem conversão manual                                                                                                                                                                                                                        |
-| **F9 Robustez/Release**        | —                                                                           | M       | Device-lost recovery, quality tiers, mobile/Safari, orçamentos de memória, v1.0 semver, guia de migração do Three.js                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Release 1.0                                                                                                                                                                                                                                                                                      |
+| Fase                             | Specs previstas                                                                                        | Entregas-chave                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Critério de pronto                                                                                                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **F0 Medição**                   | `002-benchmark-harness`                                                                                | Harness clayflow × Three.js; observabilidade de quadro (`FrameStats`, timestamps em todos os passes); baseline + gate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Relatório reproduzível medindo o motor como ele é, com limitações declaradas                                                                                              |
+| **F1 Completar a refundação**    | `003-core-hardening`, `004-shader-modules`, `005-flow-slots`                                           | **003**: dispositivo completo (features, limites, `powerPreference`, relatório de capacidades); cache do `specHash`; `Time` governando a simulação (`step()`, passo fixo com acumulador, `scale`/`physicsScale`, execução headless); ResourceSystem aloca a bag inteira (vertex/index/indirect/texture/sampler, N descritores por Resource); `GpuManaged` efetivo; "reuso de instância proibido" aplicado; índices `uint32`; fim de `constructor.name`; vazamentos corrigidos. **004**: `WgslModule` com dedup por símbolo; structs WGSL gerados do `StructSchema`; núcleo de matemática consolidado; kernels genéricos (scan, sort, compactação). **005**: `Flow<TSlots,S>` com slots tipados e máquina de estados por eventos; registro por factory `{phase, bodyType, priority}` e `unregister`; seleção de Flow por `FlowDescriptor` feita pela C2 (`ensureFlowAllocated` → `flowReady`); `LayoutInferencer.infer` ligado; `consumes` resolvido por `ConsumerResolver`; visibilidade inferida; `ComputeKernelBinding` aceita vertex/index/indirect; `bindGroupReplaced`; fronteira de importação respeitada; documento de arquitetura sem inconsistências | Flows existentes migrados para slots sem regressão no benchmark; nenhum struct duplicado TS↔WGSL; build minificado funciona; mesma trajetória de simulação a 30/60/144 Hz |
+| **F2 Ponte compute↔render**      | `006-gpu-scene-state`, `007-compute-geometry`                                                          | **006**: pools de Transform/Camera/Light/Material/`Renderable` na GPU; dedup de geometria por conteúdo; kernel de transformação (TRS → matriz de mundo, `Parent` opcional); câmera = `Camera` + `Transform` com kernel de câmera, controllers mutando o `Transform`, `Input` como Resource; vertex pulling e draws agrupados por (geometria, pipeline) com instâncias; forward e sombra consomem pools; `rb_sync_transform` ligado (fim do readback). **007**: geometria produzida em compute nos buffers polivalentes; corpos como contêineres de partículas (`FluidBody`/`SoftBody` com arrays); render de partículas, fluidos e corpos moles (`*_vertex_write` ligados, sprites instanciados a partir dos pools); `PointCloudGeometry` desenhada; topologia do material respeitada                                                                                                                                                                                                                                                                                                                                                                         | 10k objetos com custo de CPU por quadro ~constante; corpos rígidos sem readback; SPH/PBF/MPM/XPBD visíveis                                                                |
+| **F3 Matemática programável**    | `008-math-extension-points`, `009-parametric-surfaces`                                                 | **008**: pontos de extensão `transform`/`camera`/`surface`/`space`/`field`/`material`/`emit` com funções WGSL do usuário compostas pelo núcleo, validadas, com implementações prontas. **009**: avaliação de `S(u,v,t)` em compute com derivadas (analíticas ou numéricas), normal, métrica, curvatura; homotopias; malha adaptativa guiada pela métrica e pela distância à câmera; colisor SDF/heightfield derivado da superfície                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Superfícies paramétricas deformadas em tempo real com normais corretas; terreno paramétrico colidível                                                                     |
+| **F4 Apresentação de qualidade** | `010-hdr-pbr`, `011-textures`, `012-lighting`, `013-render-targets-post`                               | HDR `rgba16float` + MSAA; PBR Cook-Torrance usando roughness/metallic e o pool de luzes; matriz normal; texturas (mapas, mipmaps em compute, arrays, KTX2) e **texturas procedurais em compute**; iluminação clustered, céu/IBL, CSM ajustado à cena, `ShadowMap` automático por luz; `RenderTarget` como Resource, multi-câmera e render-to-texture; SSAO com profundidade e normais, TAA, bloom em cadeia de mips; documentação fiel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Paridade visual com Three.js em cenas de referência; nenhum efeito "falso" restante                                                                                       |
+| **F5 Física de verdade**         | `014-parallel-solvers`, `015-soft-and-fields`, `016-fluid-surfaces`, `017-queries-controller`          | LCP/XPBD paralelos (coloração de grafo/Jacobi — kernels já existem); broadphase com a busca de vizinhos; FEM com solve elástico; todos os campos de força consumidos (e programáveis via `field`); colisores de fluido; colisores SDF unificados (inclui superfícies paramétricas); superfície de fluido; raycast/shapecast com readback assíncrono; character controller                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | 10k corpos rígidos a 60 fps; tecido e fluido interagindo com terreno paramétrico                                                                                          |
+| **F6 Espaços não euclidianos**   | `018-curved-spaces`                                                                                    | Deformação `space` aplicada a geometria, luz e sombras de forma consistente (normais pela Jacobiana); projeções customizadas; portais (render-to-texture recursivo, transporte de câmera e objetos); simulação em coordenadas de carta com apresentação deformada (D3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Corredor que se curva e se torce, com portais, navegável e sem artefatos de iluminação                                                                                    |
+| **F7 Escala GPU-driven**         | `019-gpu-culling-indirect`                                                                             | Culling frustum + Hi-Z em compute → indirect por material; LOD guiado pela métrica; bundles estáticos; upload por delta                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | 100k instâncias a 60 fps; CPU < 2 ms/quadro independente do nº de objetos                                                                                                 |
+| **F8 Conteúdo procedural**       | `020-procedural-terrain`, `021-procedural-vegetation`, `022-procedural-creatures`, `023-gltf-entities` | Terreno paramétrico + ruído com streaming e splatting; árvores e vegetação em compute (L-systems/space colonization, vento, impostores); pessoas e animais procedurais (esqueleto gerado, skinning em compute, animação procedural e por clipes); glTF → entidades (malha, materiais, texturas, skins); `Assets` produzindo `TextureSpec`/entidades com cache e eventos                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Paisagem viva gerada sem assets: terreno, floresta, criaturas animadas, água                                                                                              |
+| **F9 VFX**                       | `024-gpu-particles`, `025-fire-smoke`                                                                  | Emissores em compute (ponto `emit`, spawn/update/sort), soft particles, flipbooks, fogo e fumaça (grade euleriana leve), decals                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Fogueira com luz dinâmica e fumaça interagindo com vento                                                                                                                  |
+| **F10 Encapsulamento e release** | `026-presets-dx`, `027-robustness`                                                                     | Peças N0 prontas (`Terrain`, `Water`, `Tree`, `Character`…), presets; `Application` sem expor C1/C2 (`scene`, `input`, `assets`, `pause/resume/snapshot/restore`); hot reload de WGSL, inspector, quality tiers, device lost, mobile/Safari; v1.0 semver; guia de migração do Three.js                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Release 1.0; um jogo euclidiano e uma cena não euclidiana montados só com N0/N1                                                                                           |
 
-Tamanhos relativos: P pequeno · M médio · G grande · GG muito grande.
+**Ordem**: F0 → F1 → F2 são sequenciais e bloqueiam o resto — sem slots, núcleo de shaders e ponte compute↔render,
+toda capacidade nova repetiria os erros atuais. Depois F3, F4 e F5 podem andar em paralelo; F6 e F8 dependem delas.
 
-## Adoção pelo MorphSociety (no repositório do jogo)
+## 6. Relação com a spec 002 (F0)
 
-Os marcos abaixo **não** são trabalho deste repo: indicam quando o clayflow passa a oferecer o necessário para o
-MorphSociety modernizar cada parte do seu cliente, no próprio repositório, consumindo a API pública. A
-lógica de jogo do MorphSociety (`shared/`) é agnóstica de engine e não muda. Lacunas encontradas na adoção voltam
-para cá como novas specs de capacidade genérica — nunca como código específico do jogo.
+O harness mede o motor **como ele é**, com limitações declaradas por cena (FR-007b). Ajustes decorrentes da
+auditoria: o adaptador clayflow dispara quadros com `frameTick` (sem `step()` até a F1); as cenas calculam
+`Transform.model` por conta própria (até a F2); a cena de corpos rígidos ganha a variante `1k` (o solver em uma thread
+não completa `10k` até a F5). Fases nas declarações de não suporte: luzes pontuais até **F4**, personagens animados
+até **F8**; limitações: instancing e física sem readback até **F2**, HDR/MSAA até **F4**.
 
-| Marco                   | Capacidades disponíveis | O jogo pode modernizar                    | Critério (medido no jogo)                   |
-| ----------------------- | ----------------------- | ----------------------------------------- | ------------------------------------------- |
-| **M1 Paisagem**         | F1–F3                   | Terreno, céu, luz                         | FPS ≥ versão Three.js, visual equivalente   |
-| **M2 Bioma vivo**       | F4–F5                   | Vegetação, água, fauna e aldeões animados | FPS ≥ 1,5× versão Three.js (preset ultra)   |
-| **M3 Jogável**          | F6                      | Avatar, colisões, picking, modo RTS       | Paridade de gameplay                        |
-| **M4 Além do Three.js** | F7                      | Fogo, rios fluidos, roupas simuladas      | Recursos sem equivalente nativo no Three.js |
-| **M5 Adoção completa**  | F8–F9                   | Cliente inteiro                           | Three.js removido do `package.json` do jogo |
+## 7. Adoção pelo MorphSociety (no repositório do jogo)
 
-## Ordem e riscos
+| Marco                   | Capacidades | O jogo pode modernizar               | Critério (medido no jogo)                   |
+| ----------------------- | ----------- | ------------------------------------ | ------------------------------------------- |
+| **M1 Paisagem**         | F1–F4       | Terreno paramétrico, céu, luz        | FPS ≥ versão Three.js, visual equivalente   |
+| **M2 Bioma vivo**       | F5, F8      | Vegetação, água, fauna e aldeões     | FPS ≥ 1,5× versão Three.js (preset ultra)   |
+| **M3 Jogável**          | F5          | Avatar, colisões, picking            | Paridade de gameplay                        |
+| **M4 Além do Three.js** | F6, F9      | Fogo, rios fluidos, espaços oníricos | Recursos sem equivalente nativo no Three.js |
+| **M5 Adoção completa**  | F7, F10     | Cliente inteiro                      | Three.js removido do `package.json` do jogo |
 
-1. **F0 → F0.5 → F1 primeiro.** A F0 mede o motor como ele é hoje (linha de base honesta). A F0.5 corrige os
-   fundamentos que qualquer fase seguinte pressupõe — dispositivo completo, HDR, robustez a minificação, índices
-   32 bits, passo fixo e física sem round-trip — e mostra o primeiro ganho medido. Materiais, animação e vegetação
-   dependem dos buffers globais e do indirect draw da F1; fazer PBR antes obrigaria a reescrever shaders.
-2. Depois F2 → F3 em sequência, com **F4 em paralelo** (depende só de F1).
-3. Riscos: escopo da F5 (dividir em specs menores); suporte desigual a features WebGPU entre navegadores
-   (feature detection + fallbacks); o `WebGPURenderer`/TSL do Three.js evolui — a F0 mantém a comparação honesta
-   e contínua; CI sem GPU — smokes de navegador e benchmark entram no gate local (Princípio V).
+## 8. Decisões em aberto
+
+| #   | Questão                                                                                                                                                                                                                                                                                                                                                                                                   | Proposta                                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | A refundação diz que a engine não impõe hierarquia; a visão pede controlar transformações da cena                                                                                                                                                                                                                                                                                                         | Componente **opcional** `Parent` resolvido no kernel de transformação, por níveis; sem `Parent`, nada muda                     |
+| D2  | Onde calcular view/projection e o `model` (a refundação não fixa)                                                                                                                                                                                                                                                                                                                                         | Em compute: kernel de transformação para `model` e kernel de câmera (ponto `camera`) a partir de `Camera` + `Transform`        |
+| D3  | Física em espaço curvo                                                                                                                                                                                                                                                                                                                                                                                    | Simular em coordenadas de carta (euclidianas) e aplicar `space` na apresentação; colisões contra a geometria deformada via SDF |
+| D4  | Fronteira de importação: 15 arquivos de C3/C4 usam `core/contracts`                                                                                                                                                                                                                                                                                                                                       | Reexportar por `scene/` os contratos necessários a Flows e ajustar a regra/madge                                               |
+| D5  | Inconsistências do documento de arquitetura: modelo de transição de estado; exemplos com API antiga por `id`; `pack` listado após remoção; "dev não escreve Flows" × `Flow` público; `register(factory)` × instância; `add(stage, {before/after})` × ordem de registro; `Scene.add` retornando `this` × `EntityId`; pool `Renderable` não definido; ponte pool de partículas → geometria não especificada | Corrigir o documento na spec 005, com as definições deste roadmap (§4)                                                         |

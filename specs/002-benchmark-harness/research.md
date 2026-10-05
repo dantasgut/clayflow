@@ -79,7 +79,7 @@ trackTimestamp: true })` com `await renderer.init()`.
   - `createGpuContext` passa a incluir `'timestamp-query'` em `requiredFeatures` **quando
     `adapter.features.has('timestamp-query')`** (sem custo quando não usado; sem a feature, segue como hoje).
     Mudança mínima e deliberada: `powerPreference`, demais features e limites e o relatório de capacidades são
-    escopo da spec `003-core-foundations` (F0.5), que generaliza esta solicitação.
+    escopo da spec `003-core-hardening` (F1), que generaliza esta solicitação.
   - `ApplicationOptions.profiling?: boolean` (default `false`) → `core.setFrameProfiling(enabled)`.
   - C1 (`GpuFrame`/passes) conta `drawCalls`, `dispatches`, `passes` por quadro (contadores inteiros — custo
     desprezível, sempre ligados).
@@ -107,11 +107,11 @@ trackTimestamp: true })` com `await renderer.init()`.
   mais eficiente para cada carga (ex.: geometria e material compartilhados quando a fachada permitir; corpos
   rígidos pela fachada de domínio da spec 001), e declaram em `limitations` as limitações do motor que pesam no
   resultado (ex.: `rigid-bodies` → "readback de todos os corpos para a CPU por quadro"; `instances` → "sem
-  instancing: 1 draw + 3 uploads por objeto"; ambas → "render LDR 8 bits, sem MSAA"). Isso torna o ganho da F0.5
-  e da F1 rastreável contra a linha de base.
+  instancing: 1 draw + 3 uploads por objeto"; ambas → "render LDR 8 bits, sem MSAA"). Isso torna o ganho da F1
+  e da F2 rastreável contra a linha de base.
 - **Estado esperado do clayflow hoje**: instâncias = N entidades (sem instancing no render) → 1M deve falhar ou
-  estourar tempo; luzes = **não suportado** (o forward ignora `PointLight` até a F3 — inserir luzes que não
-  iluminam não seria equivalente); personagens = **não suportado** até a F4. Tudo isso vira a linha de base.
+  estourar tempo; luzes = **não suportado** (o forward ignora `PointLight` até a F4 — inserir luzes que não
+  iluminam não seria equivalente); personagens = **não suportado** até a F8. Tudo isso vira a linha de base.
 
 ## R9 — Personagem animado sem problema de licença
 
