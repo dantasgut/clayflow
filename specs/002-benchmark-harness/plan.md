@@ -4,6 +4,9 @@
 
 **Input**: Feature specification from `specs/002-benchmark-harness/spec.md` · Roadmap: [`specs/ROADMAP.md`](../ROADMAP.md) (F0)
 
+**Pré-requisito**: spec `003-reactive-transforms` entregue em `develop` (PR #34) — `Transform` só intenção, matriz de
+mundo em compute (`TransformFlow`, fase `transform`), mutação reativa de `data` enviada no `frameRecording`.
+
 ## Summary
 
 Criar o instrumento de medição do roadmap: um harness em `bench/` (fora da lib) que roda cenas genéricas
@@ -28,7 +31,8 @@ browsers; usa `channel: 'chrome'`), `tsx` (executar o runner TS), Vite 7 (já ex
 
 **Testing**: Vitest (happy-dom) para toda lógica CPU-side do harness (estatística, perfil, comparação, relatório,
 gerador determinístico, catálogo) e da observabilidade do motor (contadores, alocador de timestamps, soma de
-intervalos); smokes de navegador para a medição real (gate local, Princípio V)
+intervalos, `dt` cobrindo o `frameRecording`, gravações auxiliares isoladas); testes em `src/core/gpu/__tests__` e
+`src/scene/__tests__` (convenção atual); smokes de navegador para a medição real (gate local, Princípio V)
 
 **Target Platform**: Chrome/Edge desktop com WebGPU (referência: Chrome estável no macOS/Metal); runner em Node 22
 
