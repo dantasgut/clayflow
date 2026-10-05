@@ -238,7 +238,10 @@ O harness mede o motor **como ele é**, com limitações declaradas por cena (FR
 auditoria: o adaptador clayflow dispara quadros com `frameTick` (sem `step()` até a F1); as cenas posicionam objetos só por
 `position`/`rotation`/`scale`, o que exige a spec 003 (por isso a 003 é implementada antes); a cena de corpos rígidos ganha a variante `1k` (o solver em uma thread
 não completa `10k` até a F5). Fases nas declarações de não suporte: luzes pontuais até **F4**, personagens animados
-até **F8**; limitações: instancing e física sem readback até **F2**, HDR/MSAA até **F4**.
+até **F8**; limitações: instancing e física sem readback até **F2**, HDR/MSAA até **F4**. Alinhamento após a
+entrega da 003: a cena de instâncias ganha a variante `10k-moving` (mede o caminho de mutação reativa, cujo
+agrupamento de envios é ganho da F2) e o tempo de CPU do quadro passa a incluir o envio dos dados alterados
+(`frameRecording`).
 
 ## 7. Adoção pelo MorphSociety (no repositório do jogo)
 

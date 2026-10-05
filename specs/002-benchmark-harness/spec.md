@@ -144,7 +144,9 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   engines (clayflow e Three.js com renderizador WebGPU), sequencialmente e isoladas entre si (o estado de uma cena
   ou engine não contamina a próxima).
 - **FR-002**: O catálogo inicial DEVE conter as cenas:
-  1. **Instâncias** — mesma malha repetida, nas variantes 10 mil, 100 mil e 1 milhão;
+  1. **Instâncias** — mesma malha repetida, nas variantes 10 mil, 100 mil e 1 milhão, todas estáticas, mais uma
+     variante de 10 mil **em movimento** (posição e rotação de todos os objetos mudam a cada quadro), que mede o
+     custo de mover objetos pelos dados de intenção — o caminho de mutação reativa entregue na spec 003;
   2. **Objetos únicos** — 1 mil objetos com malhas e materiais distintos;
   3. **Luzes** — 256 luzes pontuais iluminando uma cena fixa;
   4. **Personagens animados** — 500 personagens com esqueleto e animação; no clayflow fica declarada como "não
@@ -173,10 +175,13 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   desligada. Como hoje o motor cria o dispositivo de GPU sem solicitar a capacidade de timestamps (por isso o
   profiler nunca mede nada), a criação do dispositivo DEVE solicitá-la sempre que o adaptador a oferecer. A
   configuração completa do dispositivo (preferência de desempenho, demais capacidades e limites) fica para a
-  fase F1 do roadmap (spec `003-core-hardening`).
+  fase F1 do roadmap (spec `004-core-hardening`). O tempo de CPU por quadro informado pelo motor DEVE cobrir
+  também o envio à GPU dos dados de cena alterados desde o quadro anterior — desde a spec 003 esse envio acontece
+  no início de cada quadro, antes da gravação dos passes —, para que o custo de mover objetos apareça na medição.
 - **FR-007b**: A cena do clayflow DEVE usar o melhor caminho público que o motor oferece hoje para cada carga, e
   o relatório DEVE registrar por cena as limitações conhecidas do motor que afetam o resultado (ex.: "física com
-  readback na CPU por quadro", "sem instancing no render") — a linha de base mede o motor como ele é, e cada fase
+  readback na CPU por quadro", "sem instancing no render", "um envio por objeto alterado") — a linha de base mede
+  o motor como ele é, e cada fase
   seguinte demonstra o ganho contra ela.
 - **FR-008**: Cada execução DEVE registrar o perfil do ambiente: adaptador de GPU, navegador e versão, sistema
   operacional, resolução, versões do clayflow e do Three.js, data e commit.
@@ -236,7 +241,7 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
 
 ### Measurable Outcomes
 
-- **SC-001**: Um mantenedor obtém o relatório comparativo completo (5 cenas, todas as variantes, 2 engines) com
+- **SC-001**: Um mantenedor obtém o relatório comparativo completo (5 cenas, 8 variantes, 2 engines) com
   um único comando, sem passos manuais além de ter um navegador compatível aberto/disponível.
 - **SC-002**: Duas execuções consecutivas na mesma máquina, sem mudança de código, produzem tempos de quadro
   medianos que diferem no máximo 5% por cena — o ruído fica abaixo da tolerância do gate (10%).
@@ -274,6 +279,10 @@ no relatório e no baseline sem nenhuma alteração fora da própria cena e do s
   configuração se o ruído de uma máquina exigir.
 - **Baselines por máquina**: números de hardware diferentes não são comparados; cada perfil de máquina tem seu
   próprio baseline versionado.
+- **Pré-requisito (spec 003, entregue)**: as cenas do clayflow posicionam e movem objetos só pelos dados de
+  intenção (`position`/`rotation`/`scale` do `Transform`); a matriz de mundo é calculada em compute pelo motor e
+  mutações em `data` chegam à GPU no quadro seguinte sem chamada manual. Cena estática não envia nada por quadro
+  depois da montagem — os números estáticos medem só o desenho.
 - **Escopo**: as cenas são **genéricas de engine** (instâncias, objetos, luzes, personagens, física) e
   representam padrões de carga de jogos realistas, sem conteúdo nem código de nenhum jogo específico. Novas
   capacidades do roadmap ganham novas cenas genéricas via US3 (ex.: terreno + vegetação na F5).

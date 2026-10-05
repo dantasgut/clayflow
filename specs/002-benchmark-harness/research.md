@@ -47,23 +47,29 @@ trackTimestamp: true })` com `await renderer.init()`.
   **10 s**, **3 repetições**; tempo-limite **60 s** por execução. Modo `--quick`: 1 s / 3 s / 1 repetição.
   Valor reportado = **mediana das medianas** das repetições; dispersão = coeficiente de variação entre
   repetições; se CV > 5% a linha recebe aviso "instável".
-- **Racional**: estimativa de duração do modo padrão: 7 variantes × 2 engines × 3 reps × ~13 s ≈ 9–10 min (< 15 min,
+- **Racional**: estimativa de duração do modo padrão: 8 variantes × 2 engines × 3 reps × ~13 s ≈ 10–11 min (< 15 min,
   SC-007); `--quick` ≈ 1,5–2 min (< 3 min). Mediana é robusta a hitches de GC/compilação. 5% < 10% de tolerância
   do gate (SC-002).
 - **Alternativas**: média (sensível a outliers); número fixo de quadros (cenas lentas demorariam demais).
 
 ## R6 — Métricas e como cada engine as fornece
 
-| Métrica                                 | clayflow                                                                              | Three.js                                                                                                            |
-| --------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **CPU/quadro**                          | `frameComplete.dt` (tempo síncrono de record+submit do `ExecutionSystem`) — já existe | `performance.now()` em volta de `world.step()` (se houver física) + `renderer.render()` no loop do adaptador        |
-| **GPU/quadro**                          | **novo**: soma dos intervalos de timestamp de todos os passes do quadro (FR-007a)     | `renderer.resolveTimestampsAsync('render'/'compute')` + `renderer.info.render.timestamp` / `info.compute.timestamp` |
-| **Intervalo de quadro → FPS, p95, p99** | `performance.now()` entre rAFs (medido pelo harness, igual nas duas)                  | idem                                                                                                                |
-| **Draw calls**                          | **novo**: contador por quadro no core (FR-007a)                                       | `renderer.info.render.drawCalls`                                                                                    |
-| **Memória GPU**                         | `core.memoryUsage().totalBytes` — já existe                                           | estimada: soma de `byteLength` de atributos/índices + texturas (`info.memory` só dá contagens) — marcada "estimada" |
+| Métrica                                 | clayflow                                                                                                                                                                | Three.js                                                                                                            |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **CPU/quadro**                          | `frameComplete.dt` — tempo síncrono do quadro, do envio dos dados alterados (`frameRecording`, spec 003) até `submit`; o início da medição é antecipado nesta spec (R7) | `performance.now()` em volta de `world.step()` (se houver física) + `renderer.render()` no loop do adaptador        |
+| **GPU/quadro**                          | **novo**: soma dos intervalos de timestamp de todos os passes do quadro (FR-007a)                                                                                       | `renderer.resolveTimestampsAsync('render'/'compute')` + `renderer.info.render.timestamp` / `info.compute.timestamp` |
+| **Intervalo de quadro → FPS, p95, p99** | `performance.now()` entre rAFs (medido pelo harness, igual nas duas)                                                                                                    | idem                                                                                                                |
+| **Draw calls**                          | **novo**: contador por quadro no core (FR-007a)                                                                                                                         | `renderer.info.render.drawCalls`                                                                                    |
+| **Memória GPU**                         | `core.memoryUsage().totalBytes` — já existe                                                                                                                             | estimada: soma de `byteLength` de atributos/índices + texturas (`info.memory` só dá contagens) — marcada "estimada" |
 
 - **Racional**: CPU medido como "trabalho síncrono da engine no quadro" nas duas — inclui a física Rapier no
-  Three (ela roda na CPU) e o encode da física GPU no clayflow. É exatamente o custo que um jogo paga.
+  Three (ela roda na CPU) e o encode da física GPU no clayflow; inclui também as mutações feitas pela cena em
+  `update` (mover objetos) e, no clayflow, o envio desses dados no início do quadro. É exatamente o custo que um
+  jogo paga.
+- **Exceção declarada**: no clayflow a pose dos corpos rígidos volta da GPU por readback assíncrono e é publicada
+  no `Transform` dentro do callback do mapeamento, fora do quadro síncrono (spec 003; some na F2). Esse trabalho
+  não entra em `cpuMs`, só no intervalo de quadro (FPS/p95/p99), e a cena `rigid-bodies` o declara em
+  `limitations`.
 - **GPU sampling**: leituras de timestamp são assíncronas e nem todo quadro tem amostra (map em andamento); a
   métrica de GPU usa a mediana das amostras disponíveis na janela (mínimo 30 amostras, senão "indisponível").
 
@@ -79,7 +85,7 @@ trackTimestamp: true })` com `await renderer.init()`.
   - `createGpuContext` passa a incluir `'timestamp-query'` em `requiredFeatures` **quando
     `adapter.features.has('timestamp-query')`** (sem custo quando não usado; sem a feature, segue como hoje).
     Mudança mínima e deliberada: `powerPreference`, demais features e limites e o relatório de capacidades são
-    escopo da spec `003-core-hardening` (F1), que generaliza esta solicitação.
+    escopo da spec `004-core-hardening` (F1), que generaliza esta solicitação.
   - `ApplicationOptions.profiling?: boolean` (default `false`) → `core.setFrameProfiling(enabled)`.
   - C1 (`GpuFrame`/passes) conta `drawCalls`, `dispatches`, `passes` por quadro (contadores inteiros — custo
     desprezível, sempre ligados).
@@ -88,7 +94,13 @@ trackTimestamp: true })` com `await renderer.init()`.
     estouro → `gpuTimeMs` indisponível no quadro + aviso único.
   - `FrameCompleteEvent` ganha `stats: FrameStats` `{ drawCalls, dispatches, passes, gpuTimeMs? }`
     (`gpuTimeMs` = última leitura resolvida, com defasagem de 1–3 quadros, documentada).
-  - `DebugFlow` passa a preencher `stagesNs` com os rótulos dos passes (corrige o vazio atual).
+  - `DebugFlow` passa a preencher `stagesNs` com os rótulos dos passes (corrige o vazio atual) — inclui o passe de
+    compute `TransformFlow` (fase `transform`, spec 003), que só existe nos quadros com `Transform` alterado.
+  - `ExecutionSystem` passa a medir `dt` a partir de **antes** de emitir `frameRecording` (hoje começa depois): o
+    envio da fila de sujos da spec 003 é trabalho de CPU do quadro e precisa entrar na métrica.
+  - Gravações auxiliares fora do quadro (ex.: `pool_grow:*`, cópia GPU→GPU quando um pool cresce, spec 003) têm
+    contadores próprios e não sobrescrevem as estatísticas que o `ExecutionSystem` anexa ao `frameComplete`;
+    como não abrem passes, não produzem leitura de GPU e não substituem a última leitura resolvida.
 - **Racional**: é observabilidade que qualquer app precisa (perfil de jogo, overlay de debug) e que as fases
   F1+ vão exigir para provar "CPU constante". Cabe na Constituição: C1 conta/mede, C2 propaga via evento, C4 expõe
   opção — sem vazar tipos WebGPU (`FrameStats` é tipo de domínio simples).
@@ -107,10 +119,15 @@ trackTimestamp: true })` com `await renderer.init()`.
   mais eficiente para cada carga (ex.: geometria e material compartilhados quando a fachada permitir; corpos
   rígidos pela fachada de domínio da spec 001), e declaram em `limitations` as limitações do motor que pesam no
   resultado (ex.: `rigid-bodies` → "readback de todos os corpos para a CPU por quadro"; `instances` → "sem
-  instancing: 1 draw + 3 uploads por objeto"; ambas → "render LDR 8 bits, sem MSAA"). Isso torna o ganho da F1
-  e da F2 rastreável contra a linha de base.
+  instancing: 1 draw e 4 bind groups por objeto"; `instances/10k-moving` → "um envio por objeto alterado";
+  ambas → "render LDR 8 bits, sem MSAA"). Isso torna o ganho da F1 e da F2 rastreável contra a linha de base.
+- **Efeito da spec 003 sobre as cenas**: o `Transform` guarda só intenção e a matriz de mundo é calculada pelo
+  `TransformFlow` em compute; o forward e a sombra leem a matriz pelo slot da entidade (`firstInstance`). Cena
+  estática: nenhum envio e nenhum dispatch por quadro depois da montagem. Cena em movimento: a mutação de `data`
+  entra numa fila e cada recurso alterado gera **um** `write` no início do quadro, seguido de um dispatch do
+  `TransformFlow` — o agrupamento desses envios é ganho esperado da F2 (`007-gpu-scene-state`).
 - **Estado esperado do clayflow hoje**: instâncias = N entidades (sem instancing no render) → 1M deve falhar ou
-  estourar tempo; luzes = **não suportado** (o forward ignora `PointLight` até a F4 — inserir luzes que não
+  estourar tempo; `10k-moving` mede N mutações + N envios por quadro; luzes = **não suportado** (o forward ignora `PointLight` até a F4 — inserir luzes que não
   iluminam não seria equivalente); personagens = **não suportado** até a F8. Tudo isso vira a linha de base.
 
 ## R9 — Personagem animado sem problema de licença

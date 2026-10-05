@@ -40,7 +40,10 @@ export interface SceneImplementation<TEngine> {
   readonly limitations?: readonly string[];
   /** Monta o conteúdo. Pode ser assíncrono (compilação de pipelines, WASM). */
   setup(ctx: SceneContext<TEngine>): Promise<void> | void;
-  /** Trabalho por quadro além do render (ex.: passo de física CPU). Opcional. */
+  /**
+   * Trabalho por quadro além do render (ex.: passo de física CPU, mover objetos). Opcional. No clayflow, mover é
+   * mutar `transform.data` (reativo, spec 003): o envio acontece no início do quadro e entra no `cpuMs`.
+   */
   update?(dtSeconds: number): void;
 }
 
@@ -81,17 +84,20 @@ em uso — o lado clayflow nunca baixa Three.
 
 ## Catálogo inicial
 
-| id                   | Variantes                     | clayflow                                                                                                                   | three                                                       |
-| -------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `instances`          | `10k`, `100k`, `1m` (`count`) | N entidades Box+StandardMaterial+Transform — limitação: sem instancing (até F2)                                            | `InstancedMesh`                                             |
-| `unique-objects`     | `1k`                          | 1k geometrias com parâmetros distintos (segmentos/dimensões) e materiais distintos                                         | 1k `Mesh` com geometria e `MeshStandardMaterial` próprios   |
-| `point-lights`       | `256`                         | `{ unsupported: 'forward ignora PointLight', until: 'F4' }`                                                                | 256 `PointLight` sobre plano + 200 objetos                  |
-| `skinned-characters` | `500`                         | `{ unsupported: 'sem skinning/animação', until: 'F8' }`                                                                    | 500 `SkinnedMesh` procedurais (20 ossos) + `AnimationMixer` |
-| `rigid-bodies`       | `1k`, `10k`                   | N `RigidBody` esfera (fachada de domínio) + chão — limitações: readback por quadro (até F2), solver em uma thread (até F5) | Rapier N esferas + chão; render `InstancedMesh`             |
+| id                   | Variantes                                                                        | clayflow                                                                                                                                                                                                                                              | three                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `instances`          | `10k`, `100k`, `1m` (`count`, estáticas); `10k-moving` (`count`, `moving: true`) | N entidades Box+StandardMaterial+Transform (só `position`/`rotation`/`scale`); `10k-moving` muta posição/rotação de todas em `update` — limitações: sem instancing, 1 draw e 4 bind groups por objeto (até F2); um envio por objeto alterado (até F2) | `InstancedMesh`; `10k-moving` = `setMatrixAt` em todas + `instanceMatrix.needsUpdate` |
+| `unique-objects`     | `1k`                                                                             | 1k geometrias com parâmetros distintos (segmentos/dimensões) e materiais distintos                                                                                                                                                                    | 1k `Mesh` com geometria e `MeshStandardMaterial` próprios                             |
+| `point-lights`       | `256`                                                                            | `{ unsupported: 'forward ignora PointLight', until: 'F4' }`                                                                                                                                                                                           | 256 `PointLight` sobre plano + 200 objetos                                            |
+| `skinned-characters` | `500`                                                                            | `{ unsupported: 'sem skinning/animação', until: 'F8' }`                                                                                                                                                                                               | 500 `SkinnedMesh` procedurais (20 ossos) + `AnimationMixer`                           |
+| `rigid-bodies`       | `1k`, `10k`                                                                      | N `RigidBody` esfera (fachada de domínio) + chão — limitações: readback por quadro com pose publicada fora do quadro e 1 quadro de atraso (até F2), solver em uma thread (até F5)                                                                     | Rapier N esferas + chão; render `InstancedMesh`                                       |
 
 ## Regras
 
-- Conteúdo derivado **só** de `rng` e `variant.params` (determinismo, FR-003).
+- Conteúdo derivado **só** de `rng` e `variant.params` (determinismo, FR-003). Movimento por quadro é função
+  determinística do índice do objeto e do tempo simulado (`dtSeconds` acumulado), igual nas duas engines.
+- Posicionar/mover no clayflow é só escrever em `transform.data` — sem matriz montada na cena, sem
+  `emit('resourceDirty')` manual (spec 003).
 - O lado clayflow importa apenas de `clayflow` (barrel público) — ESLint bloqueia o resto (FR-016).
 - Cada engine usa a melhor abordagem idiomática pública para a mesma carga (research R8).
 - Limitações do motor que pesam no resultado são declaradas em `limitations` (FR-007b) — nunca contornadas com

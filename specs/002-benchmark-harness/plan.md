@@ -7,7 +7,7 @@
 ## Summary
 
 Criar o instrumento de medição do roadmap: um harness em `bench/` (fora da lib) que roda cenas genéricas
-determinísticas — instâncias (10k/100k/1M), 1k objetos únicos, 256 luzes, 500 personagens animados, 1k/10k corpos
+determinísticas — instâncias (10k/100k/1M estáticas + 10k em movimento), 1k objetos únicos, 256 luzes, 500 personagens animados, 1k/10k corpos
 rígidos — no clayflow e no Three.js `WebGPURenderer` (+ Rapier na física), em páginas isoladas conduzidas por
 Playwright sobre o Chrome real, com aquecimento + janela fixa + repetições. Exporta JSON + tabela markdown,
 grava baselines por perfil de máquina e reprova o gate local quando o clayflow regride > 10%.
@@ -40,7 +40,7 @@ overhead da observabilidade desligada ≈ 0 e ligada ≤ 2% de CPU/quadro (SC-00
 **Constraints**: harness só via API pública (FR-016); nada de `bench/` no pacote publicado, `dependencies` só `uuid`
 (FR-017/018); CI sem GPU — benchmark é gate local (FR-014); sem binários/assets de terceiros commitados (R9)
 
-**Scale/Scope**: 5 cenas / 7 variantes × 2 engines; ~25 arquivos novos em `bench/`, ~8 arquivos tocados na lib
+**Scale/Scope**: 5 cenas / 8 variantes × 2 engines; ~25 arquivos novos em `bench/`, ~8 arquivos tocados na lib
 (C1 passes/frame/profiler, C2 evento, C4 opção + DebugFlow), 1 guia de docs
 
 ## Constitution Check
@@ -52,7 +52,7 @@ _GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 | **I. Camadas e importação**     | Contadores e alocador de timestamps vivem em C1 (`core/gpu`); o tipo `FrameStats` é contrato de domínio em `core/contracts` (sem tipos WebGPU); C2 (`ExecutionSystem`) só propaga no `frameComplete`; C4 (`Application`) só expõe a opção `profiling`. O harness está fora das camadas e importa só o barrel público (regra ESLint). `madge` continua sem ciclos. | ✅     |
 | **II. Domínio na borda**        | API nova em vocabulário de domínio: `profiling: true`, `stats.drawCalls`, `stats.gpuTimeMs`. Nada de QuerySet/índices na superfície.                                                                                                                                                                                                                              | ✅     |
 | **III. Resource como contrato** | A observabilidade não é dado de cena enviado à GPU por elementos — é instrumentação interna do C1 (QuerySet já gerenciado pelo `GpuProfilerSystem`). Nenhum elemento C3/C4 acessa C1.                                                                                                                                                                             | ✅     |
-| **IV. ECS e Flows**             | Nenhum Flow novo; ordenação de passes inalterada. Timestamps automáticos não alteram dependências.                                                                                                                                                                                                                                                                | ✅     |
+| **IV. ECS e Flows**             | Nenhum Flow novo; ordenação de passes inalterada (`physics → transform → shadow → forward → post → ui`, spec 003). Timestamps automáticos não alteram dependências; o compute `TransformFlow` é medido como qualquer passe.                                                                                                                                       | ✅     |
 | **V. Testes**                   | Lógica determinística nova (alocador de pares, soma de intervalos, contadores, estatística, comparação de baseline, perfil, relatório) com testes Vitest; medição real validada por smoke de navegador + o próprio `npm run bench`. Gate completo verde antes de concluir.                                                                                        | ✅     |
 | **VI. Documentação**            | Guia `clay-engine-doc/docs/guides/benchmark.md` + seção de profiling no guia de debug; JSDoc em todo export novo (`doc:coverage`); TypeDoc regenerado.                                                                                                                                                                                                            | ✅     |
 | **Restrições técnicas**         | Sem nova dep de runtime; backend substituível preservado (contrato `FrameStats` é implementável por um backend mock).                                                                                                                                                                                                                                             | ✅     |
@@ -97,7 +97,7 @@ src/                                   # LIB — mudanças mínimas (FR-007a)
 │   ├── profiler/FrameTimestampAllocator.ts  # NOVO — lógica pura (testável) de pares + soma
 │   └── GpuEngineCore.ts               # liga tudo; expõe lastFrameStats()
 ├── scene/events/EventMap.ts           # FrameCompleteEvent + stats: FrameStats
-├── scene/systems/ExecutionSystem.ts   # anexa stats ao frameComplete
+├── scene/systems/ExecutionSystem.ts   # anexa stats ao frameComplete; dt passa a incluir frameRecording (spec 003)
 ├── presentation/app/Application.ts    # ApplicationOptions.profiling
 └── presentation/flows/DebugFlow.ts    # preenche stagesNs (hoje sempre vazio)
 

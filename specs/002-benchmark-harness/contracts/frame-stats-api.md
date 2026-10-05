@@ -44,7 +44,7 @@ export interface ApplicationOptions {
 // scene/events/EventMap.ts
 export interface FrameCompleteEvent {
   readonly timestamp: number; // existente
-  readonly dt: number; // existente — CPU ms de record+submit
+  readonly dt: number; // existente — CPU ms do quadro; passa a cobrir frameRecording (envio dos sujos) + record + submit
   readonly elapsed: number; // existente
   /** NOVO — estatísticas do quadro recém-submetido. */
   readonly stats: FrameStats;
@@ -66,7 +66,7 @@ interface EngineCore {
 
 0. Criação do dispositivo (`core/gpu/GpuContext.ts`): `requiredFeatures` inclui `'timestamp-query'` quando o
    adaptador a oferece. Sem a feature, `setFrameProfiling(true)` é no-op com aviso único e `gpuTimeMs` fica
-   ausente. (Configuração completa do dispositivo: spec `003-core-hardening`, F1.)
+   ausente. (Configuração completa do dispositivo: spec `004-core-hardening`, F1.)
 1. `record()` abre o quadro: zera contadores; se profiling ligado, `FrameTimestampAllocator.begin()`.
 2. Cada `beginRenderPass`/`beginComputePass` sem `timestampWrites` explícito recebe um par do alocador. Passes com
    `timestampWrites` explícito (ex.: `ForwardFlow.setProfileTimestamps`) são respeitados e também somados.
@@ -75,7 +75,12 @@ interface EngineCore {
    `frameComplete`.
 4. Estouro de capacidade: passes excedentes ficam sem timestamp, `gpuTimeMs` daquele quadro ausente, aviso único
    no console com a sugestão de `profilingCapacity`.
-5. `DebugFlow` preenche `profilerStats.stagesNs` com `label do passe → ns` (corrige o vazio atual).
+5. `DebugFlow` preenche `profilerStats.stagesNs` com `label do passe → ns` (corrige o vazio atual), incluindo o
+   compute `TransformFlow` da fase `transform` (spec 003) nos quadros em que ele roda.
+6. `ExecutionSystem`: `dt` começa antes de emitir `frameRecording` — o envio da fila de sujos (spec 003) faz parte do
+   custo de CPU do quadro. A pose publicada por callbacks assíncronos (readback da física) fica fora do `dt`.
+7. Gravações auxiliares (`pool_grow:*`, spec 003) têm contadores próprios e não abrem passes: não alteram as
+   estatísticas anexadas ao `frameComplete` nem substituem a última leitura de GPU resolvida.
 
 ## Compatibilidade
 
@@ -89,5 +94,7 @@ interface EngineCore {
 
 - Alocador: pares sequenciais, estouro, `begin` zera, soma ignora pares inválidos, todos inválidos → `undefined`.
 - Contadores: mocks de encoder contam draw/drawIndexed/indirect/bundles/dispatch/dispatchIndirect e passes.
-- `ExecutionSystem`: `frameComplete` carrega `stats` do core.
+- `ExecutionSystem`: `frameComplete` carrega `stats` do core; `dt` inclui o tempo gasto pelos ouvintes de
+  `frameRecording` (ouvinte com espera sintética).
+- Gravação auxiliar entre dois quadros não altera o `stats` do quadro seguinte nem a última leitura de GPU.
 - `Application`: `profiling: true` chama `setFrameProfiling(true, capacity)`.

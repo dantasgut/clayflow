@@ -31,15 +31,15 @@ Entidades da spec (Key Entities) refinadas com campos, validações e transiçõ
 
 ### SceneDefinition
 
-| Campo                  | Tipo                                                   | Regra                                                                                    |
-| ---------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `id`                   | slug kebab-case                                        | único no catálogo                                                                        |
-| `title`, `description` | texto                                                  | obrigatórios                                                                             |
-| `variants`             | `VariantDefinition[]` (≥ 1)                            | `id` único na cena; `params` livres (ex.: `{ count: 100000 }`)                           |
-| `seed`                 | inteiro                                                | default 1337; mesma semente nas duas engines                                             |
-| `camera`               | `{ position, target, fovDeg }`                         | idêntica nas duas engines                                                                |
-| `implementations`      | `Record<EngineId, SceneImplementation \| Unsupported>` | toda engine registrada aparece: implementação ou `{ unsupported: motivo, until?: 'F3' }` |
-| `phase`                | `'F0' \| 'F1' …`                                       | fase do roadmap que introduziu a cena (rastreabilidade)                                  |
+| Campo                  | Tipo                                                   | Regra                                                                                            |
+| ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `id`                   | slug kebab-case                                        | único no catálogo                                                                                |
+| `title`, `description` | texto                                                  | obrigatórios                                                                                     |
+| `variants`             | `VariantDefinition[]` (≥ 1)                            | `id` único na cena; `params` livres (ex.: `{ count: 100000 }`, `{ count: 10000, moving: true }`) |
+| `seed`                 | inteiro                                                | default 1337; mesma semente nas duas engines                                                     |
+| `camera`               | `{ position, target, fovDeg }`                         | idêntica nas duas engines                                                                        |
+| `implementations`      | `Record<EngineId, SceneImplementation \| Unsupported>` | toda engine registrada aparece: implementação ou `{ unsupported: motivo, until?: 'F3' }`         |
+| `phase`                | `'F0' \| 'F1' …`                                       | fase do roadmap que introduziu a cena (rastreabilidade)                                          |
 
 ### EngineAdapter
 
