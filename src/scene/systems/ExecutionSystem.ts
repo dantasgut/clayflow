@@ -6,7 +6,8 @@ import type { EntityId } from '../world/EntityId';
 /**
  * ExecutionSystem orquestra o dispatch dos Flows ativos em cada frame.
  * Reage a:
- *   - `frameTick` (do GameLoop) → executa `record(frame)` + `submit()`.
+ *   - `frameTick` (do GameLoop) → emite `frameRecording` (o ResourceSystem envia os
+ *     recursos sujos), executa `record(frame)` + `submit()` e emite `frameComplete`.
  *   - `poolReallocated` → broadcast para todos flows invalidarem caches.
  *   - `canvasReconfigured` → broadcast onCanvasResized.
  *   - `entitiesRemoved` → broadcast onEntitiesRemoved.
@@ -68,6 +69,8 @@ export class ExecutionSystem {
 
     private onFrameTick(dt: number, elapsed: number): void {
         this.elapsed = elapsed;
+        // Ordem explícita: dados sujos vão à GPU antes de qualquer estágio gravar passes.
+        this.events.emit('frameRecording', { elapsed });
         const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const start = now;
         const recordAndSubmit = (): void => {

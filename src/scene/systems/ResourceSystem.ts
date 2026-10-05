@@ -6,6 +6,7 @@ import type {
     UniformBufferSpec,
 } from '../../core/contracts/index';
 import { ResourceState } from '../contracts/ResourceState';
+import type { PoolDirectory } from '../contracts/PoolDirectory';
 import type { Resource } from '../contracts/Resource';
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import type { Schema } from '../descriptors/Schema';
@@ -13,11 +14,15 @@ import type { EventBus } from '../events/EventBus';
 import { ResourceStateHandlerRegistry } from '../lifecycle/ResourceStateHandlerRegistry';
 import type { World } from '../world/World';
 import type { EntityId } from '../world/EntityId';
+import { makeReactive } from './reactiveData';
+
+type UploadPolicy = NonNullable<GPUDescriptor['upload']>;
 
 interface PoolEntry {
     readonly poolKey: string;
     readonly stride: number;
     readonly schema: Schema;
+    readonly upload: UploadPolicy;
     bufferSpec: StorageBufferSpec;
     layoutSpec: LayoutSpec;
     bindGroupSpec: BindGroupSpec;
@@ -25,6 +30,8 @@ interface PoolEntry {
     count: number;
     readonly slotByEntity: Map<EntityId, number>;
     readonly entityBySlot: Map<number, EntityId>;
+    /** Slot → recurso e descritor que o ocupam (reempacotamento no crescimento). */
+    readonly occupants: Map<number, { resource: Resource; schema: Schema }>;
     readonly freeList: number[];
     generation: number;
 }
@@ -32,21 +39,37 @@ interface PoolEntry {
 const INITIAL_POOL_CAPACITY = 16;
 
 /**
- * ResourceSystem é a Camada 2 que gerencia lifecycle dos Resources GPU
- * — alocação, upload, pool growth, dispose. Reage a `resourcesChanged`
- * (insert/remove de World) e `resourceDirty` (modificação manual).
+ * ResourceSystem é a Camada 2 que gerencia o ciclo de vida dos Resources GPU —
+ * alocação, envio, crescimento de pools e descarte. Reage a:
+ *   - `resourcesChanged` (insert/remove do World) → aloca/descarta;
+ *   - `resourceDirty` (automático via dado reativo, ou manual) → enfileira;
+ *   - `frameRecording` (antes da gravação do quadro) → envia a fila de sujos, uma vez
+ *     por recurso, e emite `resourceReady`.
  *
- * Strategies de storage:
- *   - **individual**: 1 GPUBuffer por Resource. Para single-instance
- *     (Camera, ShadowParams).
- *   - **pool**: 1 GPUBuffer compartilhado coalescing N members do mesmo
- *     schema (RigidBodies, particles). Cresce 2× quando capacity atinge
- *     limite, emite `poolReallocated`.
+ * **Dado reativo**: ao alocar, `resource.data` passa a ser um proxy — qualquer mutação
+ * (campo, componente de vetor, substituição de `data`) marca o recurso como sujo, sem
+ * chamada manual.
+ *
+ * **Política de envio por descritor** (`GPUDescriptor.upload`):
+ *   - `'always'` (default): envia na alocação e a cada sujo;
+ *   - `'initial'`: envia só na alocação; recurso cujos descritores são todos
+ *     `'initial'`/`'never'` entra em `GpuManaged` (mutações ignoradas, aviso único);
+ *   - `'never'`: buffer produzido pela GPU; nunca escrito pela CPU.
+ *
+ * **Storage**:
+ *   - `individual`: 1 GPUBuffer por Resource (single-instance: Camera, ShadowParams).
+ *   - `pool`: 1 GPUBuffer compartilhado por N members do mesmo schema. Cresce 2× quando
+ *     a capacidade estoura e emite `poolReallocated`. Um recurso com vários descritores
+ *     em pool ocupa o **mesmo slot** em todos eles.
  */
-export class ResourceSystem {
+export class ResourceSystem implements PoolDirectory {
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
     private readonly pools = new Map<string, PoolEntry>();
     private readonly individuals = new Map<Resource, UniformBufferSpec | StorageBufferSpec>();
+    private readonly allocated = new WeakSet<Resource>();
+    private readonly dirty = new Set<Resource>();
+    private readonly warnedGpuManaged = new Set<string>();
+    private anonCounter = 0;
 
     constructor(
         private readonly core: EngineCore,
@@ -57,7 +80,10 @@ export class ResourceSystem {
             this.onResourcesChanged(e.added, e.removed);
         });
         this.events.on('resourceDirty', (e) => {
-            this.onResourceDirty(e.payload.resource);
+            this.markDirty(e.payload.resource);
+        });
+        this.events.on('frameRecording', () => {
+            this.flushDirty();
         });
     }
 
@@ -66,12 +92,12 @@ export class ResourceSystem {
         return this.pools.get(poolKey)?.bindGroupSpec;
     }
 
-    /** Número atual de members no pool (≤ capacity). 0 se pool não existe. */
+    /** Número de slots ocupáveis no pool (maior slot já usado + 1). 0 se o pool não existe. */
     poolCount(poolKey: string): number {
         return this.pools.get(poolKey)?.count ?? 0;
     }
 
-    /** Slot index de um entityId dentro do pool (offset = slot × stride). */
+    /** Slot de um entityId dentro do pool (offset = slot × stride). */
     poolSlotOf(poolKey: string, entityId: EntityId): number | undefined {
         return this.pools.get(poolKey)?.slotByEntity.get(entityId);
     }
@@ -87,8 +113,8 @@ export class ResourceSystem {
     }
 
     /**
-     * Resolve o poolKey para um Resource (concatenação schema.name +
-     * configuração), ou undefined se Resource não está em pool storage.
+     * Resolve o poolKey do primeiro descritor em pool do Resource (schema.name +
+     * algoritmo, quando declarado), ou undefined se não usa pool.
      */
     poolKeyForResource(resource: Resource): string | undefined {
         for (const desc of resource.getDescriptors()) {
@@ -104,33 +130,85 @@ export class ResourceSystem {
         for (const r of removed) this.dispose(r);
     }
 
-    private onResourceDirty(resource: Resource): void {
+    // ── Dado reativo e fila de sujos ────────────────────────────────────────
+
+    private markDirty(resource: Resource): void {
+        if (!this.allocated.has(resource)) return;
         const handler = this.stateRegistry.get(resource.state);
-        if (handler.ignoreDirtyMark()) return;
+        if (handler.ignoreDirtyMark()) {
+            if (resource.state === ResourceState.GpuManaged) this.warnGpuManaged(resource);
+            return;
+        }
         if (this.stateRegistry.canTransition(resource.state, ResourceState.Dirty)) {
             resource.state = ResourceState.Dirty;
         }
-        this.upload(resource);
-        if (this.stateRegistry.canTransition(resource.state, ResourceState.Ready)) {
-            resource.state = ResourceState.Ready;
-        }
-        this.events.emit('resourceReady', { payload: { resource } });
+        this.dirty.add(resource);
     }
+
+    private flushDirty(): void {
+        if (this.dirty.size === 0) return;
+        const batch = [...this.dirty];
+        this.dirty.clear();
+        for (const resource of batch) {
+            if (!this.allocated.has(resource)) continue;
+            this.upload(resource);
+            if (this.stateRegistry.canTransition(resource.state, ResourceState.Ready)) {
+                resource.state = ResourceState.Ready;
+            }
+            this.events.emit('resourceReady', { payload: { resource } });
+        }
+    }
+
+    private installReactiveData(resource: Resource): void {
+        const onChange = (): void => {
+            this.markDirty(resource);
+        };
+        let proxied = makeReactive(resource.data, onChange);
+        Object.defineProperty(resource, 'data', {
+            configurable: true,
+            enumerable: true,
+            get: () => proxied,
+            set: (next: Record<string, unknown>) => {
+                proxied = makeReactive(next, onChange);
+                onChange();
+            },
+        });
+    }
+
+    private warnGpuManaged(resource: Resource): void {
+        const name = this.schemaNameOf(resource);
+        if (this.warnedGpuManaged.has(name)) return;
+        this.warnedGpuManaged.add(name);
+        console.warn(
+            `[ResourceSystem] Mutação ignorada em '${name}': após a inserção a GPU é dona deste dado `
+                + "(descritor com upload 'initial'). Altere-o antes de inserir na cena.",
+        );
+    }
+
+    // ── Alocação ─────────────────────────────────────────────────────────────
 
     private allocate(resource: Resource): void {
         if (resource.state !== ResourceState.Uninitialized) return;
         resource.state = ResourceState.Loading;
+        this.installReactiveData(resource);
 
-        for (const desc of resource.getDescriptors()) {
-            if (desc.storage === 'pool' && desc.schema !== undefined) {
-                this.allocateInPool(resource, desc, desc.schema);
-            } else {
-                this.allocateIndividual(resource, desc);
-            }
+        const descs = resource.getDescriptors();
+        const pooled = descs.filter((d) => d.storage === 'pool' && d.schema !== undefined);
+        if (pooled.length > 0) this.allocatePooled(resource, pooled);
+        for (const desc of descs) {
+            if (desc.storage !== 'pool') this.allocateIndividual(resource, desc);
         }
 
+        this.allocated.add(resource);
         resource.state = ResourceState.Ready;
+        if (this.isGpuOwned(descs)) resource.state = ResourceState.GpuManaged;
         this.events.emit('resourceReady', { payload: { resource } });
+    }
+
+    /** Recurso cujos descritores materializados são todos 'initial'/'never'. */
+    private isGpuOwned(descs: readonly GPUDescriptor[]): boolean {
+        const materialized = descs.filter((d) => d.schema !== undefined && isBufferRole(d));
+        return materialized.length > 0 && materialized.every((d) => policyOf(d) !== 'always');
     }
 
     private allocateIndividual(resource: Resource, desc: GPUDescriptor): void {
@@ -142,10 +220,13 @@ export class ResourceSystem {
                 byteSize: alignUp(desc.schema.stride, 16),
             });
             this.individuals.set(resource, spec);
-            this.core.write(
-                spec,
-                (resource.data._initialBytes as ArrayBufferView) ?? desc.schema.pack(resource.data),
-            );
+            if (policyOf(desc) !== 'never') {
+                this.core.write(
+                    spec,
+                    (resource.data._initialBytes as ArrayBufferView | undefined)
+                        ?? desc.schema.pack(resource.data),
+                );
+            }
         } else if (
             (desc.role === 'storage-rw' || desc.role === 'storage-ro')
             && desc.schema !== undefined
@@ -161,31 +242,52 @@ export class ResourceSystem {
         }
     }
 
-    private allocateInPool(resource: Resource, desc: GPUDescriptor, schema: Schema): void {
-        const poolKey = this.computePoolKey(schema, resource);
-        let entry = this.pools.get(poolKey);
-        if (entry === undefined) entry = this.createPool(poolKey, schema);
-
+    /** Aloca um único slot para o recurso, comum a todos os seus pools. */
+    private allocatePooled(resource: Resource, descs: readonly GPUDescriptor[]): void {
+        const entries: { desc: GPUDescriptor; schema: Schema; entry: PoolEntry }[] = [];
+        for (const desc of descs) {
+            const schema = desc.schema;
+            if (schema === undefined) continue;
+            const poolKey = this.computePoolKey(schema, resource);
+            const entry = this.pools.get(poolKey) ?? this.createPool(poolKey, desc, schema);
+            entries.push({ desc, schema, entry });
+        }
+        const slot = this.chooseSlot(entries.map((e) => e.entry));
         const entityId = this.world.entityIdOfResource(resource);
-        const slot = entry.freeList.length > 0 ? entry.freeList.shift()! : entry.count;
-
-        if (slot >= entry.capacity) {
-            this.growPool(entry);
+        for (const { desc, schema, entry } of entries) {
+            const freeIdx = entry.freeList.indexOf(slot);
+            if (freeIdx >= 0) entry.freeList.splice(freeIdx, 1);
+            while (slot >= entry.capacity) this.growPool(entry);
+            // Slots pulados (ocupados em outro pool do grupo) ficam livres neste pool.
+            for (let s = entry.count; s < slot; s++) {
+                if (!entry.occupants.has(s) && !entry.freeList.includes(s)) entry.freeList.push(s);
+            }
+            entry.count = Math.max(entry.count, slot + 1);
+            entry.occupants.set(slot, { resource, schema });
+            if (entityId !== undefined) {
+                entry.slotByEntity.set(entityId, slot);
+                entry.entityBySlot.set(slot, entityId);
+            }
+            if (policyOf(desc) !== 'never') {
+                this.core.write(entry.bufferSpec, schema.pack(resource.data), slot * entry.stride);
+            }
         }
-
-        entry.count = Math.max(entry.count, slot + 1);
-        if (entityId !== undefined) {
-            entry.slotByEntity.set(entityId, slot);
-            entry.entityBySlot.set(slot, entityId);
-        }
-
-        const bytes = schema.pack(resource.data);
-        this.core.write(entry.bufferSpec, bytes, slot * entry.stride);
-        // discriminator on the desc keeps this binding distinct in derived bindGroups (no-op here)
-        void desc;
     }
 
-    private createPool(poolKey: string, schema: Schema): PoolEntry {
+    /** Menor slot livre em todos os pools do grupo (free-list do primeiro, depois o fim). */
+    private chooseSlot(entries: readonly PoolEntry[]): number {
+        const [first, ...rest] = entries;
+        const isFreeEverywhere = (slot: number): boolean =>
+            rest.every((e) => !e.occupants.has(slot));
+        for (const candidate of first?.freeList ?? []) {
+            if (isFreeEverywhere(candidate)) return candidate;
+        }
+        let slot = Math.max(...entries.map((e) => e.count));
+        while (!entries.every((e) => !e.occupants.has(slot))) slot++;
+        return slot;
+    }
+
+    private createPool(poolKey: string, desc: GPUDescriptor, schema: Schema): PoolEntry {
         const stride = alignUp(schema.stride, 16);
         const capacity = INITIAL_POOL_CAPACITY;
         const bufferSpec = this.core.create<StorageBufferSpec>({
@@ -216,6 +318,7 @@ export class ResourceSystem {
             poolKey,
             stride,
             schema,
+            upload: policyOf(desc),
             bufferSpec,
             layoutSpec,
             bindGroupSpec,
@@ -223,6 +326,7 @@ export class ResourceSystem {
             count: 0,
             slotByEntity: new Map(),
             entityBySlot: new Map(),
+            occupants: new Map(),
             freeList: [],
             generation: 0,
         };
@@ -231,16 +335,14 @@ export class ResourceSystem {
     }
 
     private growPool(entry: PoolEntry): void {
-        const oldCap = entry.capacity;
         const oldByteSize = entry.bufferSpec.byteSize;
-        const newCap = oldCap * 2;
         const oldSpec = entry.bufferSpec;
-        entry.capacity = newCap;
+        entry.capacity *= 2;
         entry.bufferSpec = this.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
             discriminator: `pool:${entry.poolKey}:gen${++entry.generation}`,
-            byteSize: entry.stride * newCap,
+            byteSize: entry.stride * entry.capacity,
         });
         entry.bindGroupSpec = this.core.create<BindGroupSpec>({
             kind: 'bindgroup',
@@ -248,15 +350,11 @@ export class ResourceSystem {
             layout: entry.layoutSpec,
             bindings: [{ binding: 0, kind: 'buffer', buffer: entry.bufferSpec }],
         });
-        // Re-pack all members into the new buffer
-        for (const [slot, entityId] of entry.entityBySlot) {
-            const resources = this.world.resourcesOf(entityId);
-            for (const r of resources) {
-                const rSchemaName = (r.constructor as { schema?: { name: string } }).schema?.name;
-                if (rSchemaName === entry.schema.name) {
-                    const bytes = entry.schema.pack(r.data);
-                    this.core.write(entry.bufferSpec, bytes, slot * entry.stride);
-                }
+        // Reempacota os membros a partir da CPU. Pools 'never' não têm dado na CPU:
+        // o produtor recalcula ao receber `poolReallocated`.
+        if (entry.upload !== 'never') {
+            for (const [slot, { resource, schema }] of entry.occupants) {
+                this.core.write(entry.bufferSpec, schema.pack(resource.data), slot * entry.stride);
             }
         }
         this.core.destroy(oldSpec);
@@ -267,6 +365,8 @@ export class ResourceSystem {
         });
     }
 
+    // ── Descarte ─────────────────────────────────────────────────────────────
+
     private dispose(resource: Resource): void {
         const handler = this.stateRegistry.get(resource.state);
         if (!handler.validTransitions().includes(ResourceState.Disposed)) {
@@ -274,84 +374,81 @@ export class ResourceSystem {
             return;
         }
         resource.state = ResourceState.Disposed;
+        this.allocated.delete(resource);
+        this.dirty.delete(resource);
         const ind = this.individuals.get(resource);
         if (ind !== undefined) {
             this.core.destroy(ind);
             this.individuals.delete(resource);
         }
-        // For pool entries, free the slot
         for (const desc of resource.getDescriptors()) {
-            if (desc.storage === 'pool' && desc.schema !== undefined) {
-                const poolKey = this.computePoolKey(desc.schema, resource);
-                const entry = this.pools.get(poolKey);
-                if (entry === undefined) continue;
-                const entityId = this.world.entityIdOfResource(resource);
-                if (entityId === undefined) continue;
-                const slot = entry.slotByEntity.get(entityId);
-                if (slot === undefined) continue;
-                entry.slotByEntity.delete(entityId);
+            if (desc.storage !== 'pool' || desc.schema === undefined) continue;
+            const entry = this.pools.get(this.computePoolKey(desc.schema, resource));
+            if (entry === undefined) continue;
+            for (const [slot, occupant] of entry.occupants) {
+                if (occupant.resource !== resource) continue;
+                entry.occupants.delete(slot);
+                const eid = entry.entityBySlot.get(slot);
+                if (eid !== undefined) entry.slotByEntity.delete(eid);
                 entry.entityBySlot.delete(slot);
                 entry.freeList.push(slot);
+                break;
             }
         }
         resource.state = ResourceState.Destroyed;
     }
 
+    // ── Envio ────────────────────────────────────────────────────────────────
+
+    /** Envia os descritores 'always' do recurso (individual inteiro / pool no slot). */
     private upload(resource: Resource): void {
-        const ind = this.individuals.get(resource);
-        if (ind !== undefined) {
-            const schema = this.schemaForBinding(resource);
-            if (schema !== undefined) this.core.write(ind, schema.pack(resource.data));
-            return;
-        }
         for (const desc of resource.getDescriptors()) {
-            if (desc.storage === 'pool' && desc.schema !== undefined) {
-                const poolKey = this.computePoolKey(desc.schema, resource);
-                const entry = this.pools.get(poolKey);
+            if (desc.schema === undefined || policyOf(desc) !== 'always') continue;
+            if (desc.storage === 'pool') {
+                const entry = this.pools.get(this.computePoolKey(desc.schema, resource));
                 if (entry === undefined) continue;
-                const entityId = this.world.entityIdOfResource(resource);
-                if (entityId === undefined) continue;
-                const slot = entry.slotByEntity.get(entityId);
-                if (slot === undefined) continue;
-                this.core.write(
-                    entry.bufferSpec,
-                    desc.schema.pack(resource.data),
-                    slot * entry.stride,
-                );
+                for (const [slot, occupant] of entry.occupants) {
+                    if (occupant.resource !== resource) continue;
+                    this.core.write(
+                        entry.bufferSpec,
+                        desc.schema.pack(resource.data),
+                        slot * entry.stride,
+                    );
+                    break;
+                }
+            } else if (isBufferRole(desc)) {
+                const ind = this.individuals.get(resource);
+                if (ind !== undefined) this.core.write(ind, desc.schema.pack(resource.data));
             }
         }
     }
 
     private computePoolKey(schema: Schema, resource: Resource): string {
-        const flowDescs = resource.getFlowDescriptors?.();
-        if (flowDescs !== undefined && flowDescs.length > 0) {
-            return `${schema.name}:${flowDescs[0]!.algorithm}`;
-        }
+        const algorithm = resource.getFlowDescriptors?.()[0]?.algorithm;
+        if (algorithm !== undefined) return `${schema.name}:${algorithm}`;
         return schema.name;
     }
 
-    private schemaForBinding(resource: Resource): Schema | undefined {
+    private schemaNameOf(resource: Resource): string {
         for (const desc of resource.getDescriptors()) {
-            if (
-                desc.schema !== undefined
-                && (desc.role === 'uniform'
-                    || desc.role === 'storage-ro'
-                    || desc.role === 'storage-rw')
-            ) {
-                return desc.schema;
-            }
+            if (desc.schema !== undefined) return desc.schema.name;
         }
-        return undefined;
+        return 'Resource';
     }
 
     private identityOf(resource: Resource): string {
-        const ctor = resource.constructor as { schema?: { name: string }; name: string };
-        const schemaName = ctor.schema?.name ?? ctor.name;
+        const schemaName = this.schemaNameOf(resource);
         const id = this.world.entityIdOfResource(resource);
         return id !== undefined ? `${schemaName}#${id}` : `${schemaName}@anon${this.anonCounter++}`;
     }
+}
 
-    private anonCounter = 0;
+function policyOf(desc: GPUDescriptor): UploadPolicy {
+    return desc.upload ?? 'always';
+}
+
+function isBufferRole(desc: GPUDescriptor): boolean {
+    return desc.role === 'uniform' || desc.role === 'storage-ro' || desc.role === 'storage-rw';
 }
 
 function alignUp(value: number, alignment: number): number {
