@@ -188,6 +188,8 @@ export class RigidBody extends PhysicsBody {
                 role: 'storage-rw',
                 schema: this.schema,
                 storage: 'pool',
+                // A simulação é dona do estado após a inserção: a CPU envia só o spawn.
+                upload: 'initial',
             },
         ];
     }

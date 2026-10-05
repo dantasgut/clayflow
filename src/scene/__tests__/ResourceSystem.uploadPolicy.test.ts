@@ -31,12 +31,12 @@ class Policy extends Entity implements Resource {
 function setup() {
     const events = new DefaultEventBus();
     const world = new World(events);
-    const { core, writes } = fakeResourceCore();
-    new ResourceSystem(core, events, world);
+    const { core, writes, copies } = fakeResourceCore();
+    const resources = new ResourceSystem(core, events, world);
     const frame = (): void => {
         events.emit('frameRecording', { elapsed: 0 });
     };
-    return { world, writes, frame };
+    return { world, writes, copies, resources, frame };
 }
 
 afterEach(() => {
@@ -115,5 +115,25 @@ describe('ResourceSystem — política de envio por descritor', () => {
         frame();
         expect(writes.length).toBe(2);
         expect(writes[1]!.bytes.byteLength).toBe(IntentSchema.stride);
+    });
+
+    it("crescimento de pool 'initial' copia o estado da GPU em vez de reempacotar da CPU", () => {
+        const { world, writes, copies, resources } = setup();
+        const desc: GPUDescriptor = {
+            id: 'b',
+            role: 'storage-rw',
+            storage: 'pool',
+            schema: BodySchema,
+            upload: 'initial',
+        };
+        for (let i = 0; i < 16; i++) world.insert(new Policy([desc]));
+        const oldBuffer = resources.poolBufferSpec('PolicyBody');
+        const writesBefore = writes.length;
+        world.insert(new Policy([desc])); // 17º membro força o crescimento
+        const newBuffer = resources.poolBufferSpec('PolicyBody');
+        expect(newBuffer).not.toBe(oldBuffer);
+        expect(copies).toEqual([{ src: oldBuffer, dst: newBuffer, size: oldBuffer!.byteSize }]);
+        // Só o envio inicial do novo membro — nenhum membro antigo reescrito da CPU.
+        expect(writes.length - writesBefore).toBe(1);
     });
 });

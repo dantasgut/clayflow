@@ -22,44 +22,16 @@ describe('makeReactive', () => {
         expect((proxy.position as number[])[0]).toBe(3);
     });
 
-    it('escrita indexada em Float32Array notifica', () => {
-        const { proxy, onChange } = setup({ values: new Float32Array(4) });
-        (proxy.values as Float32Array)[2] = 7;
+    it('TypedArray é devolvido cru (APIs nativas não aceitam Proxy) e reatribuição notifica', () => {
+        const raw = new Float32Array([1, 2, 3]);
+        const { proxy, onChange } = setup({ values: raw });
+        expect(proxy.values).toBe(raw);
+        expect(ArrayBuffer.isView(proxy.values)).toBe(true);
+        (proxy.values as Float32Array)[0] = 9; // in-place não é rastreado (documentado)
+        expect(onChange).not.toHaveBeenCalled();
+        proxy.values = new Float32Array([4, 5, 6]);
         expect(onChange).toHaveBeenCalledTimes(1);
-        expect((proxy.values as Float32Array)[2]).toBe(7);
     });
-
-    it.each(['set', 'fill', 'copyWithin', 'sort', 'reverse'] as const)(
-        'TypedArray.%s notifica após mutar o alvo',
-        (method) => {
-            const raw = new Float32Array([3, 1, 2, 0]);
-            const { proxy, onChange } = setup({ values: raw });
-            const arr = proxy.values as Float32Array;
-            switch (method) {
-                case 'set':
-                    arr.set([9, 9], 1);
-                    expect(raw[1]).toBe(9);
-                    break;
-                case 'fill':
-                    arr.fill(4);
-                    expect(raw[0]).toBe(4);
-                    break;
-                case 'copyWithin':
-                    arr.copyWithin(0, 2);
-                    expect(raw[0]).toBe(2);
-                    break;
-                case 'sort':
-                    arr.sort();
-                    expect(raw[0]).toBe(0);
-                    break;
-                case 'reverse':
-                    arr.reverse();
-                    expect(raw[0]).toBe(0);
-                    break;
-            }
-            expect(onChange).toHaveBeenCalled();
-        },
-    );
 
     it.each(['splice', 'fill', 'sort', 'reverse'] as const)('Array.%s notifica', (method) => {
         const raw = [3, 1, 2];
@@ -94,9 +66,8 @@ describe('makeReactive', () => {
     });
 
     it('proxy aninhado é estável', () => {
-        const { proxy } = setup({ position: [0, 0, 0, 1], values: new Float32Array(2) });
+        const { proxy } = setup({ position: [0, 0, 0, 1] });
         expect(proxy.position).toBe(proxy.position);
-        expect(proxy.values).toBe(proxy.values);
     });
 
     it('leitura não notifica', () => {
@@ -121,14 +92,6 @@ describe('makeReactive', () => {
         expect(Array.from(proxy.v as Float32Array)).toEqual([1, 2]);
         expect((proxy.v as Float32Array).byteLength).toBe(8);
         expect(onChange).not.toHaveBeenCalled();
-    });
-
-    it('typed array proxiado pode ser usado como fonte de cópia', () => {
-        const { proxy } = setup({ v: new Float32Array([1, 2, 3]) });
-        const dst = new Float32Array(3);
-        dst.set(proxy.v as Float32Array);
-        expect(Array.from(dst)).toEqual([1, 2, 3]);
-        expect(new Float32Array(proxy.v as Float32Array)[2]).toBe(3);
     });
 
     it('valores primitivos e objetos aninhados simples funcionam', () => {

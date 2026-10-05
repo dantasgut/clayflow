@@ -350,9 +350,20 @@ export class ResourceSystem implements PoolDirectory {
             layout: entry.layoutSpec,
             bindings: [{ binding: 0, kind: 'buffer', buffer: entry.bufferSpec }],
         });
-        // Reempacota os membros a partir da CPU. Pools 'never' não têm dado na CPU:
-        // o produtor recalcula ao receber `poolReallocated`.
-        if (entry.upload !== 'never') {
+        // Preserva o conteúdo conforme quem é dono do dado:
+        //   - 'initial': a GPU é dona (ex.: simulação) — copia o buffer antigo na GPU;
+        //     reempacotar da CPU reverteria o estado simulado ao valor inicial.
+        //   - 'always': reempacota da CPU (fonte de verdade).
+        //   - 'never': não há dado na CPU; o produtor recalcula ao receber `poolReallocated`.
+        // A cópia grava um comando próprio: crescer durante a gravação de um quadro não é
+        // suportado (alocações ocorrem em `resourcesChanged`, fora da gravação).
+        if (entry.upload === 'initial') {
+            const target = entry.bufferSpec;
+            this.core.record(`pool_grow:${entry.poolKey}`, (frame) => {
+                frame.copy(oldSpec, target, oldByteSize);
+            });
+            this.core.submit();
+        } else if (entry.upload === 'always') {
             for (const [slot, { resource, schema }] of entry.occupants) {
                 this.core.write(entry.bufferSpec, schema.pack(resource.data), slot * entry.stride);
             }

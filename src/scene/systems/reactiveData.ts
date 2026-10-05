@@ -5,9 +5,13 @@
  *
  * Rastreia:
  *   - atribuição e remoção de campos (`data.position = …`, `delete data.x`);
- *   - escrita indexada em `Array` e `TypedArray` (`data.position[0] = 5`);
- *   - métodos mutadores de `Array`/`TypedArray` (`set`, `fill`, `splice`, `sort`, …);
+ *   - escrita indexada em `Array` (`data.position[0] = 5`) e seus métodos mutadores
+ *     (`splice`, `fill`, `sort`, `push`, …);
  *   - objetos literais aninhados (mesmas regras, recursivamente).
+ *
+ * `TypedArray`/`ArrayBuffer`/`DataView` são devolvidos **crus**: são blocos de dados que
+ * seguem direto para APIs nativas (`writeBuffer`, `copy`), que não aceitam Proxy. Mutar
+ * um typed array no lugar não é rastreado — reatribua o campo (`data.vertices = novo`).
  *
  * Limite: referências a arrays internos capturadas **antes** da inserção (`const p =
  * t.data.position` antes de `world.insert`) apontam para o array cru e não são
@@ -33,9 +37,7 @@ export function makeReactive<T extends object>(data: T, onChange: () => void): T
         if (cached !== undefined) return cached;
         let proxy: object | undefined;
         if (Array.isArray(value)) {
-            proxy = new Proxy(value, sequenceHandler(ARRAY_MUTATORS));
-        } else if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
-            proxy = new Proxy(value, sequenceHandler(TYPED_ARRAY_MUTATORS));
+            proxy = new Proxy(value, arrayHandler);
         } else if (isPlainObject(value)) {
             proxy = new Proxy(value, objectHandler);
         }
@@ -61,33 +63,30 @@ export function makeReactive<T extends object>(data: T, onChange: () => void): T
         },
     };
 
-    function sequenceHandler(mutators: ReadonlySet<PropertyKey>): ProxyHandler<object> {
-        return {
-            get(target, prop) {
-                // Receiver = alvo: getters nativos de TypedArray (length, byteLength…) exigem
-                // `this` real; métodos são ligados ao alvo pelo mesmo motivo.
-                const value: unknown = Reflect.get(target, prop, target);
-                if (typeof value !== 'function') return wrap(value);
-                const fn = value as (...args: unknown[]) => unknown;
-                if (!mutators.has(prop)) return fn.bind(target);
-                return function mutate(this: unknown, ...args: unknown[]): unknown {
-                    const result = fn.apply(target, args.map(unwrap));
-                    onChange();
-                    return result === target ? proxies.get(target) : result;
-                };
-            },
-            set(target, prop, value) {
-                const ok = Reflect.set(target, prop, unwrap(value), target);
+    const arrayHandler: ProxyHandler<object> = {
+        get(target, prop) {
+            const value: unknown = Reflect.get(target, prop, target);
+            if (typeof value !== 'function') return wrap(value);
+            const fn = value as (...args: unknown[]) => unknown;
+            if (!ARRAY_MUTATORS.has(prop)) return fn.bind(target);
+            // Mutador executa no alvo e notifica uma vez (evita uma notificação por índice).
+            return function mutate(this: unknown, ...args: unknown[]): unknown {
+                const result = fn.apply(target, args.map(unwrap));
                 onChange();
-                return ok;
-            },
-            deleteProperty(target, prop) {
-                const ok = Reflect.deleteProperty(target, prop);
-                onChange();
-                return ok;
-            },
-        };
-    }
+                return result === target ? proxies.get(target) : result;
+            };
+        },
+        set(target, prop, value) {
+            const ok = Reflect.set(target, prop, unwrap(value), target);
+            onChange();
+            return ok;
+        },
+        deleteProperty(target, prop) {
+            const ok = Reflect.deleteProperty(target, prop);
+            onChange();
+            return ok;
+        },
+    };
 
     return wrap(data) as T;
 }
@@ -102,14 +101,6 @@ const ARRAY_MUTATORS: ReadonlySet<PropertyKey> = new Set([
     'sort',
     'splice',
     'unshift',
-]);
-
-const TYPED_ARRAY_MUTATORS: ReadonlySet<PropertyKey> = new Set([
-    'copyWithin',
-    'fill',
-    'reverse',
-    'set',
-    'sort',
 ]);
 
 function isPlainObject(value: object): boolean {
