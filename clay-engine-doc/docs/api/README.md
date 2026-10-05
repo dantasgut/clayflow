@@ -142,6 +142,21 @@ app.defaults.post.addEffect(new Vignette({ strength: 0.5 }));
 app.start();
 ```
 
+### 4. Mover objetos em tempo de execução
+
+O `Transform` é a intenção (`position`, `rotation`, `scale`); mudar o `data` reposiciona o objeto no quadro
+seguinte — sem chamadas manuais (a matriz de mundo é calculada na GPU pelo `TransformFlow`).
+
+```typescript
+const t = new Transform({ position: [0, 0, 0, 1] });
+cube.add(t);
+app.world.insert(cube);
+
+app.events.on('frameTick', ({ elapsed }) => {
+  t.data.position[1] = Math.sin(elapsed);
+});
+```
+
 ## Comandos
 
 ```bash

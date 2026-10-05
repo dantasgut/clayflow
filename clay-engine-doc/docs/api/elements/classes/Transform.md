@@ -6,10 +6,17 @@
 
 # Class: Transform
 
-Defined in: [elements/scene/Transform.ts:13](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/Transform.ts#L13)
+Defined in: [elements/scene/Transform.ts:32](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L32)
 
-Transform 3D — position + rotation (quaternion) + scale + matrix model
-cacheada. Compõe meshes/cameras/lights na cena.
+Transform 3D — a **intenção** de posicionamento de um objeto: posição, rotação
+(quaternion) e escala. Mutar `data` depois de inserir reposiciona o objeto no
+quadro seguinte, sem chamadas manuais.
+
+A matriz de mundo não é dado do desenvolvedor: é produzida na GPU pelo
+`TransformFlow` (fase `transform`) num segundo descritor do mesmo recurso
+(`WorldTransform`, mesmo slot), e lida pelos estágios de sombra e desenho.
+
+Mudança incompatível: o antigo campo `model` foi removido — ver o guia de migração.
 
 ## Extends
 
@@ -25,13 +32,13 @@ cacheada. Compõe meshes/cameras/lights na cena.
 
 > **new Transform**(`values?`): `Transform`
 
-Defined in: [elements/scene/Transform.ts:25](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/Transform.ts#L25)
+Defined in: [elements/scene/Transform.ts:52](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L52)
 
 #### Parameters
 
 ##### values?
 
-`Record`\<`string`, `unknown`\> = `{}`
+[`TransformValues`](../interfaces/TransformValues.md) = `{}`
 
 #### Returns
 
@@ -47,7 +54,7 @@ Defined in: [elements/scene/Transform.ts:25](https://github.com/dantasgut/clayfl
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/scene/Transform.ts:23](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/Transform.ts#L23)
+Defined in: [elements/scene/Transform.ts:50](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L50)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -63,7 +70,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/Transform.ts:22](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/Transform.ts#L22)
+Defined in: [elements/scene/Transform.ts:49](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L49)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -77,9 +84,20 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/scene/Transform.ts:15](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/Transform.ts#L15)
+Defined in: [elements/scene/Transform.ts:34](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L34)
 
-StructSchema do Transform (position + rotation + scale + model matrix).
+Intenção do desenvolvedor: posição, rotação e escala (pool `Transform`).
+
+***
+
+### worldSchema
+
+> `readonly` `static` **worldSchema**: `StructSchema`
+
+Defined in: [elements/scene/Transform.ts:44](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L44)
+
+Produto do estágio de transformação, só na GPU (pool `WorldTransform`):
+`world = T·R·S` e `normal = R·S⁻¹` (matriz para normais).
 
 ## Accessors
 
@@ -89,7 +107,7 @@ StructSchema do Transform (position + rotation + scale + model matrix).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -108,7 +126,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -133,12 +151,9 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/Transform.ts:35](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/Transform.ts#L35)
+Defined in: [elements/scene/Transform.ts:63](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L63)
 
-Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
-que este resource expõe ao `ResourceSystem`. Cada descriptor define
-`id`, `role`, `schema` (StructSchema) e opcionalmente `storage`
-(`'pool'` para coalescer N members do mesmo schema em 1 buffer).
+Intenção (CPU envia a cada mutação) + matriz de mundo (produzida só pela GPU).
 
 #### Returns
 
@@ -154,7 +169,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/Transform.ts:39](https://github.com/dantasgut/clayflow/blob/6109485920a9f71388790be57c241973781b2157/src/elements/scene/Transform.ts#L39)
+Defined in: [elements/scene/Transform.ts:82](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L82)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -167,3 +182,17 @@ readonly `PipelineDescriptor`[]
 #### Implementation of
 
 `Resource.getPipelineDescriptors`
+
+***
+
+### resetLegacyModelWarning()
+
+> `static` **resetLegacyModelWarning**(): `void`
+
+Defined in: [elements/scene/Transform.ts:87](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/scene/Transform.ts#L87)
+
+Reabilita o aviso de `model` legado (uso em testes).
+
+#### Returns
+
+`void`

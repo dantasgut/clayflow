@@ -12,7 +12,7 @@ import { createComputeKernel, type ComputeKernel } from '../../../scene/flows/cr
 import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import type { GravityField } from '../forcefields/GravityField';
-import type { Transform } from '../../scene/Transform';
+import { Transform } from '../../scene/Transform';
 import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
 import rbSimParamsStruct from '../../gpu/wgsl/structs/rb_sim_params.wgsl?raw';
 import rbContactStruct from '../../gpu/wgsl/structs/rb_contact.wgsl?raw';
@@ -118,8 +118,11 @@ export interface LCPFlowOptions {
  *   4. `rb_solve_lcp`      — warm-start + K Gauss-Seidel (single-threaded por design)
  *   5. `rb_lcp_commit`     — escreve velocidades corrigidas + correção posicional
  *
- * Ao fim do frame, faz CPU readback do pool de bodies e sincroniza `Transform.data`
- * de cada entity (ForwardFlow re-uploada como dirty no próximo frame).
+ * Ao fim do frame, faz CPU readback do pool de bodies e publica a pose (posição e
+ * rotação) no `Transform` de cada entidade; a mutação reativa leva a pose à GPU no
+ * quadro seguinte e o `TransformFlow` produz a matriz de mundo. A escala do `Transform`
+ * é do desenvolvedor e não é tocada. (O readback some na F2, quando a física escrever a
+ * pose direto na GPU.)
  */
 export class LCPFlow extends Flow {
     readonly type = 'LCPFlow';
@@ -588,9 +591,8 @@ export class LCPFlow extends Flow {
 
     /**
      * Copia o pool de bodies → staging dentro do frame atual e dispara readback
-     * que resolve após `core.submit()`. Aplica pos/rot em Transform.data e marca
-     * dirty para o ForwardFlow re-uploadar no próximo frame. Uma readback por
-     * frame (não acumula in-flight).
+     * que resolve após `core.submit()`. Publica a pose em `Transform.data` (a marcação
+     * de sujo é automática). Uma readback por frame (não acumula in-flight).
      */
     private schedulePosRotReadback(
         frame: Frame,
@@ -629,7 +631,11 @@ export class LCPFlow extends Flow {
         }, 0);
     }
 
-    private applyTransformsFromReadback(ab: ArrayBuffer): void {
+    /**
+     * Publica a pose lida da GPU no `Transform` de cada corpo: só posição e rotação
+     * (normalizada; nula ⇒ identidade). A escala não é tocada.
+     */
+    protected applyTransformsFromReadback(ab: ArrayBuffer): void {
         const view = new Float32Array(ab);
         const total = this.resources.poolCount(this.bodiesPoolKey);
         for (let slot = 0; slot < total; slot++) {
@@ -637,66 +643,21 @@ export class LCPFlow extends Flow {
             if (eid === undefined) continue;
             const base = slot * LCP_BODY_STRIDE_F32;
             if (base + 16 > view.length) continue;
-            const pos: [number, number, number, number] = [
-                view[base + 0] ?? 0,
+            const transform = this.world.resourcesOf(eid).find((r) => r instanceof Transform);
+            if (transform === undefined) continue;
+            const rx = view[base + 12] ?? 0;
+            const ry = view[base + 13] ?? 0;
+            const rz = view[base + 14] ?? 0;
+            const rw = view[base + 15] ?? 1;
+            const len = Math.hypot(rx, ry, rz, rw);
+            transform.data.position = [
+                view[base] ?? 0,
                 view[base + 1] ?? 0,
                 view[base + 2] ?? 0,
                 1,
             ];
-            const rawRx = view[base + 12] ?? 0;
-            const rawRy = view[base + 13] ?? 0;
-            const rawRz = view[base + 14] ?? 0;
-            const rawRw = view[base + 15] ?? 1;
-            const rotLen2 = rawRx * rawRx + rawRy * rawRy + rawRz * rawRz + rawRw * rawRw;
-            const [qx, qy, qz, qw] =
-                rotLen2 > 1e-12 ? ([rawRx, rawRy, rawRz, rawRw] as const) : ([0, 0, 0, 1] as const);
-            const rot: [number, number, number, number] = [qx, qy, qz, qw];
-            // Model matrix column-major = T(pos) * R(quat); scale = 1.
-            const xx = qx * qx,
-                yy = qy * qy,
-                zz = qz * qz;
-            const xy = qx * qy,
-                xz = qx * qz,
-                yz = qy * qz;
-            const wx = qw * qx,
-                wy = qw * qy,
-                wz = qw * qz;
-            const model: number[] = [
-                1 - 2 * (yy + zz),
-                2 * (xy + wz),
-                2 * (xz - wy),
-                0,
-                2 * (xy - wz),
-                1 - 2 * (xx + zz),
-                2 * (yz + wx),
-                0,
-                2 * (xz + wy),
-                2 * (yz - wx),
-                1 - 2 * (xx + yy),
-                0,
-                pos[0],
-                pos[1],
-                pos[2],
-                1,
-            ];
-            const resources = this.world.resourcesOf(eid);
-            const transform = resources.find(
-                (r) => (r.constructor as { name?: string }).name === 'Transform',
-            ) as Transform | undefined;
-            if (transform === undefined) continue;
-            transform.data.position = pos;
-            transform.data.rotation = rot;
-            transform.data.model = model;
-            this.markTransformDirty(transform);
+            transform.data.rotation =
+                len > 1e-6 ? [rx / len, ry / len, rz / len, rw / len] : [0, 0, 0, 1];
         }
-    }
-
-    private markTransformDirty(transform: Transform): void {
-        const events = (
-            this.world as unknown as {
-                events?: { emit?: (name: string, payload: unknown) => void };
-            }
-        ).events;
-        events?.emit?.('resourceDirty', { payload: { resource: transform } });
     }
 }
