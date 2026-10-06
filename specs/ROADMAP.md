@@ -243,6 +243,19 @@ entrega da 003: a cena de instâncias ganha a variante `10k-moving` (mede o cami
 agrupamento de envios é ganho da F2) e o tempo de CPU do quadro passa a incluir o envio dos dados alterados
 (`frameRecording`).
 
+**Status (2026-10-05)**: F0 entregue — 003 integrada (PR #34) e 002 implementada (`bench/`, guia
+[Benchmark](../clay-engine-doc/docs/guides/benchmark.md)). O primeiro relatório completo, anexado ao PR da 002, é a
+linha de base declarada da F1/F2; o baseline da máquina de referência fica em `bench/baselines/`. Leitura da linha
+de base:
+
+- **Hash de spec sem cache** (UUIDv5/SHA-1 a cada bind/draw) domina a CPU do clayflow (~90% do quadro) e a
+  montagem das cenas (~20 s para 10k entidades) — primeiro alvo da F1 (004).
+- `instances/100k` estoura o tempo e `instances/1m` derruba a aba no clayflow (sem instancing até a F2);
+  `rigid-bodies/1k` às vezes pendura a GPU (readback + solver em uma thread, F2/F5).
+- Reprodutibilidade: duas rodadas completas consecutivas com medianas a ≤ 5% em 13 de 14 linhas medidas. A duração
+  (17,4 min completa, 4,3 min `--quick`) ainda excede a meta de SC-007 por causa do custo de montagem e das falhas
+  do clayflow; deve cair com a F1/F2 sem mudar o protocolo.
+
 ## 7. Adoção pelo MorphSociety (no repositório do jogo)
 
 | Marco                   | Capacidades | O jogo pode modernizar               | Critério (medido no jogo)                   |

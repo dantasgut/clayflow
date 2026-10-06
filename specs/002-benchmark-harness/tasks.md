@@ -157,12 +157,18 @@ suportado" sem erro.
 
 - [x] T058 [P] Guia `clay-engine-doc/docs/guides/benchmark.md` (FR-019): pré-requisitos, rodar (`--quick`, filtros), ler o relatório (×, n/d, ⚠, vsync, limitações), gravar/atualizar baseline, gate local, adicionar cena, e a API de observabilidade (`profiling: true`, `frameComplete.stats`, defasagem de `gpuTimeMs`)
 - [x] T059 [P] Atualizar `clay-engine-doc/docs/guides/dev_workflow.md`: benchmark (`bench:check`) e `typecheck:bench` no gate local para mudanças em renderização/física (CI sem GPU — FR-014); e `clay-engine-doc/docs/guides/09_Compute_Pass_e_Queries.md` com a seção de profiling por quadro (timestamps automáticos, capacidade, estouro)
-- [ ] T060 JSDoc em todos os exports novos da lib (`FrameStats`, `setFrameProfiling`, `lastFrameStats`, `profiling`, `profilingCapacity`, `stats`); `npm run doc:coverage` verde; `npm run doc` regenerado
+- [x] T060 JSDoc em todos os exports novos da lib (`FrameStats`, `setFrameProfiling`, `lastFrameStats`, `profiling`, `profilingCapacity`, `stats`); `npm run doc:coverage` verde; `npm run doc` regenerado
 - [x] T061 Verificar SC-005: `npm pack --dry-run` não lista nada de `bench/`; `dependencies` só `uuid`; `grep` em `dist/` sem `three`/`rapier`; overhead da observabilidade — comparar `cpuMs` de `instances/10k` clayflow com `profiling` ligado vs desligado (parâmetro de query `profiling=0` aceito por `bench/page/main.ts` e `bench/engines/clayflow.ts`), diferença ≤ 2%; registrar no PR
-- [ ] T062 Verificar SC-002 e SC-007: duas execuções completas consecutivas (`npm run bench`) com medianas por cena diferindo ≤ 5% e duração ≤ 15 min; `--quick` ≤ 3 min; registrar no PR
-- [ ] T063 Gravar e commitar o baseline da máquina de referência (`npm run bench:baseline` → `bench/baselines/<profileId>.json`) e anexar o `latest.md` do primeiro relatório completo ao PR como linha de base declarada da F1/F2 (SC-006)
-- [ ] T064 Atualizar `specs/ROADMAP.md` (F0 marcada como entregue, com link para o relatório no PR) e o `Status` de `specs/002-benchmark-harness/spec.md`
-- [ ] T065 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`
+- [x] T062 Verificar SC-002 e SC-007: duas execuções completas consecutivas (`npm run bench`) com medianas por cena diferindo ≤ 5% e duração ≤ 15 min; `--quick` ≤ 3 min; registrar no PR
+  - **Resultado (2026-10-05)**: SC-002 atendido em 13 de 14 linhas medidas (CPU/GPU/quadro/p95 a ≤ 2,3%); exceção
+    `instances/1m` no Three (+16% no quadro de 2,4 → 2,8 ms, logo após o processo de GPU ser relançado pela queda do
+    clayflow 1m). SC-007 **não atendido**: 17,4 min (completa) e 4,3 min (`--quick`) — ~70% do tempo é clayflow
+    (montagem de ~20 s por cena de 10k pelo hash de spec sem cache, timeout em 100k, queda em 1m). Protocolo
+    mantido; meta revisitada após a F1 (cache do `specHash`). Uma rodada anterior revelou `context.close()` preso
+    por 39 min numa aba com GPU pendurada — corrigido com prazo duro e relançamento do navegador.
+- [x] T063 Gravar e commitar o baseline da máquina de referência (`npm run bench:baseline` → `bench/baselines/<profileId>.json`) e anexar o `latest.md` do primeiro relatório completo ao PR como linha de base declarada da F1/F2 (SC-006)
+- [x] T064 Atualizar `specs/ROADMAP.md` (F0 marcada como entregue, com link para o relatório no PR) e o `Status` de `specs/002-benchmark-harness/spec.md`
+- [x] T065 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`
 
 ---
 

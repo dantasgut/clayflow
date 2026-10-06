@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-03
 
-**Status**: Draft
+**Status**: Implementada (2026-10-05) — verificação de SC-002/SC-007 registrada em `tasks.md` (T062)
 
 **Input**: User description: "Harness de benchmark comparativo clayflow vs Three.js (WebGPURenderer) — Fase F0 do
 roadmap evolutivo. Objetivo: medir antes de otimizar. Cenas idênticas nas duas engines; métricas de CPU, GPU,
