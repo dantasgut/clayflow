@@ -17,7 +17,7 @@ let t = 0;
 const impl: SceneImplementation<ClayflowHandle> = {
     get limitations() {
         const base = [
-            'sem instancing no render: 1 draw e 4 bind groups por objeto (até F2)',
+            'sem instancing no render: 1 draw por objeto (até F2)',
             'render LDR 8 bits, sem MSAA (até F4)',
         ];
         return moving ? [...base, 'um envio por objeto alterado, sem agrupamento (até F2)'] : base;

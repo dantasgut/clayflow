@@ -163,8 +163,9 @@ suportado" sem erro.
   - **Resultado (2026-10-05)**: SC-002 atendido em 13 de 14 linhas medidas (CPU/GPU/quadro/p95 a ≤ 2,3%); exceção
     `instances/1m` no Three (+16% no quadro de 2,4 → 2,8 ms, logo após o processo de GPU ser relançado pela queda do
     clayflow 1m). SC-007 **não atendido**: 17,4 min (completa) e 4,3 min (`--quick`) — ~70% do tempo é clayflow
-    (montagem de ~20 s por cena de 10k pelo hash de spec sem cache, timeout em 100k, queda em 1m). Protocolo
-    mantido; meta revisitada após a F1 (cache do `specHash`). Uma rodada anterior revelou `context.close()` preso
+    (montagem de ~20 s por cena de 10k, timeout em 100k, queda em 1m — o `ForwardFlow` aloca por entidade em vez de
+    consumir pelos slots o que a C2 já aloca, agravado pelo `specHash` sem cache; ver ROADMAP §6). Protocolo
+    mantido; meta revisitada após a F1 (006 e 004). Uma rodada anterior revelou `context.close()` preso
     por 39 min numa aba com GPU pendurada — corrigido com prazo duro e relançamento do navegador.
 - [x] T063 Gravar e commitar o baseline da máquina de referência (`npm run bench:baseline` → `bench/baselines/<profileId>.json`) e anexar o `latest.md` do primeiro relatório completo ao PR como linha de base declarada da F1/F2 (SC-006)
 - [x] T064 Atualizar `specs/ROADMAP.md` (F0 marcada como entregue, com link para o relatório no PR) e o `Status` de `specs/002-benchmark-harness/spec.md`

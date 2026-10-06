@@ -101,7 +101,8 @@ export function createClayflowAdapter(options: {
         id: 'clayflow',
         version: 'clayflow',
         limitations: [
-            'hash de spec (UUIDv5/SHA-1) recalculado a cada bind/draw, sem cache — domina a CPU por quadro (até F1, spec 004)',
+            'forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)',
+            'hash de spec (UUIDv5/SHA-1) recalculado a cada bind, sem cache — multiplicado pelos binds por entidade (até F1, spec 004)',
         ],
         async init(canvas, resolution, cameraSpec) {
             canvas.width = resolution.width;

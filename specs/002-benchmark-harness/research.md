@@ -119,6 +119,9 @@ trackTimestamp: true })` com `await renderer.init()`.
   opção — sem vazar tipos WebGPU (`FrameStats` é tipo de domínio simples).
 - **Achado do primeiro smoke**: ~90% da CPU por quadro do clayflow vai para `specHash` (UUIDv5/SHA-1 sobre a spec
   serializada) recalculado a cada `setBindGroup`/`setPipeline` — o "cache do `specHash`" da spec 004 (F1).
+  Revisão: o número de chamadas é multiplicado pelo `ForwardFlow`, que aloca buffers e bind groups por entidade
+  (7 binds por draw, câmera regravada em cada entidade) em vez de consumir pelos slots o que a C2 já aloca — desvio
+  da arquitetura de Flows, corrigido na 006 (F1). O cache é agravante; a causa principal é o Flow.
   Declarado pelo adaptador como limitação de toda cena clayflow; a 002 só mede.
 - **Alternativas**: medir GPU por `queue.onSubmittedWorkDone()` (imprecisa com pipelining); contar draws no harness
   monkey-patching `GPURenderPassEncoder` (viola FR-016 e mede algo que o usuário não vê); pular métricas do
