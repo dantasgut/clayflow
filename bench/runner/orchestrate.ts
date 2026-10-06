@@ -6,6 +6,30 @@ import { EnvironmentError } from './browser';
 
 /** Folga além do tempo-limite da execução para carregar a página e publicar o resultado. */
 const PAGE_SLACK_MS = 10_000;
+/** Tempo para fechar o contexto; além disso a aba é dada como travada (GPU pendurada). */
+const CLOSE_MS = 10_000;
+
+/** Repetição de uma página + se o navegador precisa ser relançado antes da próxima. */
+interface PageRun {
+    readonly page: PageResult;
+    /** O contexto não fechou (aba travada): o navegador inteiro é relançado. */
+    readonly stuck: boolean;
+}
+
+/** Resolve com `fallback` se `promise` não terminar em `ms` — nenhuma chamada pendura o runner. */
+async function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<T>((resolve) => {
+        timer = setTimeout(() => {
+            resolve(fallback);
+        }, ms);
+    });
+    try {
+        return await Promise.race([promise, timeout]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 /** Saída da orquestração: resultados agregados e o ambiente visto pelas páginas. */
 export interface Orchestration {
@@ -35,7 +59,7 @@ async function runOnce(
     baseUrl: string,
     run: RunSpec,
     config: RunConfig,
-): Promise<PageResult> {
+): Promise<PageRun> {
     const context = await browser.newContext({
         viewport: { width: config.resolution.width, height: config.resolution.height },
         deviceScaleFactor: 1,
@@ -47,28 +71,38 @@ async function runOnce(
             console.log(`    ${run.engine}: ${text}`);
         }
     });
-    try {
-        await page.goto(`${baseUrl}${queryOf(run, config)}`, {
-            waitUntil: 'domcontentloaded',
-            timeout: 15_000,
-        });
-        await page.waitForFunction(() => window.__benchResult !== undefined, undefined, {
-            timeout: config.timeoutMs + PAGE_SLACK_MS,
-            polling: 250,
-        });
-        return (await page.evaluate(() => window.__benchResult)) as PageResult;
-    } catch (e) {
-        const message = e instanceof Error ? (e.message.split('\n')[0] ?? '') : String(e);
-        if (/Timeout/i.test(message)) {
-            return {
-                status: 'timeout',
-                reason: `sem resultado em ${config.timeoutMs} ms (página travada ou lenta)`,
-            };
+    const timedOut: PageResult = {
+        status: 'timeout',
+        reason: `sem resultado em ${config.timeoutMs} ms (página travada ou lenta)`,
+    };
+    const measure = async (): Promise<PageResult> => {
+        try {
+            await page.goto(`${baseUrl}${queryOf(run, config)}`, {
+                waitUntil: 'domcontentloaded',
+                timeout: 15_000,
+            });
+            await page.waitForFunction(() => window.__benchResult !== undefined, undefined, {
+                timeout: config.timeoutMs + PAGE_SLACK_MS,
+                polling: 250,
+            });
+            return (await page.evaluate(() => window.__benchResult)) as PageResult;
+        } catch (e) {
+            const message = e instanceof Error ? (e.message.split('\n')[0] ?? '') : String(e);
+            return /Timeout/i.test(message) ? timedOut : { status: 'failed', reason: message };
         }
-        return { status: 'failed', reason: message };
-    } finally {
-        await context.close().catch(() => undefined);
-    }
+    };
+    // Prazo duro além dos tempos-limite do Playwright: uma aba com a GPU pendurada pode não
+    // responder nem ao `evaluate`.
+    const result = await within(measure(), 15_000 + config.timeoutMs + 2 * PAGE_SLACK_MS, timedOut);
+    const closed = await within(
+        context.close().then(
+            () => true,
+            () => true,
+        ),
+        CLOSE_MS,
+        false,
+    );
+    return { page: result, stuck: !closed };
 }
 
 function groupKey(r: RunSpec): string {
@@ -102,7 +136,8 @@ export async function orchestrate(
         }
         console.log(`[${index}/${plan.runs.length}] ${label}`);
         const started = Date.now();
-        let page = await runOnce(browser, baseUrl, run, config);
+        let attempt = await runOnce(browser, baseUrl, run, config);
+        let page = attempt.page;
         console.log(
             `    → ${page.status}${page.reason !== undefined ? ` (${page.reason})` : ''} em ${((Date.now() - started) / 1000).toFixed(1)} s`,
         );
@@ -114,13 +149,19 @@ export async function orchestrate(
             // No meio da rodada: o processo de GPU caiu (cena anterior) — relança o navegador.
             console.warn('    processo de GPU perdido — relançando o navegador');
             browser = await relaunch(browser);
-            page = await runOnce(browser, baseUrl, run, config);
+            attempt = await runOnce(browser, baseUrl, run, config);
+            page = attempt.page;
             if (page.reason === 'WebGPU indisponível neste navegador') {
                 page = {
                     status: 'failed',
                     reason: 'processo de GPU perdido durante a rodada (cena anterior derrubou a GPU)',
                 };
             }
+        }
+        if (attempt.stuck) {
+            // A aba não fechou (GPU pendurada): sem relançar, as próximas páginas herdariam o travamento.
+            console.warn('    aba travada não fechou — relançando o navegador');
+            browser = await relaunch(browser);
         }
         if (environment === undefined && page.environment !== undefined)
             environment = page.environment;
