@@ -7,6 +7,7 @@ import type {
     EngineCore,
 } from '../contracts/EngineCore';
 import type { Frame } from '../contracts/Frame';
+import type { FrameStats } from '../contracts/FrameStats';
 import type { Profiler } from '../contracts/Profiler';
 import type { BindGroupSpec } from '../contracts/specs/BindGroupSpec';
 import type { BufferSpec } from '../contracts/specs/BufferSpec';
@@ -22,6 +23,7 @@ import type { TextureSpec } from '../contracts/specs/TextureSpec';
 import type { TextureViewSpec } from '../contracts/specs/TextureViewSpec';
 import { createGpuContext, type GpuContext } from './GpuContext';
 import { GpuCommandState } from './GpuCommandState';
+import { FrameCounters } from './FrameCounters';
 import { GpuFrame } from './GpuFrame';
 import { GpuResourceStore, type MemoryUsageReport, type StoredGpuObject } from './GpuResourceStore';
 import { GpuProfilerSystem } from './profiler/GpuProfilerSystem';
@@ -124,6 +126,11 @@ export class GpuEngineCore implements EngineCore {
     private readonly store = new GpuResourceStore();
     private readonly command = new GpuCommandState();
     private readonly profilerSystem = new GpuProfilerSystem();
+    private readonly counters = new FrameCounters();
+    private frameIndex = 0;
+    private lastStats: FrameStats = { drawCalls: 0, dispatches: 0, passes: 0 };
+    private frameProfilingRequested = false;
+    private profilingUnsupportedWarned = false;
     private currentFrame: GpuFrame | null = null;
     private readonly deviceLostHandlers = new Set<DeviceLostHandler>();
     private shuttingDown = false;
@@ -153,6 +160,7 @@ export class GpuEngineCore implements EngineCore {
         this.applyCanvas(ctx, canvas ?? null, options);
         this.context = ctx;
         this.profilerSystem.attach(device);
+        this.warnIfProfilingUnsupported();
         this.watchDeviceLost(device);
     }
 
@@ -225,6 +233,36 @@ export class GpuEngineCore implements EngineCore {
 
     memoryUsage(topN?: number): MemoryUsageReport {
         return this.store.memoryUsage(topN);
+    }
+
+    setFrameProfiling(enabled: boolean, capacity?: number): void {
+        this.frameProfilingRequested = enabled;
+        this.profilerSystem.configureFrameProfiling(enabled, capacity);
+        if (this.context !== null) this.warnIfProfilingUnsupported();
+    }
+
+    lastFrameStats(): FrameStats {
+        // Contadores da última gravação submetida + a leitura de GPU mais recente resolvida
+        // até agora (pode chegar depois do submit — readback assíncrono).
+        const reading = this.profilerSystem.lastFrameReading;
+        if (reading === undefined) return this.lastStats;
+        return {
+            drawCalls: this.lastStats.drawCalls,
+            dispatches: this.lastStats.dispatches,
+            passes: this.lastStats.passes,
+            gpuTimeMs: reading.gpuTimeMs,
+            gpuFrame: reading.gpuFrame,
+            stagesNs: reading.stagesNs,
+        };
+    }
+
+    private warnIfProfilingUnsupported(): void {
+        if (!this.frameProfilingRequested || this.profilerSystem.isSupported) return;
+        if (this.profilingUnsupportedWarned) return;
+        this.profilingUnsupportedWarned = true;
+        console.warn(
+            '[clayflow] profiling: o device não oferece `timestamp-query` — gpuTimeMs fica ausente.',
+        );
     }
 
     compute(opts: ComputeKernelOptions): ComputeKernel {
@@ -358,7 +396,15 @@ export class GpuEngineCore implements EngineCore {
             throw new Error('GpuEngineCore: nested record() not allowed.');
         }
         this.command.open(ctx.device, label);
-        const frame = new GpuFrame(ctx, this.store, this.command);
+        this.counters.reset();
+        this.profilerSystem.beginFrame(this.frameIndex);
+        const frame = new GpuFrame(
+            ctx,
+            this.store,
+            this.command,
+            this.counters,
+            this.profilerSystem,
+        );
         this.currentFrame = frame;
         try {
             body(frame);
@@ -379,6 +425,12 @@ export class GpuEngineCore implements EngineCore {
         if (this.profilerSystem.isSupported) {
             this.profilerSystem.submitFrame();
         }
+        this.lastStats = {
+            drawCalls: this.counters.drawCalls,
+            dispatches: this.counters.dispatches,
+            passes: this.counters.passes,
+        };
+        this.frameIndex++;
     }
 
     async withErrorScope<T>(filter: GPUErrorFilter, body: () => T | Promise<T>): Promise<T> {
@@ -782,7 +834,9 @@ export class GpuEngineCore implements EngineCore {
         spec.body(bundlePass);
         const finishDesc: GPURenderBundleDescriptor =
             spec.label !== undefined ? { label: spec.label } : {};
-        return encoder.finish(finishDesc);
+        const bundle = encoder.finish(finishDesc);
+        this.counters.bundleDraws.set(bundle, bundlePass.recordedDraws);
+        return bundle;
     }
 }
 

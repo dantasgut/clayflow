@@ -6,10 +6,21 @@
     "src/__tests__/**/*.ts",
     "src/**/__tests__/**/*.ts",
     "vitest.config.ts",
-    "eslint.config.js"
+    "eslint.config.js",
+    "bench/runner/cli.ts",
+    "bench/page/main.ts",
+    "bench/vite.config.ts",
+    "bench/**/__tests__/**/*.ts"
   ],
-  "project": ["src/**/*.ts"],
-  "ignore": ["clay-engine-doc/**", "dist/**", "docs/**", "**/*.wgsl", "src/__smokes__/**"],
+  "project": ["src/**/*.ts", "bench/**/*.ts"],
+  "ignore": [
+    "clay-engine-doc/**",
+    "dist/**",
+    "docs/**",
+    "**/*.wgsl",
+    "src/__smokes__/**",
+    "bench/results/**"
+  ],
   "ignoreDependencies": [
     "@types/gl-matrix",
     "@types/uuid",

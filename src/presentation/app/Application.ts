@@ -50,6 +50,14 @@ export interface ApplicationOptions {
      * Applications no mesmo processo (multi-canvas, tests isolados).
      */
     scene?: SceneContext;
+    /**
+     * Liga o profiling de GPU por quadro: todo passe recebe timestamps automaticamente e
+     * `frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3 quadros).
+     * Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
+     */
+    profiling?: boolean;
+    /** Capacidade de timestamps por quadro (pares = passes medidos). Default: 256 (128 passes). */
+    profilingCapacity?: number;
 }
 
 /**
@@ -181,6 +189,9 @@ export class Application {
         });
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;
+        }
+        if (options.profiling === true) {
+            scene.core.setFrameProfiling(true, options.profilingCapacity);
         }
         return new Application(options, defaults, scene, ownsScene);
     }

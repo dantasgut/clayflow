@@ -6,6 +6,7 @@ export type * from './passes/index';
 
 export type { Frame, TextureDataLayout, Extent3D, TextureCopyOptions } from './Frame';
 export type { Profiler, ProfilerTimestampWrites } from './Profiler';
+export type { FrameStats } from './FrameStats';
 export type {
     EngineCore,
     CanvasOptions,

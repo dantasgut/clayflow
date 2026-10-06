@@ -6,7 +6,7 @@
 
 # Class: Input
 
-Defined in: [presentation/input/Input.ts:34](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/Input.ts#L34)
+Defined in: [presentation/input/Input.ts:34](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/input/Input.ts#L34)
 
 Input centraliza o estado dos input devices em uma struct compartilhada.
 Devices escrevem em `state` quando handlers de DOM eventos disparam;
@@ -28,7 +28,7 @@ controllers lêem em cada tick.
 
 > `readonly` **state**: [`InputState`](../interfaces/InputState.md)
 
-Defined in: [presentation/input/Input.ts:36](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/Input.ts#L36)
+Defined in: [presentation/input/Input.ts:36](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/input/Input.ts#L36)
 
 Estado compartilhado mutável — devices escrevem, controllers lêem.
 
@@ -38,7 +38,7 @@ Estado compartilhado mutável — devices escrevem, controllers lêem.
 
 > **consumeFrameDeltas**(): `void`
 
-Defined in: [presentation/input/Input.ts:57](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/Input.ts#L57)
+Defined in: [presentation/input/Input.ts:57](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/input/Input.ts#L57)
 
 Zera todos os deltas (pointer, wheel, pinch). Chamado pelo
 InteractionSystem ao fim de cada tick para evitar acúmulo entre
@@ -54,7 +54,7 @@ frames — controllers devem ter lido os deltas antes.
 
 > **isKeyDown**(`code`): `boolean`
 
-Defined in: [presentation/input/Input.ts:48](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/Input.ts#L48)
+Defined in: [presentation/input/Input.ts:48](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/input/Input.ts#L48)
 
 Convenience: testa se uma key está pressionada agora.
 

@@ -43,6 +43,7 @@ export type {
     TextureSpec,
     TextureViewSpec,
     RenderTarget,
+    FrameStats,
 } from './core/contracts/index';
 
 export {

@@ -56,6 +56,8 @@ function fakeCoreInScope(): EngineCore {
             recorded.push('submit');
         }),
         onDeviceLost: vi.fn(() => () => undefined),
+        setFrameProfiling: vi.fn(),
+        lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
     } as unknown as EngineCore;
 }
 

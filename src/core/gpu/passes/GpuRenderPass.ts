@@ -10,6 +10,7 @@ import type { IndexBufferSpec } from '../../contracts/specs/IndexBufferSpec';
 import type { IndirectBufferSpec } from '../../contracts/specs/IndirectBufferSpec';
 import type { RenderPipelineSpec } from '../../contracts/specs/RenderPipelineSpec';
 import type { VertexBufferSpec } from '../../contracts/specs/VertexBufferSpec';
+import { type FrameCounters } from '../FrameCounters';
 import { type GpuResourceStore } from '../GpuResourceStore';
 import { specHash } from '../specHash';
 
@@ -25,6 +26,8 @@ export class GpuRenderPass
     constructor(
         private readonly encoder: GPURenderPassEncoder,
         private readonly store: GpuResourceStore,
+        /** Contadores do quadro (opcional: passes avulsos em testes não contam). */
+        private readonly counters?: FrameCounters,
     ) {}
 
     get bind(): Binder<RenderPipelineSpec> {
@@ -98,6 +101,7 @@ export class GpuRenderPass
         firstInstance?: number,
     ): this {
         this.encoder.draw(count, instances, firstVertex, firstInstance);
+        if (this.counters) this.counters.drawCalls++;
         return this;
     }
 
@@ -109,18 +113,21 @@ export class GpuRenderPass
         firstInstance?: number,
     ): this {
         this.encoder.drawIndexed(count, instances, firstIndex, baseVertex, firstInstance);
+        if (this.counters) this.counters.drawCalls++;
         return this;
     }
 
     indirect(spec: IndirectBufferSpec, offset = 0): this {
         const buf = this.store.require<GPUBuffer>(specHash(spec), 'indirect-buffer');
         this.encoder.drawIndirect(buf, offset);
+        if (this.counters) this.counters.drawCalls++;
         return this;
     }
 
     indexedIndirect(spec: IndirectBufferSpec, offset = 0): this {
         const buf = this.store.require<GPUBuffer>(specHash(spec), 'indirect-buffer');
         this.encoder.drawIndexedIndirect(buf, offset);
+        if (this.counters) this.counters.drawCalls++;
         return this;
     }
 
@@ -129,6 +136,10 @@ export class GpuRenderPass
             this.store.require<GPURenderBundle>(specHash(s), 'bundle'),
         );
         this.encoder.executeBundles(bundles);
+        if (this.counters) {
+            for (const b of bundles)
+                this.counters.drawCalls += this.counters.bundleDraws.get(b) ?? 0;
+        }
         return this;
     }
 

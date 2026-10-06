@@ -35,6 +35,8 @@ function recordingCore(): {
             asyncCreates.push(entry);
             return Promise.resolve(spec);
         }),
+        setFrameProfiling: vi.fn(),
+        lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
     } as unknown as EngineCore;
     return { core, creates, asyncCreates };
 }

@@ -25,6 +25,8 @@ export default tseslint.config(
             'vitest.config.ts',
             'eslint.config.js',
             '.typedoc-cov-trash/**',
+            'bench/results/**',
+            'bench/vite.config.ts',
         ],
     },
 
@@ -171,6 +173,49 @@ export default tseslint.config(
             // Cast de `as never` foi removido no PR #27 mas confirmar:
             '@typescript-eslint/no-explicit-any': 'error',
         },
+    },
+
+    // Harness de benchmark (fora da lib): projeto TS próprio e só o barrel público.
+    {
+        files: ['bench/**/*.ts'],
+        languageOptions: {
+            parser: tseslint.parser,
+            parserOptions: {
+                project: './bench/tsconfig.json',
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+        rules: {
+            'no-restricted-imports': [
+                'error',
+                {
+                    patterns: [
+                        {
+                            group: ['**/src/**', '../src/**', '../../src/**', '../../../src/**'],
+                            message: 'use o alias `clayflow` — FR-016',
+                        },
+                    ],
+                },
+            ],
+            '@typescript-eslint/consistent-type-imports': [
+                'error',
+                { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
+            ],
+            '@typescript-eslint/no-floating-promises': 'error',
+            '@typescript-eslint/no-explicit-any': 'error',
+            '@typescript-eslint/restrict-template-expressions': [
+                'error',
+                { allowNumber: true, allowBoolean: true, allowNullish: true },
+            ],
+            '@typescript-eslint/unbound-method': 'off',
+            '@typescript-eslint/no-extraneous-class': 'off',
+            // Casts explícitos (`as T`) em vez de `!` — o harness proíbe non-null assertion.
+            '@typescript-eslint/non-nullable-type-assertion-style': 'off',
+        },
+    },
+    {
+        files: ['bench/**/__tests__/**/*.ts'],
+        rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
     },
 
     // Tests podem usar non-null assertion freely (fixtures controladas).

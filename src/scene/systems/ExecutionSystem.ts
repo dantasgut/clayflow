@@ -69,10 +69,10 @@ export class ExecutionSystem {
 
     private onFrameTick(dt: number, elapsed: number): void {
         this.elapsed = elapsed;
+        // `dt` cobre o quadro inteiro de CPU: o envio dos dados alterados também conta.
+        const start = typeof performance !== 'undefined' ? performance.now() : Date.now();
         // Ordem explícita: dados sujos vão à GPU antes de qualquer estágio gravar passes.
         this.events.emit('frameRecording', { elapsed });
-        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const start = now;
         const recordAndSubmit = (): void => {
             this.core.record('frame', (frame) => {
                 for (const phase of this.flows.phasesInOrder()) {
@@ -98,6 +98,7 @@ export class ExecutionSystem {
             timestamp: finishedAt,
             dt: finishedAt - start,
             elapsed: this.elapsed,
+            stats: this.core.lastFrameStats(),
         });
         void dt;
     }

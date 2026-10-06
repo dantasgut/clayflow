@@ -6,7 +6,7 @@
 
 # Class: UiPanel
 
-Defined in: [presentation/ui/UiPanel.ts:7](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiPanel.ts#L7)
+Defined in: [presentation/ui/UiPanel.ts:7](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiPanel.ts#L7)
 
 Painel — retângulo colorido na UI. Container conceitual para outros
 elements via `parts` (composição via Entity).
@@ -35,7 +35,7 @@ elements via `parts` (composição via Entity).
 
 > **background**: readonly \[`number`, `number`, `number`, `number`\]
 
-Defined in: [presentation/ui/UiPanel.ts:9](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiPanel.ts#L9)
+Defined in: [presentation/ui/UiPanel.ts:9](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiPanel.ts#L9)
 
 Cor de fundo RGBA (premultiplied alpha). Default: 50% black.
 
@@ -45,7 +45,7 @@ Cor de fundo RGBA (premultiplied alpha). Default: 50% black.
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L27)
+Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L27)
 
 Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
@@ -59,7 +59,7 @@ Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 > **children**: [`UiElement`](UiElement.md)[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L31)
+Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L31)
 
 Filhos diretos. Renderizados após o pai (z-order natural).
 
@@ -73,7 +73,7 @@ Filhos diretos. Renderizados após o pai (z-order natural).
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L29)
+Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L29)
 
 Quando false, o elemento e seus filhos não são renderizados.
 
@@ -87,7 +87,7 @@ Quando false, o elemento e seus filhos não são renderizados.
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/ui/UiElement.ts#L34)
+Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/ui/UiElement.ts#L34)
 
 Anexa um UiElement filho. Chaining fluente.
 

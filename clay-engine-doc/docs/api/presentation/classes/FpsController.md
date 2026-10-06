@@ -6,7 +6,7 @@
 
 # Class: FpsController
 
-Defined in: [presentation/input/controllers/FpsController.ts:13](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/controllers/FpsController.ts#L13)
+Defined in: [presentation/input/controllers/FpsController.ts:13](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/input/controllers/FpsController.ts#L13)
 
 Base abstrata de controllers (OrbitController, FpsController, FlyController).
 Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
@@ -23,7 +23,7 @@ Transform) conforme input.
 
 > **new FpsController**(`camera`, `options?`): `FpsController`
 
-Defined in: [presentation/input/controllers/FpsController.ts:21](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/controllers/FpsController.ts#L21)
+Defined in: [presentation/input/controllers/FpsController.ts:21](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/input/controllers/FpsController.ts#L21)
 
 #### Parameters
 
@@ -49,7 +49,7 @@ Defined in: [presentation/input/controllers/FpsController.ts:21](https://github.
 
 > **update**(`ctx`): `void`
 
-Defined in: [presentation/input/controllers/FpsController.ts:49](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/presentation/input/controllers/FpsController.ts#L49)
+Defined in: [presentation/input/controllers/FpsController.ts:49](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/input/controllers/FpsController.ts#L49)
 
 Hook chamado a cada frameTick — leia input, atualize state externo.
 

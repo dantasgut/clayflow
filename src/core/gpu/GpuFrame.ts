@@ -8,9 +8,11 @@ import type { TextureViewSpec } from '../contracts/specs/TextureViewSpec';
 import type { Frame, Extent3D, TextureCopyOptions, TextureDataLayout } from '../contracts/Frame';
 import type { GpuContext } from './GpuContext';
 import { type GpuCommandState } from './GpuCommandState';
+import { type FrameCounters } from './FrameCounters';
 import { GpuComputePass } from './passes/GpuComputePass';
 import { GpuRenderPass } from './passes/GpuRenderPass';
 import { type GpuResourceStore } from './GpuResourceStore';
+import { type GpuProfilerSystem } from './profiler/GpuProfilerSystem';
 import { specHash } from './specHash';
 
 const CANVAS_TEXTURE_KIND = 'texture' as const;
@@ -23,6 +25,10 @@ export class GpuFrame implements Frame {
         private readonly ctx: GpuContext,
         private readonly store: GpuResourceStore,
         private readonly command: GpuCommandState,
+        /** Contadores do quadro (draws, dispatches, passes). */
+        private readonly counters?: FrameCounters,
+        /** Profiler — injeta timestamps por passe quando o profiling por quadro está ligado. */
+        private readonly profiler?: GpuProfilerSystem,
     ) {
         const surfaceTexture: TextureSpec = {
             kind: CANVAS_TEXTURE_KIND,
@@ -51,9 +57,16 @@ export class GpuFrame implements Frame {
         const [label, body] =
             args.length === 1 ? ([undefined, args[0]] as const) : ([args[0], args[1]] as const);
         const encoder = this.command.requireEncoder();
-        const desc: GPUComputePassDescriptor = label !== undefined ? { label } : {};
+        const timestampWrites = this.profiler?.passTimestampWrites(
+            label ?? `compute#${this.counters?.passes ?? 0}`,
+        );
+        const desc: GPUComputePassDescriptor = {
+            ...(label !== undefined ? { label } : {}),
+            ...(timestampWrites !== undefined ? { timestampWrites: { ...timestampWrites } } : {}),
+        };
         const passEncoder = encoder.beginComputePass(desc);
-        const pass = new GpuComputePass(passEncoder, this.store);
+        if (this.counters) this.counters.passes++;
+        const pass = new GpuComputePass(passEncoder, this.store, this.counters);
         this.command.pushPass({ kind: 'compute', encoder: passEncoder });
         try {
             body(pass);
@@ -74,7 +87,8 @@ export class GpuFrame implements Frame {
         const encoder = this.command.requireEncoder();
         const desc = this.toRenderPassDescriptor(target, label);
         const passEncoder = encoder.beginRenderPass(desc);
-        const pass = new GpuRenderPass(passEncoder, this.store);
+        if (this.counters) this.counters.passes++;
+        const pass = new GpuRenderPass(passEncoder, this.store, this.counters);
         this.command.pushPass({ kind: 'render', encoder: passEncoder });
         try {
             body(pass);
@@ -222,10 +236,19 @@ export class GpuFrame implements Frame {
             colorAttachments,
             ...(label !== undefined ? { label } : {}),
             ...(target.maxDrawCount !== undefined ? { maxDrawCount: target.maxDrawCount } : {}),
-            ...(target.timestampWrites !== undefined
-                ? { timestampWrites: { ...target.timestampWrites } }
-                : {}),
         };
+        const timestampWrites =
+            this.profiler !== undefined
+                ? this.profiler.passTimestampWrites(
+                      label ?? `render#${this.counters?.passes ?? 0}`,
+                      target.timestampWrites,
+                  )
+                : target.timestampWrites;
+        if (timestampWrites !== undefined) {
+            (desc as { timestampWrites: GPURenderPassTimestampWrites }).timestampWrites = {
+                ...timestampWrites,
+            };
+        }
         if (target.depthStencilAttachment !== undefined) {
             const ds = target.depthStencilAttachment;
             (

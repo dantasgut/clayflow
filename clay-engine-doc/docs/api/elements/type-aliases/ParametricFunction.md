@@ -8,7 +8,7 @@
 
 > **ParametricFunction** = (`u`, `v`) => readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/geometry/ParametricGeometry.ts:15](https://github.com/dantasgut/clayflow/blob/204f2e93c5ebaf2f2b7e257814d24c704d7cf3e6/src/elements/geometry/ParametricGeometry.ts#L15)
+Defined in: [elements/geometry/ParametricGeometry.ts:15](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/ParametricGeometry.ts#L15)
 
 Função paramétrica que mapeia coordenadas (u, v) ∈ [0,1]² → posição 3D.
 Usada por `ParametricGeometry` para gerar superfícies (e.g. esfera,

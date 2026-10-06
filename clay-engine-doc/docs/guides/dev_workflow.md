@@ -24,6 +24,19 @@ git restore src/main.ts                         # após o teste
 
 Inventário dos smokes em `engine/src/__smokes__/README.md`.
 
+## Gate local de performance (benchmark)
+
+O CI não tem GPU. Mudanças em renderização, física ou no núcleo de GPU passam também pelo gate local:
+
+```bash
+npm run typecheck:bench          # tipos do harness (bench/)
+npm run bench:check -- --quick   # executa e compara com o baseline da sua máquina
+```
+
+`bench:check` reprova (código 1) quando CPU, GPU, p95 ou p99 do clayflow piora mais de 10% contra
+`bench/baselines/<perfil>.json`, ou quando uma cena que funcionava passa a falhar. Sem baseline para o seu perfil,
+grave um com `npm run bench:baseline`. Detalhes em [Benchmark](./benchmark.md).
+
 ## Debugando WGSL
 
 1. **Browser console é a primeira parada** (`F12` no Chrome). Erros de

@@ -1,11 +1,12 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+    resolve: { alias: { clayflow: new URL('./src/index.ts', import.meta.url).pathname } },
     test: {
         environment: 'happy-dom',
         globals: false,
         setupFiles: ['src/__tests__/setup.ts'],
-        include: ['src/**/__tests__/**/*.test.ts'],
+        include: ['src/**/__tests__/**/*.test.ts', 'bench/**/__tests__/**/*.test.ts'],
         exclude: ['src/legacy/**', 'src/**/__tests__/browser/**'],
         coverage: {
             provider: 'v8',

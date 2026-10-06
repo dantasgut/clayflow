@@ -11,7 +11,10 @@ export interface ProfilerStatsEvent {
     readonly frameTimeMs: number;
     /** Frame time médio (rolling window) em ms. */
     readonly avgFrameTimeMs: number;
-    /** Tempos por stage (ns) opcionais — apenas se `timestamp-query` ativo. */
+    /**
+     * Tempo de GPU por rótulo de passe (ns), da última leitura resolvida
+     * (`frameComplete.stats.stagesNs`). Vazio sem profiling por quadro ou sem `timestamp-query`.
+     */
     readonly stagesNs: Readonly<Record<string, number>>;
 }
 
@@ -42,6 +45,7 @@ export class DebugFlow extends Flow {
     private readonly toggleKey: string;
     private readonly samples: number[] = [];
     private lastEmit = -Infinity;
+    private stagesNs: Readonly<Record<string, number>> = {};
 
     constructor(options: DebugFlowOptions = {}) {
         super();
@@ -55,6 +59,9 @@ export class DebugFlow extends Flow {
         this.events = events;
         events.on('frameTick', (e) => {
             this.onFrameTick(e.dt, e.elapsed);
+        });
+        events.on('frameComplete', (e) => {
+            if (e.stats.stagesNs !== undefined) this.stagesNs = e.stats.stagesNs;
         });
         if (typeof window !== 'undefined') {
             window.addEventListener('keydown', (ev) => {
@@ -96,7 +103,7 @@ export class DebugFlow extends Flow {
             fps: dt > 0 ? 1 / dt : 0,
             frameTimeMs: dtMs,
             avgFrameTimeMs: avg,
-            stagesNs: {},
+            stagesNs: { ...this.stagesNs },
         };
         this.events.emit('profilerStats', stats);
     }
