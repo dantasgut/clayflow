@@ -14,7 +14,7 @@
 | `--scene <id[,id]>`                                                 | todas                    | filtra cenas                                                                                |
 | `--variant <id[,id]>`                                               | todas                    | filtra variantes                                                                            |
 | `--engine <clayflow\|three>`                                        | ambas                    | filtra engine                                                                               |
-| `--quick`                                                           | off                      | aquecimento 1 s, janela 3 s, 1 repetição                                                    |
+| `--quick`                                                           | off                      | aquecimento 1 s, janela 3 s, 1 repetição, tempo-limite 45 s                                 |
 | `--warmup <ms>` / `--window <ms>` / `--reps <n>` / `--timeout <ms>` | 3000 / 10000 / 3 / 60000 | protocolo (R5)                                                                              |
 | `--headless`                                                        | off                      | roda sem janela (pode cair em GPU de software — o runner avisa se o adaptador for software) |
 | `--tolerance <0..1>`                                                | 0.10                     | tolerância do gate                                                                          |

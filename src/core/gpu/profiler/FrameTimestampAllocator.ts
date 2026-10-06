@@ -76,8 +76,8 @@ export class FrameTimestampAllocator {
     }
 
     /**
-     * Soma dos intervalos válidos em ms. Ignora pares com `last < first` ou fora do
-     * array (timestamp inválido); `undefined` quando nenhum par é válido.
+     * Soma dos intervalos válidos em ms. Ignora pares com `last <= first` (timestamp inválido ou
+     * não escrito — passe que não executou) ou fora do array; `undefined` quando nenhum par é válido.
      */
     static sumIntervals(ns: BigInt64Array, pairs: readonly TimestampPair[]): number | undefined {
         let total = 0;
@@ -108,7 +108,7 @@ export class FrameTimestampAllocator {
     private static interval(ns: BigInt64Array, p: TimestampPair): number | undefined {
         const a = ns[p.first];
         const b = ns[p.last];
-        if (a === undefined || b === undefined || b < a) return undefined;
+        if (a === undefined || b === undefined || b <= a) return undefined;
         return Number(b - a);
     }
 }

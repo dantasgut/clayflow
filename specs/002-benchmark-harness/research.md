@@ -56,7 +56,9 @@ trackTimestamp: true })` com `await renderer.init()`.
   decide a linha e as seguintes são puladas (economiza minutos sem mudar o resultado); o fechamento do
   navegador/servidor tem tempo-limite (uma aba que caiu por falta de memória pendurava o runner); o Vite do
   harness serve com COOP/COEP (isolamento cross-origin: `performance.now()` com resolução de µs — sem isso a
-  CPU do Three aparecia como 0,00).
+  CPU do Three aparecia como 0,00); `--quick` usa tempo-limite de 45 s (as cenas que o clayflow ainda não
+  aguenta seguravam a rodada rápida em ~5 min); pares de timestamp com `last <= first` (não escritos — passe
+  que não executou) são inválidos, para um quadro que falhou não aparecer como 0 ms de GPU.
 
 ## R6 — Métricas e como cada engine as fornece
 

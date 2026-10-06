@@ -22,7 +22,7 @@ import {
     type RunConfig,
     type RunFile,
 } from '../core/types';
-import { EnvironmentError, launchBrowser } from './browser';
+import { EnvironmentError, launchBrowser, type LaunchedBrowser } from './browser';
 import { orchestrate } from './orchestrate';
 import { startServer } from './server';
 
@@ -91,12 +91,23 @@ async function execute(config: RunConfig, strict: boolean): Promise<RunFile> {
     );
     const startedAt = new Date();
     const server = await startServer(config.port);
-    const browser = await launchBrowser(config.headless).catch(async (e: unknown) => {
+    let launched = await launchBrowser(config.headless).catch(async (e: unknown) => {
         await server.close();
         throw e;
     });
     try {
-        const { results, environment } = await orchestrate(browser, server.url, plan, config);
+        const relaunch = async (): Promise<LaunchedBrowser['browser']> => {
+            await launched.shutdown();
+            launched = await launchBrowser(config.headless);
+            return launched.browser;
+        };
+        const { results, environment } = await orchestrate(
+            launched.browser,
+            server.url,
+            plan,
+            config,
+            relaunch,
+        );
         if (environment?.isFallbackAdapter === true) {
             const msg = `adaptador de software detectado (${environment.gpu.description || 'fallback'}) — números não representativos.`;
             if (strict) throw new EnvironmentError(msg);
@@ -130,7 +141,7 @@ async function execute(config: RunConfig, strict: boolean): Promise<RunFile> {
         return run;
     } finally {
         // Uma aba que caiu (ex.: falta de memória) pode deixar o fechamento pendurado.
-        await closeWithin(() => browser.close(), 'navegador');
+        await launched.shutdown();
         await closeWithin(() => server.close(), 'servidor');
     }
 }

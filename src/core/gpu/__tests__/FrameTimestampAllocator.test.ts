@@ -63,6 +63,12 @@ describe('FrameTimestampAllocator', () => {
         expect(
             FrameTimestampAllocator.sumIntervals(ns, [{ first: 4, last: 5, label: 'fora' }]),
         ).toBeUndefined();
+        // não escritos (zeros): passe que não executou não vira 0 ms
+        expect(
+            FrameTimestampAllocator.sumIntervals(new BigInt64Array(2), [
+                { first: 0, last: 1, label: 'z' },
+            ]),
+        ).toBeUndefined();
     });
 
     it('rótulos repetidos acumulam em intervalsByLabel', () => {

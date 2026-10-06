@@ -14,7 +14,7 @@ de otimizar e impedir regressões silenciosas. Fica fora da lib — nada de `ben
 ## Rodar
 
 ```bash
-npm run bench -- --quick                     # 1 s aquecimento, 3 s janela, 1 repetição
+npm run bench -- --quick                     # 1 s aquecimento, 3 s janela, 1 repetição, limite 45 s
 npm run bench                                # protocolo completo: 3 s, 10 s, 3 repetições
 npm run bench -- --scene instances --engine clayflow --variant 10k,10k-moving
 ```
@@ -26,7 +26,7 @@ de quadros, e roda cada cena × variante × engine × repetição numa **página
 | Flag                                                     | Default             | Efeito                                                  |
 | -------------------------------------------------------- | ------------------- | ------------------------------------------------------- |
 | `--scene`, `--variant`, `--engine`                       | todas               | filtros (listas separadas por vírgula)                  |
-| `--quick`                                                | off                 | aquecimento 1 s, janela 3 s, 1 repetição                |
+| `--quick`                                                | off                 | aquecimento 1 s, janela 3 s, 1 repetição, limite 45 s   |
 | `--warmup` / `--window` / `--reps` / `--timeout`         | 3000/10000/3/60000  | protocolo                                               |
 | `--headless`                                             | off                 | sem janela (pode cair em GPU de software — o runner avisa) |
 | `--tolerance`                                            | 0.10                | tolerância do gate                                      |

@@ -5,12 +5,14 @@ import type { PageEnvironment, PageResult, Result, RunConfig } from '../core/typ
 import { EnvironmentError } from './browser';
 
 /** Folga além do tempo-limite da execução para carregar a página e publicar o resultado. */
-const PAGE_SLACK_MS = 20_000;
+const PAGE_SLACK_MS = 10_000;
 
 /** Saída da orquestração: resultados agregados e o ambiente visto pelas páginas. */
 export interface Orchestration {
     readonly results: Result[];
     readonly environment: PageEnvironment | undefined;
+    /** Navegador ativo ao final (pode ter sido relançado). */
+    readonly browser: Browser;
 }
 
 function queryOf(run: RunSpec, config: RunConfig): string {
@@ -46,7 +48,10 @@ async function runOnce(
         }
     });
     try {
-        await page.goto(`${baseUrl}${queryOf(run, config)}`);
+        await page.goto(`${baseUrl}${queryOf(run, config)}`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 15_000,
+        });
         await page.waitForFunction(() => window.__benchResult !== undefined, undefined, {
             timeout: config.timeoutMs + PAGE_SLACK_MS,
             polling: 250,
@@ -75,11 +80,13 @@ function groupKey(r: RunSpec): string {
  * `failed`/`timeout` e o loop segue (FR-010). Repetições `ok` são agregadas pela mediana.
  */
 export async function orchestrate(
-    browser: Browser,
+    initial: Browser,
     baseUrl: string,
     plan: RunPlan,
     config: RunConfig,
+    relaunch: (crashed: Browser) => Promise<Browser>,
 ): Promise<Orchestration> {
+    let browser = initial;
     const groups = new Map<string, { spec: RunSpec; pages: PageResult[] }>();
     let environment: PageEnvironment | undefined;
     let index = 0;
@@ -95,12 +102,25 @@ export async function orchestrate(
         }
         console.log(`[${index}/${plan.runs.length}] ${label}`);
         const started = Date.now();
-        const page = await runOnce(browser, baseUrl, run, config);
+        let page = await runOnce(browser, baseUrl, run, config);
         console.log(
             `    → ${page.status}${page.reason !== undefined ? ` (${page.reason})` : ''} em ${((Date.now() - started) / 1000).toFixed(1)} s`,
         );
         if (page.reason === 'WebGPU indisponível neste navegador') {
-            throw new EnvironmentError('WebGPU indisponível neste navegador.');
+            // Antes de qualquer página concluir: o navegador não tem WebGPU (erro de ambiente).
+            if (environment === undefined) {
+                throw new EnvironmentError('WebGPU indisponível neste navegador.');
+            }
+            // No meio da rodada: o processo de GPU caiu (cena anterior) — relança o navegador.
+            console.warn('    processo de GPU perdido — relançando o navegador');
+            browser = await relaunch(browser);
+            page = await runOnce(browser, baseUrl, run, config);
+            if (page.reason === 'WebGPU indisponível neste navegador') {
+                page = {
+                    status: 'failed',
+                    reason: 'processo de GPU perdido durante a rodada (cena anterior derrubou a GPU)',
+                };
+            }
         }
         if (environment === undefined && page.environment !== undefined)
             environment = page.environment;
@@ -132,5 +152,5 @@ export async function orchestrate(
             ...lim,
         });
     }
-    return { results, environment };
+    return { results, environment, browser };
 }

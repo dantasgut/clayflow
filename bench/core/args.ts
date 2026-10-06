@@ -14,8 +14,11 @@ export const DEFAULTS = {
     resolution: { width: 1280, height: 720 },
 } as const;
 
-/** Preset `--quick`: 1 s de aquecimento, 3 s de janela, 1 repetição. */
-export const QUICK = { warmupMs: 1000, windowMs: 3000, repetitions: 1 } as const;
+/**
+ * Preset `--quick`: 1 s de aquecimento, 3 s de janela, 1 repetição e tempo-limite de 45 s (iteração
+ * local: cenas que travam são marcadas logo, sem segurar a rodada).
+ */
+export const QUICK = { warmupMs: 1000, windowMs: 3000, repetitions: 1, timeoutMs: 45_000 } as const;
 
 const VALUE_FLAGS = new Set([
     '--scene',
@@ -94,7 +97,7 @@ export function parseArgs(argv: readonly string[]): RunConfig {
         warmupMs: num('--warmup', base.warmupMs),
         windowMs: num('--window', base.windowMs),
         repetitions: num('--reps', base.repetitions),
-        timeoutMs: num('--timeout', DEFAULTS.timeoutMs),
+        timeoutMs: num('--timeout', base.timeoutMs),
         resolution: { ...DEFAULTS.resolution },
         scenes: values.has('--scene') ? list(values.get('--scene') ?? '') : [],
         variants: values.has('--variant') ? list(values.get('--variant') ?? '') : [],
