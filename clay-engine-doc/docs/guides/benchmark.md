@@ -60,6 +60,11 @@ Como cada engine mede:
 | Memória      | `core.memoryUsage().totalBytes` (exata)                                       | estimada                                       |
 | Quadro/FPS   | intervalo entre `requestAnimationFrame` (igual nas duas)                      | idem                                           |
 
+**Tempo simulado**: as duas engines avançam **1/60 s de simulação por quadro** — o clayflow por
+`app.step(1/60)`, o Three/Rapier por `world.step()` com `timestep = 1/60`. Assim um quadro lento não faz uma
+engine simular mais passos que a outra (o `Time` do clayflow compensaria até 4 passos com o laço real); o
+`dt` real do quadro continua alimentando o `update` das cenas (movimento).
+
 No clayflow, a pose dos corpos rígidos volta da GPU por readback assíncrono e é publicada fora do quadro
 síncrono; esse trabalho aparece só no intervalo de quadro (até a F2).
 

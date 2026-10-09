@@ -7,7 +7,6 @@ export interface ClayflowHandle {
     readonly camera: Camera;
     /** Último `frameComplete` observado (preenchido de forma síncrona pelo `frameTick`). */
     last: FrameCompleteEvent | null;
-    elapsed: number;
 }
 
 /**
@@ -89,10 +88,15 @@ export function cameraMatrices(
     return { view, projection, viewProjection };
 }
 
+/** Tempo simulado por quadro do protocolo — o mesmo `timestep` do Rapier no adaptador Three. */
+const SIMULATED_DT = 1 / 60;
+
 /**
  * Adaptador clayflow — só pela API pública (FR-016). Não chama `app.start()`: cada quadro é
- * disparado com `emit('frameTick')`, síncrono (o motor não tem `step()` até a F1); `update` da
- * cena roda antes, para as mutações entrarem na fila e serem enviadas no mesmo quadro (spec 003).
+ * avançado por `app.step(1/60)`, síncrono — 1/60 s simulado por quadro, como o `world.step()` do
+ * Rapier (mesmo trabalho de física nas duas engines, qualquer que seja a duração real do quadro).
+ * O `dt` real continua alimentando o `update` da cena, que roda antes, para as mutações entrarem na
+ * fila e serem enviadas no mesmo quadro (spec 003).
  */
 export function createClayflowAdapter(options: {
     profiling: boolean;
@@ -102,7 +106,6 @@ export function createClayflowAdapter(options: {
         version: 'clayflow',
         limitations: [
             'forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)',
-            'hash de spec (UUIDv5/SHA-1) recalculado a cada bind, sem cache — multiplicado pelos binds por entidade (até F1, spec 004)',
         ],
         async init(canvas, resolution, cameraSpec) {
             canvas.width = resolution.width;
@@ -123,7 +126,7 @@ export function createClayflowAdapter(options: {
                 far: 1000,
             });
             app.world.insert(camera);
-            const handle: ClayflowHandle = { app, camera, last: null, elapsed: 0 };
+            const handle: ClayflowHandle = { app, camera, last: null };
             app.events.on('frameComplete', (e) => {
                 handle.last = e;
             });
@@ -139,9 +142,8 @@ export function createClayflowAdapter(options: {
             const t0 = performance.now();
             scene.update?.(dtSeconds);
             const updateMs = performance.now() - t0;
-            handle.elapsed += dtSeconds;
             handle.last = null;
-            handle.app.events.emit('frameTick', { dt: dtSeconds, elapsed: handle.elapsed });
+            handle.app.step(SIMULATED_DT);
             const e = handle.last as FrameCompleteEvent | null;
             if (e === null) throw new Error('clayflow: frameComplete não foi emitido no quadro.');
             return {
