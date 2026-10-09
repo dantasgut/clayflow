@@ -33,7 +33,7 @@ describe('ExecutionSystem frameRecording', () => {
             seen.push(e.elapsed);
         });
         events.on('frameComplete', () => order.push('frameComplete'));
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 2.5 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 2.5, frame: 1 });
         expect(order).toEqual(['frameRecording', 'record', 'submit', 'frameComplete']);
         expect(seen).toEqual([2.5]);
     });
@@ -44,7 +44,7 @@ describe('ExecutionSystem frameRecording', () => {
         const exec = new ExecutionSystem(tracingCore(order), events, new FlowRegistry());
         exec.captureErrors = true;
         events.on('frameRecording', () => order.push('frameRecording'));
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(order.slice(0, 2)).toEqual(['frameRecording', 'record']);
     });
 });

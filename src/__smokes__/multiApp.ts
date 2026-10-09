@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     app2.events.on('frameTick', () => {
         app2Ticks++;
     });
-    app1.events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+    app1.step();
     if (app1Ticks !== 1) throw new Error(`app1Ticks expected 1, got ${app1Ticks}`);
     if (app2Ticks !== 0)
         throw new Error(`app2Ticks should be 0 (events isolados), got ${app2Ticks}`);

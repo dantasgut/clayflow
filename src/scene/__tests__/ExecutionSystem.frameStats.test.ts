@@ -37,7 +37,7 @@ describe('ExecutionSystem — frameComplete.stats e dt', () => {
         new ExecutionSystem(statsCore({ frame: frameStats }), events, new FlowRegistry());
         const seen: FrameCompleteEvent[] = [];
         events.on('frameComplete', (e) => seen.push(e));
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(seen[0]?.stats).toEqual(frameStats);
     });
 
@@ -51,7 +51,7 @@ describe('ExecutionSystem — frameComplete.stats e dt', () => {
         events.on('frameComplete', (e) => {
             dt = e.dt;
         });
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(dt).toBeGreaterThanOrEqual(14);
     });
 
@@ -64,10 +64,10 @@ describe('ExecutionSystem — frameComplete.stats e dt', () => {
         new ExecutionSystem(core, events, new FlowRegistry());
         const seen: FrameStats[] = [];
         events.on('frameComplete', (e) => seen.push(e.stats));
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         core.record('pool_grow:Transform', () => undefined);
         core.submit();
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 1 / 60 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 1 / 60, frame: 1 });
         expect(seen).toEqual([
             { drawCalls: 5, dispatches: 1, passes: 2 },
             { drawCalls: 5, dispatches: 1, passes: 2 },

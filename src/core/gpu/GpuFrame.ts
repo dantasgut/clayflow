@@ -98,6 +98,12 @@ export class GpuFrame implements Frame {
         }
     }
 
+    clear(buffer: AnyBufferSpec, offset = 0, size?: number): void {
+        const encoder = this.command.requireEncoder();
+        const buf = this.store.require<GPUBuffer>(specHash(buffer), 'buffer');
+        encoder.clearBuffer(buf, offset, size);
+    }
+
     copy(src: AnyBufferSpec, dst: AnyBufferSpec, size: number, srcOffset = 0, dstOffset = 0): void {
         const encoder = this.command.requireEncoder();
         const srcBuf = this.store.require<GPUBuffer>(specHash(src), 'buffer');

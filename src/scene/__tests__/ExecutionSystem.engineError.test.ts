@@ -40,7 +40,7 @@ describe('ExecutionSystem.engineError', () => {
         events.on('engineError', () => {
             emitted++;
         });
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         expect(emitted).toBe(0);
     });
 
@@ -59,7 +59,7 @@ describe('ExecutionSystem.engineError', () => {
         events.on('engineError', (e) => {
             seen.push(e);
         });
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         // O .catch() é uma microtask: aguardamos antes de assertir.
         await Promise.resolve();
         await Promise.resolve();
@@ -79,7 +79,7 @@ describe('ExecutionSystem.engineError', () => {
         events.on('engineError', () => {
             emitted++;
         });
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         await Promise.resolve();
         await Promise.resolve();
         expect(emitted).toBe(0);
@@ -100,7 +100,7 @@ describe('ExecutionSystem.engineError', () => {
         events.on('frameComplete', () => {
             frameComplete++;
         });
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         await Promise.resolve();
         expect(frameComplete).toBe(1);
     });

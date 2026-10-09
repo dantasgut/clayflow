@@ -138,10 +138,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         lastStats = e;
     });
     app.defaults.debug.setEnabled(true);
-    // Dispara ticks com elapsed crescente para destravar throttle (250ms).
-    for (let i = 0; i < 30; i++) {
-        app.events.emit('frameTick', { dt: 1 / 60, elapsed: i * 0.05 });
-    }
+    // Quadros de 50 ms: o tempo decorrido cresce o bastante para destravar o throttle (250 ms).
+    app.step(0.05, 30);
     if (statsCount === 0) fail('DebugFlow não emitiu profilerStats em 30 ticks com debug enabled');
     if (lastStats === null) fail('lastStats vazio');
     if (lastStats!.fps <= 0) fail(`fps inválido: ${lastStats!.fps}`);
@@ -154,9 +152,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Verifica que disable freia emissão.
     app.defaults.debug.setEnabled(false);
     const before = statsCount;
-    for (let i = 30; i < 60; i++) {
-        app.events.emit('frameTick', { dt: 1 / 60, elapsed: i * 0.05 });
-    }
+    app.step(0.05, 30);
     if (statsCount !== before)
         fail(`stats continuou sendo emitido após disable (count: ${before} → ${statsCount})`);
     log('DebugFlow.setEnabled(false) silencia emissão');

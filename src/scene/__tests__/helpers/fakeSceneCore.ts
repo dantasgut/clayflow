@@ -32,6 +32,9 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
             body(pass);
         },
         copy: () => undefined,
+        clear: (spec: unknown) => {
+            trace.push(`clear:${disc(spec)}`);
+        },
     } as unknown as Frame;
     const core = {
         create: vi.fn(<S>(spec: S) => spec),

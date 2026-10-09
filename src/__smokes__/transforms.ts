@@ -252,11 +252,9 @@ async function main(): Promise<void> {
         transforms.push(t);
     }
 
-    let elapsed = 0;
-    /** Um quadro dirigido manualmente; `inspect` roda no mesmo task (antes do present). */
+    /** Um quadro de 1/60 s por `app.step`; `inspect` roda no mesmo task (antes do present). */
     const step = (inspect?: () => void): void => {
-        elapsed += 1 / 60;
-        app.events.emit('frameTick', { dt: 1 / 60, elapsed });
+        app.step(1 / 60);
         inspect?.();
     };
 
@@ -298,7 +296,7 @@ async function main(): Promise<void> {
         const staging = app.core.create<StagingBufferSpec>({
             kind: 'buffer',
             subkind: 'staging',
-            discriminator: `smoke_world_staging_${pool.byteSize}_${elapsed}`,
+            discriminator: `smoke_world_staging_${pool.byteSize}_${app.time.frame}`,
             byteSize: pool.byteSize,
         });
         app.core.record('smoke-readback', (frame) => {
@@ -306,6 +304,7 @@ async function main(): Promise<void> {
         });
         app.core.submit();
         const all = new Float32Array(await app.core.readback(staging));
+        app.core.destroy(staging);
         return entityIds.map((id) => {
             const slot = app.resources.poolSlotOf('WorldTransform', id);
             if (slot === undefined) throw new Error(`entidade ${id} sem slot`);

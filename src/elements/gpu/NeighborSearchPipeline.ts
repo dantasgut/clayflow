@@ -4,7 +4,11 @@ import type {
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../core/contracts/index';
-import { createComputeKernel, type ComputeKernel } from '../../scene/flows/createComputeKernel';
+import {
+    createComputeKernel,
+    destroyComputeKernel,
+    type ComputeKernel,
+} from '../../scene/flows/createComputeKernel';
 import nsSimParamsStruct from './wgsl/structs/ns_sim_params.wgsl?raw';
 import nsAssignCount from './wgsl/kernels/ns_assign_count.wgsl?raw';
 import nsScanLocal from './wgsl/kernels/ns_scan_local.wgsl?raw';
@@ -77,6 +81,8 @@ export class NeighborSearchPipeline {
     private findKernel: ComputeKernel | null = null;
 
     private currentParticleCount = 0;
+    /** Contagem escrita em `NsSimParams` (-1 = ainda não escrito). */
+    private uploadedParticleCount = -1;
     private currentParticlesBuffer: StorageBufferSpec | null = null;
 
     constructor(
@@ -102,12 +108,23 @@ export class NeighborSearchPipeline {
      * Chamado por SPHFlow/PBFFlow quando o pool de partículas reallocate.
      */
     invalidateParticlesBinding(): void {
-        this.assignKernel = null;
-        this.findKernel = null;
+        this.releaseParticleKernels();
         this.currentParticlesBuffer = null;
     }
 
-    private ensureBuffers(): void {
+    /** Libera os kernels que ligam o buffer de partículas (assign e find). */
+    private releaseParticleKernels(): void {
+        if (this.assignKernel !== null) destroyComputeKernel(this.core, this.assignKernel);
+        if (this.findKernel !== null) destroyComputeKernel(this.core, this.findKernel);
+        this.assignKernel = null;
+        this.findKernel = null;
+    }
+
+    /**
+     * Aloca os buffers da busca (grade, contagens, lista de vizinhos). Idempotente. Os Flows chamam antes de montar
+     * os próprios kernels, que ligam `neighborList`/`neighborCount`.
+     */
+    allocate(): void {
         if (this.paramsBuffer === null) {
             this.paramsBuffer = this.core.create<UniformBufferSpec>({
                 kind: 'buffer',
@@ -186,8 +203,7 @@ export class NeighborSearchPipeline {
     private ensureKernels(particlesBuffer: StorageBufferSpec): void {
         if (this.currentParticlesBuffer !== particlesBuffer) {
             // Particles buffer mudou — invalida kernels que o referenciam.
-            this.assignKernel = null;
-            this.findKernel = null;
+            this.releaseParticleKernels();
             this.currentParticlesBuffer = particlesBuffer;
         }
 
@@ -377,8 +393,13 @@ export class NeighborSearchPipeline {
         }
     }
 
+    /**
+     * Escreve `NsSimParams` quando a contagem muda. Os parâmetros são os mesmos em todas as reconstruções do
+     * quadro, então uma escrita (que entra na fila antes do quadro — research A1) vale para todas.
+     */
     private uploadParams(particleCount: number): void {
-        if (this.paramsBuffer === null) return;
+        if (this.paramsBuffer === null || this.uploadedParticleCount === particleCount) return;
+        this.uploadedParticleCount = particleCount;
         const buf = new ArrayBuffer(48);
         const f32 = new Float32Array(buf);
         const u32 = new Uint32Array(buf);
@@ -414,11 +435,6 @@ export class NeighborSearchPipeline {
         return this.neighborCountBuffer;
     }
 
-    private clearBuffer(buf: StorageBufferSpec, byteSize: number): void {
-        const arr = new Uint8Array(byteSize);
-        this.core.write(buf, arr);
-    }
-
     /**
      * Reconstrói os buffers de vizinhos para o estado atual de partículas.
      * Chamado uma vez por frame (no início do dispatch do flow consumidor).
@@ -429,7 +445,7 @@ export class NeighborSearchPipeline {
      */
     rebuild(frame: Frame, particlesBuffer: StorageBufferSpec, particleCount: number): void {
         if (particleCount === 0) return;
-        this.ensureBuffers();
+        this.allocate();
         this.ensureKernels(particlesBuffer);
         const assign = this.assignKernel;
         const scanLocal = this.scanLocalKernel;
@@ -452,8 +468,9 @@ export class NeighborSearchPipeline {
             return;
 
         this.uploadParams(particleCount);
-        this.clearBuffer(this.cellCountBuffer, this.cellCount * 4);
-        this.clearBuffer(this.neighborCountBuffer, particleCount * 4);
+        // Zeradas no fluxo de comandos: cada reconstrução do quadro começa de contagens nulas.
+        frame.clear(this.cellCountBuffer, 0, this.cellCount * 4);
+        frame.clear(this.neighborCountBuffer, 0, particleCount * 4);
         this.currentParticleCount = particleCount;
 
         const partWg = Math.ceil(particleCount / 64);

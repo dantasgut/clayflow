@@ -6,46 +6,7 @@ import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
-import type { Frame } from '../../../core/contracts/index';
-
-interface RecordedPass {
-    readonly label: string;
-    readonly offsets: readonly (readonly number[] | undefined)[];
-}
-
-/** Frame que registra cada passe de computação, os offsets dinâmicos ligados e as cópias. */
-function recordingFrame(): { frame: Frame; passes: RecordedPass[]; copies: number } {
-    const passes: RecordedPass[] = [];
-    const state = { copies: 0 };
-    const frame = {
-        compute: (label: string, body: (pass: unknown) => void) => {
-            const offsets: (readonly number[] | undefined)[] = [];
-            const bind = {
-                setPipeline: () => bind,
-                setBindGroup: (_i: number, _bg: unknown, dyn?: readonly number[]) => {
-                    offsets.push(dyn);
-                    return bind;
-                },
-            };
-            const dispatch = {
-                workgroups: () => dispatch,
-                invocations: () => dispatch,
-            };
-            body({ bind, dispatch });
-            passes.push({ label, offsets });
-        },
-        copy: () => {
-            state.copies++;
-        },
-    } as unknown as Frame;
-    return {
-        frame,
-        passes,
-        get copies() {
-            return state.copies;
-        },
-    };
-}
+import { recordingFrame, type RecordedPass } from './helpers/recordingFrame';
 
 function setup(substeps = 4) {
     const events = new DefaultEventBus();
