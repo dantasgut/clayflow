@@ -37,11 +37,11 @@ quickstart.md
 
 **Contratos e captura do adaptador — US2 precisa do alinhamento de offset uniforme; US3 completa o dispositivo.**
 
-- [ ] T002 [P] Criar `src/core/contracts/DeviceOptions.ts` com `DeviceOptions` e `DeviceCapabilities` (data-model), JSDoc em todos os campos; reexportar em `src/core/contracts/index.ts` e no barrel de tipos de `src/index.ts`
-- [ ] T003 [P] Teste `src/core/gpu/__tests__/GpuContext.capabilities.test.ts` (adapter/device mockados em `navigator.gpu`): `createGpuContext` devolve adaptador (info + `isFallbackAdapter`), features obtidas e limites efetivos do device; `timestamp-query` pedido só se disponível
-- [ ] T004 Refatorar `src/core/gpu/GpuContext.ts` para devolver também `capabilities: DeviceCapabilities` (sem ainda aplicar `DeviceOptions` — US3) até T003 passar
-- [ ] T005 Adicionar `capabilities(): DeviceCapabilities` ao contrato `src/core/contracts/EngineCore.ts` (JSDoc: lança se não inicializado) e implementar em `src/core/gpu/GpuEngineCore.ts` guardando o resultado de `createGpuContext`; acrescentar `capabilities` a todos os doubles de `EngineCore` em testes (`fakeSceneCore.ts`, `fakeResourceCore.ts`, `renderHarness.ts` e mocks `as unknown as EngineCore`) com limites padrão do WebGPU
-- [ ] T006 Rodar `npx tsc --noEmit && npm test && npm run check:circular`
+- [x] T002 [P] Criar `src/core/contracts/DeviceOptions.ts` com `DeviceOptions` e `DeviceCapabilities` (data-model), JSDoc em todos os campos; reexportar em `src/core/contracts/index.ts` e no barrel de tipos de `src/index.ts`
+- [x] T003 [P] Teste `src/core/gpu/__tests__/GpuContext.capabilities.test.ts` (adapter/device mockados em `navigator.gpu`): `createGpuContext` devolve adaptador (info + `isFallbackAdapter`), features obtidas e limites efetivos do device; `timestamp-query` pedido só se disponível
+- [x] T004 Refatorar `src/core/gpu/GpuContext.ts` para devolver também `capabilities: DeviceCapabilities` (sem ainda aplicar `DeviceOptions` — US3) até T003 passar
+- [x] T005 Adicionar `capabilities(): DeviceCapabilities` ao contrato `src/core/contracts/EngineCore.ts` (JSDoc: lança se não inicializado) e implementar em `src/core/gpu/GpuEngineCore.ts` guardando o resultado de `createGpuContext`; acrescentar `capabilities` a todos os doubles de `EngineCore` em testes (`fakeSceneCore.ts`, `fakeResourceCore.ts`, `renderHarness.ts` e mocks `as unknown as EngineCore`) com limites padrão do WebGPU
+- [x] T006 Rodar `npx tsc --noEmit && npm test && npm run check:circular`
 
 **Checkpoint**: contrato de capacidades disponível para C2–C4.
 

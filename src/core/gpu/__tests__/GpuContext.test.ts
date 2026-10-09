@@ -4,8 +4,10 @@ import { createGpuContext } from '../GpuContext';
 const originalGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
 
 function installGpu(features: readonly string[]): ReturnType<typeof vi.fn> {
-    const requestDevice = vi.fn(() => Promise.resolve({ queue: {} }));
-    const adapter = { features: new Set(features), requestDevice };
+    const requestDevice = vi.fn((desc: GPUDeviceDescriptor) =>
+        Promise.resolve({ queue: {}, features: new Set(desc.requiredFeatures), limits: {} }),
+    );
+    const adapter = { features: new Set(features), limits: {}, requestDevice };
     Object.defineProperty(navigator, 'gpu', {
         configurable: true,
         value: {
@@ -25,13 +27,16 @@ describe('createGpuContext', () => {
     it('solicita timestamp-query quando o adaptador oferece', async () => {
         const requestDevice = installGpu(['timestamp-query', 'float32-filterable']);
         await createGpuContext();
-        expect(requestDevice).toHaveBeenCalledWith({ requiredFeatures: ['timestamp-query'] });
+        expect(requestDevice).toHaveBeenCalledWith({
+            requiredFeatures: ['timestamp-query'],
+            requiredLimits: {},
+        });
     });
 
     it('sem a feature, não pede nada além do padrão', async () => {
         const requestDevice = installGpu([]);
         await createGpuContext();
-        expect(requestDevice).toHaveBeenCalledWith({ requiredFeatures: [] });
+        expect(requestDevice).toHaveBeenCalledWith({ requiredFeatures: [], requiredLimits: {} });
     });
 
     it('sem navigator.gpu, mantém o erro atual', async () => {

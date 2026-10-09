@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import type { EngineCore } from '../../../core/contracts/EngineCore';
 import type { ResourceSpec } from '../../../core/contracts/index';
+import { defaultCapabilities } from './defaultCapabilities';
 
 /** Registro de uma escrita feita no core falso. */
 export interface WriteCall {
@@ -38,6 +39,7 @@ export function fakeResourceCore(): {
         submit: vi.fn(),
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        capabilities: vi.fn(defaultCapabilities),
     } as unknown as EngineCore;
     return { core, writes, copies };
 }

@@ -9,6 +9,7 @@ import type {
 } from '../../../../core/contracts/index';
 import type { PoolDirectory } from '../../../../scene/contracts/PoolDirectory';
 import type { EntityId } from '../../../../scene/world/EntityId';
+import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 
 /** Uma chamada de desenho capturada pelo pass falso. */
 export interface DrawCall {
@@ -39,6 +40,7 @@ export function renderHarness() {
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        capabilities: vi.fn(defaultCapabilities),
     } as unknown as EngineCore;
 
     const worldBuffer = {

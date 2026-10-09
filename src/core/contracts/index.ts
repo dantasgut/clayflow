@@ -8,6 +8,12 @@ export type { Frame, TextureDataLayout, Extent3D, TextureCopyOptions } from './F
 export type { Profiler, ProfilerTimestampWrites } from './Profiler';
 export type { FrameStats } from './FrameStats';
 export type {
+    DeviceOptions,
+    DeviceCapabilities,
+    AdapterDescription,
+    ClampedLimit,
+} from './DeviceOptions';
+export type {
     EngineCore,
     CanvasOptions,
     DeviceLostInfo,

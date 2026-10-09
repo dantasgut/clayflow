@@ -44,6 +44,10 @@ export type {
     TextureViewSpec,
     RenderTarget,
     FrameStats,
+    DeviceOptions,
+    DeviceCapabilities,
+    AdapterDescription,
+    ClampedLimit,
 } from './core/contracts/index';
 
 export {

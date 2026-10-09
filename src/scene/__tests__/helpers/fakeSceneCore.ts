@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { EngineCore, Frame, ResourceSpec } from '../../../core/contracts/index';
+import { defaultCapabilities } from './defaultCapabilities';
 
 /**
  * EngineCore falso para testes de integração que precisam do quadro inteiro:
@@ -48,6 +49,7 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        capabilities: vi.fn(defaultCapabilities),
     } as unknown as EngineCore;
     return { core, trace };
 }

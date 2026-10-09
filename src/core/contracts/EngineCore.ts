@@ -1,3 +1,4 @@
+import type { DeviceCapabilities } from './DeviceOptions';
 import type { Frame } from './Frame';
 import type { FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
@@ -193,6 +194,13 @@ export interface EngineCore {
      * device — usa o existente.
      */
     reconfigureCanvas(options?: CanvasOptions): void;
+
+    /**
+     * Capacidades efetivas do device atual: adaptador, preferência de potência, features obtidas e ausentes,
+     * limites efetivos e limites pedidos que foram reduzidos ao máximo do adaptador. Só dados; recalculado a cada
+     * criação de device (`initialize` e `requestRecover`). Lança se o core não foi inicializado.
+     */
+    capabilities(): DeviceCapabilities;
 
     /**
      * Registra handler para device-lost. Disparado quando o GPU device é perdido

@@ -6,6 +6,7 @@ import type {
     DeviceLostInfo,
     EngineCore,
 } from '../contracts/EngineCore';
+import type { DeviceCapabilities } from '../contracts/DeviceOptions';
 import type { Frame } from '../contracts/Frame';
 import type { FrameStats } from '../contracts/FrameStats';
 import type { Profiler } from '../contracts/Profiler';
@@ -149,13 +150,14 @@ export class GpuEngineCore implements EngineCore {
             return;
         }
         this.shuttingDown = false;
-        const { device, queue, canvasFormat } = await createGpuContext();
+        const { device, queue, canvasFormat, capabilities } = await createGpuContext();
         const ctx: GpuContext = {
             device,
             queue,
             canvas: null,
             canvasContext: null,
             canvasFormat,
+            capabilities,
         };
         this.applyCanvas(ctx, canvas ?? null, options);
         this.context = ctx;
@@ -203,6 +205,10 @@ export class GpuEngineCore implements EngineCore {
         for (const handler of this.deviceLostHandlers) {
             handler(info);
         }
+    }
+
+    capabilities(): DeviceCapabilities {
+        return this.requireContext().capabilities;
     }
 
     reconfigureCanvas(options?: CanvasOptions): void {
