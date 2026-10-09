@@ -11,7 +11,7 @@ describe('GpuResourceStore', () => {
     it('set + has + get reflectem CRUD', () => {
         const s = new GpuResourceStore();
         const fakeBuf = { destroy: () => {} } as unknown as GPUBuffer;
-        s.set('h1', fakeBuf);
+        s.set('h1', {}, fakeBuf);
         expect(s.has('h1')).toBe(true);
         expect(s.get<GPUBuffer>('h1')).toBe(fakeBuf);
     });
@@ -21,20 +21,29 @@ describe('GpuResourceStore', () => {
         expect(() => s.require('h1', 'buffer')).toThrow(/missing buffer/);
     });
 
-    it('delete remove e devolve true só na primeira', () => {
+    it('release remove e devolve true só na primeira', () => {
         const s = new GpuResourceStore();
+        const owner = {};
         const fake = { destroy: () => {} } as unknown as GPUBuffer;
-        s.set('h1', fake);
-        expect(s.delete('h1')).toBe(true);
-        expect(s.delete('h1')).toBe(false);
+        s.set('h1', owner, fake);
+        expect(s.release('h1', owner)).toBe(true);
+        expect(s.release('h1', owner)).toBe(false);
+    });
+
+    it('set sobre entrada existente lança (reuso é por retain)', () => {
+        const s = new GpuResourceStore();
+        s.set('h1', {}, {} as GPUBuffer);
+        expect(() => {
+            s.set('h1', {}, {} as GPUBuffer);
+        }).toThrow(/retain/);
     });
 
     it('clear destrói objetos com .destroy()', () => {
         const s = new GpuResourceStore();
         const destroy1 = vi.fn();
         const destroy2 = vi.fn();
-        s.set('a', { destroy: destroy1 } as unknown as GPUBuffer);
-        s.set('b', { destroy: destroy2 } as unknown as GPUBuffer);
+        s.set('a', {}, { destroy: destroy1 } as unknown as GPUBuffer);
+        s.set('b', {}, { destroy: destroy2 } as unknown as GPUBuffer);
         s.clear();
         expect(destroy1).toHaveBeenCalledOnce();
         expect(destroy2).toHaveBeenCalledOnce();
@@ -43,7 +52,7 @@ describe('GpuResourceStore', () => {
 
     it('clear ignora exceptions de destroy (best-effort)', () => {
         const s = new GpuResourceStore();
-        s.set('bad', {
+        s.set('bad', {}, {
             destroy: () => {
                 throw new Error('boom');
             },

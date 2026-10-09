@@ -17,7 +17,7 @@ const indirect: IndirectBufferSpec = {
 function storeWith(entries: readonly [object, unknown][]): GpuResourceStore {
     const store = new GpuResourceStore();
     for (const [spec, obj] of entries) {
-        store.set(specHash(spec as never), obj as never, 'other', 0);
+        store.set(specHash(spec as never), spec, obj as never, 'other', 0);
     }
     return store;
 }

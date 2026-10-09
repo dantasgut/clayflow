@@ -166,8 +166,9 @@ export type DeviceLostHandler = (info: DeviceLostInfo) => void;
 /**
  * EngineCore é a fronteira da Camada 1 (Hardware) — abstração estável
  * sobre o WebGPU device. Todas as operações GPU passam por aqui:
- *   - **Specs como identidade**: `create(spec)` e `destroy(spec)` operam por
- *     hash do conteúdo (idempotência built-in via UUIDv5).
+ *   - **Specs como identidade**: `create(spec)` congela a spec e a identifica
+ *     pelo hash do conteúdo (UUIDv5, memorizado por objeto); `destroy(spec)`
+ *     libera a posse daquela spec.
  *   - **Frame-scoped recording**: `record(body)` abre um command encoder e
  *     passa um `Frame` para o body emitir compute/render passes; `submit()`
  *     finaliza e enfileira na queue.
@@ -250,16 +251,20 @@ export interface EngineCore {
     compute(opts: ComputeKernelOptions): ComputeKernel;
 
     /**
-     * Materializa o spec em GPU object e indexa no store interno por specHash.
-     * Idempotente: chamadas subsequentes com spec equivalente retornam o
-     * spec direto sem recriar o GPU object. Retorna o próprio spec para
-     * permitir chaining/storage do consumer.
+     * Cria (ou reutiliza, por conteúdo) o objeto de GPU descrito por `spec` e devolve `spec`.
+     *
+     * A spec passa a ser **imutável em profundidade**: qualquer atribuição posterior lança `TypeError`. Specs
+     * aninhadas (shader num pipeline, layout/buffers num bind group) também ficam congeladas — para mudar um
+     * recurso, crie uma spec nova. A identidade (`specHash`) é calculada no máximo uma vez por objeto de spec.
+     *
+     * Specs de conteúdo igual (inclusive aninhado) compartilham o mesmo objeto de GPU. Cada chamada registra `spec`
+     * como dona desse objeto; `destroy(spec)` remove só essa posse.
      */
     create<S extends ResourceSpec>(spec: S): S;
     /**
-     * Versão async para pipelines (compute/render). Usa `device.createXxxPipelineAsync()`
-     * que compila o shader em background. Para outros kinds, comporta-se como
-     * `create()` síncrono.
+     * Como `create`, mas pipelines (compute/render) compilam em background via `createXxxPipelineAsync()`.
+     * Chamadas concorrentes com specs de mesmo conteúdo compilam uma única vez. Para outros kinds, equivale a
+     * `create()`.
      */
     createAsync<S extends ResourceSpec>(spec: S): Promise<S>;
 
@@ -274,9 +279,8 @@ export interface EngineCore {
     ): void;
 
     /**
-     * Destrói o GPU object associado e remove do store. Chamadas a `create()`
-     * com o mesmo spec depois disso vão re-materializar. Use para liberar
-     * memória de specs que não são mais referenciados.
+     * Remove a posse de `spec` sobre o objeto de GPU. O objeto é destruído quando nenhuma spec dona resta; specs
+     * de mesmo conteúdo criadas por outros donos continuam válidas. `spec` que não é dona não altera nada.
      */
     destroy(spec: ResourceSpec): void;
     /**

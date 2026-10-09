@@ -19,10 +19,16 @@ interface StoredEntry {
     readonly kind: StoredKind;
     readonly bytes: number;
     readonly label?: string;
+    /** Specs (objetos) que criaram ou reutilizaram a entrada; vazia → objeto destruído. */
+    readonly owners: Set<object>;
 }
 
 export type { MemoryUsageReport } from '../contracts/EngineCore';
 
+/**
+ * Objetos de GPU indexados por hash de spec, com **posse por spec**: specs de conteúdo igual compartilham o objeto
+ * (deduplicação), e o objeto só é destruído quando a última spec dona o libera.
+ */
 export class GpuResourceStore {
     private readonly entries = new Map<string, StoredEntry>();
     private bufferBytes = 0;
@@ -43,25 +49,54 @@ export class GpuResourceStore {
         return e.obj as T;
     }
 
+    /** Registra o objeto recém-criado para `hash`, com `owner` como primeira spec dona. */
     set(
         hash: string,
+        owner: object,
         obj: StoredGpuObject,
         kind: StoredKind = 'other',
         bytes = 0,
         label?: string,
     ): void {
         const prev = this.entries.get(hash);
-        if (prev !== undefined) this.creditBytes(prev, -1);
+        if (prev !== undefined) {
+            throw new Error(`GpuResourceStore: entrada ${hash} já existe — use retain()`);
+        }
+        const owners = new Set<object>([owner]);
         const entry: StoredEntry =
-            label !== undefined ? { obj, kind, bytes, label } : { obj, kind, bytes };
+            label !== undefined
+                ? { obj, kind, bytes, label, owners }
+                : { obj, kind, bytes, owners };
         this.entries.set(hash, entry);
         this.creditBytes(entry, 1);
     }
 
-    delete(hash: string): boolean {
-        const prev = this.entries.get(hash);
-        if (prev !== undefined) this.creditBytes(prev, -1);
-        return this.entries.delete(hash);
+    /** Acrescenta `owner` à entrada existente (idempotente). Devolve `false` se não há entrada para `hash`. */
+    retain(hash: string, owner: object): boolean {
+        const entry = this.entries.get(hash);
+        if (entry === undefined) return false;
+        entry.owners.add(owner);
+        return true;
+    }
+
+    /**
+     * Remove a posse de `owner`. Quando nenhuma spec dona resta, destrói o objeto de GPU (se destrutível) e remove a
+     * entrada. Devolve `true` se a entrada foi removida. `owner` que não é dono não altera nada.
+     */
+    release(hash: string, owner: object): boolean {
+        const entry = this.entries.get(hash);
+        if (!entry?.owners.delete(owner)) return false;
+        if (entry.owners.size > 0) return false;
+        const destroyable = entry.obj as { destroy?: () => void };
+        if (typeof destroyable.destroy === 'function') destroyable.destroy();
+        this.creditBytes(entry, -1);
+        this.entries.delete(hash);
+        return true;
+    }
+
+    /** Quantidade de specs donas da entrada (0 se ausente) — diagnóstico e testes. */
+    ownerCount(hash: string): number {
+        return this.entries.get(hash)?.owners.size ?? 0;
     }
 
     clear(): void {

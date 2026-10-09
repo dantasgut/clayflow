@@ -28,6 +28,7 @@ import { FrameCounters } from './FrameCounters';
 import { GpuFrame } from './GpuFrame';
 import { GpuResourceStore, type MemoryUsageReport, type StoredGpuObject } from './GpuResourceStore';
 import { GpuProfilerSystem } from './profiler/GpuProfilerSystem';
+import { deepFreeze } from './deepFreeze';
 import { specHash } from './specHash';
 
 function bufferUsage(spec: BufferSpec): number {
@@ -135,6 +136,8 @@ export class GpuEngineCore implements EngineCore {
     private currentFrame: GpuFrame | null = null;
     private readonly deviceLostHandlers = new Set<DeviceLostHandler>();
     private shuttingDown = false;
+    /** Compilações assíncronas em andamento por hash: specs iguais concorrentes compilam uma vez. */
+    private readonly pendingPipelines = new Map<string, Promise<void>>();
 
     get profiler(): Profiler {
         return this.profilerSystem;
@@ -220,8 +223,9 @@ export class GpuEngineCore implements EngineCore {
     }
 
     create<S extends ResourceSpec>(spec: S): S {
+        deepFreeze(spec);
         const hash = specHash(spec);
-        if (this.store.has(hash)) return spec;
+        if (this.store.retain(hash, spec)) return spec;
         const obj = this.materialize(spec, hash);
         this.storeWithMetadata(hash, spec, obj);
         return spec;
@@ -229,12 +233,37 @@ export class GpuEngineCore implements EngineCore {
 
     async createAsync<S extends ResourceSpec>(spec: S): Promise<S> {
         if (spec.kind !== 'pipeline') return this.create(spec);
+        deepFreeze(spec);
         const hash = specHash(spec);
-        if (this.store.has(hash)) return spec;
-        const ctx = this.requireContext();
-        const pipeline = await this.materializePipelineAsync(spec, ctx);
-        this.storeWithMetadata(hash, spec, pipeline);
+        if (this.store.retain(hash, spec)) return spec;
+        let pending = this.pendingPipelines.get(hash);
+        if (pending === undefined) {
+            pending = this.compilePipeline(hash, spec);
+            this.pendingPipelines.set(hash, pending);
+        }
+        await pending;
+        if (!this.store.retain(hash, spec)) {
+            throw new Error(`GpuEngineCore: pipeline ${hash} indisponível após compilação.`);
+        }
         return spec;
+    }
+
+    /**
+     * Compila o pipeline em background e o registra sem dono; cada `createAsync` que aguarda acrescenta a própria
+     * posse. Device perdido durante a compilação descarta o resultado (o store já foi limpo).
+     */
+    private async compilePipeline(hash: string, spec: AnyPipelineSpec): Promise<void> {
+        const ctx = this.requireContext();
+        try {
+            const pipeline = await this.materializePipelineAsync(spec, ctx);
+            if (this.context !== ctx) {
+                throw new Error('GpuEngineCore: device perdido durante a compilação do pipeline.');
+            }
+            // `create` síncrono da mesma spec pode ter materializado antes: o resultado assíncrono sobra.
+            if (!this.store.has(hash)) this.storeWithMetadata(hash, spec, pipeline);
+        } finally {
+            this.pendingPipelines.delete(hash);
+        }
     }
 
     memoryUsage(topN?: number): MemoryUsageReport {
@@ -343,11 +372,11 @@ export class GpuEngineCore implements EngineCore {
 
     private storeWithMetadata(hash: string, spec: ResourceSpec, obj: StoredGpuObject): void {
         if (spec.kind === 'buffer') {
-            this.store.set(hash, obj, 'buffer', bufferByteSize(spec), spec.label);
+            this.store.set(hash, spec, obj, 'buffer', bufferByteSize(spec), spec.label);
         } else if (spec.kind === 'texture') {
-            this.store.set(hash, obj, 'texture', textureByteSize(spec), spec.label);
+            this.store.set(hash, spec, obj, 'texture', textureByteSize(spec), spec.label);
         } else {
-            this.store.set(hash, obj, 'other', 0, spec.label);
+            this.store.set(hash, spec, obj, 'other', 0, spec.label);
         }
     }
 
@@ -374,13 +403,7 @@ export class GpuEngineCore implements EngineCore {
     }
 
     destroy(spec: ResourceSpec): void {
-        const hash = specHash(spec);
-        const obj = this.store.get<GPUBuffer | GPUTexture>(hash);
-        if (obj === undefined) return;
-        if ('destroy' in obj && typeof obj.destroy === 'function') {
-            obj.destroy();
-        }
-        this.store.delete(hash);
+        this.store.release(specHash(spec), spec);
     }
 
     async readback(spec: StagingBufferSpec): Promise<ArrayBuffer> {

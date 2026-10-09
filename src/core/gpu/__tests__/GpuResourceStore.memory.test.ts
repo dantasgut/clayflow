@@ -17,9 +17,9 @@ describe('GpuResourceStore.memoryUsage', () => {
 
     it('set acumula bytes por kind', () => {
         const store = new GpuResourceStore();
-        store.set('h1', fakeBuffer(), 'buffer', 1024, 'a');
-        store.set('h2', fakeBuffer(), 'buffer', 2048, 'b');
-        store.set('h3', fakeBuffer(), 'texture', 4096, 'tex');
+        store.set('h1', {}, fakeBuffer(), 'buffer', 1024, 'a');
+        store.set('h2', {}, fakeBuffer(), 'buffer', 2048, 'b');
+        store.set('h3', {}, fakeBuffer(), 'texture', 4096, 'tex');
         const u = store.memoryUsage();
         expect(u.bufferBytes).toBe(3072);
         expect(u.textureBytes).toBe(4096);
@@ -28,44 +28,45 @@ describe('GpuResourceStore.memoryUsage', () => {
 
     it('top retorna allocations ordenadas decrescentes', () => {
         const store = new GpuResourceStore();
-        store.set('small', fakeBuffer(), 'buffer', 100, 'small');
-        store.set('big', fakeBuffer(), 'buffer', 10000, 'big');
-        store.set('mid', fakeBuffer(), 'buffer', 1000, 'mid');
+        store.set('small', {}, fakeBuffer(), 'buffer', 100, 'small');
+        store.set('big', {}, fakeBuffer(), 'buffer', 10000, 'big');
+        store.set('mid', {}, fakeBuffer(), 'buffer', 1000, 'mid');
         const u = store.memoryUsage(2);
         expect(u.top).toHaveLength(2);
         expect(u.top[0]?.label).toBe('big');
         expect(u.top[1]?.label).toBe('mid');
     });
 
-    it('delete decrementa bytes', () => {
+    it('release do último dono decrementa bytes', () => {
         const store = new GpuResourceStore();
-        store.set('h1', fakeBuffer(), 'buffer', 1024);
-        store.set('h2', fakeBuffer(), 'buffer', 2048);
+        const owner = {};
+        store.set('h1', owner, fakeBuffer(), 'buffer', 1024);
+        store.set('h2', {}, fakeBuffer(), 'buffer', 2048);
         expect(store.memoryUsage().bufferBytes).toBe(3072);
-        store.delete('h1');
+        store.release('h1', owner);
         expect(store.memoryUsage().bufferBytes).toBe(2048);
     });
 
     it('clear zera tudo', () => {
         const store = new GpuResourceStore();
-        store.set('h1', fakeBuffer(), 'buffer', 1024);
-        store.set('h2', fakeBuffer(), 'texture', 4096);
+        store.set('h1', {}, fakeBuffer(), 'buffer', 1024);
+        store.set('h2', {}, fakeBuffer(), 'texture', 4096);
         store.clear();
         const u = store.memoryUsage();
         expect(u.totalBytes).toBe(0);
         expect(u.top).toHaveLength(0);
     });
 
-    it('set duplo no mesmo hash não duplica bytes', () => {
+    it('retain no mesmo hash não duplica bytes', () => {
         const store = new GpuResourceStore();
-        store.set('h1', fakeBuffer(), 'buffer', 1024);
-        store.set('h1', fakeBuffer(), 'buffer', 2048);
-        expect(store.memoryUsage().bufferBytes).toBe(2048);
+        store.set('h1', {}, fakeBuffer(), 'buffer', 1024);
+        store.retain('h1', {});
+        expect(store.memoryUsage().bufferBytes).toBe(1024);
     });
 
     it('"other" kind não conta para totais (pipelines, samplers, etc.)', () => {
         const store = new GpuResourceStore();
-        store.set('pipe', fakeBuffer(), 'other', 99999);
+        store.set('pipe', {}, fakeBuffer(), 'other', 99999);
         const u = store.memoryUsage();
         expect(u.bufferBytes).toBe(0);
         expect(u.textureBytes).toBe(0);
