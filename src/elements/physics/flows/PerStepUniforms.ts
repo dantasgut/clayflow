@@ -26,12 +26,12 @@ export interface PerStepUniformsOptions {
  */
 export class PerStepUniforms {
     private readonly structSize: number;
-    private _regionSize = 0;
+    private cachedRegionSize = 0;
     private readonly discriminator: string;
     private spec: UniformBufferSpec | null = null;
     private staging = new ArrayBuffer(0);
-    private _capacity = 0;
-    private _generation = 0;
+    private regionCount = 0;
+    private bufferGeneration = 0;
 
     constructor(
         private readonly core: EngineCore,
@@ -46,22 +46,22 @@ export class PerStepUniforms {
      * para que o Flow possa ser construído antes do device existir).
      */
     get regionSize(): number {
-        if (this._regionSize === 0) {
+        if (this.cachedRegionSize === 0) {
             const alignment =
-                this.core.capabilities().limits['minUniformBufferOffsetAlignment'] ?? 256;
-            this._regionSize = Math.ceil(this.structSize / alignment) * alignment;
+                this.core.capabilities().limits.minUniformBufferOffsetAlignment ?? 256;
+            this.cachedRegionSize = Math.ceil(this.structSize / alignment) * alignment;
         }
-        return this._regionSize;
+        return this.cachedRegionSize;
     }
 
     /** Regiões disponíveis no buffer atual. */
     get capacity(): number {
-        return this._capacity;
+        return this.regionCount;
     }
 
     /** Incrementa a cada recriação do buffer — bind groups com `binding(...)` precisam ser refeitos. */
     get generation(): number {
-        return this._generation;
+        return this.bufferGeneration;
     }
 
     /** Buffer atual. Lança antes do primeiro `reserve`. */
@@ -76,21 +76,21 @@ export class PerStepUniforms {
      * bind groups. A capacidade cresce em potências de 2 para não recriar a cada aumento.
      */
     reserve(regions: number): boolean {
-        if (regions <= this._capacity && this.spec !== null) return false;
-        let capacity = Math.max(1, this._capacity);
+        if (regions <= this.regionCount && this.spec !== null) return false;
+        let capacity = Math.max(1, this.regionCount);
         while (capacity < regions) capacity *= 2;
         const previous = this.spec;
-        this._generation++;
+        this.bufferGeneration++;
         this.spec = this.core.create<UniformBufferSpec>({
             kind: 'buffer',
             subkind: 'uniform',
-            discriminator: `${this.discriminator}:per_step:${this._generation}`,
+            discriminator: `${this.discriminator}:per_step:${this.bufferGeneration}`,
             byteSize: capacity * this.regionSize,
         });
         const staging = new ArrayBuffer(capacity * this.regionSize);
         new Uint8Array(staging).set(new Uint8Array(this.staging));
         this.staging = staging;
-        this._capacity = capacity;
+        this.regionCount = capacity;
         if (previous !== null) this.core.destroy(previous);
         return true;
     }
@@ -115,9 +115,9 @@ export class PerStepUniforms {
     /** Envia as regiões `[0, count)` numa única escrita. `count = 0` não escreve. */
     flush(count: number): void {
         if (count === 0) return;
-        if (count > this._capacity) {
+        if (count > this.regionCount) {
             throw new RangeError(
-                `PerStepUniforms(${this.discriminator}): flush(${count}) além da capacidade ${this._capacity}.`,
+                `PerStepUniforms(${this.discriminator}): flush(${count}) além da capacidade ${this.regionCount}.`,
             );
         }
         this.core.write(this.buffer, new Uint8Array(this.staging, 0, count * this.regionSize));
@@ -138,13 +138,13 @@ export class PerStepUniforms {
     dispose(): void {
         if (this.spec !== null) this.core.destroy(this.spec);
         this.spec = null;
-        this._capacity = 0;
+        this.regionCount = 0;
     }
 
     private checkRegion(i: number): void {
-        if (!Number.isInteger(i) || i < 0 || i >= this._capacity) {
+        if (!Number.isInteger(i) || i < 0 || i >= this.regionCount) {
             throw new RangeError(
-                `PerStepUniforms(${this.discriminator}): região ${i} fora de [0, ${this._capacity}).`,
+                `PerStepUniforms(${this.discriminator}): região ${i} fora de [0, ${this.regionCount}).`,
             );
         }
     }

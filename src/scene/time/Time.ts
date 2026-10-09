@@ -53,19 +53,22 @@ export class Time extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
     data: Record<string, unknown>;
 
-    private _realDt = 0;
-    private _dt = 0;
-    private _elapsed = 0;
-    private _frame = 0;
-    private _scale = 1;
-    private _physicsScale = 1;
-    private _fixedDt: number | undefined = 1 / 60;
-    private _maxStepsPerFrame = 4;
-    private _maxFrameDt = 0.25;
-    private _accumulator = 0;
-    private _steps = 0;
-    private _stepDt = 0;
-    private _droppedTime = 0;
+    /** Estado do relógio (exposto pelos getters/setters abaixo). */
+    private readonly clock = {
+        realDt: 0,
+        dt: 0,
+        elapsed: 0,
+        frame: 0,
+        scale: 1,
+        physicsScale: 1,
+        fixedDt: (1 / 60) as number | undefined,
+        maxStepsPerFrame: 4,
+        maxFrameDt: 0.25,
+        accumulator: 0,
+        steps: 0,
+        stepDt: 0,
+        droppedTime: 0,
+    };
     private scaleBeforePause = 1;
     private physicsScaleBeforePause = 1;
 
@@ -77,138 +80,138 @@ export class Time extends Entity implements Resource {
 
     /** Duração real do último quadro (s), já limitada a `maxFrameDt`. */
     get realDt(): number {
-        return this._realDt;
+        return this.clock.realDt;
     }
     /** Duração efetiva do último quadro (s): `realDt × scale`. */
     get dt(): number {
-        return this._dt;
+        return this.clock.dt;
     }
     /** Soma dos `dt` efetivos (s). */
     get elapsed(): number {
-        return this._elapsed;
+        return this.clock.elapsed;
     }
     /** Quadros avançados. */
     get frame(): number {
-        return this._frame;
+        return this.clock.frame;
     }
     /** Passos de física do quadro corrente. */
     get steps(): number {
-        return this._steps;
+        return this.clock.steps;
     }
     /** Duração de cada passo de física do quadro corrente (s). */
     get stepDt(): number {
-        return this._stepDt;
+        return this.clock.stepDt;
     }
     /** Tempo de física descartado pelo teto de passos, acumulado (s). */
     get droppedTime(): number {
-        return this._droppedTime;
+        return this.clock.droppedTime;
     }
     /** Resto de tempo de física para o próximo quadro (s); em `[0, fixedDt)` após `advance`. */
     get accumulator(): number {
-        return this._accumulator;
+        return this.clock.accumulator;
     }
 
     /** Velocidade global (≥ 0). 0 pausa tudo que depende de `dt`. */
     get scale(): number {
-        return this._scale;
+        return this.clock.scale;
     }
     set scale(value: number) {
-        this._scale = requireNonNegative('scale', value);
+        this.clock.scale = requireNonNegative('scale', value);
     }
 
     /** Multiplicador só da física (≥ 0), aplicado sobre `scale`. */
     get physicsScale(): number {
-        return this._physicsScale;
+        return this.clock.physicsScale;
     }
     set physicsScale(value: number) {
-        this._physicsScale = requireNonNegative('physicsScale', value);
+        this.clock.physicsScale = requireNonNegative('physicsScale', value);
     }
 
     /** Passo fixo da física (s, > 0). `undefined` = passo variável. Default 1/60. */
     get fixedDt(): number | undefined {
-        return this._fixedDt;
+        return this.clock.fixedDt;
     }
     set fixedDt(value: number | undefined) {
-        this._fixedDt = value === undefined ? undefined : requirePositive('fixedDt', value);
-        if (value === undefined) this._accumulator = 0;
+        this.clock.fixedDt = value === undefined ? undefined : requirePositive('fixedDt', value);
+        if (value === undefined) this.clock.accumulator = 0;
     }
 
     /** Teto de passos de física por quadro (inteiro ≥ 1). Default 4. */
     get maxStepsPerFrame(): number {
-        return this._maxStepsPerFrame;
+        return this.clock.maxStepsPerFrame;
     }
     set maxStepsPerFrame(value: number) {
         if (!Number.isInteger(value) || value < 1) {
             throw new RangeError(`Time.maxStepsPerFrame deve ser inteiro ≥ 1 (recebido ${value}).`);
         }
-        this._maxStepsPerFrame = value;
+        this.clock.maxStepsPerFrame = value;
     }
 
     /** Teto da duração real de um quadro (s, > 0). Default 0,25. */
     get maxFrameDt(): number {
-        return this._maxFrameDt;
+        return this.clock.maxFrameDt;
     }
     set maxFrameDt(value: number) {
-        this._maxFrameDt = requirePositive('maxFrameDt', value);
+        this.clock.maxFrameDt = requirePositive('maxFrameDt', value);
     }
 
     /** Avança o relógio um quadro de duração real `realDt` (s, ≥ 0). Ver a regra na documentação da classe. */
     advance(realDt: number): void {
         requireNonNegative('advance(realDt)', realDt);
-        this._realDt = Math.min(realDt, this._maxFrameDt);
-        this._dt = this._realDt * this._scale;
-        this._elapsed += this._dt;
-        this._frame += 1;
-        const physicsDt = this._dt * this._physicsScale;
-        const fixed = this._fixedDt;
+        this.clock.realDt = Math.min(realDt, this.clock.maxFrameDt);
+        this.clock.dt = this.clock.realDt * this.clock.scale;
+        this.clock.elapsed += this.clock.dt;
+        this.clock.frame += 1;
+        const physicsDt = this.clock.dt * this.clock.physicsScale;
+        const fixed = this.clock.fixedDt;
         if (fixed === undefined) {
-            this._steps = physicsDt > 0 ? 1 : 0;
-            this._stepDt = physicsDt;
+            this.clock.steps = physicsDt > 0 ? 1 : 0;
+            this.clock.stepDt = physicsDt;
         } else {
-            this._accumulator += physicsDt;
-            const due = Math.floor(this._accumulator / fixed + STEP_EPSILON);
-            this._steps = Math.min(due, this._maxStepsPerFrame);
-            this._stepDt = fixed;
-            this._accumulator = Math.max(0, this._accumulator - this._steps * fixed);
-            if (due > this._steps) {
-                const remainder = Math.max(0, this._accumulator % fixed);
-                const dropped = this._accumulator - remainder;
-                this._accumulator = remainder;
-                this._droppedTime += dropped;
+            this.clock.accumulator += physicsDt;
+            const due = Math.floor(this.clock.accumulator / fixed + STEP_EPSILON);
+            this.clock.steps = Math.min(due, this.clock.maxStepsPerFrame);
+            this.clock.stepDt = fixed;
+            this.clock.accumulator = Math.max(0, this.clock.accumulator - this.clock.steps * fixed);
+            if (due > this.clock.steps) {
+                const remainder = Math.max(0, this.clock.accumulator % fixed);
+                const dropped = this.clock.accumulator - remainder;
+                this.clock.accumulator = remainder;
+                this.clock.droppedTime += dropped;
                 this.events?.emit('timeDropped', { dropped });
             }
         }
         const data = this.data;
-        data['dt'] = this._dt;
-        data['elapsed'] = this._elapsed;
-        data['stepDt'] = this._stepDt;
-        data['steps'] = this._steps;
+        data.dt = this.clock.dt;
+        data.elapsed = this.clock.elapsed;
+        data.stepDt = this.clock.stepDt;
+        data.steps = this.clock.steps;
     }
 
     /** Pausa tudo (`scale = 0`), guardando a escala para `resume`. */
     pause(): void {
-        if (this._scale === 0) return;
-        this.scaleBeforePause = this._scale;
-        this._scale = 0;
+        if (this.clock.scale === 0) return;
+        this.scaleBeforePause = this.clock.scale;
+        this.clock.scale = 0;
     }
 
     /** Restaura a escala anterior a `pause`. */
     resume(): void {
-        if (this._scale !== 0) return;
-        this._scale = this.scaleBeforePause;
+        if (this.clock.scale !== 0) return;
+        this.clock.scale = this.scaleBeforePause;
     }
 
     /** Pausa só a física (`physicsScale = 0`); o desenho continua. */
     pausePhysics(): void {
-        if (this._physicsScale === 0) return;
-        this.physicsScaleBeforePause = this._physicsScale;
-        this._physicsScale = 0;
+        if (this.clock.physicsScale === 0) return;
+        this.physicsScaleBeforePause = this.clock.physicsScale;
+        this.clock.physicsScale = 0;
     }
 
     /** Restaura a escala da física anterior a `pausePhysics`. */
     resumePhysics(): void {
-        if (this._physicsScale !== 0) return;
-        this._physicsScale = this.physicsScaleBeforePause;
+        if (this.clock.physicsScale !== 0) return;
+        this.clock.physicsScale = this.physicsScaleBeforePause;
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

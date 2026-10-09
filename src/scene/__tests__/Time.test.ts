@@ -130,8 +130,8 @@ describe('Time.advance — passo fixo com acumulador', () => {
         const time = new Time();
         time.advance(1 / 30);
         expect(time.data).toMatchObject({ steps: 2 });
-        expect(time.data['dt']).toBeCloseTo(1 / 30, 9);
-        expect(time.data['elapsed']).toBeCloseTo(1 / 30, 9);
-        expect(time.data['stepDt']).toBeCloseTo(1 / 60, 9);
+        expect(time.data.dt).toBeCloseTo(1 / 30, 9);
+        expect(time.data.elapsed).toBeCloseTo(1 / 30, 9);
+        expect(time.data.stepDt).toBeCloseTo(1 / 60, 9);
     });
 });
