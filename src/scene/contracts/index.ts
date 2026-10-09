@@ -49,6 +49,8 @@ export type {
     BundleRunner,
     Profiler,
     CanvasOptions,
+    DeviceOptions,
+    DeviceCapabilities,
     Extent3D,
     TextureDataLayout,
     TextureCopyOptions,

@@ -6,7 +6,7 @@ import type {
     DeviceLostInfo,
     EngineCore,
 } from '../contracts/EngineCore';
-import type { DeviceCapabilities } from '../contracts/DeviceOptions';
+import type { DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
 import type { Frame } from '../contracts/Frame';
 import type { FrameStats } from '../contracts/FrameStats';
 import type { Profiler } from '../contracts/Profiler';
@@ -135,9 +135,15 @@ export class GpuEngineCore implements EngineCore {
     private profilingUnsupportedWarned = false;
     private currentFrame: GpuFrame | null = null;
     private readonly deviceLostHandlers = new Set<DeviceLostHandler>();
+    /** Opções da última inicialização — reaplicadas em recuperação e reconfiguração. */
+    private canvasOptions: CanvasOptions | undefined;
+    private deviceOptions: DeviceOptions | undefined;
+    private lastCanvas: HTMLCanvasElement | null = null;
     private shuttingDown = false;
     /** Compilações assíncronas em andamento por hash: specs iguais concorrentes compilam uma vez. */
     private readonly pendingPipelines = new Map<string, Promise<void>>();
+    /** Specs liberadas por `destroy` enquanto a compilação delas ainda estava em andamento. */
+    private readonly releasedWhilePending = new WeakSet<ResourceSpec>();
 
     get profiler(): Profiler {
         return this.profilerSystem;
@@ -147,26 +153,34 @@ export class GpuEngineCore implements EngineCore {
         return this.requireContext().canvasFormat;
     }
 
-    async initialize(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void> {
+    async initialize(
+        canvas?: HTMLCanvasElement,
+        canvasOptions?: CanvasOptions,
+        device?: DeviceOptions,
+    ): Promise<void> {
+        if (canvasOptions !== undefined) this.canvasOptions = canvasOptions;
+        if (device !== undefined) this.deviceOptions = device;
+        if (canvas !== undefined) this.lastCanvas = canvas;
         if (this.context !== null) {
-            this.applyCanvas(this.context, canvas ?? null, options);
+            this.applyCanvas(this.context, canvas ?? null, this.canvasOptions);
             return;
         }
         this.shuttingDown = false;
-        const { device, queue, canvasFormat, capabilities } = await createGpuContext();
+        const created = await createGpuContext(this.deviceOptions);
+        const { queue, canvasFormat, capabilities } = created;
         const ctx: GpuContext = {
-            device,
+            device: created.device,
             queue,
             canvas: null,
             canvasContext: null,
             canvasFormat,
             capabilities,
         };
-        this.applyCanvas(ctx, canvas ?? null, options);
+        this.applyCanvas(ctx, canvas ?? null, this.canvasOptions);
         this.context = ctx;
-        this.profilerSystem.attach(device);
+        this.profilerSystem.attach(created.device);
         this.warnIfProfilingUnsupported();
-        this.watchDeviceLost(device);
+        this.watchDeviceLost(created.device);
     }
 
     onDeviceLost(handler: DeviceLostHandler): () => void {
@@ -184,7 +198,7 @@ export class GpuEngineCore implements EngineCore {
                 message: 'manual reset',
             });
         }
-        await this.initialize(canvas, options);
+        await this.initialize(canvas ?? this.lastCanvas ?? undefined, options);
     }
 
     private watchDeviceLost(device: GPUDevice): void {
@@ -219,7 +233,8 @@ export class GpuEngineCore implements EngineCore {
         if (ctx.canvas === null || ctx.canvasContext === null) {
             throw new Error('GpuEngineCore: no canvas attached to reconfigure.');
         }
-        this.configureCanvasContext(ctx, options);
+        if (options !== undefined) this.canvasOptions = options;
+        this.configureCanvasContext(ctx, this.canvasOptions);
     }
 
     create<S extends ResourceSpec>(spec: S): S {
@@ -242,6 +257,12 @@ export class GpuEngineCore implements EngineCore {
             this.pendingPipelines.set(hash, pending);
         }
         await pending;
+        if (this.releasedWhilePending.has(spec)) {
+            // destroy(spec) chegou antes do fim da compilação: a posse não fica registrada.
+            this.releasedWhilePending.delete(spec);
+            this.store.release(hash, spec);
+            return spec;
+        }
         if (!this.store.retain(hash, spec)) {
             throw new Error(`GpuEngineCore: pipeline ${hash} indisponível após compilação.`);
         }
@@ -328,6 +349,7 @@ export class GpuEngineCore implements EngineCore {
                     visibility: GPUShaderStage.COMPUTE,
                     kind: 'buffer' as const,
                     type: b.type,
+                    ...(b.hasDynamicOffset === true ? { hasDynamicOffset: true } : {}),
                 })),
             }),
         );
@@ -358,6 +380,7 @@ export class GpuEngineCore implements EngineCore {
                     binding: b.binding,
                     kind: 'buffer' as const,
                     buffer: b.buffer,
+                    ...(b.size !== undefined ? { size: b.size } : {}),
                 })),
             }),
         );
@@ -403,7 +426,9 @@ export class GpuEngineCore implements EngineCore {
     }
 
     destroy(spec: ResourceSpec): void {
-        this.store.release(specHash(spec), spec);
+        const hash = specHash(spec);
+        if (this.store.release(hash, spec)) return;
+        if (this.pendingPipelines.has(hash)) this.releasedWhilePending.add(spec);
     }
 
     async readback(spec: StagingBufferSpec): Promise<ArrayBuffer> {

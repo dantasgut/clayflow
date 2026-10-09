@@ -1,4 +1,4 @@
-import type { DeviceCapabilities } from './DeviceOptions';
+import type { DeviceCapabilities, DeviceOptions } from './DeviceOptions';
 import type { Frame } from './Frame';
 import type { FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
@@ -63,6 +63,13 @@ export interface ComputeKernelBinding {
     readonly type: ComputeKernelBindingType;
     /** Buffer concreto que ocupa este slot. */
     readonly buffer: UniformBufferSpec | StorageBufferSpec;
+    /**
+     * Binding com offset dinâmico: o offset é informado a cada `setBindGroup(i, bg, [offset])` (ex.: uma região
+     * de parâmetros por iteração). Exige `size`. Default false.
+     */
+    readonly hasDynamicOffset?: boolean;
+    /** Bytes visíveis pelo shader a partir do offset. Default: o buffer inteiro. */
+    readonly size?: number;
 }
 
 /**
@@ -185,14 +192,20 @@ export interface EngineCore {
     readonly canvasFormat: GPUTextureFormat;
 
     /**
-     * Adquire GPUAdapter + GPUDevice (assíncrono) e configura o canvas
-     * swapchain. Idempotente quando context já existe — apenas re-aplica
-     * canvas/options. Lança se WebGPU não está disponível.
+     * Adquire GPUAdapter + GPUDevice (assíncrono) aplicando `device` (potência, features, limites) e configura o
+     * canvas swapchain com `canvasOptions`. As opções ficam guardadas e são reaplicadas em `requestRecover` e
+     * `reconfigureCanvas`. Idempotente quando o device já existe — apenas reaplica canvas/opções de canvas.
+     * Rejeita se WebGPU não está disponível ou se uma feature de `device.requiredFeatures` falta no adaptador
+     * (a mensagem nomeia a feature).
      */
-    initialize(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void>;
+    initialize(
+        canvas?: HTMLCanvasElement,
+        canvasOptions?: CanvasOptions,
+        device?: DeviceOptions,
+    ): Promise<void>;
     /**
-     * Re-configura o canvas swapchain (chamado após resize). Não recria o
-     * device — usa o existente.
+     * Re-configura o canvas swapchain (chamado após resize). Não recria o device. Sem `options`, reaplica as
+     * opções de canvas guardadas (as de `initialize`); com `options`, elas passam a ser as guardadas.
      */
     reconfigureCanvas(options?: CanvasOptions): void;
 
@@ -212,10 +225,9 @@ export interface EngineCore {
     onDeviceLost(handler: DeviceLostHandler): () => void;
 
     /**
-     * Recupera após device-lost: cria um GPUAdapter+GPUDevice novos e re-attacha
-     * o canvas. Resources cacheados precisam ser recriados pelos sistemas
-     * consumidores (ResourceSystem reage a poolReallocated, e Flows checam
-     * isReady()).
+     * Recupera após device-lost: cria um GPUAdapter+GPUDevice novos com as `DeviceOptions` guardadas e re-attacha
+     * o canvas (o informado ou o anterior) com as `CanvasOptions` guardadas — ou com `options`, que passam a ser
+     * as guardadas. Resources cacheados precisam ser recriados pelos sistemas consumidores.
      */
     requestRecover(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void>;
 

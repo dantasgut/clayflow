@@ -128,6 +128,26 @@ export class World {
         return this.queryBySchemaName(schema.name);
     }
 
+    /**
+     * Primeiro Resource do tipo `type` entre as entidades que têm `schema` — consulta de recurso único da cena
+     * (ex.: `Time`, campos globais). Reconhece pelo construtor (`instanceof`), que sobrevive à minificação.
+     */
+    findResource<T extends Resource>(
+        schema: Schema,
+        type: abstract new (...args: never[]) => T,
+    ): T | undefined {
+        const ids = this.bySchema.get(schema.name);
+        if (ids === undefined) return undefined;
+        for (const id of ids) {
+            const record = this.records.get(id);
+            if (record === undefined) continue;
+            for (const r of record.resources) {
+                if (r instanceof type) return r;
+            }
+        }
+        return undefined;
+    }
+
     /** Lista os Resources do entityId — root + todos os parts agregados. */
     resourcesOf(id: EntityId): readonly Resource[] {
         const record = this.records.get(id);

@@ -6,6 +6,7 @@ import { StructSchema } from '../descriptors/StructSchema';
 import { FieldType } from '../descriptors/FieldType';
 import { DefaultEventBus } from '../events/DefaultEventBus';
 import { World } from '../world/World';
+import { Time } from '../time/Time';
 
 class TestEntity extends Entity implements Resource {
     static readonly schema = new StructSchema('TestEntity', { value: FieldType.f32 });
@@ -109,5 +110,15 @@ describe('World', () => {
         expect(w.entityIdOfResource(child)).toBe(rootId);
         expect(w.resourcesOf(rootId)).toContain(root);
         expect(w.resourcesOf(rootId)).toContain(child);
+    });
+});
+
+describe('World.findResource', () => {
+    it('acha o Resource pelo schema e pelo tipo; undefined quando ausente', () => {
+        const world = new World(new DefaultEventBus());
+        expect(world.findResource(Time.schema, Time)).toBeUndefined();
+        const time = new Time();
+        world.insert(time);
+        expect(world.findResource(Time.schema, Time)).toBe(time);
     });
 });

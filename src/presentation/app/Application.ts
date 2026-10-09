@@ -1,6 +1,8 @@
 import { defaultScene } from '../../scene/index';
 import type {
     CanvasOptions,
+    DeviceCapabilities,
+    DeviceOptions,
     EngineCore,
     SceneContext,
     EventBus,
@@ -12,7 +14,7 @@ import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
 import type { LayoutInferencer } from '../../scene/systems/LayoutInferencer';
 import type { ExecutionSystem } from '../../scene/systems/ExecutionSystem';
 import { GameLoop } from './GameLoop';
-import { Time } from './Time';
+import type { Time } from '../../scene/time/Time';
 import { registerPresentationDefaults, type PresentationDefaults } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
 import { autoRegisterFlows } from '../../elements/physics/flows/defaultFlows';
@@ -27,6 +29,11 @@ export interface ApplicationOptions {
     canvas: HTMLCanvasElement;
     /** Configuração do swapchain (alphaMode, colorSpace). Default: opaque/srgb. */
     canvasOptions?: CanvasOptions;
+    /**
+     * Preferências do device GPU: potência, features exigidas/desejadas e limites. Reaplicadas em
+     * `requestNewDevice()`. O que foi obtido aparece em `app.capabilities`.
+     */
+    device?: DeviceOptions;
     /** Auto-attach window.resize listener (default true em ambiente browser). */
     autoResize?: boolean;
     /** Debounce em ms para o handler de resize (default 100). */
@@ -83,7 +90,10 @@ export class Application {
     readonly world: World;
     /** FlowRegistry — registro de Flows ativos. Atalho para `scene.flows`. */
     readonly flows: FlowRegistry;
-    /** Resource especial com `dt` e `elapsed` atualizados pelo GameLoop. */
+    /**
+     * Relógio da cena (o mesmo `Time` do World, compartilhado por todas as aplicações da cena): escala, pausa,
+     * passo fixo da física. Avança a cada quadro do laço ou de `step()`.
+     */
     readonly time: Time;
     /**
      * Refs para os Flows default (Forward, Shadow, Post, UI, Debug). Útil
@@ -116,11 +126,10 @@ export class Application {
         this.ownsScene = ownsScene;
         this.world = scene.world;
         this.flows = scene.flows;
-        this.time = new Time();
+        this.time = scene.time;
         this.defaults = defaults;
         this.loop = new GameLoop(scene.events, this.time);
         this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
-        scene.world.insert(this.time);
 
         // Auto-registro de Flow por schema: ao inserir um body cujo schema tem
         // factory default e ainda não há flow para ele, registra automaticamente.
@@ -175,11 +184,7 @@ export class Application {
     static async create(options: ApplicationOptions): Promise<Application> {
         const scene: SceneContext = options.scene ?? defaultScene;
         const ownsScene = options.scene !== undefined;
-        if (options.canvasOptions !== undefined) {
-            await scene.core.initialize(options.canvas, options.canvasOptions);
-        } else {
-            await scene.core.initialize(options.canvas);
-        }
+        await scene.initialize(options.canvas, options.canvasOptions, options.device);
         const defaults = registerPresentationDefaults(scene.flows, {
             canvas: options.canvas,
             core: scene.core,
@@ -220,6 +225,32 @@ export class Application {
     /** True se o GameLoop está ativo (RAF agendado). */
     isRunning(): boolean {
         return this.loop.isRunning();
+    }
+
+    /**
+     * Avança `frames` quadros de `dt` segundos sem o laço (headless, testes, pré-cálculo, benchmark). Cada quadro
+     * segue o mesmo caminho do `GameLoop`: `time.advance(dt)` e `frameTick` síncrono — `step(1/60, 300)` produz o
+     * mesmo estado que 5 s de laço com `fixedDt` 1/60.
+     *
+     * @param dt Duração real de cada quadro (s). Default: `time.fixedDt ?? 1/60`.
+     * @param frames Quantidade de quadros (inteiro ≥ 1). Default 1.
+     * @throws Error se o laço está rodando; RangeError se `frames` é inválido.
+     */
+    step(dt: number = this.time.fixedDt ?? 1 / 60, frames = 1): void {
+        if (this.loop.isRunning()) {
+            throw new Error('Application.step(): o laço está rodando — chame stop() antes.');
+        }
+        if (!Number.isInteger(frames) || frames < 1) {
+            throw new RangeError(
+                `Application.step(): frames deve ser inteiro ≥ 1 (recebido ${frames}).`,
+            );
+        }
+        for (let i = 0; i < frames; i++) this.loop.advance(dt);
+    }
+
+    /** Capacidades efetivas do device (adaptador, features, limites) — ver `DeviceCapabilities`. */
+    get capabilities(): DeviceCapabilities {
+        return this.scene.core.capabilities();
     }
 
     /**

@@ -2,7 +2,7 @@ export { Flow } from './Flow';
 export type { Phase } from './Flow';
 export { RenderFlow } from './RenderFlow';
 export { FlowRegistry } from './FlowRegistry';
-export { createComputeKernel } from './createComputeKernel';
+export { createComputeKernel, destroyComputeKernel } from './createComputeKernel';
 export type {
     ComputeKernel,
     ComputeKernelOptions,

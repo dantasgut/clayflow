@@ -8,9 +8,15 @@ import type {
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
-import { createComputeKernel, type ComputeKernel } from '../../../scene/flows/createComputeKernel';
+import {
+    createComputeKernel,
+    destroyComputeKernel,
+    type ComputeKernel,
+} from '../../../scene/flows/createComputeKernel';
 import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
+import { Time } from '../../../scene/time/Time';
+import { PerStepUniforms } from './PerStepUniforms';
 import type { GravityField } from '../forcefields/GravityField';
 import { Transform } from '../../scene/Transform';
 import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
@@ -102,7 +108,7 @@ const SHAPE_POOLS: readonly ShapePool[] = [
 
 export interface LCPFlowOptions {
     readonly bodiesPoolKey?: string;
-    readonly fixedDt?: number;
+    /** Substeps de detecção + solve por passo de física (default 4). O passo vem do `Time` da cena. */
     readonly substeps?: number;
     readonly solveIters?: number;
 }
@@ -110,7 +116,9 @@ export interface LCPFlowOptions {
 /**
  * LCPFlow — solver de RigidBody via LCP (Linear Complementarity Problem) com
  * 4 fases canônicas conforme arquitetura revisada: DetectContacts → AssembleA →
- * SolvePGS×K → Apply. Cada substep:
+ * SolvePGS×K → Apply. O quadro executa `time.steps` passos de `time.stepDt` (o `Time` da cena, consultado
+ * no World); cada passo faz predict, `substeps` iterações de detecção + solve e commit, cada iteração com a
+ * sua região de parâmetros (`PerStepUniforms`, offset dinâmico — research A1). Etapas:
  *
  *   1. `rb_predict`        — integra gravidade + damping em `pos_pred`/`rot_pred`/`vel`
  *   2. narrowphase × N     — uma variante por pool de Collider (Plane/Box/Sphere/Mesh)
@@ -131,11 +139,11 @@ export class LCPFlow extends Flow {
     override priority = 10;
 
     private readonly bodiesPoolKey: string;
-    private readonly fixedDt: number;
     private readonly substeps: number;
     private readonly solveIters: number;
 
-    private paramsBuffer: UniformBufferSpec | null = null;
+    /** Região por passo (predict/commit) + uma por substep, ligadas por offset dinâmico. */
+    private readonly params: PerStepUniforms;
     private contactsBuffer: StorageBufferSpec | null = null;
     private bVecBuffer: StorageBufferSpec | null = null;
     private contactsCapacity = 0;
@@ -162,9 +170,12 @@ export class LCPFlow extends Flow {
     ) {
         super();
         this.bodiesPoolKey = options.bodiesPoolKey ?? 'LCPSchema';
-        this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 4);
         this.solveIters = Math.max(1, options.solveIters ?? 8);
+        this.params = new PerStepUniforms(core, {
+            discriminator: 'lcp_sim_params',
+            byteSize: RB_SIM_PARAMS_BYTE_SIZE,
+        });
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
@@ -217,16 +228,12 @@ export class LCPFlow extends Flow {
     override onPoolReallocated(poolKey: string): void {
         if (poolKey === this.bodiesPoolKey) {
             this.invalidateAllKernels();
-            this.contactsBuffer = null;
-            this.bVecBuffer = null;
-            this.contactsCapacity = 0;
+            this.releaseContacts();
             return;
         }
         if (SHAPE_POOLS.some((s) => s.poolKey === poolKey)) {
-            this.narrowphaseKernels.delete(poolKey);
-            this.contactsBuffer = null;
-            this.bVecBuffer = null;
-            this.contactsCapacity = 0;
+            this.invalidateNarrowphase(poolKey);
+            this.releaseContacts();
             this.bodyOwnersCapacity.delete(poolKey);
         }
     }
@@ -238,24 +245,28 @@ export class LCPFlow extends Flow {
         }
     }
 
+    /** Libera e esquece todos os kernels (bind groups dependem de buffers que mudaram). */
     private invalidateAllKernels(): void {
+        for (const k of [
+            this.predictKernel,
+            this.buildLcpKernel,
+            this.solveLcpKernel,
+            this.commitKernel,
+        ]) {
+            if (k !== null) destroyComputeKernel(this.core, k);
+        }
         this.predictKernel = null;
         this.buildLcpKernel = null;
         this.solveLcpKernel = null;
         this.commitKernel = null;
-        this.narrowphaseKernels.clear();
+        for (const poolKey of [...this.narrowphaseKernels.keys()])
+            this.invalidateNarrowphase(poolKey);
     }
 
-    private ensureParamsBuffer(): UniformBufferSpec {
-        if (this.paramsBuffer === null) {
-            this.paramsBuffer = this.core.create<UniformBufferSpec>({
-                kind: 'buffer',
-                subkind: 'uniform',
-                discriminator: 'lcp_sim_params',
-                byteSize: RB_SIM_PARAMS_BYTE_SIZE,
-            });
-        }
-        return this.paramsBuffer;
+    private invalidateNarrowphase(poolKey: string): void {
+        const k = this.narrowphaseKernels.get(poolKey);
+        if (k !== undefined) destroyComputeKernel(this.core, k);
+        this.narrowphaseKernels.delete(poolKey);
     }
 
     private ensureContactsBuffer(
@@ -267,6 +278,7 @@ export class LCPFlow extends Flow {
     } {
         const needed = Math.max(1, bodyCount * totalCol);
         if (this.contactsBuffer === null || this.contactsCapacity < needed) {
+            this.releaseContacts();
             this.contactsBuffer = this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
                 subkind: 'storage',
@@ -283,6 +295,15 @@ export class LCPFlow extends Flow {
             this.invalidateAllKernels();
         }
         return { contacts: this.contactsBuffer, bVec: this.bVecBuffer };
+    }
+
+    /** Destrói os buffers de contato e de bias (substituídos ao crescer ou ao realocar pools). */
+    private releaseContacts(): void {
+        if (this.contactsBuffer !== null) this.core.destroy(this.contactsBuffer);
+        if (this.bVecBuffer !== null) this.core.destroy(this.bVecBuffer);
+        this.contactsBuffer = null;
+        this.bVecBuffer = null;
+        this.contactsCapacity = 0;
     }
 
     private ensureNpParamsBuffer(poolKey: string): UniformBufferSpec {
@@ -312,7 +333,7 @@ export class LCPFlow extends Flow {
             });
             this.bodyOwnersBuffers.set(poolKey, buf);
             this.bodyOwnersCapacity.set(poolKey, count);
-            this.narrowphaseKernels.delete(poolKey); // bind group precisa refazer
+            this.invalidateNarrowphase(poolKey); // bind group precisa refazer
         }
         return buf;
     }
@@ -338,24 +359,29 @@ export class LCPFlow extends Flow {
         return count;
     }
 
-    private uploadSimParams(bodyCount: number, totalCol: number, dtSub: number): void {
-        const buf = this.ensureParamsBuffer();
-        const arr = new ArrayBuffer(RB_SIM_PARAMS_BYTE_SIZE);
-        const f32 = new Float32Array(arr);
-        const u32 = new Uint32Array(arr);
-        const gravity = this.findGravityField();
-        const accel = (gravity?.data.acceleration as readonly number[] | undefined) ?? [
-            0, -9.81, 0, 0,
-        ];
+    /**
+     * Preenche a região `region` de `RBSimParams`: `gravity.w` = dt da iteração (passo inteiro em predict/commit,
+     * `stepDt / substeps` nos substeps) e `dt_frame` = `stepDt`.
+     */
+    private fillSimParams(
+        region: number,
+        bodyCount: number,
+        totalCol: number,
+        iterationDt: number,
+        stepDt: number,
+        accel: readonly number[],
+    ): void {
+        const f32 = this.params.f32(region);
+        const u32 = this.params.u32(region);
         f32[0] = accel[0] ?? 0;
         f32[1] = accel[1] ?? -9.81;
         f32[2] = accel[2] ?? 0;
-        f32[3] = dtSub;
+        f32[3] = iterationDt;
         u32[4] = bodyCount;
         u32[5] = totalCol;
         u32[6] = bodyCount * totalCol;
         u32[7] = this.solveIters;
-        f32[8] = this.fixedDt;
+        f32[8] = stepDt;
         f32[9] = 0.2; // restitution global default
         f32[10] = 0.005; // penetration_slop
         f32[11] = 0.1; // linear_damping
@@ -367,7 +393,6 @@ export class LCPFlow extends Flow {
         f32[17] = 0; // _pad2a
         f32[18] = 0.2; // baumgarte_beta
         f32[19] = 0.9; // warm_start_factor
-        this.core.write(buf, new Uint8Array(arr));
     }
 
     private uploadNpParams(
@@ -397,23 +422,19 @@ export class LCPFlow extends Flow {
         ) ?? null) as GravityField | null;
     }
 
-    private ensurePredictKernel(bodiesBuf: StorageBufferSpec, params: UniformBufferSpec): void {
+    private ensurePredictKernel(bodiesBuf: StorageBufferSpec): void {
         if (this.predictKernel !== null) return;
         this.predictKernel = createComputeKernel(this.core, {
             discriminator: 'lcp_predict',
             shaderSource: PREDICT_SHADER,
             entryPoint: 'rb_predict_main',
-            bindings: [
-                { binding: 0, type: 'uniform', buffer: params },
-                { binding: 1, type: 'storage', buffer: bodiesBuf },
-            ],
+            bindings: [this.params.binding(0), { binding: 1, type: 'storage', buffer: bodiesBuf }],
         });
     }
 
     private ensureNarrowphaseKernel(
         shape: ShapePool,
         bodiesBuf: StorageBufferSpec,
-        params: UniformBufferSpec,
         contacts: StorageBufferSpec,
     ): ComputeKernel | null {
         if (this.narrowphaseKernels.has(shape.poolKey)) {
@@ -428,7 +449,7 @@ export class LCPFlow extends Flow {
             shaderSource: NARROWPHASE_SHADER,
             entryPoint: shape.entryPoint,
             bindings: [
-                { binding: 0, type: 'uniform', buffer: params },
+                this.params.binding(0),
                 { binding: 1, type: 'storage', buffer: bodiesBuf },
                 { binding: 2, type: 'uniform', buffer: npParams },
                 { binding: 3, type: 'read-only-storage', buffer: ownersBuf },
@@ -442,7 +463,6 @@ export class LCPFlow extends Flow {
 
     private ensureBuildLcpKernel(
         bodiesBuf: StorageBufferSpec,
-        params: UniformBufferSpec,
         contacts: StorageBufferSpec,
         bVec: StorageBufferSpec,
     ): void {
@@ -452,7 +472,7 @@ export class LCPFlow extends Flow {
             shaderSource: BUILD_LCP_SHADER,
             entryPoint: 'rb_build_lcp',
             bindings: [
-                { binding: 0, type: 'uniform', buffer: params },
+                this.params.binding(0),
                 { binding: 1, type: 'read-only-storage', buffer: bodiesBuf },
                 { binding: 2, type: 'storage', buffer: contacts },
                 { binding: 3, type: 'storage', buffer: bVec },
@@ -462,7 +482,6 @@ export class LCPFlow extends Flow {
 
     private ensureSolveLcpKernel(
         bodiesBuf: StorageBufferSpec,
-        params: UniformBufferSpec,
         contacts: StorageBufferSpec,
         bVec: StorageBufferSpec,
     ): void {
@@ -472,7 +491,7 @@ export class LCPFlow extends Flow {
             shaderSource: SOLVE_LCP_SHADER,
             entryPoint: 'rb_solve_lcp_main',
             bindings: [
-                { binding: 0, type: 'uniform', buffer: params },
+                this.params.binding(0),
                 { binding: 1, type: 'storage', buffer: bodiesBuf },
                 { binding: 2, type: 'storage', buffer: contacts },
                 { binding: 3, type: 'read-only-storage', buffer: bVec },
@@ -480,18 +499,14 @@ export class LCPFlow extends Flow {
         });
     }
 
-    private ensureCommitKernel(
-        bodiesBuf: StorageBufferSpec,
-        params: UniformBufferSpec,
-        contacts: StorageBufferSpec,
-    ): void {
+    private ensureCommitKernel(bodiesBuf: StorageBufferSpec, contacts: StorageBufferSpec): void {
         if (this.commitKernel !== null) return;
         this.commitKernel = createComputeKernel(this.core, {
             discriminator: 'lcp_commit',
             shaderSource: COMMIT_SHADER,
             entryPoint: 'rb_lcp_commit_main',
             bindings: [
-                { binding: 0, type: 'uniform', buffer: params },
+                this.params.binding(0),
                 { binding: 1, type: 'storage', buffer: bodiesBuf },
                 { binding: 2, type: 'read-only-storage', buffer: contacts },
             ],
@@ -499,6 +514,9 @@ export class LCPFlow extends Flow {
     }
 
     dispatch(frame: Frame): void {
+        const time = this.world.findResource(Time.schema, Time);
+        const steps = time?.steps ?? 0;
+        if (time === undefined || steps === 0) return;
         const bodyCount = this.resources.poolCount(this.bodiesPoolKey);
         if (bodyCount === 0) return;
         const bodiesBuf = this.resources.poolBufferSpec(this.bodiesPoolKey);
@@ -516,72 +534,109 @@ export class LCPFlow extends Flow {
             poolInfo.push({ shape, count, base: totalCol });
             totalCol += count;
         }
-        const params = this.ensureParamsBuffer();
-        const { contacts, bVec } = this.ensureContactsBuffer(bodyCount, totalCol);
-        if (contacts === null || bVec === null) return;
-        this.ensurePredictKernel(bodiesBuf, params);
-        if (this.predictKernel === null) return;
-        const predict = this.predictKernel;
-
-        const dtSub = this.fixedDt / this.substeps;
-        const predictGroups = Math.ceil(bodyCount / 64);
-
-        // Predict 1× por frame: vel += g*dtFrame (gravidade integrada uma vez)
-        this.uploadSimParams(bodyCount, totalCol, this.fixedDt);
-        frame.compute('LCPFlow.predict', (pass) => {
-            pass.bind.setPipeline(predict.pipeline).setBindGroup(0, predict.bindGroup);
-            pass.dispatch.workgroups(predictGroups);
-        });
-
-        if (totalCol > 0) {
-            // Substeps refinam contact detection + solve — predict e commit ficam fora
-            for (let s = 0; s < this.substeps; s++) {
-                this.uploadSimParams(bodyCount, totalCol, dtSub);
-
-                // Fase 1 — DetectContacts (uma variante por pool não vazio)
-                for (const info of poolInfo) {
-                    if (info.count === 0) continue;
-                    this.uploadNpParams(info.shape.poolKey, info.count, info.base, totalCol);
-                    const k = this.ensureNarrowphaseKernel(info.shape, bodiesBuf, params, contacts);
-                    if (k === null) continue;
-                    const threads = bodyCount * info.count;
-                    const groups = Math.ceil(threads / 64);
-                    const kernel = k;
-                    const label = `LCPFlow.narrowphase.${info.shape.poolKey}`;
-                    frame.compute(label, (pass) => {
-                        pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
-                        pass.dispatch.workgroups(groups);
-                    });
-                }
-
-                // Fase 2 — AssembleA
-                this.ensureBuildLcpKernel(bodiesBuf, params, contacts, bVec);
-                if (this.buildLcpKernel === null) continue;
-                const build = this.buildLcpKernel;
-                const buildGroups = Math.ceil((bodyCount * totalCol) / 64);
-                frame.compute('LCPFlow.buildLcp', (pass) => {
-                    pass.bind.setPipeline(build.pipeline).setBindGroup(0, build.bindGroup);
-                    pass.dispatch.workgroups(buildGroups);
-                });
-
-                // Fase 3 — SolvePGS×K (single-threaded)
-                this.ensureSolveLcpKernel(bodiesBuf, params, contacts, bVec);
-                if (this.solveLcpKernel === null) continue;
-                const solve = this.solveLcpKernel;
-                frame.compute('LCPFlow.solveLcp', (pass) => {
-                    pass.bind.setPipeline(solve.pipeline).setBindGroup(0, solve.bindGroup);
-                    pass.dispatch.workgroups(1);
-                });
+        for (const info of poolInfo) {
+            if (info.count > 0) {
+                this.uploadNpParams(info.shape.poolKey, info.count, info.base, totalCol);
             }
         }
 
-        // Commit 1× por frame: pos += vel*dtFrame + corrigeção posicional
-        this.uploadSimParams(bodyCount, totalCol, this.fixedDt);
-        this.ensureCommitKernel(bodiesBuf, params, contacts);
-        if (this.commitKernel !== null) {
-            const commit = this.commitKernel;
+        // Regiões: por passo, uma para predict/commit (dt do passo) e uma por substep.
+        const perStep = this.substeps + 1;
+        const regions = steps * perStep;
+        if (this.params.reserve(regions)) this.invalidateAllKernels();
+        const stepDt = time.stepDt;
+        const accel = (this.findGravityField()?.data.acceleration as
+            | readonly number[]
+            | undefined) ?? [0, -9.81, 0, 0];
+        for (let step = 0; step < steps; step++) {
+            const base = step * perStep;
+            this.fillSimParams(base, bodyCount, totalCol, stepDt, stepDt, accel);
+            for (let k = 0; k < this.substeps; k++) {
+                this.fillSimParams(
+                    base + 1 + k,
+                    bodyCount,
+                    totalCol,
+                    stepDt / this.substeps,
+                    stepDt,
+                    accel,
+                );
+            }
+        }
+        this.params.flush(regions);
+
+        const { contacts, bVec } = this.ensureContactsBuffer(bodyCount, totalCol);
+        if (contacts === null || bVec === null) return;
+        this.ensurePredictKernel(bodiesBuf);
+        this.ensureCommitKernel(bodiesBuf, contacts);
+        const predict = this.predictKernel;
+        const commit = this.commitKernel;
+        if (predict === null || commit === null) return;
+        const predictGroups = Math.ceil(bodyCount / 64);
+
+        for (let step = 0; step < steps; step++) {
+            const stepOffset = [this.params.offset(step * perStep)];
+            // Predict 1× por passo: vel += g·stepDt (gravidade integrada uma vez por passo).
+            frame.compute('LCPFlow.predict', (pass) => {
+                pass.bind
+                    .setPipeline(predict.pipeline)
+                    .setBindGroup(0, predict.bindGroup, stepOffset);
+                pass.dispatch.workgroups(predictGroups);
+            });
+
+            if (totalCol > 0) {
+                // Substeps refinam detecção de contato + solve — predict e commit ficam fora.
+                for (let k = 0; k < this.substeps; k++) {
+                    const subOffset = [this.params.offset(step * perStep + 1 + k)];
+
+                    // Fase 1 — DetectContacts (uma variante por pool não vazio)
+                    for (const info of poolInfo) {
+                        if (info.count === 0) continue;
+                        const kernel = this.ensureNarrowphaseKernel(
+                            info.shape,
+                            bodiesBuf,
+                            contacts,
+                        );
+                        if (kernel === null) continue;
+                        const groups = Math.ceil((bodyCount * info.count) / 64);
+                        const label = `LCPFlow.narrowphase.${info.shape.poolKey}`;
+                        frame.compute(label, (pass) => {
+                            pass.bind
+                                .setPipeline(kernel.pipeline)
+                                .setBindGroup(0, kernel.bindGroup, subOffset);
+                            pass.dispatch.workgroups(groups);
+                        });
+                    }
+
+                    // Fase 2 — AssembleA
+                    this.ensureBuildLcpKernel(bodiesBuf, contacts, bVec);
+                    const build = this.buildLcpKernel;
+                    if (build === null) continue;
+                    const buildGroups = Math.ceil((bodyCount * totalCol) / 64);
+                    frame.compute('LCPFlow.buildLcp', (pass) => {
+                        pass.bind
+                            .setPipeline(build.pipeline)
+                            .setBindGroup(0, build.bindGroup, subOffset);
+                        pass.dispatch.workgroups(buildGroups);
+                    });
+
+                    // Fase 3 — SolvePGS×K (single-threaded)
+                    this.ensureSolveLcpKernel(bodiesBuf, contacts, bVec);
+                    const solve = this.solveLcpKernel;
+                    if (solve === null) continue;
+                    frame.compute('LCPFlow.solveLcp', (pass) => {
+                        pass.bind
+                            .setPipeline(solve.pipeline)
+                            .setBindGroup(0, solve.bindGroup, subOffset);
+                        pass.dispatch.workgroups(1);
+                    });
+                }
+            }
+
+            // Commit 1× por passo: pos += vel·stepDt + correção posicional.
             frame.compute('LCPFlow.commit', (pass) => {
-                pass.bind.setPipeline(commit.pipeline).setBindGroup(0, commit.bindGroup);
+                pass.bind
+                    .setPipeline(commit.pipeline)
+                    .setBindGroup(0, commit.bindGroup, stepOffset);
                 pass.dispatch.workgroups(predictGroups);
             });
         }

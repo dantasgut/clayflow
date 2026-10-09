@@ -168,4 +168,20 @@ describe('GpuEngineCore — identidade, imutabilidade e posse', () => {
         }).not.toThrow();
         expect(raw.createComputePipeline).not.toHaveBeenCalled();
     });
+
+    it('destroy durante a compilação assíncrona não deixa posse registrada', async () => {
+        const { core, raw, finishPipeline } = setup();
+        const p = pipelineSpec();
+        core.create(p.shader);
+        core.create(p.layouts[0]!);
+        const pending = core.createAsync(p);
+        core.destroy(p);
+        finishPipeline();
+        await pending;
+        // Spec nova de mesmo conteúdo precisa recompilar: a entrada antiga não ficou viva.
+        const again = core.createAsync(pipelineSpec());
+        finishPipeline();
+        await again;
+        expect(raw.createComputePipelineAsync).toHaveBeenCalledTimes(2);
+    });
 });

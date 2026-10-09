@@ -167,6 +167,10 @@ buffer uniform com **uma região por iteração**, alinhada a `minUniformBufferO
 escrito **uma vez por quadro**; o bind group de parâmetros usa `hasDynamicOffset` e cada iteração liga sua região
 (`setBindGroup(i, bg, [offset])`, já suportado pelo `Binder`). Capacidade = `maxStepsPerFrame × substeps`.
 
+O bind group que contém o binding de parâmetros é o do kernel (o mesmo grupo dos demais buffers do kernel; o
+offset dinâmico é propriedade do layout, invisível ao WGSL). No crescimento, o Flow refaz o kernel e libera o anterior
+com `destroyComputeKernel` (C2) — com posse por spec (R3), recriar kernels sem liberar acumularia donos no store.
+
 **Por quê**: é a única forma correta dentro de um único submit (A1); corrige de quebra o `dtSub` do LCP, que nunca
 chegou à GPU. Escrita única por quadro reduz chamadas de `write`.
 

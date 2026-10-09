@@ -19,5 +19,6 @@ export type { ReadyEvent } from './ReadyEvent';
 export type { PoolReallocatedEvent } from './PoolReallocatedEvent';
 export type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 export type { FrameTickEvent } from './FrameTickEvent';
+export type { TimeDroppedEvent } from './TimeDroppedEvent';
 export type { FrameCompleteEvent } from './FrameCompleteEvent';
 export type { FrameRecordingEvent } from './FrameRecordingEvent';

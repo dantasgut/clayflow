@@ -9,13 +9,7 @@ export interface SceneBootstrapOptions {
 }
 
 export async function bootstrap(options: SceneBootstrapOptions = {}): Promise<void> {
-    if (options.canvas !== undefined && options.canvasOptions !== undefined) {
-        await defaultScene.core.initialize(options.canvas, options.canvasOptions);
-    } else if (options.canvas !== undefined) {
-        await defaultScene.core.initialize(options.canvas);
-    } else {
-        await defaultScene.core.initialize();
-    }
+    await defaultScene.initialize(options.canvas, options.canvasOptions);
 }
 
 // Singletons da scene default — backwards-compat. Para multi-Application,
@@ -30,7 +24,7 @@ export const executionSystem = defaultScene.executionSystem;
 
 export { defaultScene };
 export { createScene } from './SceneContext';
-export type { SceneContext } from './SceneContext';
+export type { SceneContext, CreateSceneOptions } from './SceneContext';
 
 export const engine = defaultScene.core;
 
@@ -56,6 +50,7 @@ export {
 } from './descriptors/index';
 
 export { World } from './world/World';
+export { Time } from './time/Time';
 export { asEntityId } from './world/EntityId';
 export type { EntityId } from './world/EntityId';
 
@@ -143,6 +138,8 @@ export type {
     BundleRunner,
     Profiler,
     CanvasOptions,
+    DeviceOptions,
+    DeviceCapabilities,
     Extent3D,
     TextureDataLayout,
     TextureCopyOptions,

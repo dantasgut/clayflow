@@ -1,11 +1,14 @@
 /**
- * Payload do evento `frameTick` — emitido pelo `GameLoop` no início de cada frame.
- * Subscribers (ExecutionSystem, controllers, etc.) usam para drive simulation
- * e dispatch frame-rate-independent.
+ * Payload do evento `frameTick` — emitido a cada quadro por `Application.step()` e pelo `GameLoop`,
+ * sempre depois de `time.advance()`. O `ExecutionSystem` grava o quadro em resposta.
  */
 export interface FrameTickEvent {
-    /** Delta time em segundos (clamped em 1/30 para evitar saltos enormes). */
+    /** Duração efetiva do quadro em segundos (`realDt × time.scale`). */
     readonly dt: number;
-    /** Tempo total acumulado desde início do GameLoop (segundos). */
+    /** Duração real do quadro em segundos, limitada a `time.maxFrameDt`. */
+    readonly realDt: number;
+    /** Tempo efetivo acumulado (segundos). */
     readonly elapsed: number;
+    /** Número do quadro (1 no primeiro avanço). */
+    readonly frame: number;
 }
