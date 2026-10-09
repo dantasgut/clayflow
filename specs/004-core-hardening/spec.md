@@ -53,7 +53,7 @@ O benchmark da F0 é o critério de aceite de desempenho.
 
 **Fora de escopo:** migração dos Flows para slots tipados e consumo, pelo desenho e pela sombra, dos buffers alocados
 pela C2 (spec 006); módulos de shader (spec 005); instancing, deduplicação de geometria e pools de câmera/material na
-GPU (F2); solvers paralelos (F5); pausa/snapshot/restore da aplicação (F10).
+GPU (F2); solvers paralelos (F5 — os limites de despacho e da busca de vizinhança, porém, são corrigidos aqui); pausa/snapshot/restore da aplicação (F10).
 
 ---
 
@@ -133,6 +133,10 @@ limites relevantes disponíveis no adaptador foram obtidos.
    obtém os limites de que suas cenas precisam (até o máximo do adaptador), e não os mínimos padrão.
 3. **Given** uma feature opcional indisponível, **When** o dispositivo é criado, **Then** a criação segue sem ela e o
    relatório registra a ausência; uma feature obrigatória indisponível falha com mensagem clara.
+4. **Given** um cálculo na GPU sobre mais elementos do que cabem numa dimensão de despacho do dispositivo, **When** ele
+   é executado, **Then** cada elemento é processado exatamente uma vez, sem erro de validação.
+5. **Given** um fluido cuja grade de vizinhança tem mais de 65 536 células, **When** a simulação roda, **Then** os
+   vizinhos encontrados são os mesmos de uma busca de referência.
 
 ---
 
@@ -197,6 +201,10 @@ verificar que a memória de GPU e o número de ouvintes voltam ao patamar inicia
 - **Mudança da velocidade do tempo durante a execução** → vale a partir do quadro seguinte, sem salto.
 - **Adaptador sem uma feature opcional** (ex.: timestamps) → o motor segue sem ela; o relatório informa.
 - **Limite pedido acima do máximo do adaptador** → o motor usa o máximo disponível e registra o valor efetivo.
+- **Despacho maior que o máximo por dimensão** → distribuído em duas dimensões; se nem assim couber, recusado com erro
+  que nomeia o limite (nunca um erro de validação silencioso no console).
+- **Grade de vizinhança grande** → a soma de prefixos das células funciona para qualquer quantidade de células que
+  caiba na memória do dispositivo.
 - **Malha com até 65 535 vértices** → pode continuar com índices de 16 bits (economia); acima disso, 32 bits
   automaticamente, sem ação do desenvolvedor.
 - **Remoção de entidade cujo recurso ainda está em uso por outro estágio** → a liberação acontece só depois que nenhum
@@ -250,6 +258,11 @@ verificar que a memória de GPU e o número de ouvintes voltam ao patamar inicia
   software), features obtidas e ausentes, e limites efetivos.
 - **FR-017**: A falta de uma feature exigida DEVE falhar na criação com mensagem clara; a falta de uma desejada DEVE
   apenas constar no relatório.
+- **FR-029**: Todo cálculo de GPU sobre uma sequência de elementos DEVE processar cada elemento exatamente uma vez
+  para qualquer quantidade que caiba na memória do dispositivo, respeitando o máximo de grupos por dimensão de
+  despacho; um despacho que exceda os limites do dispositivo DEVE ser recusado com erro que nomeia o limite.
+- **FR-030**: A busca de vizinhança DEVE funcionar para grades com qualquer número de células que caiba na memória do
+  dispositivo (sem o teto atual de 65 536 células).
 
 **Sistema de recursos (C2)**
 
@@ -313,6 +326,10 @@ verificar que a memória de GPU e o número de ouvintes voltam ao patamar inicia
   minificado.
 - **SC-008**: Uma malha com 90 000 vértices renderiza completa e correta.
 - **SC-009**: Gate completo verde, inclusive a cobertura de documentação dos exports novos.
+- **SC-010**: Um cálculo sobre mais de 16,7 milhões de elementos (mais de 65 535 grupos de 256) processa cada
+  elemento exatamente uma vez, verificado por leitura de volta.
+- **SC-011**: Com uma grade de 262 144 células, a busca de vizinhança devolve, para cada partícula, o mesmo conjunto de
+  vizinhos de uma busca de referência por força bruta.
 
 ## Assumptions
 

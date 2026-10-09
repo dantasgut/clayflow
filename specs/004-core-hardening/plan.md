@@ -20,9 +20,12 @@ substeps` iterações com **parâmetros por iteração em regiões de buffer com
 4. **Recursos (C2)**: a C2 aloca todos os papéis e todos os descritores (`ResourceDirectory`); transições validadas;
    `GpuManaged` pelo handler; reuso de instância proibido com mapa recurso → entidade por World; reinserção após
    remoção.
-5. **Robustez**: índices `uint32` acima de 65 535 vértices; fim de `constructor.name` (o build minificado hoje **não
+5. **Limites de despacho e de vizinhança**: `Dispatcher.invocations` distribui despachos lineares em x/y dentro de
+   `maxComputeWorkgroupsPerDimension` (kernels indexam por `num_workgroups`); `workgroups` acima do limite lança; a
+   soma de prefixos da busca de vizinhança passa a ter vários níveis (sem teto de 65 536 células) — research R16/R17.
+6. **Robustez**: índices `uint32` acima de 65 535 vértices; fim de `constructor.name` (o build minificado hoje **não
    desenha** — research A2), renderizáveis mantidos por eventos; vazamentos de GPU e de ouvintes corrigidos.
-6. **Verificação**: benchmark com paridade de tempo simulado (1/60 s por quadro nas duas engines) e modo `--dist`;
+7. **Verificação**: benchmark com paridade de tempo simulado (1/60 s por quadro nas duas engines) e modo `--dist`;
    smokes novos de tempo, malha grande e churn.
 
 Decisões e alternativas em [research.md](./research.md).
@@ -51,8 +54,9 @@ declarada no relatório
 
 **Scale/Scope**: ~35 arquivos da lib (C1: `specHash`, `GpuEngineCore`, `GpuResourceStore`, `GpuContext`, contratos;
 C2: `Time` novo, `ResourceSystem`, `World`, lifecycle, `ExecutionSystem`, `FlowRegistry`, `StructSchema`, eventos,
-`SceneContext`; C3: 6 Flows de física + WGSL de parâmetros, geometrias, `TransformFlow`; C4: `Application`, `GameLoop`,
-forward, sombra, `DebugFlow`, input), ~20 arquivos de teste, 3 smokes novos, bench (adaptador, `--dist`), guias
+`SceneContext`; C3: 6 Flows de física + WGSL de parâmetros, ~40 kernels lineares (índice por `num_workgroups`),
+`NeighborSearchPipeline` (scan em níveis), geometrias, `TransformFlow`; C4: `Application`, `GameLoop`,
+forward, sombra, `DebugFlow`, input), ~24 arquivos de teste, 4 smokes novos, bench (adaptador, `--dist`), guias
 
 ## Constitution Check
 
@@ -104,6 +108,8 @@ src/
 │   ├── gpu/GpuResourceStore.ts              # owners por entrada
 │   ├── gpu/GpuContext.ts                    # adapter com powerPreference, features, limites; devolve capacidades
 │   ├── gpu/GpuEngineCore.ts                 # create/createAsync/destroy; capabilities; opções preservadas
+│   ├── contracts/passes/Dispatcher.ts       # invocations(count, workgroupSize); workgroups valida o limite
+│   ├── gpu/passes/GpuComputePass.ts         # distribuição x/y pelo limite do device
 │   └── gpu/__tests__/                       # specHash, deepFreeze, store owners, GpuContext limites/features
 ├── scene/                                   # C2
 │   ├── time/Time.ts                         # NOVO (movido de presentation/app) — acumulador, escalas, pausas
@@ -120,7 +126,8 @@ src/
 ├── elements/                                # C3
 │   ├── physics/flows/{LCP,XPBD,FEM,MPM,SPH,PBF}Flow.ts # steps × substeps, params por região (offset dinâmico)
 │   ├── physics/flows/PerStepUniforms.ts     # NOVO — uniforms por iteração (regiões + offset dinâmico), usado pelos 6
-│   ├── gpu/wgsl/**                          # bind group de parâmetros com offset dinâmico (sem mudar structs)
+│   ├── gpu/wgsl/**                          # params com offset dinâmico; índice linear por num_workgroups; scan por nível
+│   ├── gpu/NeighborSearchPipeline.ts        # soma de prefixos em vários níveis
 │   ├── geometry/{Sphere,Parametric,…}Geometry.ts # uint32 acima de 65 535; indexFormat
 │   ├── geometry/Geometry.ts                 # indexFormat
 │   └── __tests__/                           # steps, params, índices
@@ -132,7 +139,7 @@ src/
 │   ├── flows/DebugFlow.ts                   # dispose
 │   ├── input/{InteractionSystem,controllers/FpsController}.ts # remoção de ouvintes
 │   └── assets/GltfLoader.ts                 # UNSIGNED_BYTE → Uint16Array
-└── __smokes__/{time,bigMesh,churn}.ts       # NOVOS
+└── __smokes__/{time,bigMesh,churn,limits}.ts # NOVOS
 
 bench/engines/clayflow.ts                    # app.step(1/60); limitação de geometria duplicada
 bench/runner/{args,cli,server}.ts, bench/vite.config.ts # --dist
@@ -150,7 +157,9 @@ dispositivo em C1, tempo e recursos em C2, consumo de tempo nos Flows de C3, apr
 2. **US1 (P1) — identidade barata** — testes, smoke/bench das cenas-alvo; registrar a medição.
 3. **US2 (P1) — tempo** — `Time` na C2 (um por World), eventos, `advance`, `step()`/`GameLoop`; `PerStepUniforms` com
    offset dinâmico (usa `capabilities().limits.minUniformBufferOffsetAlignment`, entregue pela fase fundacional); migrar os 6 Flows; bench com `app.step(1/60)`; smoke `time.ts`.
-4. **US3 (P2) — dispositivo** — `DeviceOptions`, limites, `capabilities()`, `app.capabilities`, opções preservadas.
+4. **US3 (P2) — dispositivo** — `DeviceOptions`, limites, `capabilities()`, `app.capabilities`, opções preservadas;
+   `Dispatcher.invocations` e migração de todos os kernels lineares; scan de vizinhança em vários níveis; smoke
+   `limits.ts`.
 5. **US4 (P2) — recursos** — alocação por papel e `ResourceDirectory`, `vertexLayout`, transições validadas, regras de
    handler, reuso proibido (World por instância), reinserção, `Application` em cena compartilhada, índices `uint32`;
    limitação "geometria duplicada" no adaptador do bench; smoke `bigMesh.ts`.

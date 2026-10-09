@@ -54,6 +54,17 @@ Limites que o motor eleva ao máximo do adaptador: `maxBufferSize`, `maxStorageB
 `maxStorageBuffersPerShaderStage`, `maxBindGroups`, `maxComputeWorkgroupStorageSize`,
 `maxComputeInvocationsPerWorkgroup`. Feature opcional do motor: `timestamp-query`.
 
+## Despacho linear (C1) e soma de prefixos (C3)
+
+| Regra            | Descrição                                                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| grupos           | `g = ceil(count / workgroupSize)`                                                              |
+| formato          | `x = min(g, maxComputeWorkgroupsPerDimension)`, `y = ceil(g / x)`, `z = 1`                     |
+| índice no shader | `i = gid.x + gid.y · num_workgroups.x · workgroupSize`; `i ≥ count` retorna                    |
+| scan — níveis    | `n_0` = células; `n_{l+1} = ceil(n_l / 256)` até `n_L ≤ 256`; `L` = níveis acima do 0          |
+| scan — buffers   | um buffer de somas e um uniform de contagem por nível; recriados quando a grade muda           |
+| scan — sequência | `scan_local` nos níveis 0..L−1 (subida), `scan_groups` no nível L, `scan_combine` de L−1 até 0 |
+
 ## Time (C2 — `scene/time/Time.ts`)
 
 | Campo              | Tipo           | Default | Regra                                                           |

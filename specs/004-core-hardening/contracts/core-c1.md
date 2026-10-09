@@ -42,4 +42,18 @@ initialize(canvas?: HTMLCanvasElement, canvasOptions?: CanvasOptions, device?: D
 capabilities(): DeviceCapabilities;
 ```
 
+## `Dispatcher` (passes de computação)
+
+```ts
+/**
+ * Despacha grupos suficientes para `count` invocações com grupos de `workgroupSize`, distribuídos em x/y dentro de
+ * `maxComputeWorkgroupsPerDimension`. O shader indexa por `gid.x + gid.y * num_workgroups.x * workgroupSize` e guarda
+ * `i >= count`. `count === 0` não despacha.
+ */
+invocations(count: number, workgroupSize: number): this;
+
+/** Lança RangeError (nomeando `maxComputeWorkgroupsPerDimension`) se alguma dimensão exceder o limite do device. */
+workgroups(x: number, y?: number, z?: number): this;
+```
+
 C4 expõe `app.capabilities` (getter) e `ApplicationOptions.device?: DeviceOptions` — sem importar `core/gpu`.

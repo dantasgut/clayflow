@@ -62,7 +62,7 @@ quickstart.md
 - [ ] T013 [P] [US1] Teste `src/core/gpu/__tests__/GpuEngineCore.identity.test.ts` (device mockado): `create`/`createAsync` congelam a spec (mutação lança), devolvem o mesmo objeto, deduplicam por conteúdo e registram posse; `destroy` respeita posse; `createAsync` concorrente da mesma spec compila uma vez
 - [ ] T014 [US1] Atualizar `src/core/gpu/GpuEngineCore.ts` (`create`, `createAsync` com promessa em voo por hash, `destroy`) e o JSDoc de `create`/`destroy` em `src/core/contracts/EngineCore.ts` (texto de `contracts/core-c1.md`) até T013 passar
 - [ ] T015 [US1] Rodar `npx tsc --noEmit && npm test`; corrigir qualquer teste ou código que mute spec após `create` (levantamento: nenhum em `src/`; conferir `createComputeKernel.ts:95`, `GpuEngineCore.ts:287-334` — `kernel.layouts` congelado)
-- [ ] T016 [US1] Medir: `npm run bench -- --scene instances,unique-objects --engine clayflow` e registrar em `specs/004-core-hardening/tasks.md` (nota do checkpoint) a CPU por quadro contra o baseline (medição intermediária; SC-001 é verificado em T069)
+- [ ] T016 [US1] Medir: `npm run bench -- --scene instances,unique-objects --engine clayflow` e registrar em `specs/004-core-hardening/tasks.md` (nota do checkpoint) a CPU por quadro contra o baseline (medição intermediária; SC-001 é verificado em T076)
 
 **Checkpoint**: identidade barata e imutável; ganho medido.
 
@@ -98,19 +98,27 @@ passo.
 
 ---
 
-## Phase 5: User Story 3 — Capacidades do dispositivo conhecidas (Priority: P2)
+## Phase 5: User Story 3 — Capacidades e limites do dispositivo (Priority: P2)
 
-**Goal**: potência, features e limites configuráveis; relatório completo (FR-014–FR-017).
+**Goal**: potência, features e limites configuráveis; relatório completo; despachos e busca de vizinhança dentro dos
+limites do device (FR-014–FR-017, FR-029, FR-030).
 
-**Independent test**: testes CPU com adapter mockado + `app.capabilities` no navegador.
+**Independent test**: testes CPU com adapter mockado + `app.capabilities` no navegador + smoke `limits.ts`.
 
 - [ ] T035 [P] [US3] Ampliar `src/core/gpu/__tests__/GpuContext.capabilities.test.ts`: `powerPreference` repassada a `requestAdapter`; `requiredFeatures` indisponível → rejeita com mensagem que nomeia a feature; `optionalFeatures` indisponível → `missingFeatures`; limites de escala pedidos no máximo do adaptador; `requiredLimits` acima do máximo → máximo + `clampedLimits`
 - [ ] T036 [US3] Aplicar `DeviceOptions` em `src/core/gpu/GpuContext.ts` até T035 passar
 - [ ] T037 [US3] `EngineCore.initialize(canvas?, canvasOptions?, device?)` no contrato e em `src/core/gpu/GpuEngineCore.ts`; `requestRecover` e `reconfigureCanvas` reaplicam as `CanvasOptions`/`DeviceOptions` guardadas; teste `src/core/gpu/__tests__/GpuEngineCore.options.test.ts` (recover e resize preservam `alphaMode`/`colorSpace`)
 - [ ] T038 [US3] `ApplicationOptions.device?: DeviceOptions` e getter `app.capabilities` em `src/presentation/app/Application.ts` (repassa a `scene.core.initialize`); `requestNewDevice` usa as opções guardadas; teste em `src/presentation/app/__tests__/Application.device.test.ts`
 - [ ] T039 [US3] Benchmark: `bench/page/main.ts` passa a ler o adaptador do clayflow por `app.capabilities` quando disponível (sem mudar o `profileId`); verificar no navegador que o relatório traz adaptador, features e limites
+- [ ] T040 [P] [US3] Teste `src/core/gpu/__tests__/GpuComputePass.limits.test.ts` (encoder mockado, limite 65 535): `invocations(n, 64)` com `ceil(n/64) ≤ limite` → `dispatchWorkgroups(g, 1, 1)`; acima → `(65 535, ceil(g/65 535), 1)`; `invocations(0, 64)` não despacha nem conta; `workgroups` com qualquer dimensão acima do limite lança `RangeError` com `maxComputeWorkgroupsPerDimension` na mensagem; contador de dispatches incrementa uma vez por despacho
+- [ ] T041 [US3] `invocations(count, workgroupSize)` no contrato `src/core/contracts/passes/Dispatcher.ts` (JSDoc de `contracts/core-c1.md`) e em `src/core/gpu/passes/GpuComputePass.ts` (limite de `device.limits`, repassado por `GpuFrame`), validação em `workgroups`; doubles de passe (`fakeSceneCore.ts`, `renderHarness.ts` e mocks de `dispatch`) ganham `invocations`, até T040 passar
+- [ ] T042 [P] [US3] Teste `src/elements/gpu/__tests__/linearDispatch.test.ts`: varredura estática de `src/elements/gpu/wgsl/kernels/*.wgsl` e `transform_compose.wgsl` — todo kernel com `@workgroup_size(N)`, `N > 1`, que indexa elementos usa `@builtin(num_workgroups)` e `gid.x + gid.y * nwg.x * N` (lista explícita de exceções para kernels de grupo único, ex. `ns_scan_groups`); varredura de `src/elements/**/*.ts` sem `dispatch.workgroups(` com contagem de elementos (só `invocations` ou grupo único `workgroups(1)`)
+- [ ] T043 [US3] Migrar todos os kernels lineares de `src/elements/gpu/wgsl/kernels/` e as 22 chamadas de despacho (`NeighborSearchPipeline.ts`, `LCPFlow.ts`, `XPBDFlow.ts`, `FEMFlow.ts`, `MPMFlow.ts`, `SPHFlow.ts`, `PBFFlow.ts`, `TransformFlow.ts`) para `dispatch.invocations(count, WG)` e índice linear, até T042 passar; ajustar os testes dos Flows que conferem `workgroups`
+- [ ] T044 [P] [US3] Teste `src/elements/gpu/__tests__/NeighborSearchPipeline.scan.test.ts` (core mockado): níveis para 4 096, 65 536, 131 072 e 262 144 células (0/1/2/2 níveis acima do 0 conforme data-model); um buffer de somas e um uniform de contagem por nível, escritos só quando a grade muda; sequência gravada `scan_local` (subida) → `scan_groups` → `scan_combine` (descida) com `invocations` de cada nível; grade redimensionada destrói os buffers de nível antigos; referência CPU do algoritmo (`exclusiveScanByLevels` no teste) igual à soma de prefixos sequencial para 262 144 contagens aleatórias
+- [ ] T045 [US3] Implementar a soma de prefixos em vários níveis em `src/elements/gpu/NeighborSearchPipeline.ts` e em `ns_scan_local.wgsl`/`ns_scan_groups.wgsl`/`ns_scan_combine.wgsl` (contagem do nível por uniform próprio, índice linear), até T044 passar
+- [ ] T046 [US3] Smoke `src/__smokes__/limits.ts`: (a) kernel de teste com `invocations(70 000 × 256, 256)` grava 1 em cada posição de um buffer de `u32` e um contador atômico; leitura de volta confirma todas as posições = 1 e contador = total (SC-010); (b) `NeighborSearchPipeline` com grade 64 × 64 × 64 (262 144 células) e partículas aleatórias: vizinhos lidos de volta iguais aos da força bruta na CPU (SC-011); registrar no `src/__smokes__/README.md`
 
-**Checkpoint**: dispositivo configurável e diagnosticável.
+**Checkpoint**: dispositivo configurável e diagnosticável; despachos e busca de vizinhança sem teto.
 
 ---
 
@@ -120,20 +128,20 @@ passo.
 
 **Independent test**: testes CPU por papel/transição/reuso + smoke `bigMesh.ts`.
 
-- [ ] T040 [P] [US4] Teste `src/scene/__tests__/StructSchema.vertexLayout.test.ts`: `position vec3f, normal vec3f, uv vec2f` → offsets 0/12/24, stride 32, formatos `float32x3/float32x3/float32x2`; tipos não permitidos em vértice lançam
-- [ ] T041 [US4] Implementar `vertexLayout` em `src/scene/descriptors/StructSchema.ts` até T040 passar
-- [ ] T042 [P] [US4] Criar contrato `src/scene/contracts/ResourceDirectory.ts` (`extends PoolDirectory`; `bufferOf`, `textureViewOf`, `samplerOf`; JSDoc "consumo pelos estágios na 006"), reexportar em `src/scene/contracts/index.ts`
-- [ ] T043 [P] [US4] Teste `src/scene/__tests__/ResourceSystem.allocation.test.ts` (core mockado): recurso com `vertex` (`Float32Array`), `index` (`Uint16Array` e `Uint32Array` → `format` correspondente, padding a 4 bytes), `indirect`, `texture` (com `sizeFromCanvas` recriada em resize), `storage-texture`, `sampler`, `staging`, `uniform`, `storage` com `count` 3 (envia os 3 elementos) — todos alocados e localizáveis por `ResourceDirectory`; dois descritores `uniform` no mesmo recurso → dois buffers, ambos destruídos na remoção; mutação de `data.vertices` reenvia no `frameRecording`; crescimento de pool destrói o bind group anterior
-- [ ] T044 [US4] Refatorar `src/scene/systems/ResourceSystem.ts` (`allocations: Map<Resource, Map<descId, Allocation>>`, alocação por papel conforme research R9, `implements ResourceDirectory`, destruição de todas as alocações e do bind group antigo do pool) até T043 passar
-- [ ] T045 [P] [US4] Teste `src/scene/__tests__/ResourceSystem.transitions.test.ts`: toda mudança de estado passa por `transition()`; transição inválida lança com estado atual, destino e schema; envio de recurso `GpuManaged` bloqueado por `suppressCpuUpload()` do handler (não por comparação); aviso de sujo ignorado vem de `ignoreDirtyMark()`; ciclo remover → reinserir: `Destroyed → Uninitialized → Loading → Ready` com nova alocação
-- [ ] T046 [US4] Implementar `transition()` e as regras por handler em `src/scene/systems/ResourceSystem.ts`; `Destroyed → Uninitialized` em `src/scene/lifecycle/states/DestroyedResourceStateHandler.ts`; atualizar `src/scene/__tests__/ResourceStateHandler.test.ts`, até T045 passar
-- [ ] T047 [P] [US4] Teste `src/scene/__tests__/World.reuse.test.ts`: inserir a mesma raiz duas vezes lança (mensagem "crie outra instância"); mesmo recurso em duas raízes lança; mesmo recurso duas vezes na árvore lança; dois `World` não compartilham o mapa recurso → entidade; `remove` seguido de `insert` da mesma raiz funciona; `entityIdOfResource` limpo após `remove`; inverter o caso "insert idempotente" de `src/scene/__tests__/World.test.ts`
-- [ ] T048 [US4] Implementar em `src/scene/world/World.ts` (mapa por instância de World, limpeza no `remove`, verificações no `insert`) até T047 passar; conferir `README.md`, guias e smokes (levantamento: todos criam instância por objeto)
-- [ ] T049 [P] [US4] Teste `src/elements/geometry/__tests__/indexFormat.test.ts`: `SphereGeometry`/`ParametricGeometry` com ≤ 65 535 vértices → `Uint16Array` e `indexFormat 'uint16'`; acima → `Uint32Array`/`'uint32'` com índices corretos; `GltfLoader` com índices `UNSIGNED_BYTE` → `Uint16Array` com os valores certos
-- [ ] T050 [US4] Implementar em `src/elements/geometry/Geometry.ts` (`indexFormat`), `SphereGeometry.ts`, `ParametricGeometry.ts`, `ParametricSurfaceGeometry.ts` e `src/presentation/assets/GltfLoader.ts` até T049 passar; ajustar os `schema` de vértice das geometrias para o `vertexLayout` (stride 32)
-- [ ] T051 [US4] `src/presentation/flows/ForwardFlow.ts` e `ShadowFlow.ts`: `format` e padding do IBO derivados do array (fim de `as Uint16Array` e `'uint16'` fixo); teste em `src/presentation/flows/__tests__/indexFormat.test.ts`
-- [ ] T052 [US4] Benchmark: declarar em `bench/engines/clayflow.ts` a limitação "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)"
-- [ ] T053 [US4] Smoke `src/__smokes__/bigMesh.ts`: `ParametricGeometry` 300 × 300 (90 601 vértices) renderizada; verificar por pixels que a superfície cobre a área esperada (sem triângulos truncados, SC-008); registrar no README dos smokes
+- [ ] T047 [P] [US4] Teste `src/scene/__tests__/StructSchema.vertexLayout.test.ts`: `position vec3f, normal vec3f, uv vec2f` → offsets 0/12/24, stride 32, formatos `float32x3/float32x3/float32x2`; tipos não permitidos em vértice lançam
+- [ ] T048 [US4] Implementar `vertexLayout` em `src/scene/descriptors/StructSchema.ts` até T047 passar
+- [ ] T049 [P] [US4] Criar contrato `src/scene/contracts/ResourceDirectory.ts` (`extends PoolDirectory`; `bufferOf`, `textureViewOf`, `samplerOf`; JSDoc "consumo pelos estágios na 006"), reexportar em `src/scene/contracts/index.ts`
+- [ ] T050 [P] [US4] Teste `src/scene/__tests__/ResourceSystem.allocation.test.ts` (core mockado): recurso com `vertex` (`Float32Array`), `index` (`Uint16Array` e `Uint32Array` → `format` correspondente, padding a 4 bytes), `indirect`, `texture` (com `sizeFromCanvas` recriada em resize), `storage-texture`, `sampler`, `staging`, `uniform`, `storage` com `count` 3 (envia os 3 elementos) — todos alocados e localizáveis por `ResourceDirectory`; dois descritores `uniform` no mesmo recurso → dois buffers, ambos destruídos na remoção; mutação de `data.vertices` reenvia no `frameRecording`; crescimento de pool destrói o bind group anterior
+- [ ] T051 [US4] Refatorar `src/scene/systems/ResourceSystem.ts` (`allocations: Map<Resource, Map<descId, Allocation>>`, alocação por papel conforme research R9, `implements ResourceDirectory`, destruição de todas as alocações e do bind group antigo do pool) até T050 passar
+- [ ] T052 [P] [US4] Teste `src/scene/__tests__/ResourceSystem.transitions.test.ts`: toda mudança de estado passa por `transition()`; transição inválida lança com estado atual, destino e schema; envio de recurso `GpuManaged` bloqueado por `suppressCpuUpload()` do handler (não por comparação); aviso de sujo ignorado vem de `ignoreDirtyMark()`; ciclo remover → reinserir: `Destroyed → Uninitialized → Loading → Ready` com nova alocação
+- [ ] T053 [US4] Implementar `transition()` e as regras por handler em `src/scene/systems/ResourceSystem.ts`; `Destroyed → Uninitialized` em `src/scene/lifecycle/states/DestroyedResourceStateHandler.ts`; atualizar `src/scene/__tests__/ResourceStateHandler.test.ts`, até T052 passar
+- [ ] T054 [P] [US4] Teste `src/scene/__tests__/World.reuse.test.ts`: inserir a mesma raiz duas vezes lança (mensagem "crie outra instância"); mesmo recurso em duas raízes lança; mesmo recurso duas vezes na árvore lança; dois `World` não compartilham o mapa recurso → entidade; `remove` seguido de `insert` da mesma raiz funciona; `entityIdOfResource` limpo após `remove`; inverter o caso "insert idempotente" de `src/scene/__tests__/World.test.ts`
+- [ ] T055 [US4] Implementar em `src/scene/world/World.ts` (mapa por instância de World, limpeza no `remove`, verificações no `insert`) até T054 passar; conferir `README.md`, guias e smokes (levantamento: todos criam instância por objeto)
+- [ ] T056 [P] [US4] Teste `src/elements/geometry/__tests__/indexFormat.test.ts`: `SphereGeometry`/`ParametricGeometry` com ≤ 65 535 vértices → `Uint16Array` e `indexFormat 'uint16'`; acima → `Uint32Array`/`'uint32'` com índices corretos; `GltfLoader` com índices `UNSIGNED_BYTE` → `Uint16Array` com os valores certos
+- [ ] T057 [US4] Implementar em `src/elements/geometry/Geometry.ts` (`indexFormat`), `SphereGeometry.ts`, `ParametricGeometry.ts`, `ParametricSurfaceGeometry.ts` e `src/presentation/assets/GltfLoader.ts` até T056 passar; ajustar os `schema` de vértice das geometrias para o `vertexLayout` (stride 32)
+- [ ] T058 [US4] `src/presentation/flows/ForwardFlow.ts` e `ShadowFlow.ts`: `format` e padding do IBO derivados do array (fim de `as Uint16Array` e `'uint16'` fixo); teste em `src/presentation/flows/__tests__/indexFormat.test.ts`
+- [ ] T059 [US4] Benchmark: declarar em `bench/engines/clayflow.ts` a limitação "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)"
+- [ ] T060 [US4] Smoke `src/__smokes__/bigMesh.ts`: `ParametricGeometry` 300 × 300 (90 601 vértices) renderizada; verificar por pixels que a superfície cobre a área esperada (sem triângulos truncados, SC-008); registrar no README dos smokes
 
 **Checkpoint**: C2 completa e confiável para a 006.
 
@@ -145,17 +153,17 @@ passo.
 
 **Independent test**: smokes sobre o dist + smoke `churn.ts`.
 
-- [ ] T054 [P] [US5] Teste `src/presentation/flows/__tests__/renderables.test.ts`: forward e sombra mantêm o conjunto de renderizáveis por `resourcesChanged` (entidade com `instanceof Geometry` + `instanceof Material` + `Transform`), inclusive geometria de classe nova não listada (subclasse de `Geometry` criada no teste) e classes com nome alterado (simular minificação com `Object.defineProperty(cls, 'name', { value: 'x' })`); remoção tira do conjunto; nenhuma consulta por nome de schema por quadro
-- [ ] T055 [US5] Refatorar `src/presentation/flows/ForwardFlow.ts` e `ShadowFlow.ts` (fim de `isGeometry`/`isMaterial`/`isGeom`, `seenSchemas` e `constructor.name`) até T054 passar; `grep -rn "constructor.name" src` sem ocorrências fora de testes
-- [ ] T056 [P] [US5] Teste `src/presentation/flows/__tests__/removalRelease.test.ts`: remover uma entidade chama `core.destroy` para VBO, IBO, UBOs e bind groups dela no forward e na sombra; o shader compartilhado não é destruído; `LCPFlow` destrói o buffer de donos anterior ao recriar (`src/elements/physics/__tests__/LCPFlow.owners.test.ts`)
-- [ ] T057 [US5] Implementar a liberação em `ForwardFlow.onEntitiesRemoved`, `ShadowFlow.onEntitiesRemoved` e `LCPFlow.ensureBodyOwnersBuffer` até T056 passar
-- [ ] T058 [P] [US5] Teste `src/scene/__tests__/dispose.test.ts`: `FlowRegistry.unregister(flow)` remove o estágio e chama `flow.dispose?.()`; `SceneContext.dispose()` remove as inscrições de `ExecutionSystem`, `ResourceSystem` e dos Flows (contagem de ouvintes do `EventBus` volta a zero); `TransformFlow.dispose` é chamado
-- [ ] T059 [US5] Implementar `FlowRegistry.unregister` (`src/scene/flows/FlowRegistry.ts`), `dispose()` em `ExecutionSystem` e `ResourceSystem`, e `SceneContext.dispose` completo até T058 passar
-- [ ] T060 [P] [US5] Teste `src/presentation/__tests__/listenersRelease.test.ts`: `DebugFlow.dispose` remove `frameTick`, `frameComplete` e `keydown`; `InteractionSystem.detach` remove `frameTick`; `FpsController.dispose` remove `click`; `Application.dispose` numa cena compartilhada desregistra os estágios padrão quando é a última aplicação da cena e não antes, e duas aplicações na mesma cena não duplicam estágios
-- [ ] T061 [US5] Implementar em `src/presentation/flows/DebugFlow.ts`, `src/presentation/flows/defaults.ts` (registro uma vez por cena, contagem de aplicações), `src/presentation/input/InteractionSystem.ts`, `src/presentation/input/controllers/FpsController.ts` e `src/presentation/app/Application.ts` até T060 passar
-- [ ] T062 [US5] Benchmark `--dist`: flag em `bench/core/args.ts` (+ teste em `bench/core/__tests__/args.test.ts`), alias `clayflow` → `dist/index.js` em `bench/vite.config.ts` via variável de ambiente lida pelo `bench/runner/server.ts`; documentar em `clay-engine-doc/docs/guides/benchmark.md`
-- [ ] T063 [US5] Smoke `src/__smokes__/churn.ts`: 100 ciclos de inserir e remover 1 000 objetos com `app.step`; `core.memoryUsage().totalBytes` final = inicial ± 1% e contagem de ouvintes estável (SC-006); registrar no README dos smokes
-- [ ] T064 [US5] Build minificado (SC-007): `npm run build:lib`; `npm run bench -- --dist --quick --scene unique-objects,rigid-bodies --engine clayflow` comparado com a execução sobre o fonte (mesmos draw calls e status); servir os smokes `transforms`, `time`, `bigMesh` e `churn` com o alias do dist pelo servidor do bench e confirmar o mesmo resultado; registrar em `specs/004-core-hardening/tasks.md`
+- [ ] T061 [P] [US5] Teste `src/presentation/flows/__tests__/renderables.test.ts`: forward e sombra mantêm o conjunto de renderizáveis por `resourcesChanged` (entidade com `instanceof Geometry` + `instanceof Material` + `Transform`), inclusive geometria de classe nova não listada (subclasse de `Geometry` criada no teste) e classes com nome alterado (simular minificação com `Object.defineProperty(cls, 'name', { value: 'x' })`); remoção tira do conjunto; nenhuma consulta por nome de schema por quadro
+- [ ] T062 [US5] Refatorar `src/presentation/flows/ForwardFlow.ts` e `ShadowFlow.ts` (fim de `isGeometry`/`isMaterial`/`isGeom`, `seenSchemas` e `constructor.name`) até T061 passar; `grep -rn "constructor.name" src` sem ocorrências fora de testes
+- [ ] T063 [P] [US5] Teste `src/presentation/flows/__tests__/removalRelease.test.ts`: remover uma entidade chama `core.destroy` para VBO, IBO, UBOs e bind groups dela no forward e na sombra; o shader compartilhado não é destruído; `LCPFlow` destrói o buffer de donos anterior ao recriar (`src/elements/physics/__tests__/LCPFlow.owners.test.ts`)
+- [ ] T064 [US5] Implementar a liberação em `ForwardFlow.onEntitiesRemoved`, `ShadowFlow.onEntitiesRemoved` e `LCPFlow.ensureBodyOwnersBuffer` até T063 passar
+- [ ] T065 [P] [US5] Teste `src/scene/__tests__/dispose.test.ts`: `FlowRegistry.unregister(flow)` remove o estágio e chama `flow.dispose?.()`; `SceneContext.dispose()` remove as inscrições de `ExecutionSystem`, `ResourceSystem` e dos Flows (contagem de ouvintes do `EventBus` volta a zero); `TransformFlow.dispose` é chamado
+- [ ] T066 [US5] Implementar `FlowRegistry.unregister` (`src/scene/flows/FlowRegistry.ts`), `dispose()` em `ExecutionSystem` e `ResourceSystem`, e `SceneContext.dispose` completo até T065 passar
+- [ ] T067 [P] [US5] Teste `src/presentation/__tests__/listenersRelease.test.ts`: `DebugFlow.dispose` remove `frameTick`, `frameComplete` e `keydown`; `InteractionSystem.detach` remove `frameTick`; `FpsController.dispose` remove `click`; `Application.dispose` numa cena compartilhada desregistra os estágios padrão quando é a última aplicação da cena e não antes, e duas aplicações na mesma cena não duplicam estágios
+- [ ] T068 [US5] Implementar em `src/presentation/flows/DebugFlow.ts`, `src/presentation/flows/defaults.ts` (registro uma vez por cena, contagem de aplicações), `src/presentation/input/InteractionSystem.ts`, `src/presentation/input/controllers/FpsController.ts` e `src/presentation/app/Application.ts` até T067 passar
+- [ ] T069 [US5] Benchmark `--dist`: flag em `bench/core/args.ts` (+ teste em `bench/core/__tests__/args.test.ts`), alias `clayflow` → `dist/index.js` em `bench/vite.config.ts` via variável de ambiente lida pelo `bench/runner/server.ts`; documentar em `clay-engine-doc/docs/guides/benchmark.md`
+- [ ] T070 [US5] Smoke `src/__smokes__/churn.ts`: 100 ciclos de inserir e remover 1 000 objetos com `app.step`; `core.memoryUsage().totalBytes` final = inicial ± 1% e contagem de ouvintes estável (SC-006); registrar no README dos smokes
+- [ ] T071 [US5] Build minificado (SC-007): `npm run build:lib`; `npm run bench -- --dist --quick --scene unique-objects,rigid-bodies --engine clayflow` comparado com a execução sobre o fonte (mesmos draw calls e status); servir os smokes `transforms`, `time`, `bigMesh`, `churn` e `limits` com o alias do dist pelo servidor do bench e confirmar o mesmo resultado; registrar em `specs/004-core-hardening/tasks.md`
 
 **Checkpoint**: produção igual ao desenvolvimento; sessões longas sem acúmulo.
 
@@ -163,12 +171,12 @@ passo.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T065 [P] Guia de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: `Time` na C2 (motivo: C3 consome), acumulador e parâmetros por passo (A1), posse no store, `capabilities`, alocação por papel e `ResourceDirectory`, `Destroyed → Uninitialized`, reuso proibido por World
-- [ ] T066 [P] `clay-engine-doc/docs/guides/getting_started.md` e `README.md`: `app.time`, `app.step`, `device`/`capabilities`; guia de migração `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`: tabela de mudanças incompatíveis do `quickstart.md`
-- [ ] T067 [P] JSDoc em todos os exports novos/alterados; `npm run doc:coverage` verde; `npm run doc` regenerado
-- [ ] T068 `specs/ROADMAP.md`: §3 atualizado (itens do 004 resolvidos; achados A1/A2 registrados; limites de dispatch 1D e scan de 65 536 células para a F5; `createAsync` sem dedup em voo resolvido); status da F1/004
-- [ ] T069 Desempenho: `npm run bench:check` sem regressão (SC-002) e CPU por quadro de `instances/10k`, `instances/10k-moving`, `unique-objects/1k` ≥ 50% abaixo do baseline (SC-001); registrar números em `specs/004-core-hardening/tasks.md`; se o gate passar e houver melhoria, regravar o baseline (`npm run bench:baseline`) com justificativa no commit
-- [ ] T070 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`; atualizar `Status` de `specs/004-core-hardening/spec.md`
+- [ ] T072 [P] Guia de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: `Time` na C2 (motivo: C3 consome), acumulador e parâmetros por passo (A1), posse no store, `capabilities`, alocação por papel e `ResourceDirectory`, `Destroyed → Uninitialized`, reuso proibido por World
+- [ ] T073 [P] `clay-engine-doc/docs/guides/getting_started.md` e `README.md`: `app.time`, `app.step`, `device`/`capabilities`; guia de migração `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`: tabela de mudanças incompatíveis do `quickstart.md`
+- [ ] T074 [P] JSDoc em todos os exports novos/alterados; `npm run doc:coverage` verde; `npm run doc` regenerado
+- [ ] T075 `specs/ROADMAP.md`: §3 atualizado (itens do 004 resolvidos; achados A1/A2 registrados; limites de despacho 1D e scan de 65 536 células resolvidos (R16/R17); `createAsync` sem dedup em voo resolvido); status da F1/004
+- [ ] T076 Desempenho: `npm run bench:check` sem regressão (SC-002) e CPU por quadro de `instances/10k`, `instances/10k-moving`, `unique-objects/1k` ≥ 50% abaixo do baseline (SC-001); registrar números em `specs/004-core-hardening/tasks.md`; se o gate passar e houver melhoria, regravar o baseline (`npm run bench:baseline`) com justificativa no commit
+- [ ] T077 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`; atualizar `Status` de `specs/004-core-hardening/spec.md`
 
 ---
 
@@ -179,18 +187,21 @@ graph LR
   S[Setup T001] --> F[Foundational T002-T006]
   F --> US1[US1 T007-T016]
   F --> US2[US2 T017-T034]
-  F --> US3[US3 T035-T039]
-  F --> US4[US4 T040-T053]
-  US4 --> US5[US5 T054-T064]
+  F --> US3[US3 T035-T046]
+  US2 --> US3
+  F --> US4[US4 T047-T060]
+  US4 --> US5[US5 T061-T071]
   US2 --> US5
-  US1 --> P[Polish T065-T070]
+  US1 --> P[Polish T072-T077]
   US2 --> P
   US3 --> P
   US5 --> P
 ```
 
-- US1, US2, US3 e US4 dependem só da fase fundacional e podem andar em paralelo (arquivos distintos, exceto
+- US1, US2 e US4 dependem só da fase fundacional e podem andar em paralelo; US3 vem depois da US2 (arquivos distintos, exceto
   `GpuEngineCore.ts`, compartilhado por US1 e US3 — fazer US1 primeiro).
+- A migração dos despachos (T043) e o scan em níveis (T045) mexem nos Flows de física e no
+  `NeighborSearchPipeline`, que a US2 também altera — fazer a US2 antes da US3.
 - US5 depende de US4 (forward/sombra já com formato de índice; `ResourceSystem` refatorado) e de US2 (`app.step` nos
   smokes `churn`/`time`).
 - Dentro de cada fase: teste antes da implementação correspondente.
@@ -201,11 +212,11 @@ graph LR
 # US2 após T023:
 T026 XPBDFlow · T027 FEMFlow · T028 MPMFlow · T029 SPHFlow · T030 PBFFlow
 # US4 em paralelo:
-T040 vertexLayout teste · T042 ResourceDirectory · T047 World.reuse teste · T049 indexFormat teste
+T047 vertexLayout teste · T049 ResourceDirectory · T054 World.reuse teste · T056 indexFormat teste
 ```
 
 ## Implementation Strategy
 
 - Todas as fases são implementadas, na ordem de dependência acima; nenhuma é ponto de parada.
 - Cada história tem seu teste independente; a feature só está pronta com **todas** as tarefas concluídas, o benchmark
-  sem regressão e o gate completo verde (T069–T070).
+  sem regressão e o gate completo verde (T076–T077).

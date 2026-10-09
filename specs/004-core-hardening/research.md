@@ -94,8 +94,48 @@ de FR-025.
 máquinas não são diagnosticáveis (o bench já precisou do adaptador para o `profileId`). O `minUniformBufferOffsetAlignment`
 do relatório é usado por R6.
 
-**Fora**: checar dispatches 1D contra `maxComputeWorkgroupsPerDimension` e o limite de 65 536 células do scan de
-vizinhança são defeitos de Flows específicos (F5) — registrados no ROADMAP, não corrigidos aqui.
+Os limites de despacho e da busca de vizinhança são tratados em R16 e R17 (decisão do usuário, 2026-10-09: corrigir
+na 004, não na F5).
+
+## R16 — Despachos lineares dentro do limite por dimensão (C1)
+
+**Achado**: todos os kernels de C3 sobre sequências (`@workgroup_size(64)`/`(256)`) despacham
+`workgroups(ceil(n / WG))` em 1D e indexam por `gid.x` (22 chamadas em `NeighborSearchPipeline`, Flows de física e
+`TransformFlow`). Acima de `maxComputeWorkgroupsPerDimension` (65 535 por padrão; 4,19 M elementos com WG 64, 16,7 M
+com WG 256) o WebGPU rejeita o despacho com erro de validação que só aparece no console — o quadro segue sem o
+trabalho.
+
+**Decisão**: o contrato C1 `Dispatcher` ganha `invocations(count, workgroupSize)`: a C1, que conhece o limite do
+device, distribui `ceil(count / workgroupSize)` grupos em `x = min(grupos, máx)` e `y = ceil(grupos / x)`.
+`workgroups(x, y, z)` passa a validar cada dimensão contra o limite e lança `RangeError` que nomeia
+`maxComputeWorkgroupsPerDimension`. Os kernels lineares calculam o índice com
+`@builtin(num_workgroups)`: `i = gid.x + gid.y * nwg.x * WG` e mantêm a guarda `i >= n`. Todas as chamadas de C3
+passam para `invocations`.
+
+**Por quê**: o limite é do device (C1); C3 declara só "quantos elementos, com que tamanho de grupo", sem consultar
+limites a cada despacho. A distribuição em 2D cobre até 65 535² grupos — muito acima de qualquer buffer possível.
+
+**Alternativas rejeitadas**: cada Flow calcular o formato 2D (duplicação e consulta de limites em C3); vários
+despachos com offset em uniform (mais passes e escritas por quadro, sujeito a A1); despacho indireto (não resolve o
+teto por dimensão).
+
+## R17 — Soma de prefixos em vários níveis (busca de vizinhança)
+
+**Achado**: `ns_scan_groups` roda num único grupo de 256 e soma no máximo 256 somas de grupo: a grade fica limitada a
+256 × 256 = 65 536 células; acima disso, as células além da 65 536ª recebem `cell_start` errado e os vizinhos se
+corrompem sem erro.
+
+**Decisão**: soma de prefixos hierárquica. Nível 0 = contagens das células; cada nível `l` produz
+`ceil(n_l / 256)` somas de grupo, até um nível com ≤ 256 elementos, escaneado por `ns_scan_groups`; depois
+`ns_scan_combine` desce nível a nível somando o prefixo do grupo. Cada nível tem seu buffer de somas e seu uniform de
+contagem (escritos quando a grade muda, não por quadro — sem conflito com A1). Número de níveis =
+`ceil(log256(células))`, calculado pela grade; despachos por `invocations` (R16).
+
+**Por quê**: é o algoritmo padrão de scan em GPU sem limite de tamanho; os kernels existentes são reutilizados
+(parametrizados por nível), não substituídos.
+
+**Alternativas rejeitadas**: aumentar o grupo do `scan_groups` (limitado por `maxComputeInvocationsPerWorkgroup`, só
+desloca o teto); scan na CPU (readback por quadro); limitar a grade com erro (FR-030 exige funcionar).
 
 ## R5 — `Time` na C2, fonte única e acumulador
 
@@ -226,6 +266,8 @@ a ser mantido **por eventos** (`resourcesChanged` added/removed), não por consu
 - **CPU (Vitest)**: hash memorizado/composto/funções; congelamento; posse no store; `Time.advance` (acumulador, limite,
   pausa, escala, `droppedTime`); `step()` ≡ laço; offsets por passo; alocação por papel; transições; reuso; índices;
   renderizáveis por eventos; liberação na remoção; ouvintes no descarte.
+- **Limites**: smoke `limits.ts` (despacho > 65 535 grupos com leitura de volta, SC-010; busca de vizinhança com
+  262 144 células contra força bruta, SC-011).
 - **Navegador**: smoke `time.ts` (trajetória a 30/60/144 Hz por `step()`, SC-003/SC-005); smoke de malha de 90 000
   vértices; smoke de ciclos insere/remove com `memoryUsage()` (SC-006).
 - **Build minificado** (SC-007): o bench ganha `--dist` (alias `clayflow` → `dist/index.js`) e os smokes rodam sobre o
