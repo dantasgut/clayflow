@@ -89,14 +89,13 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Clear file paths for each task
    - Dependencies section showing story completion order
    - Parallel execution examples per story
-   - Implementation strategy section (MVP first, incremental delivery)
+   - Implementation strategy section (complete delivery of all phases in dependency order — no partial scope)
 
 5. **Report**: Output path to generated tasks.md and summary:
    - Total task count
    - Task count per user story
    - Parallel opportunities identified
    - Independent test criteria for each story
-   - Suggested MVP scope (typically just User Story 1)
    - Format validation: Confirm ALL tasks follow the checklist format (checkbox, ID, labels, file paths)
 
 6. **Check for extension hooks**: After tasks.md is generated, check if `.specify/extensions.yml` exists in the project root.

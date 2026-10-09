@@ -194,7 +194,7 @@ mensagem cita a regra ("crie outra instância"). O teste de idempotência (`Worl
 após `remove` é permitida (R10).
 
 `Application` com cena compartilhada: usa o `Time` do World (R5); registra os Flows padrão **uma vez por cena** e, no
-`dispose`, desfaz o que registrou (`FlowRegistry.unregister` mínimo, que a 006 generaliza).
+`dispose`, desfaz o que registrou (`FlowRegistry.unregister`: remove o estágio, desfaz suas inscrições e chama `dispose`).
 
 ## R12 — Índices `uint32`
 

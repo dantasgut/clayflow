@@ -51,7 +51,7 @@ quickstart.md
 
 ---
 
-## Phase 3: User Story 1 — Posicionar objetos por posição, rotação e escala (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — Posicionar objetos por posição, rotação e escala (Priority: P1)
 
 **Goal**: objetos aparecem onde `position`/`rotation`/`scale` indicam, com sombra e iluminação coerentes (Acceptance
 1–4; FR-006–FR-013).
@@ -75,7 +75,7 @@ projetados com tolerância de 1 px; exemplos do README posicionam corretamente.
 - [x] T029 [US1] Smoke `src/__smokes__/transforms.ts` (padrão dos smokes existentes, prefixo `[transforms]`, `TRANSFORMS SMOKE PASSED`/`FAIL:`): cena com câmera fixa, luz com sombra e 6 cubos de cores distintas com posições, rotações e escalas variadas (inclui não uniforme e negativa); após 3 quadros, (1) copia o pool `WorldTransform` para staging e compara com um oráculo `T·R·S`/`R·S⁻¹` calculado no próprio smoke (tolerância 1e-5); (2) lê o alvo offscreen do forward e confere a cor esperada nos centros projetados de cada cubo (tolerância 1 px); registrar no `src/__smokes__/README.md`
 - [x] T030 [US1] Rodar o smoke `transforms.ts` no Chrome (Vite dev server reiniciado) e os exemplos do README (cubo girando; chão em `y = -0.5`) confirmando o posicionamento; anotar resultado no PR
 
-**Checkpoint**: motor posiciona objetos — MVP.
+**Checkpoint**: motor posiciona objetos.
 
 ---
 
@@ -178,10 +178,10 @@ Task: "T009 ExecutionSystem.frameRecording.test.ts"
 
 ## Implementation Strategy
 
-- **MVP = Setup + Foundational + US1** (T001–T030): o motor posiciona objetos por posição/rotação/escala, com estágio em
+- **Setup + Foundational + US1** (T001–T030): o motor posiciona objetos por posição/rotação/escala, com estágio em
   GPU e consumo por slot.
 - **Incremento 2 = US2** (T031–T034) e **Incremento 3 = US3** (T035–T040), em paralelo se conveniente.
 - **Conclusão = Polish** (T041–T047). Pela regra de completude do projeto, a feature só está pronta com **todas** as
-  tarefas concluídas, smokes passando e gate verde — o MVP é ordem de execução, não ponto de parada.
+  tarefas concluídas, smokes passando e gate verde.
 - Depois do merge desta spec em `develop`, a spec 002 (harness) é retomada sobre ela.
 - Commits pequenos por tarefa/grupo (português, conventional), PR para `develop` ao final.

@@ -24,7 +24,12 @@ quickstart.md
 
 ## Phase 1: Setup
 
-- [ ] T001 Rodar `npm test`, `npx tsc --noEmit` e `npm run bench:check -- --from bench/results/latest.json` (ou registrar que não há `latest.json` local) para registrar a linha de base verde da branch; anotar em `specs/004-core-hardening/tasks.md` (nota abaixo do checkpoint) a CPU por quadro do baseline em `instances/10k`, `instances/10k-moving` e `unique-objects/1k` lida de `bench/baselines/apple-metal-3-chrome154-macos-1280x720-syhprh.json`
+- [x] T001 Rodar `npm test`, `npx tsc --noEmit` e `npm run bench:check -- --from bench/results/latest.json` (ou registrar que não há `latest.json` local) para registrar a linha de base verde da branch; anotar em `specs/004-core-hardening/tasks.md` (nota abaixo do checkpoint) a CPU por quadro do baseline em `instances/10k`, `instances/10k-moving` e `unique-objects/1k` lida de `bench/baselines/apple-metal-3-chrome154-macos-1280x720-syhprh.json`
+
+> **Linha de base (T001, 2026-10-09)**: `tsc` ✅, `npm test` 347/347 ✅, `bench:check --from latest.json` PASSOU.
+> CPU por quadro do baseline (`apple-metal-3-chrome154-macos-1280x720-syhprh`, commit 6e19aef): `instances/10k` 2714,9 ms ·
+> `instances/10k-moving` 2961,8 ms · `unique-objects/1k` 267,9 ms. Meta SC-001 (≥ 50% abaixo): ≤ 1357,5 · ≤ 1480,9 ·
+> ≤ 134,0 ms.
 
 ---
 
@@ -42,7 +47,7 @@ quickstart.md
 
 ---
 
-## Phase 3: User Story 1 — Identidade de recursos estável e barata (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — Identidade de recursos estável e barata (Priority: P1)
 
 **Goal**: identidade calculada uma vez por spec, composta, specs imutáveis, posse no store (FR-001–FR-006).
 
@@ -57,7 +62,7 @@ quickstart.md
 - [ ] T013 [P] [US1] Teste `src/core/gpu/__tests__/GpuEngineCore.identity.test.ts` (device mockado): `create`/`createAsync` congelam a spec (mutação lança), devolvem o mesmo objeto, deduplicam por conteúdo e registram posse; `destroy` respeita posse; `createAsync` concorrente da mesma spec compila uma vez
 - [ ] T014 [US1] Atualizar `src/core/gpu/GpuEngineCore.ts` (`create`, `createAsync` com promessa em voo por hash, `destroy`) e o JSDoc de `create`/`destroy` em `src/core/contracts/EngineCore.ts` (texto de `contracts/core-c1.md`) até T013 passar
 - [ ] T015 [US1] Rodar `npx tsc --noEmit && npm test`; corrigir qualquer teste ou código que mute spec após `create` (levantamento: nenhum em `src/`; conferir `createComputeKernel.ts:95`, `GpuEngineCore.ts:287-334` — `kernel.layouts` congelado)
-- [ ] T016 [US1] Medir: `npm run bench -- --scene instances,unique-objects --engine clayflow` e registrar em `specs/004-core-hardening/tasks.md` (nota do checkpoint) a CPU por quadro contra o baseline (parcial de SC-001)
+- [ ] T016 [US1] Medir: `npm run bench -- --scene instances,unique-objects --engine clayflow` e registrar em `specs/004-core-hardening/tasks.md` (nota do checkpoint) a CPU por quadro contra o baseline (medição intermediária; SC-001 é verificado em T069)
 
 **Checkpoint**: identidade barata e imutável; ganho medido.
 
@@ -201,6 +206,6 @@ T040 vertexLayout teste · T042 ResourceDirectory · T047 World.reuse teste · T
 
 ## Implementation Strategy
 
-- **MVP** = Foundational + US1: maior ganho medido (CPU por quadro) com risco baixo.
-- Entrega incremental por história, cada uma com seu teste independente; pela regra de completude do projeto, a
-  feature só está pronta com **todas** as fases, o benchmark sem regressão e o gate completo verde (T069–T070).
+- Todas as fases são implementadas, na ordem de dependência acima; nenhuma é ponto de parada.
+- Cada história tem seu teste independente; a feature só está pronta com **todas** as tarefas concluídas, o benchmark
+  sem regressão e o gate completo verde (T069–T070).

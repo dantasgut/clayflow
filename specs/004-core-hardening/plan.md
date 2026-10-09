@@ -71,7 +71,7 @@ _GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 **Re-check pós-design (Fase 1)**: ✅ — os contratos ([core-c1.md](./contracts/core-c1.md), [time.md](./contracts/time.md),
 [resources-c2.md](./contracts/resources-c2.md)) mantêm C1 como única fronteira com o hardware e o `ResourceSystem` como
-único dono de dado declarado; a única sobreposição com a 006 (`FlowRegistry.unregister` mínimo) é exigida pela correção
+único dono de dado declarado; a única sobreposição com a 006 (`FlowRegistry.unregister`) é exigida pela correção
 de vazamentos e será generalizada lá.
 
 ## Project Structure
@@ -113,7 +113,7 @@ src/
 │   ├── lifecycle/states/DestroyedResourceStateHandler.ts # → Uninitialized
 │   ├── systems/ResourceSystem.ts            # alocação por papel/descritor, transition(), handler rules, dispose()
 │   ├── systems/ExecutionSystem.ts           # dispose()
-│   ├── flows/FlowRegistry.ts                # unregister(flow) mínimo
+│   ├── flows/FlowRegistry.ts                # unregister(flow): remove o estágio, desfaz inscrições, dispose
 │   ├── world/World.ts                       # reuso proibido; mapa por World
 │   ├── SceneContext.ts                      # cria Time; dispose completo
 │   └── __tests__/                           # Time, allocation, transitions, reuse, directory, dispose
@@ -147,10 +147,9 @@ dispositivo em C1, tempo e recursos em C2, consumo de tempo nos Flows de C3, apr
 
 1. **Fundacional C1** — `deepFreeze`, `specHash` memorizado/composto, posse no store, contrato `create`/`destroy`;
    ajuste de chamadores se algum mutar spec (levantamento: nenhum). Bloqueia a medição.
-2. **US1 (P1) — identidade barata** — testes, smoke/bench das cenas-alvo; registrar o ganho parcial.
+2. **US1 (P1) — identidade barata** — testes, smoke/bench das cenas-alvo; registrar a medição.
 3. **US2 (P1) — tempo** — `Time` na C2 (um por World), eventos, `advance`, `step()`/`GameLoop`; `PerStepUniforms` com
-   offset dinâmico (usa `capabilities().limits.minUniformBufferOffsetAlignment` → depende do item de dispositivo
-   mínimo: guardar o adapter/limites); migrar os 6 Flows; bench com `app.step(1/60)`; smoke `time.ts`.
+   offset dinâmico (usa `capabilities().limits.minUniformBufferOffsetAlignment`, entregue pela fase fundacional); migrar os 6 Flows; bench com `app.step(1/60)`; smoke `time.ts`.
 4. **US3 (P2) — dispositivo** — `DeviceOptions`, limites, `capabilities()`, `app.capabilities`, opções preservadas.
 5. **US4 (P2) — recursos** — alocação por papel e `ResourceDirectory`, `vertexLayout`, transições validadas, regras de
    handler, reuso proibido (World por instância), reinserção, `Application` em cena compartilhada, índices `uint32`;

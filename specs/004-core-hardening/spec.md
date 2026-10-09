@@ -318,8 +318,8 @@ verificar que a memória de GPU e o número de ouvintes voltam ao patamar inicia
 
 - O baseline da F0 (`bench/baselines/`) na máquina de referência é a referência de desempenho; a medição segue o
   protocolo da spec 002 sem alterações.
-- O ganho de SC-001 vem só da correção da identidade e de seus efeitos; a estrutura de alocação por entidade do
-  desenho permanece até a 006, então o ganho esperado aqui é parcial e a meta foi fixada de acordo.
+- SC-001 mede o efeito da correção da identidade; o custo da alocação por entidade do desenho é corrigido pela 006,
+  que tem critério de desempenho próprio. A meta de 50% foi fixada para o que esta feature corrige.
 - O limite de passos por quadro segue a prática comum de motores (ex.: no máximo 0,25 s de tempo simulado compensado
   por quadro); o valor exato fica no plano e é configurável.
 - O determinismo exigido em SC-003/SC-005 vale para a mesma máquina e o mesmo navegador; igualdade entre GPUs
