@@ -107,6 +107,16 @@ export interface EngineAdapter<THandle> {
         readonly gpuTiming: boolean;
         readonly memory: 'exact' | 'estimated';
     };
+    /**
+     * Ambiente relatado pela própria engine depois de `init` (adaptador e device que ela obteve). Substitui o
+     * que a página leu por `navigator.gpu` — mesmo adaptador, então o `profileId` não muda.
+     */
+    environment?(handle: THandle): Pick<
+        PageEnvironment,
+        'gpu' | 'timestampQuery' | 'isFallbackAdapter'
+    > & {
+        readonly device: DeviceReport;
+    };
     /** Executa um quadro (update da cena + render) e devolve a amostra. */
     frame(handle: THandle, scene: SceneImplementation<THandle>, dtSeconds: number): FrameSample;
     memoryBytes(handle: THandle): number;
@@ -139,6 +149,8 @@ export interface EnvironmentProfile {
     readonly versions: { clayflow: string; three: string; rapier: string };
     readonly commit: string;
     readonly date: string;
+    /** Device obtido pelo clayflow (features e limites efetivos), quando relatado. */
+    readonly device?: DeviceReport;
 }
 
 export interface Metrics {
@@ -250,6 +262,16 @@ export interface RepetitionSamples {
     readonly memoryKind: 'exact' | 'estimated';
 }
 
+/** Capacidades do device que a engine obteve (o clayflow as relata por `app.capabilities`). */
+export interface DeviceReport {
+    /** Preferência de potência pedida (`'default'` quando não informada). */
+    readonly powerPreference: string;
+    /** Features habilitadas no device. */
+    readonly features: readonly string[];
+    /** Limites efetivos do device (nome → valor). */
+    readonly limits: Readonly<Record<string, number>>;
+}
+
 /** Ambiente visto pela página (vira parte do `EnvironmentProfile`). */
 export interface PageEnvironment {
     readonly gpu: { vendor: string; architecture: string; device: string; description: string };
@@ -258,6 +280,8 @@ export interface PageEnvironment {
     readonly timestampQuery: boolean;
     /** Adaptador de software (SwiftShader) — números não representativos. */
     readonly isFallbackAdapter: boolean;
+    /** Device obtido pela engine medida, quando ela o relata (clayflow). Não entra no `profileId`. */
+    readonly device?: DeviceReport;
 }
 
 /** Resultado publicado pela página em `window.__benchResult`. */

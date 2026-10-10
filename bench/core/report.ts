@@ -123,6 +123,11 @@ export function toMarkdown(run: RunFile): string {
         `- **GPU**: ${[p.gpu.vendor, p.gpu.device || p.gpu.architecture, p.gpu.description].filter(Boolean).join(' · ')}`,
         `- **Navegador**: ${p.browser.name} ${p.browser.version} · **SO**: ${p.os} · **Resolução**: ${p.resolution.width}×${p.resolution.height} (DPR ${p.devicePixelRatio})`,
         `- **Timestamps de GPU**: ${p.timestampQuery ? 'sim' : 'não'} · **Versões**: clayflow ${p.versions.clayflow}, three ${p.versions.three}, rapier ${p.versions.rapier}`,
+        ...(p.device !== undefined
+            ? [
+                  `- **Device do clayflow**: potência ${p.device.powerPreference} · features ${p.device.features.length > 0 ? p.device.features.join(', ') : 'nenhuma'} · maxBufferSize ${p.device.limits.maxBufferSize ?? 'n/d'}, maxStorageBufferBindingSize ${p.device.limits.maxStorageBufferBindingSize ?? 'n/d'}, maxComputeWorkgroupsPerDimension ${p.device.limits.maxComputeWorkgroupsPerDimension ?? 'n/d'}`,
+              ]
+            : []),
         `- **Commit**: ${p.commit} · **Data**: ${p.date} · **Perfil**: \`${p.profileId}\``,
         `- **Protocolo**: aquecimento ${run.config.warmupMs} ms, janela ${run.config.windowMs} ms, ${run.config.repetitions} repetição(ões)${run.config.quick ? ' (modo rápido)' : ''}`,
         '',

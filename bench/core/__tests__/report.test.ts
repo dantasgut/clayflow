@@ -169,3 +169,28 @@ describe('custo efetivo', () => {
         expect(verdict(slow, fast)).toBe('clayflow mais lento (2.00×)');
     });
 });
+
+describe('toMarkdown — device do clayflow', () => {
+    it('mostra potência, features e limites quando o perfil traz o device', () => {
+        const file = runFile([]);
+        const md = toMarkdown({
+            ...file,
+            profile: {
+                ...file.profile,
+                device: {
+                    powerPreference: 'high-performance',
+                    features: ['timestamp-query'],
+                    limits: { maxBufferSize: 4096, maxStorageBufferBindingSize: 2048 },
+                },
+            },
+        });
+        expect(md).toContain(
+            '**Device do clayflow**: potência high-performance · features timestamp-query',
+        );
+        expect(md).toContain('maxBufferSize 4096, maxStorageBufferBindingSize 2048');
+    });
+
+    it('sem device no perfil, a linha não aparece', () => {
+        expect(toMarkdown(runFile([]))).not.toContain('Device do clayflow');
+    });
+});

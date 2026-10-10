@@ -84,14 +84,14 @@ async function run(): Promise<void> {
         publish({ status: 'failed', reason: 'WebGPU indisponível neste navegador' });
         return;
     }
-    const env = await environment();
+    const pageEnv = await environment();
     const scene = findScene(sceneId);
     const variant = scene?.variants.find((v) => v.id === variantId);
     if (scene === undefined || variant === undefined) {
         publish({
             status: 'failed',
             reason: `cena/variante desconhecida: ${sceneId}/${variantId}`,
-            environment: env,
+            environment: pageEnv,
         });
         return;
     }
@@ -100,7 +100,7 @@ async function run(): Promise<void> {
         publish({
             status: 'failed',
             reason: `não suportado: ${loader.unsupported}`,
-            environment: env,
+            environment: pageEnv,
         });
         return;
     }
@@ -109,6 +109,9 @@ async function run(): Promise<void> {
     const adapter = await loadAdapter(engine, profiling);
     const impl = await loader();
     const handle = await adapter.init(canvas, RESOLUTION, scene.camera);
+    // A engine que relata o próprio device (clayflow: `app.capabilities`) substitui a leitura da página.
+    const reported = adapter.environment?.(handle);
+    const env: PageEnvironment = reported !== undefined ? { ...pageEnv, ...reported } : pageEnv;
     await impl.setup({ engine: handle, variant, rng: mulberry32(seed), camera: scene.camera });
 
     const sampler = new FrameSampler({

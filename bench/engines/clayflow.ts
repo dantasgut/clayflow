@@ -132,6 +132,25 @@ export function createClayflowAdapter(options: {
             });
             return handle;
         },
+        environment(handle) {
+            const caps = handle.app.capabilities;
+            return {
+                gpu: {
+                    vendor: caps.adapter.vendor,
+                    architecture: caps.adapter.architecture,
+                    device: caps.adapter.device,
+                    description: caps.adapter.description,
+                },
+                timestampQuery: caps.features.includes('timestamp-query'),
+                isFallbackAdapter:
+                    caps.adapter.isFallbackAdapter || /swiftshader/i.test(caps.adapter.description),
+                device: {
+                    powerPreference: caps.powerPreference,
+                    features: caps.features,
+                    limits: caps.limits,
+                },
+            };
+        },
         capabilities(handle) {
             return {
                 gpuTiming: handle.last?.stats.gpuTimeMs !== undefined,

@@ -102,5 +102,6 @@ export function buildProfile(input: ProfileInput): EnvironmentProfile {
         versions: { ...input.versions },
         commit: input.commit,
         date: input.date,
+        ...(input.environment.device !== undefined ? { device: input.environment.device } : {}),
     };
 }
