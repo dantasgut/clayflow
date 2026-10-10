@@ -62,7 +62,7 @@ quickstart.md
 - [x] T013 [P] [US1] Teste `src/core/gpu/__tests__/GpuEngineCore.identity.test.ts` (device mockado): `create`/`createAsync` congelam a spec (mutação lança), devolvem o mesmo objeto, deduplicam por conteúdo e registram posse; `destroy` respeita posse; `createAsync` concorrente da mesma spec compila uma vez
 - [x] T014 [US1] Atualizar `src/core/gpu/GpuEngineCore.ts` (`create`, `createAsync` com promessa em voo por hash, `destroy`) e o JSDoc de `create`/`destroy` em `src/core/contracts/EngineCore.ts` (texto de `contracts/core-c1.md`) até T013 passar
 - [x] T015 [US1] Rodar `npx tsc --noEmit && npm test`; corrigir qualquer teste ou código que mute spec após `create` (levantamento: nenhum em `src/`; conferir `createComputeKernel.ts:95`, `GpuEngineCore.ts:287-334` — `kernel.layouts` congelado)
-- [x] T016 [US1] Medir: `npm run bench -- --scene instances,unique-objects --engine clayflow` e registrar em `specs/004-core-hardening/tasks.md` (nota do checkpoint) a CPU por quadro contra o baseline (medição intermediária; SC-001 é verificado em T076)
+- [x] T016 [US1] Medir: `npm run bench -- --scene instances,unique-objects --engine clayflow` e registrar em `specs/004-core-hardening/tasks.md` (nota do checkpoint) a CPU por quadro contra o baseline (medição intermediária; SC-001 é verificado em T085)
 
 **Checkpoint**: identidade barata e imutável; ganho medido.
 
@@ -200,14 +200,36 @@ limites do device (FR-014–FR-017, FR-029, FR-030).
 
 ---
 
+## Phase 7b: Ritmo de quadros e contatos do LCP (FR-031, FR-032)
+
+**Goal**: o motor não acumula quadros na GPU sem limite; o LCP armazena e resolve só contatos ativos dentro dos limites
+do device (research R18/R19).
+
+**Independent test**: testes CPU de quadros em voo, ritmo do laço e contatos compactados + smoke `rigidContacts.ts` +
+bench `rigid-bodies`.
+
+- [ ] T072 [P] Teste `src/core/gpu/__tests__/GpuEngineCore.framesInFlight.test.ts` (device mockado com `onSubmittedWorkDone` controlável): `submit` incrementa, a conclusão decrementa, ordem de conclusão arbitrária, device perdido/`shutdown` zera; antes de qualquer submit = 0
+- [ ] T073 Implementar `framesInFlight()` no contrato `src/core/contracts/EngineCore.ts` e em `src/core/gpu/GpuEngineCore.ts`; doubles de `EngineCore` ganham `framesInFlight` até T072 passar
+- [ ] T074 [P] Teste `src/presentation/app/__tests__/Application.pacing.test.ts`: com `framesInFlight() ≥ maxFramesInFlight` o tick do `GameLoop` não avança nem emite `frameTick` e não move a marca de tempo (o próximo `realDt` inclui a espera); com espaço avança; `maxFramesInFlight` inválido lança; `app.readyForFrame()` reflete o limite; `app.step()` avança mesmo sem espaço
+- [ ] T075 Implementar o ritmo em `src/presentation/app/GameLoop.ts` e `ApplicationOptions.maxFramesInFlight`/`readyForFrame()` em `src/presentation/app/Application.ts` até T074 passar
+- [ ] T076 Benchmark: `bench/page/sampler.ts` aceita tick sem trabalho (amostra nula não conta nem fecha intervalo — teste em `bench/core/__tests__/sampler.test.ts`); `bench/engines/clayflow.ts` só avança quando `app.readyForFrame()`; documentar no guia do benchmark
+- [ ] T077 [P] Teste `src/elements/physics/__tests__/LCPFlow.contacts.test.ts` (core mockado): capacidade `C` = `min(N·M, N × maxContactsPerBody, limite de binding / 80)` e buffers de contatos/bias/hash dimensionados por ela (não por N·M); contador zerado por `frame.clear` antes da narrowphase de cada substep; passe `rb_contact_accumulate` antes de cada commit com `body_contact` zerado; `contact_stamp` crescente por região de substep; excedente lido de volta gera aviso único
+- [ ] T078 Implementar a compactação: `rb_contact.wgsl`/`rb_sim_params.wgsl` (`contact_stamp`), structs de contador e hash, `rb_narrowphase.wgsl` (append atômico + leitura do warm start), `rb_build_lcp.wgsl` e `rb_solve_lcp.wgsl` (só contatos ativos; o solver grava o warm start), novo `rb_contact_accumulate.wgsl`, `rb_lcp_commit.wgsl` (lê `body_contact`) e `src/elements/physics/flows/LCPFlow.ts` (opção `maxContactsPerBody`), até T077 passar
+- [ ] T079 Smoke `src/__smokes__/rigidContacts.ts`: pilhas de esferas e caixas sobre o chão com 1 000 e com 10 000 corpos; após 6 s simulados todos repousam sobre o chão (penetração ≤ folga + 1 cm, velocidade ≈ 0), sem excedente de contatos; registrar tempo de GPU por quadro; registrar no README dos smokes (SC-013)
+- [ ] T080 Bench `npm run bench -- --scene rigid-bodies --engine clayflow`: intervalo de quadro (média/p95/p99) abaixo do baseline e sem travamentos; memória de 10k em MB (SC-012); registrar em `specs/004-core-hardening/tasks.md`
+
+**Checkpoint**: GPU não acumula quadros; física rígida dentro dos limites e em tempo de quadro.
+
+---
+
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [x] T072 [P] Guia de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: `Time` na C2 (motivo: C3 consome), acumulador e parâmetros por passo (A1), posse no store, `capabilities`, alocação por papel e `ResourceDirectory`, `Destroyed → Uninitialized`, reuso proibido por World
-- [x] T073 [P] `clay-engine-doc/docs/guides/getting_started.md` e `README.md`: `app.time`, `app.step`, `device`/`capabilities`; guia de migração `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`: tabela de mudanças incompatíveis do `quickstart.md`
-- [x] T074 [P] JSDoc em todos os exports novos/alterados; `npm run doc:coverage` verde; `npm run doc` regenerado
-- [ ] T075 `specs/ROADMAP.md`: §3 atualizado (itens do 004 resolvidos; achados A1/A2 registrados; limites de despacho 1D e scan de 65 536 células resolvidos (R16/R17); `createAsync` sem dedup em voo resolvido); status da F1/004
-- [ ] T076 Desempenho: `npm run bench:check` sem regressão (SC-002) e CPU por quadro de `instances/10k`, `instances/10k-moving`, `unique-objects/1k` ≥ 50% abaixo do baseline (SC-001); registrar números em `specs/004-core-hardening/tasks.md`; se o gate passar e houver melhoria, regravar o baseline (`npm run bench:baseline`) com justificativa no commit
-- [ ] T077 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`; atualizar `Status` de `specs/004-core-hardening/spec.md`
+- [x] T081 [P] Guia de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: `Time` na C2 (motivo: C3 consome), acumulador e parâmetros por passo (A1), posse no store, `capabilities`, alocação por papel e `ResourceDirectory`, `Destroyed → Uninitialized`, reuso proibido por World
+- [x] T082 [P] `clay-engine-doc/docs/guides/getting_started.md` e `README.md`: `app.time`, `app.step`, `device`/`capabilities`; guia de migração `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`: tabela de mudanças incompatíveis do `quickstart.md`
+- [x] T083 [P] JSDoc em todos os exports novos/alterados; `npm run doc:coverage` verde; `npm run doc` regenerado
+- [ ] T084 `specs/ROADMAP.md`: §3 atualizado (itens do 004 resolvidos; achados A1/A2 registrados; limites de despacho 1D e scan de 65 536 células resolvidos (R16/R17); `createAsync` sem dedup em voo resolvido); status da F1/004
+- [ ] T085 Desempenho: `npm run bench:check` sem regressão (SC-002) e CPU por quadro de `instances/10k`, `instances/10k-moving`, `unique-objects/1k` ≥ 50% abaixo do baseline (SC-001); registrar números em `specs/004-core-hardening/tasks.md`; se o gate passar e houver melhoria, regravar o baseline (`npm run bench:baseline`) com justificativa no commit
+- [ ] T086 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`; atualizar `Status` de `specs/004-core-hardening/spec.md`
 
 ---
 
@@ -223,7 +245,9 @@ graph LR
   F --> US4[US4 T047-T060]
   US4 --> US5[US5 T061-T071]
   US2 --> US5
-  US1 --> P[Polish T072-T077]
+  US5 --> R[Ritmo e contatos T072-T080]
+  R --> P
+  US1 --> P[Polish T081-T086]
   US2 --> P
   US3 --> P
   US5 --> P
@@ -233,6 +257,8 @@ graph LR
   `GpuEngineCore.ts`, compartilhado por US1 e US3 — fazer US1 primeiro).
 - A migração dos despachos (T043) e o scan em níveis (T045) mexem nos Flows de física e no
   `NeighborSearchPipeline`, que a US2 também altera — fazer a US2 antes da US3.
+- A fase 7b (ritmo de quadros e contatos do LCP) vem depois da US5 e antes do polimento: nasceu da medição da T085
+  (bench) e mexe no `GpuEngineCore`, no laço e no `LCPFlow`.
 - US5 depende de US4 (forward/sombra já com formato de índice; `ResourceSystem` refatorado) e de US2 (`app.step` nos
   smokes `churn`/`time`).
 - Dentro de cada fase: teste antes da implementação correspondente.
@@ -250,4 +276,4 @@ T047 vertexLayout teste · T049 ResourceDirectory · T054 World.reuse teste · T
 
 - Todas as fases são implementadas, na ordem de dependência acima; nenhuma é ponto de parada.
 - Cada história tem seu teste independente; a feature só está pronta com **todas** as tarefas concluídas, o benchmark
-  sem regressão e o gate completo verde (T076–T077).
+  sem regressão e o gate completo verde (T085–T086).

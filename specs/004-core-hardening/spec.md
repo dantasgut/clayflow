@@ -263,6 +263,12 @@ verificar que a memória de GPU e o número de ouvintes voltam ao patamar inicia
   despacho; um despacho que exceda os limites do dispositivo DEVE ser recusado com erro que nomeia o limite.
 - **FR-030**: A busca de vizinhança DEVE funcionar para grades com qualquer número de células que caiba na memória do
   dispositivo (sem o teto atual de 65 536 células).
+- **FR-031**: O motor NÃO DEVE acumular quadros na GPU sem limite: com o laço rodando, um quadro novo só é gravado
+  quando há menos quadros em execução na GPU que o limite configurado (padrão 2); o tempo continua correndo enquanto
+  espera (o passo fixo compensa até o teto). O avanço explícito não espera. O benchmark segue o mesmo ritmo.
+- **FR-032**: A física de corpos rígidos DEVE armazenar e resolver apenas os contatos ativos, com capacidade limitada
+  (contatos por corpo, configurável) e dentro dos limites do dispositivo, preservando o aproveitamento dos impulsos do
+  passo anterior; contatos acima da capacidade DEVEM ser contados e avisados.
 
 **Sistema de recursos (C2)**
 
@@ -330,6 +336,11 @@ verificar que a memória de GPU e o número de ouvintes voltam ao patamar inicia
   elemento exatamente uma vez, verificado por leitura de volta.
 - **SC-011**: Com uma grade de 262 144 células, a busca de vizinhança devolve, para cada partícula, o mesmo conjunto de
   vizinhos de uma busca de referência por força bruta.
+- **SC-012**: Em `rigid-bodies/1k` e `rigid-bodies/10k`, o intervalo de quadro (média, p95 e p99) fica abaixo do
+  baseline da F0, sem travamentos de segundos; a memória de contatos cresce com o número de corpos (10k: dezenas de MB,
+  não GB).
+- **SC-013**: Corpos rígidos empilhados e caindo sobre o chão — com 1 000 e com 10 000 corpos — repousam sobre ele sem
+  atravessá-lo (penetração ≤ folga + 1 cm) e sem explodir (velocidade final ≈ 0).
 
 ## Assumptions
 

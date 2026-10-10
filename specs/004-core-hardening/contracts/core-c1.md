@@ -35,6 +35,15 @@ initialize(canvas?: HTMLCanvasElement, canvasOptions?: CanvasOptions, device?: D
   registrado em `capabilities().clampedLimits`.
 - `requestRecover` e reconfiguração do canvas reaplicam as mesmas `CanvasOptions` e `DeviceOptions`.
 
+## `EngineCore.framesInFlight`
+
+```ts
+/** Quadros submetidos cuja execução na GPU ainda não terminou (queue.onSubmittedWorkDone). */
+framesInFlight(): number;
+```
+
+C4: `ApplicationOptions.maxFramesInFlight` (padrão 2), `app.readyForFrame()`; o `GameLoop` só grava quadro com espaço.
+
 ## `EngineCore.canvasSize`
 
 ```ts

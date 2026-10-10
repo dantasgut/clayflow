@@ -65,6 +65,27 @@ Limites que o motor eleva ao máximo do adaptador: `maxBufferSize`, `maxStorageB
 | scan — buffers   | um buffer de somas e um uniform de contagem por nível; recriados quando a grade muda           |
 | scan — sequência | `scan_local` nos níveis 0..L−1 (subida), `scan_groups` no nível L, `scan_combine` de L−1 até 0 |
 
+## Ritmo de quadros (C1/C4)
+
+| Item                  | Regra                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `framesInFlight()`    | `submit` +1; `queue.onSubmittedWorkDone()` −1 (device perdido zera)                        |
+| `maxFramesInFlight`   | `ApplicationOptions`, padrão 2, inteiro ≥ 1                                                |
+| `GameLoop` tick       | avança só se `framesInFlight() < maxFramesInFlight`; senão pula sem mover a marca de tempo |
+| `app.readyForFrame()` | `framesInFlight() < maxFramesInFlight`                                                     |
+| `app.step()`          | não espera                                                                                 |
+
+## Contatos do LCP (C3)
+
+| Item            | Regra                                                                                                |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| capacidade `C`  | `min(N·M, N × maxContactsPerBody, ⌊maxStorageBufferBindingSize / 80⌋)`                               |
+| contador        | `{ count, overflow }` (u32), zerado por `Frame.clear` antes da narrowphase de cada substep           |
+| contato         | gravado em `atomicAdd(count)`; `col_idx` = id do par (`rb · totalCol + col`)                         |
+| warm start      | hash `{ key, stamp, λn, λt1, λt2 }`, capacidade 2^k ≥ 2C, sondagem ≤ 32; lido se `stamp = atual − 1` |
+| `contact_stamp` | contador de substeps, por região de parâmetros                                                       |
+| acumulação      | `rb_contact_accumulate` (serial) → `body_contact[i] = (correção xyz, tem contato w)`                 |
+
 ## Time (C2 — `scene/time/Time.ts`)
 
 | Campo              | Tipo           | Default | Regra                                                           |

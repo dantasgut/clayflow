@@ -23,9 +23,12 @@ substeps` iterações com **parâmetros por iteração em regiões de buffer com
 5. **Limites de despacho e de vizinhança**: `Dispatcher.invocations` distribui despachos lineares em x/y dentro de
    `maxComputeWorkgroupsPerDimension` (kernels indexam por `num_workgroups`); `workgroups` acima do limite lança; a
    soma de prefixos da busca de vizinhança passa a ter vários níveis (sem teto de 65 536 células) — research R16/R17.
-6. **Robustez**: índices `uint32` acima de 65 535 vértices; fim de `constructor.name` (o build minificado hoje **não
+6. **Ritmo de quadros e contatos do LCP** (research R18/R19): a C1 conta quadros em voo e o laço só grava com espaço
+   (`maxFramesInFlight`); o LCP grava e resolve só contatos ativos numa lista de capacidade limitada, com warm start
+   por tabela hash de pares e correção posicional acumulada por corpo.
+7. **Robustez**: índices `uint32` acima de 65 535 vértices; fim de `constructor.name` (o build minificado hoje **não
    desenha** — research A2), renderizáveis mantidos por eventos; vazamentos de GPU e de ouvintes corrigidos.
-7. **Verificação**: benchmark com paridade de tempo simulado (1/60 s por quadro nas duas engines) e modo `--dist`;
+8. **Verificação**: benchmark com paridade de tempo simulado (1/60 s por quadro nas duas engines) e modo `--dist`;
    smokes novos de tempo, malha grande e churn.
 
 Decisões e alternativas em [research.md](./research.md).

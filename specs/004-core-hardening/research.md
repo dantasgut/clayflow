@@ -137,6 +137,46 @@ contagem (escritos quando a grade muda, não por quadro — sem conflito com A1)
 **Alternativas rejeitadas**: aumentar o grupo do `scan_groups` (limitado por `maxComputeInvocationsPerWorkgroup`, só
 desloca o teto); scan na CPU (readback por quadro); limitar a grade com erro (FR-030 exige funcionar).
 
+## R18 — Ritmo de quadros (quadros em voo limitados)
+
+**Achado** (T076, 2026-10-10): `rigid-bodies/1k` leva ~12,9 s de GPU por quadro tanto no `develop` quanto na branch
+(probe com leitura de volta por quadro). No baseline a CPU levava 286 ms por quadro e o trabalho de GPU se acumulava na
+fila além da janela de medição; com a CPU em 7,6 ms, o motor submete quadros muito mais rápido que a GPU conclui e o
+navegador trava por 6–11 s (p95/p99). O motor não limita quadros em voo.
+
+**Decisão**: a C1 conta os quadros submetidos e ainda não concluídos (`submit` incrementa;
+`queue.onSubmittedWorkDone()` decrementa) e expõe `framesInFlight()`. O `GameLoop` só avança quando
+`framesInFlight() < maxFramesInFlight` (`ApplicationOptions.maxFramesInFlight`, padrão 2); senão pula o tick sem
+atualizar a marca de tempo — o próximo `realDt` inclui a espera e o acumulador compensa até `maxStepsPerFrame`.
+`app.step()` não espera (avanço explícito). `app.readyForFrame()` informa se há espaço; o adaptador do bench o consulta
+e o amostrador ignora ticks sem trabalho (intervalo medido entre quadros efetivamente gravados).
+
+**Alternativas rejeitadas**: esperar de forma síncrona (impossível no navegador); deixar a fila crescer (trava e memória
+sem limite); limitar só no bench (o problema é do motor).
+
+## R19 — Contatos compactados no LCP
+
+**Achado**: o buffer de contatos tem um slot por par corpo × collider (N·M): 80 MB em 1k, 8 GB em 10k — acima de
+`maxBufferSize`, então em `rigid-bodies/10k` o passe de colisão falha em silêncio (corpos não colidem). O solver serial
+percorre todos os N·M slots × (warm start + 8 iterações) × 4 substeps (36 M iterações em 1k ≈ 12,9 s).
+
+**Decisão**:
+
+- Narrowphase: cada par em contato reserva um índice por `atomicAdd` num contador (zerado por `Frame.clear` antes de
+  cada substep) e grava o contato compactado; acima da capacidade, conta o excedente.
+- Capacidade `C = min(N·M, N × maxContactsPerBody, ⌊maxStorageBufferBindingSize / 80⌋)` (`maxContactsPerBody` padrão
+  16, opção do Flow).
+- Warm start: tabela hash por par (chave = `rb · totalCol + col + 1`, capacidade potência de 2 ≥ 2C, sondagem linear
+  limitada a 32) com carimbo do substep; o solver (serial) grava os impulsos ao fim de cada substep e a narrowphase lê
+  só entradas do substep anterior. O carimbo vai na região de parâmetros de cada iteração (`RBSimParams.contact_stamp`).
+- `rb_build_lcp` e `rb_solve_lcp` percorrem só `min(count, C)` contatos.
+- Correção posicional: passada serial `rb_contact_accumulate` por passo soma, por corpo, a correção e a marca de
+  contato num buffer por corpo (zerado por `Frame.clear`); `rb_lcp_commit` lê esse buffer.
+- O contador de excedente é lido junto com a leitura de volta dos corpos; excedente gera aviso único.
+
+**Alternativas rejeitadas**: broadphase + solver paralelo (F5 — continua planejado); manter N·M (estoura limites);
+descartar o warm start (degrada pilhas).
+
 ## R5 — `Time` na C2, fonte única e acumulador
 
 **Decisão**: `Time` sai de `presentation/app` para a C2 (`scene/time/Time.ts`), reexportado pela C4 (`app.time`). Um
@@ -272,6 +312,8 @@ por quadro.
 - **CPU (Vitest)**: hash memorizado/composto/funções; congelamento; posse no store; `Time.advance` (acumulador, limite,
   pausa, escala, `droppedTime`); `step()` ≡ laço; offsets por passo; alocação por papel; transições; reuso; índices;
   renderizáveis por eventos; liberação na remoção; ouvintes no descarte.
+- **Ritmo e contatos**: smoke `rigidContacts.ts` (1 000 e 10 000 corpos repousam sobre o chão, SC-013) e bench
+  `rigid-bodies` (SC-012).
 - **Limites**: smoke `limits.ts` (despacho > 65 535 grupos com leitura de volta, SC-010; busca de vizinhança com
   262 144 células contra força bruta, SC-011).
 - **Navegador**: smoke `time.ts` (trajetória a 30/60/144 Hz por `step()`, SC-003/SC-005); smoke de malha de 90 000
