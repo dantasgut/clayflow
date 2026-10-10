@@ -22,8 +22,8 @@ import type { EntityId } from '../../scene/world/EntityId';
 import { Camera } from '../../elements/scene/Camera';
 import { Transform } from '../../elements/scene/Transform';
 import { StandardMaterial } from '../../elements/material/StandardMaterial';
-import type { Geometry } from '../../elements/geometry/Geometry';
-import type { Material } from '../../elements/material/Material';
+import { Geometry } from '../../elements/geometry/Geometry';
+import { Material } from '../../elements/material/Material';
 import type { ShadowFlow } from './ShadowFlow';
 
 interface RenderableSlot {
@@ -40,6 +40,13 @@ interface RenderableSlot {
     /** Fonte do shader do material — base das variantes de pipeline. */
     readonly shader: ShaderModuleSpec;
     readonly shaderId: string;
+}
+
+/** Entidade desenhável: geometria + material + transform (reconhecidos por `instanceof`). */
+interface Renderable {
+    readonly geometry: Geometry;
+    readonly material: Material;
+    readonly transform: Transform;
 }
 
 /** Variante de pipeline por orientação das faces (escala com determinante negativo espelha). */
@@ -76,6 +83,10 @@ export class ForwardFlow extends RenderFlow {
     private depthTexture: TextureSpec | null = null;
     private depthView: TextureViewSpec | null = null;
     private readonly cachedSlots = new Map<EntityId, RenderableSlot>();
+    /** Entidades desenháveis, mantidas por `onEntitiesInserted`/`onEntitiesRemoved` (sem consulta por quadro). */
+    private readonly renderables = new Map<EntityId, Renderable>();
+    /** Câmeras da cena por entidade; desenha com a primeira inserida. */
+    private readonly cameras = new Map<EntityId, Camera>();
     private readonly canvasSize = { width: 0, height: 0 };
 
     private cameraLayout: LayoutSpec | null = null;
@@ -114,6 +125,24 @@ export class ForwardFlow extends RenderFlow {
         private readonly canvas: HTMLCanvasElement,
     ) {
         super();
+        // Entidades inseridas antes do registro do estágio; as seguintes chegam por onEntitiesInserted.
+        for (const record of world.allRecords()) this.track(record.id);
+    }
+
+    override onEntitiesInserted(entityIds: readonly number[]): void {
+        for (const id of entityIds) this.track(id as EntityId);
+    }
+
+    /** Registra câmera e/ou renderizável (geometria + material + transform) da entidade. */
+    private track(entityId: EntityId): void {
+        const resources = this.world.resourcesOf(entityId);
+        const camera = resources.find((r): r is Camera => r instanceof Camera);
+        if (camera !== undefined) this.cameras.set(entityId, camera);
+        const geometry = resources.find((r): r is Geometry => r instanceof Geometry);
+        const material = resources.find((r): r is Material => r instanceof Material);
+        const transform = resources.find((r): r is Transform => r instanceof Transform);
+        if (geometry === undefined || material === undefined || transform === undefined) return;
+        this.renderables.set(entityId, { geometry, material, transform });
     }
 
     /**
@@ -199,8 +228,28 @@ export class ForwardFlow extends RenderFlow {
 
     override onEntitiesRemoved(entityIds: readonly number[]): void {
         for (const id of entityIds) {
-            this.cachedSlots.delete(id as EntityId);
+            const entityId = id as EntityId;
+            this.renderables.delete(entityId);
+            this.cameras.delete(entityId);
+            const slot = this.cachedSlots.get(entityId);
+            if (slot !== undefined) this.releaseSlot(slot);
+            this.cachedSlots.delete(entityId);
         }
+    }
+
+    /**
+     * Libera os objetos de GPU que o estágio criou para a entidade. A remoção acontece entre quadros, depois do
+     * `submit`: o WebGPU conclui o trabalho já submetido antes de liberar. O shader do material é liberado só como
+     * posse desta entidade — o módulo compartilhado continua com as demais.
+     */
+    private releaseSlot(slot: RenderableSlot): void {
+        this.core.destroy(slot.cameraBindGroup);
+        this.core.destroy(slot.materialBindGroup);
+        this.core.destroy(slot.cameraBuffer);
+        this.core.destroy(slot.materialBuffer);
+        this.core.destroy(slot.vbo);
+        this.core.destroy(slot.ibo);
+        this.core.destroy(slot.shader);
     }
 
     /**
@@ -565,32 +614,18 @@ export class ForwardFlow extends RenderFlow {
         this.canvasSize.height = h;
     }
 
+    /** Primeira câmera inserida que continua na cena. */
+    private activeCamera(): Camera | undefined {
+        return this.cameras.values().next().value;
+    }
+
     private collectRenderables(): RenderableSlot[] {
         const out: RenderableSlot[] = [];
-        const cameraId = this.world.queryBySchemaName('Camera')[0];
-        if (cameraId === undefined) return out;
-        const cameraResource = this.world
-            .resourcesOf(cameraId)
-            .find((r) => r.constructor === Camera) as Camera | undefined;
-        if (cameraResource === undefined) return out;
-
-        const seenSchemas = ['BoxVertex', 'SphereVertex', 'PlaneVertex', 'ParametricVertex'];
-        const visited = new Set<EntityId>();
-        for (const schemaName of seenSchemas) {
-            for (const id of this.world.queryBySchemaName(schemaName)) {
-                if (visited.has(id)) continue;
-                visited.add(id);
-                const resources = this.world.resourcesOf(id);
-                const geometry = resources.find((r) => isGeometry(r)) as Geometry | undefined;
-                const material = resources.find((r) => isMaterial(r)) as Material | undefined;
-                const transform = resources.find((r) => r.constructor === Transform) as
-                    | Transform
-                    | undefined;
-                if (geometry === undefined || material === undefined || transform === undefined)
-                    continue;
-                const slot = this.ensureSlot(id, geometry, material, transform, cameraResource);
-                if (slot !== null) out.push(slot);
-            }
+        const camera = this.activeCamera();
+        if (camera === undefined) return out;
+        for (const [id, r] of this.renderables) {
+            const slot = this.ensureSlot(id, r.geometry, r.material, r.transform, camera);
+            if (slot !== null) out.push(slot);
         }
         return out;
     }
@@ -613,7 +648,7 @@ export class ForwardFlow extends RenderFlow {
             return null;
 
         const vertices = geometry.data.vertices as Float32Array | undefined;
-        const indices = geometry.data.indices as Uint16Array | undefined;
+        const indices = geometry.data.indices as Uint16Array | Uint32Array | undefined;
         if (vertices === undefined || indices === undefined) return null;
 
         const vbo: VertexBufferSpec = this.core.create({
@@ -632,7 +667,7 @@ export class ForwardFlow extends RenderFlow {
             discriminator: `forward_ibo:${entityId}`,
             byteSize: alignBufferSize(indices.byteLength),
             count: geometry.indexCount,
-            format: 'uint16',
+            format: geometry.indexFormat,
         });
         const paddedIndices = padTo4Bytes(indices);
         this.core.write(ibo, paddedIndices);
@@ -691,14 +726,9 @@ export class ForwardFlow extends RenderFlow {
     }
 
     private uploadPerFrameData(r: RenderableSlot): void {
-        const cameraId = this.world.queryBySchemaName('Camera')[0];
-        if (cameraId !== undefined) {
-            const camera = this.world
-                .resourcesOf(cameraId)
-                .find((rr) => rr.constructor === Camera) as Camera | undefined;
-            if (camera !== undefined) {
-                this.core.write(r.cameraBuffer, Camera.schema.pack(camera.data));
-            }
+        const camera = this.activeCamera();
+        if (camera !== undefined) {
+            this.core.write(r.cameraBuffer, Camera.schema.pack(camera.data));
         }
         this.core.write(r.materialBuffer, materialPack(r.material));
     }
@@ -710,31 +740,13 @@ function isMirrored(transform: Transform): boolean {
     return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
 }
 
-function isGeometry(r: { constructor: { name: string } }): boolean {
-    const name = r.constructor.name;
-    return (
-        name === 'BoxGeometry'
-        || name === 'SphereGeometry'
-        || name === 'PlaneGeometry'
-        || name === 'ParametricGeometry'
-        || name === 'ParametricSurfaceGeometry'
-    );
-}
-
-function isMaterial(r: { constructor: { name: string } }): boolean {
-    const name = r.constructor.name;
-    return (
-        name === 'StandardMaterial'
-        || name === 'WireframeMaterial'
-        || name === 'PointSpriteMaterial'
-    );
-}
-
+/** Dados do material empacotados pelo schema do seu descritor uniform (contrato `Resource`). */
 function materialPack(material: Material): ArrayBufferView {
-    const ctor = material.constructor as unknown as {
-        schema: { pack(data: Record<string, unknown>): ArrayBufferView };
-    };
-    return ctor.schema.pack(material.data);
+    const schema = material.getDescriptors().find((d) => d.role === 'uniform')?.schema;
+    if (schema === undefined) {
+        throw new Error('ForwardFlow: material sem descritor uniform com schema.');
+    }
+    return schema.pack(material.data);
 }
 
 function alignUp(value: number, alignment: number): number {
@@ -745,7 +757,7 @@ function alignBufferSize(byteSize: number): number {
     return Math.max(4, alignUp(byteSize, 4));
 }
 
-function padTo4Bytes(arr: Uint16Array): Uint8Array {
+function padTo4Bytes(arr: ArrayBufferView): Uint8Array {
     const padded = alignBufferSize(arr.byteLength);
     const out = new Uint8Array(padded);
     out.set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));

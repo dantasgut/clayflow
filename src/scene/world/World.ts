@@ -100,6 +100,7 @@ export class World {
         }
 
         this.events.emit('resourcesChanged', { added: resources, removed: [] });
+        this.events.emit('entitiesInserted', { entityIds: [id] });
         return id;
     }
 

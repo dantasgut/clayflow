@@ -23,7 +23,9 @@ export class SphereGeometry extends Geometry {
         const radius = (values.radius ?? 1) as number;
         const lat = (values.latSegments ?? 16) as number;
         const lon = (values.lonSegments ?? 32) as number;
-        const { vertices, indices } = generateSphere(radius, lat, lon);
+        const generated = generateSphere(radius, lat, lon);
+        const vertices = generated.vertices;
+        const indices = Geometry.indexArray(generated.indices, vertices.length / 8);
         this.data = {
             radius,
             latSegments: lat,
@@ -62,7 +64,7 @@ function generateSphere(
     radius: number,
     lat: number,
     lon: number,
-): { vertices: Float32Array; indices: Uint16Array } {
+): { vertices: Float32Array; indices: number[] } {
     const verts: number[] = [];
     const idx: number[] = [];
     for (let i = 0; i <= lat; i++) {
@@ -89,5 +91,5 @@ function generateSphere(
             idx.push(a, b, c, b, d, c); // ccw visto de fora (normal para fora)
         }
     }
-    return { vertices: new Float32Array(verts), indices: new Uint16Array(idx) };
+    return { vertices: new Float32Array(verts), indices: idx };
 }

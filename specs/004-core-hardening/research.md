@@ -250,8 +250,10 @@ array (fim do cast `as Uint16Array` e do `'uint16'` fixo). `GltfLoader` amplia `
 
 **Decisão**: geometria e material são reconhecidos por contrato — `instanceof Geometry` / `instanceof Material` (bases
 de C3, identidade de construtor sobrevive à minificação) —, e o conjunto de renderizáveis do forward e da sombra passa
-a ser mantido **por eventos** (`resourcesChanged` added/removed), não por consulta a uma lista fixa de nomes de schema
-(`ForwardFlow.ts:577`, `ShadowFlow.ts:299`). Isso também elimina a consulta por quadro.
+a ser mantido **por eventos** do World — `entitiesInserted` (novo, simétrico a `entitiesRemoved`) chega aos estágios
+pelo hook `Flow.onEntitiesInserted`, e a construção do estágio varre o World uma vez —, não por consulta a uma lista
+fixa de nomes de schema (`ForwardFlow.ts:577`, `ShadowFlow.ts:299`). Câmera e luzes também. Isso elimina a consulta
+por quadro.
 
 ## R14 — Vazamentos
 

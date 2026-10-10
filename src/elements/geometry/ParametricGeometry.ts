@@ -38,7 +38,9 @@ export class ParametricGeometry extends Geometry {
         const fn = (values.fn ?? defaultFn) as ParametricFunction;
         const uSteps = (values.uSteps ?? 32) as number;
         const vSteps = (values.vSteps ?? 32) as number;
-        const { vertices, indices } = sample(fn, uSteps, vSteps);
+        const sampled = sample(fn, uSteps, vSteps);
+        const vertices = sampled.vertices;
+        const indices = Geometry.indexArray(sampled.indices, vertices.length / 8);
         this.data = {
             uSteps,
             vSteps,
@@ -78,7 +80,7 @@ function sample(
     fn: ParametricFunction,
     uSteps: number,
     vSteps: number,
-): { vertices: Float32Array; indices: Uint16Array } {
+): { vertices: Float32Array; indices: number[] } {
     const verts: number[] = [];
     for (let i = 0; i <= vSteps; i++) {
         for (let j = 0; j <= uSteps; j++) {
@@ -99,5 +101,5 @@ function sample(
             idx.push(a, c, b, b, c, d);
         }
     }
-    return { vertices: new Float32Array(verts), indices: new Uint16Array(idx) };
+    return { vertices: new Float32Array(verts), indices: idx };
 }

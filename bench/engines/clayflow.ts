@@ -106,6 +106,7 @@ export function createClayflowAdapter(options: {
         version: 'clayflow',
         limitations: [
             'forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)',
+            'geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)',
         ],
         async init(canvas, resolution, cameraSpec) {
             canvas.width = resolution.width;

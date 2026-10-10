@@ -11,7 +11,7 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
-import type { GravityField } from '../forcefields/GravityField';
+import { GravityField } from '../forcefields/GravityField';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
 import pbfSimParamsStruct from '../../gpu/wgsl/structs/pbf_sim_params.wgsl?raw';
 import pbfParticleStruct from '../../gpu/wgsl/structs/pbf_particle.wgsl?raw';
@@ -311,19 +311,6 @@ export class PBFFlow extends Flow {
         f32[23] = 0;
     }
 
-    private findGravity(): GravityField | null {
-        const ids = this.world.queryBySchemaName('GravityField');
-        const first = ids[0];
-        if (first === undefined) return null;
-        return (this.world
-            .resourcesOf(first)
-            .find(
-                (r) =>
-                    (r.constructor as { schema?: { name: string } }).schema?.name
-                    === 'GravityField',
-            ) ?? null) as GravityField | null;
-    }
-
     dispatch(frame: Frame): void {
         const time = this.world.findResource(Time.schema, Time);
         const steps = time?.steps ?? 0;
@@ -332,9 +319,8 @@ export class PBFFlow extends Flow {
         if (count === 0) return;
         const iterations = steps * this.substeps;
         if (this.params.reserve(iterations)) this.invalidateKernels();
-        const accel = (this.findGravity()?.data.acceleration as readonly number[] | undefined) ?? [
-            0, -9.81, 0, 0,
-        ];
+        const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
+            .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
         for (let i = 0; i < iterations; i++) {
             this.fillParams(i, count, time.stepDt / this.substeps, time.stepDt, accel);
         }

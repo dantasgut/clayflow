@@ -79,6 +79,15 @@ export abstract class Flow {
     }
 
     /**
+     * Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
+     * um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
+     * cada quadro.
+     */
+    onEntitiesInserted(_entityIds: readonly number[]): void {
+        // default: no-op
+    }
+
+    /**
      * Chamado quando entidades são removidas do World. Subclasses que
      * cacheiam slots por EntityId devem limpar os entries afetados para
      * evitar leaks de slots órfãos.

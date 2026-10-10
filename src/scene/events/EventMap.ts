@@ -50,6 +50,14 @@ export interface CanvasReconfiguredPayload {
 }
 
 /**
+ * Payload do evento `entitiesInserted` — emitido pelo World depois de `resourcesChanged` quando uma entidade raiz
+ * é inserida. Estágios mantêm seus conjuntos de entidades por `Flow.onEntitiesInserted`.
+ */
+export interface EntitiesInsertedPayload {
+    readonly entityIds: readonly EntityId[];
+}
+
+/**
  * Payload do evento `entitiesRemoved` — emitido pelo World quando uma ou
  * mais entidades são removidas. Flows com cache por EntityId devem limpar
  * os entries afetados via `Flow.onEntitiesRemoved`.
@@ -160,6 +168,8 @@ export interface EventMap {
     frameComplete: FrameCompleteEvent;
     /** Application emite após resize do canvas — flows recriam textures. */
     canvasReconfigured: CanvasReconfiguredPayload;
+    /** World emite quando entidades são inseridas — flows atualizam seus conjuntos de entidades. */
+    entitiesInserted: EntitiesInsertedPayload;
     /** World emite quando entidades removidas — flows limpam slots cacheados. */
     entitiesRemoved: EntitiesRemovedPayload;
     /** DebugFlow emite (throttled 250ms) com FPS + frame time + stages timestamps. */

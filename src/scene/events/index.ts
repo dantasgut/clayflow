@@ -6,6 +6,7 @@ export type {
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
+    EntitiesInsertedPayload,
     EntitiesRemovedPayload,
     ProfilerStatsPayload,
     EngineErrorPayload,

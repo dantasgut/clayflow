@@ -17,7 +17,7 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
-import type { GravityField } from '../forcefields/GravityField';
+import { GravityField } from '../forcefields/GravityField';
 import { Transform } from '../../scene/Transform';
 import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
 import rbSimParamsStruct from '../../gpu/wgsl/structs/rb_sim_params.wgsl?raw';
@@ -325,6 +325,7 @@ export class LCPFlow extends Flow {
         let buf = this.bodyOwnersBuffers.get(poolKey);
         const cap = this.bodyOwnersCapacity.get(poolKey) ?? 0;
         if (buf === undefined || cap < count) {
+            if (buf !== undefined) this.core.destroy(buf);
             buf = this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
                 subkind: 'storage',
@@ -409,17 +410,6 @@ export class LCPFlow extends Flow {
         u32[2] = totalCol;
         u32[3] = 0;
         this.core.write(buf, new Uint8Array(arr));
-    }
-
-    private findGravityField(): GravityField | null {
-        const ids = this.world.queryBySchemaName('GravityField');
-        if (ids.length === 0) return null;
-        const first = ids[0];
-        if (first === undefined) return null;
-        const resources = this.world.resourcesOf(first);
-        return (resources.find(
-            (r) => (r.constructor as { schema?: { name: string } }).schema?.name === 'GravityField',
-        ) ?? null) as GravityField | null;
     }
 
     private ensurePredictKernel(bodiesBuf: StorageBufferSpec): void {
@@ -545,9 +535,8 @@ export class LCPFlow extends Flow {
         const regions = steps * perStep;
         if (this.params.reserve(regions)) this.invalidateAllKernels();
         const stepDt = time.stepDt;
-        const accel = (this.findGravityField()?.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
+            .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
         for (let step = 0; step < steps; step++) {
             const base = step * perStep;
             this.fillSimParams(base, bodyCount, totalCol, stepDt, stepDt, accel);

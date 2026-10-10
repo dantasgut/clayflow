@@ -1,5 +1,5 @@
 import type { EngineCore } from '../../core/contracts/index';
-import type { EventBus } from '../events/EventBus';
+import type { EventBus, Unsubscribe } from '../events/EventBus';
 import { type FlowRegistry } from '../flows/FlowRegistry';
 import type { EntityId } from '../world/EntityId';
 
@@ -10,7 +10,7 @@ import type { EntityId } from '../world/EntityId';
  *     recursos sujos), executa `record(frame)` + `submit()` e emite `frameComplete`.
  *   - `poolReallocated` → broadcast para todos flows invalidarem caches.
  *   - `canvasReconfigured` → broadcast onCanvasResized.
- *   - `entitiesRemoved` → broadcast onEntitiesRemoved.
+ *   - `entitiesInserted` / `entitiesRemoved` → broadcast onEntitiesInserted / onEntitiesRemoved.
  *
  * Modo `captureErrors=true` envolve cada frame em error scope GPU; erros
  * viram `engineError` event sem propagar exception. Ativável via
@@ -25,24 +25,44 @@ export class ExecutionSystem {
      * frame normalmente. Ativado via `Application.create({ captureErrors: true })`.
      */
     captureErrors = false;
+    private readonly subscriptions: Unsubscribe[];
 
     constructor(
         private readonly core: EngineCore,
         private readonly events: EventBus,
         private readonly flows: FlowRegistry,
     ) {
-        this.events.on('frameTick', (e) => {
-            this.onFrameTick(e.dt, e.elapsed);
-        });
-        this.events.on('poolReallocated', (e) => {
-            this.broadcastPoolReallocated(e.poolKey);
-        });
-        this.events.on('canvasReconfigured', (e) => {
-            this.broadcastCanvasResized(e.width, e.height);
-        });
-        this.events.on('entitiesRemoved', (e) => {
-            this.broadcastEntitiesRemoved(e.entityIds);
-        });
+        this.subscriptions = [
+            this.events.on('frameTick', (e) => {
+                this.onFrameTick(e.dt, e.elapsed);
+            }),
+            this.events.on('poolReallocated', (e) => {
+                this.broadcastPoolReallocated(e.poolKey);
+            }),
+            this.events.on('canvasReconfigured', (e) => {
+                this.broadcastCanvasResized(e.width, e.height);
+            }),
+            this.events.on('entitiesInserted', (e) => {
+                this.broadcastEntitiesInserted(e.entityIds);
+            }),
+            this.events.on('entitiesRemoved', (e) => {
+                this.broadcastEntitiesRemoved(e.entityIds);
+            }),
+        ];
+    }
+
+    /** Desfaz as inscrições no EventBus (descarte da cena). */
+    dispose(): void {
+        for (const off of this.subscriptions) off();
+        this.subscriptions.length = 0;
+    }
+
+    /** Notifica todos os flows que entidades foram inseridas (no-op se vazia). */
+    broadcastEntitiesInserted(entityIds: readonly EntityId[]): void {
+        if (entityIds.length === 0) return;
+        for (const flow of this.flows.allFlows()) {
+            flow.onEntitiesInserted(entityIds);
+        }
     }
 
     /** Notifica todos os flows que um pool teve buffer realocado. */

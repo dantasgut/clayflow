@@ -11,7 +11,7 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
-import type { GravityField } from '../forcefields/GravityField';
+import { GravityField } from '../forcefields/GravityField';
 import simParamsStruct from '../../gpu/wgsl/structs/sim_params.wgsl?raw';
 import particleStruct from '../../gpu/wgsl/structs/particle.wgsl?raw';
 import distanceConstraintStruct from '../../gpu/wgsl/structs/distance_constraint.wgsl?raw';
@@ -207,17 +207,6 @@ export class XPBDFlow extends Flow {
         f32[11] = 0; // collision_radius @ 44
     }
 
-    private findGravityField(): GravityField | null {
-        const ids = this.world.queryBySchemaName('GravityField');
-        if (ids.length === 0) return null;
-        const first = ids[0];
-        if (first === undefined) return null;
-        const resources = this.world.resourcesOf(first);
-        return (resources.find(
-            (r) => (r.constructor as { schema?: { name: string } }).schema?.name === 'GravityField',
-        ) ?? null) as GravityField | null;
-    }
-
     dispatch(frame: Frame): void {
         const time = this.world.findResource(Time.schema, Time);
         const steps = time?.steps ?? 0;
@@ -227,9 +216,8 @@ export class XPBDFlow extends Flow {
         const iterations = steps * this.substeps;
         if (this.params.reserve(iterations)) this.invalidateKernels();
         const dtSub = time.stepDt / this.substeps;
-        const accel = (this.findGravityField()?.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
+            .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
         for (let i = 0; i < iterations; i++) this.fillParams(i, count, dtSub, accel);
         this.params.flush(iterations);
 
