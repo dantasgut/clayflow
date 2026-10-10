@@ -158,9 +158,14 @@ limites do device (FR-014–FR-017, FR-029, FR-030).
 - [x] T057 [US4] Implementar em `src/elements/geometry/Geometry.ts` (`indexFormat`), `SphereGeometry.ts`, `ParametricGeometry.ts`, `ParametricSurfaceGeometry.ts` e `src/presentation/assets/GltfLoader.ts` até T056 passar; ajustar os `schema` de vértice das geometrias para o `vertexLayout` (stride 32)
 - [x] T058 [US4] `src/presentation/flows/ForwardFlow.ts` e `ShadowFlow.ts`: `format` e padding do IBO derivados do array (fim de `as Uint16Array` e `'uint16'` fixo); teste em `src/presentation/flows/__tests__/indexFormat.test.ts`
 - [x] T059 [US4] Benchmark: declarar em `bench/engines/clayflow.ts` a limitação "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)"
-- [ ] T060 [US4] Smoke `src/__smokes__/bigMesh.ts`: `ParametricGeometry` 300 × 300 (90 601 vértices) renderizada; verificar por pixels que a superfície cobre a área esperada (sem triângulos truncados, SC-008); registrar no README dos smokes
+- [x] T060 [US4] Smoke `src/__smokes__/bigMesh.ts`: `ParametricGeometry` 300 × 300 (90 601 vértices) renderizada; verificar por pixels que a superfície cobre a área esperada (sem triângulos truncados, SC-008); registrar no README dos smokes
 
 **Checkpoint**: C2 completa e confiável para a 006.
+
+> **Smoke T060 (2026-10-09)**: `bigMesh` PASSED — 90 601 vértices, `uint32`, cobertura 100% nas duas metades da
+> área projetada e nenhum pixel aceso fora dela (SC-008). Verificação negativa: forçando `Uint16Array` (truncado), a
+> metade de cima cai para 47,89% e o smoke falha. Também passaram `transforms`, `time`, `integration` e `multiApp`
+> com a C2 alocando vértices/índices.
 
 ---
 
