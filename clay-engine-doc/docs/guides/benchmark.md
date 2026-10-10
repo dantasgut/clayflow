@@ -33,8 +33,14 @@ de quadros, e roda cada cena × variante × engine × repetição numa **página
 | `--from <arquivo>`                                       | —                   | `bench:check` sobre um resultado já gravado             |
 | `--no-profiling`                                         | off                 | desliga o profiling de GPU do clayflow (mede o overhead) |
 | `--port`                                                 | 5180                | porta do Vite do harness                                |
+| `--dist`                                                 | off                 | mede o build minificado publicado (`dist/index.js`; rode `npm run build:lib` antes) |
 
 Uma repetição que falha ou estoura o tempo decide a linha; as repetições seguintes daquela linha são puladas.
+
+**Build minificado** (`--dist`): o alias `clayflow` do servidor do harness passa a apontar para `dist/index.js` (via a
+variável `CLAYFLOW_DIST`, definida pelo runner). Serve para confirmar que o que é publicado se comporta como o
+código-fonte — mesmos draw calls e status. Os smokes de navegador usam o mesmo servidor e a mesma flag:
+`npm run smoke -- transforms,time --dist` (ver `src/__smokes__/README.md`).
 
 ## Ler o relatório
 

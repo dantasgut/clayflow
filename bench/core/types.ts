@@ -201,6 +201,8 @@ export interface RunConfig {
     readonly from?: string;
     /** Liga o profiling de GPU do clayflow (default true; `false` mede o overhead — SC-005). */
     readonly profiling: boolean;
+    /** Mede o build minificado publicado (`dist/index.js`) em vez do código-fonte (`--dist`). */
+    readonly dist: boolean;
 }
 
 export interface RunFile {

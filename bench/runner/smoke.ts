@@ -43,13 +43,13 @@ function parse(argv: readonly string[]): SmokeArgs {
 
 async function main(): Promise<number> {
     const args = parse(process.argv.slice(2));
-    if (args.dist) process.env.CLAYFLOW_DIST = '1';
-    const server = await startServer(PORT);
+    let server;
     let launched;
     try {
+        server = await startServer(PORT, { dist: args.dist });
         launched = await launchBrowser(args.headless);
     } catch (e) {
-        await server.close();
+        await server?.close();
         if (e instanceof EnvironmentError) {
             console.error(e.message);
             return 3;

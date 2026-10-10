@@ -129,7 +129,7 @@ export function toMarkdown(run: RunFile): string {
               ]
             : []),
         `- **Commit**: ${p.commit} · **Data**: ${p.date} · **Perfil**: \`${p.profileId}\``,
-        `- **Protocolo**: aquecimento ${run.config.warmupMs} ms, janela ${run.config.windowMs} ms, ${run.config.repetitions} repetição(ões)${run.config.quick ? ' (modo rápido)' : ''}`,
+        `- **Protocolo**: aquecimento ${run.config.warmupMs} ms, janela ${run.config.windowMs} ms, ${run.config.repetitions} repetição(ões)${run.config.quick ? ' (modo rápido)' : ''}${run.config.dist ? ' · **clayflow do build minificado** (`dist/index.js`)' : ''}`,
         '',
     );
     lines.push(

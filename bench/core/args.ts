@@ -32,7 +32,7 @@ const VALUE_FLAGS = new Set([
     '--from',
     '--port',
 ]);
-const BOOL_FLAGS = new Set(['--quick', '--headless', '--no-profiling']);
+const BOOL_FLAGS = new Set(['--quick', '--headless', '--no-profiling', '--dist']);
 
 /** Erro de uso da CLI (mensagem legível, exit 2/3 decidido pelo chamador). */
 export class ArgsError extends Error {
@@ -107,6 +107,7 @@ export function parseArgs(argv: readonly string[]): RunConfig {
         tolerance,
         port: num('--port', DEFAULTS.port),
         profiling: !flags.has('--no-profiling'),
+        dist: flags.has('--dist'),
         ...(from !== undefined ? { from } : {}),
     };
 }
