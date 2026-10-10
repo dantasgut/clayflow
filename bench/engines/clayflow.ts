@@ -158,7 +158,9 @@ export function createClayflowAdapter(options: {
                 memory: 'exact',
             };
         },
-        frame(handle, scene: SceneImplementation<ClayflowHandle>, dtSeconds): FrameSample {
+        frame(handle, scene: SceneImplementation<ClayflowHandle>, dtSeconds): FrameSample | null {
+            // Mesmo ritmo do laço: com a GPU sem espaço para mais um quadro, espera o próximo tick.
+            if (!handle.app.readyForFrame()) return null;
             const t0 = performance.now();
             scene.update?.(dtSeconds);
             const updateMs = performance.now() - t0;

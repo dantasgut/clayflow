@@ -325,6 +325,12 @@ export interface EngineCore {
     record(label: string, body: (frame: Frame) => void): void;
     /** Enfileira o último command buffer construído por `record()` na queue GPU. */
     submit(): void;
+    /**
+     * Quadros submetidos cuja execução na GPU ainda não terminou (`queue.onSubmittedWorkDone`). O laço usa para não
+     * acumular quadros na GPU sem limite (`ApplicationOptions.maxFramesInFlight`). Device perdido ou `shutdown`
+     * zeram a contagem.
+     */
+    framesInFlight(): number;
 
     /**
      * Wrap um body em error scope GPU. Erros (validation/oom/internal) viram

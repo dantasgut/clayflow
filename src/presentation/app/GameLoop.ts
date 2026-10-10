@@ -10,6 +10,10 @@ function now(): number {
  * única definição de "avançar um quadro" — a mesma que `Application.step()` usa sem laço: `time.advance(realDt)`
  * e, em seguida, `frameTick { dt, realDt, elapsed, frame }`. Não há teto de `dt` aqui: o `Time` limita o quadro a
  * `maxFrameDt` e a física a `maxStepsPerFrame`.
+ *
+ * Ritmo (research R18): um tick só avança quando `canAdvance()` permite (há espaço para mais um quadro na GPU);
+ * senão espera o próximo RAF sem mover a marca de tempo — o `realDt` seguinte inclui a espera e o acumulador do
+ * `Time` compensa até o teto.
  */
 export class GameLoop {
     private rafId: number | null = null;
@@ -18,6 +22,7 @@ export class GameLoop {
     constructor(
         private readonly events: EventBus,
         private readonly time: Time,
+        private readonly canAdvance: () => boolean = () => true,
     ) {}
 
     /** Avança um quadro de duração real `realDt` (s): move o relógio e emite `frameTick` (síncrono). */
@@ -37,6 +42,11 @@ export class GameLoop {
         if (this.rafId !== null) return;
         this.last = now();
         const tick = (): void => {
+            if (!this.canAdvance()) {
+                // GPU ainda ocupada com os quadros anteriores: não acumula mais um.
+                this.rafId = requestAnimationFrame(tick);
+                return;
+            }
             const t = now();
             const realDt = Math.max(0, (t - this.last) / 1000);
             this.last = t;

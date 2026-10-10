@@ -71,6 +71,11 @@ Como cada engine mede:
 engine simular mais passos que a outra (o `Time` do clayflow compensaria até 4 passos com o laço real); o
 `dt` real do quadro continua alimentando o `update` das cenas (movimento).
 
+**Ritmo de quadros**: o clayflow não acumula quadros na GPU — com `app.readyForFrame()` falso (há
+`maxFramesInFlight` quadros ainda em execução), o adaptador não avança naquele tick e o amostrador não o conta; o
+intervalo de quadro medido é o tempo entre quadros efetivamente gravados (cenas limitadas pela GPU mostram o custo real
+de GPU, em vez de enfileirar trabalho além da janela de medição).
+
 No clayflow, a pose dos corpos rígidos volta da GPU por readback assíncrono e é publicada fora do quadro
 síncrono; esse trabalho aparece só no intervalo de quadro (até a F2).
 

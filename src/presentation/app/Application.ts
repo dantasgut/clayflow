@@ -69,6 +69,11 @@ export interface ApplicationOptions {
     profiling?: boolean;
     /** Capacidade de timestamps por quadro (pares = passes medidos). Default: 256 (128 passes). */
     profilingCapacity?: number;
+    /**
+     * Máximo de quadros em execução na GPU antes de o laço gravar outro (inteiro ≥ 1, default 2). Evita acumular
+     * trabalho na GPU sem limite quando ela é mais lenta que a CPU; `step()` não espera.
+     */
+    maxFramesInFlight?: number;
 }
 
 /**
@@ -109,6 +114,7 @@ export class Application {
     private readonly scene: SceneContext;
     private readonly ownsScene: boolean;
     private readonly loop: GameLoop;
+    private readonly maxFramesInFlight: number;
     private readonly resizeDebounceMs: number;
     private resizeTimer: ReturnType<typeof setTimeout> | null = null;
     private resizeListener: (() => void) | null = null;
@@ -132,7 +138,8 @@ export class Application {
         this.flows = scene.flows;
         this.time = scene.time;
         this.defaults = defaults;
-        this.loop = new GameLoop(scene.events, this.time);
+        this.maxFramesInFlight = options.maxFramesInFlight ?? 2;
+        this.loop = new GameLoop(scene.events, this.time, () => this.readyForFrame());
         this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
 
         // Auto-registro de Flow por schema: ao inserir um body cujo schema tem
@@ -186,6 +193,10 @@ export class Application {
      * (multi-Application); caso contrário usa o singleton default.
      */
     static async create(options: ApplicationOptions): Promise<Application> {
+        const max = options.maxFramesInFlight;
+        if (max !== undefined && (!Number.isInteger(max) || max < 1)) {
+            throw new RangeError(`maxFramesInFlight deve ser inteiro ≥ 1 (recebido ${max}).`);
+        }
         const scene: SceneContext = options.scene ?? defaultScene;
         const ownsScene = options.scene !== undefined;
         await scene.initialize(options.canvas, options.canvasOptions, options.device);
@@ -250,6 +261,14 @@ export class Application {
             );
         }
         for (let i = 0; i < frames; i++) this.loop.advance(dt);
+    }
+
+    /**
+     * `true` quando a GPU tem espaço para mais um quadro (`framesInFlight < maxFramesInFlight`). O laço só grava
+     * nesse caso; quem avança por `step()` (ex.: o benchmark) consulta para seguir o mesmo ritmo.
+     */
+    readyForFrame(): boolean {
+        return this.scene.core.framesInFlight() < this.maxFramesInFlight;
     }
 
     /** Capacidades efetivas do device (adaptador, features, limites) — ver `DeviceCapabilities`. */

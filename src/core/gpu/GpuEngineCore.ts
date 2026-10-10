@@ -135,6 +135,9 @@ export class GpuEngineCore implements EngineCore {
     private profilingUnsupportedWarned = false;
     private currentFrame: GpuFrame | null = null;
     private readonly deviceLostHandlers = new Set<DeviceLostHandler>();
+    /** Submits ainda em execução na GPU; a geração descarta conclusões de um device anterior. */
+    private inFlight = 0;
+    private inFlightGeneration = 0;
     /** Opções da última inicialização — reaplicadas em recuperação e reconfiguração. */
     private canvasOptions: CanvasOptions | undefined;
     private deviceOptions: DeviceOptions | undefined;
@@ -219,6 +222,7 @@ export class GpuEngineCore implements EngineCore {
         this.context = null;
         this.profilerSystem.detach();
         this.store.clear();
+        this.resetInFlight();
         for (const handler of this.deviceLostHandlers) {
             handler(info);
         }
@@ -481,6 +485,15 @@ export class GpuEngineCore implements EngineCore {
         const ctx = this.requireContext();
         const cmd = this.command.finishAndClose();
         ctx.queue.submit([cmd]);
+        this.inFlight++;
+        const generation = this.inFlightGeneration;
+        ctx.queue.onSubmittedWorkDone().then(
+            () => {
+                if (generation === this.inFlightGeneration)
+                    this.inFlight = Math.max(0, this.inFlight - 1);
+            },
+            () => undefined,
+        );
         if (this.profilerSystem.isSupported) {
             this.profilerSystem.submitFrame();
         }
@@ -490,6 +503,16 @@ export class GpuEngineCore implements EngineCore {
             passes: this.counters.passes,
         };
         this.frameIndex++;
+    }
+
+    framesInFlight(): number {
+        return this.inFlight;
+    }
+
+    /** Esquece os submits pendentes (device trocado ou destruído). */
+    private resetInFlight(): void {
+        this.inFlight = 0;
+        this.inFlightGeneration++;
     }
 
     async withErrorScope<T>(filter: GPUErrorFilter, body: () => T | Promise<T>): Promise<T> {
@@ -510,6 +533,7 @@ export class GpuEngineCore implements EngineCore {
         this.shuttingDown = true;
         this.profilerSystem.detach();
         this.store.clear();
+        this.resetInFlight();
         const ctx = this.context;
         if (ctx !== null) {
             ctx.canvasContext?.unconfigure();

@@ -117,8 +117,15 @@ export interface EngineAdapter<THandle> {
     > & {
         readonly device: DeviceReport;
     };
-    /** Executa um quadro (update da cena + render) e devolve a amostra. */
-    frame(handle: THandle, scene: SceneImplementation<THandle>, dtSeconds: number): FrameSample;
+    /**
+     * Executa um quadro (update da cena + render) e devolve a amostra — ou `null` quando a engine pede para esperar
+     * a GPU (ritmo de quadros: nada foi feito neste tick).
+     */
+    frame(
+        handle: THandle,
+        scene: SceneImplementation<THandle>,
+        dtSeconds: number,
+    ): FrameSample | null;
     memoryBytes(handle: THandle): number;
     /**
      * Leitura de GPU mais recente, consultada fora do quadro (para não perder a leitura que

@@ -110,4 +110,36 @@ describe('FrameSampler', () => {
         expect(s.lateGpuReading(undefined)).toBe(false);
         expect(s.result().gpuMs).toEqual([6]);
     });
+
+    it('tick sem trabalho (null) não conta nem fecha intervalo', () => {
+        const c = clock();
+        const s = new FrameSampler({
+            warmupMs: 0,
+            windowMs: 1000,
+            timeoutMs: 10_000,
+            warmupFrames: 1,
+            now: c.now,
+        });
+        s.start();
+        c.advance(10);
+        expect(s.record({ cpuMs: 1, drawCalls: 1 })).toBe('measuring');
+        c.advance(10);
+        s.record({ cpuMs: 1, drawCalls: 1 });
+        c.advance(16);
+        expect(s.record(null)).toBe('measuring');
+        c.advance(16);
+        s.record(null);
+        c.advance(18);
+        s.record({ cpuMs: 2, drawCalls: 1 });
+        expect(s.result().frameMs).toEqual([10, 50]);
+        expect(s.result().cpuMs).toEqual([1, 2]);
+    });
+
+    it('tick sem trabalho ainda respeita o tempo-limite', () => {
+        const c = clock();
+        const s = new FrameSampler({ warmupMs: 0, windowMs: 1000, timeoutMs: 100, now: c.now });
+        s.start();
+        c.advance(150);
+        expect(s.record(null)).toBe('timeout');
+    });
 });
