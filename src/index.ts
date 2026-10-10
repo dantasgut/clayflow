@@ -54,6 +54,7 @@ export {
     Flow,
     FlowRegistry,
     World,
+    ReuseError,
     DefaultEventBus,
     ResourceSystem,
     ExecutionSystem,

@@ -49,7 +49,7 @@ export {
     TensorSchema,
 } from './descriptors/index';
 
-export { World } from './world/World';
+export { World, ReuseError } from './world/World';
 export { Time } from './time/Time';
 export { asEntityId } from './world/EntityId';
 export type { EntityId } from './world/EntityId';

@@ -12,7 +12,17 @@ interface EntityRecord {
     readonly schemaNames: Set<string>;
 }
 
-const RESOURCE_TO_ENTITY_ID = new WeakMap<Resource, EntityId>();
+/**
+ * Inserção que reusaria uma instância já presente numa cena: a refundação proíbe — cada objeto da cena é uma
+ * instância própria (dois objetos iguais = duas instâncias com o mesmo conteúdo; o motor deduplica os objetos de
+ * GPU por conteúdo).
+ */
+export class ReuseError extends Error {
+    override readonly name = 'ReuseError';
+}
+
+/** World vivo onde cada recurso está inserido (só para a mensagem de reuso entre cenas). */
+const OWNER_WORLD = new WeakMap<Resource, World>();
 
 /**
  * World é o ECS-like da Camada 2 — registra Entities e indexa seus
@@ -29,6 +39,8 @@ export class World {
     private readonly entityToId = new Map<Entity, EntityId>();
     private readonly bySchema = new Map<string, Set<EntityId>>();
     private readonly byTag = new Map<string, Set<EntityId>>();
+    /** Recurso → entidade raiz que o contém, deste World; limpo no `remove`. */
+    private readonly resourceToEntity = new Map<Resource, EntityId>();
     private nextId = 1;
 
     constructor(private readonly events: EventBus) {}
@@ -36,25 +48,48 @@ export class World {
     /**
      * Insere uma entity raiz (e seus filhos) no World. Coleta todos os
      * Resources da árvore (root + parts), atribui EntityId, indexa por
-     * schema, emite `resourcesChanged`. Idempotente: re-insert da mesma
-     * entity retorna o id existente.
+     * schema, emite `resourcesChanged`.
+     *
+     * Reuso de instância é proibido: lança `ReuseError` ("instância já inserida — crie outra instância") se a
+     * raiz já está inserida, se algum recurso da árvore pertence a outra raiz viva (deste ou de outro World) ou se
+     * o mesmo recurso aparece duas vezes na árvore. Depois de `remove`, a mesma instância pode ser inserida de
+     * novo.
      */
     insert(entity: Entity): EntityId {
         if (this.entityToId.has(entity)) {
-            const existing = this.entityToId.get(entity);
-            if (existing === undefined) throw new Error('World: inconsistent insert state.');
-            return existing;
+            throw new ReuseError(
+                `World: instância já inserida — crie outra instância (${describe(entity)} já está nesta cena).`,
+            );
         }
-        const id = asEntityId(this.nextId++);
         const resources: Resource[] = [];
         const schemaNames = new Set<string>();
         const tags = new Set<string>();
 
         this.collectResources(entity, resources, schemaNames);
+        const seen = new Set<Resource>();
+        for (const r of resources) {
+            if (seen.has(r)) {
+                throw new ReuseError(
+                    `World: instância já inserida — crie outra instância (${describe(r)} aparece duas vezes na árvore).`,
+                );
+            }
+            seen.add(r);
+            const owner = OWNER_WORLD.get(r);
+            if (owner !== undefined) {
+                const where = owner === this ? 'em outra entidade desta cena' : 'em outra cena';
+                throw new ReuseError(
+                    `World: instância já inserida — crie outra instância (${describe(r)} já está ${where}).`,
+                );
+            }
+        }
+        const id = asEntityId(this.nextId++);
         const record: EntityRecord = { id, root: entity, resources, tags, schemaNames };
         this.records.set(id, record);
         this.entityToId.set(entity, id);
-        for (const r of resources) RESOURCE_TO_ENTITY_ID.set(r, id);
+        for (const r of resources) {
+            this.resourceToEntity.set(r, id);
+            OWNER_WORLD.set(r, this);
+        }
         for (const name of schemaNames) {
             let set = this.bySchema.get(name);
             if (set === undefined) {
@@ -87,6 +122,10 @@ export class World {
         }
         this.records.delete(id);
         this.entityToId.delete(entity);
+        for (const r of record.resources) {
+            this.resourceToEntity.delete(r);
+            OWNER_WORLD.delete(r);
+        }
         this.events.emit('resourcesChanged', { added: [], removed: record.resources });
         this.events.emit('entitiesRemoved', { entityIds: [id] });
     }
@@ -160,12 +199,11 @@ export class World {
     }
 
     /**
-     * Mapeia um Resource (mesmo se for `parts` de um root) para o EntityId do
-     * root onde ele está alocado. Resources que pertencem a múltiplos roots
-     * (não-suportado) retornam o último mapeado.
+     * Mapeia um Resource (mesmo se for `parts` de um root) para o EntityId do root deste World que o contém.
+     * `undefined` se o recurso não está inserido neste World (inclusive depois de `remove`).
      */
     entityIdOfResource(resource: Resource): EntityId | undefined {
-        return RESOURCE_TO_ENTITY_ID.get(resource);
+        return this.resourceToEntity.get(resource);
     }
 
     /** Resolve um EntityId para a Entity raiz inserida (ou undefined se removida). */
@@ -199,4 +237,10 @@ export class World {
             && typeof candidate.getPipelineDescriptors === 'function'
         );
     }
+}
+
+/** Nome legível de uma instância para mensagens de erro (schema do construtor, quando houver). */
+function describe(entity: object): string {
+    const schema = (entity.constructor as { schema?: { name?: string } }).schema;
+    return schema?.name !== undefined ? `'${schema.name}'` : 'a entidade';
 }

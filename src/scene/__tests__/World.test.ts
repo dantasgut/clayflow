@@ -29,13 +29,12 @@ describe('World', () => {
         expect(b > a).toBe(true);
     });
 
-    it('insert idempotente para mesma entidade', () => {
+    it('inserir a mesma entidade duas vezes lança (reuso proibido)', () => {
         const bus = new DefaultEventBus();
         const w = new World(bus);
         const e = new TestEntity();
-        const id1 = w.insert(e);
-        const id2 = w.insert(e);
-        expect(id1).toBe(id2);
+        w.insert(e);
+        expect(() => w.insert(e)).toThrow(/crie outra instância/);
     });
 
     it('queryBySchemaName encontra entidade', () => {
