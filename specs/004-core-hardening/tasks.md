@@ -185,9 +185,18 @@ limites do device (FR-014–FR-017, FR-029, FR-030).
 - [x] T068 [US5] Implementar em `src/presentation/flows/DebugFlow.ts`, `src/presentation/flows/defaults.ts` (registro uma vez por cena, contagem de aplicações), `src/presentation/input/InteractionSystem.ts`, `src/presentation/input/controllers/FpsController.ts` e `src/presentation/app/Application.ts` até T067 passar
 - [x] T069 [US5] Benchmark `--dist`: flag em `bench/core/args.ts` (+ teste em `bench/core/__tests__/args.test.ts`), alias `clayflow` → `dist/index.js` em `bench/vite.config.ts` via variável de ambiente lida pelo `bench/runner/server.ts`; documentar em `clay-engine-doc/docs/guides/benchmark.md`
 - [x] T070 [US5] Smoke `src/__smokes__/churn.ts`: 100 ciclos de inserir e remover 1 000 objetos com `app.step`; `core.memoryUsage().totalBytes` final = inicial ± 1% e contagem de ouvintes estável (SC-006); registrar no README dos smokes
-- [ ] T071 [US5] Build minificado (SC-007): `npm run build:lib`; `npm run bench -- --dist --quick --scene unique-objects,rigid-bodies --engine clayflow` comparado com a execução sobre o fonte (mesmos draw calls e status); servir os smokes `transforms`, `time`, `bigMesh`, `churn` e `limits` com o alias do dist pelo servidor do bench e confirmar o mesmo resultado; registrar em `specs/004-core-hardening/tasks.md`
+- [x] T071 [US5] Build minificado (SC-007): `npm run build:lib`; `npm run bench -- --dist --quick --scene unique-objects,rigid-bodies --engine clayflow` comparado com a execução sobre o fonte (mesmos draw calls e status); servir os smokes `transforms`, `time`, `bigMesh`, `churn` e `limits` com o alias do dist pelo servidor do bench e confirmar o mesmo resultado; registrar em `specs/004-core-hardening/tasks.md`
 
 **Checkpoint**: produção igual ao desenvolvimento; sessões longas sem acúmulo.
+
+> **Build minificado T071 (2026-10-09, SC-007)**: `npm run build:lib` (464 kB, 108 kB gzip). Bench `--quick`
+> `--engine clayflow` fonte × `--dist`: `unique-objects/1k` ok/1001 draws × ok/1001; `rigid-bodies/1k` ok/1002 ×
+> ok/1002; `rigid-bodies/10k` ok/10002 × ok/10002 (CPU por quadro equivalente: 7,92 × 7,90; 7,86 × 7,76; 100,7 × 99,7 ms).
+> Smokes sobre o dist (`npm run smoke -- … --dist`): `transforms`, `time`, `bigMesh`, `churn`, `limits`, `integration`
+> e `multiApp` PASSED — o mesmo resultado do fonte. Prova do alias: um marcador acrescentado ao `dist/index.js`
+> aparece no console com `--dist` e não aparece sem a flag. Antes da 004 o dist não desenhava nada (A2).
+> **Churn T070**: 100 × 1 000 objetos com sombra, memória 5,04 MiB estável (variação 0,000%), 14 ouvintes
+> constantes; sem a liberação por entidade a memória vai a 1 218 MiB e o smoke falha.
 
 ---
 
