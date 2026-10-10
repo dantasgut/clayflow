@@ -16,7 +16,7 @@ os equivalentes 1:1 entre as APIs.
 |---|---|
 | `import { ... } from 'webgpu-engine/legacy'` | `import { ... } from 'webgpu-engine'` |
 | `createGpuPhysicsWorld(canvas)` | `await Application.create({ canvas })` |
-| `physicsWorld.update(dt)` | `app.events.emit('frameTick', { dt, elapsed })` |
+| `physicsWorld.update(dt)` | `app.step(dt)` |
 | `physicsWorld.bodies.push(rb)` | `app.world.insert(new RigidBody(...))` |
 | `new SoftBody({ algorithm: 'XPBD' })` | `new SoftBody({}, { algorithm: 'XPBD' })` |
 | `Physics.LCPSolver` | `new LCPFlow(app.core, app.world, app.resources)` registrado em `app.flows` |
@@ -173,6 +173,21 @@ t.data.position[0] = 5; // a mudança aparece no quadro seguinte, sem chamada ma
   ignorado com um aviso. A física publica só a pose no `Transform`; a escala visual é sua.
 - Transformações que não cabem em posição/rotação/escala: registre um Flow próprio na fase `transform` (e, no
   roadmap, o ponto de extensão `transform` da F3).
+
+## Mudanças incompatíveis da spec 004 (endurecimento do núcleo)
+
+| Antes | Agora |
+| --- | --- |
+| Alterar uma spec depois de `core.create(spec)` | `TypeError` — specs criadas são congeladas; crie uma spec nova |
+| `core.destroy(spec)` destruía o objeto de qualquer spec de mesmo conteúdo | libera só a posse daquela spec; o objeto morre com o último dono |
+| `scene.add(e); scene.add(e)` ou o mesmo `Material` em duas entidades | `ReuseError` "instância já inserida — crie outra instância" |
+| Física avançava 1/60 s por quadro (velocidade dependia do monitor) | avança pelo tempo: `fixedDt` (default 1/60) com acumulador e teto de 4 passos |
+| Emitir `frameTick` à mão para avançar um quadro | `app.step(dt?, frames?)`; `frameTick` traz `{ dt, realDt, elapsed, frame }` |
+| `Time` em `presentation/app`, um por `Application` | `Time` na C2 (`scene/time`), um por cena; `app.time` é o da cena |
+| Opção `fixedDt` dos Flows de física | removida — o passo vem do `Time` da cena (`substeps` continua) |
+| Malhas com mais de 65 535 vértices quebravam | índices `uint32` automáticos (`Geometry.indexFormat`) |
+| `pass.dispatch.workgroups(n)` acima de 65 535 grupos falhava em silêncio | `RangeError` nomeando o limite; use `pass.dispatch.invocations(count, workgroupSize)` |
+| `Application.dispose` numa cena passada em `options.scene` sempre a descartava | a cena é descartada com a última aplicação que a usa; os estágios padrão são registrados uma vez por cena |
 
 ## Convivência durante a transição
 

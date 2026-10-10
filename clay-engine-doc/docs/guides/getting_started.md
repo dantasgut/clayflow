@@ -108,6 +108,34 @@ A matriz de mundo é calculada na GPU pelo `TransformFlow` (fase `transform`) a 
 qualquer recurso (ex.: `material.data.albedo[0] = 1`). Dados em `Float32Array`/`Uint16Array` (vértices, índices)
 são rastreados quando o campo é reatribuído.
 
+## Tempo, passo fixo e avanço sem laço
+
+`app.time` governa a simulação. A física avança em passos fixos (`fixedDt`, default 1/60 s) com acumulador: o
+resultado é o mesmo a 30, 60 ou 144 Hz. `scale` muda a velocidade de tudo; `pausePhysics()` para só a física.
+
+```typescript
+app.time.scale = 0.25;            // câmera lenta
+app.time.pausePhysics();          // física parada, desenho continua
+app.time.fixedDt = 1 / 120;       // passo fixo menor (mais preciso)
+app.events.on('timeDropped', ({ dropped }) => console.warn(`quadro lento: ${dropped}s descartados`));
+
+// Sem laço (testes, pré-cálculo, captura): 300 quadros de 1/60 s
+app.step(1 / 60, 300);
+```
+
+## Dispositivo e capacidades
+
+```typescript
+const app = await Application.create({
+  canvas,
+  device: { powerPreference: 'high-performance', optionalFeatures: ['timestamp-query'] },
+});
+console.log(app.capabilities.adapter.description, app.capabilities.limits.maxStorageBufferBindingSize);
+```
+
+Features obrigatórias ausentes (`requiredFeatures`) falham na criação com mensagem que nomeia a feature; desejadas
+ausentes aparecem em `app.capabilities.missingFeatures`. O motor pede os limites de que precisa no máximo do adaptador.
+
 ## Próximos passos
 
 - **Adicionar física**: crie bodies em vocabulário de domínio — `new RigidBody({ shape: 'sphere', radius: 0.4, mass: 1 })`, `new SoftBody({ algorithm: 'XPBD', position, mass })`, `new FluidBody({ algorithm: 'MPM', position })` — e `app.world.insert(body)`. O Flow correspondente é **auto-registrado** (sem `flows.register` manual). Veja [Physics Flows](./physics_flows.md).
@@ -123,7 +151,10 @@ são rastreados quando o campo é reatribuído.
 | `app.world.insert(entity)` | Adiciona uma entidade. Resources são auto-alocados. |
 | `entity.add(part)` | Composição: `BoxGeometry.add(StandardMaterial).add(Transform)`. |
 | `app.flows.register(flow)` | Registra um Flow customizado (ex.: `LCPFlow`, `MPMFlow`). |
-| `app.events.on('frameTick', ...)` | Subscribe a eventos do GameLoop. |
+| `app.events.on('frameTick', ...)` | Subscribe ao quadro (`{ dt, realDt, elapsed, frame }`). |
+| `app.step(dt?, frames?)` | Avança quadros sem o laço (testes, headless). |
+| `app.time` | Escala, pausa e passo fixo da simulação. |
+| Uma instância por objeto | Inserir a mesma instância duas vezes lança `ReuseError` — crie outra. |
 
 ## Comandos do projeto
 
