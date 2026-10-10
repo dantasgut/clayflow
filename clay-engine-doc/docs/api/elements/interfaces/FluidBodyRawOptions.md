@@ -6,9 +6,9 @@
 
 # Interface: FluidBodyRawOptions
 
-Defined in: [elements/physics/bodies/FluidBody.ts:33](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/bodies/FluidBody.ts#L33)
+Defined in: [elements/physics/bodies/FluidBody.ts:34](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/FluidBody.ts#L34)
 
-Opções cruas (avançado) — schema + data diretos. Retrocompat.
+Opções cruas do FluidBody: schema do struct de GPU e dado do struct.
 
 ## Properties
 
@@ -16,7 +16,9 @@ Opções cruas (avançado) — schema + data diretos. Retrocompat.
 
 > `readonly` `optional` **data?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [elements/physics/bodies/FluidBody.ts:35](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/bodies/FluidBody.ts#L35)
+Defined in: [elements/physics/bodies/FluidBody.ts:38](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/FluidBody.ts#L38)
+
+Dado cru do struct (campos do schema); ausentes recebem default.
 
 ***
 
@@ -24,4 +26,6 @@ Defined in: [elements/physics/bodies/FluidBody.ts:35](https://github.com/dantasg
 
 > `readonly` **schema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/FluidBody.ts:34](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/bodies/FluidBody.ts#L34)
+Defined in: [elements/physics/bodies/FluidBody.ts:36](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/FluidBody.ts#L36)
+
+Schema do struct da partícula (layout de GPU) — define o algoritmo pelo nome do pool.

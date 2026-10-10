@@ -6,7 +6,11 @@
 
 # Class: MPMFlow
 
-Defined in: [elements/physics/flows/MPMFlow.ts:38](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L38)
+Defined in: [elements/physics/flows/MPMFlow.ts:46](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L46)
+
+MPMFlow — fluidos por Material Point Method (limpa grade → P2G → atualização da grade → G2P). O quadro executa
+`time.steps × substeps` iterações, cada uma com a sua região de `MPMSimParams` (`dt = stepDt / substeps`,
+`dt_frame = stepDt`) ligada por offset dinâmico.
 
 ## Extends
 
@@ -18,7 +22,7 @@ Defined in: [elements/physics/flows/MPMFlow.ts:38](https://github.com/dantasgut/
 
 > **new MPMFlow**(`core`, `world`, `resources`, `options?`): `MPMFlow`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:57](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L57)
+Defined in: [elements/physics/flows/MPMFlow.ts:64](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L64)
 
 #### Parameters
 
@@ -52,7 +56,7 @@ Defined in: [elements/physics/flows/MPMFlow.ts:57](https://github.com/dantasgut/
 
 > `readonly` **bodyType**: `string`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:40](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L40)
+Defined in: [elements/physics/flows/MPMFlow.ts:48](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L48)
 
 Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
 para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
@@ -69,7 +73,7 @@ para encontrar o flow responsável por cada Resource.
 
 > `readonly` **phase**: `Phase` = `'physics'`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:41](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L41)
+Defined in: [elements/physics/flows/MPMFlow.ts:49](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L49)
 
 Fase do pipeline em que o flow executa.
 
@@ -83,7 +87,7 @@ Fase do pipeline em que o flow executa.
 
 > **priority**: `number` = `0`
 
-Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L46)
+Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L46)
 
 Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 Útil quando dois flows compartilham phase mas têm dependência de ordem
@@ -99,7 +103,7 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"MPMFlow"` = `'MPMFlow'`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:39](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L39)
+Defined in: [elements/physics/flows/MPMFlow.ts:47](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L47)
 
 Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
@@ -113,7 +117,7 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:260](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L260)
+Defined in: [elements/physics/flows/MPMFlow.ts:273](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L273)
 
 Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
 contém o command encoder ativo — use `frame.compute(...)` ou
@@ -135,11 +139,29 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 ***
 
+### dispose()
+
+> **dispose**(): `void`
+
+Defined in: [elements/physics/flows/MPMFlow.ts:118](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L118)
+
+Descarte do estágio: libera kernels, parâmetros, grade e colisores.
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+`Flow.dispose`
+
+***
+
 ### getPipelineDescriptors()
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/MPMFlow.ts:72](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L72)
+Defined in: [elements/physics/flows/MPMFlow.ts:82](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L82)
 
 Retorna os descritores de pipelines GPU que este flow precisa criar
 (para introspeção arquitetural / debugging — o flow ainda materializa
@@ -159,7 +181,7 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:107](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L107)
+Defined in: [elements/physics/flows/MPMFlow.ts:127](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L127)
 
 Indica se o flow tem trabalho válido para esta frame. Default: true
 (sempre dispatch). Override para gating em prerequisites: e.g. presença
@@ -180,7 +202,7 @@ ExecutionSystem skipa flows com `isReady() === false`.
 
 > **onCanvasResized**(`_width`, `_height`): `void`
 
-Defined in: [scene/flows/Flow.ts:97](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L97)
+Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L114)
 
 Chamado quando o canvas é redimensionado. Subclasses que mantêm
 textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
@@ -208,11 +230,37 @@ para evitar use-after-free na GPU.
 
 ***
 
+### onEntitiesInserted()
+
+> **onEntitiesInserted**(`_entityIds`): `void`
+
+Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L94)
+
+Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
+um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
+cada quadro.
+
+#### Parameters
+
+##### \_entityIds
+
+readonly `number`[]
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+`Flow.onEntitiesInserted`
+
+***
+
 ### onEntitiesRemoved()
 
 > **onEntitiesRemoved**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:86](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L86)
+Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L103)
 
 Chamado quando entidades são removidas do World. Subclasses que
 cacheiam slots por EntityId devem limpar os entries afetados para
@@ -238,7 +286,7 @@ readonly `number`[]
 
 > **onEvent**(`_event`, `_payload`): `void`
 
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L66)
+Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L66)
 
 Hook genérico de eventos. Default no-op. A maioria dos flows usa os
 hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
@@ -267,7 +315,7 @@ hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:111](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/MPMFlow.ts#L111)
+Defined in: [elements/physics/flows/MPMFlow.ts:131](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/MPMFlow.ts#L131)
 
 Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
 ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam

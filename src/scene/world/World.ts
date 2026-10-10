@@ -18,6 +18,7 @@ interface EntityRecord {
  * GPU por conteúdo).
  */
 export class ReuseError extends Error {
+    /** Nome do erro (`'ReuseError'`). */
     override readonly name = 'ReuseError';
 }
 

@@ -12,8 +12,18 @@ import { PhysicsBody } from './PhysicsBody';
  * e o colisor anexado automaticamente.
  */
 export type RigidBodyShape =
-    | { readonly shape: 'sphere'; readonly radius: number }
-    | { readonly shape: 'box'; readonly halfExtents: readonly [number, number, number] };
+    | {
+          /** Esfera. */
+          readonly shape: 'sphere';
+          /** Raio em metros. */
+          readonly radius: number;
+      }
+    | {
+          /** Caixa. */
+          readonly shape: 'box';
+          /** Meias-extensões em metros (x, y, z). */
+          readonly halfExtents: readonly [number, number, number];
+      };
 
 /**
  * Opções de domínio do RigidBody dinâmico — vocabulário de física (massa,
@@ -42,7 +52,9 @@ export type RigidBodyDomainOptions = RigidBodyShape & {
  * Mantida para retrocompatibilidade e tuning de baixo nível.
  */
 export interface RigidBodyRawOptions {
+    /** Schema do struct do corpo (layout de GPU) — define o algoritmo pelo nome do pool. */
     readonly schema: StructSchema;
+    /** Dado cru do struct (campos do schema); ausentes recebem default. */
     readonly data?: Record<string, unknown>;
 }
 

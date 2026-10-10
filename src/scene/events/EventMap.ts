@@ -54,6 +54,7 @@ export interface CanvasReconfiguredPayload {
  * é inserida. Estágios mantêm seus conjuntos de entidades por `Flow.onEntitiesInserted`.
  */
 export interface EntitiesInsertedPayload {
+    /** Ids das entidades raiz inseridas. */
     readonly entityIds: readonly EntityId[];
 }
 
@@ -63,6 +64,7 @@ export interface EntitiesInsertedPayload {
  * os entries afetados via `Flow.onEntitiesRemoved`.
  */
 export interface EntitiesRemovedPayload {
+    /** Ids das entidades raiz removidas. */
     readonly entityIds: readonly EntityId[];
 }
 

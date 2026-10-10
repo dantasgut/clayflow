@@ -115,6 +115,7 @@ export class Time extends Entity implements Resource {
     get scale(): number {
         return this.clock.scale;
     }
+    /** Define a velocidade global (≥ 0); vale a partir do próximo `advance`. @throws RangeError se negativa ou não finita. */
     set scale(value: number) {
         this.clock.scale = requireNonNegative('scale', value);
     }
@@ -123,6 +124,7 @@ export class Time extends Entity implements Resource {
     get physicsScale(): number {
         return this.clock.physicsScale;
     }
+    /** Define o multiplicador da física (≥ 0). @throws RangeError se negativo ou não finito. */
     set physicsScale(value: number) {
         this.clock.physicsScale = requireNonNegative('physicsScale', value);
     }
@@ -131,6 +133,7 @@ export class Time extends Entity implements Resource {
     get fixedDt(): number | undefined {
         return this.clock.fixedDt;
     }
+    /** Define o passo fixo (s, > 0) ou `undefined` (passo variável, zera o acumulador). @throws RangeError se ≤ 0. */
     set fixedDt(value: number | undefined) {
         this.clock.fixedDt = value === undefined ? undefined : requirePositive('fixedDt', value);
         if (value === undefined) this.clock.accumulator = 0;
@@ -140,6 +143,7 @@ export class Time extends Entity implements Resource {
     get maxStepsPerFrame(): number {
         return this.clock.maxStepsPerFrame;
     }
+    /** Define o teto de passos por quadro (inteiro ≥ 1). @throws RangeError se inválido. */
     set maxStepsPerFrame(value: number) {
         if (!Number.isInteger(value) || value < 1) {
             throw new RangeError(`Time.maxStepsPerFrame deve ser inteiro ≥ 1 (recebido ${value}).`);
@@ -151,6 +155,7 @@ export class Time extends Entity implements Resource {
     get maxFrameDt(): number {
         return this.clock.maxFrameDt;
     }
+    /** Define o teto da duração real do quadro (s, > 0). @throws RangeError se ≤ 0. */
     set maxFrameDt(value: number) {
         this.clock.maxFrameDt = requirePositive('maxFrameDt', value);
     }

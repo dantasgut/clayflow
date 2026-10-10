@@ -6,7 +6,11 @@
 
 # Class: SPHFlow
 
-Defined in: [elements/physics/flows/SPHFlow.ts:33](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L33)
+Defined in: [elements/physics/flows/SPHFlow.ts:41](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L41)
+
+SPHFlow — fluidos por Smoothed Particle Hydrodynamics. O quadro executa `time.steps × substeps` iterações; cada
+uma reconstrói a vizinhança e roda densidade → pressão → forças → integração → colisão com a sua região de
+`SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico.
 
 ## Extends
 
@@ -18,7 +22,7 @@ Defined in: [elements/physics/flows/SPHFlow.ts:33](https://github.com/dantasgut/
 
 > **new SPHFlow**(`core`, `world`, `resources`, `options?`): `SPHFlow`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:51](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L51)
+Defined in: [elements/physics/flows/SPHFlow.ts:58](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L58)
 
 #### Parameters
 
@@ -52,7 +56,7 @@ Defined in: [elements/physics/flows/SPHFlow.ts:51](https://github.com/dantasgut/
 
 > `readonly` **bodyType**: `"SPHSchema"` = `'SPHSchema'`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:35](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L35)
+Defined in: [elements/physics/flows/SPHFlow.ts:43](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L43)
 
 Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
 para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
@@ -69,7 +73,7 @@ para encontrar o flow responsável por cada Resource.
 
 > `readonly` **phase**: `Phase` = `'physics'`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:36](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L36)
+Defined in: [elements/physics/flows/SPHFlow.ts:44](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L44)
 
 Fase do pipeline em que o flow executa.
 
@@ -83,7 +87,7 @@ Fase do pipeline em que o flow executa.
 
 > **priority**: `number` = `0`
 
-Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L46)
+Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L46)
 
 Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 Útil quando dois flows compartilham phase mas têm dependência de ordem
@@ -99,7 +103,7 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"SPHFlow"` = `'SPHFlow'`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:34](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L34)
+Defined in: [elements/physics/flows/SPHFlow.ts:42](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L42)
 
 Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
@@ -113,7 +117,7 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:269](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L269)
+Defined in: [elements/physics/flows/SPHFlow.ts:285](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L285)
 
 Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
 contém o command encoder ativo — use `frame.compute(...)` ou
@@ -135,11 +139,29 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 ***
 
+### dispose()
+
+> **dispose**(): `void`
+
+Defined in: [elements/physics/flows/SPHFlow.ts:121](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L121)
+
+Descarte do estágio: libera kernels, parâmetros, colisores e a busca de vizinhança.
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+`Flow.dispose`
+
+***
+
 ### getPipelineDescriptors()
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/SPHFlow.ts:69](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L69)
+Defined in: [elements/physics/flows/SPHFlow.ts:79](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L79)
 
 Retorna os descritores de pipelines GPU que este flow precisa criar
 (para introspeção arquitetural / debugging — o flow ainda materializa
@@ -159,7 +181,7 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:110](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L110)
+Defined in: [elements/physics/flows/SPHFlow.ts:130](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L130)
 
 Indica se o flow tem trabalho válido para esta frame. Default: true
 (sempre dispatch). Override para gating em prerequisites: e.g. presença
@@ -180,7 +202,7 @@ ExecutionSystem skipa flows com `isReady() === false`.
 
 > **onCanvasResized**(`_width`, `_height`): `void`
 
-Defined in: [scene/flows/Flow.ts:97](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L97)
+Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L114)
 
 Chamado quando o canvas é redimensionado. Subclasses que mantêm
 textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
@@ -208,11 +230,37 @@ para evitar use-after-free na GPU.
 
 ***
 
+### onEntitiesInserted()
+
+> **onEntitiesInserted**(`_entityIds`): `void`
+
+Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L94)
+
+Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
+um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
+cada quadro.
+
+#### Parameters
+
+##### \_entityIds
+
+readonly `number`[]
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+`Flow.onEntitiesInserted`
+
+***
+
 ### onEntitiesRemoved()
 
 > **onEntitiesRemoved**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:86](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L86)
+Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L103)
 
 Chamado quando entidades são removidas do World. Subclasses que
 cacheiam slots por EntityId devem limpar os entries afetados para
@@ -238,7 +286,7 @@ readonly `number`[]
 
 > **onEvent**(`_event`, `_payload`): `void`
 
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/flows/Flow.ts#L66)
+Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L66)
 
 Hook genérico de eventos. Default no-op. A maioria dos flows usa os
 hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
@@ -267,7 +315,7 @@ hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:114](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/flows/SPHFlow.ts#L114)
+Defined in: [elements/physics/flows/SPHFlow.ts:134](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/flows/SPHFlow.ts#L134)
 
 Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
 ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam

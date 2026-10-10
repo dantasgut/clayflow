@@ -213,7 +213,14 @@ export interface EngineCore {
      * Tamanho atual do canvas anexado (pixels do backbuffer), ou `undefined` sem canvas. Usado pela C2 para
      * alocar texturas declaradas com `sizeFromCanvas`.
      */
-    canvasSize(): { readonly width: number; readonly height: number } | undefined;
+    canvasSize():
+        | {
+              /** Largura em pixels do backbuffer. */
+              readonly width: number;
+              /** Altura em pixels do backbuffer. */
+              readonly height: number;
+          }
+        | undefined;
 
     /**
      * Capacidades efetivas do device atual: adaptador, preferência de potência, features obtidas e ausentes,

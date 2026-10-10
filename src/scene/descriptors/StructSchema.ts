@@ -17,9 +17,11 @@ interface StructFieldLayout {
 
 /** Atributo de vértice compacto: posição no vértice intercalado e formato WebGPU. */
 export interface VertexAttributeLayout {
+    /** Nome do campo no schema. */
     readonly name: string;
     /** Bytes desde o início do vértice. */
     readonly offset: number;
+    /** Formato do atributo no WebGPU (ex.: `'float32x3'`). */
     readonly format: GPUVertexFormat;
 }
 

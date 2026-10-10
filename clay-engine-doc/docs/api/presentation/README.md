@@ -99,3 +99,4 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [interactionPlugin](functions/interactionPlugin.md)
 - [physicsPlugin](functions/physicsPlugin.md)
 - [registerPresentationDefaults](functions/registerPresentationDefaults.md)
+- [releasePresentationDefaults](functions/releasePresentationDefaults.md)

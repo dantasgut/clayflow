@@ -78,10 +78,6 @@ export class InteractionSystem {
         this.touch.detach();
     }
 
-    /**
-     * Adiciona um controller que será atualizado a cada frameTick. Common
-     * controllers: OrbitController, FpsController, FlyController.
-     */
     /** Descarte: `detach` e descarte dos controllers adicionados (ouvintes de DOM deles). */
     dispose(): void {
         this.detach();
@@ -89,6 +85,10 @@ export class InteractionSystem {
         this.controllers.length = 0;
     }
 
+    /**
+     * Adiciona um controller que será atualizado a cada frameTick. Common
+     * controllers: OrbitController, FpsController, FlyController.
+     */
     addController(controller: InputDrivenController): void {
         this.controllers.push(controller);
     }

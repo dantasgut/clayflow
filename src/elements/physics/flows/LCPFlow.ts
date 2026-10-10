@@ -106,10 +106,13 @@ const SHAPE_POOLS: readonly ShapePool[] = [
     { poolKey: 'MeshCollider', bindingIndex: 8, entryPoint: 'rb_narrowphase_mesh_main' },
 ];
 
+/** Opções do `LCPFlow`. */
 export interface LCPFlowOptions {
+    /** Pool dos corpos rígidos (default `'LCPSchema'`). */
     readonly bodiesPoolKey?: string;
     /** Substeps de detecção + solve por passo de física (default 4). O passo vem do `Time` da cena. */
     readonly substeps?: number;
+    /** Iterações de Gauss-Seidel do solve por substep (default 8). */
     readonly solveIters?: number;
 }
 

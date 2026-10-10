@@ -9,6 +9,7 @@ export {
 } from './FieldType';
 export { Schema } from './Schema';
 export { StructSchema } from './StructSchema';
+export type { VertexLayout, VertexAttributeLayout } from './StructSchema';
 export { TensorSchema } from './TensorSchema';
 export type { TextureShape } from './TextureShape';
 export type { SamplerShape } from './SamplerShape';

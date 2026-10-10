@@ -35,6 +35,7 @@ export type { GPUDescriptor, GPUDescriptorRole } from './descriptors/GPUDescript
 export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';
 export type { FlowDescriptor } from './descriptors/FlowDescriptor';
 export type { TextureShape } from './descriptors/TextureShape';
+export type { VertexLayout, VertexAttributeLayout } from './descriptors/index';
 export type { SamplerShape } from './descriptors/SamplerShape';
 export {
     FieldType,
@@ -83,12 +84,14 @@ export type {
     PoolReallocatedEvent,
     BindGroupReplacedEvent,
     FrameTickEvent,
+    TimeDroppedEvent,
     FrameCompleteEvent,
     FrameRecordingEvent,
     FlowReadyPayload,
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
+    EntitiesInsertedPayload,
     EntitiesRemovedPayload,
     ProfilerStatsPayload,
     EngineErrorPayload,

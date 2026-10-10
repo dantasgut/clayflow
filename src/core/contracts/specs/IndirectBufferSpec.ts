@@ -15,6 +15,7 @@ import type { BufferSpec } from './BufferSpec';
  * `pass.dispatch.indirect(spec, offset)`.
  */
 export interface IndirectBufferSpec extends BufferSpec {
+    /** Subdiscriminador concreto — sempre `'indirect'`. */
     readonly subkind: 'indirect';
     /** Tamanho em bytes (múltiplos de draw/dispatch struct size). */
     readonly byteSize: number;

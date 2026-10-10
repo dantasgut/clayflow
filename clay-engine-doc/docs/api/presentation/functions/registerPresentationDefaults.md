@@ -8,16 +8,18 @@
 
 > **registerPresentationDefaults**(`flows`, `options`): [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/flows/defaults.ts:60](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/flows/defaults.ts#L60)
+Defined in: [presentation/flows/defaults.ts:71](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/presentation/flows/defaults.ts#L71)
 
-Cria e registra os 5 Flows default no FlowRegistry, com bindings adequados
-(forward bind shadow, post bind forward, debug bind events).
+Registra os Flows default da cena — Transform, Shadow, Forward, Post, Debug e UI — com bindings adequados
+(forward bind shadow, post bind forward, debug bind events). **Uma vez por cena**: chamadas seguintes com o
+mesmo `FlowRegistry` devolvem os mesmos estágios e contam mais um usuário (várias aplicações na mesma cena não
+duplicam estágios). Cada chamada deve ser pareada com `releasePresentationDefaults`.
 
 Ordem importa: Shadow → Forward → Post → Debug → UI (priority dentro
 das phases).
 
-Chamado uma vez por `Application.create`. Apps que querem pipeline
-customizado podem ignorar e construir flows manualmente.
+Chamado por `Application.create`. Apps que querem pipeline customizado podem ignorar e construir flows
+manualmente.
 
 ## Parameters
 
