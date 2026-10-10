@@ -296,24 +296,28 @@ export class MPMFlow extends Flow {
         const g2p = this.g2pKernel;
         if (clear === null || p2g === null || gridUpdate === null || g2p === null) return;
 
-        const particleWg = Math.ceil(count / 64);
-        const gridWg = Math.ceil(this.gridCellCount() / 64);
-        const run = (label: string, k: ComputeKernel, groups: number, offset: number[]): void => {
+        const cells = this.gridCellCount();
+        const run = (
+            label: string,
+            k: ComputeKernel,
+            invocations: number,
+            offset: number[],
+        ): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(k.pipeline);
                 // Grupo 0 = parâmetros (offset dinâmico da iteração); demais grupos sem offset.
                 k.bindGroups.forEach((bg, g) => {
                     pass.bind.setBindGroup(g, bg, g === 0 ? offset : undefined);
                 });
-                pass.dispatch.workgroups(groups);
+                pass.dispatch.invocations(invocations, 64);
             });
         };
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
-            run('MPMFlow.clear_grid', clear, gridWg, offset);
-            run('MPMFlow.p2g', p2g, particleWg, offset);
-            run('MPMFlow.grid_update', gridUpdate, gridWg, offset);
-            run('MPMFlow.g2p', g2p, particleWg, offset);
+            run('MPMFlow.clear_grid', clear, cells, offset);
+            run('MPMFlow.p2g', p2g, count, offset);
+            run('MPMFlow.grid_update', gridUpdate, cells, offset);
+            run('MPMFlow.g2p', g2p, count, offset);
         }
     }
 }

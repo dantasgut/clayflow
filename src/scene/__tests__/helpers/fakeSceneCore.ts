@@ -16,7 +16,11 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
             setPipeline: () => pass.bind,
             setBindGroup: () => pass.bind,
         },
-        dispatch: { workgroups: () => pass.dispatch, workgroupsIndirect: () => pass.dispatch },
+        dispatch: {
+            workgroups: () => pass.dispatch,
+            invocations: () => pass.dispatch,
+            workgroupsIndirect: () => pass.dispatch,
+        },
         geometry: { vertex: () => pass.geometry, index: () => pass.geometry },
         draw: { indexed: () => pass.draw, vertices: () => pass.draw },
         marker: () => undefined,

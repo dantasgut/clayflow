@@ -1,21 +1,21 @@
-// portado de legacy/elements/physics/gpu/wgsl/kernels/ns_scan_groups.wgsl.ts
-@group(0) @binding(0) var<uniform>             ns_params:  NsSimParams;
-@group(1) @binding(0) var<storage, read_write> group_sums: array<u32>;
+// Soma de prefixos exclusiva do nível de topo (≤ 256 elementos), num único grupo, no próprio buffer
+// (spec 004, R17).
+@group(0) @binding(0) var<uniform>             level:  NsScanLevel;
+@group(1) @binding(0) var<storage, read_write> values: array<u32>;
 
 var<workgroup> shared_gs: array<u32, 256>;
 
 @compute @workgroup_size(256)
 fn ns_scan_groups_main(
-    @builtin(global_invocation_id) gid:  vec3u,
-    @builtin(local_invocation_id)  lid:  vec3u,
+    @builtin(local_invocation_id) lid: vec3u,
 ) {
-    let n_groups = (ns_params.dims.w + 255u) / 256u;
-    let local_i  = lid.x;
+    let n       = level.count;
+    let local_i = lid.x;
 
-    shared_gs[local_i] = select(0u, group_sums[local_i], local_i < n_groups);
+    shared_gs[local_i] = select(0u, values[min(local_i, n - 1u)], local_i < n);
     workgroupBarrier();
 
-    // Hillis-Steele inclusive scan
+    // Hillis-Steele inclusiva
     var offset = 1u;
     loop {
         if (offset >= 256u) { break; }
@@ -29,10 +29,9 @@ fn ns_scan_groups_main(
         offset <<= 1u;
     }
 
-    // Converte inclusive → exclusivo
-    let excl = select(0u, shared_gs[local_i - 1u], local_i > 0u);
-
-    if (local_i < n_groups) {
-        group_sums[local_i] = excl;
+    // Inclusiva → exclusiva
+    let excl = select(0u, shared_gs[max(local_i, 1u) - 1u], local_i > 0u);
+    if (local_i < n) {
+        values[local_i] = excl;
     }
 }

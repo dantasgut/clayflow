@@ -242,12 +242,11 @@ export class XPBDFlow extends Flow {
             distance !== null
             && this.constraintPoolKey !== null
             && this.resources.poolCount(this.constraintPoolKey) > 0;
-        const wgs = Math.ceil(count / 64);
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
             frame.compute('XPBDFlow.predict', (pass) => {
                 pass.bind.setPipeline(predict.pipeline).setBindGroup(0, predict.bindGroup, offset);
-                pass.dispatch.workgroups(wgs);
+                pass.dispatch.invocations(count, 64);
             });
             if (solveConstraints) {
                 for (let it = 0; it < this.solverIters; it++) {
@@ -263,7 +262,7 @@ export class XPBDFlow extends Flow {
                 pass.bind
                     .setPipeline(velUpdate.pipeline)
                     .setBindGroup(0, velUpdate.bindGroup, offset);
-                pass.dispatch.workgroups(wgs);
+                pass.dispatch.invocations(count, 64);
             });
         }
     }

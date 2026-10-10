@@ -98,7 +98,7 @@ export class TransformFlow extends Flow {
         this.writeParams(count);
         frame.compute('TransformFlow', (pass) => {
             pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
-            pass.dispatch.workgroups(Math.ceil(count / WORKGROUP_SIZE));
+            pass.dispatch.invocations(count, WORKGROUP_SIZE);
         });
         this.needsDispatch = false;
     }

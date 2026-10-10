@@ -571,7 +571,6 @@ export class LCPFlow extends Flow {
         const predict = this.predictKernel;
         const commit = this.commitKernel;
         if (predict === null || commit === null) return;
-        const predictGroups = Math.ceil(bodyCount / 64);
 
         for (let step = 0; step < steps; step++) {
             const stepOffset = [this.params.offset(step * perStep)];
@@ -580,7 +579,7 @@ export class LCPFlow extends Flow {
                 pass.bind
                     .setPipeline(predict.pipeline)
                     .setBindGroup(0, predict.bindGroup, stepOffset);
-                pass.dispatch.workgroups(predictGroups);
+                pass.dispatch.invocations(bodyCount, 64);
             });
 
             if (totalCol > 0) {
@@ -597,13 +596,12 @@ export class LCPFlow extends Flow {
                             contacts,
                         );
                         if (kernel === null) continue;
-                        const groups = Math.ceil((bodyCount * info.count) / 64);
                         const label = `LCPFlow.narrowphase.${info.shape.poolKey}`;
                         frame.compute(label, (pass) => {
                             pass.bind
                                 .setPipeline(kernel.pipeline)
                                 .setBindGroup(0, kernel.bindGroup, subOffset);
-                            pass.dispatch.workgroups(groups);
+                            pass.dispatch.invocations(bodyCount * info.count, 64);
                         });
                     }
 
@@ -611,12 +609,11 @@ export class LCPFlow extends Flow {
                     this.ensureBuildLcpKernel(bodiesBuf, contacts, bVec);
                     const build = this.buildLcpKernel;
                     if (build === null) continue;
-                    const buildGroups = Math.ceil((bodyCount * totalCol) / 64);
                     frame.compute('LCPFlow.buildLcp', (pass) => {
                         pass.bind
                             .setPipeline(build.pipeline)
                             .setBindGroup(0, build.bindGroup, subOffset);
-                        pass.dispatch.workgroups(buildGroups);
+                        pass.dispatch.invocations(bodyCount * totalCol, 64);
                     });
 
                     // Fase 3 — SolvePGS×K (single-threaded)
@@ -637,7 +634,7 @@ export class LCPFlow extends Flow {
                 pass.bind
                     .setPipeline(commit.pipeline)
                     .setBindGroup(0, commit.bindGroup, stepOffset);
-                pass.dispatch.workgroups(predictGroups);
+                pass.dispatch.invocations(bodyCount, 64);
             });
         }
 

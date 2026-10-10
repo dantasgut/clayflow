@@ -191,18 +191,17 @@ export class FEMFlow extends Flow {
         if (this.predictKernel === null || this.velUpdateKernel === null) return;
         const predict = this.predictKernel;
         const velUpdate = this.velUpdateKernel;
-        const wgs = Math.ceil(count / 64);
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
             frame.compute('FEMFlow.predict', (pass) => {
                 pass.bind.setPipeline(predict.pipeline).setBindGroup(0, predict.bindGroup, offset);
-                pass.dispatch.workgroups(wgs);
+                pass.dispatch.invocations(count, 64);
             });
             frame.compute('FEMFlow.velocity_update', (pass) => {
                 pass.bind
                     .setPipeline(velUpdate.pipeline)
                     .setBindGroup(0, velUpdate.bindGroup, offset);
-                pass.dispatch.workgroups(wgs);
+                pass.dispatch.invocations(count, 64);
             });
         }
     }

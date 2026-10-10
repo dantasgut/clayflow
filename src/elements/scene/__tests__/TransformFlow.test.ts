@@ -33,6 +33,7 @@ function setup(count = 3) {
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
     } as unknown as EngineCore;
+    /** Invocações pedidas por despacho (`invocations(count, 64)`). */
     const workgroups: number[] = [];
     const bindGroups: BindGroupSpec[] = [];
     const frame = {
@@ -46,8 +47,9 @@ function setup(count = 3) {
                     },
                 },
                 dispatch: {
-                    workgroups: (x: number) => {
-                        workgroups.push(x);
+                    invocations: (count: number, size: number) => {
+                        expect(size).toBe(64);
+                        workgroups.push(count);
                         return pass.dispatch;
                     },
                 },
@@ -70,12 +72,12 @@ describe('TransformFlow', () => {
         expect(setup().flow.phase).toBe('transform');
     });
 
-    it('despacha na primeira vez com ceil(count/64) workgroups e não repete sem mudança', () => {
+    it('despacha na primeira vez com invocations(count, 64) e não repete sem mudança', () => {
         const { flow, frame, workgroups } = setup(130);
         flow.dispatch(frame);
-        expect(workgroups).toEqual([3]);
+        expect(workgroups).toEqual([130]);
         flow.dispatch(frame);
-        expect(workgroups).toEqual([3]);
+        expect(workgroups).toEqual([130]);
     });
 
     it('despacha de novo após resourceReady de um recurso do pool Transform', () => {

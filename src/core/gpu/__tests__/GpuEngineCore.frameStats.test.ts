@@ -28,6 +28,7 @@ function fakeDevice(features: readonly string[]) {
     };
     const device = {
         features: new Set(features),
+        limits: { maxComputeWorkgroupsPerDimension: 65_535 },
         queue: { submit: vi.fn(), writeBuffer: vi.fn() },
         createCommandEncoder: vi.fn(() => encoder),
         createQuerySet: vi.fn(() => ({ destroy: vi.fn() })),

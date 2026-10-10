@@ -317,7 +317,6 @@ export class SPHFlow extends Flow {
             return;
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
-        const wgs = Math.ceil(count / 64);
         const run = (label: string, k: ComputeKernel, offset: number[]): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(k.pipeline);
@@ -325,7 +324,7 @@ export class SPHFlow extends Flow {
                 k.bindGroups.forEach((bg, g) => {
                     pass.bind.setBindGroup(g, bg, g === 0 ? offset : undefined);
                 });
-                pass.dispatch.workgroups(wgs);
+                pass.dispatch.invocations(count, 64);
             });
         };
         for (let i = 0; i < iterations; i++) {

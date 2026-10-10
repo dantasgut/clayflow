@@ -24,7 +24,12 @@ fn grad_W_spiky(r_vec: vec3f, r: f32, h: f32) -> vec3f {
 }
 
 @compute @workgroup_size(64)
-fn pbf_density_lambda_main(@builtin(global_invocation_id) gid: vec3u) {
+fn pbf_density_lambda_main(
+    @builtin(global_invocation_id) gid3: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+) {
+    // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
     if (i >= pbf_params.counts.x) { return; }
 
