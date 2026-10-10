@@ -32,7 +32,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:browser": "echo 'browser smokes — use Vite dev server + Chrome MCP (mcp__claude-in-chrome__*) ou abrir http://localhost:5173 manualmente. Nenhum runner standalone — WebGPU em headless requer drivers Vulkan que CI manage.'",
+    "test:browser": "echo 'smokes de navegador: npm run smoke -- <nome>[,<nome>] [--dist] (servidor do bench + Chrome com WebGPU; ver src/__smokes__/README.md)'",
     "lint": "eslint src bench",
     "lint:fix": "eslint src bench --fix",
     "format": "prettier --write \"src/**/*.{ts,json,md}\" \"bench/**/*.{ts,json,md}\" \"*.{json,md,js}\"",
@@ -43,6 +43,7 @@
     "bench": "tsx bench/runner/cli.ts run",
     "bench:check": "tsx bench/runner/cli.ts check",
     "bench:baseline": "tsx bench/runner/cli.ts baseline",
+    "smoke": "tsx bench/runner/smoke.ts",
     "typecheck:bench": "tsc -p bench/tsconfig.json --noEmit"
   },
   "devDependencies": {

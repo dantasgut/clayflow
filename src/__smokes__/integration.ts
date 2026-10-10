@@ -11,15 +11,19 @@
 //   - UI overlay é renderizado sem warning.
 //
 // Para rodar: `cp src/__smokes__/integration.ts src/main.ts && npm run dev`
-import { Application, Bloom, ToneMapping, Fxaa, Vignette } from '../presentation/index';
 import {
+    Application,
+    Bloom,
+    ToneMapping,
+    Fxaa,
+    Vignette,
     BoxGeometry,
     SphereGeometry,
     StandardMaterial,
     Camera,
     DirectionalLight,
     Transform,
-} from '../elements/index';
+} from 'clayflow';
 
 const log = (m: string): void => {
     console.log(`[integration] ${m}`);

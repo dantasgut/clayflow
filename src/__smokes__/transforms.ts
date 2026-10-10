@@ -10,8 +10,8 @@
 //
 // Para rodar: `cp src/__smokes__/transforms.ts src/main.ts && npm run dev`
 // Resultado: `TRANSFORMS SMOKE PASSED` ou `FAIL: …` no console e no #log.
-import { Application } from '../presentation/index';
 import {
+    Application,
     BoxGeometry,
     SphereGeometry,
     StandardMaterial,
@@ -20,9 +20,8 @@ import {
     Transform,
     GravityField,
     RigidBody,
-} from '../elements/index';
-import type { StagingBufferSpec } from '../core/contracts/index';
-import type { EntityId } from '../scene/world/EntityId';
+} from 'clayflow';
+import type { StagingBufferSpec, EntityId } from 'clayflow';
 
 type Vec3 = [number, number, number];
 type Vec4 = [number, number, number, number];

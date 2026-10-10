@@ -17,14 +17,12 @@ import {
     Vignette,
     ChromaticAberration,
     ColorGrading,
-} from '../presentation/index';
-import {
     BoxGeometry,
     StandardMaterial,
     Camera,
     DirectionalLight,
     Transform,
-} from '../elements/index';
+} from 'clayflow';
 
 const log = (m: string): void => {
     console.log(`[stress] ${m}`);

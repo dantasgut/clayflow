@@ -9,5 +9,5 @@
     "declarationMap": false
   },
   "include": ["**/*.ts", "../src/**/*.ts"],
-  "exclude": ["results/**", "../src/legacy/**", "../src/**/__tests__/**", "../src/__smokes__/**"]
+  "exclude": ["results/**", "../src/legacy/**", "../src/**/__tests__/**"]
 }

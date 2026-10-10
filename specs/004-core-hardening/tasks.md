@@ -95,11 +95,17 @@ passo.
 - [x] T029 [P] [US2] Migrar `src/elements/physics/flows/SPHFlow.ts` para `Time` + `PerStepUniforms` com teste `src/elements/physics/__tests__/SPHFlow.time.test.ts` (a reconstrução de vizinhança acompanha cada iteração)
 - [x] T030 [P] [US2] Migrar `src/elements/physics/flows/PBFFlow.ts` para `Time` + `PerStepUniforms` com teste `src/elements/physics/__tests__/PBFFlow.time.test.ts`
 - [x] T031 [US2] Substituir `emit('frameTick', …)` manual por `app.step()` em `src/__smokes__/transforms.ts`, `src/__smokes__/multiApp.ts`, `src/main.ts` e nos testes que avançam quadros pela `Application`; testes de C2 sem `Application` passam a usar `scene.time.advance` + `frameTick` com o payload novo (`ExecutionSystem.*.test.ts`, `phases.test.ts`, `integration/*.test.ts`, `DefaultEventBus.test.ts`, `DebugFlow.stagesNs.test.ts`)
-- [ ] T032 [US2] Benchmark: `bench/engines/clayflow.ts` passa a avançar com `app.step(1 / 60)` por quadro (tempo simulado igual ao do Rapier, research R8), mantendo o `dt` real no `update` das cenas; remover o comentário "sem `step()` até a F1"; atualizar `clay-engine-doc/docs/guides/benchmark.md` (protocolo: 1/60 s simulado por quadro nas duas engines)
-- [ ] T033 [US2] Smoke `src/__smokes__/time.ts`: cena de corpos rígidos com `fixedDt = 1/60`; executar 5 s simulados por `app.step` com quadros de 1/30, 1/60 e 1/144 e comparar as poses finais lidas por readback (diferença ≤ 1e-5 m, SC-003); `scale = 0.25` com laço por 2 s reais → avanço 25% ± 1% (SC-004); `pausePhysics` congela as poses enquanto `frameComplete` continua; 300 × `step(1/60)` ≡ 5 s de laço com `fixedDt` (SC-005); registrar no `src/__smokes__/README.md`
-- [ ] T034 [US2] Rodar o smoke `transforms.ts` (física revalidada — trajetórias do LCP mudam com `dtSub` correto) e `time.ts` no navegador; registrar resultado em `specs/004-core-hardening/tasks.md` (nota do checkpoint)
+- [x] T032 [US2] Benchmark: `bench/engines/clayflow.ts` passa a avançar com `app.step(1 / 60)` por quadro (tempo simulado igual ao do Rapier, research R8), mantendo o `dt` real no `update` das cenas; remover o comentário "sem `step()` até a F1"; atualizar `clay-engine-doc/docs/guides/benchmark.md` (protocolo: 1/60 s simulado por quadro nas duas engines)
+- [x] T033 [US2] Smoke `src/__smokes__/time.ts`: cena de corpos rígidos com `fixedDt = 1/60`; executar 5 s simulados por `app.step` com quadros de 1/30, 1/60 e 1/144 e comparar as poses finais lidas por readback (diferença ≤ 1e-5 m, SC-003); `scale = 0.25` com laço por 2 s reais → avanço 25% ± 1% (SC-004); `pausePhysics` congela as poses enquanto `frameComplete` continua; 300 × `step(1/60)` ≡ 5 s de laço com `fixedDt` (SC-005); registrar no `src/__smokes__/README.md`
+- [x] T034 [US2] Rodar o smoke `transforms.ts` (física revalidada — trajetórias do LCP mudam com `dtSub` correto) e `time.ts` no navegador; registrar resultado em `specs/004-core-hardening/tasks.md` (nota do checkpoint)
 
 **Checkpoint**: simulação governada pelo tempo; mesma trajetória em qualquer taxa de quadros.
+
+> **Smokes T034 (2026-10-09, `npm run smoke -- transforms,time`, Chrome 154 / Apple Metal 3)**: `transforms` PASSED
+> (física revalidada com o `dtSub` correto — corpos caem, escala visual preservada); `time` PASSED — 30 × 60 × 144 Hz:
+> diferença 0 m (SC-003); laço × `step` com 300 passos: 0 m (SC-005); escala 0,25 → 0,2500 do tempo real (SC-004);
+> física pausada: 60 quadros, deslocamento 0 m. Os smokes passaram a rodar pelo servidor do bench
+> (`npm run smoke`, `bench/smoke.html`), importando o barrel público `clayflow`.
 
 ---
 

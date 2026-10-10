@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="utf-8" />
+        <title>clayflow smoke</title>
+        <link rel="icon" href="data:," />
+        <style>
+            body {
+                margin: 0;
+                background: #1a1a2e;
+                font-family: monospace;
+                color: #e0e0e0;
+            }
+            canvas {
+                width: 640px;
+                height: 360px;
+                display: block;
+            }
+            #log {
+                white-space: pre-wrap;
+                font-size: 12px;
+                padding: 8px 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="gpuCanvas"></canvas>
+        <pre id="log"></pre>
+        <script type="module" src="/page/smoke.ts"></script>
+    </body>
+</html>

@@ -4,16 +4,16 @@
 // (via createScene()) operam isoladas: queries não cruzam, eventos não cruzam.
 //
 // Para rodar: `cp src/__smokes__/multiApp.ts src/main.ts && npm run dev`
-import { Application } from '../presentation/index';
-import { createScene } from '../scene/index';
 import {
+    Application,
+    createScene,
     BoxGeometry,
     SphereGeometry,
     StandardMaterial,
     Camera,
     DirectionalLight,
     Transform,
-} from '../elements/index';
+} from 'clayflow';
 
 const log = (m: string): void => {
     console.log(`[multiApp] ${m}`);
