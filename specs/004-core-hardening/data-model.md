@@ -77,14 +77,18 @@ Limites que o motor eleva ao máximo do adaptador: `maxBufferSize`, `maxStorageB
 
 ## Contatos do LCP (C3)
 
-| Item            | Regra                                                                                                |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| capacidade `C`  | `min(N·M, N × maxContactsPerBody, ⌊maxStorageBufferBindingSize / 80⌋)`                               |
-| contador        | `{ count, overflow }` (u32), zerado por `Frame.clear` antes da narrowphase de cada substep           |
-| contato         | gravado em `atomicAdd(count)`; `col_idx` = id do par (`rb · totalCol + col`)                         |
-| warm start      | hash `{ key, stamp, λn, λt1, λt2 }`, capacidade 2^k ≥ 2C, sondagem ≤ 32; lido se `stamp = atual − 1` |
-| `contact_stamp` | contador de substeps, por região de parâmetros                                                       |
-| acumulação      | `rb_contact_accumulate` (serial) → `body_contact[i] = (correção xyz, tem contato w)`                 |
+| Item             | Regra                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
+| capacidade `C`   | `min(N·M·8, N × maxContactsPerBody, ⌊maxStorageBufferBindingSize / 96⌋)`; `maxContactsPerBody` padrão 32           |
+| contador         | `{ count, overflow }` (u32), zerado por `Frame.clear` antes da narrowphase de cada substep                         |
+| contato          | `atomicAdd(count)`; `col_idx` = id do par (`rb · totalCol + col`), `feature` = canto (caixa) ou 0, `weight` = 1/n  |
+| divisão de massa | `body_split[i]` = contatos do corpo no substep (zerado por substep); diagonais e solve usam m/nᵢ                   |
+| solve            | Jacobi paralelo: contatos somam Δv/Δω em `body_delta` (i32, ponto fixo 2²⁰); passe por corpo aplica e zera         |
+| warm start       | 2 regiões `{ key, λn, λt1, λt2 }` × 2^k ≥ 2C, alternadas pela paridade de `contact_stamp`; chave `par·8+feature+1` |
+| `contact_stamp`  | contador de substeps, por região de parâmetros                                                                     |
+| gravidade        | por substep (`rb_apply_gravity_main`), não no `rb_predict`                                                         |
+| acumulação       | `rb_contact_accumulate` (paralelo) → `body_correction[i] = (correção xyz, contatos)` em ponto fixo                 |
+| rolamento        | `RigidBody.rollingFriction` (m, padrão 0) em `_rb_pad.y`; impulso angular ≤ `c · λn`                               |
 
 ## Time (C2 — `scene/time/Time.ts`)
 

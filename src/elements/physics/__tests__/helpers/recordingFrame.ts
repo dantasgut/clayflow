@@ -9,7 +9,7 @@ export interface RecordedPass {
 
 /**
  * Frame que registra cada passe de computação, os offsets dinâmicos ligados e as cópias; `sequence` traz passes e
- * `clear` na ordem gravada (`pass:<rótulo>`, `clear:<discriminator>`).
+ * `clear` na ordem gravada (`pass:<rótulo>`, `clear:<discriminator>` ou `clear:<discriminator>@<offset>`).
  */
 export function recordingFrame(): {
     frame: Frame;
@@ -48,8 +48,9 @@ export function recordingFrame(): {
         copy: () => {
             state.copies++;
         },
-        clear: (buffer: { discriminator?: string }) => {
-            sequence.push(`clear:${buffer.discriminator ?? '?'}`);
+        clear: (buffer: { discriminator?: string }, offset?: number) => {
+            const at = offset === undefined ? '' : `@${offset}`;
+            sequence.push(`clear:${buffer.discriminator ?? '?'}${at}`);
         },
     } as unknown as Frame;
     return {

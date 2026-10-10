@@ -5,6 +5,8 @@
 @group(0) @binding(3) var<storage, read_write> b_vec:     array<f32>;
 // Contador da lista compactada (spec 004, R19): [0] = contatos reservados na narrowphase.
 @group(0) @binding(4) var<storage, read>       contact_counter: array<u32>;
+// Contatos por corpo neste substep: o solve Jacobi vê cada corpo com massa m/nᵢ (divisão de massa).
+@group(0) @binding(5) var<storage, read>       body_split:      array<u32>;
 
 @compute @workgroup_size(64, 1, 1)
 fn rb_build_lcp(
@@ -18,8 +20,9 @@ fn rb_build_lcp(
     if (ci >= min(contact_counter[0], rb_params.max_contacts)) { return; }
 
     let rb_i     = contacts[ci].rb_idx;
-    let inv_mass = bodies[rb_i].pos.w;
-    let I_inv    = bodies[rb_i].I_inv.xyz;
+    let split_a  = f32(max(body_split[rb_i], 1u));
+    let inv_mass = bodies[rb_i].pos.w * split_a;
+    let I_inv    = bodies[rb_i].I_inv.xyz * split_a;
 
     // Vetor CM_i → ponto de contato (world frame)
     let ra = contacts[ci].point.xyz - bodies[rb_i].pos_pred.xyz;
@@ -29,7 +32,7 @@ fn rb_build_lcp(
     // lcp_bias espera gap < 0 = penetração (signed distance), então negamos para recuperar depth_eff.
     let gap = -contacts[ci].normal.w;  // = depth_eff: < 0 quando penetrando
 
-    // ── Diagonais de Delassus ──────────────────────────────────────────────
+    // ── Diagonais de Delassus (massas divididas pelos contatos de cada corpo) ─────────────
     // Contribuição do corpo A (sempre presente).
     let t1 = tangent_orthogonal(n);
     let t2 = cross(n, t1);
@@ -45,8 +48,9 @@ fn rb_build_lcp(
     // rb_idx_b == 0xFFFFFFFFu → collider estático (massa infinita, contribuição zero).
     let rb_j = contacts[ci].rb_idx_b;
     if (rb_j != 0xFFFFFFFFu && rb_j < rb_params.body_count) {
-        let inv_mass_b = bodies[rb_j].pos.w;
-        let I_inv_b    = bodies[rb_j].I_inv.xyz;
+        let split_b    = f32(max(body_split[rb_j], 1u));
+        let inv_mass_b = bodies[rb_j].pos.w * split_b;
+        let I_inv_b    = bodies[rb_j].I_inv.xyz * split_b;
         let rb         = contacts[ci].point.xyz - bodies[rb_j].pos_pred.xyz;
         diag_n  += rigid_generalized_mass(rb, n,  inv_mass_b, I_inv_b);
         diag_t1 += rigid_generalized_mass(rb, t1, inv_mass_b, I_inv_b);

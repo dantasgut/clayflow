@@ -162,20 +162,39 @@ percorre todos os N·M slots × (warm start + 8 iterações) × 4 substeps (36 M
 
 **Decisão**:
 
-- Narrowphase: cada par em contato reserva um índice por `atomicAdd` num contador (zerado por `Frame.clear` antes de
-  cada substep) e grava o contato compactado; acima da capacidade, conta o excedente.
-- Capacidade `C = min(N·M, N × maxContactsPerBody, ⌊maxStorageBufferBindingSize / 80⌋)` (`maxContactsPerBody` padrão
-  16, opção do Flow).
-- Warm start: tabela hash por par (chave = `rb · totalCol + col + 1`, capacidade potência de 2 ≥ 2C, sondagem linear
-  limitada a 32) com carimbo do substep; o solver (serial) grava os impulsos ao fim de cada substep e a narrowphase lê
-  só entradas do substep anterior. O carimbo vai na região de parâmetros de cada iteração (`RBSimParams.contact_stamp`).
-- `rb_build_lcp` e `rb_solve_lcp` percorrem só `min(count, C)` contatos.
-- Correção posicional: passada serial `rb_contact_accumulate` por passo soma, por corpo, a correção e a marca de
-  contato num buffer por corpo (zerado por `Frame.clear`); `rb_lcp_commit` lê esse buffer.
+- Narrowphase: cada contato reserva um índice por `atomicAdd` num contador (zerado por `Frame.clear` antes de cada
+  substep) e grava o contato compactado; acima da capacidade, conta o excedente. Caixa contra plano/caixa gera um
+  contato por canto que penetra ou vai penetrar no substep (manifold; feature = canto, peso da correção = 1/n do par);
+  esfera gera um. Cada contato soma 1 em `body_split[i]` de cada corpo dinâmico (divisão de massa).
+- Capacidade `C = min(N·M·8, N × maxContactsPerBody, ⌊maxStorageBufferBindingSize / 96⌋)` (`maxContactsPerBody` padrão
+  32, opção do Flow; `RBContact` tem 96 B).
+- Solve paralelo — Jacobi por contato com divisão de massa (Tonge et al., 2012): cada contato resolve normal
+  (Signorini), resistência ao rolamento e atrito (Coulomb) sobre cópias dos corpos com massa m/nᵢ e soma P·m⁻¹ e
+  (r × P)·I⁻¹ em `body_delta` por atomics inteiros em ponto fixo (2²⁰); um passe por corpo aplica e zera as somas.
+  Por substep: warm start + aplicação, K × (contatos + corpos), gravação do warm start. `rb_build_lcp` calcula as
+  diagonais com as massas divididas. Todos os passes percorrem `min(count, C)` contatos ou N corpos — nada serial.
+- Gravidade por substep (`rb_apply_gravity_main`, g · dtSub antes da detecção): o impulso que sustenta um corpo é o
+  mesmo em todos os substeps e o warm start do substep anterior acerta (com a gravidade só no `rb_predict` do passo, os
+  substeps 2…n reaplicavam o impulso do 1º e pilhas não repousavam).
+- Warm start: tabela hash com duas regiões alternadas pela paridade de `contact_stamp` (chave `par·8 + feature + 1`,
+  capacidade por região 2^k ≥ 2C, sondagem ≤ 32, inserção por `atomicCompareExchangeWeak`); o substep lê a região do
+  anterior e grava a sua, zerada por `Frame.clear` (offset) no início do substep.
+- Correção posicional: passe paralelo `rb_contact_accumulate` por passo soma, por corpo, a correção ponderada e os
+  contatos em ponto fixo (buffer zerado por `Frame.clear`); `rb_lcp_commit` o lê.
+- Resistência ao rolamento: `RigidBody({ rollingFriction })` (metros, padrão 0) em `_rb_pad.y`; impulso angular contra
+  a rotação relativa fora da normal, limitado a `c · λn`, acumulado por contato.
 - O contador de excedente é lido junto com a leitura de volta dos corpos; excedente gera aviso único.
+- Defeito encontrado e corrigido: `RigidBody` não inicializava `pos_pred`; corpos estáticos (sem `rb_predict`) ficavam
+  com a pose predita na origem e a narrowphase lia chão e paredes no lugar errado — corpos caíam do chão. Agora
+  `pos_pred` = posição inicial.
 
-**Alternativas rejeitadas**: broadphase + solver paralelo (F5 — continua planejado); manter N·M (estoura limites);
-descartar o warm start (degrada pilhas).
+**Medido** (smoke `rigidContacts`, perfil apple-metal-3): 1k — 19,6 ms/quadro, 100% em repouso, 5,7 MiB; 10k —
+331 ms/quadro (dominado pela narrowphase N·M, sem broadphase), 99,87% em repouso, 70,5 MiB. O solve serial anterior
+derrubava o device (watchdog) com 10k corpos e o manifold de cantos.
+
+**Alternativas rejeitadas**: manter N·M (estoura limites); solver serial (watchdog da GPU em 10k); PGS por coloração
+de grafo (exige coloração por substep; a divisão de massa converge sem ela e sem jitter); descartar o warm start
+(degrada pilhas). Broadphase continua planejada (F5): a narrowphase ainda testa todos os pares.
 
 ## R5 — `Time` na C2, fonte única e acumulador
 

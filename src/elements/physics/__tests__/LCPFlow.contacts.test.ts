@@ -59,26 +59,26 @@ afterEach(() => {
 });
 
 describe('LCPFlow — contatos compactados (R19)', () => {
-    it('capacidade = min(N·M, N × maxContactsPerBody, limite de binding / 80)', () => {
-        expect(setup(0).flow.contactCapacity(1000, 1001)).toBe(16_000);
+    it('capacidade = min(N·M·8, N × maxContactsPerBody, limite de binding / 96)', () => {
+        expect(setup(0).flow.contactCapacity(1000, 1001)).toBe(32_000);
         expect(setup(0, { maxContactsPerBody: 4 }).flow.contactCapacity(1000, 1001)).toBe(4000);
-        expect(setup(0).flow.contactCapacity(3, 2)).toBe(6);
-        expect(setup(0, { maxBinding: 8000 }).flow.contactCapacity(1000, 1001)).toBe(100);
+        expect(setup(0).flow.contactCapacity(3, 2)).toBe(48); // 3 × 2 pares × 8 cantos
+        expect(setup(0, { maxBinding: 8000 }).flow.contactCapacity(1000, 1001)).toBe(83); // 8000 / 96
     });
 
     it('buffers de contatos, bias e warm start dimensionados pela capacidade, não por N·M', () => {
         const s = setup(40);
         s.time.advance(1 / 60);
         s.flow.dispatch(recordingFrame().frame);
-        // 41 corpos × 41 colliders; capacidade = 41 × 16 = 656 < 1681
-        const capacity = 41 * 16;
-        expect(created(s.core, 'lcp_contacts_')[0]!.byteSize).toBe(capacity * 80);
+        // 41 corpos × 41 colliders; capacidade = 41 × 32 = 1312 < 41 × 41 × 8
+        const capacity = 41 * 32;
+        expect(created(s.core, 'lcp_contacts_')[0]!.byteSize).toBe(capacity * 96);
         expect(created(s.core, 'lcp_bvec_')[0]!.byteSize).toBe(capacity * 4);
-        expect(created(s.core, 'lcp_warm_')[0]!.byteSize).toBe(2048 * 32); // 2^k ≥ 2C
+        expect(created(s.core, 'lcp_warm_')[0]!.byteSize).toBe(2 * 4096 * 16); // 2 regiões de 2^k ≥ 2C
         expect(created(s.core, 'lcp_contact_counter')[0]!.byteSize).toBe(16);
     });
 
-    it('contador zerado antes da narrowphase de cada substep; acumulação com body_contact zerado antes do commit', () => {
+    it('por substep: contador, contatos por corpo, somas do solve e a região de warm start zerados antes da narrowphase; correção zerada antes do commit', () => {
         const s = setup(3);
         s.time.advance(1 / 60);
         const rec = recordingFrame();
@@ -87,17 +87,22 @@ describe('LCPFlow — contatos compactados (R19)', () => {
             (e) =>
                 e.startsWith('clear:')
                 || e === 'pass:LCPFlow.narrowphase.BoxCollider'
-                || e === 'pass:LCPFlow.solveLcp'
+                || e === 'pass:LCPFlow.warmStore'
                 || e === 'pass:LCPFlow.accumulate'
                 || e === 'pass:LCPFlow.commit',
         );
+        // Capacidade 128 ⇒ regiões de 256 entradas × 16 B; carimbos 1 e 2 alternam as regiões.
+        const substep = (warmOffset: number): unknown[] => [
+            'clear:lcp_contact_counter',
+            expect.stringMatching(/^clear:lcp_body_split_/),
+            expect.stringMatching(/^clear:lcp_body_delta_/),
+            `clear:lcp_warm_256@${warmOffset}`,
+            'pass:LCPFlow.narrowphase.BoxCollider',
+            'pass:LCPFlow.warmStore',
+        ];
         expect(seq).toEqual([
-            'clear:lcp_contact_counter',
-            'pass:LCPFlow.narrowphase.BoxCollider',
-            'pass:LCPFlow.solveLcp',
-            'clear:lcp_contact_counter',
-            'pass:LCPFlow.narrowphase.BoxCollider',
-            'pass:LCPFlow.solveLcp',
+            ...substep(4096),
+            ...substep(0),
             expect.stringMatching(/^clear:lcp_body_contact_/),
             'pass:LCPFlow.accumulate',
             'pass:LCPFlow.commit',
@@ -110,7 +115,7 @@ describe('LCPFlow — contatos compactados (R19)', () => {
         const rec = recordingFrame();
         s.flow.dispatch(rec.frame);
         const build = rec.passes.find((p) => p.label === 'LCPFlow.buildLcp')!;
-        expect(build.dispatches[0]).toEqual([4 * 4, 64]); // 4 corpos × 4 colliders = 16 < 4 × 16
+        expect(build.dispatches[0]).toEqual([4 * 4 * 8, 64]); // 4 corpos × 4 colliders × 8 = 4 × 32
     });
 
     it('contact_stamp cresce por substep e entra em cada região; capacidades nas regiões', () => {
@@ -124,8 +129,8 @@ describe('LCPFlow — contatos compactados (R19)', () => {
         // 2 passos × (1 região de passo + 2 de substep) = 6 regiões de 256 B (64 u32)
         const stamps = [0, 1, 2, 3, 4, 5].map((r) => u32[r * 64 + 13]);
         expect(stamps).toEqual([0, 1, 2, 2, 3, 4]);
-        expect(u32[64 + 6]).toBe(16); // max_contacts
-        expect(u32[64 + 17]).toBe(32); // warm_capacity = 2^k ≥ 2 × 16
+        expect(u32[64 + 6]).toBe(128); // max_contacts
+        expect(u32[64 + 17]).toBe(256); // warm_capacity = 2^k ≥ 2 × 128
     });
 
     it('excedente de contatos gera um único aviso', () => {

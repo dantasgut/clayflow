@@ -37,6 +37,11 @@ export type RigidBodyDomainOptions = RigidBodyShape & {
     readonly friction?: number;
     /** Restituição / "quique" (default 0.2). */
     readonly restitution?: number;
+    /**
+     * Resistência ao rolamento em metros (default 0): limita o impulso angular de contato a `rollingFriction × λn`,
+     * freando esferas que rolam sobre superfícies.
+     */
+    readonly rollingFriction?: number;
     /** Amortecimento linear por substep (default 0.05). */
     readonly linearDamping?: number;
     /** Amortecimento angular por substep (default 0.05). */
@@ -136,6 +141,9 @@ function validateDomain(o: RigidBodyDomainOptions): void {
     if (o.shape === 'box' && !o.halfExtents.every((h) => h > 0)) {
         throw new Error('RigidBody: halfExtents devem ser > 0');
     }
+    if (o.rollingFriction !== undefined && !(o.rollingFriction >= 0)) {
+        throw new Error('RigidBody: rollingFriction deve ser ≥ 0');
+    }
 }
 
 /** Constrói o `data` do LCPSchema a partir das opções de domínio. */
@@ -152,6 +160,8 @@ function buildLcpData(o: RigidBodyDomainOptions): Record<string, unknown> {
         I_inv: inertiaInv(o.mass, o),
         mat_props: packMatProps(o),
         body_shape: packBodyShape(o),
+        // x = temporizador de sono (runtime), y = resistência ao rolamento.
+        _rb_pad: [0, o.rollingFriction ?? 0, 0, 0],
     };
 }
 

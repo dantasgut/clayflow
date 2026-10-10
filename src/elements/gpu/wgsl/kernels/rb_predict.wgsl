@@ -24,8 +24,7 @@ fn rb_predict_main(
         return;
     }
 
-    // Usa dtSub (gravity.w) — predict roda dentro do loop de substeps.
-    // dt_frame seria 16ms; dtSub = dt_frame/substeps reduz penetração por substep.
+    // gravity.w = dt da região: o passo inteiro (predict roda 1× por passo).
     let dt  = rb_params.gravity.w;
     let vel = bodies[i].vel.xyz;
     let omega = bodies[i].omega.xyz;
@@ -33,13 +32,9 @@ fn rb_predict_main(
     let lin_damping = bodies[i].mat_props.z;
     let ang_damping = bodies[i].mat_props.w;
 
-    // Aceleração gravitacional → velocidade externa (semi-implicit Euler: força antes do solver).
-    // Para o pipeline LCP: rb_build_lcp e rb_solve_lcp lêem vel depois deste kernel,
-    // portanto gravidade deve estar em vel antes do solver para que o PGS a corrija.
-    // Para o pipeline XPBD: rb_substep_update sobrescreve vel com (pos_pred-pos)/dtSub
-    // imediatamente após cada substep — esta escrita é inofensiva (invisível ao XPBD).
-    let vel_ext = vel + rb_params.gravity.xyz * dt;
-    bodies[i].vel = vec4f(vel_ext, bodies[i].vel.w);
+    // A gravidade entra por substep (rb_apply_gravity_main), antes da detecção e do solve de cada substep: o impulso
+    // que a sustenta é o mesmo em todos os substeps e o warm start do substep anterior acerta (spec 004, R19).
+    let vel_ext = vel;
 
     // Correção giroscópica: usa I (não-invertido) = 1/I_inv para eixos válidos
     // I_inv.xyz = 1/I_diagonal → I_diagonal = 1/I_inv (onde I_inv > 0)
@@ -59,4 +54,16 @@ fn rb_predict_main(
 
     bodies[i].pos_pred = vec4f(pos_pred, bodies[i].pos_pred.w);
     bodies[i].rot_pred = rot_pred;
+}
+
+// Gravidade de um substep: vel += g · dtSub (gravity.w da região do substep) nos corpos dinâmicos acordados.
+@compute @workgroup_size(64)
+fn rb_apply_gravity_main(
+    @builtin(global_invocation_id) gid3: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+) {
+    let i = gid3.x + gid3.y * nwg.x * 64u;
+    if (i >= rb_params.body_count) { return; }
+    if (bodies[i].pos.w == 0.0 || bodies[i].vel.w > 0.5) { return; }
+    bodies[i].vel = vec4f(bodies[i].vel.xyz + rb_params.gravity.xyz * rb_params.gravity.w, bodies[i].vel.w);
 }

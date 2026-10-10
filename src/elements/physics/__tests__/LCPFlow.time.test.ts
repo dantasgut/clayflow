@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe('LCPFlow — avanço governado pelo Time', () => {
-    it('steps = 2, substeps = 4: 2 predicts, 8 iterações de solve e 2 commits', () => {
+    it('steps = 2, substeps = 4: 2 predicts, gravidade e solve por substep, 2 commits', () => {
         const { time, flow } = setup(4);
         time.advance(2 / 60);
         expect(time.steps).toBe(2);
@@ -36,8 +36,13 @@ describe('LCPFlow — avanço governado pelo Time', () => {
         flow.dispatch(rec.frame);
         const count = (label: string): number => rec.passes.filter((p) => p.label === label).length;
         expect(count('LCPFlow.predict')).toBe(2);
-        expect(count('LCPFlow.solveLcp')).toBe(8);
+        expect(count('LCPFlow.gravity')).toBe(8);
         expect(count('LCPFlow.buildLcp')).toBe(8);
+        expect(count('LCPFlow.warmApply')).toBe(8);
+        // 8 iterações Jacobi (padrão) por substep; cada uma seguida da aplicação por corpo (+1 após o warm start).
+        expect(count('LCPFlow.solveContacts')).toBe(8 * 8);
+        expect(count('LCPFlow.applyDelta')).toBe(8 * 9);
+        expect(count('LCPFlow.warmStore')).toBe(8);
         expect(count('LCPFlow.commit')).toBe(2);
     });
 
@@ -52,20 +57,34 @@ describe('LCPFlow — avanço governado pelo Time', () => {
         // Por passo: região do passo (predict/commit) e uma região por substep — 3 regiões por passo.
         const expected = [
             ['LCPFlow.predict', 0],
-            ['LCPFlow.solveLcp', 256],
-            ['LCPFlow.solveLcp', 512],
+            ['LCPFlow.gravity', 256],
+            ['LCPFlow.warmApply', 256],
+            ['LCPFlow.warmStore', 256],
+            ['LCPFlow.gravity', 512],
+            ['LCPFlow.warmApply', 512],
+            ['LCPFlow.warmStore', 512],
             ['LCPFlow.accumulate', 0],
             ['LCPFlow.commit', 0],
             ['LCPFlow.predict', 768],
-            ['LCPFlow.solveLcp', 1024],
-            ['LCPFlow.solveLcp', 1280],
+            ['LCPFlow.gravity', 1024],
+            ['LCPFlow.warmApply', 1024],
+            ['LCPFlow.warmStore', 1024],
+            ['LCPFlow.gravity', 1280],
+            ['LCPFlow.warmApply', 1280],
+            ['LCPFlow.warmStore', 1280],
             ['LCPFlow.accumulate', 768],
             ['LCPFlow.commit', 768],
         ] as const;
+        const inner = new Set(['LCPFlow.buildLcp', 'LCPFlow.solveContacts', 'LCPFlow.applyDelta']);
         const seen = sim
-            .filter((p) => p.label !== 'LCPFlow.buildLcp' && !p.label.includes('narrowphase'))
+            .filter((p) => !inner.has(p.label) && !p.label.includes('narrowphase'))
             .map((p) => [p.label, offsetOf(p)]);
         expect(seen).toEqual(expected);
+        // Passes internos do substep ligam a região do substep, nunca a do passo.
+        const substepOffsets = new Set([256, 512, 1024, 1280]);
+        for (const p of sim.filter((x) => inner.has(x.label) || x.label.includes('narrowphase'))) {
+            expect(substepOffsets.has(offsetOf(p))).toBe(true);
+        }
         const paramWrites = writes
             .slice(before)
             .filter((w) =>

@@ -82,9 +82,12 @@ const SOLVE_LCP_SHADER = [
     rbSolveLcpKernel,
 ].join('\n');
 
-const ACCUMULATE_SHADER = [rbSimParamsStruct, rbContactStruct, rbContactAccumulateKernel].join(
-    '\n',
-);
+const ACCUMULATE_SHADER = [
+    rbSimParamsStruct,
+    rbContactStruct,
+    rbContactStateStruct,
+    rbContactAccumulateKernel,
+].join('\n');
 
 const COMMIT_SHADER = [
     rigidBodyStruct,
@@ -93,18 +96,26 @@ const COMMIT_SHADER = [
     quatLib,
     impulseLib,
     xpbdLib,
+    rbContactStateStruct,
     rbLcpCommitKernel,
 ].join('\n');
 
 const RB_SIM_PARAMS_BYTE_SIZE = 80;
 const NP_PARAMS_BYTE_SIZE = 16;
-const RB_CONTACT_BYTE_SIZE = 80;
-/** Bytes de `RBWarmEntry` (tabela de warm start). */
-const RB_WARM_ENTRY_BYTE_SIZE = 32;
+/** Bytes de `RBContact` (rb_contact.wgsl). */
+const RB_CONTACT_BYTE_SIZE = 96;
+/** Contatos por par no máximo: manifold de cantos de uma caixa. */
+const RB_MAX_CONTACTS_PER_PAIR = 8;
+/** Bytes de `RBWarmEntry` (tabela de warm start: duas regiões alternadas pela paridade do substep). */
+const RB_WARM_ENTRY_BYTE_SIZE = 16;
+/** Bytes por corpo de `RBBodyDelta` (Δv/Δω em ponto fixo do solve Jacobi). */
+const RB_BODY_DELTA_BYTE_SIZE = 32;
+/** Bytes por corpo de `RBBodyCorrection` (correção posicional + contatos). */
+const RB_BODY_CORRECTION_BYTE_SIZE = 16;
 /** Bytes do contador da lista compactada (`RBContactCounter`). */
 const RB_CONTACT_COUNTER_BYTE_SIZE = 16;
 /** Contatos por corpo na capacidade padrão da lista compactada (research R19). */
-const DEFAULT_MAX_CONTACTS_PER_BODY = 16;
+const DEFAULT_MAX_CONTACTS_PER_BODY = 32;
 const LCP_BODY_STRIDE_F32 = 40; // 160B / 4
 
 interface ShapePool {
@@ -126,11 +137,12 @@ export interface LCPFlowOptions {
     readonly bodiesPoolKey?: string;
     /** Substeps de detecção + solve por passo de física (default 4). O passo vem do `Time` da cena. */
     readonly substeps?: number;
-    /** Iterações de Gauss-Seidel do solve por substep (default 8). */
+    /** Iterações do solve (Jacobi com divisão de massa) por substep (default 8). */
     readonly solveIters?: number;
     /**
-     * Contatos por corpo na capacidade da lista compactada (default 16). Capacidade =
-     * `min(corpos × colliders, corpos × maxContactsPerBody, limite de binding do device / 80)`; contatos acima dela
+     * Contatos por corpo na capacidade da lista compactada (default 32; uma caixa apoiada gera um contato por canto).
+     * Capacidade = `min(corpos × colliders × 8, corpos × maxContactsPerBody, limite de binding do device / 96)`;
+     * contatos acima dela
      * são contados e avisados.
      */
     readonly maxContactsPerBody?: number;
@@ -145,9 +157,10 @@ export interface LCPFlowOptions {
  *
  *   1. `rb_predict`        — integra gravidade + damping em `pos_pred`/`rot_pred`/`vel`
  *   2. narrowphase × N     — uma variante por pool de Collider (Plane/Box/Sphere/Mesh)
- *   3. `rb_build_lcp`      — preenche bias `b_vec` + diagonais Delassus por contato
- *   4. `rb_solve_lcp`      — warm-start + K Gauss-Seidel (single-threaded por design)
- *   5. `rb_lcp_commit`     — escreve velocidades corrigidas + correção posicional
+ *   3. `rb_build_lcp`      — preenche bias `b_vec` + diagonais Delassus por contato (massas divididas)
+ *   4. `rb_solve_lcp`      — warm start + K iterações Jacobi com divisão de massa, paralelas por contato e por
+ *                            corpo (research R19)
+ *   5. `rb_contact_accumulate` + `rb_lcp_commit` — correção posicional por corpo; velocidades e pose
  *
  * Ao fim do frame, faz CPU readback do pool de bodies e publica a pose (posição e
  * rotação) no `Transform` de cada entidade; a mutação reativa leva a pose à GPU no
@@ -176,8 +189,12 @@ export class LCPFlow extends Flow {
     /** Tabela de warm start por par (hash) e sua capacidade (potência de 2). */
     private warmBuffer: StorageBufferSpec | null = null;
     private warmCapacity = 0;
-    /** Correção posicional + marca de contato por corpo (`rb_contact_accumulate` → `rb_lcp_commit`). */
+    /** Correção posicional + contatos por corpo (`rb_contact_accumulate` → `rb_lcp_commit`). */
     private bodyContactBuffer: StorageBufferSpec | null = null;
+    /** Δv/Δω por corpo do solve Jacobi (somas em ponto fixo, aplicadas e zeradas a cada iteração). */
+    private bodyDeltaBuffer: StorageBufferSpec | null = null;
+    /** Contatos por corpo no substep (divisão de massa) — contados na narrowphase. */
+    private bodySplitBuffer: StorageBufferSpec | null = null;
     private bodyContactCapacity = 0;
     private accumulateKernel: ComputeKernel | null = null;
     /** Carimbo do substep corrente (warm start lê entradas do substep anterior). */
@@ -188,9 +205,17 @@ export class LCPFlow extends Flow {
     private bodiesStagingByteSize = 0;
 
     private predictKernel: ComputeKernel | null = null;
+    /** Gravidade por substep (`rb_apply_gravity_main`). */
+    private gravityKernel: ComputeKernel | null = null;
     private readonly narrowphaseKernels = new Map<string, ComputeKernel>();
     private buildLcpKernel: ComputeKernel | null = null;
-    private solveLcpKernel: ComputeKernel | null = null;
+    /** Entradas do solve paralelo: warm start, iteração por contato, aplicação por corpo, gravação do warm start. */
+    private solveKernels: {
+        warmApply: ComputeKernel;
+        contacts: ComputeKernel;
+        apply: ComputeKernel;
+        warmStore: ComputeKernel;
+    } | null = null;
     private commitKernel: ComputeKernel | null = null;
 
     private readonly npParamsBuffers = new Map<string, UniformBufferSpec>();
@@ -225,7 +250,7 @@ export class LCPFlow extends Flow {
                 id: 'pipeline_lcp_predict',
                 role: 'compute',
                 shaderSource: PREDICT_SHADER,
-                entryPoints: ['rb_predict_main'],
+                entryPoints: ['rb_predict_main', 'rb_apply_gravity_main'],
                 consumes: ['LCPSchema', 'GravityField'],
             },
             {
@@ -239,7 +264,12 @@ export class LCPFlow extends Flow {
                 id: 'pipeline_lcp_solve',
                 role: 'compute',
                 shaderSource: SOLVE_LCP_SHADER,
-                entryPoints: ['rb_solve_lcp_main'],
+                entryPoints: [
+                    'rb_warm_apply_main',
+                    'rb_solve_contacts_main',
+                    'rb_apply_body_delta_main',
+                    'rb_warm_store_main',
+                ],
                 consumes: ['LCPSchema'],
             },
             {
@@ -267,11 +297,19 @@ export class LCPFlow extends Flow {
         this.invalidateAllKernels();
         this.params.dispose();
         this.releaseContacts();
-        for (const spec of [this.counterBuffer, this.bodyContactBuffer, this.counterStaging]) {
+        for (const spec of [
+            this.counterBuffer,
+            this.bodyContactBuffer,
+            this.bodyDeltaBuffer,
+            this.bodySplitBuffer,
+            this.counterStaging,
+        ]) {
             if (spec !== null) this.core.destroy(spec);
         }
         this.counterBuffer = null;
         this.bodyContactBuffer = null;
+        this.bodyDeltaBuffer = null;
+        this.bodySplitBuffer = null;
         this.bodyContactCapacity = 0;
         this.counterStaging = null;
         if (this.bodiesStaging !== null) this.core.destroy(this.bodiesStaging);
@@ -312,16 +350,18 @@ export class LCPFlow extends Flow {
     private invalidateAllKernels(): void {
         for (const k of [
             this.predictKernel,
+            this.gravityKernel,
             this.buildLcpKernel,
-            this.solveLcpKernel,
             this.commitKernel,
             this.accumulateKernel,
+            ...(this.solveKernels === null ? [] : Object.values(this.solveKernels)),
         ]) {
             if (k !== null) destroyComputeKernel(this.core, k);
         }
         this.predictKernel = null;
+        this.gravityKernel = null;
         this.buildLcpKernel = null;
-        this.solveLcpKernel = null;
+        this.solveKernels = null;
         this.commitKernel = null;
         this.accumulateKernel = null;
         for (const poolKey of [...this.narrowphaseKernels.keys()])
@@ -335,7 +375,7 @@ export class LCPFlow extends Flow {
     }
 
     /**
-     * Capacidade da lista compactada de contatos (research R19): no máximo um contato por par, `maxContactsPerBody`
+     * Capacidade da lista compactada de contatos (research R19): no máximo 8 contatos por par (cantos), `maxContactsPerBody`
      * por corpo e o que cabe num binding de storage do device.
      */
     contactCapacity(bodyCount: number, totalCol: number): number {
@@ -344,7 +384,7 @@ export class LCPFlow extends Flow {
         return Math.max(
             1,
             Math.min(
-                bodyCount * totalCol,
+                bodyCount * totalCol * RB_MAX_CONTACTS_PER_PAIR,
                 bodyCount * this.maxContactsPerBody,
                 Math.floor(maxBinding / RB_CONTACT_BYTE_SIZE),
             ),
@@ -389,7 +429,7 @@ export class LCPFlow extends Flow {
                 kind: 'buffer',
                 subkind: 'storage',
                 discriminator: `lcp_warm_${warmCapacity}`,
-                byteSize: warmCapacity * RB_WARM_ENTRY_BYTE_SIZE,
+                byteSize: 2 * warmCapacity * RB_WARM_ENTRY_BYTE_SIZE,
             });
             this.invalidateAllKernels();
         }
@@ -407,27 +447,52 @@ export class LCPFlow extends Flow {
         };
     }
 
-    /** Correção posicional por corpo (`vec4f` por corpo), crescendo em potências de 2. */
-    private ensureBodyContactBuffer(bodyCount: number): StorageBufferSpec {
-        if (this.bodyContactBuffer === null || this.bodyContactCapacity < bodyCount) {
-            if (this.bodyContactBuffer !== null) this.core.destroy(this.bodyContactBuffer);
+    /**
+     * Buffers por corpo, crescendo em potências de 2: correção posicional + contatos, Δv/Δω do solve e contatos por
+     * corpo no substep (divisão de massa).
+     */
+    private ensureBodyBuffers(bodyCount: number): {
+        correction: StorageBufferSpec;
+        delta: StorageBufferSpec;
+        split: StorageBufferSpec;
+    } {
+        if (
+            this.bodyContactBuffer === null
+            || this.bodyDeltaBuffer === null
+            || this.bodySplitBuffer === null
+            || this.bodyContactCapacity < bodyCount
+        ) {
+            for (const spec of [
+                this.bodyContactBuffer,
+                this.bodyDeltaBuffer,
+                this.bodySplitBuffer,
+            ]) {
+                if (spec !== null) this.core.destroy(spec);
+            }
             let capacity = Math.max(16, this.bodyContactCapacity);
             while (capacity < bodyCount) capacity *= 2;
             this.bodyContactCapacity = capacity;
-            this.bodyContactBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `lcp_body_contact_${capacity}`,
-                byteSize: capacity * 16,
-            });
-            // Commit e acumulação ligam o buffer antigo.
-            if (this.commitKernel !== null) destroyComputeKernel(this.core, this.commitKernel);
-            if (this.accumulateKernel !== null)
-                destroyComputeKernel(this.core, this.accumulateKernel);
-            this.commitKernel = null;
-            this.accumulateKernel = null;
+            const create = (discriminator: string, byteSize: number) =>
+                this.core.create<StorageBufferSpec>({
+                    kind: 'buffer',
+                    subkind: 'storage',
+                    discriminator: `${discriminator}_${capacity}`,
+                    byteSize,
+                });
+            this.bodyContactBuffer = create(
+                'lcp_body_contact',
+                capacity * RB_BODY_CORRECTION_BYTE_SIZE,
+            );
+            this.bodyDeltaBuffer = create('lcp_body_delta', capacity * RB_BODY_DELTA_BYTE_SIZE);
+            this.bodySplitBuffer = create('lcp_body_split', capacity * 4);
+            // Kernels ligam os buffers antigos.
+            this.invalidateAllKernels();
         }
-        return this.bodyContactBuffer;
+        return {
+            correction: this.bodyContactBuffer,
+            delta: this.bodyDeltaBuffer,
+            split: this.bodySplitBuffer,
+        };
     }
 
     /** Destrói lista de contatos, bias e tabela de warm start (substituídas ao mudar a capacidade). */
@@ -531,7 +596,7 @@ export class LCPFlow extends Flow {
         f32[16] = 0.05; // sleep_lin_threshold
         u32[17] = this.warmCapacity; // warm_capacity
         f32[18] = 0.2; // baumgarte_beta
-        f32[19] = 0.9; // warm_start_factor
+        f32[19] = 1.0; // warm_start_factor
     }
 
     private uploadNpParams(
@@ -550,14 +615,20 @@ export class LCPFlow extends Flow {
         this.core.write(buf, new Uint8Array(arr));
     }
 
-    private ensurePredictKernel(bodiesBuf: StorageBufferSpec): void {
-        if (this.predictKernel !== null) return;
-        this.predictKernel = createComputeKernel(this.core, {
-            discriminator: 'lcp_predict',
-            shaderSource: PREDICT_SHADER,
-            entryPoint: 'rb_predict_main',
-            bindings: [this.params.binding(0), { binding: 1, type: 'storage', buffer: bodiesBuf }],
-        });
+    private ensurePredictKernels(bodiesBuf: StorageBufferSpec): void {
+        if (this.predictKernel !== null && this.gravityKernel !== null) return;
+        const kernel = (discriminator: string, entryPoint: string) =>
+            createComputeKernel(this.core, {
+                discriminator,
+                shaderSource: PREDICT_SHADER,
+                entryPoint,
+                bindings: [
+                    this.params.binding(0),
+                    { binding: 1, type: 'storage', buffer: bodiesBuf },
+                ],
+            });
+        this.predictKernel ??= kernel('lcp_predict', 'rb_predict_main');
+        this.gravityKernel ??= kernel('lcp_gravity', 'rb_apply_gravity_main');
     }
 
     private ensureNarrowphaseKernel(
@@ -566,6 +637,7 @@ export class LCPFlow extends Flow {
         contacts: StorageBufferSpec,
         counter: StorageBufferSpec,
         warm: StorageBufferSpec,
+        split: StorageBufferSpec,
     ): ComputeKernel | null {
         if (this.narrowphaseKernels.has(shape.poolKey)) {
             return this.narrowphaseKernels.get(shape.poolKey) ?? null;
@@ -586,7 +658,8 @@ export class LCPFlow extends Flow {
                 { binding: 4, type: 'storage', buffer: contacts },
                 { binding: shape.bindingIndex, type: 'read-only-storage', buffer: poolBuf },
                 { binding: 9, type: 'storage', buffer: counter },
-                { binding: 10, type: 'read-only-storage', buffer: warm },
+                { binding: 10, type: 'storage', buffer: warm },
+                { binding: 11, type: 'storage', buffer: split },
             ],
         });
         this.narrowphaseKernels.set(shape.poolKey, kernel);
@@ -598,6 +671,7 @@ export class LCPFlow extends Flow {
         contacts: StorageBufferSpec,
         bVec: StorageBufferSpec,
         counter: StorageBufferSpec,
+        split: StorageBufferSpec,
     ): void {
         if (this.buildLcpKernel !== null) return;
         this.buildLcpKernel = createComputeKernel(this.core, {
@@ -610,31 +684,45 @@ export class LCPFlow extends Flow {
                 { binding: 2, type: 'storage', buffer: contacts },
                 { binding: 3, type: 'storage', buffer: bVec },
                 { binding: 4, type: 'read-only-storage', buffer: counter },
+                { binding: 5, type: 'read-only-storage', buffer: split },
             ],
         });
     }
 
-    private ensureSolveLcpKernel(
+    private ensureSolveKernels(
         bodiesBuf: StorageBufferSpec,
         contacts: StorageBufferSpec,
         bVec: StorageBufferSpec,
         counter: StorageBufferSpec,
         warm: StorageBufferSpec,
-    ): void {
-        if (this.solveLcpKernel !== null) return;
-        this.solveLcpKernel = createComputeKernel(this.core, {
-            discriminator: 'lcp_solve_lcp',
-            shaderSource: SOLVE_LCP_SHADER,
-            entryPoint: 'rb_solve_lcp_main',
-            bindings: [
-                this.params.binding(0),
-                { binding: 1, type: 'storage', buffer: bodiesBuf },
-                { binding: 2, type: 'storage', buffer: contacts },
-                { binding: 3, type: 'read-only-storage', buffer: bVec },
-                { binding: 4, type: 'read-only-storage', buffer: counter },
-                { binding: 5, type: 'storage', buffer: warm },
-            ],
-        });
+        delta: StorageBufferSpec,
+        split: StorageBufferSpec,
+    ): NonNullable<LCPFlow['solveKernels']> {
+        if (this.solveKernels !== null) return this.solveKernels;
+        // Mesmo layout explícito para as quatro entradas do solve paralelo.
+        const kernel = (entryPoint: string) =>
+            createComputeKernel(this.core, {
+                discriminator: `lcp_${entryPoint}`,
+                shaderSource: SOLVE_LCP_SHADER,
+                entryPoint,
+                bindings: [
+                    this.params.binding(0),
+                    { binding: 1, type: 'storage', buffer: bodiesBuf },
+                    { binding: 2, type: 'storage', buffer: contacts },
+                    { binding: 3, type: 'read-only-storage', buffer: bVec },
+                    { binding: 4, type: 'read-only-storage', buffer: counter },
+                    { binding: 5, type: 'storage', buffer: warm },
+                    { binding: 6, type: 'storage', buffer: delta },
+                    { binding: 7, type: 'read-only-storage', buffer: split },
+                ],
+            });
+        this.solveKernels = {
+            warmApply: kernel('rb_warm_apply_main'),
+            contacts: kernel('rb_solve_contacts_main'),
+            apply: kernel('rb_apply_body_delta_main'),
+            warmStore: kernel('rb_warm_store_main'),
+        };
+        return this.solveKernels;
     }
 
     private ensureAccumulateKernel(
@@ -665,7 +753,7 @@ export class LCPFlow extends Flow {
             bindings: [
                 this.params.binding(0),
                 { binding: 1, type: 'storage', buffer: bodiesBuf },
-                { binding: 2, type: 'read-only-storage', buffer: bodyContact },
+                { binding: 2, type: 'storage', buffer: bodyContact },
             ],
         });
     }
@@ -703,15 +791,22 @@ export class LCPFlow extends Flow {
         if (this.params.reserve(regions)) this.invalidateAllKernels();
         // Buffers antes dos parâmetros: a capacidade da lista e da tabela entram em cada região.
         const { contacts, bVec, counter, warm } = this.ensureContactsBuffer(bodyCount, totalCol);
-        const bodyContact = this.ensureBodyContactBuffer(bodyCount);
+        const {
+            correction: bodyContact,
+            delta: bodyDelta,
+            split: bodySplit,
+        } = this.ensureBodyBuffers(bodyCount);
         const stepDt = time.stepDt;
         const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
             .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
+        // Carimbo de cada substep: a paridade escolhe a região da tabela de warm start que ele grava.
+        const stamps: number[] = [];
         for (let step = 0; step < steps; step++) {
             const base = step * perStep;
             this.fillSimParams(base, bodyCount, totalCol, stepDt, stepDt, accel, this.contactStamp);
             for (let k = 0; k < this.substeps; k++) {
                 this.contactStamp++;
+                stamps.push(this.contactStamp);
                 this.fillSimParams(
                     base + 1 + k,
                     bodyCount,
@@ -725,17 +820,18 @@ export class LCPFlow extends Flow {
         }
         this.params.flush(regions);
 
-        this.ensurePredictKernel(bodiesBuf);
+        this.ensurePredictKernels(bodiesBuf);
         this.ensureCommitKernel(bodiesBuf, bodyContact);
         this.ensureAccumulateKernel(contacts, counter, bodyContact);
         const predict = this.predictKernel;
+        const gravity = this.gravityKernel;
         const commit = this.commitKernel;
         const accumulate = this.accumulateKernel;
-        if (predict === null || commit === null || accumulate === null) return;
+        if (predict === null || gravity === null || commit === null || accumulate === null) return;
 
         for (let step = 0; step < steps; step++) {
             const stepOffset = [this.params.offset(step * perStep)];
-            // Predict 1× por passo: vel += g·stepDt (gravidade integrada uma vez por passo).
+            // Predict 1× por passo: damping, giroscópico e pose predita.
             frame.compute('LCPFlow.predict', (pass) => {
                 pass.bind
                     .setPipeline(predict.pipeline)
@@ -743,55 +839,82 @@ export class LCPFlow extends Flow {
                 pass.dispatch.invocations(bodyCount, 64);
             });
 
-            if (totalCol > 0) {
-                // Substeps refinam detecção de contato + solve — predict e commit ficam fora.
-                for (let k = 0; k < this.substeps; k++) {
-                    const subOffset = [this.params.offset(step * perStep + 1 + k)];
-                    // Lista compactada recomeça a cada substep (no fluxo de comandos — research A1).
-                    frame.clear(counter);
+            // Substeps: gravidade (g · dtSub), detecção de contato e solve — predict e commit ficam fora.
+            for (let k = 0; k < this.substeps; k++) {
+                const subOffset = [this.params.offset(step * perStep + 1 + k)];
+                frame.compute('LCPFlow.gravity', (pass) => {
+                    pass.bind
+                        .setPipeline(gravity.pipeline)
+                        .setBindGroup(0, gravity.bindGroup, subOffset);
+                    pass.dispatch.invocations(bodyCount, 64);
+                });
+                if (totalCol === 0) continue;
+                // Lista compactada, contatos por corpo e somas do solve recomeçam a cada substep; a região da
+                // tabela de warm start que este substep grava é zerada (no fluxo de comandos — research A1).
+                const stamp = stamps[step * this.substeps + k] ?? 0;
+                const warmRegionBytes = this.warmCapacity * RB_WARM_ENTRY_BYTE_SIZE;
+                frame.clear(counter);
+                frame.clear(bodySplit);
+                frame.clear(bodyDelta);
+                frame.clear(warm, (stamp & 1) * warmRegionBytes, warmRegionBytes);
 
-                    // Fase 1 — DetectContacts (uma variante por pool não vazio)
-                    for (const info of poolInfo) {
-                        if (info.count === 0) continue;
-                        const kernel = this.ensureNarrowphaseKernel(
-                            info.shape,
-                            bodiesBuf,
-                            contacts,
-                            counter,
-                            warm,
-                        );
-                        if (kernel === null) continue;
-                        const label = `LCPFlow.narrowphase.${info.shape.poolKey}`;
-                        frame.compute(label, (pass) => {
-                            pass.bind
-                                .setPipeline(kernel.pipeline)
-                                .setBindGroup(0, kernel.bindGroup, subOffset);
-                            pass.dispatch.invocations(bodyCount * info.count, 64);
-                        });
-                    }
-
-                    // Fase 2 — AssembleA
-                    this.ensureBuildLcpKernel(bodiesBuf, contacts, bVec, counter);
-                    const build = this.buildLcpKernel;
-                    if (build === null) continue;
-                    frame.compute('LCPFlow.buildLcp', (pass) => {
+                // Fase 1 — DetectContacts (uma variante por pool não vazio)
+                for (const info of poolInfo) {
+                    if (info.count === 0) continue;
+                    const kernel = this.ensureNarrowphaseKernel(
+                        info.shape,
+                        bodiesBuf,
+                        contacts,
+                        counter,
+                        warm,
+                        bodySplit,
+                    );
+                    if (kernel === null) continue;
+                    const label = `LCPFlow.narrowphase.${info.shape.poolKey}`;
+                    frame.compute(label, (pass) => {
                         pass.bind
-                            .setPipeline(build.pipeline)
-                            .setBindGroup(0, build.bindGroup, subOffset);
-                        pass.dispatch.invocations(this.contactsCapacity, 64);
-                    });
-
-                    // Fase 3 — SolvePGS×K (single-threaded)
-                    this.ensureSolveLcpKernel(bodiesBuf, contacts, bVec, counter, warm);
-                    const solve = this.solveLcpKernel;
-                    if (solve === null) continue;
-                    frame.compute('LCPFlow.solveLcp', (pass) => {
-                        pass.bind
-                            .setPipeline(solve.pipeline)
-                            .setBindGroup(0, solve.bindGroup, subOffset);
-                        pass.dispatch.workgroups(1);
+                            .setPipeline(kernel.pipeline)
+                            .setBindGroup(0, kernel.bindGroup, subOffset);
+                        pass.dispatch.invocations(bodyCount * info.count, 64);
                     });
                 }
+
+                // Fase 2 — AssembleA
+                this.ensureBuildLcpKernel(bodiesBuf, contacts, bVec, counter, bodySplit);
+                const build = this.buildLcpKernel;
+                if (build === null) continue;
+                frame.compute('LCPFlow.buildLcp', (pass) => {
+                    pass.bind
+                        .setPipeline(build.pipeline)
+                        .setBindGroup(0, build.bindGroup, subOffset);
+                    pass.dispatch.invocations(this.contactsCapacity, 64);
+                });
+
+                // Fase 3 — warm start + K iterações Jacobi (contatos em paralelo, depois corpos em paralelo)
+                const solve = this.ensureSolveKernels(
+                    bodiesBuf,
+                    contacts,
+                    bVec,
+                    counter,
+                    warm,
+                    bodyDelta,
+                    bodySplit,
+                );
+                const run = (label: string, kernel: ComputeKernel, count: number) => {
+                    frame.compute(label, (pass) => {
+                        pass.bind
+                            .setPipeline(kernel.pipeline)
+                            .setBindGroup(0, kernel.bindGroup, subOffset);
+                        pass.dispatch.invocations(count, 64);
+                    });
+                };
+                run('LCPFlow.warmApply', solve.warmApply, this.contactsCapacity);
+                run('LCPFlow.applyDelta', solve.apply, bodyCount);
+                for (let it = 0; it < this.solveIters; it++) {
+                    run('LCPFlow.solveContacts', solve.contacts, this.contactsCapacity);
+                    run('LCPFlow.applyDelta', solve.apply, bodyCount);
+                }
+                run('LCPFlow.warmStore', solve.warmStore, this.contactsCapacity);
             }
 
             // Correção posicional por corpo a partir dos contatos do último substep.
@@ -801,7 +924,7 @@ export class LCPFlow extends Flow {
                     pass.bind
                         .setPipeline(accumulate.pipeline)
                         .setBindGroup(0, accumulate.bindGroup, stepOffset);
-                    pass.dispatch.workgroups(1);
+                    pass.dispatch.invocations(this.contactsCapacity, 64);
                 });
             }
 

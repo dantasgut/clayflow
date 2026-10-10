@@ -1,8 +1,8 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/rb_lcp_commit.wgsl.ts
 @group(0) @binding(0) var<uniform>             rb_params: RBSimParams;
 @group(0) @binding(1) var<storage, read_write> bodies:    array<RigidBody>;
-// Correção posicional (xyz) e marca de contato (w) por corpo — rb_contact_accumulate (spec 004, R19).
-@group(0) @binding(2) var<storage, read>       body_contact: array<vec4f>;
+// Correção posicional e contatos por corpo em ponto fixo — rb_contact_accumulate (spec 004, R19).
+@group(0) @binding(2) var<storage, read_write> body_correction: array<RBBodyCorrection>;
 
 @compute @workgroup_size(64)
 fn rb_lcp_commit_main(
@@ -34,9 +34,12 @@ fn rb_lcp_commit_main(
     var final_omega = omega * ang_damp;
 
     // Correção posicional e contato ativo acumulados por rb_contact_accumulate a partir da lista compactada.
-    let acc = body_contact[i];
-    let pos_correction = acc.xyz;
-    let has_contact = acc.w > 0.0;
+    let pos_correction = vec3f(
+        rb_from_fixed(atomicLoad(&body_correction[i].c_x)),
+        rb_from_fixed(atomicLoad(&body_correction[i].c_y)),
+        rb_from_fixed(atomicLoad(&body_correction[i].c_z)),
+    );
+    let has_contact = atomicLoad(&body_correction[i].contacts) > 0;
 
     // Sleep com temporizador (_rb_pad.x).
     // Corpo só dorme se: em contato E vel/omega abaixo do threshold E timer >= 0.5 s.

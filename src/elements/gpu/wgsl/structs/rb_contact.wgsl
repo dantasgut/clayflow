@@ -12,6 +12,8 @@ struct RBContact {
     diagonal_t1: f32,    // Delassus diagonal para tangencial t1
     restitution: f32,    // coeficiente de restituição do par (combinado)
     diagonal_t2: f32,    // Delassus diagonal para tangencial t2 (t2 = cross(n, t1))
-    _pad3:       f32,    // padding
-    _pad4:       f32,    // padding
+    _pad3:       f32,    // SDF real do contato (sem especulativo); negativo = penetração
+    weight:      f32,    // peso da correção posicional: 1 / contatos do mesmo par (manifold de cantos)
+    rolling:     vec3f,  // impulso angular de resistência ao rolamento acumulado no substep
+    feature:     u32,    // feature do par (canto da caixa; 0 para esfera) — chave do warm start junto do par
 }
