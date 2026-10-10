@@ -226,6 +226,44 @@ export class ForwardFlow extends RenderFlow {
         this.outputColorView = null;
     }
 
+    /**
+     * Descarte do estágio: libera os objetos de cada entidade, as variantes de pipeline, as texturas de tamanho do
+     * canvas e os recursos compartilhados (layouts, sombra, bind groups).
+     */
+    override dispose(): void {
+        for (const slot of this.cachedSlots.values()) this.releaseSlot(slot);
+        this.cachedSlots.clear();
+        this.renderables.clear();
+        this.cameras.clear();
+        for (const variant of this.pipelineVariants.values()) this.core.destroy(variant.spec);
+        this.pipelineVariants.clear();
+        this.onCanvasResized(0, 0);
+        const shared = [
+            this.worldBindGroup,
+            this.shadowBindGroup,
+            this.shadowParamsBuffer,
+            this.shadowSampler,
+            this.shadowDummyView,
+            this.shadowDummyTexture,
+            this.cameraLayout,
+            this.transformLayout,
+            this.materialLayout,
+            this.shadowLayout,
+        ];
+        for (const spec of shared) if (spec !== null) this.core.destroy(spec);
+        this.worldBindGroup = null;
+        this.shadowBindGroup = null;
+        this.lastShadowDiscriminator = null;
+        this.shadowParamsBuffer = null;
+        this.shadowSampler = null;
+        this.shadowDummyView = null;
+        this.shadowDummyTexture = null;
+        this.cameraLayout = null;
+        this.transformLayout = null;
+        this.materialLayout = null;
+        this.shadowLayout = null;
+    }
+
     override onEntitiesRemoved(entityIds: readonly number[]): void {
         for (const id of entityIds) {
             const entityId = id as EntityId;
@@ -529,6 +567,7 @@ export class ForwardFlow extends RenderFlow {
             || this.shadowSampler === null
         )
             return;
+        if (this.shadowBindGroup !== null) this.core.destroy(this.shadowBindGroup);
         this.shadowBindGroup = this.core.create<BindGroupSpec>({
             kind: 'bindgroup',
             discriminator: `forward_shadow_bg:${disc}`,

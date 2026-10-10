@@ -5,6 +5,7 @@ import { Application } from '../Application';
 
 vi.mock('../../flows/defaults', () => ({
     registerPresentationDefaults: () => ({}),
+    releasePresentationDefaults: () => true,
 }));
 
 describe('Application — dispositivo', () => {

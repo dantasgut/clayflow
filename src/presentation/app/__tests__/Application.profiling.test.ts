@@ -6,6 +6,7 @@ import { Application } from '../Application';
 
 vi.mock('../../flows/defaults', () => ({
     registerPresentationDefaults: () => ({}),
+    releasePresentationDefaults: () => true,
 }));
 
 function fakeScene(): { scene: SceneContext; core: EngineCore } {

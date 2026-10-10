@@ -15,7 +15,11 @@ import type { LayoutInferencer } from '../../scene/systems/LayoutInferencer';
 import type { ExecutionSystem } from '../../scene/systems/ExecutionSystem';
 import { GameLoop } from './GameLoop';
 import type { Time } from '../../scene/time/Time';
-import { registerPresentationDefaults, type PresentationDefaults } from '../flows/defaults';
+import {
+    registerPresentationDefaults,
+    releasePresentationDefaults,
+    type PresentationDefaults,
+} from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
 import { autoRegisterFlows } from '../../elements/physics/flows/defaultFlows';
 
@@ -323,9 +327,11 @@ export class Application {
             this.flowAutoUnsubscribe();
             this.flowAutoUnsubscribe = null;
         }
-        // Só dispose o scene se foi criado para esta Application (option scene).
-        // Singleton default sobrevive entre Applications.
-        if (this.ownsScene) this.scene.dispose();
+        // Estágios padrão: registrados uma vez por cena; a última aplicação da cena os desregistra.
+        const lastUser = releasePresentationDefaults(this.scene.flows);
+        // Cena passada em `options.scene` é descartada com a última aplicação que a usa; o singleton default
+        // sobrevive entre aplicações.
+        if (this.ownsScene && lastUser) this.scene.dispose();
     }
 
     /** Acesso direto à Camada 1 (EngineCore) para casos avançados. */

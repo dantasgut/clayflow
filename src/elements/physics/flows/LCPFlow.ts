@@ -221,6 +221,21 @@ export class LCPFlow extends Flow {
         return list;
     }
 
+    /** Descarte do estágio: libera kernels, parâmetros, contatos, staging e buffers auxiliares. */
+    override dispose(): void {
+        this.invalidateAllKernels();
+        this.params.dispose();
+        this.releaseContacts();
+        if (this.bodiesStaging !== null) this.core.destroy(this.bodiesStaging);
+        this.bodiesStaging = null;
+        this.bodiesStagingByteSize = 0;
+        for (const buf of this.npParamsBuffers.values()) this.core.destroy(buf);
+        for (const buf of this.bodyOwnersBuffers.values()) this.core.destroy(buf);
+        this.npParamsBuffers.clear();
+        this.bodyOwnersBuffers.clear();
+        this.bodyOwnersCapacity.clear();
+    }
+
     override isReady(): boolean {
         return this.resources.poolCount(this.bodiesPoolKey) > 0;
     }
@@ -644,6 +659,8 @@ export class LCPFlow extends Flow {
         const byteSize = bodyCount * LCP_BODY_STRIDE_F32 * 4;
         if (byteSize <= 0) return;
         if (this.bodiesStaging === null || this.bodiesStagingByteSize < byteSize) {
+            // Sem leitura em voo (guarda acima): o staging anterior pode ser liberado.
+            if (this.bodiesStaging !== null) this.core.destroy(this.bodiesStaging);
             this.bodiesStaging = this.core.create<StagingBufferSpec>({
                 kind: 'buffer',
                 subkind: 'staging',

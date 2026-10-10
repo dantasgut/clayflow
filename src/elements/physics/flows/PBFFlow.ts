@@ -138,6 +138,16 @@ export class PBFFlow extends Flow {
         ];
     }
 
+    /** Descarte do estágio: libera kernels, parâmetros, colisores e a busca de vizinhança. */
+    override dispose(): void {
+        this.invalidateKernels();
+        this.params.dispose();
+        if (this.collidersBuffer !== null) this.core.destroy(this.collidersBuffer);
+        this.collidersBuffer = null;
+        this.neighborSearch?.dispose();
+        this.neighborSearch = null;
+    }
+
     override isReady(): boolean {
         return this.resources.poolCount(this.bodyType) > 0;
     }

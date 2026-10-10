@@ -105,6 +105,12 @@ export class XPBDFlow extends Flow {
         return list;
     }
 
+    /** Descarte do estágio: libera kernels e parâmetros. */
+    override dispose(): void {
+        this.invalidateKernels();
+        this.params.dispose();
+    }
+
     override isReady(): boolean {
         return this.resources.poolCount(this.poolKey) > 0;
     }

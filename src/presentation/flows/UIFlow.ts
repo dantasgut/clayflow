@@ -59,6 +59,11 @@ export class UIFlow extends Flow {
         return this.tree.root.children.length > 0;
     }
 
+    /** Descarte do estágio: libera os objetos de GPU da UI. */
+    override dispose(): void {
+        this.gpu.dispose();
+    }
+
     dispatch(frame: Frame): void {
         if (this.tree.root.children.length === 0) return;
         this.gpu.ensureGpuObjects();

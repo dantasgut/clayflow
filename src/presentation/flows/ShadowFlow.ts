@@ -169,6 +169,41 @@ export class ShadowFlow extends Flow {
         return this.depthView;
     }
 
+    /** Descarte do estágio: libera os buffers de cada entidade, o mapa de profundidade, pipelines e layouts. */
+    override dispose(): void {
+        for (const slot of this.slots.values()) {
+            this.core.destroy(slot.vbo);
+            this.core.destroy(slot.ibo);
+        }
+        this.slots.clear();
+        this.receivers.clear();
+        this.lights.clear();
+        const owned = [
+            this.worldBindGroup,
+            this.shadowParamsBindGroup,
+            this.pipeline,
+            this.mirroredPipeline,
+            this.shader,
+            this.depthView,
+            this.depthTexture,
+            this.shadowParamsBuffer,
+            this.shadowParamsLayout,
+            this.transformLayout,
+        ];
+        for (const spec of owned) if (spec !== null) this.core.destroy(spec);
+        this.worldBindGroup = null;
+        this.shadowParamsBindGroup = null;
+        this.pipeline = null;
+        this.mirroredPipeline = null;
+        this.mirroredPipelineReady = false;
+        this.shader = null;
+        this.depthView = null;
+        this.depthTexture = null;
+        this.shadowParamsBuffer = null;
+        this.shadowParamsLayout = null;
+        this.transformLayout = null;
+    }
+
     override onEntitiesRemoved(entityIds: readonly number[]): void {
         for (const id of entityIds) {
             const entityId = id as EntityId;

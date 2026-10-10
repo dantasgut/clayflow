@@ -85,6 +85,12 @@ export class FEMFlow extends Flow {
         ];
     }
 
+    /** Descarte do estágio: libera kernels e parâmetros. */
+    override dispose(): void {
+        this.invalidateKernels();
+        this.params.dispose();
+    }
+
     override isReady(): boolean {
         return this.resources.poolCount(this.bodyType) > 0;
     }

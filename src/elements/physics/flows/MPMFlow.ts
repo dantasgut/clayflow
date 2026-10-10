@@ -114,6 +114,16 @@ export class MPMFlow extends Flow {
         ];
     }
 
+    /** Descarte do estágio: libera kernels, parâmetros, grade e colisores. */
+    override dispose(): void {
+        this.invalidateKernels();
+        this.params.dispose();
+        if (this.gridBuffer !== null) this.core.destroy(this.gridBuffer);
+        if (this.collidersBuffer !== null) this.core.destroy(this.collidersBuffer);
+        this.gridBuffer = null;
+        this.collidersBuffer = null;
+    }
+
     override isReady(): boolean {
         return this.resources.poolCount(this.bodyType) > 0;
     }

@@ -29,6 +29,13 @@ export class DefaultEventBus implements EventBus {
     }
 
     /** Dispatch sincrônico. Cópia da Set permite unsubscribe durante iteração. */
+    listenerCount(type?: EventName): number {
+        if (type !== undefined) return this.handlers.get(type)?.size ?? 0;
+        let total = 0;
+        for (const set of this.handlers.values()) total += set.size;
+        return total;
+    }
+
     emit<E extends EventName>(type: E, payload: EventMap[E]): void {
         const set = this.handlers.get(type);
         if (set === undefined) return;

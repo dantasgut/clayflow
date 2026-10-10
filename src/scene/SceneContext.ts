@@ -50,9 +50,9 @@ export interface SceneContext {
         device?: DeviceOptions,
     ): Promise<void>;
     /**
-     * Cancela inflight readbacks, libera GpuResourceStore, remove listeners
-     * registrados. Após dispose, o context não pode ser reutilizado — crie
-     * um novo via `createScene()`.
+     * Descarta a cena: desregistra (e descarta) todos os estágios, desfaz as inscrições do `ExecutionSystem` e do
+     * `ResourceSystem` e desliga o core (libera todos os objetos de GPU). Idempotente. Após dispose, o context não
+     * pode ser reutilizado — crie um novo via `createScene()`.
      */
     dispose(): void;
 }
@@ -104,6 +104,9 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
         dispose() {
             if (disposed) return;
             disposed = true;
+            for (const flow of [...flows.allFlows()]) flows.unregister(flow);
+            executionSystem.dispose();
+            resourceSystem.dispose();
             unsubscribeDeviceLost();
             core.shutdown();
         },
