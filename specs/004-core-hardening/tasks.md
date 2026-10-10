@@ -127,9 +127,15 @@ limites do device (FR-014–FR-017, FR-029, FR-030).
 - [x] T043 [US3] Migrar todos os kernels lineares de `src/elements/gpu/wgsl/kernels/` e as 22 chamadas de despacho (`NeighborSearchPipeline.ts`, `LCPFlow.ts`, `XPBDFlow.ts`, `FEMFlow.ts`, `MPMFlow.ts`, `SPHFlow.ts`, `PBFFlow.ts`, `TransformFlow.ts`) para `dispatch.invocations(count, WG)` e índice linear, até T042 passar; ajustar os testes dos Flows que conferem `workgroups`
 - [x] T044 [P] [US3] Teste `src/elements/gpu/__tests__/NeighborSearchPipeline.scan.test.ts` (core mockado): níveis para 4 096, 65 536, 131 072 e 262 144 células (1/1/2/2 níveis acima do 0 conforme data-model — 4 096 > 256 já exige um nível); um buffer de somas e um uniform de contagem por nível, escritos só quando a grade muda; sequência gravada `scan_local` (subida) → `scan_groups` → `scan_combine` (descida) com `invocations` de cada nível; `dispose` destrói os buffers e uniforms de todos os níveis (a grade é fixa por instância); referência CPU do algoritmo (`exclusiveScanByLevels` no teste) igual à soma de prefixos sequencial para 262 144 contagens aleatórias
 - [x] T045 [US3] Implementar a soma de prefixos em vários níveis em `src/elements/gpu/NeighborSearchPipeline.ts` e em `ns_scan_local.wgsl`/`ns_scan_groups.wgsl`/`ns_scan_combine.wgsl` (contagem do nível por uniform próprio, índice linear), até T044 passar
-- [ ] T046 [US3] Smoke `src/__smokes__/limits.ts`: (a) kernel de teste com `invocations(70 000 × 256, 256)` grava 1 em cada posição de um buffer de `u32` e um contador atômico; leitura de volta confirma todas as posições = 1 e contador = total (SC-010); (b) `NeighborSearchPipeline` com grade 64 × 64 × 64 (262 144 células) e partículas aleatórias: vizinhos lidos de volta iguais aos da força bruta na CPU (SC-011); registrar no `src/__smokes__/README.md`
+- [x] T046 [US3] Smoke `src/__smokes__/limits.ts`: (a) kernel de teste com `invocations(70 000 × 256, 256)` grava 1 em cada posição de um buffer de `u32` e um contador atômico; leitura de volta confirma todas as posições = 1 e contador = total (SC-010); (b) `NeighborSearchPipeline` com grade 64 × 64 × 64 (262 144 células) e partículas aleatórias: vizinhos lidos de volta iguais aos da força bruta na CPU (SC-011); registrar no `src/__smokes__/README.md`
 
 **Checkpoint**: dispositivo configurável e diagnosticável; despachos e busca de vizinhança sem teto.
+
+> **Smoke T046 (2026-10-09)**: `limits` PASSED — (a) 17 920 000 elementos em 70 000 grupos (> 65 535): todos
+> marcados uma vez, contador 17 920 000 (SC-010); (b) 60 000 partículas em 262 144 células (52 554 em células
+> ≥ 65 536), 71 224 vizinhos, 0 divergências contra a referência na CPU (SC-011). T039: relatório do bench traz
+> adaptador, features (`core-features-and-limits`, `timestamp-query`) e limites no máximo do adaptador
+> (`maxBufferSize`/`maxStorageBufferBindingSize` 4 294 967 292) com o mesmo `profileId`.
 
 ---
 
