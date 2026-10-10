@@ -54,10 +54,12 @@ describe('LCPFlow — avanço governado pelo Time', () => {
             ['LCPFlow.predict', 0],
             ['LCPFlow.solveLcp', 256],
             ['LCPFlow.solveLcp', 512],
+            ['LCPFlow.accumulate', 0],
             ['LCPFlow.commit', 0],
             ['LCPFlow.predict', 768],
             ['LCPFlow.solveLcp', 1024],
             ['LCPFlow.solveLcp', 1280],
+            ['LCPFlow.accumulate', 768],
             ['LCPFlow.commit', 768],
         ] as const;
         const seen = sim

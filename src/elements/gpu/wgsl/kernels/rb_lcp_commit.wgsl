@@ -1,7 +1,8 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/rb_lcp_commit.wgsl.ts
 @group(0) @binding(0) var<uniform>             rb_params: RBSimParams;
 @group(0) @binding(1) var<storage, read_write> bodies:    array<RigidBody>;
-@group(0) @binding(2) var<storage, read>       contacts:  array<RBContact>;
+// Correção posicional (xyz) e marca de contato (w) por corpo — rb_contact_accumulate (spec 004, R19).
+@group(0) @binding(2) var<storage, read>       body_contact: array<vec4f>;
 
 @compute @workgroup_size(64)
 fn rb_lcp_commit_main(
@@ -32,21 +33,10 @@ fn rb_lcp_commit_main(
     var final_vel   = vel   * lin_damp;
     var final_omega = omega * ang_damp;
 
-    // Correção posicional + detecção de contato ativo num único loop.
-    // _pad3 armazena o SDF real 'd' (sem d_speculative) — negativo = penetração real.
-    let col_count = rb_params.collider_count;
-    var pos_correction = vec3f(0.0);
-    var has_contact = false;
-    for (var j = 0u; j < col_count; j++) {
-        let slot = i * col_count + j;
-        if (contacts[slot].is_active == 0u) { continue; }
-        has_contact = true;
-        let actual_d = contacts[slot]._pad3;
-        let slop     = rb_params.penetration_slop;
-        if (actual_d >= -slop) { continue; }
-        let corr_depth = -(actual_d + slop);
-        pos_correction += contacts[slot].normal.xyz * corr_depth * 0.1;
-    }
+    // Correção posicional e contato ativo acumulados por rb_contact_accumulate a partir da lista compactada.
+    let acc = body_contact[i];
+    let pos_correction = acc.xyz;
+    let has_contact = acc.w > 0.0;
 
     // Sleep com temporizador (_rb_pad.x).
     // Corpo só dorme se: em contato E vel/omega abaixo do threshold E timer >= 0.5 s.

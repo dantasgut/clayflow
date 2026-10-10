@@ -79,6 +79,7 @@ describe('RigidBody authoring — equivalência domínio↔cru (T011 / FR-006)',
             data: {
                 pos: [-0.4, 4, 0, 1],
                 rot: [0, 0, 0, 1],
+                pos_pred: [-0.4, 4, 0, 0],
                 rot_pred: [0, 0, 0, 1],
                 I_inv: inertiaInv(1, { shape: 'sphere', radius: 0.4 }),
                 mat_props: [0.45, 0.3, 0.05, 0.05],

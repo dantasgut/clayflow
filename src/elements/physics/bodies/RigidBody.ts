@@ -145,6 +145,9 @@ function buildLcpData(o: RigidBodyDomainOptions): Record<string, unknown> {
     return {
         pos: [px, py, pz, invMassOf(o.mass)],
         rot: [...rot],
+        // Pose predita = pose inicial: corpos estáticos (inv_mass 0) nunca passam por rb_predict, e a narrowphase lê
+        // a pose do dono do collider em pos_pred/rot_pred.
+        pos_pred: [px, py, pz, 0],
         rot_pred: [...rot],
         I_inv: inertiaInv(o.mass, o),
         mat_props: packMatProps(o),

@@ -5,7 +5,8 @@
 //
 // Lê de: bodies (pool RigidBody:LCP), body_owners (mapa CPU: collider_slot →
 // rb_idx do owner, 0xFFFFFFFFu se estático), e pool tipado de colliders.
-// Escreve em: contacts[slot] onde slot = contact_base_offset + rb_i * pool_count + col_j.
+// Escreve em: lista compactada `contacts` — cada par em contato reserva um índice em `contact_counter.count`
+// (spec 004, R19); o par é identificado por `slot = rb_i * total_col + pool_base + col_j` (id do par).
 //
 // Dispatch: workgroup_size=64, threads = body_count * pool_count.
 // LCPFlow dispatcha por pool quando count > 0.
@@ -15,6 +16,8 @@
 @group(0) @binding(2) var<uniform>             np_params:   NarrowphaseParams;
 @group(0) @binding(3) var<storage, read>       body_owners: array<u32>;
 @group(0) @binding(4) var<storage, read_write> contacts:    array<RBContact>;
+@group(0) @binding(9)  var<storage, read_write> contact_counter: RBContactCounter;
+@group(0) @binding(10) var<storage, read>       warm_table:      array<RBWarmEntry>;
 
 // Binding 5: pool específico da variante — declarado por kernel via concat WGSL no TS.
 
@@ -55,26 +58,28 @@ struct TestContext {
     body_shape_type:      u32,   // 0=sphere, 1=box
 }
 
-// Inicializa o slot como inativo e zera warm-start lambdas.
-fn deactivate(slot: u32) {
-    contacts[slot].is_active = 0u;
-    contacts[slot].point.w   = 0.0;
-    contacts[slot].lambda_tx = 0.0;
-    contacts[slot].lambda_ty = 0.0;
+// Impulsos do par gravados pelo solver no substep anterior (warm start); zero se ausentes.
+fn warm_start_of(pair: u32) -> vec3f {
+    let key = pair + 1u;
+    let capacity = rb_params.warm_capacity;
+    if (capacity == 0u) { return vec3f(0.0); }
+    let home = rb_warm_home(key, capacity);
+    for (var p = 0u; p < RB_WARM_PROBES; p++) {
+        let e = warm_table[(home + p) & (capacity - 1u)];
+        if (e.key == 0u) { break; }
+        if (e.key == key && e.stamp + 1u == rb_params.contact_stamp) {
+            return vec3f(e.lambda_n, e.lambda_tx, e.lambda_ty);
+        }
+    }
+    return vec3f(0.0);
 }
 
 // Pré-validação compartilhada: cinemático, self-collision, supressão dynamic-dynamic.
-// Retorna true se o slot deve continuar processando; false se foi desativado.
+// Retorna true se o par deve continuar processando; false se não gera contato.
 fn precheck_pair(ctx: TestContext, collider_shape_rank: u32) -> bool {
     let inv_mass = bodies[ctx.rb_i].pos.w;
-    if (inv_mass == 0.0) {
-        contacts[ctx.slot].is_active = 0u;
-        return false;
-    }
-    if (ctx.is_dynamic_col && ctx.owner_rb == ctx.rb_i) {
-        contacts[ctx.slot].is_active = 0u;
-        return false;
-    }
+    if (inv_mass == 0.0) { return false; }
+    if (ctx.is_dynamic_col && ctx.owner_rb == ctx.rb_i) { return false; }
     // Supressão canônica dynamic-dynamic: par secundário é desativado para evitar
     // aplicar impulso 2× (A→B e B→A). Critério: (body_shape, owner_idx).
     if (ctx.is_dynamic_col) {
@@ -83,7 +88,6 @@ fn precheck_pair(ctx: TestContext, collider_shape_rank: u32) -> bool {
             let col_body_shape = u32(bodies[ctx.owner_rb].body_shape.x);
             if (ctx.body_shape_type > col_body_shape
              || (ctx.body_shape_type == col_body_shape && ctx.rb_i > ctx.owner_rb)) {
-                contacts[ctx.slot].is_active = 0u;
                 return false;
             }
         }
@@ -91,13 +95,13 @@ fn precheck_pair(ctx: TestContext, collider_shape_rank: u32) -> bool {
     return true;
 }
 
-// Decisão final do contato: predictive, depth, warm-start, escrita atômica de RBContact.
+// Decisão final do contato: predictive, depth, warm start; reserva um índice na lista compactada e grava RBContact.
 // `wn`  — normal mundo unitária (aponta para fora do collider).
 // `d`   — SDF real (negativo = penetração).
 // `test_world` — ponto de teste em mundo.
 // `r_body` — vetor do CM do corpo até o ponto de teste, para v_test (sphere usa zero).
 // `sphere_radius_offset` — raio da esfera quando body_shape=sphere (0 em outros casos).
-fn write_contact_or_deactivate(ctx: TestContext, wn: vec3f, d: f32,
+fn emit_contact(ctx: TestContext, wn: vec3f, d: f32,
                                 test_world: vec3f, r_body: vec3f,
                                 sphere_radius_offset: f32) {
     var v_test: vec3f;
@@ -109,35 +113,33 @@ fn write_contact_or_deactivate(ctx: TestContext, wn: vec3f, d: f32,
     let v_along_n     = dot(v_test, wn);
     let d_speculative = d + v_along_n * rb_params.gravity.w;  // gravity.w = dtSub
     let predictive_on = rb_params.predictive_threshold > 0.0;
-    if (d >= 0.0 && (d_speculative >= 0.0 || !predictive_on)) {
-        deactivate(ctx.slot);
-        return;
-    }
+    if (d >= 0.0 && (d_speculative >= 0.0 || !predictive_on)) { return; }
     let depth_eff = select(d, d_speculative, d >= 0.0);
     let contact_point = test_world - (depth_eff + sphere_radius_offset) * wn;
 
-    let prev_lambda_n  = contacts[ctx.slot].point.w;
-    let prev_lambda_tx = contacts[ctx.slot].lambda_tx;
-    let prev_lambda_ty = contacts[ctx.slot].lambda_ty;
-    let was_active     = contacts[ctx.slot].is_active;
-    let lambda_n  = select(0.0, prev_lambda_n,  was_active == 1u);
-    let lambda_tx = select(0.0, prev_lambda_tx, was_active == 1u);
-    let lambda_ty = select(0.0, prev_lambda_ty, was_active == 1u);
+    let k = atomicAdd(&contact_counter.count, 1u);
+    if (k >= rb_params.max_contacts) {
+        atomicAdd(&contact_counter.overflow, 1u);
+        return;
+    }
+    let warm = warm_start_of(ctx.slot);
 
-    contacts[ctx.slot].normal      = vec4f(wn, -depth_eff);
-    contacts[ctx.slot].point       = vec4f(contact_point, lambda_n);
-    contacts[ctx.slot].rb_idx      = ctx.rb_i;
-    contacts[ctx.slot].col_idx     = ctx.slot;
-    contacts[ctx.slot].is_active   = 1u;
-    contacts[ctx.slot].rb_idx_b    = ctx.owner_rb;
-    contacts[ctx.slot].lambda_tx   = lambda_tx;
-    contacts[ctx.slot].lambda_ty   = lambda_ty;
+    contacts[k].normal      = vec4f(wn, -depth_eff);
+    contacts[k].point       = vec4f(contact_point, warm.x);
+    contacts[k].rb_idx      = ctx.rb_i;
+    contacts[k].col_idx     = ctx.slot;
+    contacts[k].is_active   = 1u;
+    contacts[k].rb_idx_b    = ctx.owner_rb;
+    contacts[k].lambda_tx   = warm.y;
+    contacts[k].lambda_ty   = warm.z;
     let rest_a = bodies[ctx.rb_i].mat_props.x;
     let rest_b = select(0.0, bodies[ctx.owner_rb].mat_props.x, ctx.is_dynamic_col);
-    contacts[ctx.slot].restitution  = combine_restitution(rest_a, rest_b);
-    contacts[ctx.slot].diagonal_t2  = 0.0;
-    contacts[ctx.slot]._pad3        = d;
-    contacts[ctx.slot]._pad4        = 0.0;
+    contacts[k].restitution  = combine_restitution(rest_a, rest_b);
+    contacts[k].diagonal_n   = 1.0;
+    contacts[k].diagonal_t1  = 1.0;
+    contacts[k].diagonal_t2  = 1.0;
+    contacts[k]._pad3        = d;
+    contacts[k]._pad4        = 0.0;
 }
 
 // Computa transformação para o frame local do collider (apenas relevante para
@@ -221,7 +223,7 @@ fn narrowphase_body_vs_plane(ctx: TestContext, normal: vec3f, offset: f32) {
         d          = raw - radius;
         sphere_radius_offset = radius;
     }
-    write_contact_or_deactivate(ctx, normal, d, test_world, r_body, sphere_radius_offset);
+    emit_contact(ctx, normal, d, test_world, r_body, sphere_radius_offset);
 }
 
 // Para BoxCollider — usa frame (estático: identity rot; dinâmico: owner rot).
@@ -275,11 +277,10 @@ fn narrowphase_body_vs_box(ctx: TestContext, frame: ColliderFrame, half: vec3f) 
     let wn_raw = collider_local_to_world(grad_local, frame);
     let wn_len = length(wn_raw);
     if (wn_len < 1e-8) {
-        deactivate(ctx.slot);
         return;
     }
     let wn = wn_raw / wn_len;
-    write_contact_or_deactivate(ctx, wn, d, test_world, r_body, sphere_radius_offset);
+    emit_contact(ctx, wn, d, test_world, r_body, sphere_radius_offset);
 }
 
 // Para SphereCollider — frame contém center; raio é parâmetro escalar.
@@ -322,11 +323,10 @@ fn narrowphase_body_vs_sphere(ctx: TestContext, sphere_center_world: vec3f, sphe
     }
     let dl = length(diff_world);
     if (dl < 1e-8) {
-        deactivate(ctx.slot);
         return;
     }
     let wn = diff_world / dl;
-    write_contact_or_deactivate(ctx, wn, d, test_world, r_body, sphere_radius_offset);
+    emit_contact(ctx, wn, d, test_world, r_body, sphere_radius_offset);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -423,9 +423,7 @@ fn rb_narrowphase_mesh_main(
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let idx = gid.x;
     if (idx >= rb_params.body_count * np_params.pool_count) { return; }
-    let ctx = make_ctx(idx);
     // MeshCollider triangle-by-triangle narrowphase é trabalho separado;
-    // por ora, desativa slot (não gera contatos com mesh).
+    // por ora não gera contatos com mesh.
     let _unused = meshes[idx % np_params.pool_count];
-    deactivate(ctx.slot);
 }

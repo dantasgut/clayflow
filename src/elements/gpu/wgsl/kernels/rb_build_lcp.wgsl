@@ -3,6 +3,8 @@
 @group(0) @binding(1) var<storage, read>       bodies:    array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> contacts:  array<RBContact>;
 @group(0) @binding(3) var<storage, read_write> b_vec:     array<f32>;
+// Contador da lista compactada (spec 004, R19): [0] = contatos reservados na narrowphase.
+@group(0) @binding(4) var<storage, read>       contact_counter: array<u32>;
 
 @compute @workgroup_size(64, 1, 1)
 fn rb_build_lcp(
@@ -12,16 +14,8 @@ fn rb_build_lcp(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let ci = gid.x;
-    if (ci >= rb_params.max_contacts) { return; }
-
-    // Contato inativo — zera bias e diagonais (rb_solve vai ignorar, mas limpa resíduos)
-    if (contacts[ci].is_active == 0u) {
-        b_vec[ci]                = 0.0;
-        contacts[ci].diagonal_n  = 1.0;  // valor seguro não-zero para evitar divisão por zero
-        contacts[ci].diagonal_t1 = 1.0;
-        contacts[ci].diagonal_t2 = 1.0;
-        return;
-    }
+    // Só os contatos ativos da lista compactada deste substep.
+    if (ci >= min(contact_counter[0], rb_params.max_contacts)) { return; }
 
     let rb_i     = contacts[ci].rb_idx;
     let inv_mass = bodies[rb_i].pos.w;

@@ -3,16 +3,20 @@
 @group(0) @binding(1) var<storage, read_write> bodies:    array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> contacts:  array<RBContact>;
 @group(0) @binding(3) var<storage, read>       b_vec:     array<f32>;
+// Lista compactada (spec 004, R19): [0] = contatos deste substep; tabela de warm start gravada ao fim do solve.
+@group(0) @binding(4) var<storage, read>       contact_counter: array<u32>;
+@group(0) @binding(5) var<storage, read_write> warm_table:      array<RBWarmEntry>;
 
 @compute @workgroup_size(1, 1, 1)
 fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
+    let contact_count = min(contact_counter[0], rb_params.max_contacts);
 
     // ── Warm start — antes da 1ª iteração PGS ─────────────────────────────────
     // Aplica impulsos acumulados do frame anterior escalonados por warm_start_factor.
     // Inicializa as velocidades numa solução inicial próxima da convergida.
     let wsf = rb_params.warm_start_factor;
     if (wsf > 0.0) {
-        for (var ci = 0u; ci < rb_params.max_contacts; ci++) {
+        for (var ci = 0u; ci < contact_count; ci++) {
             if (contacts[ci].is_active == 0u) { continue; }
 
             let rb_i     = contacts[ci].rb_idx;
@@ -66,7 +70,7 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
 
     // ── Loop PGS — K iterações ────────────────────────────────────────────────
     for (var k = 0u; k < rb_params.solve_iters; k++) {
-        for (var ci = 0u; ci < rb_params.max_contacts; ci++) {
+        for (var ci = 0u; ci < contact_count; ci++) {
             if (contacts[ci].is_active == 0u) { continue; }
 
             let rb_i     = contacts[ci].rb_idx;
@@ -154,5 +158,35 @@ fn rb_solve_lcp_main(@builtin(global_invocation_id) _gid: vec3u) {
             }
         }
     } // fim loop k
+
+    // ── Warm start do próximo substep — grava os impulsos de cada par na tabela ──────
+    // Serial (mesma thread do solve): sem corrida. Entradas de substeps anteriores (stamp ≠ atual) são reusáveis;
+    // a narrowphase seguinte lê só entradas com stamp = atual.
+    let capacity = rb_params.warm_capacity;
+    if (capacity > 0u) {
+        let stamp = rb_params.contact_stamp;
+        for (var ci = 0u; ci < contact_count; ci++) {
+            if (contacts[ci].is_active == 0u) { continue; }
+            let key  = contacts[ci].col_idx + 1u;
+            let home = rb_warm_home(key, capacity);
+            for (var p = 0u; p < RB_WARM_PROBES; p++) {
+                let s = (home + p) & (capacity - 1u);
+                let e = warm_table[s];
+                if (e.key == 0u || e.key == key || e.stamp != stamp) {
+                    warm_table[s] = RBWarmEntry(
+                        key,
+                        stamp,
+                        contacts[ci].point.w,
+                        contacts[ci].lambda_tx,
+                        contacts[ci].lambda_ty,
+                        0.0,
+                        0.0,
+                        0.0,
+                    );
+                    break;
+                }
+            }
+        }
+    }
 }
 

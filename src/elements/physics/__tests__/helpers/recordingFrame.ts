@@ -7,13 +7,18 @@ export interface RecordedPass {
     readonly dispatches: readonly (readonly number[])[];
 }
 
-/** Frame que registra cada passe de computação, os offsets dinâmicos ligados e as cópias. */
+/**
+ * Frame que registra cada passe de computação, os offsets dinâmicos ligados e as cópias; `sequence` traz passes e
+ * `clear` na ordem gravada (`pass:<rótulo>`, `clear:<discriminator>`).
+ */
 export function recordingFrame(): {
     frame: Frame;
     passes: RecordedPass[];
+    sequence: string[];
     readonly copies: number;
 } {
     const passes: RecordedPass[] = [];
+    const sequence: string[] = [];
     const state = { copies: 0 };
     const frame = {
         compute: (label: string, body: (pass: unknown) => void) => {
@@ -38,15 +43,19 @@ export function recordingFrame(): {
             };
             body({ bind, dispatch });
             passes.push({ label, offsets, dispatches });
+            sequence.push(`pass:${label}`);
         },
         copy: () => {
             state.copies++;
         },
-        clear: () => undefined,
+        clear: (buffer: { discriminator?: string }) => {
+            sequence.push(`clear:${buffer.discriminator ?? '?'}`);
+        },
     } as unknown as Frame;
     return {
         frame,
         passes,
+        sequence,
         get copies() {
             return state.copies;
         },
