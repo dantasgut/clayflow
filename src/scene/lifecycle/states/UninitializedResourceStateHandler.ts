@@ -21,6 +21,10 @@ export class UninitializedResourceStateHandler implements ResourceStateHandler {
     ignoreDirtyMark(): boolean {
         return true;
     }
+
+    reportsIgnoredMutation(): boolean {
+        return false;
+    }
     validTransitions(): readonly ResourceState[] {
         return [ResourceState.Loading];
     }

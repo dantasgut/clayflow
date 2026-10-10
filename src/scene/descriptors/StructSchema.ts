@@ -15,6 +15,37 @@ interface StructFieldLayout {
     readonly offset: number;
 }
 
+/** Atributo de vértice compacto: posição no vértice intercalado e formato WebGPU. */
+export interface VertexAttributeLayout {
+    readonly name: string;
+    /** Bytes desde o início do vértice. */
+    readonly offset: number;
+    readonly format: GPUVertexFormat;
+}
+
+/** Layout de vértice intercalado sem alinhamento de struct (ex.: `vec3f` ocupa 12 bytes). */
+export interface VertexLayout {
+    /** Bytes por vértice (soma dos atributos). */
+    readonly stride: number;
+    /** Atributos na ordem declarada. */
+    readonly attributes: readonly VertexAttributeLayout[];
+}
+
+const VERTEX_FORMATS: Partial<Record<FieldType, GPUVertexFormat>> = {
+    f32: 'float32',
+    vec2f: 'float32x2',
+    vec3f: 'float32x3',
+    vec4f: 'float32x4',
+    u32: 'uint32',
+    vec2u: 'uint32x2',
+    vec3u: 'uint32x3',
+    vec4u: 'uint32x4',
+    i32: 'sint32',
+    vec2i: 'sint32x2',
+    vec3i: 'sint32x3',
+    vec4i: 'sint32x4',
+};
+
 function alignTo(value: number, alignment: number): number {
     return Math.ceil(value / alignment) * alignment;
 }
@@ -46,6 +77,7 @@ export class StructSchema extends Schema {
     /** Tamanho total de uma instância em bytes (alinhado ao max field align). */
     readonly stride: number;
     private readonly layout: ReadonlyMap<string, StructFieldLayout>;
+    private compactVertexLayout: VertexLayout | null = null;
 
     constructor(name: string, fields: Record<string, FieldType>) {
         super();
@@ -77,6 +109,30 @@ export class StructSchema extends Schema {
         if (entry === undefined)
             throw new Error(`StructSchema(${this.name}): unknown field '${field}'`);
         return entry.offset;
+    }
+
+    /**
+     * Layout de vértice compacto deste schema: atributos na ordem declarada, sem o alinhamento de struct WGSL
+     * (`vec3f` = 12 bytes), `stride` = soma — o formato dos vértices intercalados das geometrias (ex.:
+     * `position vec3f, normal vec3f, uv vec2f` → stride 32). Lança se algum campo não é atributo de vértice
+     * (matrizes, `u16`/`i16`).
+     */
+    get vertexLayout(): VertexLayout {
+        if (this.compactVertexLayout !== null) return this.compactVertexLayout;
+        const attributes: VertexAttributeLayout[] = [];
+        let offset = 0;
+        for (const [name, type] of this.fields) {
+            const format = VERTEX_FORMATS[type];
+            if (format === undefined) {
+                throw new Error(
+                    `StructSchema(${this.name}): campo '${name}' (${type}) não é atributo de vértice.`,
+                );
+            }
+            attributes.push({ name, offset, format });
+            offset += fieldElements(type) * fieldElementBytes(type);
+        }
+        this.compactVertexLayout = { stride: offset, attributes };
+        return this.compactVertexLayout;
     }
 
     /** FieldType do field. Lança se field não existe. */

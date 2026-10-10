@@ -30,8 +30,10 @@ describe('ResourceStateHandlerRegistry', () => {
         expect(reg.canTransition(ResourceState.Dirty, ResourceState.Disposed)).toBe(true);
     });
 
-    it('Destroyed terminal — sem transições válidas', () => {
-        expect(reg.get(ResourceState.Destroyed).validTransitions()).toHaveLength(0);
+    it('Destroyed → Uninitialized é a única transição (reinserção após remoção)', () => {
+        expect(reg.get(ResourceState.Destroyed).validTransitions()).toEqual([
+            ResourceState.Uninitialized,
+        ]);
     });
 
     it('canRender: somente Ready e GpuManaged', () => {

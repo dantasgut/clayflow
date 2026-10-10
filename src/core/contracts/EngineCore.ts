@@ -210,6 +210,12 @@ export interface EngineCore {
     reconfigureCanvas(options?: CanvasOptions): void;
 
     /**
+     * Tamanho atual do canvas anexado (pixels do backbuffer), ou `undefined` sem canvas. Usado pela C2 para
+     * alocar texturas declaradas com `sizeFromCanvas`.
+     */
+    canvasSize(): { readonly width: number; readonly height: number } | undefined;
+
+    /**
      * Capacidades efetivas do device atual: adaptador, preferência de potência, features obtidas e ausentes,
      * limites efetivos e limites pedidos que foram reduzidos ao máximo do adaptador. Só dados; recalculado a cada
      * criação de device (`initialize` e `requestRecover`). Lança se o core não foi inicializado.

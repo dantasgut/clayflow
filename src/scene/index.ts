@@ -29,7 +29,7 @@ export type { SceneContext, CreateSceneOptions } from './SceneContext';
 export const engine = defaultScene.core;
 
 export { Entity, ResourceState } from './contracts/index';
-export type { Resource, PoolDirectory } from './contracts/index';
+export type { Resource, PoolDirectory, ResourceDirectory } from './contracts/index';
 
 export type { GPUDescriptor, GPUDescriptorRole } from './descriptors/GPUDescriptor';
 export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';

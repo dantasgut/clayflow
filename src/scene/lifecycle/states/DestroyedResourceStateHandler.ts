@@ -21,7 +21,12 @@ export class DestroyedResourceStateHandler implements ResourceStateHandler {
     ignoreDirtyMark(): boolean {
         return true;
     }
+
+    reportsIgnoredMutation(): boolean {
+        return false;
+    }
     validTransitions(): readonly ResourceState[] {
-        return [];
+        // Reinserção após remoção: o recurso volta ao início do ciclo e é alocado de novo.
+        return [ResourceState.Uninitialized];
     }
 }

@@ -224,6 +224,11 @@ export class GpuEngineCore implements EngineCore {
         }
     }
 
+    canvasSize(): { readonly width: number; readonly height: number } | undefined {
+        const canvas = this.context?.canvas ?? null;
+        return canvas === null ? undefined : { width: canvas.width, height: canvas.height };
+    }
+
     capabilities(): DeviceCapabilities {
         return this.requireContext().capabilities;
     }

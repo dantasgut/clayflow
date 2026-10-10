@@ -8,6 +8,7 @@ Todo `GPUDescriptor` de um Resource inserido é alocado (ver tabela em research 
 /** Localiza o que a C2 alocou para (recurso, descritor). Consumido pelos estágios (migração na 006). */
 interface ResourceDirectory extends PoolDirectory {
   bufferOf(resource: Resource, descId: string): AnyBufferSpec | undefined;
+  textureOf(resource: Resource, descId: string): TextureSpec | undefined;
   textureViewOf(resource: Resource, descId: string): TextureViewSpec | undefined;
   samplerOf(resource: Resource, descId: string): SamplerSpec | undefined;
 }
@@ -22,7 +23,10 @@ interface ResourceDirectory extends PoolDirectory {
 
 - Toda mudança de estado passa por `transition(resource, to)`; transição fora de `validTransitions` lança `Error`
   com estado atual, destino e recurso.
-- Envio pela CPU consulta `handler.suppressCpuUpload()`; marcação de sujo consulta `handler.ignoreDirtyMark()`.
+- Envio pela CPU consulta `handler.suppressCpuUpload()`; marcação de sujo consulta `handler.ignoreDirtyMark()`; o
+  aviso de mutação ignorada vem de `handler.reportsIgnoredMutation()` (só `GpuManaged` — `Dirty` também ignora a
+  marcação, mas porque já está na fila).
+- Texturas `sizeFromCanvas` usam `core.canvasSize()` (contrato C1) e são recriadas em `canvasReconfigured`.
 - `Destroyed → Uninitialized` é válida (reinserção após remoção).
 
 ## World

@@ -35,6 +35,13 @@ initialize(canvas?: HTMLCanvasElement, canvasOptions?: CanvasOptions, device?: D
   registrado em `capabilities().clampedLimits`.
 - `requestRecover` e reconfiguração do canvas reaplicam as mesmas `CanvasOptions` e `DeviceOptions`.
 
+## `EngineCore.canvasSize`
+
+```ts
+/** Tamanho atual do canvas anexado, ou `undefined` sem canvas (texturas `sizeFromCanvas` da C2). */
+canvasSize(): { readonly width: number; readonly height: number } | undefined;
+```
+
 ## `EngineCore.capabilities`
 
 ```ts

@@ -74,6 +74,7 @@ export type {
     FlowDescriptor,
     Resource,
     PoolDirectory,
+    ResourceDirectory,
     Schema,
     EntityId,
     Phase,

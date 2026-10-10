@@ -21,6 +21,10 @@ export class ReadyResourceStateHandler implements ResourceStateHandler {
     ignoreDirtyMark(): boolean {
         return false;
     }
+
+    reportsIgnoredMutation(): boolean {
+        return false;
+    }
     validTransitions(): readonly ResourceState[] {
         return [ResourceState.Dirty, ResourceState.GpuManaged, ResourceState.Disposed];
     }
