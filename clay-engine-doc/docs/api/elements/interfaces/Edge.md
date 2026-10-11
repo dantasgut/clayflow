@@ -6,7 +6,7 @@
 
 # Interface: Edge
 
-Defined in: [elements/gpu/GraphColorSolver.ts:7](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/gpu/GraphColorSolver.ts#L7)
+Defined in: [elements/gpu/GraphColorSolver.ts:7](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/GraphColorSolver.ts#L7)
 
 Aresta entre dois vértices em um grafo de constraints. Usada pelo
 `GraphColorSolver` para colorir constraints de física que devem ser
@@ -19,7 +19,7 @@ conflitam e devem ter cores diferentes).
 
 > `readonly` **a**: `number`
 
-Defined in: [elements/gpu/GraphColorSolver.ts:9](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/gpu/GraphColorSolver.ts#L9)
+Defined in: [elements/gpu/GraphColorSolver.ts:9](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/GraphColorSolver.ts#L9)
 
 Primeiro vértice da aresta (índice em algum pool de partículas).
 
@@ -29,6 +29,6 @@ Primeiro vértice da aresta (índice em algum pool de partículas).
 
 > `readonly` **b**: `number`
 
-Defined in: [elements/gpu/GraphColorSolver.ts:11](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/gpu/GraphColorSolver.ts#L11)
+Defined in: [elements/gpu/GraphColorSolver.ts:11](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/GraphColorSolver.ts#L11)
 
 Segundo vértice da aresta.

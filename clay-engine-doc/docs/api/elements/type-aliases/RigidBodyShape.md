@@ -8,7 +8,7 @@
 
 > **RigidBodyShape** = \{ `radius`: `number`; `shape`: `"sphere"`; \} \| \{ `halfExtents`: readonly \[`number`, `number`, `number`\]; `shape`: `"box"`; \}
 
-Defined in: [elements/physics/bodies/RigidBody.ts:14](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/RigidBody.ts#L14)
+Defined in: [elements/physics/bodies/RigidBody.ts:14](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/RigidBody.ts#L14)
 
 Forma associada a um RigidBody dinâmico, em vocabulário de domínio.
 `sphere` → raio; `box` → half-extents. Determina `body_shape` (struct GPU)

@@ -6,7 +6,7 @@
 
 # Interface: RigidBodyRawOptions
 
-Defined in: [elements/physics/bodies/RigidBody.ts:54](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/RigidBody.ts#L54)
+Defined in: [elements/physics/bodies/RigidBody.ts:59](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/RigidBody.ts#L59)
 
 Opções cruas (avançado) — fornece `schema` + `data` diretamente, como antes.
 Mantida para retrocompatibilidade e tuning de baixo nível.
@@ -17,7 +17,7 @@ Mantida para retrocompatibilidade e tuning de baixo nível.
 
 > `readonly` `optional` **data?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [elements/physics/bodies/RigidBody.ts:58](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/RigidBody.ts#L58)
+Defined in: [elements/physics/bodies/RigidBody.ts:63](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/RigidBody.ts#L63)
 
 Dado cru do struct (campos do schema); ausentes recebem default.
 
@@ -27,6 +27,6 @@ Dado cru do struct (campos do schema); ausentes recebem default.
 
 > `readonly` **schema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/RigidBody.ts:56](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/RigidBody.ts#L56)
+Defined in: [elements/physics/bodies/RigidBody.ts:61](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/RigidBody.ts#L61)
 
 Schema do struct do corpo (layout de GPU) — define o algoritmo pelo nome do pool.

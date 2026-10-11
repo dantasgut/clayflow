@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-06
 
-**Status**: Draft
+**Status**: Implementada (2026-10-11) — gate completo verde, `bench:check` sem regressão, baseline regravado
 
 **Input**: User description: "Endurecimento do núcleo (spec 004, fase F1 do roadmap — `004-core-hardening`). Corrigir no
 lugar arquitetural certo (refundação C1–C4), sem helpers nem atalhos, as lacunas do núcleo: dispositivo completo e

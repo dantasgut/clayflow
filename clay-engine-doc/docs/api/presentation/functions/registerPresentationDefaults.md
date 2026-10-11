@@ -8,7 +8,7 @@
 
 > **registerPresentationDefaults**(`flows`, `options`): [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/flows/defaults.ts:71](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/presentation/flows/defaults.ts#L71)
+Defined in: [presentation/flows/defaults.ts:71](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/flows/defaults.ts#L71)
 
 Registra os Flows default da cena — Transform, Shadow, Forward, Post, Debug e UI — com bindings adequados
 (forward bind shadow, post bind forward, debug bind events). **Uma vez por cena**: chamadas seguintes com o

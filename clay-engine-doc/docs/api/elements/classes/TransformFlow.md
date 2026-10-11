@@ -6,7 +6,7 @@
 
 # Class: TransformFlow
 
-Defined in: [elements/scene/flows/TransformFlow.ts:46](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L46)
+Defined in: [elements/scene/flows/TransformFlow.ts:46](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L46)
 
 Estágio de transformação — produz, na GPU, a matriz de mundo e a matriz de normais de
 cada `Transform` a partir da sua intenção (posição, rotação, escala), com a convenção
@@ -30,7 +30,7 @@ função `transform` do usuário e para cadeias não euclidianas do roadmap.
 
 > **new TransformFlow**(`core`, `pools`, `events`): `TransformFlow`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:57](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L57)
+Defined in: [elements/scene/flows/TransformFlow.ts:57](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L57)
 
 #### Parameters
 
@@ -60,7 +60,7 @@ Defined in: [elements/scene/flows/TransformFlow.ts:57](https://github.com/dantas
 
 > `readonly` **bodyType**: `""` = `''`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:48](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L48)
+Defined in: [elements/scene/flows/TransformFlow.ts:48](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L48)
 
 Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
 para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
@@ -77,7 +77,7 @@ para encontrar o flow responsável por cada Resource.
 
 > `readonly` **phase**: `Phase` = `'transform'`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:49](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L49)
+Defined in: [elements/scene/flows/TransformFlow.ts:49](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L49)
 
 Fase do pipeline em que o flow executa.
 
@@ -91,7 +91,7 @@ Fase do pipeline em que o flow executa.
 
 > **priority**: `number` = `0`
 
-Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L46)
+Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L46)
 
 Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 Útil quando dois flows compartilham phase mas têm dependência de ordem
@@ -107,7 +107,7 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"transform"` = `'transform'`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:47](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L47)
+Defined in: [elements/scene/flows/TransformFlow.ts:47](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L47)
 
 Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
@@ -121,7 +121,7 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:92](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L92)
+Defined in: [elements/scene/flows/TransformFlow.ts:92](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L92)
 
 Grava o compute de composição quando houve mudança desde o último quadro.
 
@@ -145,7 +145,7 @@ Grava o compute de composição quando houve mudança desde o último quadro.
 
 > **dispose**(): `void`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:110](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L110)
+Defined in: [elements/scene/flows/TransformFlow.ts:110](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L110)
 
 Descarte do estágio: cancela a inscrição em eventos e libera kernel e buffer de parâmetros.
 
@@ -163,7 +163,7 @@ Descarte do estágio: cancela a inscrição em eventos e libera kernel e buffer 
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/flows/TransformFlow.ts:71](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L71)
+Defined in: [elements/scene/flows/TransformFlow.ts:71](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L71)
 
 Pipeline de compute do estágio (introspecção).
 
@@ -181,7 +181,7 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [scene/flows/Flow.ts:124](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L124)
+Defined in: [scene/flows/Flow.ts:124](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L124)
 
 Indica se o flow tem trabalho válido para esta frame. Default: true
 (sempre dispatch). Override para gating em prerequisites: e.g. presença
@@ -202,7 +202,7 @@ ExecutionSystem skipa flows com `isReady() === false`.
 
 > **onCanvasResized**(`_width`, `_height`): `void`
 
-Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L114)
+Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L114)
 
 Chamado quando o canvas é redimensionado. Subclasses que mantêm
 textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
@@ -234,7 +234,7 @@ para evitar use-after-free na GPU.
 
 > **onEntitiesInserted**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L94)
+Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L94)
 
 Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
 um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
@@ -260,7 +260,7 @@ readonly `number`[]
 
 > **onEntitiesRemoved**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L103)
+Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L103)
 
 Chamado quando entidades são removidas do World. Subclasses que
 cacheiam slots por EntityId devem limpar os entries afetados para
@@ -286,7 +286,7 @@ readonly `number`[]
 
 > **onEvent**(`_event`, `_payload`): `void`
 
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/scene/flows/Flow.ts#L66)
+Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L66)
 
 Hook genérico de eventos. Default no-op. A maioria dos flows usa os
 hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
@@ -315,7 +315,7 @@ hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:84](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/scene/flows/TransformFlow.ts#L84)
+Defined in: [elements/scene/flows/TransformFlow.ts:84](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/flows/TransformFlow.ts#L84)
 
 Pools realocados invalidam o kernel; tudo é recalculado no próximo quadro.
 

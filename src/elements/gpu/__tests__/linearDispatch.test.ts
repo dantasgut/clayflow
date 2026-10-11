@@ -27,11 +27,11 @@ function tsFiles(dir: string): string[] {
 }
 
 describe('despacho linear (FR-029)', () => {
-    const kernels = readdirSync(KERNELS).filter((f) => f.endsWith('.wgsl'));
+    const kernels: string[] = readdirSync(KERNELS).filter((f) => f.endsWith('.wgsl'));
 
     it.each(kernels)(
         '%s indexa por num_workgroups quando o grupo tem mais de 1 invocação',
-        (file) => {
+        (file: string) => {
             const src = readFileSync(join(KERNELS, file), 'utf8');
             const size = workgroupSizeOf(src);
             if (size === 1 || SINGLE_GROUP_KERNELS.has(file)) return;

@@ -8,7 +8,7 @@
 
 > `const` **MPMSoftSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/MPMSoftSchema.ts:10](https://github.com/dantasgut/clayflow/blob/1e865e5867462e68c307a6f63f28da7ac030edf9/src/elements/physics/bodies/schemas/MPMSoftSchema.ts#L10)
+Defined in: [elements/physics/bodies/schemas/MPMSoftSchema.ts:10](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/schemas/MPMSoftSchema.ts#L10)
 
 Schema da partícula MPM aplicada a soft bodies (8 vec4f = 128B).
 Layout casa byte-a-byte com o struct WGSL `MPMParticle` em
