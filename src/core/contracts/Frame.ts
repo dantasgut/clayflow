@@ -69,6 +69,14 @@ export interface Frame {
     render(target: RenderTarget, label: string, body: (pass: RenderPass) => void): void;
 
     /**
+     * Zera `size` bytes de `buffer` a partir de `offset` (default: até o fim) **dentro do fluxo de comandos do
+     * quadro**, na posição em que é chamado. Diferente de `core.write` (que entra na fila antes do quadro inteiro),
+     * permite zerar o mesmo buffer várias vezes no quadro — ex.: contagens atômicas reconstruídas a cada
+     * iteração. `offset` e `size` múltiplos de 4.
+     */
+    clear(buffer: AnyBufferSpec, offset?: number, size?: number): void;
+
+    /**
      * Copy de buffer → buffer dentro do command encoder. Use para readback
      * pipelines (storage → staging) e para cell_cursor=cell_start no NS.
      */

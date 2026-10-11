@@ -5,10 +5,10 @@
  * Diagrama:
  * ```
  * Uninitialized → Loading → Ready ⇄ Dirty
- *                              ↓
- *                         GpuManaged
- *                              ↓
- *                         Disposed → Destroyed (terminal)
+ *       ↑                      ↓
+ *       │                 GpuManaged
+ *       │                      ↓
+ *       └──── Destroyed ← Disposed        (Destroyed → Uninitialized: reinserção após remoção)
  * ```
  */
 export enum ResourceState {
@@ -27,6 +27,9 @@ export enum ResourceState {
     GpuManaged = 'gpu-managed',
     /** App removeu do World; ResourceSystem vai liberar recursos GPU. */
     Disposed = 'disposed',
-    /** GPU buffers liberados; objeto é "tombstone" — não pode ser reusado. Estado terminal. */
+    /**
+     * GPU buffers liberados. A instância pode voltar ao World (reinserção após remoção): segue para
+     * `Uninitialized` e é alocada de novo.
+     */
     Destroyed = 'destroyed',
 }

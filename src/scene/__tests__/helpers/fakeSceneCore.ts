@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { EngineCore, Frame, ResourceSpec } from '../../../core/contracts/index';
+import { defaultCapabilities } from './defaultCapabilities';
 
 /**
  * EngineCore falso para testes de integração que precisam do quadro inteiro:
@@ -15,7 +16,11 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
             setPipeline: () => pass.bind,
             setBindGroup: () => pass.bind,
         },
-        dispatch: { workgroups: () => pass.dispatch, workgroupsIndirect: () => pass.dispatch },
+        dispatch: {
+            workgroups: () => pass.dispatch,
+            invocations: () => pass.dispatch,
+            workgroupsIndirect: () => pass.dispatch,
+        },
         geometry: { vertex: () => pass.geometry, index: () => pass.geometry },
         draw: { indexed: () => pass.draw, vertices: () => pass.draw },
         marker: () => undefined,
@@ -31,6 +36,9 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
             body(pass);
         },
         copy: () => undefined,
+        clear: (spec: unknown) => {
+            trace.push(`clear:${disc(spec)}`);
+        },
     } as unknown as Frame;
     const core = {
         create: vi.fn(<S>(spec: S) => spec),
@@ -44,10 +52,19 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
             (fn as (f: Frame) => void)(frame);
         }),
         submit: vi.fn(),
+        initialize: vi.fn(() => Promise.resolve()),
+        reconfigureCanvas: vi.fn(),
+        requestRecover: vi.fn(() => Promise.resolve()),
+        onDeviceLost: vi.fn(() => () => undefined),
+        shutdown: vi.fn(),
+        memoryUsage: vi.fn(() => ({ bufferBytes: 0, textureBytes: 0, totalBytes: 0, top: [] })),
         canvasFormat: 'bgra8unorm',
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        capabilities: vi.fn(defaultCapabilities),
+        canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
+        framesInFlight: vi.fn(() => 0),
     } as unknown as EngineCore;
     return { core, trace };
 }

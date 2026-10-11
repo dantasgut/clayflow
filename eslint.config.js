@@ -230,6 +230,21 @@ export default tseslint.config(
         },
     },
 
+    // Smokes de navegador: compilados com o projeto do bench (importam o barrel público `clayflow`).
+    {
+        files: ['src/__smokes__/**/*.ts'],
+        languageOptions: {
+            parserOptions: {
+                project: './bench/tsconfig.json',
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+        rules: {
+            '@typescript-eslint/no-non-null-assertion': 'off',
+            complexity: 'off',
+        },
+    },
+
     // main.ts é smoke playground — relaxar.
     {
         files: ['src/main.ts'],

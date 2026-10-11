@@ -56,7 +56,7 @@ describe('fases do quadro', () => {
         flows.register(new TraceFlow('transform', 'transform', trace));
         flows.register(new TraceFlow('physics', 'physics', trace));
         new ExecutionSystem(fakeCore(), events, flows);
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(trace).toEqual(['physics', 'transform', 'shadow']);
     });
 });

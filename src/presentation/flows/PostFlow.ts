@@ -112,6 +112,30 @@ export class PostFlow extends Flow {
         this.currentSize = { w: 0, h: 0 };
     }
 
+    /** Descarte do estágio: libera texturas de ping-pong, bind groups, pipelines dos efeitos e recursos comuns. */
+    override dispose(): void {
+        this.onCanvasResized(0, 0);
+        const slots = [
+            ...this.slots.values(),
+            ...(this.passthroughSlot !== null ? [this.passthroughSlot] : []),
+        ];
+        for (const slot of slots) {
+            this.core.destroy(slot.pipeline);
+            this.core.destroy(slot.paramsBuffer);
+            // Shader próprio do efeito (fragmentSource): o comum é liberado abaixo.
+            if (slot.pipeline.vertex.shader !== this.shader)
+                this.core.destroy(slot.pipeline.vertex.shader);
+        }
+        this.slots.clear();
+        this.passthroughSlot = null;
+        for (const spec of [this.shader, this.sampler, this.bindLayout]) {
+            if (spec !== null) this.core.destroy(spec);
+        }
+        this.shader = null;
+        this.sampler = null;
+        this.bindLayout = null;
+    }
+
     private ensureShared(): void {
         if (this.shader === null) {
             this.shader = this.core.create<ShaderModuleSpec>({

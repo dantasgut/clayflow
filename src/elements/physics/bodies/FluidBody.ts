@@ -30,11 +30,15 @@ export interface FluidBodyDomainOptions {
 }
 
 /** Opções cruas (avançado) — schema + data diretos. Retrocompat. */
+/** Opções cruas do FluidBody: schema do struct de GPU e dado do struct. */
 export interface FluidBodyRawOptions {
+    /** Schema do struct da partícula (layout de GPU) — define o algoritmo pelo nome do pool. */
     readonly schema: StructSchema;
+    /** Dado cru do struct (campos do schema); ausentes recebem default. */
     readonly data?: Record<string, unknown>;
 }
 
+/** União pública aceita pelo construtor do FluidBody: vocabulário de domínio ou struct cru. */
 export type FluidBodyOptions = FluidBodyDomainOptions | FluidBodyRawOptions;
 
 function isRaw(o: FluidBodyOptions): o is FluidBodyRawOptions {

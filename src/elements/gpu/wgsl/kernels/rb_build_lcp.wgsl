@@ -3,24 +3,26 @@
 @group(0) @binding(1) var<storage, read>       bodies:    array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> contacts:  array<RBContact>;
 @group(0) @binding(3) var<storage, read_write> b_vec:     array<f32>;
+// Contador da lista compactada (spec 004, R19): [0] = contatos reservados na narrowphase.
+@group(0) @binding(4) var<storage, read>       contact_counter: array<u32>;
+// Contatos por corpo neste substep: o solve Jacobi vê cada corpo com massa m/nᵢ (divisão de massa).
+@group(0) @binding(5) var<storage, read>       body_split:      array<u32>;
 
 @compute @workgroup_size(64, 1, 1)
-fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
+fn rb_build_lcp(
+    @builtin(global_invocation_id) gid3: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+) {
+    // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let ci = gid.x;
-    if (ci >= rb_params.max_contacts) { return; }
-
-    // Contato inativo — zera bias e diagonais (rb_solve vai ignorar, mas limpa resíduos)
-    if (contacts[ci].is_active == 0u) {
-        b_vec[ci]                = 0.0;
-        contacts[ci].diagonal_n  = 1.0;  // valor seguro não-zero para evitar divisão por zero
-        contacts[ci].diagonal_t1 = 1.0;
-        contacts[ci].diagonal_t2 = 1.0;
-        return;
-    }
+    // Só os contatos ativos da lista compactada deste substep.
+    if (ci >= min(contact_counter[0], rb_params.max_contacts)) { return; }
 
     let rb_i     = contacts[ci].rb_idx;
-    let inv_mass = bodies[rb_i].pos.w;
-    let I_inv    = bodies[rb_i].I_inv.xyz;
+    let split_a  = f32(max(body_split[rb_i], 1u));
+    let inv_mass = bodies[rb_i].pos.w * split_a;
+    let I_inv    = bodies[rb_i].I_inv.xyz * split_a;
 
     // Vetor CM_i → ponto de contato (world frame)
     let ra = contacts[ci].point.xyz - bodies[rb_i].pos_pred.xyz;
@@ -30,7 +32,7 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
     // lcp_bias espera gap < 0 = penetração (signed distance), então negamos para recuperar depth_eff.
     let gap = -contacts[ci].normal.w;  // = depth_eff: < 0 quando penetrando
 
-    // ── Diagonais de Delassus ──────────────────────────────────────────────
+    // ── Diagonais de Delassus (massas divididas pelos contatos de cada corpo) ─────────────
     // Contribuição do corpo A (sempre presente).
     let t1 = tangent_orthogonal(n);
     let t2 = cross(n, t1);
@@ -46,8 +48,9 @@ fn rb_build_lcp(@builtin(global_invocation_id) gid: vec3u) {
     // rb_idx_b == 0xFFFFFFFFu → collider estático (massa infinita, contribuição zero).
     let rb_j = contacts[ci].rb_idx_b;
     if (rb_j != 0xFFFFFFFFu && rb_j < rb_params.body_count) {
-        let inv_mass_b = bodies[rb_j].pos.w;
-        let I_inv_b    = bodies[rb_j].I_inv.xyz;
+        let split_b    = f32(max(body_split[rb_j], 1u));
+        let inv_mass_b = bodies[rb_j].pos.w * split_b;
+        let I_inv_b    = bodies[rb_j].I_inv.xyz * split_b;
         let rb         = contacts[ci].point.xyz - bodies[rb_j].pos_pred.xyz;
         diag_n  += rigid_generalized_mass(rb, n,  inv_mass_b, I_inv_b);
         diag_t1 += rigid_generalized_mass(rb, t1, inv_mass_b, I_inv_b);

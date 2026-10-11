@@ -12,7 +12,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ForwardFlow } from '../../../presentation/flows/ForwardFlow';
 import { PostFlow } from '../../../presentation/flows/PostFlow';
 import type { EngineCore } from '../../../core/contracts/index';
-import type { World } from '../../world/World';
+import { World } from '../../world/World';
+import { DefaultEventBus } from '../../events/DefaultEventBus';
 import type { ResourceSystem } from '../../systems/ResourceSystem';
 
 function recordingCore(): {
@@ -45,7 +46,7 @@ function recordingCore(): {
     return { core, destroyOrder };
 }
 
-const fakeWorld = {} as World;
+const fakeWorld = new World(new DefaultEventBus());
 const fakeResources = {} as ResourceSystem;
 const fakeCanvas = { width: 800, height: 600 } as HTMLCanvasElement;
 

@@ -514,8 +514,9 @@ export class GltfLoader {
         if (buf === undefined) return null;
         const offset = (view.byteOffset ?? 0) + (acc.byteOffset ?? 0);
         const bytes = COMPONENT_BYTES[acc.componentType] ?? 2;
-        return bytes === 4
-            ? new Uint32Array(buf, offset, acc.count)
-            : new Uint16Array(buf, offset, acc.count);
+        if (bytes === 4) return new Uint32Array(buf, offset, acc.count);
+        // UNSIGNED_BYTE não é formato de índice no WebGPU: amplia para uint16 (cópia).
+        if (bytes === 1) return Uint16Array.from(new Uint8Array(buf, offset, acc.count));
+        return new Uint16Array(buf, offset, acc.count);
     }
 }

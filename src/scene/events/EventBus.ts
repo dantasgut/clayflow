@@ -23,4 +23,9 @@ export interface EventBus {
     off<E extends EventName>(type: E, handler: EventHandler<E>): void;
     /** Dispatch sincrônico para todos os handlers registrados. */
     emit<E extends EventName>(type: E, payload: EventMap[E]): void;
+    /**
+     * Quantidade de ouvintes registrados (de `type`, ou de todos os eventos). Diagnóstico de vazamento: depois de
+     * descartar aplicações e estágios, a contagem volta ao valor anterior.
+     */
+    listenerCount(type?: EventName): number;
 }

@@ -1,5 +1,5 @@
 import { GpuEngineCore } from '../core/gpu/GpuEngineCore';
-import type { EngineCore } from '../core/contracts/index';
+import type { CanvasOptions, DeviceOptions, EngineCore } from '../core/contracts/index';
 import { ConsumerResolverRegistry } from './consumers/ConsumerResolverRegistry';
 import type { EventBus } from './events/EventBus';
 import { DefaultEventBus } from './events/DefaultEventBus';
@@ -8,6 +8,7 @@ import { FlowRegistry } from './flows/FlowRegistry';
 import { ExecutionSystem } from './systems/ExecutionSystem';
 import { LayoutInferencer } from './systems/LayoutInferencer';
 import { ResourceSystem } from './systems/ResourceSystem';
+import { Time } from './time/Time';
 import { World } from './world/World';
 
 /**
@@ -35,11 +36,34 @@ export interface SceneContext {
     /** ConsumerResolverRegistry — resolve `consumes:[]` em PipelineDescriptors. */
     readonly consumers: ConsumerResolverRegistry;
     /**
-     * Cancela inflight readbacks, libera GpuResourceStore, remove listeners
-     * registrados. Após dispose, o context não pode ser reutilizado — crie
-     * um novo via `createScene()`.
+     * Relógio da cena — um por World. Inserido no World em `initialize()` (o uniform precisa do device); os
+     * estágios o consultam pelo schema `Time`. `Application.time` é este objeto.
+     */
+    readonly time: Time;
+    /**
+     * Inicializa o core (device + canvas) e insere o `Time` no World na primeira vez. Idempotente: chamadas
+     * seguintes só reaplicam canvas/opções no core.
+     */
+    initialize(
+        canvas?: HTMLCanvasElement,
+        canvasOptions?: CanvasOptions,
+        device?: DeviceOptions,
+    ): Promise<void>;
+    /**
+     * Descarta a cena: desregistra (e descarta) todos os estágios, desfaz as inscrições do `ExecutionSystem` e do
+     * `ResourceSystem` e desliga o core (libera todos os objetos de GPU). Idempotente. Após dispose, o context não
+     * pode ser reutilizado — crie um novo via `createScene()`.
      */
     dispose(): void;
+}
+
+/** Opções de `createScene`. */
+export interface CreateSceneOptions {
+    /**
+     * Implementação da Camada 1. Default: `GpuEngineCore` (WebGPU). Outro backend — ou um double em testes —
+     * entra aqui, pelo contrato `EngineCore`.
+     */
+    readonly core?: EngineCore;
 }
 
 /**
@@ -47,8 +71,8 @@ export interface SceneContext {
  * Útil para apps multi-canvas ou tests isolados. Se você só precisa de uma
  * cena (caso comum), use os singletons exportados de `scene/index.ts`.
  */
-export function createScene(): SceneContext {
-    const core = new GpuEngineCore();
+export function createScene(options: CreateSceneOptions = {}): SceneContext {
+    const core = options.core ?? new GpuEngineCore();
     const events = new DefaultEventBus();
     const flows = new FlowRegistry();
     const layoutInferencer = new LayoutInferencer();
@@ -56,6 +80,7 @@ export function createScene(): SceneContext {
     const world = new World(events);
     const resourceSystem = new ResourceSystem(core, events, world);
     const executionSystem = new ExecutionSystem(core, events, flows);
+    const time = new Time(events);
 
     const unsubscribeDeviceLost = core.onDeviceLost((info) => {
         events.emit('deviceLost', { reason: info.reason, message: info.message });
@@ -71,9 +96,17 @@ export function createScene(): SceneContext {
         executionSystem,
         layoutInferencer,
         consumers,
+        time,
+        async initialize(canvas, canvasOptions, device) {
+            await core.initialize(canvas, canvasOptions, device);
+            if (world.entityIdOf(time) === undefined) world.insert(time);
+        },
         dispose() {
             if (disposed) return;
             disposed = true;
+            for (const flow of [...flows.allFlows()]) flows.unregister(flow);
+            executionSystem.dispose();
+            resourceSystem.dispose();
             unsubscribeDeviceLost();
             core.shutdown();
         },

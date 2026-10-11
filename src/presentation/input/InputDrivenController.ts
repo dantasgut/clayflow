@@ -20,4 +20,9 @@ export interface ControllerContext {
 export abstract class InputDrivenController {
     /** Hook chamado a cada frameTick — leia input, atualize state externo. */
     abstract update(ctx: ControllerContext): void;
+
+    /** Remove ouvintes de DOM que o controller registrou. Default: no-op. */
+    dispose(): void {
+        // default: no-op
+    }
 }

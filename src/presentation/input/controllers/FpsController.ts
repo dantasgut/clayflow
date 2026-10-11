@@ -17,6 +17,7 @@ export class FpsController extends InputDrivenController {
     private readonly canvas: HTMLCanvasElement | null;
     private yaw = 0;
     private pitch = 0;
+    private clickListener: (() => void) | null = null;
 
     constructor(
         private readonly camera: Camera,
@@ -31,8 +32,16 @@ export class FpsController extends InputDrivenController {
         if (this.canvas !== null) this.attachLock(this.canvas);
     }
 
+    /** Remove o ouvinte de clique (pointer lock) do canvas. */
+    override dispose(): void {
+        if (this.canvas !== null && this.clickListener !== null) {
+            this.canvas.removeEventListener('click', this.clickListener);
+        }
+        this.clickListener = null;
+    }
+
     private attachLock(canvas: HTMLCanvasElement): void {
-        canvas.addEventListener('click', () => {
+        this.clickListener = () => {
             const c = canvas as HTMLCanvasElement & {
                 requestPointerLock?: () => Promise<void> | void;
             };
@@ -43,7 +52,8 @@ export class FpsController extends InputDrivenController {
                     /* unsupported */
                 }
             }
-        });
+        };
+        canvas.addEventListener('click', this.clickListener);
     }
 
     update(ctx: ControllerContext): void {

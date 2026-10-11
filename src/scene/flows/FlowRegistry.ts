@@ -61,6 +61,22 @@ export class FlowRegistry {
         this.byPhase.set(flow.phase, arr);
     }
 
+    /**
+     * Remove `flow` do registry (fase e índice por bodyType) e o descarta (`flow.dispose()`). Devolve `false` se o
+     * flow não estava registrado (nada é descartado).
+     */
+    unregister(flow: Flow): boolean {
+        const arr = this.byPhase.get(flow.phase);
+        const index = arr?.findIndex((r) => r.flow === flow) ?? -1;
+        if (arr === undefined || index < 0) return false;
+        arr.splice(index, 1);
+        for (const [bodyType, registered] of this.byBodyType) {
+            if (registered === flow) this.byBodyType.delete(bodyType);
+        }
+        flow.dispose();
+        return true;
+    }
+
     /** Encontra o Flow registrado para um bodyType. Undefined se não-registrado. */
     resolve(bodyType: string): Flow | undefined {
         return this.byBodyType.get(bodyType);

@@ -1,6 +1,7 @@
 export { Entity } from './Entity';
 export { ResourceState } from './ResourceState';
 export type { Resource } from './Resource';
+export type { ResourceDirectory } from './ResourceDirectory';
 
 export type {
     EngineCore,
@@ -49,6 +50,8 @@ export type {
     BundleRunner,
     Profiler,
     CanvasOptions,
+    DeviceOptions,
+    DeviceCapabilities,
     Extent3D,
     TextureDataLayout,
     TextureCopyOptions,

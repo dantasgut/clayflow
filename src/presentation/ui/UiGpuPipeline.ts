@@ -49,8 +49,41 @@ export class UiGpuPipeline {
         private readonly canvas: HTMLCanvasElement,
     ) {}
 
+    /** Libera todos os objetos de GPU do pipeline de UI. */
+    dispose(): void {
+        const owned = [
+            this.bindGroup,
+            this.pipeline,
+            this.shader,
+            this.layout,
+            this.screenBuffer,
+            this.quadsBuffer,
+            this.atlasView,
+            this.atlasTexture,
+            this.atlasSampler,
+            this.dummyAtlasView,
+            this.dummyAtlasTexture,
+        ];
+        for (const spec of owned) if (spec !== null) this.core.destroy(spec);
+        this.bindGroup = null;
+        this.pipeline = null;
+        this.shader = null;
+        this.layout = null;
+        this.screenBuffer = null;
+        this.quadsBuffer = null;
+        this.atlasView = null;
+        this.atlasTexture = null;
+        this.atlasSampler = null;
+        this.dummyAtlasView = null;
+        this.dummyAtlasTexture = null;
+    }
+
     setFont(font: LoadedFont): void {
         if (font.atlas === null) return;
+        // Troca de fonte: o atlas anterior e o bind group que o liga são liberados.
+        if (this.bindGroup !== null) this.core.destroy(this.bindGroup);
+        if (this.atlasView !== null) this.core.destroy(this.atlasView);
+        if (this.atlasTexture !== null) this.core.destroy(this.atlasTexture);
         const tex = this.core.create<TextureSpec>({
             kind: 'texture',
             discriminator: `ui_atlas:${font.family}:${font.fontSize}`,

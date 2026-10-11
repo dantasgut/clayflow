@@ -108,7 +108,7 @@ describe('ExecutionSystem broadcasts', () => {
         events.on('frameComplete', () => {
             frameCompleteCount++;
         });
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         expect(f1.dispatchCalls).toBe(1);
         expect(frameCompleteCount).toBe(1);
     });

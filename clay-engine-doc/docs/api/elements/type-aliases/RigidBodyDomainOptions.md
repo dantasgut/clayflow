@@ -8,7 +8,7 @@
 
 > **RigidBodyDomainOptions** = [`RigidBodyShape`](RigidBodyShape.md) & `object`
 
-Defined in: [elements/physics/bodies/RigidBody.ts:23](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/bodies/RigidBody.ts#L23)
+Defined in: [elements/physics/bodies/RigidBody.ts:33](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/RigidBody.ts#L33)
 
 Opções de domínio do RigidBody dinâmico — vocabulário de física (massa,
 atrito, restituição, damping, forma). O layout do struct GPU (`pos.w` =
@@ -51,6 +51,13 @@ Posição inicial (mundo). Default [0,0,0].
 > `readonly` `optional` **restitution?**: `number`
 
 Restituição / "quique" (default 0.2).
+
+### rollingFriction?
+
+> `readonly` `optional` **rollingFriction?**: `number`
+
+Resistência ao rolamento em metros (default 0): limita o impulso angular de contato a `rollingFriction × λn`,
+freando esferas que rolam sobre superfícies.
 
 ### rotation?
 

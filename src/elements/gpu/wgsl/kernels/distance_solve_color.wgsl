@@ -12,7 +12,12 @@ struct ColorRange {
 @group(1) @binding(0) var<uniform>             color_range: ColorRange;
 
 @compute @workgroup_size(64)
-fn distance_solve_color_main(@builtin(global_invocation_id) gid: vec3u) {
+fn distance_solve_color_main(
+    @builtin(global_invocation_id) gid3: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+) {
+    // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     if (gid.x >= color_range.count) { return; }
 
     let ci = color_range.offset + gid.x;

@@ -12,8 +12,18 @@ import { PhysicsBody } from './PhysicsBody';
  * e o colisor anexado automaticamente.
  */
 export type RigidBodyShape =
-    | { readonly shape: 'sphere'; readonly radius: number }
-    | { readonly shape: 'box'; readonly halfExtents: readonly [number, number, number] };
+    | {
+          /** Esfera. */
+          readonly shape: 'sphere';
+          /** Raio em metros. */
+          readonly radius: number;
+      }
+    | {
+          /** Caixa. */
+          readonly shape: 'box';
+          /** Meias-extensões em metros (x, y, z). */
+          readonly halfExtents: readonly [number, number, number];
+      };
 
 /**
  * Opções de domínio do RigidBody dinâmico — vocabulário de física (massa,
@@ -27,6 +37,11 @@ export type RigidBodyDomainOptions = RigidBodyShape & {
     readonly friction?: number;
     /** Restituição / "quique" (default 0.2). */
     readonly restitution?: number;
+    /**
+     * Resistência ao rolamento em metros (default 0): limita o impulso angular de contato a `rollingFriction × λn`,
+     * freando esferas que rolam sobre superfícies.
+     */
+    readonly rollingFriction?: number;
     /** Amortecimento linear por substep (default 0.05). */
     readonly linearDamping?: number;
     /** Amortecimento angular por substep (default 0.05). */
@@ -42,7 +57,9 @@ export type RigidBodyDomainOptions = RigidBodyShape & {
  * Mantida para retrocompatibilidade e tuning de baixo nível.
  */
 export interface RigidBodyRawOptions {
+    /** Schema do struct do corpo (layout de GPU) — define o algoritmo pelo nome do pool. */
     readonly schema: StructSchema;
+    /** Dado cru do struct (campos do schema); ausentes recebem default. */
     readonly data?: Record<string, unknown>;
 }
 
@@ -124,6 +141,9 @@ function validateDomain(o: RigidBodyDomainOptions): void {
     if (o.shape === 'box' && !o.halfExtents.every((h) => h > 0)) {
         throw new Error('RigidBody: halfExtents devem ser > 0');
     }
+    if (o.rollingFriction !== undefined && !(o.rollingFriction >= 0)) {
+        throw new Error('RigidBody: rollingFriction deve ser ≥ 0');
+    }
 }
 
 /** Constrói o `data` do LCPSchema a partir das opções de domínio. */
@@ -133,10 +153,15 @@ function buildLcpData(o: RigidBodyDomainOptions): Record<string, unknown> {
     return {
         pos: [px, py, pz, invMassOf(o.mass)],
         rot: [...rot],
+        // Pose predita = pose inicial: corpos estáticos (inv_mass 0) nunca passam por rb_predict, e a narrowphase lê
+        // a pose do dono do collider em pos_pred/rot_pred.
+        pos_pred: [px, py, pz, 0],
         rot_pred: [...rot],
         I_inv: inertiaInv(o.mass, o),
         mat_props: packMatProps(o),
         body_shape: packBodyShape(o),
+        // x = temporizador de sono (runtime), y = resistência ao rolamento.
+        _rb_pad: [0, o.rollingFriction ?? 0, 0, 0],
     };
 }
 

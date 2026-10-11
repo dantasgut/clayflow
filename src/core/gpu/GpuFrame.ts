@@ -66,7 +66,12 @@ export class GpuFrame implements Frame {
         };
         const passEncoder = encoder.beginComputePass(desc);
         if (this.counters) this.counters.passes++;
-        const pass = new GpuComputePass(passEncoder, this.store, this.counters);
+        const pass = new GpuComputePass(
+            passEncoder,
+            this.store,
+            this.counters,
+            this.ctx.device.limits.maxComputeWorkgroupsPerDimension,
+        );
         this.command.pushPass({ kind: 'compute', encoder: passEncoder });
         try {
             body(pass);
@@ -96,6 +101,12 @@ export class GpuFrame implements Frame {
             pass.end();
             this.command.popPass('render');
         }
+    }
+
+    clear(buffer: AnyBufferSpec, offset = 0, size?: number): void {
+        const encoder = this.command.requireEncoder();
+        const buf = this.store.require<GPUBuffer>(specHash(buffer), 'buffer');
+        encoder.clearBuffer(buf, offset, size);
     }
 
     copy(src: AnyBufferSpec, dst: AnyBufferSpec, size: number, srcOffset = 0, dstOffset = 0): void {

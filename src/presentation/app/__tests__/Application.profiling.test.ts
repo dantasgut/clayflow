@@ -1,33 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
-import { FlowRegistry } from '../../../scene/flows/FlowRegistry';
-import { World } from '../../../scene/world/World';
 import type { EngineCore } from '../../../core/contracts/index';
-import type { SceneContext } from '../../../scene/SceneContext';
+import { createScene, type SceneContext } from '../../../scene/SceneContext';
+import { fakeSceneCore } from '../../../scene/__tests__/helpers/fakeSceneCore';
 import { Application } from '../Application';
 
 vi.mock('../../flows/defaults', () => ({
     registerPresentationDefaults: () => ({}),
+    releasePresentationDefaults: () => true,
 }));
 
 function fakeScene(): { scene: SceneContext; core: EngineCore } {
-    const events = new DefaultEventBus();
-    const core = {
-        initialize: vi.fn(() => Promise.resolve()),
-        setFrameProfiling: vi.fn(),
-    } as unknown as EngineCore;
-    const scene = {
-        core,
-        events,
-        flows: new FlowRegistry(),
-        world: new World(events),
-        resourceSystem: {},
-        executionSystem: { captureErrors: false },
-        layoutInferencer: {},
-        consumers: {},
-        dispose: vi.fn(),
-    } as unknown as SceneContext;
-    return { scene, core };
+    const { core } = fakeSceneCore();
+    return { scene: createScene({ core }), core };
 }
 
 describe('Application — opção profiling', () => {

@@ -497,6 +497,19 @@ Assim como handles, as classes `Gpu*` não aparecem como caixas no classDiagram 
 
 Consumidor acessa metadata direto do spec que detém: `vboSpec.byteSize`, `texSpec.width`. Nunca há "id branded" separado.
 
+**Identidade calculada uma vez, imutável e com posse** (spec 004):
+
+- `specHash(spec)` é **memorizado por referência** (`WeakMap<object, string>`): o hash de um objeto de spec é calculado
+  no máximo uma vez; a entrada some junto com a spec.
+- O hash é **composto**: uma spec aninhada (shader num pipeline, layout/buffers num bind group) entra na serialização
+  como `{"$spec": hash}` — o WGSL de um shader é serializado e passado pelo SHA-1 uma única vez. Funções
+  (`BundleSpec.body`) entram por identidade de referência (`{"$fn": id}`): corpos diferentes nunca colidem.
+- `core.create`/`createAsync` **congelam a spec em profundidade**: alterar uma spec depois de criada lança `TypeError`
+  na hora (em vez de deixar um hash velho). Para mudar um recurso, crie uma spec nova.
+- O store guarda **posse por spec**: specs de conteúdo igual compartilham o objeto de GPU, e `core.destroy(spec)` remove
+  só a posse daquela spec — o objeto morre com o último dono. Quem cria kernels com `createComputeKernel` libera com
+  `destroyComputeKernel` ao substituí-los.
+
 ### Buffers polivalentes — compute produz, render consome
 
 Cada `subkind` de buffer define **propósito semântico**, não uma restrição de uso. A implementação traduz subkind em usage flags WebGPU de forma que o mesmo `GPUBuffer` serve ambos os lados do pipeline sem cópia:
@@ -1064,7 +1077,10 @@ core.create({ kind: 'buffer', subkind: 'uniform', byteSize: 64, discriminator: '
 // → dois GPUBuffer distintos, hashes diferentes via discriminator.
 ```
 
-Implementação interna no `GpuEngineCore`: cada `create(spec)` hasheia o conteúdo do spec (UUIDv5 sobre serialização JSON estável) e consulta um `store: Map<hash, GPUObject>` — retorna cedo em hit.
+Implementação interna no `GpuEngineCore`: cada `create(spec)` congela a spec, obtém o hash memorizado (UUIDv5 sobre a
+serialização canônica composta) e consulta o `store: Map<hash, entrada>` — em hit, só registra a spec como dona da
+entrada. `createAsync` concorrente da mesma spec (ou de specs de mesmo conteúdo) compila uma vez: as chamadas aguardam a
+mesma compilação em voo e cada uma registra a própria posse.
 
 #### 2. `reconfigureCanvas(options?)` — redimensionamento e reconfiguração
 
@@ -1147,6 +1163,26 @@ src/core/
 > A pasta `core/gpu/` é substituível por outro backend (`core/webgl/`, `core/mock/`) sem tocar os contratos — toda a lógica WebGPU fica isolada lá.
 
 ---
+
+### Dispositivo, limites e despacho (spec 004)
+
+- **`DeviceOptions`** em `core.initialize(canvas, canvasOptions, device)`: preferência de potência, features exigidas
+  (ausente → erro que nomeia a feature) e desejadas (ausente → só no relatório), `requiredLimits` (acima do máximo do
+  adaptador → máximo, registrado). O motor pede `timestamp-query` quando disponível e os limites com que suas cenas
+  escalam (`maxBufferSize`, `maxStorageBufferBindingSize`, `maxStorageBuffersPerShaderStage`, `maxBindGroups`,
+  `maxComputeWorkgroupStorageSize`, `maxComputeInvocationsPerWorkgroup`) no máximo do adaptador. `requestRecover` e
+  `reconfigureCanvas` reaplicam as opções guardadas.
+- **`core.capabilities()`** devolve o relatório (`DeviceCapabilities`): adaptador, potência, features obtidas e
+  ausentes, limites efetivos e limites reduzidos. C4 o expõe em `app.capabilities`. `core.canvasSize()` informa o
+  tamanho do canvas (texturas `sizeFromCanvas` da C2).
+- **`pass.dispatch.invocations(count, workgroupSize)`**: a C1, que conhece `maxComputeWorkgroupsPerDimension`, distribui
+  os grupos em x/y; o shader indexa por `gid.x + gid.y * num_workgroups.x * WG` e descarta `i >= count`.
+  `workgroups(x, y, z)` acima do limite lança nomeando o limite (em vez de um erro de validação silencioso).
+- **`frame.clear(buffer, offset?, size?)`** zera um buffer **no fluxo de comandos do quadro**. Escritas por
+  `core.write` entram na fila antes do command buffer do quadro inteiro — reescrever o mesmo buffer durante a gravação
+  faz todos os passes lerem o último valor (achado A1 da spec 004). Por isso parâmetros por iteração usam regiões
+  distintas de buffer com offset dinâmico (`PerStepUniforms`, C3) e contagens reconstruídas várias vezes no quadro
+  usam `frame.clear`.
 
 ### Pipeline completo — fluxo de um frame via Camada 1
 
@@ -1756,15 +1792,15 @@ core.create({ kind: 'bindgroup',   id: 'bg_mat_42_g2', layoutId: 'layout_std_mat
 
 `Resource` carrega `currentResourceState: ResourceStateHandler`. Cada handler é singleton stateless (flyweight) com capabilities que eliminam guards dispersos (`if (state === Ready)`). Transições são disparadas por eventos do `EventBus` — nunca por chamada imperativa externa. Resources com `storage: 'pool'` reutilizam o mesmo handler set; o pool em si não é um Resource.
 
-| Estado | `canRender` | `needsAllocation` | `needsUpdate` | `needsDisposal` | `suppressCpuUpload` | `ignoreDirtyMark` | Transições válidas |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|---|
-| **Uninitialized** | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | → Loading |
-| **Loading**       | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | → Ready |
-| **Ready**         | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | → Dirty, GpuManaged, Disposed |
-| **Dirty**         | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ | → Ready |
-| **GpuManaged**    | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | → Ready, Disposed |
-| **Disposed**      | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | → Destroyed |
-| **Destroyed**     | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | — (terminal) |
+| Estado | `canRender` | `needsAllocation` | `needsUpdate` | `needsDisposal` | `suppressCpuUpload` | `ignoreDirtyMark` | `reportsIgnoredMutation` | Transições válidas |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|---|
+| **Uninitialized** | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | → Loading |
+| **Loading**       | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | → Ready |
+| **Ready**         | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | → Dirty, GpuManaged, Disposed |
+| **Dirty**         | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | → Ready, Disposed |
+| **GpuManaged**    | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | → Ready, Disposed |
+| **Disposed**      | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ | → Destroyed |
+| **Destroyed**     | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | → Uninitialized (reinserção) |
 
 **Diagrama de transições:**
 
@@ -1783,12 +1819,13 @@ stateDiagram-v2
 
     Ready         --> Disposed    : remove do World
     GpuManaged    --> Disposed    : idem
-    Disposed      --> Destroyed   : cleanup pós-frame (core.destroy(handle))
+    Dirty         --> Disposed    : remove do World com envio pendente
+    Disposed      --> Destroyed   : alocações destruídas (core.destroy por spec)
 
-    Destroyed     --> [*]
+    Destroyed     --> Uninitialized : reinserção da mesma instância após remove
 ```
 
-**Implementação:** 7 classes concretas `{Uninitialized/Loading/Ready/Dirty/GpuManaged/Disposed/Destroyed}ResourceStateHandler` — cada uma stateless, instância única via `ResourceStateHandlerRegistry.get(state)`. Transições são **dirigidas por eventos**: cada handler registra os eventos a que reage (ex.: `Loading` observa `resourceReady`; `Ready` observa `resourceDirty` e `bufferReallocated`) e, ao recebê-los, substitui `currentResourceState` pelo próximo handler consultado no `ResourceStateHandlerRegistry`. **Não há `transitionTo` público** — chamadas imperativas externas são rejeitadas.
+**Implementação:** 7 classes concretas `{Uninitialized/Loading/Ready/Dirty/GpuManaged/Disposed/Destroyed}ResourceStateHandler` — cada uma stateless, instância única via `ResourceStateHandlerRegistry.get(state)`. As transições são dirigidas pelos eventos que o `ResourceSystem` recebe (`resourcesChanged`, `resourceDirty`, `frameRecording`) e **toda mudança de estado passa por `ResourceSystem.transition(resource, to)`**, que consulta as transições válidas do handler atual e **lança** em transição inválida (com estado atual, destino e schema). As regras de comportamento vêm do handler, nunca de comparação de estado: `suppressCpuUpload()` bloqueia o envio, `ignoreDirtyMark()` ignora a marcação de sujo e `reportsIgnoredMutation()` decide se a mutação ignorada merece aviso (só `GpuManaged` — `Dirty` também ignora, mas porque já está na fila).
 
 ### ConsumerResolver — resolvendo nomes semânticos em `consumes`
 
@@ -1922,6 +1959,27 @@ antigo para o novo (reempacotar da CPU reverteria a simulação ao estado inicia
 produtor recalcula ao receber `poolReallocated`. Um recurso com vários descritores em pool ocupa o **mesmo slot** em
 todos eles.
 
+### Alocação da bag inteira e `ResourceDirectory` (spec 004)
+
+O `ResourceSystem` aloca **todos** os descritores de um recurso inserido, um registro por descritor
+(`Map<Resource, Map<descId, Allocation>>`):
+
+| Papel | Conteúdo | Alocação |
+|---|---|---|
+| `uniform` / `storage-ro` / `storage-rw` | `schema.pack(data)`; `data[id]` como registros por elemento (`count`); `data[id]` typed array = bytes crus | buffer com `stride × count` |
+| `vertex` | `data[id]` (typed array intercalado) | `VertexBufferSpec`, stride = `schema.vertexLayout.stride` (layout compacto, sem alinhamento de struct: `vec3f` = 12 bytes) |
+| `index` | `data[id]` (`Uint16Array`/`Uint32Array`) | `IndexBufferSpec` com `format` derivado do array; padding a 4 bytes |
+| `indirect` | `data[id]` ou `count × 5 u32` | `IndirectBufferSpec` |
+| `staging` | — | `stride × count` |
+| `texture` / `storage-texture` | `textureShape` (`sizeFromCanvas` → `core.canvasSize()`, recriada em `canvasReconfigured`) | `TextureSpec` + view |
+| `sampler` | `samplerShape` | `SamplerSpec` |
+
+Reatribuir `data[id]` reenvia no próximo `frameRecording`; conteúdo de outro tamanho/formato recria o buffer. O
+crescimento de pool destrói buffer e bind group anteriores. O que foi alocado é localizado pelo contrato
+`ResourceDirectory` (C2, estende `PoolDirectory`): `bufferOf`, `textureOf`, `textureViewOf`, `samplerOf`. O consumo
+desses objetos pelos estágios de desenho e sombra é a spec 006 — até lá a geometria fica duplicada na GPU (cópia da C2
+e dos estágios).
+
 ### Pools canônicos — `storage: 'pool'` esperados
 
 Abaixo os pools padrão que a engine instancia para Resources com `storage: 'pool'` no GPUDescriptor. Tipos que aparecem em N cópias e exigem coalescing usam o pool; tipos 1:1 por EntityId (Camera, Material por instância de mesh) ficam como Resource individual (`storage` ausente ou `'individual'`).
@@ -2035,8 +2093,11 @@ src/scene/
 │     └── FieldType.ts                  enum de tipos primitivos WebGPU + helpers (vec3f, mat4x4f, u32, ...)
 │
 ├── world/                            ← núcleo ECS — importado por L3 e L4
-│     ├── World.ts                      world.insert(entity) atômico, queryBySchema, query(tags)
+│     ├── World.ts                      world.insert(entity) atômico (ReuseError em reuso), queryBySchema, findResource
 │     └── EntityId.ts                   branded u32
+│
+├── time/                             ← relógio da cena (um por World), consumido por C3
+│     └── Time.ts                       Resource — acumulador de passo fixo, escalas, pausas, advance(realDt)
 │
 ├── lifecycle/                        ← State Pattern interno do ResourceSystem (NÃO exposto)
 │     ├── ResourceStateHandler.ts       interface — capabilities por estado (canRender, needsAllocation, ...)
@@ -4050,11 +4111,16 @@ Sem marker classes vazias — `tagIndex` cobre o caso.
 
 ```typescript
 const proto = new SphereGeometry({ radius: 1 }).add(/* ... */);
-scene.add(proto);
-scene.add(proto);    // ❌ throw — já foi adicionada (entityId já injetado)
+world.insert(proto);
+world.insert(proto);    // ❌ ReuseError — "instância já inserida — crie outra instância"
 ```
 
 Sem clone implícito; sem entidades-fantasma compartilhando dado. Dev quer várias? Cria várias.
+
+Aplicado pelo `World` (spec 004): `insert` lança `ReuseError` se a raiz já está inserida, se algum recurso da árvore
+pertence a outra raiz viva (desta ou de outra cena) ou se o mesmo recurso aparece duas vezes na árvore. O mapa recurso
+→ entidade é **do World** (não global) e limpo no `remove`; depois de `remove`, a mesma instância pode ser inserida de
+novo (`Destroyed → Uninitialized`).
 
 ---
 
@@ -4276,7 +4342,8 @@ O loop não é mais imperativo. `GameLoop` emite `frameTick` no `EventBus`; `Exe
 
 ```
 GameLoop (RAF)
-  → eventBus.emit('frameTick', { dt, elapsed })
+  → time.advance(realDt) → eventBus.emit('frameTick', { dt, realDt, elapsed, frame })
+    (o mesmo avanço de app.step(dt) sem laço)
 
 ExecutionSystem.onFrameTick()
   core.record('frame', frame => {
@@ -4339,9 +4406,8 @@ class Application {
     // ConsumerResolverRegistry mora em C2 e também é exportado de @scene se dev quiser customizar
     // options?.consumers?.(consumers);
 
-    // Time — singleton consultado por GameLoop (scale) e Flows (physicsScale, fixedDt)
-    const time = new Time();
-    scene.add(time);                                                  // Resource singleton no World
+    // Time — da cena (C2): criado por createScene e inserido por scene.initialize; app.time é ele
+    const time = scene.time;
 
     // Input — singleton no World; devices atam ao canvas e emitem no EventBus
     const input = new Input();
@@ -4407,10 +4473,9 @@ class GameLoop {
 
   start(): void {
     const tick = (now: number) => {
-      this.dt = this.last ? (now - this.last) / 1000 : 0;
-      this.elapsed += this.dt;
+      const realDt = this.last ? (now - this.last) / 1000 : 0;
       this.last = now;
-      this.eventBus.emit('frameTick', { dt: this.dt, elapsed: this.elapsed });
+      this.advance(realDt); // time.advance(realDt) + frameTick { dt, realDt, elapsed, frame } — o mesmo de app.step
       this.handle = requestAnimationFrame(tick);
     };
     this.handle = requestAnimationFrame(tick);
@@ -4710,78 +4775,52 @@ app.input.on('keyDown', ({ code }) => {
 
 ### Time — controle de tempo de simulação e render
 
-`app.time` expõe um único objeto que governa o tempo da aplicação. Render e física compartilham `dt` por default, mas podem ser desacoplados via `physicsScale` e `fixedDt`.
+`app.time` expõe o relógio que governa a simulação. **O `Time` vive na C2** (`scene/time/Time.ts`), um por World: os
+Flows de física são C3 e precisam consultá-lo sem importar C4 (regra de importação). `createScene` cria o `Time`,
+`SceneContext.initialize` o insere no World e `app.time` é esse mesmo objeto — várias aplicações na mesma cena
+compartilham o relógio.
 
 ```typescript
-// Camada 4 — app/Time.ts
 class Time extends Entity implements Resource {
-  static readonly schema = new StructSchema('Time', {});  // marker — Time não tem dado GPU
-  data: Record<string, unknown> = {};
-  state: ResourceState = ResourceState.Uninitialized;
-
-  readonly dt:          number;             // delta variável do RAF (em segundos)
-  readonly elapsed:     number;             // segundos desde start()
-  readonly frameNumber: number;             // contador inteiro
-
-  scale:                number;             // 0 = paused, 0.5 = slow-mo, 2 = fast-forward (afeta render+física)
-  physicsScale:         number;             // multiplicador adicional só para Flows (default 1)
-  fixedDt?:             number;             // se definido, Flows integram em passos fixos (determinismo)
-
-  pause():           void;                  // scale = 0
-  resume():          void;                  // scale volta ao último valor não-zero
-  pausePhysics():    void;                  // physicsScale = 0 (render continua)
-  resumePhysics():   void;
-
-  getDescriptors(): GPUDescriptor[] { return []; }
-  getPipelineDescriptors(): PipelineDescriptor[] { return []; }
-}
-```
-**Integração com `GameLoop`:** o loop calcula o `dt` real, multiplica por `time.scale` e emite `frameTick` com o `dt` efetivo:
-
-```typescript
-// Em GameLoop.start():
-const tick = (now: number) => {
-  const realDt   = this.last ? (now - this.last) / 1000 : 0;
-  const effDt    = realDt * this.time.scale;             // 0 quando pausado → frameTick continua mas dt = 0
-  this.time.update(realDt, effDt);
-  this.eventBus.emit('frameTick', { dt: effDt, elapsed: this.time.elapsed });
-  this.handle = requestAnimationFrame(tick);
-  this.last   = now;
-};
-```
-
-**Integração com Flows (física):** cada Flow consome `'Time'` em `consumes` (resolver `SingletonResolver('Time')`). O `dispatch` do Flow lê `time.physicsScale` e, se `time.fixedDt` estiver definido, faz substeps até cobrir `dt`:
-
-```typescript
-// Trecho de XPBDFlow.dispatch — estado 'integrate'
-dispatch(frame: Frame): void {
-  if (this.state.kind !== 'integrate') return;
-  const time = this.slots.time;
-  const dt   = (time.fixedDt ?? time.dt) * time.physicsScale;
-
-  frame.compute('xpbd:integrate', pass => {
-    pass.bind.setPipeline(this.pipelines.integrate)
-             .setBindGroup(0, this.bindGroups.bodies)
-             .setBindGroup(1, this.simParamsBindGroupSpec);          // contém dt já resolvido
-    pass.dispatch.workgroups(Math.ceil(this.slots.bodies.count / 64));
-  });
+  readonly realDt: number;            // duração real do quadro (limitada a maxFrameDt)
+  readonly dt: number;                // realDt × scale
+  readonly elapsed: number;
+  readonly frame: number;
+  scale: number;                      // ≥ 0; 0 pausa tudo que depende de dt
+  physicsScale: number;               // ≥ 0; só a física
+  fixedDt: number | undefined;        // default 1/60; undefined = passo variável
+  maxStepsPerFrame: number;           // default 4 — teto de passos por quadro
+  maxFrameDt: number;                 // default 0,25 s
+  readonly steps: number;             // passos de física do quadro
+  readonly stepDt: number;            // duração de cada passo
+  readonly accumulator: number;
+  readonly droppedTime: number;
+  advance(realDt: number): void;      // único ponto que move o relógio
+  pause(); resume(); pausePhysics(); resumePhysics();
 }
 ```
 
-**Uso típico:**
+**Acumulador**: com `fixedDt`, `accumulator += dt × physicsScale`; o quadro executa
+`steps = min(⌊accumulator / fixedDt⌋, maxStepsPerFrame)` passos e o resto fica para o próximo quadro. Se o teto cortou,
+o excedente é descartado (`droppedTime`, evento `timeDropped`) — sem espiral de passos. A mesma sequência de passos
+produz a mesma trajetória em qualquer taxa de quadros (smoke `time`: 30/60/144 Hz idênticos).
+
+**Avanço**: `GameLoop` e `app.step(dt?, frames?)` compartilham uma única definição de quadro: `time.advance(realDt)` e
+`frameTick { dt, realDt, elapsed, frame }` síncrono. `step()` funciona sem laço (headless, testes, benchmark) e lança se
+o laço estiver rodando.
+
+**Integração com Flows (física)**: cada Flow de física consulta o `Time` do World (`world.findResource(Time.schema,
+Time)`) e executa `time.steps × substeps` iterações por quadro, cada uma com `dt = stepDt / substeps`. Os parâmetros
+de cada iteração ficam numa **região própria** de um buffer uniform (`PerStepUniforms`), escrito uma vez por quadro e
+ligado por **offset dinâmico** — reescrever o mesmo uniform durante a gravação faria todos os passes lerem o último
+valor (A1). `steps = 0` (física pausada) não grava passes.
 
 ```typescript
-// Slow motion para visualizar simulação
-app.time.scale = 0.25;
-
-// Pausar só a física (câmera, UI, animações continuam)
-app.time.pausePhysics();
-
-// Determinismo para testes/replay
-app.time.fixedDt = 1 / 60;
+app.time.scale = 0.25;        // câmera lenta (tudo)
+app.time.pausePhysics();      // física parada, desenho continua
+app.time.fixedDt = 1 / 120;   // passo fixo menor
+app.step(1 / 60, 300);        // 5 s simulados sem laço
 ```
-
-**Decisão:** `Time` é Resource para entrar no World e ser consumido via `consumes: ['Time']` por qualquer spec/material. `app.time` é um getter direto (`get time(): Time { return this._time; }`) para uso ergonômico fora do contrato `consumes`.
 
 ### Camera controllers — `OrbitController`, `FpsController`, `FlyController`
 
@@ -5311,8 +5350,8 @@ src/presentation/
 │
 ├── app/                              ← bootstrap e loop reativo
 │     ├── Application.ts               entry point — wiring de core, world, systems, pipeline
-│     ├── GameLoop.ts                  RAF — emite 'frameTick' no EventBus, consulta Time.scale
-│     └── Time.ts                      Resource — dt, elapsed, scale, physicsScale, fixedDt
+│     └── GameLoop.ts                  RAF — mede realDt e avança: time.advance + 'frameTick' (o mesmo de app.step)
+│                                      (Time vive na C2 — scene/time/Time.ts — e é reexportado aqui)
 │
 ├── input/                            ← input normalizado (Resource singleton + adapters)
 │     ├── Input.ts                     Resource — query API + eventos via EventBus

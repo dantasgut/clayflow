@@ -1,11 +1,17 @@
-import type { EngineCore, Frame, UniformBufferSpec } from '../../../core/contracts/index';
+import type { EngineCore, Frame } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
-import { createComputeKernel, type ComputeKernel } from '../../../scene/flows/createComputeKernel';
+import {
+    createComputeKernel,
+    destroyComputeKernel,
+    type ComputeKernel,
+} from '../../../scene/flows/createComputeKernel';
 import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
-import type { GravityField } from '../forcefields/GravityField';
+import { Time } from '../../../scene/time/Time';
+import { PerStepUniforms } from './PerStepUniforms';
+import { GravityField } from '../forcefields/GravityField';
 import simParamsStruct from '../../gpu/wgsl/structs/sim_params.wgsl?raw';
 import particleStruct from '../../gpu/wgsl/structs/particle.wgsl?raw';
 import distanceConstraintStruct from '../../gpu/wgsl/structs/distance_constraint.wgsl?raw';
@@ -17,24 +23,31 @@ import distanceSolveKernel from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw'
 export interface XPBDFlowOptions {
     readonly bodyType?: string;
     readonly constraintPoolKey?: string;
-    readonly fixedDt?: number;
+    /** Substeps por passo de física (default 1). O passo vem do `Time` da cena. */
     readonly substeps?: number;
     readonly solverIters?: number;
 }
 
+/** Bytes do struct `SimParams` (48, alocados 64). */
+const SIM_PARAMS_BYTE_SIZE = 64;
+
+/**
+ * XPBDFlow — corpos macios por XPBD (partículas + restrições de distância). O quadro executa
+ * `time.steps × substeps` iterações (predict → solve → atualização de velocidade), cada uma com a sua região de
+ * `SimParams` (`dt = time.stepDt / substeps`) ligada por offset dinâmico.
+ */
 export class XPBDFlow extends Flow {
     readonly type = 'XPBDFlow';
     readonly bodyType: string;
     readonly phase: Phase = 'physics';
     override priority = 5;
 
-    private readonly fixedDt: number;
     private readonly substeps: number;
     private readonly solverIters: number;
     private readonly poolKey: string;
     private readonly constraintPoolKey: string | null;
 
-    private paramsBuffer: UniformBufferSpec | null = null;
+    private readonly params: PerStepUniforms;
     private predictKernel: ComputeKernel | null = null;
     private velUpdateKernel: ComputeKernel | null = null;
     private distanceKernel: ComputeKernel | null = null;
@@ -47,11 +60,14 @@ export class XPBDFlow extends Flow {
     ) {
         super();
         this.bodyType = options.bodyType ?? 'XPBDSoftSchema';
-        this.fixedDt = options.fixedDt ?? 1 / 60;
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.solverIters = Math.max(1, options.solverIters ?? 4);
         this.poolKey = this.bodyType;
         this.constraintPoolKey = options.constraintPoolKey ?? null;
+        this.params = new PerStepUniforms(core, {
+            discriminator: 'xpbd_sim_params',
+            byteSize: SIM_PARAMS_BYTE_SIZE,
+        });
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
@@ -89,34 +105,40 @@ export class XPBDFlow extends Flow {
         return list;
     }
 
+    /** Descarte do estágio: libera kernels e parâmetros. */
+    override dispose(): void {
+        this.invalidateKernels();
+        this.params.dispose();
+    }
+
     override isReady(): boolean {
         return this.resources.poolCount(this.poolKey) > 0;
     }
 
     override onPoolReallocated(poolKey: string): void {
-        if (poolKey === this.poolKey) {
-            this.predictKernel = null;
-            this.velUpdateKernel = null;
-            this.distanceKernel = null;
-        }
-        if (poolKey === this.constraintPoolKey) {
-            this.distanceKernel = null;
-        }
+        if (poolKey === this.poolKey) this.invalidateKernels();
+        if (poolKey === this.constraintPoolKey) this.invalidateDistanceKernel();
+    }
+
+    /** Libera e esquece os kernels (bind groups dependem de buffers que mudaram). */
+    private invalidateKernels(): void {
+        if (this.predictKernel !== null) destroyComputeKernel(this.core, this.predictKernel);
+        if (this.velUpdateKernel !== null) destroyComputeKernel(this.core, this.velUpdateKernel);
+        this.predictKernel = null;
+        this.velUpdateKernel = null;
+        this.invalidateDistanceKernel();
+    }
+
+    private invalidateDistanceKernel(): void {
+        if (this.distanceKernel !== null) destroyComputeKernel(this.core, this.distanceKernel);
+        this.distanceKernel = null;
     }
 
     private ensureGpuObjects(): void {
-        if (this.paramsBuffer === null) {
-            this.paramsBuffer = this.core.create<UniformBufferSpec>({
-                kind: 'buffer',
-                subkind: 'uniform',
-                discriminator: 'xpbd_sim_params',
-                byteSize: 64,
-            });
-        }
         const bodiesBuf = this.resources.poolBufferSpec(this.poolKey);
         if (bodiesBuf === undefined) return;
         const baseBindings = [
-            { binding: 0, type: 'uniform' as const, buffer: this.paramsBuffer },
+            this.params.binding(0),
             { binding: 1, type: 'storage' as const, buffer: bodiesBuf },
         ];
         if (this.predictKernel === null) {
@@ -160,12 +182,13 @@ export class XPBDFlow extends Flow {
         }
     }
 
-    private uploadParams(particleCount: number, dtSub: number): void {
-        if (this.paramsBuffer === null) return;
-        const gravity = this.findGravityField();
-        const accel = (gravity?.data.acceleration as readonly number[] | undefined) ?? [
-            0, -9.81, 0, 0,
-        ];
+    /** Preenche a região `region` de `SimParams` com o `dt` da iteração. */
+    private fillParams(
+        region: number,
+        particleCount: number,
+        dtSub: number,
+        accel: readonly number[],
+    ): void {
         // SimParams (WGSL natural layout, vec3 size=12 align=16):
         //   gravity vec3f @ 0..12 (size 12)
         //   dt f32 @ 12..16
@@ -173,9 +196,8 @@ export class XPBDFlow extends Flow {
         //   particle_count u32 @ 28, constraint_count u32 @ 32, collider_count u32 @ 36
         //   shape_stiffness @ 40, collision_radius @ 44
         //   stride aligned to 16 = 48 (we allocate 64 for safety)
-        const buf = new ArrayBuffer(64);
-        const f32 = new Float32Array(buf);
-        const u32 = new Uint32Array(buf);
+        const f32 = this.params.f32(region);
+        const u32 = this.params.u32(region);
         f32[0] = accel[0] ?? 0;
         f32[1] = accel[1] ?? -9.81;
         f32[2] = accel[2] ?? 0;
@@ -189,53 +211,52 @@ export class XPBDFlow extends Flow {
         u32[9] = 0; // collider_count @ 36
         f32[10] = 0; // shape_stiffness @ 40
         f32[11] = 0; // collision_radius @ 44
-        this.core.write(this.paramsBuffer, new Uint8Array(buf));
-    }
-
-    private findGravityField(): GravityField | null {
-        const ids = this.world.queryBySchemaName('GravityField');
-        if (ids.length === 0) return null;
-        const first = ids[0];
-        if (first === undefined) return null;
-        const resources = this.world.resourcesOf(first);
-        return (resources.find(
-            (r) => (r.constructor as { schema?: { name: string } }).schema?.name === 'GravityField',
-        ) ?? null) as GravityField | null;
     }
 
     dispatch(frame: Frame): void {
+        const time = this.world.findResource(Time.schema, Time);
+        const steps = time?.steps ?? 0;
+        if (time === undefined || steps === 0) return;
         const count = this.resources.poolCount(this.poolKey);
         if (count === 0) return;
+        const iterations = steps * this.substeps;
+        if (this.params.reserve(iterations)) this.invalidateKernels();
+        const dtSub = time.stepDt / this.substeps;
+        const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
+            .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
+        for (let i = 0; i < iterations; i++) this.fillParams(i, count, dtSub, accel);
+        this.params.flush(iterations);
+
         this.ensureGpuObjects();
         if (this.predictKernel === null || this.velUpdateKernel === null) return;
         const predict = this.predictKernel;
         const velUpdate = this.velUpdateKernel;
         const distance = this.distanceKernel;
-        const dtSub = this.fixedDt / this.substeps;
-        const wgs = Math.ceil(count / 64);
-        for (let s = 0; s < this.substeps; s++) {
-            this.uploadParams(count, dtSub);
+        const solveConstraints =
+            distance !== null
+            && this.constraintPoolKey !== null
+            && this.resources.poolCount(this.constraintPoolKey) > 0;
+        for (let i = 0; i < iterations; i++) {
+            const offset = [this.params.offset(i)];
             frame.compute('XPBDFlow.predict', (pass) => {
-                pass.bind.setPipeline(predict.pipeline).setBindGroup(0, predict.bindGroup);
-                pass.dispatch.workgroups(wgs);
+                pass.bind.setPipeline(predict.pipeline).setBindGroup(0, predict.bindGroup, offset);
+                pass.dispatch.invocations(count, 64);
             });
-            if (
-                distance !== null
-                && this.constraintPoolKey !== null
-                && this.resources.poolCount(this.constraintPoolKey) > 0
-            ) {
+            if (solveConstraints) {
                 for (let it = 0; it < this.solverIters; it++) {
                     frame.compute('XPBDFlow.distance_solve', (pass) => {
                         pass.bind
                             .setPipeline(distance.pipeline)
-                            .setBindGroup(0, distance.bindGroup);
+                            .setBindGroup(0, distance.bindGroup, offset);
                         pass.dispatch.workgroups(1);
                     });
                 }
             }
             frame.compute('XPBDFlow.velocity_update', (pass) => {
-                pass.bind.setPipeline(velUpdate.pipeline).setBindGroup(0, velUpdate.bindGroup);
-                pass.dispatch.workgroups(wgs);
+                pass.bind
+                    .setPipeline(velUpdate.pipeline)
+                    .setBindGroup(0, velUpdate.bindGroup, offset);
+                pass.dispatch.invocations(count, 64);
             });
         }
     }

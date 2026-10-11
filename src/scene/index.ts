@@ -9,13 +9,7 @@ export interface SceneBootstrapOptions {
 }
 
 export async function bootstrap(options: SceneBootstrapOptions = {}): Promise<void> {
-    if (options.canvas !== undefined && options.canvasOptions !== undefined) {
-        await defaultScene.core.initialize(options.canvas, options.canvasOptions);
-    } else if (options.canvas !== undefined) {
-        await defaultScene.core.initialize(options.canvas);
-    } else {
-        await defaultScene.core.initialize();
-    }
+    await defaultScene.initialize(options.canvas, options.canvasOptions);
 }
 
 // Singletons da scene default — backwards-compat. Para multi-Application,
@@ -30,17 +24,18 @@ export const executionSystem = defaultScene.executionSystem;
 
 export { defaultScene };
 export { createScene } from './SceneContext';
-export type { SceneContext } from './SceneContext';
+export type { SceneContext, CreateSceneOptions } from './SceneContext';
 
 export const engine = defaultScene.core;
 
 export { Entity, ResourceState } from './contracts/index';
-export type { Resource, PoolDirectory } from './contracts/index';
+export type { Resource, PoolDirectory, ResourceDirectory } from './contracts/index';
 
 export type { GPUDescriptor, GPUDescriptorRole } from './descriptors/GPUDescriptor';
 export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';
 export type { FlowDescriptor } from './descriptors/FlowDescriptor';
 export type { TextureShape } from './descriptors/TextureShape';
+export type { VertexLayout, VertexAttributeLayout } from './descriptors/index';
 export type { SamplerShape } from './descriptors/SamplerShape';
 export {
     FieldType,
@@ -55,7 +50,8 @@ export {
     TensorSchema,
 } from './descriptors/index';
 
-export { World } from './world/World';
+export { World, ReuseError } from './world/World';
+export { Time } from './time/Time';
 export { asEntityId } from './world/EntityId';
 export type { EntityId } from './world/EntityId';
 
@@ -88,12 +84,14 @@ export type {
     PoolReallocatedEvent,
     BindGroupReplacedEvent,
     FrameTickEvent,
+    TimeDroppedEvent,
     FrameCompleteEvent,
     FrameRecordingEvent,
     FlowReadyPayload,
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
+    EntitiesInsertedPayload,
     EntitiesRemovedPayload,
     ProfilerStatsPayload,
     EngineErrorPayload,
@@ -143,6 +141,8 @@ export type {
     BundleRunner,
     Profiler,
     CanvasOptions,
+    DeviceOptions,
+    DeviceCapabilities,
     Extent3D,
     TextureDataLayout,
     TextureCopyOptions,

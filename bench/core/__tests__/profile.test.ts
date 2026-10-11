@@ -63,4 +63,17 @@ describe('perfil de ambiente', () => {
         expect(shortHash('abc')).not.toBe(shortHash('abd'));
         expect(shortHash('abc')).toHaveLength(6);
     });
+
+    it('device relatado pela engine vai para o perfil sem mudar o id', () => {
+        const base = buildProfile(input());
+        const device = {
+            powerPreference: 'default',
+            features: ['timestamp-query'],
+            limits: { maxBindGroups: 4 },
+        };
+        const withDevice = buildProfile(input({ environment: { ...input().environment, device } }));
+        expect(withDevice.device).toEqual(device);
+        expect(withDevice.profileId).toBe(base.profileId);
+        expect(base.device).toBeUndefined();
+    });
 });

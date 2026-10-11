@@ -157,6 +157,15 @@ app.events.on('frameTick', ({ elapsed }) => {
 });
 ```
 
+### 5. Tempo e avanço sem laço
+
+```typescript
+app.time.scale = 0.5; // câmera lenta (física e animação)
+app.time.pausePhysics(); // física parada, desenho continua
+app.step(1 / 60, 120); // 2 s simulados sem o laço (headless, testes)
+console.log(app.capabilities.adapter.description); // adaptador e limites do device
+```
+
 ## Comandos
 
 ```bash

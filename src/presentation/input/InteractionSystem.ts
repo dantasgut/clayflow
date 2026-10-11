@@ -1,4 +1,4 @@
-import type { EventBus } from '../../scene/events/EventBus';
+import type { EventBus, Unsubscribe } from '../../scene/events/EventBus';
 import { Input } from './Input';
 import { KeyboardDevice } from './KeyboardDevice';
 import { PointerDevice } from './PointerDevice';
@@ -40,6 +40,7 @@ export class InteractionSystem {
     /** GamepadDevice — polling-based (Gamepad API não dispatch events). */
     readonly gamepad: GamepadDevice;
     private readonly controllers: InputDrivenController[] = [];
+    private frameTickOff: Unsubscribe | null = null;
 
     constructor(
         private readonly options: InteractionSystemOptions,
@@ -51,23 +52,37 @@ export class InteractionSystem {
         this.pointer = new PointerDevice(options.canvas, this.input);
         this.touch = new TouchDevice(options.canvas, this.input);
         this.gamepad = new GamepadDevice();
-        this.events.on('frameTick', (e) => {
+        this.subscribeFrameTick();
+    }
+
+    private subscribeFrameTick(): void {
+        this.frameTickOff ??= this.events.on('frameTick', (e) => {
             this.tick(e.dt);
         });
     }
 
-    /** Registra DOM event listeners. Chamar uma vez após construção. */
+    /** Registra DOM event listeners (e reativa a atualização por quadro depois de um `detach`). */
     attach(): void {
+        this.subscribeFrameTick();
         this.keyboard.attach();
         this.pointer.attach();
         this.touch.attach();
     }
 
-    /** Remove DOM listeners. Chamar antes de descartar o InteractionSystem. */
+    /** Remove os ouvintes de DOM e a inscrição em `frameTick`. Chamar antes de descartar o InteractionSystem. */
     detach(): void {
+        this.frameTickOff?.();
+        this.frameTickOff = null;
         this.keyboard.detach();
         this.pointer.detach();
         this.touch.detach();
+    }
+
+    /** Descarte: `detach` e descarte dos controllers adicionados (ouvintes de DOM deles). */
+    dispose(): void {
+        this.detach();
+        for (const controller of this.controllers) controller.dispose();
+        this.controllers.length = 0;
     }
 
     /**

@@ -2,7 +2,7 @@ import type { Frame } from '../../core/contracts/index';
 import { Flow } from '../../scene/flows/Flow';
 import type { Phase } from '../../scene/flows/Flow';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { EventBus } from '../../scene/events/EventBus';
+import type { EventBus, Unsubscribe } from '../../scene/events/EventBus';
 
 export interface ProfilerStatsEvent {
     /** Frames-per-second instantâneo (1/dt). */
@@ -46,6 +46,9 @@ export class DebugFlow extends Flow {
     private readonly samples: number[] = [];
     private lastEmit = -Infinity;
     private stagesNs: Readonly<Record<string, number>> = {};
+    /** Inscrições no EventBus e o ouvinte de teclado — desfeitos em `dispose`. */
+    private subscriptions: Unsubscribe[] = [];
+    private keydownListener: ((ev: KeyboardEvent) => void) | null = null;
 
     constructor(options: DebugFlowOptions = {}) {
         super();
@@ -54,21 +57,43 @@ export class DebugFlow extends Flow {
         this.toggleKey = options.toggleKey ?? 'F1';
     }
 
-    /** Anexa o flow a um EventBus para emitir profilerStats e ouvir tecla F1. */
+    /**
+     * Anexa o flow a um EventBus para emitir profilerStats e ouvir a tecla de alternância. Reanexar desfaz as
+     * inscrições anteriores.
+     */
     bindEvents(events: EventBus): this {
+        this.unbind();
         this.events = events;
-        events.on('frameTick', (e) => {
-            this.onFrameTick(e.dt, e.elapsed);
-        });
-        events.on('frameComplete', (e) => {
-            if (e.stats.stagesNs !== undefined) this.stagesNs = e.stats.stagesNs;
-        });
+        this.subscriptions = [
+            events.on('frameTick', (e) => {
+                this.onFrameTick(e.dt, e.elapsed);
+            }),
+            events.on('frameComplete', (e) => {
+                if (e.stats.stagesNs !== undefined) this.stagesNs = e.stats.stagesNs;
+            }),
+        ];
         if (typeof window !== 'undefined') {
-            window.addEventListener('keydown', (ev) => {
+            this.keydownListener = (ev: KeyboardEvent) => {
                 if (ev.code === this.toggleKey) this.enabled = !this.enabled;
-            });
+            };
+            window.addEventListener('keydown', this.keydownListener);
         }
         return this;
+    }
+
+    /** Descarte do estágio: remove as inscrições no EventBus e o ouvinte de teclado. */
+    override dispose(): void {
+        this.unbind();
+        this.events = null;
+    }
+
+    private unbind(): void {
+        for (const off of this.subscriptions) off();
+        this.subscriptions = [];
+        if (this.keydownListener !== null && typeof window !== 'undefined') {
+            window.removeEventListener('keydown', this.keydownListener);
+        }
+        this.keydownListener = null;
     }
 
     /** Habilita/desabilita emissão de profilerStats event a cada frame. */

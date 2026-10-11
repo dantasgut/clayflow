@@ -6,25 +6,11 @@
 
 # Abstract Class: Geometry
 
-Defined in: [elements/geometry/Geometry.ts:7](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/Geometry.ts#L7)
+Defined in: [elements/geometry/Geometry.ts:15](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L15)
 
-Entity é a unidade composicional da Camada 2 (Sync) — qualquer objeto
-inserido em `World` herda de Entity. A composição é via `add(child)`:
-uma Entity-pai agrega Entity-filhas em uma árvore plana, e
-`World.insert(root)` percorre a árvore registrando cada filho como
-`Resource` indexável.
-
-Padrão de uso típico:
-```ts
-const box = new BoxGeometry({ size: [1, 1, 1] });
-box.add(new StandardMaterial({ albedo: [0.7, 0.3, 0.2, 1] }));
-box.add(new Transform({ position: [0, 0, 0, 1] }));
-world.insert(box);  // registra geometria + material + transform
-```
-
-Subclasses concretas (Camera, Transform, BoxGeometry, etc.) implementam
-`Resource` (descritores GPU + dados), enquanto Entity puro provê apenas
-a hierarquia. Entity é abstrata — não pode ser instanciada diretamente.
+Base das geometrias (C3): vértices intercalados em `data.vertices` e índices em `data.indices`, declarados como
+descritores `vertex`/`index` que a C2 aloca. Também é o critério de reconhecimento de geometria pelos estágios
+(`instanceof Geometry`, que sobrevive à minificação).
 
 ## Extends
 
@@ -62,7 +48,7 @@ a hierarquia. Entity é abstrata — não pode ser instanciada diretamente.
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/geometry/Geometry.ts:9](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/Geometry.ts#L9)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L17)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -78,7 +64,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:8](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/Geometry.ts#L8)
+Defined in: [elements/geometry/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L16)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -94,7 +80,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -115,7 +101,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **get** `abstract` **indexCount**(): `number`
 
-Defined in: [elements/geometry/Geometry.ts:20](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/Geometry.ts#L20)
+Defined in: [elements/geometry/Geometry.ts:28](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L28)
 
 Número de índices (0 = sem index buffer, draw não-indexed).
 
@@ -125,13 +111,29 @@ Número de índices (0 = sem index buffer, draw não-indexed).
 
 ***
 
+### indexFormat
+
+#### Get Signature
+
+> **get** **indexFormat**(): `GPUIndexFormat`
+
+Defined in: [elements/geometry/Geometry.ts:31](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L31)
+
+Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint32'`).
+
+##### Returns
+
+`GPUIndexFormat`
+
+***
+
 ### vertexCount
 
 #### Get Signature
 
 > **get** `abstract` **vertexCount**(): `number`
 
-Defined in: [elements/geometry/Geometry.ts:18](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/Geometry.ts#L18)
+Defined in: [elements/geometry/Geometry.ts:26](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L26)
 
 Número de vértices na geometria — usado para `pass.draw(count)`.
 
@@ -145,7 +147,7 @@ Número de vértices na geometria — usado para `pass.draw(count)`.
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -170,7 +172,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > `abstract` **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:11](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/Geometry.ts#L11)
+Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L19)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -191,7 +193,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:13](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/geometry/Geometry.ts#L13)
+Defined in: [elements/geometry/Geometry.ts:21](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L21)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -204,3 +206,28 @@ readonly `PipelineDescriptor`[]
 #### Implementation of
 
 `Resource.getPipelineDescriptors`
+
+***
+
+### indexArray()
+
+> `protected` `static` **indexArray**(`indices`, `vertexCount`): `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
+
+Defined in: [elements/geometry/Geometry.ts:39](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L39)
+
+Array de índices no menor formato que endereça `vertexCount` vértices: `Uint16Array` até 65 535 vértices,
+`Uint32Array` acima.
+
+#### Parameters
+
+##### indices
+
+readonly `number`[]
+
+##### vertexCount
+
+`number`
+
+#### Returns
+
+`Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>

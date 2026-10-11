@@ -33,8 +33,14 @@ de quadros, e roda cada cena × variante × engine × repetição numa **página
 | `--from <arquivo>`                                       | —                   | `bench:check` sobre um resultado já gravado             |
 | `--no-profiling`                                         | off                 | desliga o profiling de GPU do clayflow (mede o overhead) |
 | `--port`                                                 | 5180                | porta do Vite do harness                                |
+| `--dist`                                                 | off                 | mede o build minificado publicado (`dist/index.js`; rode `npm run build:lib` antes) |
 
 Uma repetição que falha ou estoura o tempo decide a linha; as repetições seguintes daquela linha são puladas.
+
+**Build minificado** (`--dist`): o alias `clayflow` do servidor do harness passa a apontar para `dist/index.js` (via a
+variável `CLAYFLOW_DIST`, definida pelo runner). Serve para confirmar que o que é publicado se comporta como o
+código-fonte — mesmos draw calls e status. Os smokes de navegador usam o mesmo servidor e a mesma flag:
+`npm run smoke -- transforms,time --dist` (ver `src/__smokes__/README.md`).
 
 ## Ler o relatório
 
@@ -59,6 +65,16 @@ Como cada engine mede:
 | Draw calls   | `frameComplete.stats.drawCalls`                                               | `renderer.info.render.drawCalls`               |
 | Memória      | `core.memoryUsage().totalBytes` (exata)                                       | estimada                                       |
 | Quadro/FPS   | intervalo entre `requestAnimationFrame` (igual nas duas)                      | idem                                           |
+
+**Tempo simulado**: as duas engines avançam **1/60 s de simulação por quadro** — o clayflow por
+`app.step(1/60)`, o Three/Rapier por `world.step()` com `timestep = 1/60`. Assim um quadro lento não faz uma
+engine simular mais passos que a outra (o `Time` do clayflow compensaria até 4 passos com o laço real); o
+`dt` real do quadro continua alimentando o `update` das cenas (movimento).
+
+**Ritmo de quadros**: o clayflow não acumula quadros na GPU — com `app.readyForFrame()` falso (há
+`maxFramesInFlight` quadros ainda em execução), o adaptador não avança naquele tick e o amostrador não o conta; o
+intervalo de quadro medido é o tempo entre quadros efetivamente gravados (cenas limitadas pela GPU mostram o custo real
+de GPU, em vez de enfileirar trabalho além da janela de medição).
 
 No clayflow, a pose dos corpos rígidos volta da GPU por readback assíncrono e é publicada fora do quadro
 síncrono; esse trabalho aparece só no intervalo de quadro (até a F2).

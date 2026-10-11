@@ -7,6 +7,7 @@ import type { FrameRecordingEvent } from './FrameRecordingEvent';
 import type { FrameTickEvent } from './FrameTickEvent';
 import type { PoolReallocatedEvent } from './PoolReallocatedEvent';
 import type { ReadyEvent } from './ReadyEvent';
+import type { TimeDroppedEvent } from './TimeDroppedEvent';
 
 /**
  * Payload disparado quando um Flow termina sua inicialização e está
@@ -49,11 +50,21 @@ export interface CanvasReconfiguredPayload {
 }
 
 /**
+ * Payload do evento `entitiesInserted` — emitido pelo World depois de `resourcesChanged` quando uma entidade raiz
+ * é inserida. Estágios mantêm seus conjuntos de entidades por `Flow.onEntitiesInserted`.
+ */
+export interface EntitiesInsertedPayload {
+    /** Ids das entidades raiz inseridas. */
+    readonly entityIds: readonly EntityId[];
+}
+
+/**
  * Payload do evento `entitiesRemoved` — emitido pelo World quando uma ou
  * mais entidades são removidas. Flows com cache por EntityId devem limpar
  * os entries afetados via `Flow.onEntitiesRemoved`.
  */
 export interface EntitiesRemovedPayload {
+    /** Ids das entidades raiz removidas. */
     readonly entityIds: readonly EntityId[];
 }
 
@@ -149,14 +160,18 @@ export interface EventMap {
     poolReallocated: PoolReallocatedEvent;
     /** BindGroup foi substituído (e.g. textura source mudou). */
     bindGroupReplaced: BindGroupReplacedEvent;
-    /** GameLoop emite a cada RAF — sinaliza início do frame. */
+    /** `Application.step()`/`GameLoop` emitem a cada quadro, depois de `time.advance()`. */
     frameTick: FrameTickEvent;
+    /** `Time` emite quando o teto de passos por quadro descarta tempo de física. */
+    timeDropped: TimeDroppedEvent;
     /** ExecutionSystem emite antes de gravar o quadro — ResourceSystem envia os recursos sujos. */
     frameRecording: FrameRecordingEvent;
     /** ExecutionSystem emite após record+submit — fim do frame. */
     frameComplete: FrameCompleteEvent;
     /** Application emite após resize do canvas — flows recriam textures. */
     canvasReconfigured: CanvasReconfiguredPayload;
+    /** World emite quando entidades são inseridas — flows atualizam seus conjuntos de entidades. */
+    entitiesInserted: EntitiesInsertedPayload;
     /** World emite quando entidades removidas — flows limpam slots cacheados. */
     entitiesRemoved: EntitiesRemovedPayload;
     /** DebugFlow emite (throttled 250ms) com FPS + frame time + stages timestamps. */

@@ -9,5 +9,5 @@ struct RigidBody {
     rot_pred:   vec4f,  // rotação prevista (quat, renormalizar a cada substep)
     mat_props:  vec4f,  // x=restitution, y=friction, z=lin_damping, w=ang_damping
     body_shape: vec4f,  // x=shape_type (0=Sphere, 1=Box), yzw=half_extents
-    _rb_pad:    vec4f,  // reservado
+    _rb_pad:    vec4f,  // x=temporizador de sono (runtime), y=coeficiente de resistência ao rolamento (m), zw=reservado
 }

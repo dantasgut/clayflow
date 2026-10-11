@@ -25,7 +25,7 @@ function setup() {
     const frame = (): string[] => {
         trace.length = 0;
         elapsed += 1 / 60;
-        events.emit('frameTick', { dt: 1 / 60, elapsed });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed, frame: 1 });
         return [...trace];
     };
     return { world, frame };

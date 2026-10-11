@@ -163,7 +163,12 @@ export async function orchestrate(
             console.warn('    aba travada não fechou — relançando o navegador');
             browser = await relaunch(browser);
         }
-        if (environment === undefined && page.environment !== undefined)
+        // Prefere o ambiente com o device relatado pela engine (clayflow) ao lido só por `navigator.gpu`.
+        if (
+            page.environment !== undefined
+            && (environment === undefined
+                || (environment.device === undefined && page.environment.device !== undefined))
+        )
             environment = page.environment;
         const g = groups.get(groupKey(run)) ?? { spec: run, pages: [] };
         g.pages.push(page);

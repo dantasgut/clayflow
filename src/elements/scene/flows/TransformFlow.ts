@@ -7,7 +7,10 @@ import type {
 import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import type { EventBus, Unsubscribe } from '../../../scene/events/EventBus';
-import { createComputeKernel } from '../../../scene/flows/createComputeKernel';
+import {
+    createComputeKernel,
+    destroyComputeKernel,
+} from '../../../scene/flows/createComputeKernel';
 import { Flow, type Phase } from '../../../scene/flows/Flow';
 import { Transform } from '../Transform';
 import transformStruct from '../../gpu/wgsl/structs/transform.wgsl?raw';
@@ -80,7 +83,7 @@ export class TransformFlow extends Flow {
     /** Pools realocados invalidam o kernel; tudo é recalculado no próximo quadro. */
     override onPoolReallocated(poolKey: string): void {
         if (poolKey !== TRANSFORM_POOL && poolKey !== WORLD_POOL) return;
-        if (this.kernel !== null) this.core.destroy(this.kernel.bindGroup);
+        if (this.kernel !== null) destroyComputeKernel(this.core, this.kernel);
         this.kernel = null;
         this.needsDispatch = true;
     }
@@ -98,14 +101,20 @@ export class TransformFlow extends Flow {
         this.writeParams(count);
         frame.compute('TransformFlow', (pass) => {
             pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
-            pass.dispatch.workgroups(Math.ceil(count / WORKGROUP_SIZE));
+            pass.dispatch.invocations(count, WORKGROUP_SIZE);
         });
         this.needsDispatch = false;
     }
 
-    /** Cancela a inscrição em eventos (descarte do estágio). */
-    dispose(): void {
+    /** Descarte do estágio: cancela a inscrição em eventos e libera kernel e buffer de parâmetros. */
+    override dispose(): void {
         this.unsubscribe();
+        if (this.kernel !== null) destroyComputeKernel(this.core, this.kernel);
+        if (this.paramsBuffer !== null) this.core.destroy(this.paramsBuffer);
+        this.kernel = null;
+        this.paramsBuffer = null;
+        this.paramsCount = -1;
+        this.needsDispatch = true;
     }
 
     private ensureKernel(): ComputeKernel | null {

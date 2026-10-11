@@ -72,7 +72,7 @@ results-schema), quickstart.md
 
 ---
 
-## Phase 3: User Story 1 — Rodar o benchmark comparativo e obter um relatório (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — Rodar o benchmark comparativo e obter um relatório (Priority: P1)
 
 **Goal**: `npm run bench` executa as 5 cenas × variantes × 2 engines em páginas isoladas e gera
 `bench/results/latest.json` + `latest.md` (Acceptance 1–4; FR-001–FR-010, FR-007b, FR-016–FR-018).
@@ -113,7 +113,7 @@ declaradas e perfil de ambiente; `--scene instances --engine clayflow` roda só 
 - [x] T047 [US1] `bench/runner/cli.ts` subcomando `run`: `parseArgs` → servidor → navegador → `orchestrate` → `buildProfile` (versões de `package.json`, `git rev-parse --short HEAD`, data) → grava `bench/results/<data>-<profileId>.json`, `latest.json`, `latest.md` e imprime o markdown; WebGPU indisponível na 1ª página → exit 3 sem relatório parcial; sempre fecha navegador e servidor
 - [x] T048 [US1] Smoke real: `npm run bench -- --quick` termina em < 3 min com as 5 cenas, "não suportado" nas duas cenas esperadas, limitações e GPU do clayflow preenchida (com `timestamp-query`); `npm run bench -- --scene instances --engine clayflow --variant 10k` roda só o subconjunto; `--scene instances --variant 10k-moving` mostra os objetos se movendo nas duas engines (verificação visual na janela) e `cpuMs` do clayflow maior que em `10k`; anotar no PR os números obtidos
 
-**Checkpoint**: relatório comparativo reproduzível — MVP entregue.
+**Checkpoint**: relatório comparativo reproduzível.
 
 ---
 
@@ -232,10 +232,10 @@ Task: "T042 rigid-bodies (scene/clayflow fachada/three Rapier)"
 
 ## Implementation Strategy
 
-- **MVP = Setup + Foundational + US1** (T001–T048): relatório comparativo reproduzível com observabilidade do
+- **Setup + Foundational + US1** (T001–T048): relatório comparativo reproduzível com observabilidade do
   motor. Já responde "onde estamos?" e fixa a linha de base para a F1.
 - **Incremento 2 = US2** (T049–T054): gate de regressão.
 - **Incremento 3 = US3** (T055–T057): extensibilidade garantida por teste.
 - **Conclusão = Polish** (T058–T065). Pela regra de completude do projeto, a feature só está pronta com **todas**
-  as tarefas concluídas e o gate completo verde — o MVP é ordem de execução, não ponto de parada.
+  as tarefas concluídas e o gate completo verde.
 - Commits pequenos por tarefa/grupo (mensagens em português, conventional), PR para `develop` ao final.

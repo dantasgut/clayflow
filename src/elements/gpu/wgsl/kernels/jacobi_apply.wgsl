@@ -6,7 +6,12 @@ const JACOBI_FIXED_SCALE: f32 = 1e6;
 @group(0) @binding(2) var<storage, read_write> accum:     array<atomic<i32>>;
 
 @compute @workgroup_size(64)
-fn jacobi_apply_main(@builtin(global_invocation_id) gid: vec3u) {
+fn jacobi_apply_main(
+    @builtin(global_invocation_id) gid3: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+) {
+    // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     if (gid.x >= params.particle_count) { return; }
 
     let pi   = gid.x;

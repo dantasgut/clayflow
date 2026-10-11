@@ -50,6 +50,7 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
                 visibility: GPUShaderStage.COMPUTE,
                 kind: 'buffer' as const,
                 type: b.type,
+                ...(b.hasDynamicOffset === true ? { hasDynamicOffset: true } : {}),
             })),
         }),
     );
@@ -83,6 +84,7 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
                 binding: b.binding,
                 kind: 'buffer' as const,
                 buffer: b.buffer,
+                ...(b.size !== undefined ? { size: b.size } : {}),
             })),
         }),
     );
@@ -94,6 +96,19 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
         bindGroups,
         layouts,
     };
+}
+
+/**
+ * Libera a posse das specs criadas por `createComputeKernel`/`core.compute` para `kernel`: bind groups, pipeline,
+ * shader e layouts. Objetos de GPU compartilhados por conteúdo com outros kernels vivos continuam existindo (posse
+ * por spec, `EngineCore.destroy`). Use ao substituir um kernel (crescimento de buffer, pool realocado) e no
+ * descarte do Flow.
+ */
+export function destroyComputeKernel(core: EngineCore, kernel: ComputeKernel): void {
+    for (const bindGroup of kernel.bindGroups) core.destroy(bindGroup);
+    core.destroy(kernel.pipeline);
+    core.destroy(kernel.pipeline.shader);
+    for (const layout of kernel.layouts) core.destroy(layout);
 }
 
 function normalizeGroups(opts: ComputeKernelOptions): readonly ComputeKernelBindGroup[] {

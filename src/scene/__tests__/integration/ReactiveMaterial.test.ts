@@ -24,7 +24,7 @@ describe('material reativo', () => {
         (material.data.albedo as number[])[0] = 1;
         (material.data.albedo as number[])[1] = 0.5;
         expect(trace).toHaveLength(0);
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(trace.filter((c) => c.startsWith('write:'))).toHaveLength(1);
     });
 });

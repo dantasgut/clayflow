@@ -79,14 +79,28 @@ describe('RigidBody authoring — equivalência domínio↔cru (T011 / FR-006)',
             data: {
                 pos: [-0.4, 4, 0, 1],
                 rot: [0, 0, 0, 1],
+                pos_pred: [-0.4, 4, 0, 0],
                 rot_pred: [0, 0, 0, 1],
                 I_inv: inertiaInv(1, { shape: 'sphere', radius: 0.4 }),
                 mat_props: [0.45, 0.3, 0.05, 0.05],
                 body_shape: [0, 0.4, 0.4, 0.4],
+                _rb_pad: [0, 0, 0, 0],
             },
         });
         // Mesmo buffer empacotado ⇒ mesmo Resource (sem regressão de pool).
         expect(LCPSchema.pack(domain.data)).toEqual(LCPSchema.pack(raw.data));
+    });
+
+    it('pose predita inicial = posição; resistência ao rolamento em _rb_pad.y', () => {
+        const body = new RigidBody({
+            shape: 'sphere',
+            radius: 0.25,
+            mass: 0,
+            position: [1, -0.5, 2],
+            rollingFriction: 0.01,
+        });
+        expect(body.data.pos_pred).toEqual([1, -0.5, 2, 0]);
+        expect(body.data._rb_pad).toEqual([0, 0.01, 0, 0]);
     });
 
     it('a forma crua continua funcionando (retrocompat)', () => {
@@ -105,6 +119,11 @@ describe('RigidBody authoring — validação de domínio (T012 / FR-007)', () =
     it('halfExtents ≤ 0 → erro', () => {
         expect(() => new RigidBody({ shape: 'box', halfExtents: [1, 0, 1] })).toThrow(
             /halfExtents/,
+        );
+    });
+    it('rollingFriction < 0 → erro', () => {
+        expect(() => new RigidBody({ shape: 'sphere', radius: 1, rollingFriction: -0.1 })).toThrow(
+            /rollingFriction/,
         );
     });
 });

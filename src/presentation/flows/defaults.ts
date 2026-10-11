@@ -47,17 +47,59 @@ export interface PresentationDefaults {
     readonly debug: DebugFlow;
 }
 
+/** Estágios padrão de uma cena e quantas aplicações os usam. */
+interface RegisteredDefaults {
+    readonly defaults: PresentationDefaults;
+    users: number;
+}
+
+/** Estágios padrão por cena (`FlowRegistry`): registrados uma vez, desregistrados com o último usuário. */
+const DEFAULTS_BY_SCENE = new WeakMap<FlowRegistry, RegisteredDefaults>();
+
 /**
- * Cria e registra os 5 Flows default no FlowRegistry, com bindings adequados
- * (forward bind shadow, post bind forward, debug bind events).
+ * Registra os Flows default da cena — Transform, Shadow, Forward, Post, Debug e UI — com bindings adequados
+ * (forward bind shadow, post bind forward, debug bind events). **Uma vez por cena**: chamadas seguintes com o
+ * mesmo `FlowRegistry` devolvem os mesmos estágios e contam mais um usuário (várias aplicações na mesma cena não
+ * duplicam estágios). Cada chamada deve ser pareada com `releasePresentationDefaults`.
  *
  * Ordem importa: Shadow → Forward → Post → Debug → UI (priority dentro
  * das phases).
  *
- * Chamado uma vez por `Application.create`. Apps que querem pipeline
- * customizado podem ignorar e construir flows manualmente.
+ * Chamado por `Application.create`. Apps que querem pipeline customizado podem ignorar e construir flows
+ * manualmente.
  */
 export function registerPresentationDefaults(
+    flows: FlowRegistry,
+    options: PresentationDefaultsOptions,
+): PresentationDefaults {
+    const existing = DEFAULTS_BY_SCENE.get(flows);
+    if (existing !== undefined) {
+        existing.users++;
+        return existing.defaults;
+    }
+    const defaults = createPresentationDefaults(flows, options);
+    DEFAULTS_BY_SCENE.set(flows, { defaults, users: 1 });
+    return defaults;
+}
+
+/**
+ * Libera um uso dos estágios padrão da cena. O último usuário os desregistra (e descarta: GPU e inscrições).
+ * Devolve `true` quando foi o último usuário (nenhuma aplicação usa mais a cena).
+ */
+export function releasePresentationDefaults(flows: FlowRegistry): boolean {
+    const entry = DEFAULTS_BY_SCENE.get(flows);
+    if (entry === undefined) return true;
+    entry.users--;
+    if (entry.users > 0) return false;
+    DEFAULTS_BY_SCENE.delete(flows);
+    const d = entry.defaults;
+    for (const flow of [d.ui, d.debug, d.post, d.forward, d.shadow, d.transform]) {
+        flows.unregister(flow);
+    }
+    return true;
+}
+
+function createPresentationDefaults(
     flows: FlowRegistry,
     options: PresentationDefaultsOptions,
 ): PresentationDefaults {

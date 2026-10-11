@@ -18,7 +18,7 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import type { PoolDirectory } from '../../scene/contracts/PoolDirectory';
 import type { World } from '../../scene/world/World';
 import type { EntityId } from '../../scene/world/EntityId';
-import type { Geometry } from '../../elements/geometry/Geometry';
+import { Geometry } from '../../elements/geometry/Geometry';
 import { Transform } from '../../elements/scene/Transform';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import shadowDepthWGSL from './shadow_depth.wgsl?raw';
@@ -73,6 +73,10 @@ export class ShadowFlow extends Flow {
     private mirroredPipelineReady = false;
     private worldBindGroup: BindGroupSpec | null = null;
     private readonly slots = new Map<EntityId, ShadowSlot>();
+    /** Entidades que projetam sombra (geometria + transform), mantidas por eventos do World. */
+    private readonly receivers = new Map<EntityId, { geometry: Geometry; transform: Transform }>();
+    /** Luzes direcionais da cena por entidade, mantidas por eventos do World. */
+    private readonly lights = new Map<EntityId, DirectionalLight>();
     private lightViewProj: number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
     private lightDirection: [number, number, number, number] = [0.4, -1, 0.6, 0];
 
@@ -94,6 +98,23 @@ export class ShadowFlow extends Flow {
     ) {
         super();
         this.mapSize = options.mapSize ?? SHADOW_MAP_SIZE;
+        // Entidades inseridas antes do registro do estágio; as seguintes chegam por onEntitiesInserted.
+        for (const record of world.allRecords()) this.track(record.id);
+    }
+
+    override onEntitiesInserted(entityIds: readonly number[]): void {
+        for (const id of entityIds) this.track(id as EntityId);
+    }
+
+    /** Registra luz direcional e/ou receptor (geometria + transform), reconhecidos por `instanceof`. */
+    private track(entityId: EntityId): void {
+        const resources = this.world.resourcesOf(entityId);
+        const light = resources.find((r): r is DirectionalLight => r instanceof DirectionalLight);
+        if (light !== undefined) this.lights.set(entityId, light);
+        const geometry = resources.find((r): r is Geometry => r instanceof Geometry);
+        const transform = resources.find((r): r is Transform => r instanceof Transform);
+        if (geometry === undefined || transform === undefined) return;
+        this.receivers.set(entityId, { geometry, transform });
     }
 
     /** Habilita async pipeline compilation. Sync mode (default) bloqueia primeiro dispatch. */
@@ -148,9 +169,53 @@ export class ShadowFlow extends Flow {
         return this.depthView;
     }
 
+    /** Descarte do estágio: libera os buffers de cada entidade, o mapa de profundidade, pipelines e layouts. */
+    override dispose(): void {
+        for (const slot of this.slots.values()) {
+            this.core.destroy(slot.vbo);
+            this.core.destroy(slot.ibo);
+        }
+        this.slots.clear();
+        this.receivers.clear();
+        this.lights.clear();
+        const owned = [
+            this.worldBindGroup,
+            this.shadowParamsBindGroup,
+            this.pipeline,
+            this.mirroredPipeline,
+            this.shader,
+            this.depthView,
+            this.depthTexture,
+            this.shadowParamsBuffer,
+            this.shadowParamsLayout,
+            this.transformLayout,
+        ];
+        for (const spec of owned) if (spec !== null) this.core.destroy(spec);
+        this.worldBindGroup = null;
+        this.shadowParamsBindGroup = null;
+        this.pipeline = null;
+        this.mirroredPipeline = null;
+        this.mirroredPipelineReady = false;
+        this.shader = null;
+        this.depthView = null;
+        this.depthTexture = null;
+        this.shadowParamsBuffer = null;
+        this.shadowParamsLayout = null;
+        this.transformLayout = null;
+    }
+
     override onEntitiesRemoved(entityIds: readonly number[]): void {
         for (const id of entityIds) {
-            this.slots.delete(id as EntityId);
+            const entityId = id as EntityId;
+            this.receivers.delete(entityId);
+            this.lights.delete(entityId);
+            const slot = this.slots.get(entityId);
+            if (slot !== undefined) {
+                // Remoção entre quadros, depois do submit: o WebGPU conclui o trabalho submetido antes de liberar.
+                this.core.destroy(slot.vbo);
+                this.core.destroy(slot.ibo);
+            }
+            this.slots.delete(entityId);
         }
     }
 
@@ -281,10 +346,8 @@ export class ShadowFlow extends Flow {
     }
 
     private findShadowCaster(): DirectionalLight | null {
-        const ids = this.world.queryBySchemaName('Light');
-        for (const id of ids) {
-            const light = this.world.resourcesOf(id).find((r) => r instanceof DirectionalLight);
-            if (light?.data.castShadow === 1) return light;
+        for (const light of this.lights.values()) {
+            if (light.data.castShadow === 1) return light;
         }
         return null;
     }
@@ -294,23 +357,7 @@ export class ShadowFlow extends Flow {
         geometry: Geometry;
         transform: Transform;
     }[] {
-        const out: { entityId: EntityId; geometry: Geometry; transform: Transform }[] = [];
-        const visited = new Set<EntityId>();
-        for (const schemaName of ['BoxVertex', 'SphereVertex', 'PlaneVertex', 'ParametricVertex']) {
-            for (const id of this.world.queryBySchemaName(schemaName)) {
-                if (visited.has(id)) continue;
-                visited.add(id);
-                const resources = this.world.resourcesOf(id);
-                const geometry = resources.find((r) => isGeom(r)) as Geometry | undefined;
-                const transform = resources.find((r) => r.constructor === Transform) as
-                    | Transform
-                    | undefined;
-                if (geometry !== undefined && transform !== undefined) {
-                    out.push({ entityId: id, geometry, transform });
-                }
-            }
-        }
-        return out;
+        return [...this.receivers].map(([entityId, r]) => ({ entityId, ...r }));
     }
 
     private uploadShadowParams(light: DirectionalLight): void {
@@ -337,7 +384,7 @@ export class ShadowFlow extends Flow {
         if (cached !== undefined) return cached;
         if (this.transformLayout === null) return null;
         const vertices = geometry.data.vertices as Float32Array | undefined;
-        const indices = geometry.data.indices as Uint16Array | undefined;
+        const indices = geometry.data.indices as Uint16Array | Uint32Array | undefined;
         if (vertices === undefined || indices === undefined) return null;
 
         const vbo = this.core.create<VertexBufferSpec>({
@@ -357,7 +404,7 @@ export class ShadowFlow extends Flow {
             discriminator: `shadow_ibo:${entityId}`,
             byteSize: padded.byteLength,
             count: geometry.indexCount,
-            format: 'uint16',
+            format: geometry.indexFormat,
         });
         this.core.write(ibo, padded);
 
@@ -459,22 +506,11 @@ function isMirrored(transform: Transform): boolean {
     return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
 }
 
-function isGeom(r: { constructor: { name: string } }): boolean {
-    const n = r.constructor.name;
-    return (
-        n === 'BoxGeometry'
-        || n === 'SphereGeometry'
-        || n === 'PlaneGeometry'
-        || n === 'ParametricGeometry'
-        || n === 'ParametricSurfaceGeometry'
-    );
-}
-
 function alignUp(v: number, a: number): number {
     return Math.ceil(v / a) * a;
 }
 
-function padTo4(arr: Uint16Array): Uint8Array {
+function padTo4(arr: ArrayBufferView): Uint8Array {
     const padded = Math.max(4, alignUp(arr.byteLength, 4));
     const out = new Uint8Array(padded);
     out.set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));

@@ -8,7 +8,7 @@
 
 > `const` **LCPSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/LCPSchema.ts:9](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/bodies/schemas/LCPSchema.ts#L9)
+Defined in: [elements/physics/bodies/schemas/LCPSchema.ts:9](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/schemas/LCPSchema.ts#L9)
 
 Schema do RigidBody integrado pelo LCPFlow (10 vec4f = 160B).
 Layout casa byte-a-byte com o struct WGSL `RigidBody` em

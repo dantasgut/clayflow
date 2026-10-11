@@ -27,11 +27,15 @@ export interface SoftBodyDomainOptions {
 }
 
 /** Opções cruas (avançado) — schema + data diretos. Retrocompat. */
+/** Opções cruas do SoftBody: schema do struct de GPU e dado do struct. */
 export interface SoftBodyRawOptions {
+    /** Schema do struct da partícula (layout de GPU) — define o algoritmo pelo nome do pool. */
     readonly schema: StructSchema;
+    /** Dado cru do struct (campos do schema); ausentes recebem default. */
     readonly data?: Record<string, unknown>;
 }
 
+/** União pública aceita pelo construtor do SoftBody: vocabulário de domínio ou struct cru. */
 export type SoftBodyOptions = SoftBodyDomainOptions | SoftBodyRawOptions;
 
 function isRaw(o: SoftBodyOptions): o is SoftBodyRawOptions {

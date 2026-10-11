@@ -63,7 +63,7 @@ describe('Integration — Flow lifecycle', () => {
         flows.register(notReady);
         new ExecutionSystem(fakeCore(), events, flows);
 
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         expect(ready.dispatches).toHaveLength(1);
         expect(notReady.dispatches).toHaveLength(0);
     });
@@ -79,7 +79,7 @@ describe('Integration — Flow lifecycle', () => {
         flows.register(c);
         new ExecutionSystem(fakeCore(), events, flows);
 
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         // FlowRegistry sort é descending: `b.priority - a.priority`
         // (priority maior roda primeiro).
         const active = flows.activeFlowsInPhase('forward').map((f) => f.type);
@@ -97,7 +97,7 @@ describe('Integration — Flow lifecycle', () => {
         events.on('frameComplete', () => {
             frameCompleteCount++;
         });
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         expect(flow.dispatches).toHaveLength(0);
         expect(frameCompleteCount).toBe(1);
     });
@@ -118,7 +118,7 @@ describe('Integration — Flow lifecycle', () => {
         flows.register(forward);
         new ExecutionSystem(fakeCore(), events, flows);
 
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         // Asserts via dispatch ordering — physics.dispatches[0] < shadow.dispatches[0] < etc.
         const t = (f: TestFlow) => f.dispatches[0];
         expect(t(physics)).toBeDefined();
@@ -135,11 +135,11 @@ describe('Integration — Flow lifecycle', () => {
         flows.register(flow);
         new ExecutionSystem(fakeCore(), events, flows);
 
-        events.emit('frameTick', { dt: 0.016, elapsed: 0 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         expect(flow.dispatches).toHaveLength(0);
 
         flow.ready = true;
-        events.emit('frameTick', { dt: 0.016, elapsed: 1 });
+        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 1, frame: 1 });
         expect(flow.dispatches).toHaveLength(1);
     });
 });

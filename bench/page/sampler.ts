@@ -48,9 +48,17 @@ export class FrameSampler {
         this.lastAt = null;
     }
 
-    /** Registra o quadro recém-executado e devolve a fase atual. */
-    record(sample: FrameSample): SamplerPhase {
+    /**
+     * Registra o quadro recém-executado e devolve a fase atual. `null` = tick sem trabalho (a engine esperou a GPU
+     * — ritmo de quadros): não conta como quadro nem fecha intervalo; o intervalo seguinte mede o tempo entre
+     * quadros efetivamente gravados.
+     */
+    record(sample: FrameSample | null): SamplerPhase {
         const t = this.options.now();
+        if (sample === null) {
+            if (t - this.startedAt > this.options.timeoutMs) return 'timeout';
+            return this.measuringSince === null ? 'warmup' : 'measuring';
+        }
         const prev = this.lastAt;
         this.lastAt = t;
         if (t - this.startedAt > this.options.timeoutMs) return 'timeout';

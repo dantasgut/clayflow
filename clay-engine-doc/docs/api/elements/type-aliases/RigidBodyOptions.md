@@ -8,6 +8,6 @@
 
 > **RigidBodyOptions** = [`RigidBodyDomainOptions`](RigidBodyDomainOptions.md) \| [`RigidBodyRawOptions`](../interfaces/RigidBodyRawOptions.md)
 
-Defined in: [elements/physics/bodies/RigidBody.ts:50](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/bodies/RigidBody.ts#L50)
+Defined in: [elements/physics/bodies/RigidBody.ts:67](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/RigidBody.ts#L67)
 
 União pública aceita pelo construtor do RigidBody.

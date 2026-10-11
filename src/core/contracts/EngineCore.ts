@@ -1,3 +1,4 @@
+import type { DeviceCapabilities, DeviceOptions } from './DeviceOptions';
 import type { Frame } from './Frame';
 import type { FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
@@ -62,6 +63,13 @@ export interface ComputeKernelBinding {
     readonly type: ComputeKernelBindingType;
     /** Buffer concreto que ocupa este slot. */
     readonly buffer: UniformBufferSpec | StorageBufferSpec;
+    /**
+     * Binding com offset dinâmico: o offset é informado a cada `setBindGroup(i, bg, [offset])` (ex.: uma região
+     * de parâmetros por iteração). Exige `size`. Default false.
+     */
+    readonly hasDynamicOffset?: boolean;
+    /** Bytes visíveis pelo shader a partir do offset. Default: o buffer inteiro. */
+    readonly size?: number;
 }
 
 /**
@@ -165,8 +173,9 @@ export type DeviceLostHandler = (info: DeviceLostInfo) => void;
 /**
  * EngineCore é a fronteira da Camada 1 (Hardware) — abstração estável
  * sobre o WebGPU device. Todas as operações GPU passam por aqui:
- *   - **Specs como identidade**: `create(spec)` e `destroy(spec)` operam por
- *     hash do conteúdo (idempotência built-in via UUIDv5).
+ *   - **Specs como identidade**: `create(spec)` congela a spec e a identifica
+ *     pelo hash do conteúdo (UUIDv5, memorizado por objeto); `destroy(spec)`
+ *     libera a posse daquela spec.
  *   - **Frame-scoped recording**: `record(body)` abre um command encoder e
  *     passa um `Frame` para o body emitir compute/render passes; `submit()`
  *     finaliza e enfileira na queue.
@@ -183,16 +192,42 @@ export interface EngineCore {
     readonly canvasFormat: GPUTextureFormat;
 
     /**
-     * Adquire GPUAdapter + GPUDevice (assíncrono) e configura o canvas
-     * swapchain. Idempotente quando context já existe — apenas re-aplica
-     * canvas/options. Lança se WebGPU não está disponível.
+     * Adquire GPUAdapter + GPUDevice (assíncrono) aplicando `device` (potência, features, limites) e configura o
+     * canvas swapchain com `canvasOptions`. As opções ficam guardadas e são reaplicadas em `requestRecover` e
+     * `reconfigureCanvas`. Idempotente quando o device já existe — apenas reaplica canvas/opções de canvas.
+     * Rejeita se WebGPU não está disponível ou se uma feature de `device.requiredFeatures` falta no adaptador
+     * (a mensagem nomeia a feature).
      */
-    initialize(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void>;
+    initialize(
+        canvas?: HTMLCanvasElement,
+        canvasOptions?: CanvasOptions,
+        device?: DeviceOptions,
+    ): Promise<void>;
     /**
-     * Re-configura o canvas swapchain (chamado após resize). Não recria o
-     * device — usa o existente.
+     * Re-configura o canvas swapchain (chamado após resize). Não recria o device. Sem `options`, reaplica as
+     * opções de canvas guardadas (as de `initialize`); com `options`, elas passam a ser as guardadas.
      */
     reconfigureCanvas(options?: CanvasOptions): void;
+
+    /**
+     * Tamanho atual do canvas anexado (pixels do backbuffer), ou `undefined` sem canvas. Usado pela C2 para
+     * alocar texturas declaradas com `sizeFromCanvas`.
+     */
+    canvasSize():
+        | {
+              /** Largura em pixels do backbuffer. */
+              readonly width: number;
+              /** Altura em pixels do backbuffer. */
+              readonly height: number;
+          }
+        | undefined;
+
+    /**
+     * Capacidades efetivas do device atual: adaptador, preferência de potência, features obtidas e ausentes,
+     * limites efetivos e limites pedidos que foram reduzidos ao máximo do adaptador. Só dados; recalculado a cada
+     * criação de device (`initialize` e `requestRecover`). Lança se o core não foi inicializado.
+     */
+    capabilities(): DeviceCapabilities;
 
     /**
      * Registra handler para device-lost. Disparado quando o GPU device é perdido
@@ -203,10 +238,9 @@ export interface EngineCore {
     onDeviceLost(handler: DeviceLostHandler): () => void;
 
     /**
-     * Recupera após device-lost: cria um GPUAdapter+GPUDevice novos e re-attacha
-     * o canvas. Resources cacheados precisam ser recriados pelos sistemas
-     * consumidores (ResourceSystem reage a poolReallocated, e Flows checam
-     * isReady()).
+     * Recupera após device-lost: cria um GPUAdapter+GPUDevice novos com as `DeviceOptions` guardadas e re-attacha
+     * o canvas (o informado ou o anterior) com as `CanvasOptions` guardadas — ou com `options`, que passam a ser
+     * as guardadas. Resources cacheados precisam ser recriados pelos sistemas consumidores.
      */
     requestRecover(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void>;
 
@@ -242,16 +276,20 @@ export interface EngineCore {
     compute(opts: ComputeKernelOptions): ComputeKernel;
 
     /**
-     * Materializa o spec em GPU object e indexa no store interno por specHash.
-     * Idempotente: chamadas subsequentes com spec equivalente retornam o
-     * spec direto sem recriar o GPU object. Retorna o próprio spec para
-     * permitir chaining/storage do consumer.
+     * Cria (ou reutiliza, por conteúdo) o objeto de GPU descrito por `spec` e devolve `spec`.
+     *
+     * A spec passa a ser **imutável em profundidade**: qualquer atribuição posterior lança `TypeError`. Specs
+     * aninhadas (shader num pipeline, layout/buffers num bind group) também ficam congeladas — para mudar um
+     * recurso, crie uma spec nova. A identidade (`specHash`) é calculada no máximo uma vez por objeto de spec.
+     *
+     * Specs de conteúdo igual (inclusive aninhado) compartilham o mesmo objeto de GPU. Cada chamada registra `spec`
+     * como dona desse objeto; `destroy(spec)` remove só essa posse.
      */
     create<S extends ResourceSpec>(spec: S): S;
     /**
-     * Versão async para pipelines (compute/render). Usa `device.createXxxPipelineAsync()`
-     * que compila o shader em background. Para outros kinds, comporta-se como
-     * `create()` síncrono.
+     * Como `create`, mas pipelines (compute/render) compilam em background via `createXxxPipelineAsync()`.
+     * Chamadas concorrentes com specs de mesmo conteúdo compilam uma única vez. Para outros kinds, equivale a
+     * `create()`.
      */
     createAsync<S extends ResourceSpec>(spec: S): Promise<S>;
 
@@ -266,9 +304,8 @@ export interface EngineCore {
     ): void;
 
     /**
-     * Destrói o GPU object associado e remove do store. Chamadas a `create()`
-     * com o mesmo spec depois disso vão re-materializar. Use para liberar
-     * memória de specs que não são mais referenciados.
+     * Remove a posse de `spec` sobre o objeto de GPU. O objeto é destruído quando nenhuma spec dona resta; specs
+     * de mesmo conteúdo criadas por outros donos continuam válidas. `spec` que não é dona não altera nada.
      */
     destroy(spec: ResourceSpec): void;
     /**
@@ -288,6 +325,12 @@ export interface EngineCore {
     record(label: string, body: (frame: Frame) => void): void;
     /** Enfileira o último command buffer construído por `record()` na queue GPU. */
     submit(): void;
+    /**
+     * Quadros submetidos cuja execução na GPU ainda não terminou (`queue.onSubmittedWorkDone`). O laço usa para não
+     * acumular quadros na GPU sem limite (`ApplicationOptions.maxFramesInFlight`). Device perdido ou `shutdown`
+     * zeram a contagem.
+     */
+    framesInFlight(): number;
 
     /**
      * Wrap um body em error scope GPU. Erros (validation/oom/internal) viram

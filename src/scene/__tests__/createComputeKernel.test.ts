@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createComputeKernel } from '../flows/createComputeKernel';
+import { createComputeKernel, destroyComputeKernel } from '../flows/createComputeKernel';
+import { fakeResourceCore } from './helpers/fakeResourceCore';
 import type {
     BindGroupSpec,
     ComputePipelineSpec,
@@ -178,3 +179,34 @@ void ({} as ComputePipelineSpec);
 void ({} as LayoutSpec);
 void ({} as ShaderModuleSpec);
 void ({} as BindGroupSpec);
+
+describe('destroyComputeKernel', () => {
+    it('libera bind groups, pipeline, shader e layouts do kernel', () => {
+        const { core } = fakeResourceCore();
+        const buffer = {
+            kind: 'buffer' as const,
+            subkind: 'storage' as const,
+            discriminator: 'b',
+            byteSize: 16,
+        };
+        const kernel = createComputeKernel(core, {
+            discriminator: 'k',
+            shaderSource: '@compute @workgroup_size(1) fn main() {}',
+            entryPoint: 'main',
+            bindGroups: [
+                { bindings: [{ binding: 0, type: 'storage', buffer }] },
+                { bindings: [{ binding: 0, type: 'storage', buffer }] },
+            ],
+        });
+        destroyComputeKernel(core, kernel);
+        const destroyed = vi.mocked(core.destroy).mock.calls.map((c) => c[0]);
+        expect(destroyed).toEqual([
+            kernel.bindGroups[0],
+            kernel.bindGroups[1],
+            kernel.pipeline,
+            kernel.pipeline.shader,
+            kernel.layouts[0],
+            kernel.layouts[1],
+        ]);
+    });
+});

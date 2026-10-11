@@ -8,8 +8,44 @@
 
 > **RigidBodyShape** = \{ `radius`: `number`; `shape`: `"sphere"`; \} \| \{ `halfExtents`: readonly \[`number`, `number`, `number`\]; `shape`: `"box"`; \}
 
-Defined in: [elements/physics/bodies/RigidBody.ts:14](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/elements/physics/bodies/RigidBody.ts#L14)
+Defined in: [elements/physics/bodies/RigidBody.ts:14](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/RigidBody.ts#L14)
 
 Forma associada a um RigidBody dinâmico, em vocabulário de domínio.
 `sphere` → raio; `box` → half-extents. Determina `body_shape` (struct GPU)
 e o colisor anexado automaticamente.
+
+## Union Members
+
+### Type Literal
+
+\{ `radius`: `number`; `shape`: `"sphere"`; \}
+
+#### radius
+
+> `readonly` **radius**: `number`
+
+Raio em metros.
+
+#### shape
+
+> `readonly` **shape**: `"sphere"`
+
+Esfera.
+
+***
+
+### Type Literal
+
+\{ `halfExtents`: readonly \[`number`, `number`, `number`\]; `shape`: `"box"`; \}
+
+#### halfExtents
+
+> `readonly` **halfExtents**: readonly \[`number`, `number`, `number`\]
+
+Meias-extensões em metros (x, y, z).
+
+#### shape
+
+> `readonly` **shape**: `"box"`
+
+Caixa.

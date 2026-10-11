@@ -36,7 +36,7 @@ Docs em `clay-engine-doc/docs/`. **Não tocar** kernels WGSL, `schemas/`, `colli
 
 ---
 
-## Phase 3: User Story 1 — RigidBody em vocabulário de domínio (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — RigidBody em vocabulário de domínio (Priority: P1)
 
 **Goal**: criar corpos rígidos com `{ mass, friction, restitution, shape, dims }` — cobre a cena inteira do
 `claflow-web` (SC-001) e os Acceptance Scenarios 1, 2, 3, 6.
@@ -61,7 +61,7 @@ simulação visualmente idêntica à atual.
 - [x] T016 [US1] Exportar tipos/opts públicos no barrel `src/elements/index.ts` (sem expor tipos internos de layout — Constituição II)
 - [x] T017 [US1] Validação + mensagens de domínio no construtor (FR-007)
 
-**Checkpoint**: US1 entrega o MVP — a cena do `claflow-web` é escrevível só com vocabulário de domínio.
+**Checkpoint**: US1 entregue — a cena do `claflow-web` é escrevível só com vocabulário de domínio.
 
 ---
 
@@ -115,7 +115,7 @@ simulação visualmente idêntica à atual.
 ## Dependencies & Execution Order
 
 - **Setup (T001–T002)** → **Foundational (T003–T006)** → **US1 (T007–T017)** → US2 (T018–T021) → US3 (T022–T025) → **Polish (T026–T031)**.
-- US1 é o **MVP** e é independentemente testável/entregável (cobre SC-001). US2/US3 dependem só do Foundational (auto-flow), não de US1 — podem ser feitas em paralelo após o Foundational, mas a prioridade é P1→P2→P3.
+- US1 é independentemente testável (cobre SC-001). US2/US3 dependem só do Foundational (auto-flow), não de US1 — podem ser feitas em paralelo após o Foundational, mas a prioridade é P1→P2→P3.
 - Dentro de US1, os testes T007–T012 são `[P]` (arquivos distintos); a implementação T013→T014→T015 é sequencial (mesmo arquivo `RigidBody.ts`); T016/T017 após T014.
 
 ## Parallel Execution Examples
@@ -126,7 +126,7 @@ simulação visualmente idêntica à atual.
 
 ## Implementation Strategy
 
-- **MVP = Phase 1 + 2 + US1**: entrega a fachada rígida + auto-flow, suficiente para reescrever a cena atual do `claflow-web` em vocabulário de domínio. Entregável e testável sozinho.
+- **Phase 1 + 2 + US1**: fachada rígida + auto-flow, suficiente para reescrever a cena atual do `claflow-web` em vocabulário de domínio.
 - Incrementos US2 e US3 adicionam soft e fluidos sem tocar US1.
 - Retrocompat (`{schema,data}` cru) validada por testes de equivalência em cada story (T011/T019/T023).
 - GPU-First: nenhuma tarefa toca kernels/schemas/pool; toda derivação é setup-time CPU testável.

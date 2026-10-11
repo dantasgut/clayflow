@@ -17,6 +17,7 @@ describe('parseArgs', () => {
             quick: false,
             headless: false,
             profiling: true,
+            dist: false,
         });
         expect(c.resolution).toEqual({ width: 1280, height: 720 });
     });
@@ -55,6 +56,17 @@ describe('parseArgs', () => {
         expect(() => parseArgs(['--scene'])).toThrow(/espera um valor/);
         expect(() => parseArgs(['--bogus'])).toThrow(/flag desconhecida/);
         expect(parseArgs(['--tolerance', '0.05']).tolerance).toBe(0.05);
+    });
+});
+
+describe('parseArgs — --dist', () => {
+    it('liga a medição do build minificado', () => {
+        expect(parseArgs(['--dist']).dist).toBe(true);
+        expect(parseArgs(['--quick', '--dist', '--scene', 'unique-objects'])).toMatchObject({
+            dist: true,
+            quick: true,
+            scenes: ['unique-objects'],
+        });
     });
 });
 

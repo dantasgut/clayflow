@@ -6,25 +6,24 @@
 
 # Class: GameLoop
 
-Defined in: [presentation/app/GameLoop.ts:15](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/app/GameLoop.ts#L15)
+Defined in: [presentation/app/GameLoop.ts:18](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/app/GameLoop.ts#L18)
 
-GameLoop encapsula o requestAnimationFrame loop. Cada frame:
-  1. Computa `dt` (tempo desde último frame, clamped em 1/30 para
-     evitar saltos enormes após pause/blur).
-  2. Atualiza `Time.data.elapsed`.
-  3. Emite `frameTick` event no EventBus.
-  4. Agenda próximo RAF.
+Laço de quadros sobre `requestAnimationFrame`. Cada quadro mede o tempo real decorrido e chama `advance`, a
+única definição de "avançar um quadro" — a mesma que `Application.step()` usa sem laço: `time.advance(realDt)`
+e, em seguida, `frameTick { dt, realDt, elapsed, frame }`. Não há teto de `dt` aqui: o `Time` limita o quadro a
+`maxFrameDt` e a física a `maxStepsPerFrame`.
 
-Application instancia + start/stop. ExecutionSystem ouve frameTick
-para dispatch dos Flows.
+Ritmo (research R18): um tick só avança quando `canAdvance()` permite (há espaço para mais um quadro na GPU);
+senão espera o próximo RAF sem mover a marca de tempo — o `realDt` seguinte inclui a espera e o acumulador do
+`Time` compensa até o teto.
 
 ## Constructors
 
 ### Constructor
 
-> **new GameLoop**(`events`, `time`): `GameLoop`
+> **new GameLoop**(`events`, `time`, `canAdvance?`): `GameLoop`
 
-Defined in: [presentation/app/GameLoop.ts:19](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/app/GameLoop.ts#L19)
+Defined in: [presentation/app/GameLoop.ts:22](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/app/GameLoop.ts#L22)
 
 #### Parameters
 
@@ -36,19 +35,43 @@ Defined in: [presentation/app/GameLoop.ts:19](https://github.com/dantasgut/clayf
 
 [`Time`](Time.md)
 
+##### canAdvance?
+
+() => `boolean`
+
 #### Returns
 
 `GameLoop`
 
 ## Methods
 
+### advance()
+
+> **advance**(`realDt`): `void`
+
+Defined in: [presentation/app/GameLoop.ts:29](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/app/GameLoop.ts#L29)
+
+Avança um quadro de duração real `realDt` (s): move o relógio e emite `frameTick` (síncrono).
+
+#### Parameters
+
+##### realDt
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### isRunning()
 
 > **isRunning**(): `boolean`
 
-Defined in: [presentation/app/GameLoop.ts:47](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/app/GameLoop.ts#L47)
+Defined in: [presentation/app/GameLoop.ts:68](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/app/GameLoop.ts#L68)
 
-True se o loop está ativo (RAF agendado).
+True se o laço está ativo (RAF agendado).
 
 #### Returns
 
@@ -60,9 +83,9 @@ True se o loop está ativo (RAF agendado).
 
 > **start**(): `void`
 
-Defined in: [presentation/app/GameLoop.ts:25](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/app/GameLoop.ts#L25)
+Defined in: [presentation/app/GameLoop.ts:41](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/app/GameLoop.ts#L41)
 
-Inicia o RAF loop. No-op se já rodando.
+Inicia o laço (RAF). No-op se já rodando.
 
 #### Returns
 
@@ -74,7 +97,7 @@ Inicia o RAF loop. No-op se já rodando.
 
 > **stop**(): `void`
 
-Defined in: [presentation/app/GameLoop.ts:40](https://github.com/dantasgut/clayflow/blob/19722869f2426edabbb969d3f2b98da711a4ae3c/src/presentation/app/GameLoop.ts#L40)
+Defined in: [presentation/app/GameLoop.ts:61](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/app/GameLoop.ts#L61)
 
 Cancela o RAF agendado. No-op se não rodando.
 

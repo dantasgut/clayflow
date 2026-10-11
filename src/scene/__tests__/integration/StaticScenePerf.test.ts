@@ -25,11 +25,11 @@ describe('cena estática de 10 000 objetos', () => {
             world.insert(new Transform({ position: [i, 0, 0, 1] }));
         }
         expect(resources.poolCount('Transform')).toBe(10_000);
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 0 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(trace).toContain('compute:TransformFlow');
         for (let f = 1; f <= 10; f++) {
             trace.length = 0;
-            events.emit('frameTick', { dt: 1 / 60, elapsed: f / 60 });
+            events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: f / 60, frame: 1 });
             expect(trace.filter((c) => c.startsWith('write:'))).toHaveLength(0);
             expect(trace).not.toContain('compute:TransformFlow');
         }

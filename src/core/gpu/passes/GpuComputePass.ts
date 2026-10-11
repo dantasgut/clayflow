@@ -14,6 +14,8 @@ export class GpuComputePass implements ComputePass, Binder<ComputePipelineSpec>,
         private readonly store: GpuResourceStore,
         /** Contadores do quadro (opcional: passes avulsos em testes não contam). */
         private readonly counters?: FrameCounters,
+        /** `maxComputeWorkgroupsPerDimension` do device. */
+        private readonly maxWorkgroupsPerDimension = 65_535,
     ) {}
 
     get bind(): Binder<ComputePipelineSpec> {
@@ -40,7 +42,29 @@ export class GpuComputePass implements ComputePass, Binder<ComputePipelineSpec>,
         return this;
     }
 
-    workgroups(x: number, y?: number, z?: number): this {
+    invocations(count: number, workgroupSize: number): this {
+        if (!Number.isInteger(count) || count < 0) {
+            throw new RangeError(`invocations: count deve ser inteiro ≥ 0 (recebido ${count}).`);
+        }
+        if (!Number.isInteger(workgroupSize) || workgroupSize < 1) {
+            throw new RangeError(
+                `invocations: workgroupSize deve ser inteiro ≥ 1 (recebido ${workgroupSize}).`,
+            );
+        }
+        if (count === 0) return this;
+        const groups = Math.ceil(count / workgroupSize);
+        const x = Math.min(groups, this.maxWorkgroupsPerDimension);
+        return this.workgroups(x, Math.ceil(groups / x), 1);
+    }
+
+    workgroups(x: number, y = 1, z = 1): this {
+        const max = this.maxWorkgroupsPerDimension;
+        if (x > max || y > max || z > max) {
+            throw new RangeError(
+                `workgroups(${x}, ${y}, ${z}) excede maxComputeWorkgroupsPerDimension (${max}) do device — `
+                    + 'use invocations(count, workgroupSize) para despachos lineares.',
+            );
+        }
         this.encoder.dispatchWorkgroups(x, y, z);
         if (this.counters) this.counters.dispatches++;
         return this;

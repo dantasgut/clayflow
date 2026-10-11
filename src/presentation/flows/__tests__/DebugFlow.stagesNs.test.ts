@@ -22,7 +22,7 @@ describe('DebugFlow — stagesNs', () => {
                 stagesNs: { TransformFlow: 100_000, forward: 800_000 },
             },
         });
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 1 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 1, frame: 1 });
         expect(seen[0]?.stagesNs).toEqual({ TransformFlow: 100_000, forward: 800_000 });
     });
 
@@ -33,7 +33,7 @@ describe('DebugFlow — stagesNs', () => {
         const seen: ProfilerStatsEvent[] = [];
         events.on('profilerStats', (e) => seen.push(e));
         events.emit('frameComplete', { timestamp: 0, dt: 1, elapsed: 0, stats: zero });
-        events.emit('frameTick', { dt: 1 / 60, elapsed: 1 });
+        events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 1, frame: 1 });
         expect(seen[0]?.stagesNs).toEqual({});
     });
 });

@@ -58,7 +58,7 @@ export function interactionPlugin(
         },
         dispose(_app) {
             if (state.system !== null) {
-                state.system.detach();
+                state.system.dispose();
                 state.system = null;
             }
         },

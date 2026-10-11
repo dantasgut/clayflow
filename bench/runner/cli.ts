@@ -90,7 +90,7 @@ async function execute(config: RunConfig, strict: boolean): Promise<RunFile> {
         `clayflow bench — ${plan.runs.length} execuções (${plan.unsupported.length} não suportadas)`,
     );
     const startedAt = new Date();
-    const server = await startServer(config.port);
+    const server = await startServer(config.port, { dist: config.dist });
     let launched = await launchBrowser(config.headless).catch(async (e: unknown) => {
         await server.close();
         throw e;

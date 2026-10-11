@@ -21,6 +21,10 @@ export class GpuManagedResourceStateHandler implements ResourceStateHandler {
     ignoreDirtyMark(): boolean {
         return true;
     }
+
+    reportsIgnoredMutation(): boolean {
+        return true;
+    }
     validTransitions(): readonly ResourceState[] {
         return [ResourceState.Ready, ResourceState.Disposed];
     }
