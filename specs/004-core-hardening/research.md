@@ -188,8 +188,8 @@ percorre todos os N·M slots × (warm start + 8 iterações) × 4 substeps (36 M
   com a pose predita na origem e a narrowphase lia chão e paredes no lugar errado — corpos caíam do chão. Agora
   `pos_pred` = posição inicial.
 
-**Medido** (smoke `rigidContacts`, perfil apple-metal-3): 1k — 19,6 ms/quadro, 100% em repouso, 5,7 MiB; 10k —
-331 ms/quadro (dominado pela narrowphase N·M, sem broadphase), 99,87% em repouso, 70,5 MiB. O solve serial anterior
+**Medido** (smoke `rigidContacts`, perfil apple-metal-3): 1k — 8,2 ms/quadro, 100% em repouso, 5,7 MiB; 10k —
+223,7 ms/quadro (dominado pela narrowphase N·M, sem broadphase), 99,87% em repouso, 70,5 MiB. O solve serial anterior
 derrubava o device (watchdog) com 10k corpos e o manifold de cantos.
 
 **Alternativas rejeitadas**: manter N·M (estoura limites); solver serial (watchdog da GPU em 10k); PGS por coloração

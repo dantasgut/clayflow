@@ -17,7 +17,7 @@ import { BALL_RADIUS, ballPositions, GROUND_HALF } from './scene';
 const impl: SceneImplementation<ClayflowHandle> = {
     limitations: [
         'readback de todos os corpos para a CPU por quadro, pose publicada fora do quadro e com 1 quadro de atraso (até F2)',
-        'solver LCP em uma thread e narrowphase O(N·M) (até F5)',
+        'narrowphase O(N·M), sem broadphase (até F5)',
         'sem instancing no render (até F2)',
     ],
     setup({ engine, variant, rng }) {
