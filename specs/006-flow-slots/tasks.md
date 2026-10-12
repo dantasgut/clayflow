@@ -280,12 +280,65 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 > `instances/10k-moving` CPU −32,5%; `rigid-bodies/1k` CPU −75%, GPU −40%; `rigid-bodies/10k` CPU −80,9%, p95 −21,6%.
 > Adaptador do bench sem as duas limitações resolvidas (forward por entidade, geometria duplicada).
 > **Pendente**: repetir `npm run bench:check` com a máquina livre; se verde, `npm run bench:baseline`.
+>
+> **Rodada com a máquina livre (2026-10-12, commit 0e40c7a)**: REPROVADO de novo nas mesmas métricas — regressão real.
+> (1) `unique-objects/1k` 114 → 89 fps, p95 21,6 ms: com a CPU por quadro abaixo da latência da GPU o laço batia no
+> limite de quadros em voo e devolvia RAFs vazios, que o navegador espaça (~1/60 s, sem vsync). Corrigido em `a362a42`
+> (evento `frameRetired`; `GameLoop` e o bench esperam a vaga sem RAF vazio): p95 2,65 ms, CPU −86,8%. (2) GPU de
+> `instances/10k` e `10k-moving` +10–17% (A/B: 0,52 ms antes do forward em slots, 1,07 ms depois; independe do ritmo).
+> Causa isolada: o rebind do grupo de material com offset dinâmico a cada draw (R8). Resolvido pela Emenda 1 (Phase 11).
 
 - [x] T069 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/006-flow-slots/spec.md` com status e `checklists/requirements.md`
 
 > **Gate (T069, 2026-10-12)**: `format:check` ✅, `lint` 0 erros, `tsc` ✅, `test:coverage` 913/913 (linhas 87,0%,
 > statements 86,3%), `build:lib` ✅ (564,75 kB, 144,78 kB gzip); bench do harness 81/81. Checklist de requisitos 16/16.
 > Spec marcada como implementada, com a T068 (rodada de bench com a máquina livre) e a ratificação da 1.1.0 pendentes.
+
+---
+
+## Phase 11: Emenda 1 — pool `Renderable` e material indexado, sem bind por draw (R16)
+
+**Goal**: remover o rebind por draw do forward (regressão de GPU da R8) com o pool `Renderable` do documento, mantido
+pela C2; imagem idêntica; T068 verde.
+
+**Independent Test**: contagem de `setBindGroup` por passe com 10 mil entidades depende só do número de pipelines;
+smokes `render` (10 cenas idênticas), `churn`, `bigMesh`, `integration`; A/B de GPU em `instances/10k` ≤ 0,52 ms.
+
+- [ ] T070 [US2] Testes em `src/scene/__tests__/entitiesRecord.test.ts`: `slot.entities({ all, record })` — registro
+      criado ao completar o conjunto com os slots referidos (`poolSlotOf` do descritor nomeado), atualizado ao trocar o
+      Resource referido (mesmo schema e schema diferente) e liberado ao sair do conjunto; slot estável e reutilizado
+      (free-list); dois conjuntos com a mesma declaração compartilham pool e slot; crescimento emite `poolReallocated` e
+      `bindGroupReplaced`; escrita só em `frameRecording` (lote dos sujos), nunca pelo estágio; build minificado (nomes
+      explícitos)
+- [ ] T071 [US2] C2: `record` em `slot.entities` (`src/scene/flows/slots.ts`), manutenção do pool de registros no
+      `ResourceSystem` (`src/scene/systems/ResourceSystem.ts`) por eventos de entidade e de slot, `recordSlot` na entrada
+      entregue ao estágio; `PoolResolver` do pool de registros; JSDoc
+- [ ] T072 [P] [US2] C3: `src/elements/scene/Renderable.ts` (schema `Renderable { transformSlot: u32, materialSlot: u32 }`
+      e a declaração `{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`), exportado por
+      `elements/index.ts`; testes do schema e da declaração
+- [ ] T073 [P] [US2] C3: descritor `material` de `StandardMaterial`, `WireframeMaterial` e `PointSpriteMaterial` passa a
+      `role: 'storage-ro'`, `storage: 'pool'`; testes dos materiais e do pool (stride natural)
+- [ ] T074 [US2] WGSL: `src/elements/gpu/wgsl/forward.wgsl` (e os shaders de wireframe/point-sprite) leem
+      `renderables[instance_index]`, a matriz por `transformSlot` e `materials[materialSlot]` (`@interpolate(flat)`);
+      `src/presentation/flows/shadow_depth.wgsl` lê a matriz por `renderables[instance_index].transformSlot`; structs
+      gerados (sem struct à mão — T066 continua verde)
+- [ ] T075 [US2] `ForwardFlow` e `ShadowFlow`: `renderables`/`casters` com `record: Renderable`; grupos 0/1/3 uma vez
+      por passe, grupo 2 (material) uma vez por pipeline; `draw.indexed(indexCount, 1, 0, 0, recordSlot)`; sai o offset
+      dinâmico; JSDoc
+- [ ] T076 [US2] Testes de contagem (SC-010) em `src/presentation/flows/__tests__/ForwardFlow.perEntity.test.ts` e
+      `ShadowFlow` equivalentes: 10 mil entidades, `setBindGroup` por passe = f(pipelines), 0 por entidade; troca de
+      material entre schemas muda o pipeline no mesmo quadro; entidade sem Material sem draw nem aviso repetido;
+      atualizar `renderables.test.ts`, `removalRelease.test.ts`, `ForwardFlow.worldTransform.test.ts`
+- [ ] T077 [US2] Pool uniforme: remover o caminho uniforme do `ResourceSystem` (stride alinhado, fonte dinâmica de
+      pool) se nenhum descritor `role: 'uniform', storage: 'pool'` restar; ajustar testes da C2
+- [ ] T078 [US2] Smokes `render,churn,bigMesh,integration,trajectories` no fonte e com `--dist` (imagem idêntica,
+      SC-007); A/B de GPU `instances/10k` e `10k-moving` contra `b437e47` (≤ 0,52 ms) registrado abaixo
+- [ ] T079 [US6] Documento de arquitetura: tabela de pools (`Renderable` atual na 006, material em pool de storage),
+      seção de estágios (`firstInstance` = slot do `Renderable`, sem bind por draw); `flows.md` (`record` em
+      `slot.entities`); guia de migração (material storage, `Renderable`); ROADMAP/PENDENCIAS (`Renderable` saiu da F2;
+      F2 fica com agrupamento/instancing/indireto)
+- [ ] T080 Gate completo (format, lint, tsc, `test:coverage`, `build:lib`, `doc:coverage` sem membro sem documentação,
+      API regenerada) e então a T068 (`bench:check` com a máquina livre; se verde, `bench:baseline`)
 
 ---
 
@@ -300,6 +353,8 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 - **Fase 8 (US4)** depende de todos os estágios migrados (Fases 5–7).
 - **Fase 9 (US6)**: T058–T059 dependem de todos os estágios migrados; T060–T063 só da API final.
 - **Fase 10** por último.
+- **Fase 11 (Emenda 1)**: T070 → T071; T072 ∥ T073 depois da T071; T074 → T075 → T076; T077 depois da T075; T078 →
+  T079 → T080; a T068 fecha depois da T080.
 
 Prioridade × ordem: US2 e US3 são P1, mas US2 precisa de US3 (factories de apresentação) e é executada depois da física
 para que as fixtures de trajetória protejam a C2 antes de mexer na imagem.

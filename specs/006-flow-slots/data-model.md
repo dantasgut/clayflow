@@ -63,11 +63,29 @@ readonly boolean[] }` (variantes de render indexadas por chave, ex. `frontFace`)
 `{ kind: 'buffer', spec, size?, dynamic?: { stride } } | { kind: 'textureView', spec, sampleType } | { kind:
 'sampler', spec, comparison }`, mais `generation` (muda quando a fonte é recriada).
 
-## Pool uniforme (C2, `ResourceSystem`) — novo
+## Pool uniforme (C2, `ResourceSystem`) — novo; sai na Emenda 1 se ficar sem consumidor (R16)
 
 `PoolEntry.addressSpace: 'storage' | 'uniform'`; uniforme: `UniformBufferSpec`, `stride = alignUp(schema.stride,
 minUniformBufferOffsetAlignment)`, fonte dinâmica (`offset = slot × stride`). Sem layout/bind group próprios
 (saem de `PoolEntry`).
+
+## EntitiesRecord (C2, `scene/flows/slots.ts`) — novo (Emenda 1)
+
+`slot.entities({ all, record? })`; `record = { schema: StructSchema, fields: { [campo]: readonly [ResourceType,
+descId] } }`. Cada campo do schema é `u32`. A C2 mantém um pool com chave `schema.name` (compartilhado entre conjuntos
+com a mesma declaração) e entrega, por entrada, `recordSlot: number`. Escrita pela C2 em `frameRecording` nos sujos:
+completar o conjunto, mudança de um slot referido, troca do Resource referido (inclusive de schema); liberação ao sair.
+
+## Renderable (C3, `elements/scene/Renderable.ts`) — novo schema (Emenda 1)
+
+`StructSchema('Renderable', { transformSlot: u32, materialSlot: u32 })` e a declaração
+`{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`. Lido por forward e sombra
+(`var<storage, read> renderables: array<Renderable>`); `firstInstance` = `recordSlot`.
+
+## Materiais (C3) — alterado (Emenda 1)
+
+`StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial`: descritor `material` passa de `role: 'uniform'` a
+`role: 'storage-ro'` (`storage: 'pool'`); o shader lê `array<Schema>` indexado por `materialSlot`.
 
 ## FrameTargets (C4, `presentation/app/FrameTargets.ts`) — novo Resource
 

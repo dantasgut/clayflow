@@ -201,7 +201,7 @@ depois do `submit` corrente e emite `bindGroupReplaced { poolKey | source, oldSp
 evento e passa a usar `bound` atualizado (que já aponta para o novo). O layout e o bind group "do pool" de hoje
 (`createPool`) saem.
 
-### R8 — Material em pool uniforme com offset dinâmico
+### R8 — Material em pool uniforme com offset dinâmico (substituída pela R16, Emenda 1)
 
 **Decisão**: descritor `role: 'uniform', storage: 'pool'` produz um **pool uniforme**: buffer `UNIFORM` com stride
 arredondado a `minUniformBufferOffsetAlignment`; consumido como `var<uniform> material: StandardMaterial` com offset
@@ -213,6 +213,10 @@ juntaria os slots de material e transform num registro por desenho. 10 mil mater
 
 **Alternativas**: pool de storage indexado por um segundo índice por desenho — exige o registro `Renderable` (F2);
 pool de storage com offset dinâmico — mesmo alinhamento (256) e muda o WGSL.
+
+**Premissa refutada** (T068): o offset dinâmico por draw custa GPU. `instances/10k`: 0,52 ms antes do forward em
+slots, 1,07 ms com a R8; offset fixo 0,64 ms; dois offsets alternados a cada draw 1,07 ms (o custo é o rebind, não os
+dados). Ver R16.
 
 ### R9 — Alvos de render, sombra e cor da cena como Resources
 
@@ -294,3 +298,37 @@ Documento de arquitetura: todas as marcas "alvo da 006" viram estado atual (Flow
 shader, alocação da bag consumida pelos estágios); exemplos de Flow, `register` e `consumes` reescritos com a API
 real. Guia novo `flows.md` (escrever um Flow N3). Guia de migração: registro por instância → factory; callbacks →
 transições; `bindShadowFlow`/`bindForwardFlow` → slots; `ShadowFlowOptions.mapSize` → `ShadowMap.size`.
+
+### R16 — Pool `Renderable` mantido pela C2 e material indexado (Emenda 1)
+
+**Decisão**: o registro por desenho do documento de arquitetura entra na 006, como forma de GPU do conjunto
+`slot.entities`.
+
+- **Declaração genérica (C2)**: `slot.entities({ all, record })`, com `record = { schema, fields }`; cada campo nomeia
+  o Resource (tipo do `all`) e o `id` do descritor cujo slot de pool vai nele — ex.: `Renderable` =
+  `{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`. A C2 não conhece Geometry nem
+  Material: só resolve "slot do descritor X do Resource Y desta entidade" por `poolSlotOf`.
+- **Pool**: chave = nome do schema do registro (`Renderable`); conjuntos com a mesma declaração compartilham o pool e o
+  slot. Slot estável por entidade (free-list), crescimento por `poolReallocated`/`bindGroupReplaced` como os demais.
+  Registro escrito pela C2 em `frameRecording` (lote dos sujos): ao completar o conjunto, ao mudar um slot referido
+  (troca de material, inclusive de schema) e liberado ao sair do conjunto. Estágios só leem.
+- **Entrega ao estágio**: cada entrada do conjunto expõe `recordSlot`; o draw é
+  `draw.indexed(indexCount, 1, 0, 0, recordSlot)`.
+- **Material**: descritores de material passam a `role: 'storage-ro', storage: 'pool'`; o WGSL lê
+  `var<storage, read> materials: array<StandardMaterial>` (e equivalentes por schema), stride natural do schema (sem
+  alinhamento de 256: 10 mil materiais caem de 2,5 MB para o tamanho real).
+- **Shaders**: forward — `vs_main(@builtin(instance_index) r)` lê `renderables[r]`, a matriz por `transformSlot` e passa
+  `materialSlot` ao fragment (`@interpolate(flat)`); fragment lê `materials[slot]`. Sombra — lê `renderables[r]` e a
+  matriz por `transformSlot`. Grupos: câmera/parâmetros (0), `WorldTransform` + `Renderable` (1), material (2, por
+  pipeline), sombra (3) — nenhum muda entre draws do mesmo pipeline.
+- **Pool uniforme**: sem consumidor depois disto; o caminho uniforme do `ResourceSystem` (stride alinhado a
+  `minUniformBufferOffsetAlignment`, fonte dinâmica) sai se nenhum outro descritor o usar, com os testes ajustados.
+
+**Por quê**: remove o rebind por draw (causa da regressão de GPU), cumpre a definição do documento (`Renderable`
+preenchido pela C2, lido por forward e sombra) e deixa a F2 com o que é dela: agrupar draws por (geometria, pipeline)
+em instâncias/indireto sobre o mesmo pool.
+
+**Alternativas**: tabela slot de mundo → slot de material privada do `ForwardFlow` — rejeitada: o estágio escreveria
+dado por entidade (FR-016) e a sombra não a compartilharia; alinhar o slot de material ao de transform na C2 (mesmo
+slot por entidade em todos os pools) — rejeitada: acopla pools independentes e desperdiça slots em pools esparsos;
+manter a R8 e aceitar a regressão até a 007 — rejeitada pelo critério "sem regressão no benchmark".

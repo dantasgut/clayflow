@@ -4,8 +4,8 @@
 
 **Created**: 2026-10-12
 
-**Status**: Implementada (2026-10-12) — pendentes: `bench:check` com a máquina livre (T068) e ratificação da
-constituição 1.1.0 no PR
+**Status**: Emendada (2026-10-12, Emenda 1 — pool `Renderable` e material indexado) — implementação da emenda
+pendente (Phase 11 de `tasks.md`); depois, `bench:check` (T068) e ratificação da constituição 1.1.0 no PR
 
 **Input**: User description: "Slots de Flow (spec 006, fase F1 do roadmap — `006-flow-slots`). Implementar no lugar
 arquitetural certo (refundação C1–C4, `architecture_resource_loaders.md` autoritativo, com as definições corrigidas na
@@ -50,6 +50,21 @@ documento (D5), que agora marca explicitamente o que é "alvo da 006". O código
 
 Esta spec liga o modelo de slots de ponta a ponta e migra todos os estágios para ele. O comportamento visível não
 muda: a simulação e a imagem devem ser as mesmas antes e depois; o custo de CPU do render deve cair.
+
+## Emenda 1 (2026-10-12) — pool `Renderable` e material indexado, sem bind por draw
+
+**Achado** (T068, benchmark com a máquina livre): a decisão R8 — material em pool uniforme, selecionado por
+`setBindGroup(2, pool, [slot × stride])` a cada draw — cumpre FR-016 e o FR-018 original, mas regride a GPU. Em
+`instances/10k` (10 mil entidades, cada uma com o seu material) a GPU por quadro foi de 0,52 ms (antes do forward em
+slots) para 1,07 ms. Experimentos isolaram a causa: com o offset fixo a GPU cai para 0,64 ms; trocando o offset a cada
+draw entre só dois registros continua em 1,07 ms — o custo é o rebind por draw, não a leitura de 10 mil registros. A
+premissa da R8 (offset dinâmico por draw é barato) não vale no Metal, e a spec exige "sem regressão no benchmark".
+
+**Emenda**: o pool `Renderable` do documento de arquitetura — `{ transformSlot, materialSlot }` por entidade com
+Geometry + Material + Transform, preenchido pela Camada 2 — entra nesta spec (antes era da F2). O draw passa a ser
+selecionado só pelo `firstInstance` (= slot do `Renderable`); o shader lê o registro e, por ele, a matriz de mundo e o
+material, que passa a pool de storage lido como array. Nenhum bind group muda entre draws do mesmo pipeline. Continuam
+na F2/007: desenho agrupado por instâncias/indireto, vertex pulling e pools lidos pela GPU sem a CPU.
 
 ## User Scenarios & Testing _(mandatory)_
 
@@ -104,7 +119,9 @@ referência.
    nenhum buffer, bind group nem layout por entidade.
 2. **Given** uma câmera ativa, **When** um quadro é gravado, **Then** os dados da câmera são escritos uma vez.
 3. **Given** um passe de forward, **When** os draws são gravados, **Then** os bind groups compartilhados (câmera, luzes,
-   sombra) são definidos uma vez por passe e o de cada entidade é selecionado pelo seu slot.
+   sombra) são definidos uma vez por passe, os de material e `Renderable` uma vez por pipeline, e cada entidade é
+   selecionada só pelo `firstInstance` do draw (o slot do seu `Renderable`) — nenhum bind group muda entre draws do
+   mesmo pipeline (Emenda 1).
 4. **Given** um Material, **When** inserido, **Then** ocupa um slot no pool do seu schema e o forward o lê por esse
    slot.
 5. **Given** uma geometria, **When** inserida, **Then** existe uma única cópia na GPU (a da C2), usada pelo forward e
@@ -112,6 +129,10 @@ referência.
 6. **Given** um `ShadowMap`, **When** o render principal amostra a sombra, **Then** matriz da luz e vieses vêm do
    struct gerado do `ShadowMap.schema`.
 7. **Given** as cenas do benchmark e do smoke de render, **When** renderizadas, **Then** a imagem é a mesma de antes.
+8. **Given** uma entidade com Geometry + Material + Transform, **When** inserida, **Then** a C2 lhe dá um registro no
+   pool `Renderable` com o slot do seu `WorldTransform` e o do seu material; **When** o material é trocado por outro
+   (mesmo schema ou outro) ou a entidade perde um dos três, **Then** o registro é atualizado ou liberado no mesmo
+   quadro, sem o forward nem a sombra escreverem nele (Emenda 1).
 
 ---
 
@@ -233,6 +254,12 @@ documento não tem mais "alvo da 006" e que seus exemplos usam só a API exporta
   referenciado.
 - Unregister de um Flow cujo pipeline ainda compila: a compilação concluída depois não o reativa.
 - Build minificado: nomes de slots, resolvers e schemas são dados explícitos, nunca nomes de classe.
+- Pool `Renderable` cresce no quadro (Emenda 1): os bind groups que o leem são recriados (`bindGroupReplaced`) e os
+  slots já entregues continuam válidos.
+- Entidade com Geometry + Transform sem Material, ou material de schema sem pipeline: não ganha registro (ou o
+  registro não é desenhado) e não gera aviso repetido; o registro aparece quando o conjunto se completa.
+- Material trocado por outro de schema diferente: o `materialSlot` passa a apontar para o pool do novo schema e o draw
+  muda de pipeline no mesmo quadro.
 
 ## Requirements _(mandatory)_
 
@@ -287,10 +314,18 @@ documento não tem mais "alvo da 006" e que seus exemplos usam só a API exporta
 - **FR-016**: Forward e sombra MUST NOT criar buffer, bind group ou layout por entidade; os dados de entidade MUST vir
   dos pools e Resources alocados pela Camada 2, selecionados pelo slot da entidade.
 - **FR-017**: Os dados de cada câmera ativa MUST ser escritos uma vez por quadro.
-- **FR-018**: Bind groups compartilhados de um passe MUST ser definidos uma vez por passe; os por entidade, trocados só
-  quando mudam.
-- **FR-019**: Material MUST ser coalescido em pool por schema (definição do documento, D5); o forward MUST lê-lo pelo
-  slot do material.
+- **FR-018** (Emenda 1): Bind groups compartilhados de um passe MUST ser definidos uma vez por passe; os de material e
+  `Renderable`, uma vez por pipeline. Entre draws do mesmo pipeline nenhum bind group MUST mudar: a entidade é
+  selecionada só pelo `firstInstance`.
+- **FR-019** (Emenda 1): Material MUST ser coalescido em pool de storage por schema (definição do documento, D5); o
+  forward MUST lê-lo como array, indexado pelo `materialSlot` do `Renderable` da entidade.
+- **FR-030** (Emenda 1): A Camada 2 MUST manter o pool `Renderable` — um registro `{ transformSlot, materialSlot }` por
+  entidade do conjunto Geometry + Material + Transform — a partir de uma declaração genérica: o registro de um conjunto
+  `slot.entities` nomeia, por campo, o Resource e o descritor cujo slot de pool vai no campo. A C2 preenche, atualiza
+  (troca de material, mudança de slot) e libera os registros por eventos; estágios não escrevem nele. Conjuntos com a
+  mesma declaração compartilham o pool.
+- **FR-031** (Emenda 1): Forward e sombra MUST desenhar com `firstInstance` = slot do `Renderable` e ler matriz de
+  mundo e material pelo registro; o pool uniforme com offset dinâmico por draw sai do forward.
 - **FR-020**: Geometria MUST existir uma vez na GPU (alocação da Camada 2), consumida por forward e sombra.
 - **FR-021**: O shader do forward MUST ler matriz da luz e vieses da sombra pelo struct gerado do `ShadowMap.schema`.
 
@@ -326,7 +361,9 @@ documento não tem mais "alvo da 006" e que seus exemplos usam só a API exporta
 - **ConsumerResolver**: estratégia que traduz um nome de `consumes` em entradas de bind group (singleton, por entidade,
   pool ou do usuário).
 - **Layout inferido**: grupos, bindings, visibilidades e usos derivados do WGSL montado e da bag.
-- **Pool de Material**: buffer de materiais por schema, com slot estável por entidade.
+- **Pool de Material**: buffer de storage de materiais por schema, com slot estável por entidade (Emenda 1).
+- **Renderable** (Emenda 1): registro por entidade renderizável com os slots do `WorldTransform` e do material,
+  mantido pela C2 a partir do conjunto `slot.entities`; o slot do registro é o `firstInstance` do draw.
 
 ## Success Criteria _(mandatory)_
 
@@ -342,13 +379,16 @@ documento não tem mais "alvo da 006" e que seus exemplos usam só a API exporta
 - **SC-007**: Imagens das cenas de render idênticas às de referência.
 - **SC-008**: 0 marcas "alvo da 006" no documento de arquitetura.
 - **SC-009**: Gate completo verde; build minificado funciona; todos os smokes passam, inclusive com `--dist`.
+- **SC-010** (Emenda 1): 0 trocas de bind group por entidade no forward e na sombra — com 10 mil entidades, o número de
+  `setBindGroup` por passe depende só do número de pipelines (contado em teste); GPU por quadro de `instances/10k` não
+  maior que a de antes do forward em slots (0,52 ms no A/B da T068) e `bench:check` sem regressão de GPU.
 
 ## Assumptions
 
 - O baseline vigente do benchmark é o regravado na 004; se a 005 regravar o baseline após a T084, a 006 mede contra o
   novo. A meta de 30% em `instances/10k` vem da atribuição do custo restante ao forward por entidade (ROADMAP §6).
-- Sem instancing nem vertex pulling nesta spec (F2): o forward ainda emite um draw por entidade, mas seleciona os
-  dados pelo slot da entidade (offset dinâmico ou índice), sem objetos próprios por entidade.
+- Sem instancing nem vertex pulling nesta spec (F2): o forward ainda emite um draw por entidade, selecionado pelo
+  `firstInstance` (slot do `Renderable`), sem objetos próprios por entidade e sem bind por draw (Emenda 1).
 - Camera continua individual (uma por câmera); Transform continua em pool; Material passa a pool por schema, como o
   documento definiu na D5.
 - O registro por instância e os callbacks específicos são removidos sem camada de compatibilidade (motor anterior à
@@ -360,8 +400,8 @@ documento não tem mais "alvo da 006" e que seus exemplos usam só a API exporta
 
 ## Out of Scope
 
-- Pools de Transform/Camera/Light/Material/`Renderable` consumidos por vertex pulling, instancing, draws agrupados e
-  fim do readback da física (F2/007).
+- Vertex pulling, instancing, draws agrupados por (geometria, pipeline) e indiretos sobre o `Renderable`, pools lidos
+  pela GPU sem a CPU e fim do readback da física (F2/007). O pool `Renderable` em si entrou nesta spec (Emenda 1).
 - Geometria produzida em compute e render de partículas e corpos moles (008).
 - Pontos de extensão matemáticos do usuário (F3).
 - Lacunas de física P1–P10 e limites E1–E4 de [PENDENCIAS.md](../PENDENCIAS.md) (F5).

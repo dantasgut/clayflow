@@ -22,7 +22,8 @@ imagem:
    criados pela C2, recriados com `bindGroupReplaced`. `createComputeKernel` passa a inferir o layout e aceita
    vértice/índice/indireto.
 4. **Apresentação (C4)**: forward e sombra sem nada por entidade — Camera singleton, `WorldTransform` em pool,
-   Material em **pool uniforme com offset dinâmico**, geometria da C2; `FrameTargets` (cor e profundidade da cena) e
+   Material em pool por schema, geometria da C2 (Emenda 1: pool `Renderable` mantido pela C2, material em pool de
+   storage indexado pelo registro, `firstInstance` = slot do `Renderable` — sem bind por draw, R16); `FrameTargets` (cor e profundidade da cena) e
    `ShadowMap` (com textura de profundidade, anexado à `DirectionalLight`, lido pelo shader) como Resources; pós, UI,
    debug no modelo.
 5. **Solvers (C3)**: LCP, XPBD, FEM, MPM, SPH, PBF, Transform com slots; recursos privados recriados em transições
@@ -161,10 +162,14 @@ estágio com fixtures verdes a cada passo.
 6. **US4** transições completas e erros (testes por Flow).
 7. **US6** fronteira no lint, emenda da constituição, documento, `flows.md`, migração, ROADMAP, PENDENCIAS.
 8. **Fechamento**: 13 smokes (inclusive `--dist`), `bench:check`, gate completo, API regenerada, status da spec.
+9. **Emenda 1** (R16): `slot.entities` com `record` e pool mantido pela C2; `Renderable` (C3); materiais em pool de
+   storage; forward e sombra por `firstInstance` = slot do registro; pool uniforme removido se sem consumidor; contagem
+   de `setBindGroup` (SC-010); imagem idêntica; documento (tabela de pools: `Renderable` atual); depois a T068.
 
 ## Complexity Tracking
 
 | Ponto                                      | Por que é necessário                                                                                 | Alternativa mais simples rejeitada                                        |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | Emenda MINOR da constituição (Princípio I) | A D4 e o documento autoritativo restringem C3/C4 a `scene/`; a constituição permite `core/contracts` | Manter a permissão — deixaria a D4 sem regra verificável                  |
+| Pool `Renderable` na 006 (Emenda 1)        | O rebind por draw da R8 regride a GPU de `instances` (0,52 → 1,07 ms); o critério é "sem regressão"  | Aceitar a regressão até a 007 — descumpre SC-003/SC-010                   |
 | `flushDirty` drenando a fila               | Derivações CPU que dependem de outro Resource (matriz da luz → `ShadowMap`) entram no mesmo quadro   | Gravar direto no buffer pelo estágio — volta a ser escrita por fora da C2 |
