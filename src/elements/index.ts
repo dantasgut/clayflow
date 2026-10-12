@@ -23,6 +23,7 @@ export * from './physics/forcefields/index';
 export * from './physics/colliders/index';
 export * from './physics/constraints/index';
 export * from './physics/materials/index';
+export { wgslLib } from './gpu/shaders/index';
 export * from './physics/flows/index';
 export * from './particles/index';
 export * from './gpu/index';

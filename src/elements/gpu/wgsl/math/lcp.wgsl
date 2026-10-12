@@ -59,3 +59,64 @@ fn lcp_pgs_step_friction(j_v_t: vec2f, a_kk_t: vec2f, lambda_t_acc: vec2f,
     let new_clamped = select(new_raw, new_raw * (max_t / max(len, 1e-10)), len > max_t);
     return vec4f(new_clamped - lambda_t_acc, new_clamped);
 }
+
+// ── Matemática de contato ────────────────────────────────────────────────────
+
+// ── contact_math.wgsl ────────────────────────────────────────────────────────
+// Matemática pura de contato — sem dependência de structs de buffer.
+// Reusável entre pipelines SI, XPBD e LCP.
+
+/// Retorna vetor tangente ortogonal a n, numericamente estável (Frisvad 1/√3).
+/// O threshold 1/√3 garante norma pré-normalização ≥ √(2/3) ≈ 0.816 em ambos os ramos.
+fn tangent_orthogonal(n: vec3f) -> vec3f {
+    if (abs(n.x) > 0.57735f) {
+        return normalize(vec3f(n.y, -n.x, 0.0f));
+    }
+    return normalize(vec3f(0.0f, n.z, -n.y));
+}
+
+/// Calcula delta_lambda unificado para XPBD (alpha > 0) e LCP/PGS (alpha = 0).
+///
+/// Chamador passa:
+///   XPBD:  numerator = -C           (violação posicional, metros)
+///   LCP:   numerator = -(j_v + bias) (velocidade relativa + bias de Baumgarte, pré-somados)
+///
+/// Retorna delta_lambda sem projeção Signorini — responsabilidade do chamador.
+/// Guard max(denom, 1e-10) preserva comportamento do LCP (não usar 1e-12).
+fn delta_lambda_compliance(numerator: f32, eff_mass: f32, alpha: f32, h: f32) -> f32 {
+    let denom = eff_mass + alpha / (h * h);
+    return numerator / max(denom, 1e-10f);
+}
+
+// ── Impulso ──────────────────────────────────────────────────────────────────
+
+// ── Impulso de contato ────────────────────────────────────────────────────────
+
+// Velocidade no ponto de contato: v_cm + ω × r
+// Replica ContactImpulseKernel.vcpX/Y/Z.
+fn contact_point_velocity(v_cm: vec3f, omega: vec3f, r: vec3f) -> vec3f {
+    return v_cm + cross(omega, r);
+}
+
+// Correção giroscópica: Δω = -I⁻¹ · (ω × (I·ω)) · dt
+// Replica GyroscopicStage / ContactImpulseKernel.gyroscopic().
+// I — tensor de inércia diagonal (não invertido) no espaço local do corpo.
+fn gyroscopic_correction(omega: vec3f, I: vec3f, dt: f32) -> vec3f {
+    let Iw     = I * omega;
+    let torque = cross(omega, Iw);
+    let I_safe = max(I, vec3f(1e-6));
+    return omega - (torque / I_safe) * dt;
+}
+
+// Clamp de Coulomb: |λT| ≤ μ · |λN|
+// Replica ContactImpulseKernel.clampCoulombScalar().
+fn coulomb_clamp(jT: f32, jN: f32, mu: f32) -> f32 {
+    return min(jT, mu * abs(jN));
+}
+
+// Coeficiente de atrito combinado: √(μA·μB) se ambos > 0, max caso contrário.
+// Replica ContactImpulseKernel.combineMu().
+fn combine_mu(mu_a: f32, mu_b: f32) -> f32 {
+    if (mu_a > 0.0 && mu_b > 0.0) { return sqrt(mu_a * mu_b); }
+    return max(mu_a, mu_b);
+}

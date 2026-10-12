@@ -6,21 +6,6 @@
 // Correção Δp da iteração (separada da posição: os vizinhos leem as posições desta iteração, sem corrida).
 @group(3) @binding(0) var<storage, read_write> pbf_delta:      array<vec4f>;
 
-fn W_poly6(r_sq: f32, h: f32) -> f32 {
-    let h_sq = h * h;
-    if (r_sq >= h_sq) { return 0.0; }
-    let d = h_sq - r_sq;
-    let coeff = 315.0 / (64.0 * 3.14159265 * pow(h, 9.0));
-    return coeff * d * d * d;
-}
-
-fn grad_W_spiky(r_vec: vec3f, r: f32, h: f32) -> vec3f {
-    if (r <= 0.0001 || r >= h) { return vec3f(0.0); }
-    let coeff = -45.0 / (3.14159265 * pow(h, 6.0));
-    let d = h - r;
-    return coeff * (d * d / r) * r_vec;
-}
-
 @compute @workgroup_size(64)
 fn pbf_position_correct_main(
     @builtin(global_invocation_id) gid3: vec3u,

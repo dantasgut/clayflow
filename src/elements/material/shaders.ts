@@ -1,4 +1,5 @@
 import { wgslModule } from '../../scene/shaders/WgslModule';
+import { brdf } from '../gpu/shaders/math';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
@@ -9,6 +10,7 @@ import { StandardMaterialSchema } from './StandardMaterialSchema';
 export const forward = wgslModule({
     name: 'forward',
     source: forwardSource,
+    requires: [brdf],
     structs: [
         Camera.schema,
         Transform.worldSchema,

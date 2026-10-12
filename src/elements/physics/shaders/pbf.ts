@@ -1,5 +1,5 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
-import { colliderSet } from '../../gpu/shaders/math';
+import { colliderSet, sphKernels } from '../../gpu/shaders/math';
 import pbfPredictSource from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
 import pbfDensityLambdaSource from '../../gpu/wgsl/kernels/pbf_density_lambda.wgsl?raw';
 import pbfPositionCorrectSource from '../../gpu/wgsl/kernels/pbf_position_correct.wgsl?raw';
@@ -24,6 +24,7 @@ export const pbfPredict = wgslModule({
 export const pbfDensityLambda = wgslModule({
     name: 'pbf_density_lambda',
     source: pbfDensityLambdaSource,
+    requires: [sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -31,6 +32,7 @@ export const pbfDensityLambda = wgslModule({
 export const pbfPositionCorrect = wgslModule({
     name: 'pbf_position_correct',
     source: pbfPositionCorrectSource,
+    requires: [sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -60,6 +62,7 @@ export const pbfVelocityUpdate = wgslModule({
 export const pbfVorticity = wgslModule({
     name: 'pbf_vorticity',
     source: pbfVorticitySource,
+    requires: [sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -67,5 +70,6 @@ export const pbfVorticity = wgslModule({
 export const pbfXsph = wgslModule({
     name: 'pbf_xsph',
     source: pbfXsphSource,
+    requires: [sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });

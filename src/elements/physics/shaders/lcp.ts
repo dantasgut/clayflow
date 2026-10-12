@@ -1,5 +1,5 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
-import { contactMath, impulse, lcp, lcpState, quat, sdf, xpbd } from '../../gpu/shaders/math';
+import { lcp, lcpState, quat, sdf, xpbd } from '../../gpu/shaders/math';
 import rbPredictSource from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
 import rbNarrowphaseSource from '../../gpu/wgsl/kernels/rb_narrowphase.wgsl?raw';
 import rbBuildLcpSource from '../../gpu/wgsl/kernels/rb_build_lcp.wgsl?raw';
@@ -20,7 +20,7 @@ import { RBContactSchema } from '../../physics/schemas/simState';
 export const rbPredict = wgslModule({
     name: 'rb_predict',
     source: rbPredictSource,
-    requires: [quat, impulse],
+    requires: [quat, lcp],
     structs: [LCPSchema, RBSimParamsSchema],
 });
 
@@ -28,7 +28,7 @@ export const rbPredict = wgslModule({
 export const rbNarrowphase = wgslModule({
     name: 'rb_narrowphase',
     source: rbNarrowphaseSource,
-    requires: [lcpState, quat, impulse, sdf],
+    requires: [lcpState, quat, lcp, sdf],
     structs: [
         LCPSchema,
         RBSimParamsSchema,
@@ -45,7 +45,7 @@ export const rbNarrowphase = wgslModule({
 export const rbBuildLcp = wgslModule({
     name: 'rb_build_lcp',
     source: rbBuildLcpSource,
-    requires: [quat, impulse, xpbd, contactMath, lcp],
+    requires: [quat, lcp, xpbd],
     structs: [LCPSchema, RBSimParamsSchema, RBContactSchema],
 });
 
@@ -53,7 +53,7 @@ export const rbBuildLcp = wgslModule({
 export const rbSolveLcp = wgslModule({
     name: 'rb_solve_lcp',
     source: rbSolveLcpSource,
-    requires: [quat, impulse, xpbd, contactMath, lcp, lcpState],
+    requires: [quat, lcp, xpbd, lcpState],
     structs: [LCPSchema, RBSimParamsSchema, RBContactSchema],
 });
 
@@ -69,6 +69,6 @@ export const rbContactAccumulate = wgslModule({
 export const rbLcpCommit = wgslModule({
     name: 'rb_lcp_commit',
     source: rbLcpCommitSource,
-    requires: [quat, impulse, xpbd, lcpState],
+    requires: [quat, lcp, xpbd, lcpState],
     structs: [LCPSchema, RBSimParamsSchema, RBContactSchema],
 });

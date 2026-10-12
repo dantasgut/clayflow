@@ -4,13 +4,6 @@
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
 
-fn grad_W_spiky(r_vec: vec3f, r: f32, h: f32) -> vec3f {
-    if (r <= 0.0001 || r >= h) { return vec3f(0.0); }
-    let coeff = -45.0 / (3.14159265 * pow(h, 6.0));
-    let d = h - r;
-    return coeff * (d * d / r) * r_vec;
-}
-
 @compute @workgroup_size(64)
 fn pbf_vorticity_main(
     @builtin(global_invocation_id) gid3: vec3u,
