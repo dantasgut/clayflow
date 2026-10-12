@@ -1,6 +1,5 @@
 import type { EnginePlugin } from './EnginePlugin';
 import { LCPFlow } from '../../elements/physics/flows/LCPFlow';
-import { SPHFlow } from '../../elements/physics/flows/SPHFlow';
 import { PBFFlow } from '../../elements/physics/flows/PBFFlow';
 
 /** Opções do `physicsPlugin()`. */
@@ -44,7 +43,7 @@ export function physicsPlugin(options: PhysicsPluginOptions = {}): EnginePlugin 
             // XPBD: registrado por factory pela Application (instanciado no primeiro corpo) — spec 006.
             // FEM: registrado por factory pela Application — spec 006.
             // MPM: registrado por factory pela Application — spec 006.
-            if (want('SPH')) app.flows.register(new SPHFlow(ctx.core, ctx.world, ctx.resources));
+            // SPH: registrado por factory pela Application — spec 006.
             if (want('PBF')) app.flows.register(new PBFFlow(ctx.core, ctx.world, ctx.resources));
         },
     };

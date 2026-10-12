@@ -18,6 +18,7 @@ import { XPBDSoftSchema } from '../bodies/schemas/XPBDSoftSchema';
 import { FEMSchema } from '../bodies/schemas/FEMSchema';
 import { MPMFluidSchema } from '../bodies/schemas/MPMFluidSchema';
 import { MPMSoftSchema } from '../bodies/schemas/MPMSoftSchema';
+import { SPHSchema } from '../bodies/schemas/SPHSchema';
 
 /** Constrói um Flow a partir das dependências de runtime (C1/C2). */
 export type FlowFactory = (core: EngineCore, world: World, resources: ResourceSystem) => Flow;
@@ -36,7 +37,6 @@ export const DEFAULT_FLOW_FACTORIES: ReadonlyMap<string, FlowFactory> = new Map<
     FlowFactory
 >([
     ['LCPSchema', (c, w, r) => new LCPFlow(c, w, r)],
-    ['SPHSchema', (c, w, r) => new SPHFlow(c, w, r)],
     ['PBFSchema', (c, w, r) => new PBFFlow(c, w, r)],
 ]);
 
@@ -67,6 +67,10 @@ export const DEFAULT_SOLVER_REGISTRATIONS: readonly SolverRegistration[] = [
     {
         factory: (ctx) => new MPMFlow(ctx),
         options: { type: 'MPMFlow', phase: 'physics', bodyType: MPMSoftSchema.name },
+    },
+    {
+        factory: (ctx) => new SPHFlow(ctx),
+        options: { type: 'SPHFlow', phase: 'physics', bodyType: SPHSchema.name },
     },
 ];
 

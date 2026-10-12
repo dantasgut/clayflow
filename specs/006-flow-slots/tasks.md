@@ -154,7 +154,7 @@ nem bind group de dado consumido (verificação de T046).
 - [x] T036 [US5] `src/elements/physics/flows/XPBDFlow.ts` em slots (`bodies`, `constraints`, `time`, `gravity?`); corrigir o comentário de substeps (8); `src/elements/physics/__tests__/XPBDFlow.time.test.ts` com transições
 - [x] T037 [US5] `src/elements/physics/flows/FEMFlow.ts` em slots (`bodies`, `time`, `gravity?`); `FEMFlow.time.test.ts`
 - [x] T038 [US5] `src/elements/physics/flows/MPMFlow.ts` em slots (`bodies`, `colliders`, `material`, `time`, `gravity?`); grade recriada em `resourceReady(ParticleMaterial)` (sai a comparação de geração no `dispatch`); `MPMFlow.time.test.ts`
-- [ ] T039 [US5] `src/elements/physics/flows/SPHFlow.ts` em slots; vizinhança e privados recriados em transição; `SPHFlow.time.test.ts`
+- [x] T039 [US5] `src/elements/physics/flows/SPHFlow.ts` em slots; vizinhança e privados recriados em transição; `SPHFlow.time.test.ts`
 - [ ] T040 [US5] `src/elements/physics/flows/PBFFlow.ts` em slots; `pbf_delta` e vizinhança em transição; `PBFFlow.time.test.ts`
 - [ ] T041 [US5] `src/elements/physics/flows/LCPFlow.ts` em slots (`bodies`, `colliders`, `time`, `gravity?`); contatos e por corpo recriados em `poolReallocated(bodies/colliders)`; os 9 kernels e o mapa de narrowphase viram estado preparado fora do `dispatch`; readback com mapa slot → entidade capturado na gravação da cópia (A6); testes `LCPFlow.contacts.test.ts`, `LCPFlow.owners.test.ts`, `LCPFlow.time.test.ts`, `lcpPosePublish.test.ts` (caso de remoção entre cópia e leitura); `npm run smoke -- rigidContacts,limits,trajectories`
 

@@ -64,16 +64,21 @@ const OPTIONS = {
 const material = new ParticleMaterial(OPTIONS);
 
 describe('SPHFlow — parâmetros do ParticleMaterial', () => {
-    const make: FlowCtor = (c, w, r) => new SPHFlow(c, w, r);
+    async function sph(withMaterial = true) {
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new SPHFlow(ctx), {
+            type: 'SPHFlow',
+            phase: 'physics',
+            bodyType: 'SPHSchema',
+        });
+        if (withMaterial) s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        s.scene.world.insert(new FluidBody({ algorithm: 'SPH' }));
+        return s;
+    }
 
-    it('massa, h, rigidez de Tait, viscosidade, restituição e domínio gravados nos parâmetros', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'SPH' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('massa, h, rigidez de Tait, viscosidade, restituição e domínio gravados nos parâmetros', async () => {
+        const s = await sph();
+        s.step(1 / 60);
         const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
         expect(f32[at(SPHSimParamsSchema, 'rest_density')]).toBeCloseTo(900);
         expect(f32[at(SPHSimParamsSchema, 'h')]).toBeCloseTo(material.sphSmoothingLength, 6);
@@ -86,28 +91,17 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(material.particleMass, 6);
     });
 
-    it('substeps pelo passo estável (CFL 0,4 h/c)', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'SPH' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        const rec = recordingFrame();
-        s.flow.dispatch(rec.frame);
+    it('substeps pelo passo estável (CFL 0,4 h/c)', async () => {
+        const s = await sph();
+        const passes = s.step(1 / 60);
         const expected = ParticleMaterial.substepsFor(1 / 60, material.sphStableDt);
         expect(expected).toBeGreaterThan(1);
-        expect(countPasses(rec.passes, 'SPHFlow.density')).toBe(expected);
+        expect(countPasses(passes, 'SPHFlow.density')).toBe(expected);
     });
 
-    it('vizinhança com raio = 2h e grade pelo domínio', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'SPH' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('vizinhança com raio = 2h e grade pelo domínio', async () => {
+        const s = await sph();
+        s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'ns_params:sph');
         const cell = 2 * material.sphSmoothingLength;
         expect(f32[0]).toBe(-1);
@@ -116,10 +110,9 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         expect(u32[5]).toBe(Math.ceil(2 / cell - 1e-9));
     });
 
-    it('sem material no World usa os padrões', () => {
-        const s = setup(() => new FluidBody({ algorithm: 'SPH' }), make);
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('sem material no World usa os padrões', async () => {
+        const s = await sph(false);
+        s.step(1 / 60);
         const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
         expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(
             ParticleMaterial.defaults.particleMass,
