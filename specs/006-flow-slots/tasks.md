@@ -197,9 +197,9 @@ render,churn` com imagem idêntica.
 ## Phase 7: User Story 5 (cont.) — pós, UI, debug e Application
 
 - [x] T049 [US5] `src/presentation/flows/PostFlow.ts` em slots (`scene` = `slot.texture(FrameTargets, 'color')`, `target: 'canvas'`); pingue-pongue recriado em `canvasReconfigured`; sai `bindForwardFlow`; efeitos de `src/presentation/flows/effects/*.ts` com bindings por nome; `src/presentation/flows/__tests__/ColorGrading.test.ts` atualizado
-- [ ] T050 [P] [US5] `src/presentation/flows/UIFlow.ts` e `src/presentation/ui/UiGpuPipeline.ts` em slots (`target: 'canvas'`, load), privados como hoje
-- [ ] T051 [P] [US5] `src/presentation/flows/DebugFlow.ts` sem slots no modelo novo; `DebugFlow.stagesNs.test.ts` atualizado
-- [ ] T052 [US5] `src/presentation/flows/defaults.ts` (`registerPresentationDefaults`) registra as factories de apresentação e devolve as instâncias; `src/presentation/app/Application.ts` insere `FrameTargets`, remove o caminho antigo; atualizar `src/presentation/app/__tests__/*` e `src/presentation/__tests__/listenersRelease.test.ts`
+- [x] T050 [P] [US5] `src/presentation/flows/UIFlow.ts` e `src/presentation/ui/UiGpuPipeline.ts` em slots (`target: 'canvas'`, load), privados como hoje
+- [x] T051 [P] [US5] `src/presentation/flows/DebugFlow.ts` sem slots no modelo novo; `DebugFlow.stagesNs.test.ts` atualizado
+- [x] T052 [US5] `src/presentation/flows/defaults.ts` (`registerPresentationDefaults`) registra as factories de apresentação e devolve as instâncias; `src/presentation/app/Application.ts` insere `FrameTargets`, remove o caminho antigo; atualizar `src/presentation/app/__tests__/*` e `src/presentation/__tests__/listenersRelease.test.ts`
 - [ ] T053 [US5] Verificação no gate (SC-004) em `src/elements/__tests__/noFlowOwnedConsumedBindings.test.ts`: nenhum arquivo de estágio de C3/C4 chama `createBindGroupLayout`/`createBindGroup` para dado consumido (varredura por chamadas fora de `rebind` de privados) e nenhum `dispatch` cria objeto (teste com `countingCore` sobre todos os Flows padrão)
 - [ ] T054 [US5] `npm run smoke -- trajectories,render,churn,limits,rigidContacts,multiApp,stress60s,shaderLibrary,computeKernels` verde; registrar em `src/__smokes__/README.md`
 

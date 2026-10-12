@@ -2,8 +2,7 @@ import type { EngineCore } from '../../core/contracts/index';
 import type { ResourceDirectory } from '../contracts/ResourceDirectory';
 import type { EventBus, Unsubscribe } from '../events/EventBus';
 import type { World } from '../world/World';
-import { Flow } from './Flow';
-import { LegacyFlow } from './LegacyFlow';
+import { type Flow } from './Flow';
 import { PHASE_ORDER, type Phase } from './Phase';
 
 /** O que uma factory recebe para construir o Flow. */
@@ -70,15 +69,6 @@ interface MutableRegistration extends FlowRegistration {
     readonly order: number;
 }
 
-interface LegacyEntry {
-    readonly flow: LegacyFlow;
-    readonly priority: number;
-    readonly order: number;
-}
-
-/** Um estágio ordenado da fase: Flow do modelo de slots ou estágio de migração. */
-export type PhaseEntry = Flow | LegacyFlow;
-
 /**
  * Registro dos estágios da cena, por factory. A ordem do quadro é a regra única do documento: fases fixas
  * (`PHASE_ORDER`); dentro da fase, `priority` decrescente; empate pela ordem de registro. A seleção do Flow de um tipo
@@ -89,7 +79,6 @@ export type PhaseEntry = Flow | LegacyFlow;
  */
 export class FlowRegistry {
     private readonly registrations: MutableRegistration[] = [];
-    private readonly legacy: LegacyEntry[] = [];
     private readonly subscriptions: Unsubscribe[] = [];
     private order = 0;
 
@@ -111,21 +100,8 @@ export class FlowRegistry {
     register<F extends Flow>(
         factory: FlowFactory<F>,
         options: RegisterOptions,
-    ): FlowRegistration<F>;
-    /**
-     * Estágio do contrato anterior (base de migração da spec 006); sai quando o último estágio migrar.
-     * @deprecated Use o registro por factory.
-     */
-    register(flow: LegacyFlow): void;
-    register<F extends Flow>(
-        arg: FlowFactory<F> | LegacyFlow,
-        options?: RegisterOptions,
-    ): FlowRegistration<F> | undefined {
-        if (arg instanceof LegacyFlow) {
-            this.legacy.push({ flow: arg, priority: arg.priority, order: this.order++ });
-            return undefined;
-        }
-        return this.add(arg, options!, false) as FlowRegistration<F>;
+    ): FlowRegistration<F> {
+        return this.add(factory, options, false) as FlowRegistration<F>;
     }
 
     /**
@@ -140,17 +116,10 @@ export class FlowRegistry {
     }
 
     /**
-     * Remove um registro (ou estágio de migração): descarta a instância (objetos de GPU, inscrições, compilação em
+     * Remove um registro: descarta a instância (objetos de GPU, inscrições, compilação em
      * curso) e, para `bodyType`, instancia o próximo vencedor. Devolve `false` se não estava registrado.
      */
-    unregister(registration: FlowRegistration | LegacyFlow): boolean {
-        if (registration instanceof LegacyFlow) {
-            const index = this.legacy.findIndex((e) => e.flow === registration);
-            if (index < 0) return false;
-            this.legacy.splice(index, 1);
-            registration.dispose();
-            return true;
-        }
+    unregister(registration: FlowRegistration): boolean {
         const index = this.registrations.indexOf(registration as MutableRegistration);
         if (index < 0) return false;
         const reg = this.registrations[index]!;
@@ -170,19 +139,6 @@ export class FlowRegistry {
         return best;
     }
 
-    /**
-     * Estágio de migração que atende `bodyType`, pela mesma regra.
-     * @deprecated Base de migração (spec 006).
-     */
-    resolveLegacy(bodyType: string): LegacyFlow | undefined {
-        let best: LegacyEntry | undefined;
-        for (const e of this.legacy) {
-            if (e.flow.bodyType !== bodyType) continue;
-            if (best === undefined || e.priority >= best.priority) best = e;
-        }
-        return best?.flow;
-    }
-
     /** Todos os registros, na ordem de registro. */
     allRegistrations(): readonly FlowRegistration[] {
         return [...this.registrations];
@@ -190,22 +146,13 @@ export class FlowRegistry {
 
     /** Instâncias existentes na fase, na ordem do quadro. */
     flowsInPhase(phase: Phase): readonly Flow[] {
-        return this.phaseEntries(phase).filter((e): e is Flow => e instanceof Flow);
-    }
-
-    /** Estágios da fase (Flows e estágios de migração), na ordem do quadro. */
-    phaseEntries(phase: Phase): readonly PhaseEntry[] {
-        const entries: { entry: PhaseEntry; priority: number; order: number }[] = [];
+        const entries: { flow: Flow; priority: number; order: number }[] = [];
         for (const reg of this.registrations) {
             if (reg.options.phase !== phase || reg.flow === undefined) continue;
-            entries.push({ entry: reg.flow, priority: reg.options.priority, order: reg.order });
-        }
-        for (const e of this.legacy) {
-            if (e.flow.phase !== phase) continue;
-            entries.push({ entry: e.flow, priority: e.priority, order: e.order });
+            entries.push({ flow: reg.flow, priority: reg.options.priority, order: reg.order });
         }
         entries.sort((a, b) => b.priority - a.priority || a.order - b.order);
-        return entries.map((e) => e.entry);
+        return entries.map((e) => e.flow);
     }
 
     /** Ordem fixa das fases. */
@@ -214,8 +161,8 @@ export class FlowRegistry {
     }
 
     /** Todos os estágios instanciados, na ordem do quadro. */
-    *allFlows(): IterableIterator<PhaseEntry> {
-        for (const phase of PHASE_ORDER) yield* this.phaseEntries(phase);
+    *allFlows(): IterableIterator<Flow> {
+        for (const phase of PHASE_ORDER) yield* this.flowsInPhase(phase);
     }
 
     /** Desregistra tudo e desfaz as inscrições (descarte da cena). */
@@ -224,7 +171,6 @@ export class FlowRegistry {
             this.registrations.splice(this.registrations.indexOf(reg), 1);
             this.release(reg);
         }
-        for (const e of [...this.legacy]) this.unregister(e.flow);
         for (const off of this.subscriptions) off();
         this.subscriptions.length = 0;
     }

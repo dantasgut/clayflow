@@ -106,7 +106,7 @@ export class ColliderSet {
         this.dirty = true;
     }
 
-    /** Reação do estágio dono a `onPoolReallocated`: só pools de collider e de corpos afetam o conjunto. */
+    /** Reação do estágio dono ao evento `poolReallocated`: só pools de collider e de corpos afetam o conjunto. */
     onPoolReallocated(poolKey: string): void {
         if (poolKey === this.bodiesPoolKey || COLLIDER_POOLS.some((s) => s.name === poolKey)) {
             this.dirty = true;

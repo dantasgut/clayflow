@@ -2,8 +2,6 @@ export { Flow } from './Flow';
 export type { FlowLifecycle } from './Flow';
 export { RenderFlow } from './RenderFlow';
 export type { RenderSlotMap } from './RenderFlow';
-export { LegacyFlow } from './LegacyFlow';
-export { LegacyRenderFlow } from './LegacyRenderFlow';
 export type { Phase } from './Phase';
 export { PHASE_ORDER } from './Phase';
 export { slot } from './slots';
@@ -53,7 +51,6 @@ export type {
     FlowRegistration,
     FlowAllocator,
     FlowRegistryHost,
-    PhaseEntry,
 } from './FlowRegistry';
 export { FlowBindingError } from './FlowBindingError';
 export type { FlowBindingErrorDetails } from './FlowBindingError';

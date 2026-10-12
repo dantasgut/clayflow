@@ -3,7 +3,6 @@ import type { EventBus, Unsubscribe } from '../events/EventBus';
 import type { FlowRegistry } from '../flows/FlowRegistry';
 import type { Flow } from '../flows/Flow';
 import type { BoundFlow } from '../flows/FlowBinding';
-import { LegacyFlow } from '../flows/LegacyFlow';
 
 /**
  * ExecutionSystem grava o quadro: a cada `frameTick` emite `frameRecording` (a C2 envia os recursos sujos e
@@ -11,8 +10,7 @@ import { LegacyFlow } from '../flows/LegacyFlow';
  * ordem de registro), faz `submit` e emite `frameComplete`.
  *
  * Os Flows ativos são os anunciados por `flowReady` (com o `BoundFlow` que o `dispatch` recebe) e ainda não
- * suspensos (`flowSuspended`). Os estágios de migração (`LegacyFlow`) rodam quando `isReady()` e recebem os
- * broadcasts antigos (`onPoolReallocated`, `onCanvasResized`, `onEntities*`) até migrarem.
+ * suspensos (`flowSuspended`); os eventos de domínio chegam a eles pela C2 (transições), não por aqui.
  *
  * Modo `captureErrors=true` envolve cada quadro em error scope GPU; erros viram `engineError` sem propagar.
  */
@@ -44,20 +42,6 @@ export class ExecutionSystem {
             this.events.on('flowSuspended', (e) => {
                 this.active.delete(e.payload.flow);
             }),
-            this.events.on('poolReallocated', (e) => {
-                for (const flow of this.legacyFlows()) flow.onPoolReallocated(e.poolKey);
-            }),
-            this.events.on('canvasReconfigured', (e) => {
-                for (const flow of this.legacyFlows()) flow.onCanvasResized(e.width, e.height);
-            }),
-            this.events.on('entitiesInserted', (e) => {
-                if (e.entityIds.length === 0) return;
-                for (const flow of this.legacyFlows()) flow.onEntitiesInserted(e.entityIds);
-            }),
-            this.events.on('entitiesRemoved', (e) => {
-                if (e.entityIds.length === 0) return;
-                for (const flow of this.legacyFlows()) flow.onEntitiesRemoved(e.entityIds);
-            }),
         ];
     }
 
@@ -73,10 +57,6 @@ export class ExecutionSystem {
         return this.active.has(flow);
     }
 
-    private *legacyFlows(): IterableIterator<LegacyFlow> {
-        for (const entry of this.flows.allFlows()) if (entry instanceof LegacyFlow) yield entry;
-    }
-
     private onFrameTick(dt: number, elapsed: number): void {
         this.elapsed = elapsed;
         // `dt` cobre o quadro inteiro de CPU: o envio dos dados alterados também conta.
@@ -86,13 +66,9 @@ export class ExecutionSystem {
         const recordAndSubmit = (): void => {
             this.core.record('frame', (frame) => {
                 for (const phase of this.flows.phasesInOrder()) {
-                    for (const entry of this.flows.phaseEntries(phase)) {
-                        if (entry instanceof LegacyFlow) {
-                            if (entry.isReady()) entry.dispatch(frame);
-                            continue;
-                        }
-                        const bound = this.active.get(entry);
-                        if (bound !== undefined) entry.dispatch(frame, bound);
+                    for (const flow of this.flows.flowsInPhase(phase)) {
+                        const bound = this.active.get(flow);
+                        if (bound !== undefined) flow.dispatch(frame, bound);
                     }
                 }
             });

@@ -87,17 +87,18 @@ export interface ApplicationOptions {
  * Ciclo de vida:
  *   1. `await Application.create({ canvas })` adquire device/queue, configura
  *      swapchain, instancia `World`/`EventBus`/`ResourceSystem`/`FlowRegistry`,
- *      e registra defaults (`ShadowFlow + ForwardFlow + PostFlow + UIFlow + DebugFlow`).
+ *      e registra por factory os estágios padrão (`TransformFlow`, `ShadowFlow`, `ForwardFlow`, `PostFlow`,
+ *      `DebugFlow`, `UIFlow` e os solvers), inserindo os alvos do quadro (`FrameTargets`).
  *   2. `app.world.insert(entity)` para cada entidade da cena. Resources
  *      indexados disparam alocação de buffers/binds reativamente.
- *   3. `app.start()` inicia o `GameLoop` (RAF), que emite `frameTick` e cada
- *      Flow ready dispatcha seus passes dentro de `core.record(...)` + `submit()`.
+ *   3. `app.start()` inicia o `GameLoop` (RAF), que emite `frameTick`; cada Flow pronto (`flowReady`) grava os seus
+ *      passes dentro de `core.record(...)` + `submit()`.
  *   4. `app.stop()` pausa o RAF; `app.dispose()` desfaz event listeners.
  *
  * Resize: por padrão (`autoResize: true` em browser) anexa um listener em
  * `window.resize` debounced 100ms que reconfigura o canvas + emite
- * `canvasReconfigured`, e os flows recriam textures size-dependent via
- * `Flow.onCanvasResized`.
+ * `canvasReconfigured`: a C2 recria as texturas do tamanho do canvas e os Flows recriam os seus recursos privados
+ * dependentes do tamanho numa transição.
  */
 export class Application {
     /** World ECS-like — query/insert/remove de Resources. Atalho para `scene.world`. */
@@ -199,13 +200,7 @@ export class Application {
         await scene.initialize(options.canvas, options.canvasOptions, options.device);
         for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
         options.consumers?.(scene.consumers);
-        const defaults = registerPresentationDefaults(scene.flows, {
-            canvas: options.canvas,
-            core: scene.core,
-            world: scene.world,
-            resources: scene.resourceSystem,
-            events: scene.events,
-        });
+        const defaults = registerPresentationDefaults(scene.flows, { world: scene.world });
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;
         }

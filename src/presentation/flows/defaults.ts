@@ -1,8 +1,5 @@
-import type { EngineCore } from '../../core/contracts/index';
 import type { FlowRegistry, FlowRegistration } from '../../scene/flows/FlowRegistry';
-import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
 import type { World } from '../../scene/world/World';
-import type { EventBus } from '../../scene/events/EventBus';
 import { ForwardFlow } from './ForwardFlow';
 import { ShadowFlow } from './ShadowFlow';
 import { PostFlow } from './PostFlow';
@@ -12,21 +9,9 @@ import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
 
-/**
- * Dependências necessárias para construir os Flows default. Application
- * passa essas refs do `SceneContext` quando chama `registerPresentationDefaults`.
- */
+/** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
-    /** Canvas onde os flows renderizam. */
-    readonly canvas: HTMLCanvasElement;
-    /** EngineCore (Camada 1) — passado para os flows criarem GPU specs. */
-    readonly core: EngineCore;
-    /** World (Camada 2) — flows query Resources via World.queryBySchemaName. */
     readonly world: World;
-    /** ResourceSystem para acesso aos pools (poolBufferSpec, poolBindGroup). */
-    readonly resources: ResourceSystem;
-    /** EventBus da cena — o TransformFlow reage a `resourceReady`; o DebugFlow emite profilerStats. */
-    readonly events: EventBus;
 }
 
 /**
@@ -37,9 +22,9 @@ export interface PresentationDefaultsOptions {
 export interface PresentationDefaults {
     /** Estágio de transformação (fase `transform`): intenção dos Transform → matrizes de mundo. */
     readonly transform: TransformFlow;
-    /** Forward render pass principal (bind-shadows + per-entity pipelines). */
+    /** Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e sombra pelos slots). */
     readonly forward: ForwardFlow;
-    /** Shadow map pass (depth-only, light POV). */
+    /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
     readonly shadow: ShadowFlow;
     /** Post-processing chain (Bloom/Fxaa/etc. em ping-pong). */
     readonly post: PostFlow;
@@ -62,16 +47,16 @@ interface RegisteredDefaults {
 const DEFAULTS_BY_SCENE = new WeakMap<FlowRegistry, RegisteredDefaults>();
 
 /**
- * Registra os Flows default da cena — Transform, Shadow, Forward, Post, Debug e UI — e insere os alvos do quadro
- * (`FrameTargets`: o render principal desenha neles, o pós-processamento os lê pelo slot). **Uma vez por cena**: chamadas seguintes com o
- * mesmo `FlowRegistry` devolvem os mesmos estágios e contam mais um usuário (várias aplicações na mesma cena não
- * duplicam estágios). Cada chamada deve ser pareada com `releasePresentationDefaults`.
+ * Registra por factory os estágios padrão da cena — Transform, Shadow, Forward, Post, Debug e UI, mais os solvers
+ * padrão — e insere os alvos do quadro (`FrameTargets`: o render principal desenha neles, o pós-processamento os lê
+ * pelo slot). **Uma vez por cena**: chamadas seguintes com o mesmo `FlowRegistry` devolvem os mesmos estágios e
+ * contam mais um usuário (várias aplicações na mesma cena não duplicam estágios). Cada chamada deve ser pareada com
+ * `releasePresentationDefaults`.
  *
- * Ordem importa: Shadow → Forward → Post → Debug → UI (priority dentro
- * das phases).
+ * A ordem no quadro vem das fases (`transform → shadow → forward → post → ui`) e da prioridade dentro delas.
  *
- * Chamado por `Application.create`. Apps que querem pipeline customizado podem ignorar e construir flows
- * manualmente.
+ * Chamado por `Application.create`. Apps que querem outro pipeline podem registrar as suas factories
+ * (`flows.register`/`flows.override`).
  */
 export function registerPresentationDefaults(
     flows: FlowRegistry,
@@ -84,7 +69,7 @@ export function registerPresentationDefaults(
     }
     const frameTargets = new FrameTargets();
     options.world.insert(frameTargets);
-    const { defaults, registrations } = createPresentationDefaults(flows, options);
+    const { defaults, registrations } = createPresentationDefaults(flows);
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
         registrations,
@@ -105,17 +90,15 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.users--;
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
-    const d = entry.defaults;
-    for (const flow of [d.ui, d.debug]) flows.unregister(flow);
     for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
     entry.world.remove(entry.frameTargets);
     return true;
 }
 
-function createPresentationDefaults(
-    flows: FlowRegistry,
-    options: PresentationDefaultsOptions,
-): { defaults: PresentationDefaults; registrations: readonly FlowRegistration[] } {
+function createPresentationDefaults(flows: FlowRegistry): {
+    defaults: PresentationDefaults;
+    registrations: readonly FlowRegistration[];
+} {
     const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {
         type: 'transform',
         phase: 'transform',
@@ -133,11 +116,12 @@ function createPresentationDefaults(
         type: 'post',
         phase: 'post',
     });
-    const ui = new UIFlow(options.core, options.canvas);
-    const debug = new DebugFlow();
-    debug.bindEvents(options.events);
-    flows.register(debug);
-    flows.register(ui);
+    const debugRegistration = flows.register((ctx) => new DebugFlow(ctx), {
+        type: 'debug',
+        phase: 'forward',
+        priority: -100,
+    });
+    const uiRegistration = flows.register((ctx) => new UIFlow(ctx), { type: 'ui', phase: 'ui' });
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
@@ -146,14 +130,16 @@ function createPresentationDefaults(
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
             post: postRegistration.flow!,
-            ui,
-            debug,
+            ui: uiRegistration.flow!,
+            debug: debugRegistration.flow!,
         },
         registrations: [
             transformRegistration,
             shadowRegistration,
             forwardRegistration,
             postRegistration,
+            debugRegistration,
+            uiRegistration,
             ...solvers,
         ],
     };

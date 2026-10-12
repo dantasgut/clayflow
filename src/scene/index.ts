@@ -70,8 +70,6 @@ export type { EntityId } from './world/EntityId';
 export {
     Flow,
     RenderFlow,
-    LegacyFlow,
-    LegacyRenderFlow,
     FlowRegistry,
     FlowRegistrationError,
     FlowTransitionError,

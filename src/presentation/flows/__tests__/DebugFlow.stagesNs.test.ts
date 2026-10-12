@@ -7,7 +7,7 @@ const zero = { drawCalls: 0, dispatches: 0, passes: 0 };
 describe('DebugFlow — stagesNs', () => {
     it('preenche stagesNs com os tempos por passe da última leitura do profiler', () => {
         const events = new DefaultEventBus();
-        const debug = new DebugFlow().bindEvents(events);
+        const debug = new DebugFlow({ events });
         debug.setEnabled(true);
         const seen: ProfilerStatsEvent[] = [];
         events.on('profilerStats', (e) => seen.push(e));
@@ -28,7 +28,7 @@ describe('DebugFlow — stagesNs', () => {
 
     it('sem leitura de GPU, stagesNs fica vazio', () => {
         const events = new DefaultEventBus();
-        const debug = new DebugFlow().bindEvents(events);
+        const debug = new DebugFlow({ events });
         debug.setEnabled(true);
         const seen: ProfilerStatsEvent[] = [];
         events.on('profilerStats', (e) => seen.push(e));

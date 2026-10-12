@@ -57,9 +57,10 @@ export interface ResourceDirtyPayload {
 }
 
 /**
- * Payload do evento `canvasReconfigured` — emitido por `Application.handleResize()`
- * quando canvas dimensões mudam. Flows que mantêm textures dependentes do
- * tamanho do canvas devem invalidar+recriar via `Flow.onCanvasResized`.
+ * Payload do evento `canvasReconfigured` — emitido por `Application.handleResize()` quando as dimensões do canvas
+ * mudam. A C2 recria as texturas `sizeFromCanvas` (religando os bind groups que as usam) e entrega o evento aos Flows
+ * com alvo (`canvasReconfigured` na tabela de transições), que recriam os seus recursos privados dependentes do
+ * tamanho.
  */
 export interface CanvasReconfiguredPayload {
     readonly width: number;
@@ -69,7 +70,7 @@ export interface CanvasReconfiguredPayload {
 
 /**
  * Payload do evento `entitiesInserted` — emitido pelo World depois de `resourcesChanged` quando uma entidade raiz
- * é inserida. Estágios mantêm seus conjuntos de entidades por `Flow.onEntitiesInserted`.
+ * é inserida. A C2 atualiza os slots de entidades dos Flows (`entitiesChanged`).
  */
 export interface EntitiesInsertedPayload {
     /** Ids das entidades raiz inseridas. */
@@ -77,9 +78,8 @@ export interface EntitiesInsertedPayload {
 }
 
 /**
- * Payload do evento `entitiesRemoved` — emitido pelo World quando uma ou
- * mais entidades são removidas. Flows com cache por EntityId devem limpar
- * os entries afetados via `Flow.onEntitiesRemoved`.
+ * Payload do evento `entitiesRemoved` — emitido pelo World quando uma ou mais entidades são removidas. A C2 libera os
+ * recursos delas e atualiza os slots de entidades dos Flows (`entitiesChanged`).
  */
 export interface EntitiesRemovedPayload {
     /** Ids das entidades raiz removidas. */

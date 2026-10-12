@@ -43,6 +43,7 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
     const core = {
         create: vi.fn(<S>(spec: S) => spec),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(spec)),
+        writeTexture: vi.fn(),
         write: vi.fn((spec: ResourceSpec) => {
             trace.push(`write:${disc(spec)}`);
         }),
