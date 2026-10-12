@@ -5,7 +5,7 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
 const buffer = (discriminator: string): StorageBufferSpec => ({
     kind: 'buffer',

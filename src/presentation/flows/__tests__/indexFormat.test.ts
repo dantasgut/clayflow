@@ -7,7 +7,7 @@ import { Camera } from '../../../elements/scene/Camera';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
-import type { IndexBufferSpec } from '../../../core/contracts/index';
+import type { IndexBufferSpec } from '../../../scene/contracts/gpu';
 import { registerStages, renderScene } from './helpers/renderHarness';
 
 /** Triângulo único: 3 índices uint16 = 6 bytes, exige padding a 8. */

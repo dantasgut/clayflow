@@ -1,4 +1,4 @@
-import type { Frame } from '../../../../core/contracts/index';
+import type { Frame } from '../../../../scene/contracts/gpu';
 
 /** Passe de computação gravado: rótulo, offsets dinâmicos de cada `setBindGroup` e despachos. */
 export interface RecordedPass {

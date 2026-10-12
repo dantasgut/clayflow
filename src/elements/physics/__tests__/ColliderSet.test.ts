@@ -7,7 +7,7 @@ import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
 import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import { World } from '../../../scene/world/World';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
 function setup() {
     const events = new DefaultEventBus();

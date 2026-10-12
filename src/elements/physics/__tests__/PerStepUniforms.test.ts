@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PerStepUniforms } from '../flows/PerStepUniforms';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
-import type { UniformBufferSpec } from '../../../core/contracts/index';
+import type { UniformBufferSpec } from '../../../scene/contracts/gpu';
 import { StructSchema, fieldArray } from '../../../scene/descriptors/StructSchema';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 

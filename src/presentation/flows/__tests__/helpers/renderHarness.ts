@@ -6,7 +6,7 @@ import type {
     RenderPipelineSpec,
     RenderTarget,
     ResourceSpec,
-} from '../../../../core/contracts/index';
+} from '../../../../scene/contracts/gpu';
 import { createScene, type SceneContext } from '../../../../scene/SceneContext';
 import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';

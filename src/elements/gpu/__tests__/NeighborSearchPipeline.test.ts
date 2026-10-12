@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NeighborSearchPipeline } from '../NeighborSearchPipeline';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
 function setup(gridDim: [number, number, number]) {
     const { core } = fakeResourceCore();

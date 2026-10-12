@@ -225,8 +225,16 @@ esperado; evento sem transição lança (`src/scene/__tests__/integration/FlowLi
 **Independent Test**: `npm run lint` falha ao introduzir `import type { EngineCore } from '../../core/contracts'` num
 arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 
-- [ ] T058 [US6] Trocar os imports de `core/contracts` dos 24 arquivos de C3/C4 (A5) por `scene/` (T005)
-- [ ] T059 [US6] Regra `no-restricted-imports` em `eslint.config.js` para `src/elements/**` e `src/presentation/**` proibindo `**/core/**`; confirmar que falha nomeando o arquivo com um import proibido temporário e passa sem ele
+- [x] T058 [US6] Trocar os imports de `core/contracts` dos 24 arquivos de C3/C4 (A5) por `scene/` (T005)
+- [x] T059 [US6] Regra `no-restricted-imports` em `eslint.config.js` para `src/elements/**` e `src/presentation/**` proibindo `**/core/**`; confirmar que falha nomeando o arquivo com um import proibido temporário e passa sem ele
+
+> **Execução (T058–T059, 2026-10-12)**: o código de C3/C4 já não importava `core/` (os 24 arquivos da A5 foram
+> migrados junto com os Flows); os 12 testes de C3/C4 que ainda importavam `core/contracts/index` passaram a
+> `scene/contracts/gpu`. A regra `@typescript-eslint/no-restricted-imports` (`**/core`, `**/core/**`) vale para
+> `src/elements/**` e `src/presentation/**`, testes inclusive; um `import type { EngineCore } from
+'../../core/contracts'` temporário em `src/elements/scene/` falhou nomeando o arquivo, e o lint volta a 0 erros sem
+> ele.
+
 - [ ] T060 [US6] Emenda MINOR 1.1.0 em `.specify/memory/constitution.md` (Princípio I alinhado à D4, relatório de impacto de sincronização no topo, versão e data); atualizar a menção de versão em `CLAUDE.md`; registrar no corpo do PR que pede ratificação
 - [ ] T061 [US6] `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: toda marca "alvo da 006" vira estado atual (Flow com slots, `RegisterOptions`, `LayoutInferencer.infer`, `ConsumerResolver` com fontes, `bindGroupReplaced`, pool de Material, `ShadowMap` lido pelo shader, `FrameTargets`); exemplos de Flow, `register` e `consumes` reescritos com a API real
 - [ ] T062 [P] [US6] Guia novo `clay-engine-doc/docs/guides/flows.md` (escrever um Flow N3: slots, `consumes`, privados, transições, registro) com link na barra lateral do Docusaurus
