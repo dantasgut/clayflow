@@ -114,4 +114,33 @@ describe('ColliderSet', () => {
             expect(s.core.destroy).toHaveBeenCalledWith(spec);
         }
     });
+
+    it('sources(): nomes do collider_set.wgsl, inclusive a malha (A6), com buffers mínimos para pools ausentes', () => {
+        const s = setup();
+        s.set.refresh();
+        const src = s.set.sources();
+        expect(Object.keys(src).sort()).toEqual([
+            'collider_bodies',
+            'collider_box_owners',
+            'collider_boxes',
+            'collider_counts',
+            'collider_mesh_owners',
+            'collider_meshes',
+            'collider_plane_owners',
+            'collider_planes',
+            'collider_sphere_owners',
+            'collider_spheres',
+        ]);
+        expect(src.collider_meshes).toBe(s.set.pool('MeshCollider').buffer);
+    });
+
+    it('refresh() devolve se alguma fonte mudou: primeira vez sim; sem mudança não; pool novo sim', () => {
+        const s = setup();
+        expect(s.set.refresh()).toBe(true);
+        expect(s.set.refresh()).toBe(false);
+        s.world.insert(new PlaneCollider({}));
+        s.set.markDirty();
+        expect(s.set.refresh()).toBe(true);
+        expect(s.set.sources().collider_planes).toBe(s.resources.poolBufferSpec('PlaneCollider'));
+    });
 });
