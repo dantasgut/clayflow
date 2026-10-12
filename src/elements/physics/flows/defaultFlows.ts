@@ -10,7 +10,11 @@ import { FEMFlow } from './FEMFlow';
 import { MPMFlow } from './MPMFlow';
 import { SPHFlow } from './SPHFlow';
 import { PBFFlow } from './PBFFlow';
-import { DistanceConstraint } from '../constraints/DistanceConstraint';
+import type {
+    FlowFactory as SlotFlowFactory,
+    RegisterOptions,
+} from '../../../scene/flows/FlowRegistry';
+import { XPBDSoftSchema } from '../bodies/schemas/XPBDSoftSchema';
 
 /** Constrói um Flow a partir das dependências de runtime (C1/C2). */
 export type FlowFactory = (core: EngineCore, world: World, resources: ResourceSystem) => Flow;
@@ -29,16 +33,30 @@ export const DEFAULT_FLOW_FACTORIES: ReadonlyMap<string, FlowFactory> = new Map<
     FlowFactory
 >([
     ['LCPSchema', (c, w, r) => new LCPFlow(c, w, r)],
-    [
-        'XPBDSoftSchema',
-        (c, w, r) => new XPBDFlow(c, w, r, { constraintPoolKey: DistanceConstraint.schema.name }),
-    ],
     ['FEMSchema', (c, w, r) => new FEMFlow(c, w, r)],
     ['MPMFluidSchema', (c, w, r) => new MPMFlow(c, w, r)],
     ['MPMSoftSchema', (c, w, r) => new MPMFlow(c, w, r, { bodyType: 'MPMSoftSchema' })],
     ['SPHSchema', (c, w, r) => new SPHFlow(c, w, r)],
     ['PBFSchema', (c, w, r) => new PBFFlow(c, w, r)],
 ]);
+
+/** Registro padrão de um solver no modelo de slots: factory e opções (fase, tipo de corpo, prioridade). */
+export interface SolverRegistration {
+    readonly factory: SlotFlowFactory;
+    readonly options: RegisterOptions;
+}
+
+/**
+ * Solvers padrão da Camada 3 registrados por factory na cena (`Application`): cada um é instanciado pela C2 quando o
+ * primeiro corpo do seu `bodyType` é alocado. Os estágios ainda não migrados seguem pelo auto-registro abaixo até a
+ * T030 da spec 006.
+ */
+export const DEFAULT_SOLVER_REGISTRATIONS: readonly SolverRegistration[] = [
+    {
+        factory: (ctx) => new XPBDFlow(ctx),
+        options: { type: 'XPBDFlow', phase: 'physics', bodyType: XPBDSoftSchema.name, priority: 5 },
+    },
+];
 
 /**
  * Para cada resource recém-inserido cujo `schema.name` tem factory default e

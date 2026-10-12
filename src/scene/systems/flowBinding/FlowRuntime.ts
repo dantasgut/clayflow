@@ -65,6 +65,10 @@ export class FlowRuntime {
     /** Lista das entradas por slot, refeita só quando o conjunto muda. */
     private readonly entityCaches = new Map<string, readonly EntityEntry[]>();
     private readonly compiledQueue: string[] = [];
+    /** Identidade dos slots opcionais na última resolução. */
+    private readonly slotIdentity = new Map<string, unknown>();
+    /** Slots opcionais que mudaram na última resolução. */
+    private readonly changedSlots: string[] = [];
     readonly bound: BoundFlow;
     private readonly ctx: TransitionContext;
     /** Pools dos slots (para entregar `poolReallocated`). */
@@ -164,6 +168,8 @@ export class FlowRuntime {
             setFlowLifecycle(this.flow, 'preparing');
             this.deliver({ type: 'slotsResolved' });
             for (const descriptor of this.flow.pipelines) this.prepare(descriptor, true);
+        } else {
+            for (const name of this.changedSlots) this.deliver({ type: 'slotChanged', slot: name });
         }
         for (const state of [...this.pipelineStates.values()]) {
             state.refresh(this.lookup, this.onReplaced);
@@ -388,12 +394,38 @@ export class FlowRuntime {
     /** Resolve todos os slots; devolve o nome do primeiro obrigatório ausente. */
     private resolveSlots(): string | undefined {
         let missing: string | undefined;
+        this.changedSlots.length = 0;
         for (const [name, decl] of Object.entries(this.flow.slots)) {
             const value = this.resolveSlot(name, decl);
             this.slotValues[name] = value;
             if (value === undefined && this.isRequired(decl)) missing ??= name;
+            if (!this.isRequired(decl) && decl.kind !== 'entities') {
+                const key = this.identityOf(decl, value);
+                if (this.slotIdentity.has(name) && this.slotIdentity.get(name) !== key) {
+                    this.changedSlots.push(name);
+                }
+                this.slotIdentity.set(name, key);
+            }
         }
         return missing;
+    }
+
+    /** Identidade do valor de um slot opcional (o que muda quando ele aparece, some ou troca de recurso). */
+    private identityOf(decl: SlotDeclaration, value: unknown): unknown {
+        if (value === undefined) return undefined;
+        switch (decl.kind) {
+            case 'pools':
+                return [...(value as ReadonlyMap<string, BoundPool | undefined>).entries()]
+                    .filter(([, v]) => v !== undefined)
+                    .map(([k]) => k)
+                    .join('|');
+            case 'singleton':
+                return (value as BoundSingleton).resource;
+            case 'texture':
+                return (value as BoundTexture).view;
+            default:
+                return value;
+        }
     }
 
     private isRequired(decl: SlotDeclaration): boolean {

@@ -10,6 +10,7 @@ import type { EntityId } from '../world/EntityId';
  * - `slotsResolved`: os slots obrigatórios passaram a existir (o Flow sai de `pending`); momento de criar recursos
  *   privados que dependem dos slots e ligá-los (`ctx.bind`).
  * - `slotLost`: um slot obrigatório deixou de existir (o Flow volta a `pending`).
+ * - `slotChanged`: um slot opcional (ou um pool de `slot.pools`) apareceu, sumiu ou trocou de recurso.
  * - `pipelinesCompiled`: os pipelines declarados (ou um preparado em transição, `pipeline`) compilaram.
  * - `bindGroupReplaced`: a C2 recriou um bind group de um pipeline do Flow (fonte recriada).
  * - `entitiesChanged`: entraram ou saíram entidades de um slot `entities`.
@@ -24,6 +25,7 @@ import type { EntityId } from '../world/EntityId';
 export type FlowEvent =
     | { readonly type: 'slotsResolved' }
     | { readonly type: 'slotLost'; readonly slot: string }
+    | { readonly type: 'slotChanged'; readonly slot: string }
     | { readonly type: 'pipelinesCompiled'; readonly pipeline?: string }
     | {
           readonly type: 'bindGroupReplaced';

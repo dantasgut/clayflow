@@ -9,6 +9,7 @@ import { PostFlow } from './PostFlow';
 import { UIFlow } from './UIFlow';
 import { DebugFlow } from './DebugFlow';
 import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
+import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 
 /**
  * Dependências necessárias para construir os Flows default. Application
@@ -127,8 +128,10 @@ function createPresentationDefaults(
     flows.register(post);
     flows.register(debug);
     flows.register(ui);
+    // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
+    const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
         defaults: { transform, forward, shadow, post, ui, debug },
-        registrations: [transformRegistration],
+        registrations: [transformRegistration, ...solvers],
     };
 }
