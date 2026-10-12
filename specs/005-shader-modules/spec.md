@@ -40,7 +40,7 @@ bibliotecas de matemática compartilhadas, marcadores `{{struct:X}}` resolvidos 
   compactação por contador atômico vive dentro da narrowphase do LCP (ambas da 004). Não existe ordenação na GPU nem
   redução reutilizável — cada nova capacidade (culling, partículas, conteúdo procedural, broadphase) teria de
   reescrevê-los.
-- **WGSL órfão.** 22 de 90 arquivos WGSL, portados do legado, não são usados por nenhum estágio. A matemática deles
+- **WGSL órfão.** 23 de 90 arquivos WGSL, portados do legado, não são usados por nenhum estágio. A matemática deles
   tem valor (FEM por XPBD com restrições hidrostática e desviadora, decomposição polar, XPBD paralelo por coloração e
   por Jacobi), mas os kernels foram escritos para o modelo antigo: dependem do collider único de 160 B (dois nem
   compilam), do UBO por objeto, de vertex buffer intercalado fixo e de estado de um único corpo; vários são seriais
@@ -80,8 +80,8 @@ montados por módulos.
 2. **Given** um ciclo A → B → A, **When** a montagem é pedida, **Then** um erro nomeia o ciclo completo.
 3. **Given** dois módulos distintos que definem o mesmo símbolo, **When** ambos entram no mesmo shader, **Then** um erro
    nomeia o símbolo e os dois módulos.
-4. **Given** um módulo que depende de um nome não registrado, **When** a montagem é pedida, **Then** um erro nomeia o
-   módulo e a dependência ausente.
+4. **Given** dois módulos distintos com o mesmo nome no mesmo grafo, **When** a montagem é pedida, **Then** um erro
+   nomeia o nome repetido e quem depende de cada um.
 5. **Given** todos os estágios do motor (física, transformações, render, pós-processamento, UI), **When** o motor roda,
    **Then** nenhum monta shader por concatenação manual de texto.
 
@@ -180,7 +180,7 @@ mesmo desempenho (ou melhor) que na 004.
 
 ### User Story 5 - WGSL do legado reconciliado com a arquitetura (Priority: P3)
 
-Os 22 arquivos WGSL órfãos, portados do legado, são reconciliados com a arquitetura atual: a matemática reutilizável
+Os 23 arquivos WGSL órfãos, portados do legado, são reconciliados com a arquitetura atual: a matemática reutilizável
 vira módulo da biblioteca, sem duplicação e com testes de referência; as cascas de kernel escritas para o modelo antigo
 são removidas, e um inventário registra, para cada arquivo, o que foi extraído, o motivo da remoção e a fase que vai
 escrever o estágio correspondente sobre os módulos e kernels genéricos.
@@ -189,7 +189,7 @@ escrever o estágio correspondente sobre os módulos e kernels genéricos.
 fases que usam essa matemática (ponte simulação → render na F2; FEM elástico, XPBD paralelo e shape matching na F5).
 
 **Independent Test**: Uma verificação automática falha se algum arquivo WGSL não for usado por um estágio nem
-registrado como módulo; os módulos extraídos passam nos testes de referência na GPU; o inventário cobre os 22 arquivos.
+registrado como módulo; os módulos extraídos passam nos testes de referência na GPU; o inventário cobre os 23 arquivos.
 
 **Acceptance Scenarios**:
 
@@ -231,7 +231,7 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
 ### Edge Cases
 
 - Módulo que depende de si mesmo (ciclo de tamanho 1): erro de ciclo.
-- Dois módulos com o mesmo nome registrados: erro no registro, não na montagem.
+- Dois módulos distintos com o mesmo nome no mesmo grafo: erro na montagem, nomeando o nome repetido.
 - Mesmo módulo pedido por caminhos diferentes do grafo: incluído uma vez.
 - Símbolo definido por um módulo e redefinido pelo kernel que o usa: erro de conflito (nenhuma sobrescrita silenciosa).
 - Struct com campo de array de tamanho em tempo de execução: só permitido como último campo e só em storage; em
@@ -254,7 +254,8 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
 
 **Módulos WGSL (US1)**
 
-- **FR-001**: O motor MUST oferecer um módulo WGSL com nome único, código-fonte e lista de dependências por nome.
+- **FR-001**: O motor MUST oferecer um módulo WGSL com nome único, código-fonte e lista de dependências por
+  referência a outros módulos (o nome identifica o módulo nas mensagens).
 - **FR-002**: A montagem de um shader MUST resolver as dependências em ordem topológica determinística e incluir cada
   módulo uma única vez.
 - **FR-003**: A montagem MUST detectar e rejeitar, com mensagem que nomeia os envolvidos: ciclo, dependência não
@@ -324,12 +325,12 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
   referência na GPU.
 - **FR-029**: As cascas de kernel escritas para o modelo antigo MUST ser removidas: corpo rígido por posição (`rb_solve`,
   `rb_solve_velocity`, `rb_velocity_recovery`, `rb_substep_update`), `rb_update_colliders`, `fem_collision`,
-  `contact_manifold`, as três `*_vertex_write`, `rb_sync_transform`, `fem_solve`, `distance_solve_color`,
+  `contact_manifold`, `collision` (colisão de partículas XPBD sobre o collider único), as três `*_vertex_write`, `rb_sync_transform`, `fem_solve`, `distance_solve_color`,
   `distance_solve_jacobi`, `jacobi_apply`, `shape_match_transform`, `shape_correct` e `fem_element` — depois de extraída
   a matemática que contêm.
-- **FR-030**: Um inventário MUST registrar, para cada um dos 22 arquivos: o que foi extraído e para qual módulo, o motivo
+- **FR-030**: Um inventário MUST registrar, para cada um dos 23 arquivos: o que foi extraído e para qual módulo, o motivo
   da remoção (dependência do modelo antigo, serial, duplicado) e a fase que escreve o estágio correspondente (F2: ponte
-  simulação → render; F5: FEM elástico com colisão, XPBD paralelo, shape matching, solver do `XPBDRigidSchema`).
+  simulação → render; F5: FEM elástico com colisão, colisão e solve paralelo do XPBD, shape matching, solver do `XPBDRigidSchema`).
 - **FR-031**: Uma verificação automática no gate MUST falhar se algum arquivo WGSL não for usado por um estágio nem
   registrado como módulo; todo módulo registrado MUST compilar na GPU no smoke da biblioteca.
 
@@ -341,13 +342,16 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
   marcada como tal).
 - **FR-034**: O documento MUST descrever o núcleo de shaders entregue (módulos, dependências, deduplicação, structs
   gerados, kernels genéricos).
+- **FR-035**: Onde o código contradiz a regra que o próprio documento define, o código MUST ser corrigido junto:
+  `resolve(bodyType)` devolve o Flow de maior prioridade (hoje devolve o último registrado) e `Scene.add(entity)`
+  insere a entidade no World (hoje só anexa como filho, sem inserir).
 
 **Transversais**
 
-- **FR-035**: A simulação MUST produzir a mesma trajetória antes e depois desta spec: idêntica bit a bit, ou dentro de
+- **FR-036**: A simulação MUST produzir a mesma trajetória antes e depois desta spec: idêntica bit a bit, ou dentro de
   tolerância registrada na pesquisa onde uma implementação duplicada divergente for trocada pela canônica.
-- **FR-036**: A imagem renderizada das cenas do bench MUST ser a mesma antes e depois.
-- **FR-037**: O build minificado MUST funcionar: nomes de módulos e structs são dados explícitos, não nomes de classe.
+- **FR-037**: A imagem renderizada das cenas do bench MUST ser a mesma antes e depois.
+- **FR-038**: O build minificado MUST funcionar: nomes de módulos e structs são dados explícitos, não nomes de classe.
 
 ### Key Entities
 
@@ -370,7 +374,7 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
 - **SC-002**: 0 arquivos de struct WGSL escritos à mão; 100% dos structs usados em shaders gerados de schema, com
   offsets conferidos na GPU para cada schema.
 - **SC-003**: 0 funções WGSL definidas em mais de um arquivo (verificação automática no gate).
-- **SC-004**: 0 arquivos WGSL órfãos; inventário cobre os 22 arquivos; matemática de FEM, decomposição polar e
+- **SC-004**: 0 arquivos WGSL órfãos; inventário cobre os 23 arquivos; matemática de FEM, decomposição polar e
   acumulação em ponto fixo disponíveis como módulos/kernels testados.
 - **SC-005**: Ordenação de 4 milhões de pares chave/valor, soma de prefixos e compactação de 4 milhões de elementos,
   reduções, acumulação em ponto fixo e coloração de grafo (1 milhão de arestas) corretas contra a CPU em 100% dos casos de teste, inclusive tamanhos não potência de dois e acima de 65 536
@@ -394,6 +398,8 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
   e kernels genéricos entregues aqui. O histórico do git preserva os arquivos removidos.
 - `rb_solve` e auxiliares são um solver de corpo rígido por posição (estilo XPBD), não o LCP antigo. O `XPBDRigidSchema`
   existe sem solver de corpo rígido (o `XPBDFlow` só tem kernels de partículas) — achado registrado para a F5.
+- O XPBD atual não colide com colliders (o kernel `collision` do legado é órfão e depende do collider único) —
+  achado registrado para a F5.
 - O FEM atual só integra gravidade (sem solve elástico); o solve elástico é da F5 e usará o módulo `fem` e a coloração
   de grafo desta spec.
 - O módulo `brdf` nesta spec contém a iluminação que o render usa hoje (Lambert) e as funções de BRDF que o roadmap
