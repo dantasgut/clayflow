@@ -7,9 +7,13 @@ import { PHASE_ORDER, type Phase } from './Phase';
 
 /** O que uma factory recebe para construir o Flow. */
 export interface FlowContext {
+    /** Core da cena (criação dos recursos privados do Flow). */
     readonly core: EngineCore;
+    /** World da cena. */
     readonly world: World;
+    /** Objetos de GPU alocados pela C2 (buffers dos Resources, pools). */
     readonly resources: ResourceDirectory;
+    /** EventBus da cena. */
     readonly events: EventBus;
     /** Tipo de corpo (chave do pool) da instância, nos registros com `bodyType`. */
     readonly bodyType?: string;
@@ -22,6 +26,7 @@ export type FlowFactory<F extends Flow = Flow> = (ctx: FlowContext) => F;
 export interface RegisterOptions {
     /** Nome do estágio (único na fase). */
     readonly type: string;
+    /** Fase do quadro em que o Flow grava. */
     readonly phase: Phase;
     /**
      * Chave do pool atendido (`schema.name`, ou `schema.name:algoritmo` com `FlowDescriptor`). Com `bodyType`, a C2
@@ -35,6 +40,7 @@ export interface RegisterOptions {
 
 /** Erro de registro: `type` repetido na fase, `bodyType` vazio. */
 export class FlowRegistrationError extends Error {
+    /** Nome do erro (`'FlowRegistrationError'`). */
     override readonly name = 'FlowRegistrationError';
 }
 
@@ -50,13 +56,20 @@ export interface FlowAllocator {
 
 /** Contexto e alocador da cena, ligados na criação da cena. */
 export interface FlowRegistryHost {
+    /** Contexto passado às factories (sem `bodyType`, que vem do registro). */
     readonly context: Omit<FlowContext, 'bodyType'>;
+    /** Quem aloca as instâncias (`ResourceSystem`). */
     readonly allocator: FlowAllocator;
 }
 
 /** Um registro (factory + opções) e a instância corrente, quando existe. */
 export interface FlowRegistration<F extends Flow = Flow> {
-    readonly options: Required<Omit<RegisterOptions, 'bodyType'>> & { readonly bodyType?: string };
+    /** Opções do registro, com `priority` resolvida (0 por padrão). */
+    readonly options: Required<Omit<RegisterOptions, 'bodyType'>> & {
+        /** Chave do pool atendido, quando o registro é por tipo de corpo. */
+        readonly bodyType?: string;
+    };
+    /** Factory registrada. */
     readonly factory: FlowFactory<F>;
     /** Instância atual (sem `bodyType`: desde o registro; com `bodyType`: quando o pool existe e o registro vence). */
     readonly flow: F | undefined;

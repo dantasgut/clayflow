@@ -29,10 +29,20 @@ export type { SceneContext, CreateSceneOptions } from './SceneContext';
 export const engine = defaultScene.core;
 
 export { Entity, ResourceState } from './contracts/index';
-export type { Resource, PoolDirectory, ResourceDirectory } from './contracts/index';
+export type {
+    Resource,
+    PoolDirectory,
+    PoolBufferSpec,
+    PoolInfo,
+    ResourceDirectory,
+} from './contracts/index';
 
 export type { GPUDescriptor, GPUDescriptorRole } from './descriptors/GPUDescriptor';
-export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';
+export type {
+    PipelineDescriptor,
+    PipelineDescriptorRole,
+    ConsumesEntry,
+} from './descriptors/PipelineDescriptor';
 export type { FlowDescriptor } from './descriptors/FlowDescriptor';
 export type { TextureShape } from './descriptors/TextureShape';
 export type {
@@ -88,6 +98,7 @@ export type {
     FlowFactory,
     FlowRegistration,
     FlowAllocator,
+    FlowRegistryHost,
     FlowBindingErrorDetails,
     SlotDeclaration,
     SlotMap,
@@ -237,5 +248,13 @@ export type {
 } from './contracts/index';
 
 export type { ResourceStateHandler } from './lifecycle/index';
-export type { WgslBinding, WgslBindingInfo } from './systems/index';
+export type {
+    WgslBinding,
+    WgslBindingInfo,
+    WgslStage,
+    InferredLayout,
+    InferredGroup,
+    InferredEntry,
+    InferredResource,
+} from './systems/index';
 export { LayoutInferencer, ResourceSystem, ExecutionSystem } from './systems/index';

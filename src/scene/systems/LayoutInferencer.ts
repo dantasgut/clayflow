@@ -37,23 +37,35 @@ export type InferredResource =
     | 'read-only-storage'
     | 'storage'
     | {
+          /** Textura amostrada. */
           readonly texture: {
+              /** Tipo de amostra (`depth` em `texture_depth_*`; `unfilterable-float` em formatos não filtráveis). */
               readonly sampleType: 'float' | 'unfilterable-float' | 'depth' | 'sint' | 'uint';
+              /** Dimensão da view. */
               readonly viewDimension: GPUTextureViewDimension;
+              /** `texture_multisampled_*`. */
               readonly multisampled: boolean;
           };
       }
     | {
+          /** Textura de storage. */
           readonly storageTexture: {
+              /** Formato declarado no WGSL. */
               readonly format: GPUTextureFormat;
+              /** Acesso declarado no WGSL. */
               readonly access: 'write-only' | 'read-only' | 'read-write';
+              /** Dimensão da view. */
               readonly viewDimension: GPUTextureViewDimension;
           };
       }
-    | { readonly sampler: 'filtering' | 'comparison' };
+    | {
+          /** Sampler (`sampler_comparison` → `comparison`). */
+          readonly sampler: 'filtering' | 'comparison';
+      };
 
 /** Entrada de layout inferida para um binding usado pelas entradas pedidas. */
 export interface InferredEntry {
+    /** Índice do `@binding`. */
     readonly binding: number;
     /** Nome da variável — chave dos bindings privados de um Flow. */
     readonly name: string;
@@ -61,17 +73,21 @@ export interface InferredEntry {
     readonly typeName: string;
     /** Bitmask `GPUShaderStage` dos estágios das entradas pedidas que usam o binding. */
     readonly visibility: number;
+    /** Tipo de recurso do binding. */
     readonly resource: InferredResource;
 }
 
 /** Entradas de um `@group(N)`. Grupos sem binding usado ficam com `entries` vazio (o índice é preservado). */
 export interface InferredGroup {
+    /** Índice do `@group`. */
     readonly group: number;
+    /** Entradas usadas pelas entradas pedidas, em ordem de binding. */
     readonly entries: readonly InferredEntry[];
 }
 
 /** Layout de um pipeline: um grupo por índice de 0 até o maior grupo usado. */
 export interface InferredLayout {
+    /** Grupos por índice (0 até o maior usado). */
     readonly groups: readonly InferredGroup[];
     /** Estágio de cada entrada pedida. */
     readonly stages: ReadonlyMap<string, WgslStage>;
@@ -79,6 +95,7 @@ export interface InferredLayout {
 
 /** Erro de inferência: entrada inexistente ou tipo de binding que a inferência não sabe ligar. */
 export class LayoutInferenceError extends Error {
+    /** Nome do erro (`'LayoutInferenceError'`). */
     override readonly name = 'LayoutInferenceError';
 }
 

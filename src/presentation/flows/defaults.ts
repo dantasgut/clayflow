@@ -11,6 +11,7 @@ import { FrameTargets } from '../app/FrameTargets';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
+    /** World da cena. */
     readonly world: World;
 }
 

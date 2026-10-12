@@ -7,9 +7,15 @@ import type { ConsumerResolver, ResolveContext, ResolvedSource } from '../Consum
  * automaticamente pelo `ResourceSystem` ao criar o pool.
  */
 export class PoolResolver implements ConsumerResolver {
+    /** Struct WGSL do elemento do pool (`schema.wgslName`). */
     readonly typeName: string;
 
+    /**
+     * @param name - Chave do pool (nome em `consumes`).
+     * @param schema - Schema do elemento do pool.
+     */
     constructor(
+        /** Chave do pool (nome em `consumes`). */
         readonly name: string,
         private readonly schema: Schema,
     ) {

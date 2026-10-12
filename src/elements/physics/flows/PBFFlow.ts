@@ -9,7 +9,14 @@ import type {
 } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot } from '../../../scene/flows/slots';
+import {
+    slot,
+    type BodiesSlot,
+    type EntitiesSlot,
+    type PoolsSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
 import { Time } from '../../../scene/time/Time';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
@@ -53,7 +60,23 @@ export interface PBFFlowOptions {
     readonly maxNeighbors?: number;
 }
 
-const slots = {
+/** Slots do PBF. */
+export interface PBFSlots extends SlotMap {
+    /** Pool de corpos do `bodyType` do registro. */
+    readonly bodies: BodiesSlot;
+    /** Relógio da cena (passos fixos do quadro). */
+    readonly time: SingletonSlot<false>;
+    /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
+    readonly gravity: SingletonSlot<true>;
+    /** Material das partículas (opcional; padrões do solver). */
+    readonly material: SingletonSlot<true>;
+    /** Pools de colliders e de corpos rígidos (cada um presente ou não). */
+    readonly colliderPools: PoolsSlot;
+    /** Entidades com collider (donos dos registros nos pools de collider). */
+    readonly colliders: EntitiesSlot;
+}
+
+const slots: PBFSlots = {
     bodies: slot.bodies(),
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
@@ -61,9 +84,6 @@ const slots = {
     colliderPools: slot.pools([...COLLIDER_POOLS.map((s) => s.name), LCPSchema.name]),
     colliders: slot.entities({ all: [Collider] }),
 };
-
-/** Slots do PBF. */
-export type PBFSlots = typeof slots;
 
 type Ctx = TransitionContext<PBFSlots>;
 
@@ -82,7 +102,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     override readonly pipelines: readonly PipelineDescriptor[];
     override readonly bindings: BindingSources;
     protected readonly initialState = 'running' as const;
-    protected readonly transitions: FlowTransitions<'running', Ctx>;
+    protected readonly transitions: FlowTransitions<'running', TransitionContext<PBFSlots>>;
 
     private readonly core: EngineCore;
     private readonly substeps: number;

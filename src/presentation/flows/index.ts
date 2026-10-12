@@ -1,9 +1,14 @@
 export { ForwardFlow } from './ForwardFlow';
+export type { ForwardFlowOptions, ForwardOutput, ForwardSlots } from './ForwardFlow';
 export { ShadowFlow } from './ShadowFlow';
+export type { ShadowFlowOptions, ShadowSlots } from './ShadowFlow';
 export { PostFlow } from './PostFlow';
+export type { PostSlots } from './PostFlow';
 export { effectsBase } from './shaders';
 export { UIFlow } from './UIFlow';
+export type { UISlots } from './UIFlow';
 export { DebugFlow } from './DebugFlow';
+export type { DebugFlowOptions, DebugSlots } from './DebugFlow';
 export { registerPresentationDefaults, releasePresentationDefaults } from './defaults';
 export type { PresentationDefaults, PresentationDefaultsOptions } from './defaults';
 export * from './effects/index';

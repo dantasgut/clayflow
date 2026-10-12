@@ -23,28 +23,80 @@ import type { EntityId } from '../world/EntityId';
  *   (ex.: um estágio reativo que volta a "limpo" depois de gravar o trabalho pendente).
  */
 export type FlowEvent =
-    | { readonly type: 'slotsResolved' }
-    | { readonly type: 'slotLost'; readonly slot: string }
-    | { readonly type: 'slotChanged'; readonly slot: string }
-    | { readonly type: 'pipelinesCompiled'; readonly pipeline?: string }
     | {
+          /** Slots obrigatórios resolvidos. */
+          readonly type: 'slotsResolved';
+      }
+    | {
+          /** Slot obrigatório perdido. */
+          readonly type: 'slotLost';
+          /** Nome do slot que deixou de existir. */
+          readonly slot: string;
+      }
+    | {
+          /** Slot opcional mudou. */
+          readonly type: 'slotChanged';
+          /** Nome do slot que apareceu, sumiu ou trocou de recurso. */
+          readonly slot: string;
+      }
+    | {
+          /** Pipelines compilados. */
+          readonly type: 'pipelinesCompiled';
+          /** Id do pipeline preparado em transição que compilou; ausente para os declarados (Flow pronto). */
+          readonly pipeline?: string;
+      }
+    | {
+          /** Bind group recriado pela C2. */
           readonly type: 'bindGroupReplaced';
+          /** Id do pipeline dono do grupo. */
           readonly pipeline: string;
+          /** Índice do `@group`. */
           readonly group: number;
+          /** Bind group anterior (já fora de uso a partir da próxima gravação). */
           readonly oldSpec: BindGroupSpec;
+          /** Bind group novo. */
           readonly newSpec: BindGroupSpec;
       }
     | {
+          /** Entidades entraram ou saíram de um slot `entities`. */
           readonly type: 'entitiesChanged';
+          /** Nome do slot `entities`. */
           readonly slot: string;
+          /** Entidades que passaram a casar com a consulta do slot. */
           readonly added: readonly EntityId[];
+          /** Entidades que saíram do slot (removidas do World). */
           readonly removed: readonly EntityId[];
       }
-    | { readonly type: 'canvasReconfigured'; readonly width: number; readonly height: number }
-    | { readonly type: 'poolReallocated'; readonly poolKey: string }
-    | { readonly type: 'resourceReady'; readonly schema: Schema; readonly resource: Resource }
-    | { readonly type: 'framePrepare' }
-    | { readonly type: 'frameRecorded' };
+    | {
+          /** Canvas redimensionado. */
+          readonly type: 'canvasReconfigured';
+          /** Largura nova, em pixels. */
+          readonly width: number;
+          /** Altura nova, em pixels. */
+          readonly height: number;
+      }
+    | {
+          /** Pool de um slot recriado. */
+          readonly type: 'poolReallocated';
+          /** Chave do pool recriado. */
+          readonly poolKey: string;
+      }
+    | {
+          /** Resource de um schema de `listens` alocado ou enviado. */
+          readonly type: 'resourceReady';
+          /** Schema (de `listens`) do Resource. */
+          readonly schema: Schema;
+          /** O Resource alocado ou enviado. */
+          readonly resource: Resource;
+      }
+    | {
+          /** Quadro prestes a ser gravado (opt-in). */
+          readonly type: 'framePrepare';
+      }
+    | {
+          /** Quadro enviado (opt-in). */
+          readonly type: 'frameRecorded';
+      };
 
 /** Nome de um evento de Flow. */
 export type FlowEventName = FlowEvent['type'];
@@ -59,6 +111,7 @@ export type FlowEventOf<E extends FlowEventName> = Extract<FlowEvent, { readonly
 export type FlowTransition<S extends string, C> =
     | 'ignore'
     | {
+          /** Próximo estado do algoritmo. */
           readonly to: S;
           /** Passo da transição (sintaxe de método: o contexto é bivariante, como o `dispatch`). */
           run?(event: FlowEvent, ctx: C): void;
@@ -84,10 +137,19 @@ export function tableHandles<S extends string, C>(
 
 /** Evento sem transição a partir do estado atual. */
 export class FlowTransitionError extends Error {
+    /** Nome do erro (`'FlowTransitionError'`). */
     override readonly name = 'FlowTransitionError';
+    /**
+     * @param flowType - `type` do Flow.
+     * @param state - Estado do algoritmo quando o evento chegou.
+     * @param event - Evento sem transição.
+     */
     constructor(
+        /** `type` do Flow. */
         readonly flowType: string,
+        /** Estado do algoritmo quando o evento chegou. */
         readonly state: string,
+        /** Evento sem transição. */
         readonly event: FlowEventName,
     ) {
         super(

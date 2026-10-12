@@ -29,13 +29,17 @@ export interface FlowReadyPayload {
 
 /** Payload de `flowSuspended`: o Flow saiu de `ready` (slot obrigatório perdido ou descarte) e deixa o quadro. */
 export interface FlowSuspendedPayload {
+    /** `type` do Flow. */
     readonly type: string;
+    /** O Flow que saiu do quadro. */
     readonly flow: Flow;
 }
 
 /** Payload de `poolCreated`: a C2 criou o pool `poolKey` (primeiro recurso com o schema/algoritmo). */
 export interface PoolCreatedPayload {
+    /** Chave do pool criado. */
     readonly poolKey: string;
+    /** Schema do elemento do pool. */
     readonly schema: Schema;
 }
 

@@ -17,7 +17,9 @@ export type BindableBufferSpec = Exclude<AnyBufferSpec, StagingBufferSpec>;
  */
 export type ResolvedSource =
     | {
+          /** Fonte de buffer. */
           readonly kind: 'buffer';
+          /** O buffer ligado. */
           readonly buffer: BindableBufferSpec;
           /** Início da região ligada (bytes). Default 0. */
           readonly offset?: number;
@@ -27,22 +29,37 @@ export type ResolvedSource =
            * Ligado com offset dinâmico: o desenho/despacho escolhe o registro por `setBindGroup(g, bg, [k × stride])`
            * (ex.: pool uniforme de materiais, uniforms por passo).
            */
-          readonly dynamic?: { readonly stride: number };
+          readonly dynamic?: {
+              /** Distância em bytes entre registros (alinhada a `minUniformBufferOffsetAlignment`). */
+              readonly stride: number;
+          };
           /** Visibilidade explícita (descritor do Resource); vence a inferida (FR-013). */
           readonly visibility?: number;
       }
     | {
+          /** Fonte de textura. */
           readonly kind: 'textureView';
+          /** A view ligada. */
           readonly view: TextureViewSpec;
           /** Formato da textura, para escolher `unfilterable-float` em formatos não filtráveis. */
           readonly format?: GPUTextureFormat;
+          /** Visibilidade explícita; vence a inferida. */
           readonly visibility?: number;
       }
-    | { readonly kind: 'sampler'; readonly sampler: SamplerSpec; readonly visibility?: number };
+    | {
+          /** Fonte de sampler. */
+          readonly kind: 'sampler';
+          /** O sampler ligado. */
+          readonly sampler: SamplerSpec;
+          /** Visibilidade explícita; vence a inferida. */
+          readonly visibility?: number;
+      };
 
 /** O que um resolver consulta: o World da cena e o que a C2 alocou. */
 export interface ResolveContext {
+    /** World da cena. */
     readonly world: World;
+    /** Objetos de GPU alocados pela C2 (buffers, texturas, pools). */
     readonly resources: ResourceDirectory;
 }
 
@@ -52,7 +69,9 @@ export interface ResolveContext {
  * `array<…>`) é `typeName` recebe a fonte deste resolver quando `name` está em `consumes`.
  */
 export interface ConsumerResolver {
+    /** Nome em `consumes` (nome do schema ou chave do pool). */
     readonly name: string;
+    /** Struct WGSL que a fonte preenche (tipo do binding, ou do elemento de `array<…>`). */
     readonly typeName: string;
     /** Fonte atual, ou `undefined` se o dado ainda não existe na cena. */
     resolve(ctx: ResolveContext): ResolvedSource | undefined;

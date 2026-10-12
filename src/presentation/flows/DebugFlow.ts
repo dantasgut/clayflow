@@ -19,6 +19,7 @@ export interface ProfilerStatsEvent {
     readonly stagesNs: Readonly<Record<string, number>>;
 }
 
+/** Opções do `DebugFlow`. */
 export interface DebugFlowOptions {
     /** Emite `profilerStats` ao fim de cada frame quando enabled (default: true). */
     readonly emitStats?: boolean;
@@ -28,7 +29,10 @@ export interface DebugFlowOptions {
     readonly toggleKey?: string;
 }
 
-const slots = {};
+/** Slots do `DebugFlow` (nenhum). */
+export type DebugSlots = Readonly<Record<string, never>>;
+
+const slots: DebugSlots = {};
 
 /**
  * DebugFlow — overlay opcional de FPS/frame time + emissão periódica de
@@ -38,11 +42,11 @@ const slots = {};
  * Sem slots nem pipelines: observa `frameTick` (tempo do quadro) e `frameComplete` (tempos de GPU por passe) no
  * EventBus da cena desde a construção.
  */
-export class DebugFlow extends Flow<typeof slots, 'idle'> {
+export class DebugFlow extends Flow<DebugSlots, 'idle'> {
     readonly type = 'DebugFlow';
     readonly slots = slots;
     protected readonly initialState = 'idle' as const;
-    protected readonly transitions: FlowTransitions<'idle', TransitionContext<typeof slots>> = {
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<DebugSlots>> = {
         '*': {
             slotsResolved: 'ignore',
             slotLost: 'ignore',

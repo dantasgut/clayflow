@@ -2,6 +2,7 @@ import type { ConsumerResolver, ResolveContext, ResolvedSource } from './Consume
 
 /** Erro de resolução: nome de `consumes` sem resolver registrado. */
 export class ConsumerResolutionError extends Error {
+    /** Nome do erro (`'ConsumerResolutionError'`). */
     override readonly name = 'ConsumerResolutionError';
 }
 
@@ -24,6 +25,7 @@ export class ConsumerResolverRegistry {
         return true;
     }
 
+    /** Há resolver para o nome? */
     has(name: string): boolean {
         return this.map.has(name);
     }

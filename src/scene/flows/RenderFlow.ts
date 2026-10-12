@@ -3,7 +3,10 @@ import { Flow } from './Flow';
 import type { BoundTarget, SlotMap, TargetSlot } from './slots';
 
 /** Slots de um `RenderFlow`: incluem o alvo de render (`target`). */
-export type RenderSlotMap = SlotMap & { readonly target: TargetSlot };
+export type RenderSlotMap = SlotMap & {
+    /** Alvo de render (canvas, cor da cena, profundidade). */
+    readonly target: TargetSlot;
+};
 
 /**
  * Flow de render: o alvo (`slots.target`) é um slot como os demais — o canvas do quadro, a cor da cena

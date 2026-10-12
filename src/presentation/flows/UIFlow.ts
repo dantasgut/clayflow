@@ -4,7 +4,7 @@ import type { BindingSources, BoundFlow, TransitionContext } from '../../scene/f
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot } from '../../scene/flows/slots';
+import { slot, type SlotMap, type TargetSlot } from '../../scene/flows/slots';
 import { UiTree } from '../ui/UiTree';
 import type { LoadedFont } from '../assets/FontLoader';
 import { UiFlattener } from '../ui/flatten/UiFlattener';
@@ -12,10 +12,15 @@ import { UiTextLayout } from '../ui/flatten/UiTextLayout';
 import { UiGpuPipeline } from '../ui/UiGpuPipeline';
 import { ui } from './shaders';
 
-const slots = { target: slot.target('canvas') };
-
 /** Slots da UI. */
-export type UISlots = typeof slots;
+export interface UISlots extends SlotMap {
+    /** O canvas do quadro (a UI carrega o conteúdo e desenha por cima). */
+    readonly target: TargetSlot;
+}
+
+const slots: UISlots = {
+    target: slot.target('canvas'),
+};
 
 type Ctx = TransitionContext<UISlots>;
 
@@ -34,7 +39,7 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
     override readonly bindings: BindingSources;
     override readonly pipelines: readonly PipelineDescriptor[];
     protected readonly initialState = 'idle' as const;
-    protected readonly transitions: FlowTransitions<'idle', Ctx>;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<UISlots>>;
 
     private readonly core: EngineCore;
     private readonly tree = new UiTree();

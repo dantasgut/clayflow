@@ -4,4 +4,4 @@ export type { Resource } from './Resource';
 export type { ResourceDirectory } from './ResourceDirectory';
 
 export type * from './gpu';
-export type { PoolDirectory } from './PoolDirectory';
+export type { PoolDirectory, PoolBufferSpec, PoolInfo } from './PoolDirectory';

@@ -4,21 +4,28 @@ import { Flow } from '../../../scene/flows/Flow';
 import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot } from '../../../scene/flows/slots';
+import { slot, type EntitiesSlot, type PoolSlot, type SlotMap } from '../../../scene/flows/slots';
 import { Transform } from '../Transform';
 import { transformCompose } from './shaders';
 import { TransformParamsSchema } from './TransformParams';
 
 const WORKGROUP_SIZE = 64;
 
-const slots = {
+/** Slots do estágio de transformação. */
+export interface TransformSlots extends SlotMap {
+    /** Pool das intenções `Transform` (entrada da composição). */
+    readonly transforms: PoolSlot<false>;
+    /** Pool das matrizes de mundo `WorldTransform` (saída). */
+    readonly worlds: PoolSlot<false>;
+    /** Entidades com `Transform` (remoções recompõem). */
+    readonly entities: EntitiesSlot;
+}
+
+const slots: TransformSlots = {
     transforms: slot.pool(Transform.schema.name),
     worlds: slot.pool(Transform.worldSchema.name),
     entities: slot.entities({ all: [Transform] }),
 };
-
-/** Slots do estágio de transformação. */
-export type TransformSlots = typeof slots;
 
 /** `stale`: há intenção de `Transform` ainda não composta; `clean`: as matrizes de mundo estão em dia. */
 export type TransformState = 'stale' | 'clean';
@@ -52,9 +59,15 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             consumes: [Transform.schema.name, Transform.worldSchema.name],
         },
     ];
-    override readonly bindings: { readonly params: UniformBufferSpec };
+    override readonly bindings: {
+        /** Parâmetros da composição (`TransformParams`: contagem). */
+        readonly params: UniformBufferSpec;
+    };
     protected readonly initialState = 'stale' as const;
-    protected readonly transitions: FlowTransitions<TransformState, Ctx>;
+    protected readonly transitions: FlowTransitions<
+        TransformState,
+        TransitionContext<TransformSlots>
+    >;
 
     private readonly core: EngineCore;
     private readonly params: UniformBufferSpec;

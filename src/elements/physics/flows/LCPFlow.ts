@@ -15,7 +15,14 @@ import type {
 } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowEvent, FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot } from '../../../scene/flows/slots';
+import {
+    slot,
+    type BodiesSlot,
+    type EntitiesSlot,
+    type PoolsSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
 import { Time } from '../../../scene/time/Time';
 import type { World } from '../../../scene/world/World';
 import type { EntityId } from '../../../scene/world/EntityId';
@@ -99,7 +106,21 @@ export interface LCPFlowOptions {
     readonly maxContactsPerBody?: number;
 }
 
-function slotsOf(bodiesPoolKey: string) {
+/** Slots do LCP. */
+export interface LCPSlots extends SlotMap {
+    /** Pool de corpos do `bodyType` do registro. */
+    readonly bodies: BodiesSlot;
+    /** Relógio da cena (passos fixos do quadro). */
+    readonly time: SingletonSlot<false>;
+    /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
+    readonly gravity: SingletonSlot<true>;
+    /** Pools de colliders e de corpos rígidos (cada um presente ou não). */
+    readonly colliderPools: PoolsSlot;
+    /** Entidades com collider (donos dos registros nos pools de collider). */
+    readonly colliders: EntitiesSlot;
+}
+
+function slotsOf(bodiesPoolKey: string): LCPSlots {
     return {
         bodies: slot.bodies(),
         time: slot.singleton(Time.schema),
@@ -108,9 +129,6 @@ function slotsOf(bodiesPoolKey: string) {
         colliders: slot.entities({ all: [Collider] }),
     };
 }
-
-/** Slots do LCP. */
-export type LCPSlots = ReturnType<typeof slotsOf>;
 
 type Ctx = TransitionContext<LCPSlots>;
 
@@ -159,7 +177,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     override readonly pipelines: readonly PipelineDescriptor[];
     override readonly bindings: BindingSources;
     protected readonly initialState = 'running' as const;
-    protected readonly transitions: FlowTransitions<'running', Ctx>;
+    protected readonly transitions: FlowTransitions<'running', TransitionContext<LCPSlots>>;
 
     private readonly core: EngineCore;
     private readonly world: World;

@@ -20,7 +20,15 @@ import type {
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot } from '../../scene/flows/slots';
+import {
+    slot,
+    type EntitiesSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+    type TargetSlot,
+    type TextureSlot,
+} from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
@@ -51,7 +59,25 @@ const VERTEX_LAYOUT = [
 /** Onde o forward desenha a cor: a cor da cena (`FrameTargets`, lida pelo pós) ou direto no canvas. */
 export type ForwardOutput = 'scene' | 'canvas';
 
-function slotsOf(world: World, output: ForwardOutput) {
+/** Slots do render principal. */
+export interface ForwardSlots extends SlotMap {
+    /** Câmera ativa (grupo 0, enviada pela C2 quando muda). */
+    readonly camera: SingletonSlot<false>;
+    /** Pool `WorldTransform` (grupo 1, matriz de mundo pelo slot da entidade). */
+    readonly world: PoolSlot<false>;
+    /** Entidades desenhadas: geometria + material + transform. */
+    readonly renderables: EntitiesSlot;
+    /** `ShadowMap` da luz que projeta sombra (opcional; sem ele, `shadowEnabled = 0`). */
+    readonly caster: SingletonSlot<true>;
+    /** Textura de profundidade do caster (opcional). */
+    readonly shadowTexture: TextureSlot<true>;
+    /** Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster; opcional). */
+    readonly shadowMaps: PoolSlot<true>;
+    /** Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`. */
+    readonly target: TargetSlot;
+}
+
+function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
     const select = castingShadowMap(world);
     const depth = { schema: FrameTargets.schema, descId: 'depth' };
     return {
@@ -68,9 +94,6 @@ function slotsOf(world: World, output: ForwardOutput) {
         ),
     };
 }
-
-/** Slots do render principal. */
-export type ForwardSlots = ReturnType<typeof slotsOf>;
 
 type Ctx = TransitionContext<ForwardSlots>;
 
@@ -104,7 +127,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     readonly slots: ForwardSlots;
     override readonly bindings: BindingSources;
     protected readonly initialState = 'idle' as const;
-    protected readonly transitions: FlowTransitions<'idle', Ctx>;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<ForwardSlots>>;
 
     private readonly core: EngineCore;
     private readonly world: World;

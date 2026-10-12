@@ -6,6 +6,8 @@ export { Light } from './Light';
 export { DirectionalLight } from './DirectionalLight';
 export { PointLight } from './PointLight';
 export { ShadowMap } from './ShadowMap';
+export type { ShadowMapOptions } from './ShadowMap';
 export { CanvasRenderTarget, OffscreenRenderTarget } from './RenderTarget';
 export type { RenderTargetOptions } from './RenderTarget';
 export { TransformFlow } from './flows/TransformFlow';
+export type { TransformSlots, TransformState } from './flows/TransformFlow';

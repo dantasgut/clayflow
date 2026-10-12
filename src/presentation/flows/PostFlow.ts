@@ -12,19 +12,24 @@ import type { BindingSources, BoundFlow, TransitionContext } from '../../scene/f
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot } from '../../scene/flows/slots';
+import { slot, type SlotMap, type TargetSlot, type TextureSlot } from '../../scene/flows/slots';
 import type { PostProcessEffect } from '../resources/PostProcessEffect';
 import { FrameTargets } from '../app/FrameTargets';
 import { EffectParamsSchema } from './renderSchemas';
 import { effectsBase } from './shaders';
 
-const slots = {
+/** Slots do pós-processamento. */
+export interface PostSlots extends SlotMap {
+    /** Cor da cena desenhada pelo render principal (`FrameTargets.color`). */
+    readonly scene: TextureSlot<false>;
+    /** O canvas do quadro (último passe da cadeia). */
+    readonly target: TargetSlot;
+}
+
+const slots: PostSlots = {
     scene: slot.texture(FrameTargets.schema, 'color'),
     target: slot.target('canvas'),
 };
-
-/** Slots do pós-processamento. */
-export type PostSlots = typeof slots;
 
 type Ctx = TransitionContext<PostSlots>;
 
@@ -54,7 +59,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     readonly slots = slots;
     override readonly bindings: BindingSources;
     protected readonly initialState = 'idle' as const;
-    protected readonly transitions: FlowTransitions<'idle', Ctx>;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<PostSlots>>;
 
     private readonly core: EngineCore;
     private readonly effects: PostProcessEffect[] = [];

@@ -10,8 +10,17 @@ import { sourceOfDescriptor } from './sourceOfDescriptor';
  * (ex.: `texture_depth_2d`); `name` é o nome em `consumes`.
  */
 export class TextureResolver implements ConsumerResolver {
+    /**
+     * @param name - Nome em `consumes`.
+     * @param typeName - Tipo WGSL do binding (ex.: `texture_depth_2d`).
+     * @param schema - Schema do Resource dono da textura.
+     * @param descId - Id do descritor de textura no Resource.
+     * @param select - Filtro do Resource (padrão: o primeiro com o schema).
+     */
     constructor(
+        /** Nome em `consumes`. */
         readonly name: string,
+        /** Tipo WGSL do binding (ex.: `texture_depth_2d`). */
         readonly typeName: string,
         private readonly schema: Schema,
         private readonly descId: string,

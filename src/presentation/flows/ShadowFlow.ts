@@ -6,7 +6,14 @@ import type { BoundFlow, PreparedRender, TransitionContext } from '../../scene/f
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowEvent, FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot } from '../../scene/flows/slots';
+import {
+    slot,
+    type EntitiesSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+    type TargetSlot,
+} from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
@@ -26,7 +33,21 @@ export function castingShadowMap(world: World): (resource: Resource) => boolean 
     };
 }
 
-function slotsOf(world: World) {
+/** Slots do estágio de sombra. */
+export interface ShadowSlots extends SlotMap {
+    /** `ShadowMap` da primeira `DirectionalLight` que projeta sombra. */
+    readonly caster: SingletonSlot<false>;
+    /** Pool `WorldTransform` (matriz de mundo pelo slot da entidade). */
+    readonly world: PoolSlot<false>;
+    /** Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster). */
+    readonly shadowMaps: PoolSlot<false>;
+    /** Entidades desenhadas no mapa (geometria + transform). */
+    readonly casters: EntitiesSlot;
+    /** Alvo só de profundidade: a textura `depth` do `ShadowMap` do caster. */
+    readonly target: TargetSlot;
+}
+
+function slotsOf(world: World): ShadowSlots {
     const select = castingShadowMap(world);
     return {
         caster: slot.singleton(ShadowMap.schema, { select }),
@@ -39,9 +60,6 @@ function slotsOf(world: World) {
         }),
     };
 }
-
-/** Slots do estágio de sombra. */
-export type ShadowSlots = ReturnType<typeof slotsOf>;
 
 type Ctx = TransitionContext<ShadowSlots>;
 
@@ -90,9 +108,12 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
     readonly slots: ShadowSlots;
     override readonly listens = [Light.schema];
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: { readonly shadow: UniformBufferSpec };
+    override readonly bindings: {
+        /** Parâmetros do passe (`ShadowDepthParams`: slot do caster). */
+        readonly shadow: UniformBufferSpec;
+    };
     protected readonly initialState = 'idle' as const;
-    protected readonly transitions: FlowTransitions<'idle', Ctx>;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<ShadowSlots>>;
 
     private readonly core: EngineCore;
     private readonly world: World;

@@ -26,6 +26,7 @@ export type BindingSources = Readonly<Record<string, BindingSource>>;
 interface PreparedBase {
     /** Id do descritor (ou do pipeline preparado em transição). */
     readonly id: string;
+    /** Descritor de origem. */
     readonly descriptor: PipelineDescriptor;
     /** Layout inferido do WGSL montado. */
     readonly layout: InferredLayout;
@@ -42,13 +43,17 @@ interface PreparedBase {
 
 /** Pipeline de compute preparado pela C2. */
 export interface PreparedCompute extends PreparedBase {
+    /** Papel do pipeline. */
     readonly role: 'compute';
+    /** Spec compilado (para `setPipeline`). */
     readonly spec: ComputePipelineSpec;
 }
 
 /** Pipeline de render preparado pela C2. */
 export interface PreparedRender extends PreparedBase {
+    /** Papel do pipeline. */
     readonly role: 'render';
+    /** Spec compilado (para `setPipeline`). */
     readonly spec: RenderPipelineSpec;
 }
 
@@ -57,6 +62,7 @@ export type PreparedPipeline = PreparedCompute | PreparedRender;
 
 /** O que o `dispatch` recebe: slots resolvidos e pipelines preparados. */
 export interface BoundFlow<TSlots extends SlotMap = SlotMap> {
+    /** Slots resolvidos, por nome (opcionais ausentes são `undefined`). */
     readonly slots: BoundSlots<TSlots>;
     /** Pipelines preparados por id (declarados e preparados em transições). */
     readonly pipelines: ReadonlyMap<string, PreparedPipeline>;

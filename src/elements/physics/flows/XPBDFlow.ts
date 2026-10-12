@@ -8,7 +8,13 @@ import type {
 } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot } from '../../../scene/flows/slots';
+import {
+    slot,
+    type BodiesSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
 import { Time } from '../../../scene/time/Time';
 import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { GravityField } from '../forcefields/GravityField';
@@ -26,7 +32,19 @@ export interface XPBDFlowOptions {
     readonly solverIters?: number;
 }
 
-function slotsOf(constraintPoolKey: string) {
+/** Slots do XPBD. */
+export interface XPBDSlots extends SlotMap {
+    /** Pool de corpos do `bodyType` do registro. */
+    readonly bodies: BodiesSlot;
+    /** Relógio da cena (passos fixos do quadro). */
+    readonly time: SingletonSlot<false>;
+    /** Pool das restrições de distância (opcional). */
+    readonly constraints: PoolSlot<true>;
+    /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
+    readonly gravity: SingletonSlot<true>;
+}
+
+function slotsOf(constraintPoolKey: string): XPBDSlots {
     return {
         bodies: slot.bodies(),
         time: slot.singleton(Time.schema),
@@ -34,9 +52,6 @@ function slotsOf(constraintPoolKey: string) {
         gravity: slot.singleton(GravityField.schema, { optional: true }),
     };
 }
-
-/** Slots do XPBD. */
-export type XPBDSlots = ReturnType<typeof slotsOf>;
 
 type Ctx = TransitionContext<XPBDSlots>;
 
@@ -59,7 +74,7 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
     override readonly pipelines: readonly PipelineDescriptor[];
     override readonly bindings: BindingSources;
     protected readonly initialState = 'running' as const;
-    protected readonly transitions: FlowTransitions<'running', Ctx>;
+    protected readonly transitions: FlowTransitions<'running', TransitionContext<XPBDSlots>>;
 
     private readonly core: EngineCore;
     private readonly substeps: number;

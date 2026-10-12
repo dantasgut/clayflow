@@ -17,7 +17,9 @@ export interface SingletonResolverOptions {
  * `schema` (ex.: a câmera ativa, o `Time`, o `ParticleMaterial`). Trocar o recurso (remover o primeiro) muda a fonte.
  */
 export class SingletonResolver implements ConsumerResolver {
+    /** Nome em `consumes` (`options.name`, ou `schema.name`). */
     readonly name: string;
+    /** Struct WGSL do Resource (`schema.wgslName`). */
     readonly typeName: string;
 
     constructor(

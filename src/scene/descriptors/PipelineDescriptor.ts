@@ -7,7 +7,14 @@ import type {
 import type { WgslModule } from '../shaders/WgslModule';
 
 /** Entrada de `consumes`: o nome do resolver, ou o nome e o struct WGSL com que o shader lê o dado. */
-export type ConsumesEntry = string | { readonly name: string; readonly as: string };
+export type ConsumesEntry =
+    | string
+    | {
+          /** Nome do resolver (nome do schema ou chave do pool). */
+          readonly name: string;
+          /** Tipo WGSL que a fonte preenche no shader, quando difere do do resolver. */
+          readonly as: string;
+      };
 
 /** Nome do resolver de uma entrada de `consumes`. */
 export function consumesName(entry: ConsumesEntry): string {
@@ -65,5 +72,13 @@ export interface PipelineDescriptor {
      * Ajustes explícitos por variável WGSL; vencem a inferência (FR-013). Ex.: `{ params: { visibility:
      * GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT } }`.
      */
-    readonly bindings?: Readonly<Record<string, { readonly visibility?: number }>>;
+    readonly bindings?: Readonly<
+        Record<
+            string,
+            {
+                /** Estágios que veem o binding (`GPUShaderStage`), no lugar dos inferidos. */
+                readonly visibility?: number;
+            }
+        >
+    >;
 }

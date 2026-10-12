@@ -8,7 +8,12 @@ import type {
 } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot } from '../../../scene/flows/slots';
+import {
+    slot,
+    type BodiesSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
 import { Time } from '../../../scene/time/Time';
 import { GravityField } from '../forcefields/GravityField';
 import { FEMSimParamsSchema } from '../schemas/simParams';
@@ -19,19 +24,29 @@ import { PerStepUniforms } from './PerStepUniforms';
 export interface FEMFlowOptions {
     /** Substeps por passo de física (padrão 1). O passo vem do `Time` da cena. */
     readonly substeps?: number;
+    /** Primeiro parâmetro de Lamé μ (rigidez ao cisalhamento, Pa). Padrão 5e3. */
     readonly mu?: number;
+    /** Segundo parâmetro de Lamé λ (resistência à variação de volume, Pa). Padrão 5e3. */
     readonly lambda?: number;
+    /** Amortecimento da velocidade por passo, em [0, 1]. Padrão 0,05. */
     readonly damping?: number;
 }
 
-const slots = {
+/** Slots do FEM. */
+export interface FEMSlots extends SlotMap {
+    /** Pool de corpos do `bodyType` do registro. */
+    readonly bodies: BodiesSlot;
+    /** Relógio da cena (passos fixos do quadro). */
+    readonly time: SingletonSlot<false>;
+    /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
+    readonly gravity: SingletonSlot<true>;
+}
+
+const slots: FEMSlots = {
     bodies: slot.bodies(),
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
 };
-
-/** Slots do FEM. */
-export type FEMSlots = typeof slots;
 
 type Ctx = TransitionContext<FEMSlots>;
 
@@ -49,7 +64,7 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
     override readonly pipelines: readonly PipelineDescriptor[];
     override readonly bindings: BindingSources;
     protected readonly initialState = 'running' as const;
-    protected readonly transitions: FlowTransitions<'running', Ctx> = {
+    protected readonly transitions: FlowTransitions<'running', TransitionContext<FEMSlots>> = {
         '*': {
             slotsResolved: 'ignore',
             slotChanged: 'ignore',
