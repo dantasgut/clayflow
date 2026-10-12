@@ -1,3 +1,4 @@
+import type { EntityId } from '../../scene/world/EntityId';
 import type {
     EngineCore,
     Frame,
@@ -146,6 +147,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         { readonly ccw: string; readonly cw: string }
     >();
     /** Chave do pool e id do shader por material (pelo descritor; reconhecido uma vez por instância). */
+    /** Entidades cujo material ainda não tem pool (tentadas de novo em `framePrepare`). */
+    private readonly pendingMaterials = new Set<EntityId>();
     private readonly materialInfo = new WeakMap<
         Material,
         { readonly pool: string; readonly shader: string; readonly stride: number }
@@ -216,8 +219,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 poolReallocated: shadow,
                 entitiesChanged: {
                     to: 'idle',
-                    run: (_e, c) => {
-                        this.prepareMaterials(c);
+                    run: (e, c) => {
+                        if (e.type !== 'entitiesChanged') return;
+                        for (const id of e.removed) this.pendingMaterials.delete(id);
+                        this.prepareMaterials(c, e.added);
                     },
                 },
                 slotLost: 'ignore',
@@ -227,6 +232,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 framePrepare: {
                     to: 'idle',
                     run: (_e, c) => {
+                        if (this.pendingMaterials.size > 0)
+                            this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.writeFrameParams(c);
                     },
                 },
@@ -330,16 +337,33 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         });
     }
 
-    /** Prepara os pipelines (orientação direta e espelhada) do shader de cada material que entrou na cena. */
-    private prepareMaterials(ctx: Ctx): void {
+    /**
+     * Prepara os pipelines (orientação direta e espelhada) do shader de cada material que entrou na cena — das
+     * entidades `ids` (as adicionadas), ou de todas. Custo proporcional às entidades novas, não à cena. Material cujo
+     * pool ainda não existe fica pendente e é tentado de novo em `framePrepare`.
+     */
+    private prepareMaterials(ctx: Ctx, ids?: readonly EntityId[]): void {
+        const renderables = ctx.bound.slots.renderables;
+        const entries =
+            ids === undefined
+                ? renderables.entries
+                : ids.map((id) => renderables.entry(id)).filter((e) => e !== undefined);
         const format = ctx.bound.slots.target.format ?? this.core.canvasFormat;
-        for (const entry of ctx.bound.slots.renderables.entries) {
+        for (const entry of entries) {
             const material = entry.get(Material);
-            if (this.materialInfo.has(material)) continue;
+            if (this.materialInfo.has(material)) {
+                this.pendingMaterials.delete(entry.entityId);
+                continue;
+            }
             const desc = material.getPipelineDescriptors()[0];
+            this.pendingMaterials.delete(entry.entityId);
+            if (desc === undefined) continue; // material sem shader de forward: nunca desenhado
             const pool = this.resources.poolKeyForResource(material);
             const stride = pool === undefined ? undefined : this.resources.poolInfo(pool)?.stride;
-            if (desc === undefined || pool === undefined || stride === undefined) continue;
+            if (pool === undefined || stride === undefined) {
+                this.pendingMaterials.add(entry.entityId);
+                continue;
+            }
             // O stride de um pool não muda (alinhamento do schema): o offset do material é `slot × stride`.
             this.materialInfo.set(material, { pool, shader: desc.id, stride });
             if (this.materialPipelines.has(desc.id)) continue;

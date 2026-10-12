@@ -301,7 +301,13 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             '*': {
                 slotsResolved: colliders,
                 slotChanged: colliders,
-                entitiesChanged: colliders,
+                // Entidades com collider entram/saem em massa: só marca; a reconstrução é uma por quadro (framePrepare).
+                entitiesChanged: {
+                    to: 'running',
+                    run: () => {
+                        this.colliderSet.markDirty();
+                    },
+                },
                 poolReallocated: {
                     to: 'running',
                     run: (e, c) => {
@@ -314,6 +320,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                 framePrepare: {
                     to: 'running',
                     run: (_e, c) => {
+                        this.syncColliders(c);
                         this.prepareFrame(c);
                     },
                 },
@@ -449,6 +456,11 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     /** Mapas de dono e contagens dos colliders; religa os pools e os mapas de cada narrowphase quando mudam. */
     private refreshColliders(ctx: Ctx): void {
         this.colliderSet.markDirty();
+        this.syncColliders(ctx);
+    }
+
+    /** Reconstrói os mapas de dono se sujos e religa as fontes que mudaram. */
+    private syncColliders(ctx: Ctx): void {
         if (!this.colliderSet.refresh()) return;
         const sources: Record<
             string,

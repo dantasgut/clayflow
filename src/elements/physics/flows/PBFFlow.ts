@@ -180,7 +180,13 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             '*': {
                 slotsResolved: colliders,
                 slotChanged: colliders,
-                entitiesChanged: colliders,
+                // Entidades com collider entram/saem em massa: só marca; a reconstrução é uma por quadro (framePrepare).
+                entitiesChanged: {
+                    to: 'running',
+                    run: () => {
+                        this.colliderSet.markDirty();
+                    },
+                },
                 poolReallocated: colliders,
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
@@ -188,6 +194,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 framePrepare: {
                     to: 'running',
                     run: (_e, c) => {
+                        this.syncColliders(c);
                         this.prepareFrame(c);
                     },
                 },
@@ -271,6 +278,11 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     /** Mapas de dono e contagens dos colliders; religa as fontes do grupo de colliders quando mudam. */
     private refreshColliders(ctx: Ctx): void {
         this.colliderSet.markDirty();
+        this.syncColliders(ctx);
+    }
+
+    /** Reconstrói os mapas de dono se sujos e religa as fontes que mudaram. */
+    private syncColliders(ctx: Ctx): void {
         if (this.colliderSet.refresh()) ctx.bind(this.colliderSet.sources());
     }
 
