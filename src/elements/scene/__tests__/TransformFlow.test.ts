@@ -5,6 +5,7 @@ import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { createScene } from '../../../scene/SceneContext';
 import { fakeSceneCore } from '../../../scene/__tests__/helpers/fakeSceneCore';
 import type { BindGroupReplacedEvent } from '../../../scene/events/BindGroupReplacedEvent';
+import { expectTransitionTable } from '../../../scene/__tests__/helpers/flowEvents';
 
 function setup() {
     const { core, trace } = fakeSceneCore();
@@ -105,5 +106,32 @@ describe('TransformFlow (slots)', () => {
         expect(core.destroy).toHaveBeenCalledWith(
             expect.objectContaining({ discriminator: 'transform_compose_params' }),
         );
+    });
+});
+
+describe('TransformFlow — tabela de transições', () => {
+    it('estados: stale (intenção pendente) → clean após frameRecorded; qualquer mudança volta a stale', () => {
+        const { scene, flow, frame } = setup();
+        expect(flow.state).toBe('stale');
+        const t = new Transform();
+        scene.world.insert(t);
+        frame();
+        expect(flow.state).toBe('clean');
+        frame();
+        expect(flow.state).toBe('clean');
+        t.data.position = [1, 2, 3, 1];
+        scene.events.emit('frameRecording', { elapsed: 0 });
+        expect(flow.state).toBe('stale');
+        frame();
+        expect(flow.state).toBe('clean');
+    });
+
+    it('declara todo evento entregável e lança nos demais, em stale e em clean', () => {
+        const { scene, flow, frame } = setup();
+        expectTransitionTable(flow);
+        scene.world.insert(new Transform());
+        frame();
+        expect(flow.state).toBe('clean');
+        expectTransitionTable(flow);
     });
 });

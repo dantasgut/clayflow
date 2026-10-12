@@ -4,11 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BoxGeometry } from '../geometry/BoxGeometry';
 import { StandardMaterial } from '../material/StandardMaterial';
-import { FluidBody } from '../physics/bodies/FluidBody';
-import { RigidBody } from '../physics/bodies/RigidBody';
-import { SoftBody } from '../physics/bodies/SoftBody';
-import { DistanceConstraint } from '../physics/constraints/DistanceConstraint';
-import { GravityField } from '../physics/forcefields/GravityField';
 import { Camera } from '../scene/Camera';
 import { DirectionalLight } from '../scene/DirectionalLight';
 import { Transform } from '../scene/Transform';
@@ -16,6 +11,7 @@ import { registerPresentationDefaults } from '../../presentation/flows/defaults'
 import { Vignette } from '../../presentation/flows/effects/Vignette';
 import { UiPanel } from '../../presentation/ui/UiPanel';
 import { renderScene } from '../../presentation/flows/__tests__/helpers/renderHarness';
+import { insertGravity, insertSolverBodies } from '../physics/__tests__/helpers/solverBodies';
 
 // Spec 006 (SC-004): layouts e bind groups são da C2 — inferidos do WGSL e ligados aos slots, a `consumes` e aos
 // privados por nome. Nenhum estágio de C3/C4 cria layout nem bind group, e nenhum `dispatch` cria objeto de GPU.
@@ -58,7 +54,7 @@ describe('nenhum layout nem bind group criado por estágio (SC-004)', () => {
         const w = s.scene.world;
         w.insert(new Camera());
         w.insert(new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true }));
-        w.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+        insertGravity(w);
         for (let i = 0; i < 4; i++) {
             w.insert(
                 new BoxGeometry()
@@ -66,32 +62,7 @@ describe('nenhum layout nem bind group criado por estágio (SC-004)', () => {
                     .add(new Transform({ position: [i, 0, 0, 1] })),
             );
         }
-        w.insert(
-            new RigidBody({
-                shape: 'box',
-                mass: 0,
-                halfExtents: [4, 0.5, 4],
-                position: [0, -0.5, 0],
-            }),
-        );
-        w.insert(new RigidBody({ shape: 'sphere', radius: 0.3, mass: 1, position: [0, 1, 0] }));
-        for (let i = 0; i < 4; i++) {
-            w.insert(
-                new SoftBody({
-                    algorithm: 'XPBD',
-                    position: [i * 0.1, 2, 0],
-                    mass: i === 0 ? 0 : 0.1,
-                }),
-            );
-        }
-        for (let i = 0; i + 1 < 4; i++) {
-            w.insert(new DistanceConstraint({ i, j: i + 1, restLength: 0.1, compliance: 1e-6 }));
-        }
-        w.insert(new SoftBody({ algorithm: 'FEM', position: [0, 3, 0], mass: 0.05 }));
-        w.insert(new SoftBody({ algorithm: 'MPM', position: [1, 3, 0] }));
-        for (const algorithm of ['MPM', 'SPH', 'PBF'] as const) {
-            w.insert(new FluidBody({ algorithm, position: [2, 3, 0] }));
-        }
+        insertSolverBodies(w);
         for (let i = 0; i < 5; i++) s.step();
 
         const active = [...s.scene.flows.allFlows()]

@@ -15,7 +15,18 @@ import type { TransitionContext } from '../../flows/FlowBinding';
 import type { FlowTransitions } from '../../flows/FlowTransitions';
 import type { Phase } from '../../flows/Phase';
 import { slot } from '../../flows/slots';
-import { ProbeCam, ProbeCamSchema, probeScene } from '../helpers/probeFlow';
+import { FlowBindingError } from '../../flows/FlowBindingError';
+import { createScene } from '../../SceneContext';
+import { countingCore } from '../helpers/countingCore';
+import {
+    ProbeBody,
+    ProbeCam,
+    ProbeCamSchema,
+    ProbeFlow,
+    probeParams,
+    probePipeline,
+    probeScene,
+} from '../helpers/probeFlow';
 
 const freeSlots = {};
 const camSlots = { cam: slot.singleton(ProbeCamSchema) };
@@ -111,5 +122,77 @@ describe('Integração — ciclo de vida dos Flows', () => {
         s.add('Xf', 'transform');
         s.add('Fwd', 'forward');
         expect(s.frame()).toEqual(['Phys', 'Xf', 'Shdw', 'Fwd', 'Post', 'UI']);
+    });
+});
+
+describe('Integração — eventos da C2 com o Flow pronto', () => {
+    async function probeReady(options: ConstructorParameters<typeof ProbeFlow>[1] = {}) {
+        const s = await probeScene();
+        const reg = s.scene.flows.register(() => new ProbeFlow(probeParams, options), {
+            type: 'probe',
+            phase: 'physics',
+            bodyType: 'ProbeBody',
+        });
+        s.scene.world.insert(new ProbeCam());
+        s.scene.world.insert(new ProbeBody());
+        s.frame();
+        return { ...s, probe: reg.flow! };
+    }
+
+    it('slots não resolvidos: o Flow não está ativo no ExecutionSystem', async () => {
+        const s = await scene();
+        const waiting = s.add('NeedsCam', 'forward', 0, true);
+        s.frame();
+        expect(s.scene.executionSystem.isActive(waiting)).toBe(false);
+        s.scene.world.insert(new ProbeCam());
+        s.frame();
+        expect(s.scene.executionSystem.isActive(waiting)).toBe(true);
+    });
+
+    it('bindGroupReplaced em ready: o Flow segue pronto (sem preparing) e grava com o grupo novo', async () => {
+        const s = await probeReady();
+        const before = s.probe.events.length;
+        const lifecycles: string[] = [];
+        s.scene.events.on('flowSuspended', () => lifecycles.push('suspended'));
+        for (let i = 0; i < 500; i++) s.scene.world.insert(new ProbeBody());
+        s.frame();
+        const replaced = s.probe.events.slice(before).filter((e) => e.type === 'bindGroupReplaced');
+        expect(replaced.length).toBeGreaterThan(0);
+        expect(lifecycles).toEqual([]);
+        expect(s.probe.lifecycle).toBe('ready');
+        expect(s.probe.dispatched.at(-1)).toBe(501);
+        const last = replaced.at(-1)!;
+        expect(last.type === 'bindGroupReplaced' && last.newSpec).not.toBe(
+            last.type === 'bindGroupReplaced' && last.oldSpec,
+        );
+    });
+
+    it('consumes sem resolver: falha na primeira tentativa de preparação, sem ligar binding vazio', async () => {
+        const counting = countingCore();
+        const s = createScene({ core: counting.core });
+        await s.initialize();
+        s.flows.register(() => new ProbeFlow(probeParams), {
+            type: 'probe',
+            phase: 'physics',
+            bodyType: 'ProbeBody',
+        });
+        s.world.insert(new ProbeCam());
+        expect(() => {
+            s.world.insert(new ProbeBody());
+            s.events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 1 / 60, frame: 1 });
+        }).toThrow(FlowBindingError);
+        expect(counting.stats().creates.get('bindgroup') ?? 0).toBe(0);
+    });
+
+    it('pipeline assíncrono: o Flow só entra no quadro depois de compilado', async () => {
+        const s = await probeReady({ pipelines: [probePipeline({ preferAsync: true })] });
+        expect(s.probe.dispatched).toEqual([]);
+        expect(s.probe.lifecycle).not.toBe('ready');
+        await Promise.resolve();
+        await Promise.resolve();
+        s.frame();
+        expect(s.probe.lifecycle).toBe('ready');
+        expect(s.probe.dispatched).toEqual([1]);
+        expect(s.probe.events.map((e) => e.type)).toContain('pipelinesCompiled');
     });
 });

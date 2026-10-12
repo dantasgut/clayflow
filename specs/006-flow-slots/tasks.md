@@ -212,9 +212,9 @@ render,churn` com imagem idêntica.
 **Independent Test**: para cada Flow do motor, cada evento provocado com slots e quadro simulados leva ao estado
 esperado; evento sem transição lança (`src/scene/__tests__/integration/FlowLifecycle.test.ts` e testes por Flow).
 
-- [ ] T055 [US4] Reescrever `src/scene/__tests__/integration/FlowLifecycle.test.ts`: slots não resolvidos → não grava e não está ativo; `bindGroupReplaced` em `ready` → usa o novo sem `preparing`; canvas redimensionado no mesmo quadro em que um pool cresce → os dois tratados, nenhum objeto destruído referenciado; resolver registrado depois → aguarda ou falha na primeira tentativa, nunca liga binding vazio; pipeline assíncrono → só entra após compilar
-- [ ] T056 [P] [US4] Testes de transições por Flow (estados enumerados, cada evento, inválido lança) em `src/elements/physics/__tests__/flowTransitions.test.ts` (6 solvers), `src/elements/scene/__tests__/TransformFlow.test.ts` e `src/presentation/flows/__tests__/flowTransitions.test.ts` (forward, sombra, pós, UI, debug)
-- [ ] T057 [US4] Atualizar `src/scene/__tests__/integration/CanvasResizeCleanup.test.ts`, `SceneOrchestration.test.ts`, `StaticScenePerf.test.ts`, `ReactiveTransform.test.ts` e `src/scene/__tests__/dispose.test.ts` para o modelo de eventos
+- [x] T055 [US4] Reescrever `src/scene/__tests__/integration/FlowLifecycle.test.ts`: slots não resolvidos → não grava e não está ativo; `bindGroupReplaced` em `ready` → usa o novo sem `preparing`; canvas redimensionado no mesmo quadro em que um pool cresce → os dois tratados, nenhum objeto destruído referenciado; resolver registrado depois → aguarda ou falha na primeira tentativa, nunca liga binding vazio; pipeline assíncrono → só entra após compilar
+- [x] T056 [P] [US4] Testes de transições por Flow (estados enumerados, cada evento, inválido lança) em `src/elements/physics/__tests__/flowTransitions.test.ts` (6 solvers), `src/elements/scene/__tests__/TransformFlow.test.ts` e `src/presentation/flows/__tests__/flowTransitions.test.ts` (forward, sombra, pós, UI, debug)
+- [x] T057 [US4] Atualizar `src/scene/__tests__/integration/CanvasResizeCleanup.test.ts`, `SceneOrchestration.test.ts`, `StaticScenePerf.test.ts`, `ReactiveTransform.test.ts` e `src/scene/__tests__/dispose.test.ts` para o modelo de eventos
 
 ---
 

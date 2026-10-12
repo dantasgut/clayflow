@@ -86,4 +86,23 @@ describe('Integração — redimensionamento do canvas', () => {
         const destroyed = new Set<unknown>(s.destroys());
         expect(referenced(passes).filter((r) => destroyed.has(r))).toEqual([]);
     });
+
+    it('redimensionar no mesmo quadro em que o pool WorldTransform cresce: os dois tratados, nada destruído referenciado', async () => {
+        const s = await scene();
+        s.step();
+        const before = s.scene.resourceSystem.poolBufferSpec('WorldTransform');
+        s.resetCounts();
+        s.resize(1024, 768);
+        for (let i = 0; i < 300; i++) {
+            s.scene.world.insert(
+                new BoxGeometry().add(new StandardMaterial()).add(new Transform()),
+            );
+        }
+        const passes = s.step();
+        expect(s.scene.resourceSystem.poolBufferSpec('WorldTransform')).not.toBe(before);
+        expect(s.scene.resourceSystem.textureOf(s.targets, 'color')!.width).toBe(1024);
+        expect(s.draws('ForwardFlow')).toHaveLength(301);
+        const destroyed = new Set<unknown>(s.destroys());
+        expect(referenced(passes).filter((r) => destroyed.has(r))).toEqual([]);
+    });
 });
