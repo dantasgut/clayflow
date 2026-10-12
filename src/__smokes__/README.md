@@ -71,6 +71,25 @@ com 3600 quadros, 8 efeitos, 0 erros e memória 11,40 MiB → 11,40 MiB; `rigidC
 199,7 ms por quadro (GPU+CPU; referência da 005: 8,4 e 220,5 ms), 100,00% e 99,87% em repouso; `shaderLibrary` (14
 módulos, 47 schemas) e `computeKernels` (PrefixSum 4 M 2,18 ms, RadixSort 4 M 8,57 ms) verdes.
 
+## Spec 006 — fechamento (T067, perfil apple-metal-3, 2026-10-12)
+
+Os 13 smokes passam no código-fonte e sobre o build minificado (`npm run build:lib && npm run smoke -- … --dist`):
+`time`, `transforms`, `integration`, `multiApp`, `limits`, `churn`, `bigMesh`, `rigidContacts`, `stress60s`,
+`trajectories` (bit a bit nas 7 cenas a 30, 60 e 144 Hz), `render` (10 cenas com pixels idênticos às fixtures da 005),
+`shaderLibrary`, `computeKernels`. `dist/index.js`: 564,75 kB (144,78 kB gzip).
+
+| Medida                              | Código-fonte      | `--dist`          |
+| ----------------------------------- | ----------------- | ----------------- |
+| `rigidContacts` 1k (GPU+CPU/quadro) | 8,6 ms            | 9,0 ms            |
+| `rigidContacts` 10k                 | 199,7–233,7 ms    | 208,2 ms          |
+| `stress60s` memória                 | 11,40 → 11,40 MiB | 11,40 → 11,40 MiB |
+| `PrefixSum` 4 M                     | 1,88 ms           | —                 |
+| `RadixSort` 4 M (32 bits)           | 8,58 ms           | —                 |
+
+O `rigidContacts` 10k foi medido com a máquina carregada (outro processo a 100% de CPU); entre execuções variou de
+199,7 a 233,7 ms no código-fonte (referência da 005: 220,5 ms). A comparação de desempenho de referência é a da T068
+(`bench:check`).
+
 ## Convenção de logs
 
 - Cada smoke usa prefixo `[<nome>]` no console (e.g. `[stress] frame 600: …`).
