@@ -1,140 +1,109 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { TransformFlow } from '../flows/TransformFlow';
 import { Transform } from '../Transform';
-import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
-import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
-import type { Resource } from '../../../scene/contracts/Resource';
-import type {
-    BindGroupSpec,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../core/contracts/index';
+import { createScene } from '../../../scene/SceneContext';
+import { fakeSceneCore } from '../../../scene/__tests__/helpers/fakeSceneCore';
+import type { BindGroupReplacedEvent } from '../../../scene/events/BindGroupReplacedEvent';
 
-function storage(name: string): StorageBufferSpec {
-    return { kind: 'buffer', subkind: 'storage', discriminator: name, byteSize: 1024 };
-}
-
-function setup(count = 3) {
-    const buffers = { Transform: storage('t0'), WorldTransform: storage('w0') };
-    const state = { count };
-    const pools: PoolDirectory = {
-        poolBufferSpec: (k) => buffers[k as keyof typeof buffers],
-        poolCount: (k) => (k === 'Transform' ? state.count : 0),
-        poolSlotOf: () => undefined,
-        poolKeyForResource: (r) => (r as { pool?: string }).pool ?? undefined,
-        poolInfo: () => undefined,
+function setup() {
+    const { core, trace } = fakeSceneCore();
+    const scene = createScene({ core });
+    const reg = scene.flows.register((ctx) => new TransformFlow(ctx), {
+        type: 'transform',
+        phase: 'transform',
+    });
+    let n = 0;
+    const frame = (): string[] => {
+        trace.length = 0;
+        n++;
+        scene.events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: n / 60, frame: n });
+        return [...trace];
     };
-    const core = {
-        create: vi.fn(<S>(spec: S) => spec),
-        createAsync: vi.fn(<S>(spec: S) => Promise.resolve(spec)),
-        write: vi.fn(),
-        destroy: vi.fn(),
-        setFrameProfiling: vi.fn(),
-        lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
-    } as unknown as EngineCore;
-    /** Invocações pedidas por despacho (`invocations(count, 64)`). */
-    const workgroups: number[] = [];
-    const bindGroups: BindGroupSpec[] = [];
-    const frame = {
-        compute: vi.fn((_label: string, body: (pass: unknown) => void) => {
-            const pass = {
-                bind: {
-                    setPipeline: () => pass.bind,
-                    setBindGroup: (_i: number, bg: BindGroupSpec) => {
-                        bindGroups.push(bg);
-                        return pass.bind;
-                    },
-                },
-                dispatch: {
-                    invocations: (count: number, size: number) => {
-                        expect(size).toBe(64);
-                        workgroups.push(count);
-                        return pass.dispatch;
-                    },
-                },
-                marker: () => undefined,
-            };
-            body(pass);
-        }),
-    } as unknown as Frame;
-    const events = new DefaultEventBus();
-    const flow = new TransformFlow(core, pools, events);
-    return { flow, frame, events, workgroups, bindGroups, buffers, state, core };
+    return { scene, flow: reg.flow!, frame, core };
 }
 
-function fakeResource(pool: string): Resource {
-    return { pool } as unknown as Resource;
-}
+const composes = (trace: readonly string[]): number =>
+    trace.filter((c) => c === 'compute:TransformFlow').length;
+const paramWrites = (trace: readonly string[]): number =>
+    trace.filter((c) => c === 'write:transform_compose_params').length;
 
-describe('TransformFlow', () => {
-    it('roda na fase transform', () => {
-        expect(setup().flow.phase).toBe('transform');
+describe('TransformFlow (slots)', () => {
+    it('fica pronto quando os pools existem (reconciliado antes da gravação do quadro); antes não grava', () => {
+        const { scene, flow, frame } = setup();
+        expect(flow.lifecycle).toBe('pending');
+        expect(composes(frame())).toBe(0);
+        scene.world.insert(new Transform());
+        expect(composes(frame())).toBe(1);
+        expect(flow.lifecycle).toBe('ready');
     });
 
-    it('despacha na primeira vez com invocations(count, 64) e não repete sem mudança', () => {
-        const { flow, frame, workgroups } = setup(130);
-        flow.dispatch(frame);
-        expect(workgroups).toEqual([130]);
-        flow.dispatch(frame);
-        expect(workgroups).toEqual([130]);
+    it('compõe uma vez após mudanças e não repete numa cena parada (stale → clean)', () => {
+        const { scene, flow, frame } = setup();
+        for (let i = 0; i < 3; i++) scene.world.insert(new Transform());
+        expect(composes(frame())).toBe(1);
+        expect(flow.state).toBe('clean');
+        expect(composes(frame())).toBe(0);
     });
 
-    it('despacha de novo após resourceReady de um recurso do pool Transform', () => {
-        const { flow, frame, events, workgroups } = setup();
-        flow.dispatch(frame);
-        events.emit('resourceReady', { payload: { resource: fakeResource('Transform') } });
-        flow.dispatch(frame);
-        expect(workgroups).toHaveLength(2);
+    it('mutação de um Transform (resourceReady) volta a compor no quadro seguinte', () => {
+        const { scene, frame } = setup();
+        const t = new Transform();
+        scene.world.insert(t);
+        frame();
+        (t.data.position as number[])[1] = 2;
+        expect(composes(frame())).toBe(1);
     });
 
-    it('ignora resourceReady de recursos de outros pools', () => {
-        const { flow, frame, events, workgroups } = setup();
-        flow.dispatch(frame);
-        events.emit('resourceReady', { payload: { resource: fakeResource('Camera') } });
-        flow.dispatch(frame);
-        expect(workgroups).toHaveLength(1);
+    it('remoção de entidade também recompõe (A6)', () => {
+        const { scene, frame } = setup();
+        const a = new Transform();
+        scene.world.insert(a);
+        scene.world.insert(new Transform());
+        frame();
+        scene.world.remove(a);
+        expect(composes(frame())).toBe(1);
     });
 
-    it('recria o kernel com os novos buffers e despacha após poolReallocated', () => {
-        const { flow, frame, workgroups, bindGroups, buffers } = setup();
-        flow.dispatch(frame);
-        buffers.WorldTransform = storage('w1');
-        flow.onPoolReallocated('WorldTransform');
-        flow.dispatch(frame);
-        expect(workgroups).toHaveLength(2);
-        const bound = bindGroups
-            .at(-1)!
-            .bindings.map((b) => (b.kind === 'buffer' ? b.buffer.discriminator : undefined));
-        expect(bound).toContain('w1');
+    it('contagem escrita uma vez por quadro, só quando muda — inserir 1000 não escreve 1000 vezes', () => {
+        const { scene, frame } = setup();
+        for (let i = 0; i < 1000; i++) scene.world.insert(new Transform());
+        const first = frame();
+        expect(paramWrites(first)).toBe(1);
+        const t = scene.world.rootOf(scene.world.queryBySchemaName('Transform')[0]!) as Transform;
+        (t.data.scale as number[])[0] = 2;
+        expect(paramWrites(frame())).toBe(0);
     });
 
-    it('não despacha com o pool vazio', () => {
-        const { flow, frame, workgroups } = setup(0);
-        flow.dispatch(frame);
-        expect(workgroups).toHaveLength(0);
+    it('pool realocado: a C2 religa o bind group e o estágio recompõe tudo', () => {
+        const { scene, frame } = setup();
+        scene.world.insert(new Transform());
+        frame();
+        const replaced: BindGroupReplacedEvent[] = [];
+        scene.events.on('bindGroupReplaced', (e) => replaced.push(e));
+        for (let i = 0; i < 20; i++) scene.world.insert(new Transform());
+        expect(composes(frame())).toBe(1);
+        expect(replaced.map((e) => e.pipeline)).toEqual(['transform_compose']);
+        expect(
+            replaced[0]!.newSpec.bindings.map((b) => (b.kind === 'buffer' ? b.buffer : null)),
+        ).toContain(scene.resourceSystem.poolBufferSpec('WorldTransform'));
     });
 
-    it('escreve os parâmetros só quando a contagem muda', () => {
-        const { flow, frame, events, core, state } = setup(3);
-        flow.dispatch(frame);
-        events.emit('resourceReady', { payload: { resource: fakeResource('Transform') } });
-        flow.dispatch(frame);
-        expect(core.write).toHaveBeenCalledTimes(1);
-        state.count = 5;
-        events.emit('resourceReady', { payload: { resource: fakeResource('Transform') } });
-        flow.dispatch(frame);
-        expect(core.write).toHaveBeenCalledTimes(2);
-    });
-
-    it('o shader monta sem erro (dependências e referências) e lê os pools certos', () => {
-        const [desc] = setup().flow.getPipelineDescriptors();
+    it('o shader monta sem erro e consome os pools certos', () => {
+        const { flow } = setup();
+        const [desc] = flow.pipelines;
         const composed = composeWgsl(desc!.shader);
         expect(composed.modules).toEqual(['quat', 'linalg', 'mat', 'transform_compose']);
-        // Structs gerados dos schemas, não escritos à mão.
         expect(composed.spec.source).toContain(Transform.schema.toWGSL());
         expect(composed.spec.source).toContain(Transform.worldSchema.toWGSL());
-        expect(desc!.consumes).toEqual([Transform.schema.name]);
+        expect(desc!.consumes).toEqual([Transform.schema.name, Transform.worldSchema.name]);
+    });
+
+    it('dispose libera o uniform de parâmetros', () => {
+        const { scene, core } = setup();
+        scene.dispose();
+        expect(core.destroy).toHaveBeenCalledWith(
+            expect.objectContaining({ discriminator: 'transform_compose_params' }),
+        );
     });
 });

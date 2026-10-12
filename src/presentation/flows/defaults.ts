@@ -1,5 +1,5 @@
 import type { EngineCore } from '../../core/contracts/index';
-import type { FlowRegistry } from '../../scene/flows/FlowRegistry';
+import type { FlowRegistry, FlowRegistration } from '../../scene/flows/FlowRegistry';
 import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
 import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
@@ -47,9 +47,10 @@ export interface PresentationDefaults {
     readonly debug: DebugFlow;
 }
 
-/** Estágios padrão de uma cena e quantas aplicações os usam. */
+/** Estágios padrão de uma cena, os registros por factory e quantas aplicações os usam. */
 interface RegisteredDefaults {
     readonly defaults: PresentationDefaults;
+    readonly registrations: readonly FlowRegistration[];
     users: number;
 }
 
@@ -77,8 +78,8 @@ export function registerPresentationDefaults(
         existing.users++;
         return existing.defaults;
     }
-    const defaults = createPresentationDefaults(flows, options);
-    DEFAULTS_BY_SCENE.set(flows, { defaults, users: 1 });
+    const { defaults, registrations } = createPresentationDefaults(flows, options);
+    DEFAULTS_BY_SCENE.set(flows, { defaults, registrations, users: 1 });
     return defaults;
 }
 
@@ -93,17 +94,22 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
     const d = entry.defaults;
-    for (const flow of [d.ui, d.debug, d.post, d.forward, d.shadow, d.transform]) {
+    for (const flow of [d.ui, d.debug, d.post, d.forward, d.shadow]) {
         flows.unregister(flow);
     }
+    for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
     return true;
 }
 
 function createPresentationDefaults(
     flows: FlowRegistry,
     options: PresentationDefaultsOptions,
-): PresentationDefaults {
-    const transform = new TransformFlow(options.core, options.resources, options.events);
+): { defaults: PresentationDefaults; registrations: readonly FlowRegistration[] } {
+    const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {
+        type: 'transform',
+        phase: 'transform',
+    });
+    const transform = transformRegistration.flow!;
     const shadow = new ShadowFlow(options.core, options.world, options.resources);
     const forward = new ForwardFlow(
         options.core,
@@ -116,11 +122,13 @@ function createPresentationDefaults(
     const ui = new UIFlow(options.core, options.canvas);
     const debug = new DebugFlow();
     debug.bindEvents(options.events);
-    flows.register(transform);
     flows.register(shadow);
     flows.register(forward);
     flows.register(post);
     flows.register(debug);
     flows.register(ui);
-    return { transform, forward, shadow, post, ui, debug };
+    return {
+        defaults: { transform, forward, shadow, post, ui, debug },
+        registrations: [transformRegistration],
+    };
 }

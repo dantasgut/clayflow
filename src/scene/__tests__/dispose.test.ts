@@ -50,9 +50,11 @@ describe('SceneContext.dispose', () => {
         await scene.initialize();
         const probe = new ProbeFlow();
         scene.flows.register(probe);
-        const transform = new TransformFlow(core, scene.resourceSystem, scene.events);
-        const transformDispose = vi.spyOn(transform, 'dispose');
-        scene.flows.register(transform);
+        const reg = scene.flows.register((ctx) => new TransformFlow(ctx), {
+            type: 'transform',
+            phase: 'transform',
+        });
+        const transformDispose = vi.spyOn(reg.flow!, 'dispose');
         expect(scene.events.listenerCount()).toBeGreaterThan(0);
         scene.dispose();
         expect(scene.events.listenerCount()).toBe(0);

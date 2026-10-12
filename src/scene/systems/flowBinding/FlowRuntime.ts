@@ -5,7 +5,7 @@ import type { Resource } from '../../contracts/Resource';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
 import type { EventBus } from '../../events/EventBus';
-import { deliverFlowEvent, setFlowLifecycle, type Flow } from '../../flows/Flow';
+import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
 import type {
     BindingSource,
@@ -71,6 +71,10 @@ export class FlowRuntime {
     readonly slotPools: ReadonlySet<string>;
     readonly hasTarget: boolean;
     readonly hasEntities: boolean;
+    /** A tabela do Flow declara `frameRecorded`. */
+    private readonly wantsFrameRecorded: boolean;
+    /** A tabela do Flow declara `framePrepare`. */
+    private readonly wantsFramePrepare: boolean;
 
     constructor(
         private readonly host: FlowRuntimeHost,
@@ -88,6 +92,8 @@ export class FlowRuntime {
         const decls = Object.values(flow.slots);
         this.hasTarget = decls.some((d) => d.kind === 'target');
         this.hasEntities = decls.some((d) => d.kind === 'entities');
+        this.wantsFrameRecorded = flowHandles(flow, 'frameRecorded');
+        this.wantsFramePrepare = flowHandles(flow, 'framePrepare');
         for (const [name, decl] of Object.entries(flow.slots)) {
             if (decl.kind !== 'entities') continue;
             const set = new Map<EntityId, EntityEntry>();
@@ -188,6 +194,18 @@ export class FlowRuntime {
         } else if (this.flow.lifecycle === 'ready' && !declaredReady) {
             this.leave('preparing');
         }
+    }
+
+    /** Quadro prestes a ser gravado: entrega `framePrepare` ao Flow pronto que declara o evento. */
+    framePrepare(): void {
+        if (this.wantsFramePrepare && this.flow.lifecycle === 'ready')
+            this.deliver({ type: 'framePrepare' });
+    }
+
+    /** Quadro enviado: entrega `frameRecorded` ao Flow pronto que declara o evento. */
+    frameRecorded(): void {
+        if (this.wantsFrameRecorded && this.flow.lifecycle === 'ready')
+            this.deliver({ type: 'frameRecorded' });
     }
 
     /** Entidades inseridas: atualiza os slots `entities` e entrega `entitiesChanged`. */

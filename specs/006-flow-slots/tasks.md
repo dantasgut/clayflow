@@ -145,12 +145,12 @@ nem bind group de dado consumido (verificação de T046).
 ### Peças compartilhadas
 
 - [x] T032 [P] [US5] Kernels genéricos com bindings por nome: `src/elements/gpu/compute/{PrefixSum,RadixSort,Reduce,Compaction,GraphColorer,FrameUniforms}.ts` e `src/elements/gpu/NeighborSearchPipeline.ts` recebem buffers de slot e usam o `createComputeKernel` novo; testes em `src/elements/gpu/__tests__/` atualizados; `npm run smoke -- computeKernels` verde; registrar em `src/__smokes__/README.md`
-- [ ] T033 [P] [US5] `src/elements/physics/flows/PerStepUniforms.ts`: `reserve()` deixa de invalidar kernels; o buffer cresce em transição e é religado por `rebind`; teste em `src/elements/physics/__tests__/PerStepUniforms.test.ts`
-- [ ] T034 [P] [US5] `src/elements/physics/colliders/ColliderSet.ts` como peça de slot (`slot.pools` dos colliders): mapas de dono como recursos privados reconstruídos em transição, pool de malha incluído no grupo (A6); teste em `src/elements/physics/__tests__/ColliderSet.test.ts`
+- [x] T033 [P] [US5] `src/elements/physics/flows/PerStepUniforms.ts`: `reserve()` deixa de invalidar kernels; o buffer cresce em transição e é religado por `rebind`; teste em `src/elements/physics/__tests__/PerStepUniforms.test.ts`
+- [x] T034 [P] [US5] `src/elements/physics/colliders/ColliderSet.ts` como peça de slot (`slot.pools` dos colliders): mapas de dono como recursos privados reconstruídos em transição, pool de malha incluído no grupo (A6); teste em `src/elements/physics/__tests__/ColliderSet.test.ts`
 
 ### Estágios (em ordem; cada um termina com `trajectories,render` verde)
 
-- [ ] T035 [US5] `src/elements/scene/flows/TransformFlow.ts` em slots (`slot.pool('Transform')`, `slot.pool('WorldTransform')`), redespacha em `resourceReady(Transform)` e `entitiesChanged` (corrige A6: remoção não redespachava); teste em `src/elements/scene/__tests__/TransformFlow.test.ts` com caso de remoção; `npm run smoke -- transforms,trajectories,render`
+- [x] T035 [US5] `src/elements/scene/flows/TransformFlow.ts` em slots (`slot.pool('Transform')`, `slot.pool('WorldTransform')`), redespacha em `resourceReady(Transform)` e `entitiesChanged` (corrige A6: remoção não redespachava); teste em `src/elements/scene/__tests__/TransformFlow.test.ts` com caso de remoção; `npm run smoke -- transforms,trajectories,render`
 - [ ] T036 [US5] `src/elements/physics/flows/XPBDFlow.ts` em slots (`bodies`, `constraints`, `time`, `gravity?`); corrigir o comentário de substeps (8); `src/elements/physics/__tests__/XPBDFlow.time.test.ts` com transições
 - [ ] T037 [US5] `src/elements/physics/flows/FEMFlow.ts` em slots (`bodies`, `time`, `gravity?`); `FEMFlow.time.test.ts`
 - [ ] T038 [US5] `src/elements/physics/flows/MPMFlow.ts` em slots (`bodies`, `colliders`, `material`, `time`, `gravity?`); grade recriada em `resourceReady(ParticleMaterial)` (sai a comparação de geração no `dispatch`); `MPMFlow.time.test.ts`

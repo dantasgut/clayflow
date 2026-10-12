@@ -47,6 +47,9 @@ export class FlowBinder {
                     }
                 }
             }),
+            events.on('frameComplete', () => {
+                for (const rt of this.runtimes.values()) rt.frameRecorded();
+            }),
             events.on('resourceReady', (e) => {
                 const resource = e.payload.resource;
                 for (const rt of this.runtimes.values()) {
@@ -77,6 +80,16 @@ export class FlowBinder {
     /** Reconcilia os Flows com mudanças. */
     reconcile(): void {
         for (const rt of [...this.runtimes.values()]) rt.reconcile();
+    }
+
+    /**
+     * Antes da gravação do quadro: reconcilia e entrega `framePrepare` (escritas por quadro). Uma escrita que mude
+     * fontes (ex.: `ctx.bind`) entra na reconciliação seguinte, ainda antes da gravação.
+     */
+    prepareFrame(): void {
+        this.reconcile();
+        for (const rt of [...this.runtimes.values()]) rt.framePrepare();
+        this.reconcile();
     }
 
     /** Descarta todos os runtimes e desfaz as inscrições. */

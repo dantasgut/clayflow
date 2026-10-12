@@ -2,7 +2,13 @@ import type { Frame } from '../../core/contracts/index';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
 import type { Schema } from '../descriptors/Schema';
 import type { BindingSources, BoundFlow, TransitionContext } from './FlowBinding';
-import { applyTransition, type FlowEvent, type FlowTransitions } from './FlowTransitions';
+import {
+    applyTransition,
+    tableHandles,
+    type FlowEvent,
+    type FlowEventName,
+    type FlowTransitions,
+} from './FlowTransitions';
 import type { SlotMap } from './slots';
 
 /**
@@ -16,6 +22,7 @@ export type FlowLifecycle = 'pending' | 'preparing' | 'ready' | 'disposed';
 interface FlowAccess {
     deliver(flow: Flow, event: FlowEvent, ctx: TransitionContext): void;
     setLifecycle(flow: Flow, lifecycle: FlowLifecycle): void;
+    handles(flow: Flow, event: FlowEventName): boolean;
 }
 
 let access: FlowAccess | undefined;
@@ -43,6 +50,9 @@ export abstract class Flow<TSlots extends SlotMap = SlotMap, S extends string = 
             },
             setLifecycle(flow, lifecycle) {
                 flow.#lifecycle = lifecycle;
+            },
+            handles(flow, event) {
+                return tableHandles(flow.transitions, event);
             },
         };
     }
@@ -92,4 +102,9 @@ export function deliverFlowEvent(flow: Flow, event: FlowEvent, ctx: TransitionCo
 /** Muda o ciclo de vida do Flow (C2). */
 export function setFlowLifecycle(flow: Flow, lifecycle: FlowLifecycle): void {
     access!.setLifecycle(flow, lifecycle);
+}
+
+/** A tabela do Flow declara o evento (eventos entregues só a quem os declara, como `frameRecorded`). */
+export function flowHandles(flow: Flow, event: FlowEventName): boolean {
+    return access!.handles(flow, event);
 }

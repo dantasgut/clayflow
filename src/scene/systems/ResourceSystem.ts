@@ -151,7 +151,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }),
             this.events.on('frameRecording', () => {
                 this.flushDirty();
-                this.binder.reconcile();
+                this.binder.prepareFrame();
+                // Escritas de `framePrepare` em recursos da cena (ex.: matriz da luz no ShadowMap) entram no quadro.
+                this.flushDirty();
             }),
             this.events.on('canvasReconfigured', (e) => {
                 this.resizeCanvasTextures(e.width, e.height);

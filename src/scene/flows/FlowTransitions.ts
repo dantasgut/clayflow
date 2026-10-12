@@ -16,6 +16,10 @@ import type { EntityId } from '../world/EntityId';
  * - `canvasReconfigured`: o canvas mudou de tamanho (Flows com slot `target`).
  * - `poolReallocated`: um pool de um slot do Flow foi recriado (crescimento).
  * - `resourceReady`: um Resource de um schema de `listens` foi alocado ou enviado.
+ * - `framePrepare`: o quadro vai ser gravado (dados enviados, slots e bind groups reconciliados) — momento das
+ *   escritas por quadro de uniforms privados (parâmetros por passo, contagens). Entregue só a quem o declara.
+ * - `frameRecorded`: o quadro em que o Flow gravou foi enviado — entregue só aos Flows cuja tabela declara o evento
+ *   (ex.: um estágio reativo que volta a "limpo" depois de gravar o trabalho pendente).
  */
 export type FlowEvent =
     | { readonly type: 'slotsResolved' }
@@ -36,7 +40,9 @@ export type FlowEvent =
       }
     | { readonly type: 'canvasReconfigured'; readonly width: number; readonly height: number }
     | { readonly type: 'poolReallocated'; readonly poolKey: string }
-    | { readonly type: 'resourceReady'; readonly schema: Schema; readonly resource: Resource };
+    | { readonly type: 'resourceReady'; readonly schema: Schema; readonly resource: Resource }
+    | { readonly type: 'framePrepare' }
+    | { readonly type: 'frameRecorded' };
 
 /** Nome de um evento de Flow. */
 export type FlowEventName = FlowEvent['type'];
@@ -63,6 +69,16 @@ export type FlowTransition<S extends string, C> =
 export type FlowTransitions<S extends string, C> = Readonly<
     Partial<Record<S | '*', Readonly<Partial<Record<FlowEventName, FlowTransition<S, C>>>>>>
 >;
+
+/** A tabela declara `event` em algum estado (ou em `'*'`)? */
+export function tableHandles<S extends string, C>(
+    table: FlowTransitions<S, C>,
+    event: FlowEventName,
+): boolean {
+    return Object.values<Readonly<Partial<Record<FlowEventName, unknown>>> | undefined>(table).some(
+        (row) => row?.[event] !== undefined,
+    );
+}
 
 /** Evento sem transição a partir do estado atual. */
 export class FlowTransitionError extends Error {
