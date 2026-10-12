@@ -7,14 +7,15 @@ import type { Application } from '../app/Application';
  * Uso:
  * ```ts
  * const app = await Application.create({ canvas });
- * app.use(physicsPlugin());
  * app.use(interactionPlugin({ window }));
  * app.start();
  * ```
  *
  * Plugins built-in:
- *   - `physicsPlugin()` — registra todos os physics flows.
  *   - `interactionPlugin(opts)` — instala InteractionSystem.
+ *
+ * Os solvers de física não precisam de plugin: são registrados por factory pela aplicação e instanciados pela C2 no
+ * primeiro corpo de cada tipo (`DEFAULT_SOLVER_REGISTRATIONS`).
  *
  * Type-only cycle Application↔EnginePlugin é aceito (madge --exclude documentado).
  */

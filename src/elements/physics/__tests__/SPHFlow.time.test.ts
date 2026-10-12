@@ -62,7 +62,7 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
         expect(s.step(1 / 60)).toHaveLength(0);
         s.scene.time.resumePhysics();
         expect(countPasses(s.step(4 / 60), 'NS.find')).toBe(4);
-        expect(s.createdWhileRecording).toBe(0);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 
     it('material com outra suavização: vizinhança recriada e religada antes da gravação', async () => {
@@ -76,6 +76,6 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
         s.scene.events.on('bindGroupReplaced', (e) => replaced.push(e.pipeline));
         s.step();
         expect(replaced).toContain('sph_density');
-        expect(s.createdWhileRecording).toBe(0);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 });

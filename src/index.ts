@@ -50,9 +50,6 @@ export type {
     DeviceCapabilities,
     AdapterDescription,
     ClampedLimit,
-    ComputeKernelBinding,
-    ComputeKernelBindingType,
-    ComputeKernelBindGroup,
 } from './scene/contracts/gpu';
 
 export {

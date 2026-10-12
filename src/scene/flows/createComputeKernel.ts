@@ -1,8 +1,6 @@
 import type {
     BindGroupSpec,
     BindingLayoutEntry,
-    ComputeKernelBindGroup,
-    ComputeKernelBinding,
     ComputePipelineSpec,
     EngineCore,
     LayoutSpec,
@@ -14,12 +12,6 @@ import type { WgslModule } from '../shaders/WgslModule';
 import { LayoutInferencer } from '../systems/LayoutInferencer';
 import { bindingEntryOf, layoutEntryOf, normalizeSource } from '../systems/flowBinding/sources';
 import type { BindingSource } from './FlowBinding';
-
-export type {
-    ComputeKernelBinding,
-    ComputeKernelBindingType,
-    ComputeKernelBindGroup,
-} from '../../core/contracts/index';
 
 /**
  * Kernel de compute criado pela C2: pipeline do módulo de entrada, layouts inferidos do WGSL e bind groups ligados
@@ -63,16 +55,8 @@ export interface ComputeKernelOptions {
     /**
      * Fontes por nome de variável WGSL. Cada binding usado pela entrada precisa de uma fonte; nome que não é binding
      * usado pela entrada é erro.
-     *
-     * Forma por índice (`ComputeKernelBinding[]`): **base de migração da spec 006**, aceita só enquanto os estágios
-     * migram; sai com o último.
      */
-    readonly bindings?: Readonly<Record<string, BindingSource>> | readonly ComputeKernelBinding[];
-    /**
-     * Forma por índice com vários grupos — **base de migração da spec 006**, sai com o último estágio migrado.
-     * @deprecated Use `bindings` por nome.
-     */
-    readonly bindGroups?: readonly ComputeKernelBindGroup[];
+    readonly bindings: Readonly<Record<string, BindingSource>>;
     /** Se true, o pipeline compila em segundo plano (`core.createAsync`). */
     readonly preferAsync?: boolean;
 }
@@ -95,9 +79,7 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
             `createComputeKernel("${opts.discriminator}"): entry point '${opts.entryPoint}' não é função do módulo '${opts.shader.name}'.`,
         );
     }
-    if (opts.bindGroups !== undefined || Array.isArray(opts.bindings))
-        return createByIndex(core, opts, composed.spec);
-    const named = (opts.bindings ?? {}) as Readonly<Record<string, BindingSource>>;
+    const named = opts.bindings;
     const layout = inferencer.infer(composed, [opts.entryPoint]);
     const used = new Set<string>();
     const groups: {
@@ -193,53 +175,6 @@ function createPipeline(
     if (opts.preferAsync === true) void core.createAsync<ComputePipelineSpec>(pipeline);
     else core.create<ComputePipelineSpec>(pipeline);
     return pipeline;
-}
-
-/** Forma por índice (base de migração da spec 006). */
-function createByIndex(
-    core: EngineCore,
-    opts: ComputeKernelOptions,
-    shaderSpec: ShaderModuleSpec,
-): ComputeKernel {
-    const groups: readonly ComputeKernelBindGroup[] = opts.bindGroups ?? [
-        { bindings: opts.bindings as readonly ComputeKernelBinding[] },
-    ];
-    const single = groups.length === 1;
-    const layouts: LayoutSpec[] = groups.map((g, i) =>
-        core.create<LayoutSpec>({
-            kind: 'layout',
-            discriminator: layoutDiscriminator(opts.discriminator, i, single),
-            entries: g.bindings.map((b) => ({
-                binding: b.binding,
-                visibility: GPUShaderStage.COMPUTE,
-                kind: 'buffer' as const,
-                type: b.type,
-                ...(b.hasDynamicOffset === true ? { hasDynamicOffset: true } : {}),
-            })),
-        }),
-    );
-    const pipeline = createPipeline(core, opts, shaderSpec, layouts);
-    const bindGroups: BindGroupSpec[] = groups.map((g, i) =>
-        core.create<BindGroupSpec>({
-            kind: 'bindgroup',
-            discriminator: bgDiscriminator(opts.discriminator, i, single),
-            layout: layouts[i]!,
-            bindings: g.bindings.map((b) => ({
-                binding: b.binding,
-                kind: 'buffer' as const,
-                buffer: b.buffer,
-                ...(b.size !== undefined ? { size: b.size } : {}),
-            })),
-        }),
-    );
-    return {
-        pipeline,
-        bindGroup: bindGroups[0]!,
-        layout: layouts[0]!,
-        bindGroups,
-        layouts,
-        dynamic: groups.map((g) => g.bindings.some((b) => b.hasDynamicOffset === true)),
-    };
 }
 
 function layoutDiscriminator(prefix: string, idx: number, single: boolean): string {

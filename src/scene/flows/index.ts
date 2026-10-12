@@ -58,9 +58,4 @@ export type {
 export { FlowBindingError } from './FlowBindingError';
 export type { FlowBindingErrorDetails } from './FlowBindingError';
 export { createComputeKernel, destroyComputeKernel } from './createComputeKernel';
-export type {
-    ComputeKernel,
-    ComputeKernelOptions,
-    ComputeKernelBinding,
-    ComputeKernelBindingType,
-} from './createComputeKernel';
+export type { ComputeKernel, ComputeKernelOptions } from './createComputeKernel';

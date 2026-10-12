@@ -60,7 +60,7 @@ describe('MPMFlow — avanço governado pelo Time (slots)', () => {
         expect(s.step(1 / 60)).toHaveLength(0);
         s.scene.time.resumePhysics();
         s.step(2 / 60);
-        expect(s.createdWhileRecording).toBe(0);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 
     it('collider inserido depois: mapas de dono reconstruídos em transição e grupo de colliders religado', async () => {
@@ -72,7 +72,7 @@ describe('MPMFlow — avanço governado pelo Time (slots)', () => {
         s.step();
         expect(replaced).toContain('mpm_grid_update');
         expect(replaced).toContain('mpm_particle_collision');
-        expect(s.createdWhileRecording).toBe(0);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 
     it('material com outra grade: grade recriada e religada antes da gravação', async () => {
@@ -86,6 +86,6 @@ describe('MPMFlow — avanço governado pelo Time (slots)', () => {
         s.scene.events.on('bindGroupReplaced', (e) => replaced.push(e.pipeline));
         s.step();
         expect(replaced).toContain('mpm_clear_grid');
-        expect(s.createdWhileRecording).toBe(0);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 });

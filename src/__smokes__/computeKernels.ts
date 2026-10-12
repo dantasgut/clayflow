@@ -518,11 +518,7 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
         discriminator: 'ck_fixed_sum',
         shader: module,
         entryPoint: 'fp_main',
-        bindings: [
-            { binding: 0, type: 'read-only-storage', buffer: input },
-            { binding: 1, type: 'storage', buffer: out },
-            { binding: 2, type: 'storage', buffer: sum },
-        ],
+        bindings: { fp_in: input, fp_out: out, fp_sum: sum },
     });
     app.core.record('ck-fixed', (frame) => {
         frame.compute('ck.fixed', (pass) => {

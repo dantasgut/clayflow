@@ -50,13 +50,16 @@ describe('ColliderSet', () => {
         expect(s.set.totalCount).toBe(3);
     });
 
-    it('pools ausentes recebem buffers mínimos; bindings do grupo 2 sempre válidos', () => {
+    it('pools ausentes recebem buffers mínimos; fontes do grupo de colliders sempre válidas', () => {
         const s = setup();
         s.set.refresh();
-        const b = s.set.bindings();
-        expect(b.map((x) => x.binding)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-        expect(b[0]!.type).toBe('uniform');
-        expect(b.slice(1).every((x) => x.type === 'read-only-storage')).toBe(true);
+        const src = s.set.sources() as Record<string, { subkind?: string }>;
+        expect(src.collider_counts!.subkind).toBe('uniform');
+        expect(
+            Object.entries(src)
+                .filter(([k]) => k !== 'collider_counts')
+                .every(([, v]) => v.subkind === 'storage'),
+        ).toBe(true);
         expect(s.set.pool('PlaneCollider').count).toBe(0);
         expect(s.set.pool('PlaneCollider').buffer.byteSize).toBeGreaterThanOrEqual(
             PlaneCollider.schema.stride,
@@ -70,7 +73,7 @@ describe('ColliderSet', () => {
         s.world.insert(new SphereCollider({ radius: 1 }));
         s.world.insert(new SphereCollider({ radius: 2 }));
         s.set.refresh();
-        const counts = s.set.bindings()[0]!.buffer;
+        const counts = s.set.sources().collider_counts;
         expect(lastU32(s.writes, counts as StorageBufferSpec)).toEqual([1, 0, 2, 0]);
     });
 
@@ -108,7 +111,7 @@ describe('ColliderSet', () => {
     it('destroy libera mapas, buffers mínimos e contagens', () => {
         const s = setup();
         s.set.refresh();
-        const created = s.set.bindings().map((b) => b.buffer);
+        const created = Object.values(s.set.sources()) as StorageBufferSpec[];
         s.set.destroy();
         for (const spec of created.filter((b) => b.discriminator?.startsWith('test_colliders'))) {
             expect(s.core.destroy).toHaveBeenCalledWith(spec);

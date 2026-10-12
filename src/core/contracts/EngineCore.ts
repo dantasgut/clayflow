@@ -39,48 +39,6 @@ export interface MemoryUsageReport {
 }
 
 /**
- * Tipo de binding GPU para compute kernels. Mapeia direto para
- * `GPUBindGroupLayoutEntry.buffer.type` no WebGPU.
- *   - `uniform`: UBO read-only no shader (`var<uniform>`).
- *   - `storage`: SSBO read-write (`var<storage, read_write>`).
- *   - `read-only-storage`: SSBO read-only (`var<storage, read>`).
- */
-export type ComputeKernelBindingType = 'uniform' | 'storage' | 'read-only-storage';
-
-/**
- * Configuração de um único binding dentro de um bindgroup. Cada binding
- * corresponde a `@binding(N)` no shader WGSL.
- */
-export interface ComputeKernelBinding {
-    /** Slot do binding dentro do bindgroup (`@binding(N)` no WGSL). */
-    readonly binding: number;
-    /** Tipo do binding — controla layout e visibilidade no shader. */
-    readonly type: ComputeKernelBindingType;
-    /**
-     * Buffer concreto que ocupa este slot. Além de uniform e storage, aceita buffers de vértice, índice e indireto
-     * (criados com `STORAGE`): um kernel pode produzir geometria ou argumentos de desenho usados pelo render no mesmo
-     * quadro. Staging não é ligável.
-     */
-    readonly buffer: Exclude<AnyBufferSpec, StagingBufferSpec>;
-    /**
-     * Binding com offset dinâmico: o offset é informado a cada `setBindGroup(i, bg, [offset])` (ex.: uma região
-     * de parâmetros por iteração). Exige `size`. Default false.
-     */
-    readonly hasDynamicOffset?: boolean;
-    /** Bytes visíveis pelo shader a partir do offset. Default: o buffer inteiro. */
-    readonly size?: number;
-}
-
-/**
- * Bindgroup config para multi-set kernels. Cada `ComputeKernelBindGroup` vira
- * um GPU bindgroup separado no slot correspondente do pipeline (group 0, 1, ...).
- */
-export interface ComputeKernelBindGroup {
-    /** Bindings dentro deste bindgroup (slots `@binding(0)`, `@binding(1)`...). */
-    readonly bindings: readonly ComputeKernelBinding[];
-}
-
-/**
  * Opções de configuração do canvas swapchain. Aplicadas em `initialize()`
  * e `reconfigureCanvas()` via `GPUCanvasContext.configure()`.
  */

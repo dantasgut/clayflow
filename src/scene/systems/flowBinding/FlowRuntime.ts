@@ -329,7 +329,9 @@ export class FlowRuntime {
         group: number,
         state: PipelineState,
     ): ResolvedSource | undefined => {
-        const priv = this.privates.get(entry.name);
+        // Privado do pipeline (`pipeline:variável`) vence o privado do Flow (`variável`).
+        const priv =
+            this.privates.get(`${state.id}:${entry.name}`) ?? this.privates.get(entry.name);
         if (priv !== undefined) return normalizeSource(priv);
         const consumes = state.descriptor.consumes;
         const candidates = consumes.filter(

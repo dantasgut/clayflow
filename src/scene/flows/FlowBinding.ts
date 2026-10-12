@@ -16,7 +16,11 @@ import type { BoundSlots, SlotMap } from './slots';
  */
 export type BindingSource = ResolvedSource | BindableBufferSpec | TextureViewSpec | SamplerSpec;
 
-/** Bindings privados por nome de variável WGSL. */
+/**
+ * Bindings privados por nome de variável WGSL. A chave `variável` vale para todos os pipelines do Flow; a chave
+ * `pipeline:variável` vale só para o pipeline de id `pipeline` e vence a anterior (ex.: a mesma variável `np_params`
+ * com um buffer por variante de narrowphase).
+ */
 export type BindingSources = Readonly<Record<string, BindingSource>>;
 
 interface PreparedBase {

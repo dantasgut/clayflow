@@ -59,6 +59,6 @@ describe('PBFFlow — avanço governado pelo Time (slots)', () => {
         expect(s.step(1 / 60)).toHaveLength(0);
         s.scene.time.resumePhysics();
         expect(countPasses(s.step(3 / 60), 'PBFFlow.predict')).toBe(3);
-        expect(s.createdWhileRecording).toBe(0);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 });

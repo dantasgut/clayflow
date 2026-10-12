@@ -1,8 +1,4 @@
-import type {
-    ComputeKernelBinding,
-    EngineCore,
-    UniformBufferSpec,
-} from '../../../scene/contracts/gpu';
+import type { EngineCore, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { ResolvedSource } from '../../../scene/consumers/ConsumerResolver';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 
@@ -132,20 +128,6 @@ export class PerStepUniforms {
             buffer: this.buffer,
             size: this.schema.stride,
             dynamic: { stride: this.regionSize },
-        };
-    }
-
-    /**
-     * Entrada de bind group por índice com offset dinâmico.
-     * @deprecated Base de migração (spec 006): sai quando o último solver migrar; use `source()`.
-     */
-    binding(binding: number): ComputeKernelBinding {
-        return {
-            binding,
-            type: 'uniform',
-            buffer: this.buffer,
-            hasDynamicOffset: true,
-            size: this.schema.stride,
         };
     }
 

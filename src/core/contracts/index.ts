@@ -20,7 +20,4 @@ export type {
     DeviceLostHandler,
     MemoryUsageReport,
     MemoryUsageEntry,
-    ComputeKernelBinding,
-    ComputeKernelBindingType,
-    ComputeKernelBindGroup,
 } from './EngineCore';

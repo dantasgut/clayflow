@@ -1,6 +1,5 @@
 import type { PoolBufferSpec } from '../../../scene/contracts/PoolDirectory';
 import type {
-    ComputeKernelBinding,
     EngineCore,
     StorageBufferSpec,
     UniformBufferSpec,
@@ -168,28 +167,6 @@ export class ColliderSet {
             this.resources.poolBufferSpec(this.bodiesPoolKey)
             ?? this.empty(this.bodiesPoolKey, LCPSchema.stride)
         );
-    }
-
-    /**
-     * Bindings por índice do grupo de colliders (plano, caixa e esfera).
-     * @deprecated Base de migração (spec 006): sai quando os estágios de fluido migrarem; use `sources()`.
-     */
-    bindings(): ComputeKernelBinding[] {
-        if (this.countsBuffer === null)
-            throw new Error('ColliderSet: refresh() antes de bindings()');
-        const plane = this.pool(PlaneCollider.schema.name);
-        const box = this.pool(BoxCollider.schema.name);
-        const sphere = this.pool(SphereCollider.schema.name);
-        return [
-            { binding: 0, type: 'uniform', buffer: this.countsBuffer },
-            { binding: 1, type: 'read-only-storage', buffer: plane.buffer },
-            { binding: 2, type: 'read-only-storage', buffer: box.buffer },
-            { binding: 3, type: 'read-only-storage', buffer: sphere.buffer },
-            { binding: 4, type: 'read-only-storage', buffer: plane.owners },
-            { binding: 5, type: 'read-only-storage', buffer: box.owners },
-            { binding: 6, type: 'read-only-storage', buffer: sphere.owners },
-            { binding: 7, type: 'read-only-storage', buffer: this.bodiesBuffer() },
-        ];
     }
 
     /** Libera os buffers próprios (mapas de dono, buffers mínimos, contagens). */

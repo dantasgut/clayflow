@@ -21,7 +21,6 @@ import {
     type PresentationDefaults,
 } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
-import { autoRegisterFlows } from '../../elements/physics/flows/defaultFlows';
 import { ELEMENT_CONSUMERS } from '../../elements/consumers';
 
 /**
@@ -129,7 +128,6 @@ export class Application {
     private memoryWarningEmitted = false;
     private memoryUnsubscribe: (() => void) | null = null;
     private readonly plugins: EnginePlugin[] = [];
-    private flowAutoUnsubscribe: (() => void) | null = null;
 
     private constructor(
         options: ApplicationOptions,
@@ -147,13 +145,6 @@ export class Application {
         this.maxFramesInFlight = options.maxFramesInFlight ?? 2;
         this.loop = new GameLoop(scene.events, this.time, () => this.readyForFrame());
         this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
-
-        // Auto-registro de Flow por schema: ao inserir um body cujo schema tem
-        // factory default e ainda não há flow para ele, registra automaticamente.
-        // Registro manual prévio tem precedência (resolve !== undefined ⇒ no-op).
-        this.flowAutoUnsubscribe = scene.events.on('resourcesChanged', ({ added }) => {
-            autoRegisterFlows(added, scene.flows, scene.core, scene.world, scene.resourceSystem);
-        });
 
         const autoResize = options.autoResize ?? typeof window !== 'undefined';
         if (autoResize && typeof window !== 'undefined') {
@@ -349,10 +340,6 @@ export class Application {
         if (this.memoryUnsubscribe !== null) {
             this.memoryUnsubscribe();
             this.memoryUnsubscribe = null;
-        }
-        if (this.flowAutoUnsubscribe !== null) {
-            this.flowAutoUnsubscribe();
-            this.flowAutoUnsubscribe = null;
         }
         // Estágios padrão: registrados uma vez por cena; a última aplicação da cena os desregistra.
         const lastUser = releasePresentationDefaults(this.scene.flows);

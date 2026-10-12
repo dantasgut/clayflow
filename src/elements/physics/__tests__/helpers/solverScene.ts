@@ -10,19 +10,30 @@ import { recordingFrame, type RecordedPass } from './recordingFrame';
  * Cena real (C2) para testar um solver no modelo de slots: core falso (`create` devolve o spec, `write` registra
  * bytes, `record` grava os passes num `recordingFrame`), resolvers da C3, `Time` inserido e `step(dt)` avançando o
  * relógio como `Application.step` (`time.advance` + `frameTick`). `step` devolve os passes gravados no quadro;
- * `createdWhileRecording` conta criações feitas durante a gravação (deve ficar 0).
+ * `createdWhileRecording()` conta criações feitas durante a gravação (deve ficar 0). Acessos por função: o objeto pode
+ * ser espalhado (`{ ...s }`) sem congelar os valores.
  */
 export async function solverScene(): Promise<{
     scene: SceneContext;
     core: EngineCore;
     writes: WriteCall[];
     step(dt?: number): RecordedPass[];
-    readonly createdWhileRecording: number;
+    /** Passes e `clear` do último quadro, em ordem (`pass:<rótulo>`, `clear:<discriminator>[@offset]`). */
+    sequence(): readonly string[];
+    /** Cópias gravadas no último quadro. */
+    copies(): number;
+    /** Conteúdo devolvido por `core.readback` (padrão: buffer vazio). */
+    readbackWith(produce: (spec: unknown) => ArrayBuffer): void;
+    /** Objetos de GPU criados durante a gravação de algum quadro (deve ficar 0). */
+    createdWhileRecording(): number;
 }> {
     const writes: WriteCall[] = [];
     let recording = false;
     let createdWhileRecording = 0;
     let passes: RecordedPass[] = [];
+    let sequence: readonly string[] = [];
+    let copies = 0;
+    let produce: (spec: unknown) => ArrayBuffer = () => new ArrayBuffer(0);
     const created = (spec: unknown) => {
         if (recording) createdWhileRecording++;
         return spec;
@@ -45,7 +56,10 @@ export async function solverScene(): Promise<{
                 recording = false;
             }
             passes = rec.passes;
+            sequence = rec.sequence;
+            copies = rec.copies;
         }),
+        readback: vi.fn((spec: unknown) => Promise.resolve(produce(spec))),
         submit: vi.fn(),
         initialize: vi.fn(() => Promise.resolve()),
         reconfigureCanvas: vi.fn(),
@@ -77,8 +91,11 @@ export async function solverScene(): Promise<{
             scene.events.emit('frameTick', { dt, realDt: dt, elapsed: scene.time.elapsed, frame });
             return passes;
         },
-        get createdWhileRecording() {
-            return createdWhileRecording;
+        sequence: () => sequence,
+        copies: () => copies,
+        readbackWith(fn) {
+            produce = fn;
         },
+        createdWhileRecording: () => createdWhileRecording,
     };
 }

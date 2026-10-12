@@ -59,7 +59,7 @@ describe('XPBDFlow — avanço governado pelo Time (slots)', () => {
         s.step(1 / 60);
         const passes = s.step(4 / 60);
         expect(countPasses(passes, 'XPBDFlow.predict')).toBe(32);
-        expect(s.createdWhileRecording).toBe(0);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 
     it('restrições: o pipeline de distância é preparado quando o pool de restrições aparece (slotChanged)', async () => {
