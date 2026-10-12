@@ -15,6 +15,7 @@ import type {
     RegisterOptions,
 } from '../../../scene/flows/FlowRegistry';
 import { XPBDSoftSchema } from '../bodies/schemas/XPBDSoftSchema';
+import { FEMSchema } from '../bodies/schemas/FEMSchema';
 
 /** Constrói um Flow a partir das dependências de runtime (C1/C2). */
 export type FlowFactory = (core: EngineCore, world: World, resources: ResourceSystem) => Flow;
@@ -33,7 +34,6 @@ export const DEFAULT_FLOW_FACTORIES: ReadonlyMap<string, FlowFactory> = new Map<
     FlowFactory
 >([
     ['LCPSchema', (c, w, r) => new LCPFlow(c, w, r)],
-    ['FEMSchema', (c, w, r) => new FEMFlow(c, w, r)],
     ['MPMFluidSchema', (c, w, r) => new MPMFlow(c, w, r)],
     ['MPMSoftSchema', (c, w, r) => new MPMFlow(c, w, r, { bodyType: 'MPMSoftSchema' })],
     ['SPHSchema', (c, w, r) => new SPHFlow(c, w, r)],
@@ -55,6 +55,10 @@ export const DEFAULT_SOLVER_REGISTRATIONS: readonly SolverRegistration[] = [
     {
         factory: (ctx) => new XPBDFlow(ctx),
         options: { type: 'XPBDFlow', phase: 'physics', bodyType: XPBDSoftSchema.name, priority: 5 },
+    },
+    {
+        factory: (ctx) => new FEMFlow(ctx),
+        options: { type: 'FEMFlow', phase: 'physics', bodyType: FEMSchema.name },
     },
 ];
 

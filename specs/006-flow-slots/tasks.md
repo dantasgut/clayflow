@@ -152,7 +152,7 @@ nem bind group de dado consumido (verificação de T046).
 
 - [x] T035 [US5] `src/elements/scene/flows/TransformFlow.ts` em slots (`slot.pool('Transform')`, `slot.pool('WorldTransform')`), redespacha em `resourceReady(Transform)` e `entitiesChanged` (corrige A6: remoção não redespachava); teste em `src/elements/scene/__tests__/TransformFlow.test.ts` com caso de remoção; `npm run smoke -- transforms,trajectories,render`
 - [x] T036 [US5] `src/elements/physics/flows/XPBDFlow.ts` em slots (`bodies`, `constraints`, `time`, `gravity?`); corrigir o comentário de substeps (8); `src/elements/physics/__tests__/XPBDFlow.time.test.ts` com transições
-- [ ] T037 [US5] `src/elements/physics/flows/FEMFlow.ts` em slots (`bodies`, `time`, `gravity?`); `FEMFlow.time.test.ts`
+- [x] T037 [US5] `src/elements/physics/flows/FEMFlow.ts` em slots (`bodies`, `time`, `gravity?`); `FEMFlow.time.test.ts`
 - [ ] T038 [US5] `src/elements/physics/flows/MPMFlow.ts` em slots (`bodies`, `colliders`, `material`, `time`, `gravity?`); grade recriada em `resourceReady(ParticleMaterial)` (sai a comparação de geração no `dispatch`); `MPMFlow.time.test.ts`
 - [ ] T039 [US5] `src/elements/physics/flows/SPHFlow.ts` em slots; vizinhança e privados recriados em transição; `SPHFlow.time.test.ts`
 - [ ] T040 [US5] `src/elements/physics/flows/PBFFlow.ts` em slots; `pbf_delta` e vizinhança em transição; `PBFFlow.time.test.ts`
