@@ -1,9 +1,5 @@
-import type {
-    ComputeKernel,
-    EngineCore,
-    Frame,
-    UniformBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, UniformBufferSpec } from '../../../core/contracts/index';
+import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import type { EventBus, Unsubscribe } from '../../../scene/events/EventBus';

@@ -1,10 +1,10 @@
 import type {
-    ComputeKernel,
     ComputeKernelBinding,
     EngineCore,
     Frame,
     StorageBufferSpec,
 } from '../../../core/contracts/index';
+import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,

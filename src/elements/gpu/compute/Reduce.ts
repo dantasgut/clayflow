@@ -1,9 +1,5 @@
-import type {
-    ComputeKernel,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, StorageBufferSpec } from '../../../core/contracts/index';
+import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,

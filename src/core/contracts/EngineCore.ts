@@ -2,9 +2,6 @@ import type { DeviceCapabilities, DeviceOptions } from './DeviceOptions';
 import type { Frame } from './Frame';
 import type { FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
-import type { BindGroupSpec } from './specs/BindGroupSpec';
-import type { ComputePipelineSpec } from './specs/ComputePipelineSpec';
-import type { LayoutSpec } from './specs/LayoutSpec';
 import type { AnyBufferSpec, ResourceSpec } from './specs/ResourceSpec';
 import type { StagingBufferSpec } from './specs/StagingBufferSpec';
 import type { TextureSpec } from './specs/TextureSpec';
@@ -81,30 +78,6 @@ export interface ComputeKernelBinding {
 export interface ComputeKernelBindGroup {
     /** Bindings dentro deste bindgroup (slots `@binding(0)`, `@binding(1)`...). */
     readonly bindings: readonly ComputeKernelBinding[];
-}
-
-/**
- * Bag de specs retornado por `createComputeKernel()` (C2).
- * Inclui o pipeline + bindgroups + layouts. Use durante dispatch:
- * ```ts
- * frame.compute('MyFlow.kernel', pass => {
- *     pass.bind.setPipeline(kernel.pipeline);
- *     kernel.bindGroups.forEach((bg, i) => pass.bind.setBindGroup(i, bg));
- *     pass.dispatch.workgroups(N);
- * });
- * ```
- */
-export interface ComputeKernel {
-    /** Pipeline de compute (montado do módulo de entrada) — passe a `pass.bind.setPipeline`. */
-    readonly pipeline: ComputePipelineSpec;
-    /** Primeiro bindgroup. Atalho para casos single-set; equivale a `bindGroups[0]`. */
-    readonly bindGroup: BindGroupSpec;
-    /** Primeiro layout. Atalho equivalente a `layouts[0]`. */
-    readonly layout: LayoutSpec;
-    /** Todos os bindgroups (ordem = slot do pipeline). */
-    readonly bindGroups: readonly BindGroupSpec[];
-    /** Todos os layouts (ordem = slot do pipeline). */
-    readonly layouts: readonly LayoutSpec[];
 }
 
 /**

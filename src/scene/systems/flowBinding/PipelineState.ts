@@ -216,10 +216,9 @@ export class PipelineState {
         const token = this.token;
         this.layoutEntries = entries;
         this.sources = sources;
-        this.layoutSpecs = entries.map((list, g) =>
+        this.layoutSpecs = entries.map((list) =>
             this.core.create<LayoutSpec>({
                 kind: 'layout',
-                label: `${this.flowType}:${this.id}:g${g}`,
                 entries: list,
             }),
         );
@@ -246,9 +245,9 @@ export class PipelineState {
 
     private createBindGroup(group: number, sources: readonly ResolvedSource[]): BindGroupSpec {
         const entries = this.layout.groups[group]!.entries;
+        // Sem label nem discriminator: layouts e bind groups de mesmo conteúdo são o mesmo objeto de GPU (hash da 004).
         return this.core.create<BindGroupSpec>({
             kind: 'bindgroup',
-            label: `${this.flowType}:${this.id}:g${group}`,
             layout: this.layoutSpecs[group]!,
             bindings: sources.map((s, i) => bindingEntryOf(entries[i]!.binding, s)),
         });

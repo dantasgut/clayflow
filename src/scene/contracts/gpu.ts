@@ -5,6 +5,11 @@
 export type {
     EngineCore,
     FrameStats,
+    AdapterDescription,
+    ClampedLimit,
+    ComputeKernelBinding,
+    ComputeKernelBindingType,
+    ComputeKernelBindGroup,
     DeviceLostInfo,
     MemoryUsageReport,
     MemoryUsageEntry,

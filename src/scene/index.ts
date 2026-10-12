@@ -67,9 +67,62 @@ export { Time } from './time/Time';
 export { asEntityId } from './world/EntityId';
 export type { EntityId } from './world/EntityId';
 
-export { Flow, RenderFlow, FlowRegistry } from './flows/index';
+export {
+    Flow,
+    RenderFlow,
+    LegacyFlow,
+    LegacyRenderFlow,
+    FlowRegistry,
+    FlowRegistrationError,
+    FlowTransitionError,
+    FlowBindingError,
+    PHASE_ORDER,
+    slot,
+} from './flows/index';
 export { createComputeKernel, destroyComputeKernel } from './flows/index';
-export type { ComputeKernelOptions } from './flows/index';
+export type {
+    ComputeKernel,
+    ComputeKernelOptions,
+    FlowLifecycle,
+    RenderSlotMap,
+    RegisterOptions,
+    FlowContext,
+    FlowFactory,
+    FlowRegistration,
+    FlowAllocator,
+    FlowBindingErrorDetails,
+    SlotDeclaration,
+    SlotMap,
+    PoolSlot,
+    BodiesSlot,
+    PoolsSlot,
+    SingletonSlot,
+    EntitiesSlot,
+    TextureSlot,
+    TargetSlot,
+    TextureRef,
+    ResourceType,
+    BoundSlot,
+    BoundSlots,
+    BoundPool,
+    BoundSingleton,
+    BoundEntities,
+    EntityEntry,
+    BoundTexture,
+    BoundTarget,
+    FlowEvent,
+    FlowEventName,
+    FlowEventOf,
+    FlowTransition,
+    FlowTransitions,
+    BindingSource,
+    BindingSources,
+    BoundFlow,
+    PreparedPipeline,
+    PreparedCompute,
+    PreparedRender,
+    TransitionContext,
+} from './flows/index';
 export { wgslModule, composeWgsl, WgslCompositionError } from './shaders/index';
 export type {
     WgslModule,

@@ -45,7 +45,18 @@ export type {
     PreparedRender,
     TransitionContext,
 } from './FlowBinding';
-export { FlowRegistry } from './FlowRegistry';
+export { FlowRegistry, FlowRegistrationError } from './FlowRegistry';
+export type {
+    RegisterOptions,
+    FlowContext,
+    FlowFactory,
+    FlowRegistration,
+    FlowAllocator,
+    FlowRegistryHost,
+    PhaseEntry,
+} from './FlowRegistry';
+export { FlowBindingError } from './FlowBindingError';
+export type { FlowBindingErrorDetails } from './FlowBindingError';
 export { createComputeKernel, destroyComputeKernel } from './createComputeKernel';
 export type {
     ComputeKernel,

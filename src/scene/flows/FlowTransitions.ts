@@ -50,7 +50,11 @@ export type FlowEventOf<E extends FlowEventName> = Extract<FlowEvent, { readonly
  */
 export type FlowTransition<S extends string, C> =
     | 'ignore'
-    | { readonly to: S; readonly run?: (event: FlowEvent, ctx: C) => void };
+    | {
+          readonly to: S;
+          /** Passo da transição (sintaxe de método: o contexto é bivariante, como o `dispatch`). */
+          run?(event: FlowEvent, ctx: C): void;
+      };
 
 /**
  * Tabela de transições de um Flow: `estado → evento → destino`. A chave `'*'` vale para qualquer estado (consultada
