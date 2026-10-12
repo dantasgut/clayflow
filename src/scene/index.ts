@@ -184,6 +184,7 @@ export type {
     ProfilerStatsPayload,
     EngineErrorPayload,
     DeviceLostPayload,
+    FrameRetiredPayload,
     DeviceRecoveredPayload,
     MemoryWarningPayload,
 } from './events/index';

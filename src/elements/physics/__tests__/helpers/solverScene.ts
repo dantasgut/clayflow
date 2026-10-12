@@ -75,6 +75,7 @@ export async function solverScene(): Promise<{
         capabilities: vi.fn(defaultCapabilities),
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),
+        onFrameRetired: vi.fn(() => () => undefined),
     } as unknown as EngineCore;
     const scene = createScene({ core });
     await scene.initialize();

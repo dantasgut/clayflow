@@ -6,7 +6,7 @@
 
 # Class: FontLoader
 
-Defined in: [presentation/assets/FontLoader.ts:69](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/assets/FontLoader.ts#L69)
+Defined in: [presentation/assets/FontLoader.ts:69](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/FontLoader.ts#L69)
 
 FontLoader carrega arquivos de font (woff, ttf, otf) e gera um atlas
 de glyphs em ImageBitmap. UIFlow usa o atlas + glyph metadata para
@@ -32,7 +32,7 @@ não disponíveis (retorna LoadedFont com atlas=null).
 
 > **load**(`family`, `url`, `options?`): `Promise`\<[`LoadedFont`](../interfaces/LoadedFont.md)\>
 
-Defined in: [presentation/assets/FontLoader.ts:74](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/assets/FontLoader.ts#L74)
+Defined in: [presentation/assets/FontLoader.ts:74](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/FontLoader.ts#L74)
 
 Carrega font + gera atlas. Retorna LoadedFont mesmo se renderização
 falhar (atlas=null nesse caso) para que o app não quebre.

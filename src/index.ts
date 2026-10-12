@@ -164,6 +164,7 @@ export type {
     PoolInfo,
     FlowSuspendedPayload,
     PoolCreatedPayload,
+    FrameRetiredPayload,
     WgslModule,
     WgslModuleOptions,
     ComposedShader,

@@ -8,7 +8,7 @@
 
 > **interactionPlugin**(`options?`): `InteractionPluginInstance`
 
-Defined in: [presentation/plugins/interactionPlugin.ts:38](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/plugins/interactionPlugin.ts#L38)
+Defined in: [presentation/plugins/interactionPlugin.ts:38](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/plugins/interactionPlugin.ts#L38)
 
 Cria + attach um `InteractionSystem` ao Application. O sistema fica
 acessível via `app.interaction` (extension property; usar

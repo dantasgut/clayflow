@@ -1644,6 +1644,7 @@ classDiagram
             +bindGroupReplaced BindGroupReplacedEvent
             +frameTick FrameTickEvent
             +frameComplete FrameCompleteEvent
+            +frameRetired FrameRetiredPayload
         }
     }
 
@@ -1713,6 +1714,7 @@ classDiagram
     EventMap --> BindGroupReplacedEvent : bind group recriado
     EventMap --> FrameTickEvent : frameTick
     EventMap --> FrameCompleteEvent : frameComplete
+    EventMap --> FrameRetiredPayload : frameRetired
 ```
 
 ### Padrão bag — declaração semântica + inferência automática
@@ -4394,7 +4396,7 @@ classDiagram
     GameLoop ..> Time                  : consulta scale antes de emitir frameTick
     Flow ..> Time                      : consome via consumes ['Time'] para dt e fixedDt
 
-    GameLoop ..> EventBus              : emite frameTick
+    GameLoop ..> EventBus              : emite frameTick e escuta frameRetired
     ExecutionSystem ..> EventBus       : escuta frameTick e ReadyEvent Flow
     ExecutionSystem ..> FlowRegistry   : flowsInPhase
 
@@ -4425,6 +4427,9 @@ O loop não é mais imperativo. `GameLoop` emite `frameTick` no `EventBus`; `Exe
 GameLoop (RAF)
   → time.advance(realDt) → eventBus.emit('frameTick', { dt, realDt, elapsed, frame })
     (o mesmo avanço de app.step(dt) sem laço)
+  → sem espaço na GPU (framesInFlight ≥ maxFramesInFlight): não pede RAF; espera
+    'frameRetired' (core.onFrameRetired → C2 → evento) e só então pede o próximo —
+    um RAF que não desenha faria o navegador espaçar o seguinte
 
 ExecutionSystem.onFrameTick()
   eventBus.emit('frameRecording')  // C2: dados sujos → GPU; Flows reconciliados; framePrepare entregue

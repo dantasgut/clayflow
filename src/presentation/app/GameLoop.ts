@@ -1,4 +1,4 @@
-import type { EventBus } from '../../scene/events/EventBus';
+import type { EventBus, Unsubscribe } from '../../scene/events/EventBus';
 import type { Time } from '../../scene/time/Time';
 
 function now(): number {
@@ -11,13 +11,19 @@ function now(): number {
  * e, em seguida, `frameTick { dt, realDt, elapsed, frame }`. Não há teto de `dt` aqui: o `Time` limita o quadro a
  * `maxFrameDt` e a física a `maxStepsPerFrame`.
  *
- * Ritmo (research R18): um tick só avança quando `canAdvance()` permite (há espaço para mais um quadro na GPU);
- * senão espera o próximo RAF sem mover a marca de tempo — o `realDt` seguinte inclui a espera e o acumulador do
- * `Time` compensa até o teto.
+ * Ritmo (research R18): um tick só avança quando `canAdvance()` permite (há espaço para mais um quadro na GPU).
+ * Sem espaço, o laço não pede outro RAF: espera o evento `frameRetired` (um quadro terminou na GPU) e só então pede
+ * o RAF seguinte. Um RAF que não desenha faz o navegador espaçar o próximo (sem vsync, ~1/60 s), então esperar
+ * pelo evento é o que mantém o ritmo da GPU. A marca de tempo não se move na espera — o `realDt` seguinte a inclui
+ * e o acumulador do `Time` compensa até o teto.
  */
 export class GameLoop {
     private rafId: number | null = null;
     private last = 0;
+    private running = false;
+    /** Tick recusado por falta de espaço na GPU; o próximo RAF sai no `frameRetired`. */
+    private waitingForGpu = false;
+    private unsubscribeRetired: Unsubscribe | null = null;
 
     constructor(
         private readonly events: EventBus,
@@ -39,33 +45,51 @@ export class GameLoop {
 
     /** Inicia o laço (RAF). No-op se já rodando. */
     start(): void {
-        if (this.rafId !== null) return;
+        if (this.running) return;
+        this.running = true;
+        this.waitingForGpu = false;
         this.last = now();
-        const tick = (): void => {
-            if (!this.canAdvance()) {
-                // GPU ainda ocupada com os quadros anteriores: não acumula mais um.
-                this.rafId = requestAnimationFrame(tick);
-                return;
-            }
-            const t = now();
-            const realDt = Math.max(0, (t - this.last) / 1000);
-            this.last = t;
-            this.advance(realDt);
-            // `stop()` chamado por um ouvinte do quadro encerra o laço.
-            if (this.rafId !== null) this.rafId = requestAnimationFrame(tick);
-        };
-        this.rafId = requestAnimationFrame(tick);
+        this.unsubscribeRetired = this.events.on('frameRetired', () => {
+            if (!this.running || !this.waitingForGpu || !this.canAdvance()) return;
+            this.waitingForGpu = false;
+            this.schedule();
+        });
+        this.schedule();
     }
 
-    /** Cancela o RAF agendado. No-op se não rodando. */
+    /** Cancela o RAF agendado e a espera pela GPU. No-op se não rodando. */
     stop(): void {
-        if (this.rafId === null) return;
-        cancelAnimationFrame(this.rafId);
+        if (!this.running) return;
+        this.running = false;
+        this.waitingForGpu = false;
+        this.unsubscribeRetired?.();
+        this.unsubscribeRetired = null;
+        if (this.rafId !== null) cancelAnimationFrame(this.rafId);
         this.rafId = null;
     }
 
-    /** True se o laço está ativo (RAF agendado). */
+    /** True se o laço está ativo (RAF agendado ou esperando espaço na GPU). */
     isRunning(): boolean {
-        return this.rafId !== null;
+        return this.running;
     }
+
+    private schedule(): void {
+        this.rafId = requestAnimationFrame(this.tick);
+    }
+
+    private readonly tick = (): void => {
+        this.rafId = null;
+        if (!this.running) return;
+        if (!this.canAdvance()) {
+            // GPU ainda ocupada com os quadros anteriores: não acumula mais um nem gasta RAF sem desenhar.
+            this.waitingForGpu = true;
+            return;
+        }
+        const t = now();
+        const realDt = Math.max(0, (t - this.last) / 1000);
+        this.last = t;
+        this.advance(realDt);
+        // `stop()` chamado por um ouvinte do quadro encerra o laço.
+        if (this.isRunning()) this.schedule();
+    };
 }

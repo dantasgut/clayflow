@@ -218,6 +218,12 @@ export interface EngineCore {
      * zeram a contagem.
      */
     framesInFlight(): number;
+    /**
+     * Registra handler chamado quando a contagem de `framesInFlight()` cai: um quadro submetido terminou na GPU, ou
+     * a contagem foi zerada (device perdido, `shutdown`). Recebe a contagem nova. Quem espera espaço na GPU reage a
+     * isto em vez de consultar a contagem a cada quadro. Retorna função de unsubscribe.
+     */
+    onFrameRetired(handler: (framesInFlight: number) => void): () => void;
 
     /**
      * Wrap um body em error scope GPU. Erros (validation/oom/internal) viram

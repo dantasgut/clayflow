@@ -6,7 +6,7 @@
 
 # Interface: ForwardSlots
 
-Defined in: [presentation/flows/ForwardFlow.ts:63](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L63)
+Defined in: [presentation/flows/ForwardFlow.ts:64](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L64)
 
 Slots do render principal.
 
@@ -24,7 +24,7 @@ Slots do render principal.
 
 > `readonly` **camera**: `SingletonSlot`\<`false`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:65](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L65)
+Defined in: [presentation/flows/ForwardFlow.ts:66](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L66)
 
 Câmera ativa (grupo 0, enviada pela C2 quando muda).
 
@@ -34,7 +34,7 @@ Câmera ativa (grupo 0, enviada pela C2 quando muda).
 
 > `readonly` **caster**: `SingletonSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:71](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L71)
+Defined in: [presentation/flows/ForwardFlow.ts:72](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L72)
 
 `ShadowMap` da luz que projeta sombra (opcional; sem ele, `shadowEnabled = 0`).
 
@@ -44,7 +44,7 @@ Defined in: [presentation/flows/ForwardFlow.ts:71](https://github.com/dantasgut/
 
 > `readonly` **renderables**: `EntitiesSlot`
 
-Defined in: [presentation/flows/ForwardFlow.ts:69](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L69)
+Defined in: [presentation/flows/ForwardFlow.ts:70](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L70)
 
 Entidades desenhadas: geometria + material + transform.
 
@@ -54,7 +54,7 @@ Entidades desenhadas: geometria + material + transform.
 
 > `readonly` **shadowMaps**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:75](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L75)
+Defined in: [presentation/flows/ForwardFlow.ts:76](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L76)
 
 Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster; opcional).
 
@@ -64,7 +64,7 @@ Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster; opcional).
 
 > `readonly` **shadowTexture**: `TextureSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:73](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L73)
+Defined in: [presentation/flows/ForwardFlow.ts:74](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L74)
 
 Textura de profundidade do caster (opcional).
 
@@ -74,7 +74,7 @@ Textura de profundidade do caster (opcional).
 
 > `readonly` **target**: `TargetSlot`
 
-Defined in: [presentation/flows/ForwardFlow.ts:77](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L77)
+Defined in: [presentation/flows/ForwardFlow.ts:78](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L78)
 
 Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`.
 
@@ -84,6 +84,6 @@ Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`.
 
 > `readonly` **world**: `PoolSlot`\<`false`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:67](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L67)
+Defined in: [presentation/flows/ForwardFlow.ts:68](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L68)
 
 Pool `WorldTransform` (grupo 1, matriz de mundo pelo slot da entidade).

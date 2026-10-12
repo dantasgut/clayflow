@@ -231,7 +231,7 @@ export class Application {
         this.loop.stop();
     }
 
-    /** True se o GameLoop está ativo (RAF agendado). */
+    /** True se o GameLoop está ativo (RAF agendado ou esperando espaço na GPU). */
     isRunning(): boolean {
         return this.loop.isRunning();
     }

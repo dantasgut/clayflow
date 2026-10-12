@@ -66,6 +66,7 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
         capabilities: vi.fn(defaultCapabilities),
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),
+        onFrameRetired: vi.fn(() => () => undefined),
     } as unknown as EngineCore;
     return { core, trace };
 }

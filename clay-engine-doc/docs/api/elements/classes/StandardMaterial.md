@@ -6,7 +6,7 @@
 
 # Class: StandardMaterial
 
-Defined in: [elements/material/StandardMaterial.ts:11](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/material/StandardMaterial.ts#L11)
+Defined in: [elements/material/StandardMaterial.ts:11](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/material/StandardMaterial.ts#L11)
 
 Material PBR padrão — albedo + metallic-roughness. Renderizado pelo
 `forward.wgsl` (BRDF Cook-Torrance simplificado).
@@ -21,7 +21,7 @@ Material PBR padrão — albedo + metallic-roughness. Renderizado pelo
 
 > **new StandardMaterial**(`values?`): `StandardMaterial`
 
-Defined in: [elements/material/StandardMaterial.ts:15](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/material/StandardMaterial.ts#L15)
+Defined in: [elements/material/StandardMaterial.ts:15](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/material/StandardMaterial.ts#L15)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [elements/material/StandardMaterial.ts:15](https://github.com/dantas
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/material/Material.ts:9](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/material/Material.ts#L9)
+Defined in: [elements/material/Material.ts:9](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/material/Material.ts#L9)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -59,7 +59,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/material/Material.ts:8](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/material/Material.ts#L8)
+Defined in: [elements/material/Material.ts:8](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/material/Material.ts#L8)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -73,7 +73,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema` = `StandardMaterialSchema`
 
-Defined in: [elements/material/StandardMaterial.ts:13](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/material/StandardMaterial.ts#L13)
+Defined in: [elements/material/StandardMaterial.ts:13](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/material/StandardMaterial.ts#L13)
 
 StructSchema do StandardMaterial (albedo + roughness + metallic).
 
@@ -85,7 +85,7 @@ StructSchema do StandardMaterial (albedo + roughness + metallic).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -104,7 +104,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -129,7 +129,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/material/StandardMaterial.ts:24](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/material/StandardMaterial.ts#L24)
+Defined in: [elements/material/StandardMaterial.ts:24](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/material/StandardMaterial.ts#L24)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -150,7 +150,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/material/StandardMaterial.ts:30](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/material/StandardMaterial.ts#L30)
+Defined in: [elements/material/StandardMaterial.ts:30](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/material/StandardMaterial.ts#L30)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

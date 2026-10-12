@@ -6,7 +6,7 @@
 
 # Interface: GraphColorerOptions
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:57](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/GraphColorer.ts#L57)
+Defined in: [elements/gpu/compute/GraphColorer.ts:57](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L57)
 
 Opções de `GraphColorer`.
 
@@ -16,7 +16,7 @@ Opções de `GraphColorer`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:61](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/GraphColorer.ts#L61)
+Defined in: [elements/gpu/compute/GraphColorer.ts:61](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L61)
 
 Maior número de arestas aceito por `color`.
 
@@ -26,7 +26,7 @@ Maior número de arestas aceito por `color`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:59](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/GraphColorer.ts#L59)
+Defined in: [elements/gpu/compute/GraphColorer.ts:59](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L59)
 
 Prefixo único dos recursos da instância.
 
@@ -36,6 +36,6 @@ Prefixo único dos recursos da instância.
 
 > `readonly` `optional` **maxColors?**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:63](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/GraphColorer.ts#L63)
+Defined in: [elements/gpu/compute/GraphColorer.ts:63](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L63)
 
 Teto de cores; padrão `2Δ` (Δ = grau máximo, calculado na GPU).

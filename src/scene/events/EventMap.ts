@@ -135,6 +135,16 @@ export interface DeviceLostPayload {
 }
 
 /**
+ * Payload do evento `frameRetired` — emitido quando um quadro submetido termina na GPU (ou a contagem é zerada
+ * por device perdido/`shutdown`). Quem espera espaço na GPU (`GameLoop`, laços externos) reage a isto em vez de
+ * consultar `framesInFlight` a cada quadro de vídeo.
+ */
+export interface FrameRetiredPayload {
+    /** Quadros ainda em execução na GPU depois desta conclusão. */
+    readonly framesInFlight: number;
+}
+
+/**
  * Payload do evento `deviceRecovered` — emitido por `Application.requestNewDevice()`
  * após recriar device e reattach canvas. Sistemas reativos (ResourceSystem,
  * Flows) devem reconstruir buffers/pipelines.
@@ -194,6 +204,8 @@ export interface EventMap {
     frameRecording: FrameRecordingEvent;
     /** ExecutionSystem emite após record+submit — fim do frame. */
     frameComplete: FrameCompleteEvent;
+    /** Core emite quando um quadro submetido termina na GPU — há espaço para mais um. */
+    frameRetired: FrameRetiredPayload;
     /** Application emite após resize do canvas — flows recriam textures. */
     canvasReconfigured: CanvasReconfiguredPayload;
     /** World emite quando entidades são inseridas — flows atualizam seus conjuntos de entidades. */

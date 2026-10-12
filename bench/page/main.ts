@@ -122,6 +122,7 @@ async function run(): Promise<void> {
     });
     sampler.start();
     for (;;) {
+        await adapter.readyForFrame?.(handle);
         await nextFrame();
         const phase = sampler.record(adapter.frame(handle, impl, DT));
         if (phase === 'timeout') {

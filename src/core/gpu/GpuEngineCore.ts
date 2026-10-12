@@ -136,6 +136,7 @@ export class GpuEngineCore implements EngineCore {
     /** Submits ainda em execução na GPU; a geração descarta conclusões de um device anterior. */
     private inFlight = 0;
     private inFlightGeneration = 0;
+    private readonly frameRetiredHandlers = new Set<(framesInFlight: number) => void>();
     /** Opções da última inicialização — reaplicadas em recuperação e reconfiguração. */
     private canvasOptions: CanvasOptions | undefined;
     private deviceOptions: DeviceOptions | undefined;
@@ -415,8 +416,9 @@ export class GpuEngineCore implements EngineCore {
         const generation = this.inFlightGeneration;
         ctx.queue.onSubmittedWorkDone().then(
             () => {
-                if (generation === this.inFlightGeneration)
-                    this.inFlight = Math.max(0, this.inFlight - 1);
+                if (generation !== this.inFlightGeneration) return;
+                this.inFlight = Math.max(0, this.inFlight - 1);
+                this.notifyFrameRetired();
             },
             () => undefined,
         );
@@ -435,10 +437,23 @@ export class GpuEngineCore implements EngineCore {
         return this.inFlight;
     }
 
-    /** Esquece os submits pendentes (device trocado ou destruído). */
+    onFrameRetired(handler: (framesInFlight: number) => void): () => void {
+        this.frameRetiredHandlers.add(handler);
+        return () => {
+            this.frameRetiredHandlers.delete(handler);
+        };
+    }
+
+    private notifyFrameRetired(): void {
+        for (const handler of this.frameRetiredHandlers) handler(this.inFlight);
+    }
+
+    /** Esquece os submits pendentes (device trocado ou destruído); quem esperava espaço na GPU é avisado. */
     private resetInFlight(): void {
+        const had = this.inFlight;
         this.inFlight = 0;
         this.inFlightGeneration++;
+        if (had > 0) this.notifyFrameRetired();
     }
 
     async withErrorScope<T>(filter: GPUErrorFilter, body: () => T | Promise<T>): Promise<T> {

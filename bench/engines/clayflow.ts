@@ -155,6 +155,17 @@ export function createClayflowAdapter(options: {
                 memory: 'exact',
             };
         },
+        readyForFrame(handle) {
+            const app = handle.app;
+            if (app.readyForFrame()) return Promise.resolve();
+            return new Promise((resolve) => {
+                const off = app.events.on('frameRetired', () => {
+                    if (!app.readyForFrame()) return;
+                    off();
+                    resolve();
+                });
+            });
+        },
         frame(handle, scene: SceneImplementation<ClayflowHandle>, dtSeconds): FrameSample | null {
             // Mesmo ritmo do laço: com a GPU sem espaço para mais um quadro, espera o próximo tick.
             if (!handle.app.readyForFrame()) return null;

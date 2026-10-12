@@ -90,6 +90,9 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
     const unsubscribeDeviceLost = core.onDeviceLost((info) => {
         events.emit('deviceLost', { reason: info.reason, message: info.message });
     });
+    const unsubscribeFrameRetired = core.onFrameRetired((framesInFlight) => {
+        events.emit('frameRetired', { framesInFlight });
+    });
 
     let disposed = false;
     return {
@@ -113,6 +116,7 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
             executionSystem.dispose();
             resourceSystem.dispose();
             unsubscribeDeviceLost();
+            unsubscribeFrameRetired();
             core.shutdown();
         },
     };
