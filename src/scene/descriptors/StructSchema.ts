@@ -12,20 +12,27 @@ import { Schema } from './Schema';
 
 /** Array de tamanho fixo `array<E, N>`. */
 export interface ArrayFieldSpec {
+    /** Discriminador do campo composto. */
     readonly kind: 'array';
+    /** Tipo de cada elemento. */
     readonly element: FieldSpec;
+    /** Número de elementos (≥ 1). */
     readonly length: number;
 }
 
 /** Array de tamanho definido em execução `array<E>` — só como último campo e só em storage. */
 export interface RuntimeArrayFieldSpec {
+    /** Discriminador do campo composto. */
     readonly kind: 'runtimeArray';
+    /** Tipo de cada elemento. */
     readonly element: FieldSpec;
 }
 
 /** Struct aninhado, pelo seu schema. */
 export interface StructFieldSpec {
+    /** Discriminador do campo composto. */
     readonly kind: 'struct';
+    /** Schema do struct aninhado (entra nas dependências do schema que o contém). */
     readonly schema: StructSchema;
 }
 

@@ -6,7 +6,7 @@
 
 # Class: ParametricGeometry
 
-Defined in: [elements/geometry/ParametricGeometry.ts:26](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/ParametricGeometry.ts#L26)
+Defined in: [elements/geometry/ParametricGeometry.ts:26](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/ParametricGeometry.ts#L26)
 
 ParametricGeometry gera uma malha tessellated a partir de uma função
 paramétrica `f(u, v) → [x, y, z]`. Útil para superfícies matemáticas
@@ -30,7 +30,7 @@ shading correto devem post-processar com derivada cross-product.
 
 > **new ParametricGeometry**(`values?`): `ParametricGeometry`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/ParametricGeometry.ts#L36)
+Defined in: [elements/geometry/ParametricGeometry.ts:36](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/ParametricGeometry.ts#L36)
 
 #### Parameters
 
@@ -52,7 +52,7 @@ Defined in: [elements/geometry/ParametricGeometry.ts:36](https://github.com/dant
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L17)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/Geometry.ts#L17)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -68,7 +68,7 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L16)
+Defined in: [elements/geometry/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/Geometry.ts#L16)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -82,7 +82,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema` = `ParametricGeometry.vertexStruct`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:34](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/ParametricGeometry.ts#L34)
+Defined in: [elements/geometry/ParametricGeometry.ts:34](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/ParametricGeometry.ts#L34)
 
 Alias para vertexStruct — Schema interface comum.
 
@@ -92,7 +92,7 @@ Alias para vertexStruct — Schema interface comum.
 
 > `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:28](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/ParametricGeometry.ts#L28)
+Defined in: [elements/geometry/ParametricGeometry.ts:28](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/ParametricGeometry.ts#L28)
 
 Vertex layout: position (vec3) + normal (vec3) + uv (vec2).
 
@@ -104,7 +104,7 @@ Vertex layout: position (vec3) + normal (vec3) + uv (vec2).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -125,7 +125,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:72](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/ParametricGeometry.ts#L72)
+Defined in: [elements/geometry/ParametricGeometry.ts:72](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/ParametricGeometry.ts#L72)
 
 Número total de índices (= uSteps × vSteps × 6, 2 triangles por quad).
 
@@ -145,7 +145,7 @@ Número total de índices (= uSteps × vSteps × 6, 2 triangles por quad).
 
 > **get** **indexFormat**(): `GPUIndexFormat`
 
-Defined in: [elements/geometry/Geometry.ts:31](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L31)
+Defined in: [elements/geometry/Geometry.ts:31](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/Geometry.ts#L31)
 
 Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint32'`).
 
@@ -165,7 +165,7 @@ Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:68](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/ParametricGeometry.ts#L68)
+Defined in: [elements/geometry/ParametricGeometry.ts:68](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/ParametricGeometry.ts#L68)
 
 Número total de vértices (= (uSteps+1) × (vSteps+1)).
 
@@ -183,7 +183,7 @@ Número total de vértices (= (uSteps+1) × (vSteps+1)).
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -208,7 +208,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/ParametricGeometry.ts:55](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/ParametricGeometry.ts#L55)
+Defined in: [elements/geometry/ParametricGeometry.ts:55](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/ParametricGeometry.ts#L55)
 
 Declara VBO (vertex buffer) + IBO (index buffer) para o ResourceSystem.
 
@@ -226,7 +226,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:21](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L21)
+Defined in: [elements/geometry/Geometry.ts:21](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/Geometry.ts#L21)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -246,7 +246,7 @@ readonly `PipelineDescriptor`[]
 
 > `protected` `static` **indexArray**(`indices`, `vertexCount`): `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:39](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/geometry/Geometry.ts#L39)
+Defined in: [elements/geometry/Geometry.ts:39](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/geometry/Geometry.ts#L39)
 
 Array de índices no menor formato que endereça `vertexCount` vértices: `Uint16Array` até 65 535 vértices,
 `Uint32Array` acima.

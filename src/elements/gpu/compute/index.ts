@@ -10,7 +10,12 @@ export type { CompactionOptions, CompactionRecordArgs } from './Compaction';
 export { Reduce, reduceLevelCounts } from './Reduce';
 export type { ReduceOptions, ReduceRecordArgs } from './Reduce';
 export { GraphColorer, verifyEdgeColoring } from './GraphColorer';
-export type { GraphColoring, GraphColorerOptions } from './GraphColorer';
+export type {
+    ColorRangeCpu,
+    EdgeColoringVerdict,
+    GraphColoring,
+    GraphColorerOptions,
+} from './GraphColorer';
 export { reduceOp, compactionModules } from './shaders';
 export type { ReduceOpName, ReduceType, CompactionModules } from './shaders';
 export { AtomicAllocCounterSchema, ColorRangeSchema, ScanLevelSchema } from './schemas';

@@ -6,7 +6,7 @@
 
 # Interface: SoftBodyDomainOptions
 
-Defined in: [elements/physics/bodies/SoftBody.ts:20](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/SoftBody.ts#L20)
+Defined in: [elements/physics/bodies/SoftBody.ts:22](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/bodies/SoftBody.ts#L22)
 
 Opções de domínio do SoftBody — uma partícula deformável (um nó do corpo;
 o corpo completo é composto por N partículas + constraints). O algoritmo
@@ -18,9 +18,10 @@ seleciona o schema; `pos.w` carrega o inverso da massa.
 
 > `readonly` **algorithm**: [`SoftBodyAlgorithm`](../type-aliases/SoftBodyAlgorithm.md)
 
-Defined in: [elements/physics/bodies/SoftBody.ts:22](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/SoftBody.ts#L22)
+Defined in: [elements/physics/bodies/SoftBody.ts:27](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/bodies/SoftBody.ts#L27)
 
-Seleciona o schema/flow integrador (XPBD ou FEM).
+Seleciona o schema/flow integrador: XPBD, FEM ou MPM (sólido elástico; massa, volume e rigidez vêm do
+`ParticleMaterial` da cena).
 
 ***
 
@@ -28,9 +29,9 @@ Seleciona o schema/flow integrador (XPBD ou FEM).
 
 > `readonly` `optional` **mass?**: `number`
 
-Defined in: [elements/physics/bodies/SoftBody.ts:26](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/SoftBody.ts#L26)
+Defined in: [elements/physics/bodies/SoftBody.ts:31](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/bodies/SoftBody.ts#L31)
 
-Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0).
+Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0). Ignorada no MPM (massa do material).
 
 ***
 
@@ -38,6 +39,6 @@ Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0).
 
 > `readonly` `optional` **position?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/bodies/SoftBody.ts:24](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/SoftBody.ts#L24)
+Defined in: [elements/physics/bodies/SoftBody.ts:29](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/bodies/SoftBody.ts#L29)
 
 Posição inicial da partícula (mundo). Default [0,0,0].

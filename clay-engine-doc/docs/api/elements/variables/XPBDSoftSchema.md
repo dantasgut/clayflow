@@ -8,8 +8,7 @@
 
 > `const` **XPBDSoftSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/XPBDSoftSchema.ts:9](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/schemas/XPBDSoftSchema.ts#L9)
+Defined in: [elements/physics/bodies/schemas/XPBDSoftSchema.ts:8](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/bodies/schemas/XPBDSoftSchema.ts#L8)
 
 Schema do SoftBody integrado pelo XPBDFlow soft (3 vec4f = 48B).
-Layout casa byte-a-byte com o struct WGSL `Particle` em
-`gpu/wgsl/structs/particle.wgsl` (pos.w=invMass; pred/vel reservados).
+Fonte única do struct WGSL `Particle` (gerado deste schema pela montagem dos shaders) (pos.w=invMass; pred/vel reservados).

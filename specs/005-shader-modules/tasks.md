@@ -251,57 +251,10 @@ corrigida; testes das duas correções de código.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T079 [P] Guia `clay-engine-doc/docs/guides/shaders.md` (módulos, `wgslLib`, structs gerados, kernels genéricos, erros de montagem) e link na barra lateral do Docusaurus
-- [ ] T080 [P] Notas de migração (tabela do quickstart) em `clay-engine-doc/docs/guides/migration_legacy_to_clean.md` e `getting_started.md` onde aplicável; README se citar `shaderSource`
-- [ ] T081 [P] `specs/ROADMAP.md`: §3.1 (composição WGSL ✅), §3.3 (matemática duplicada e órfãos resolvidos), §3.4 achados da 005 (XPBD sem colisão, `XPBDRigidSchema` sem solver, FEM sem solve elástico, `resolve`/`Scene.add`), D5 resolvida, status F1/005
-- [ ] T082 JSDoc em todos os exports novos; `npm run doc:coverage`; regenerar a API (`npm run doc`)
-- [ ] T083 Smokes completos no código-fonte e sobre o dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar resultados em `src/__smokes__/README.md`
+- [x] T079 [P] Guia `clay-engine-doc/docs/guides/shaders.md` (módulos, `wgslLib`, structs gerados, kernels genéricos, erros de montagem) e link na barra lateral do Docusaurus
+- [x] T080 [P] Notas de migração (tabela do quickstart) em `clay-engine-doc/docs/guides/migration_legacy_to_clean.md` e `getting_started.md` onde aplicável; README se citar `shaderSource`
+- [x] T081 [P] `specs/ROADMAP.md`: §3.1 (composição WGSL ✅), §3.3 (matemática duplicada e órfãos resolvidos), §3.4 achados da 005 (XPBD sem colisão, `XPBDRigidSchema` sem solver, FEM sem solve elástico, `resolve`/`Scene.add`), D5 resolvida, status F1/005
+- [x] T082 JSDoc em todos os exports novos; `npm run doc:coverage`; regenerar a API (`npm run doc`)
+- [x] T083 Smokes completos no código-fonte e sobre o dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar resultados em `src/__smokes__/README.md`
 - [ ] T084 `npm run bench:check` sem regressão (SC-007) com a GPU sem outra carga; registrar números abaixo deste item
-- [ ] T085 Gate completo verde: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run typecheck:bench && npm run test:coverage && npm run doc:coverage && npm run build:lib`; atualizar `Status` de `specs/005-shader-modules/spec.md`
-
----
-
-## Dependencies & Execution Order
-
-```mermaid
-graph LR
-  S[Setup T001-T005 + Fase 1b T086-T101] --> F[Foundational T006-T014]
-  F --> US1[US1 T015-T030]
-  US1 --> US2[US2 T031-T043]
-  US2 --> US3[US3 T044-T053]
-  US2 --> US4[US4 T054-T065]
-  US3 --> US5[US5 T066-T070]
-  US4 --> US5
-  F --> US6[US6 T071-T078]
-  US5 --> P[Polish T079-T085]
-  US6 --> P
-```
-
-- A Fase 1 grava as fixtures — a Fase 1b (T086–T101) corrige antes a física que nunca rodou, para que a fixture
-  registre física funcionando; fora isso, nada de WGSL muda antes da gravação (T005).
-- US1 → US2: a US2 substitui por schemas os módulos de struct que a US1 cria a partir dos arquivos atuais (T041 remove os dois).
-- US3 e US4 dependem da US2 (schemas de parâmetros e estado) e podem andar em paralelo, exceto o LCP: T046 (US3) e
-  T057 (US4) mexem em `src/elements/physics/shaders/lcp.ts` — fazer T046 antes de T057.
-- US5 depende da extração feita em US3 (`linalg`, `fem`) e US4 (`fixed_point`).
-- US6 só depende da fundação (documento e duas correções de C2/C3) e pode andar em paralelo com US1–US5.
-- Dentro de cada fase: teste antes da implementação correspondente; cada tarefa que toca WGSL fecha com
-  `trajectories,render` verdes.
-
-## Parallel Example
-
-```text
-# Fundação:
-T006 scanner testes · T008 composeWgsl testes · T010 layout testes · T011 toWGSL/packInto testes · T013 createComputeKernel testes
-# US1 após T017:
-T018 XPBD · T019 FEM · T020 MPM · T021 SPH · T022 PBF ; T025 sombra · T026 pós · T027 UI
-# US2:
-T031 corpos · T032 parâmetros · T033 estado · T034 vizinhança/transform · T035 apresentação
-# US3 e US4 (após US2):
-T044 linalg/mat · T045 sph_kernels · T048 color/brdf · T049 noise ; T054 PrefixSum testes · T058 RadixSort testes · T060 Compaction/Reduce testes
-```
-
-## Implementation Strategy
-
-- Todas as fases são implementadas, na ordem de dependência acima; nenhuma é ponto de parada.
-- Cada história tem seu teste independente; a feature só está pronta com **todas** as tarefas concluídas, trajetória e
-  imagem preservadas, o benchmark sem regressão e o gate completo verde (T083–T085).
+  - **2026-10-12 (máquina com carga externa: `completion_test` do holos-rust a ~90–100% de CPU e `mediaanalysisd` a ~97% durante os 17 min)**: gate REPROVADO só por caudas e um timeout — `instances/10k-moving` timeout; `unique-objects/1k` p99 15,71 → 23,78 ms; `rigid-bodies/10k` p95 341,05 → 383,98 ms e p99 346,55 → 529,75 ms. Médias, todas melhores: `instances/10k` CPU 88,39 → 63,88 ms, GPU 0,92 → 0,52 ms, p95 102,58 → 72,54 ms; `unique-objects/1k` CPU 7,75 → 5,28 ms, p95 14,68 → 12,05 ms; `rigid-bodies/1k` CPU 9,01 → 7,18 ms, GPU 3,16 → 1,72 ms; `rigid-bodies/10k` CPU 104,13 → 79,97 ms. `instances/10k-moving` isolado: CPU 271,74 ms (baseline 304,31), GPU 0,41 (0,93), sem timeout. **Pendente**: repetir com a máquina livre.

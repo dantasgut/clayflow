@@ -6,7 +6,7 @@
 
 # Class: FEMFlow
 
-Defined in: [elements/physics/flows/FEMFlow.ts:36](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L36)
+Defined in: [elements/physics/flows/FEMFlow.ts:33](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L33)
 
 FEMFlow — corpos macios por elementos finitos (predict + atualização de velocidade). O quadro executa
 `time.steps × substeps` iterações, cada uma com a sua região de `FEMSimParams` (`dt_sub = stepDt / substeps`,
@@ -22,7 +22,7 @@ FEMFlow — corpos macios por elementos finitos (predict + atualização de velo
 
 > **new FEMFlow**(`core`, `world`, `resources`, `options?`): `FEMFlow`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:50](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L50)
+Defined in: [elements/physics/flows/FEMFlow.ts:47](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L47)
 
 #### Parameters
 
@@ -56,7 +56,7 @@ Defined in: [elements/physics/flows/FEMFlow.ts:50](https://github.com/dantasgut/
 
 > `readonly` **bodyType**: `"FEMSchema"` = `'FEMSchema'`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:38](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L38)
+Defined in: [elements/physics/flows/FEMFlow.ts:35](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L35)
 
 Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
 para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
@@ -73,7 +73,7 @@ para encontrar o flow responsável por cada Resource.
 
 > `readonly` **phase**: `Phase` = `'physics'`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:39](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L39)
+Defined in: [elements/physics/flows/FEMFlow.ts:36](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L36)
 
 Fase do pipeline em que o flow executa.
 
@@ -87,7 +87,7 @@ Fase do pipeline em que o flow executa.
 
 > **priority**: `number` = `0`
 
-Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L46)
+Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L46)
 
 Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 Útil quando dois flows compartilham phase mas têm dependência de ordem
@@ -103,7 +103,7 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"FEMFlow"` = `'FEMFlow'`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:37](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L37)
+Defined in: [elements/physics/flows/FEMFlow.ts:34](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L34)
 
 Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
@@ -117,7 +117,7 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:167](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L167)
+Defined in: [elements/physics/flows/FEMFlow.ts:154](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L154)
 
 Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
 contém o command encoder ativo — use `frame.compute(...)` ou
@@ -143,7 +143,7 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:89](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L89)
+Defined in: [elements/physics/flows/FEMFlow.ts:84](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L84)
 
 Descarte do estágio: libera kernels e parâmetros.
 
@@ -161,7 +161,7 @@ Descarte do estágio: libera kernels e parâmetros.
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/FEMFlow.ts:67](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L67)
+Defined in: [elements/physics/flows/FEMFlow.ts:64](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L64)
 
 Retorna os descritores de pipelines GPU que este flow precisa criar
 (para introspeção arquitetural / debugging — o flow ainda materializa
@@ -181,7 +181,7 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:94](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L94)
+Defined in: [elements/physics/flows/FEMFlow.ts:89](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L89)
 
 Indica se o flow tem trabalho válido para esta frame. Default: true
 (sempre dispatch). Override para gating em prerequisites: e.g. presença
@@ -202,7 +202,7 @@ ExecutionSystem skipa flows com `isReady() === false`.
 
 > **onCanvasResized**(`_width`, `_height`): `void`
 
-Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L114)
+Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L114)
 
 Chamado quando o canvas é redimensionado. Subclasses que mantêm
 textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
@@ -234,7 +234,7 @@ para evitar use-after-free na GPU.
 
 > **onEntitiesInserted**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L94)
+Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L94)
 
 Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
 um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
@@ -260,7 +260,7 @@ readonly `number`[]
 
 > **onEntitiesRemoved**(`_entityIds`): `void`
 
-Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L103)
+Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L103)
 
 Chamado quando entidades são removidas do World. Subclasses que
 cacheiam slots por EntityId devem limpar os entries afetados para
@@ -286,7 +286,7 @@ readonly `number`[]
 
 > **onEvent**(`_event`, `_payload`): `void`
 
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L66)
+Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L66)
 
 Hook genérico de eventos. Default no-op. A maioria dos flows usa os
 hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
@@ -315,7 +315,7 @@ hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:98](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/FEMFlow.ts#L98)
+Defined in: [elements/physics/flows/FEMFlow.ts:93](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/FEMFlow.ts#L93)
 
 Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
 ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam

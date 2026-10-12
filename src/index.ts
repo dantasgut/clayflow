@@ -50,6 +50,10 @@ export type {
     DeviceCapabilities,
     AdapterDescription,
     ClampedLimit,
+    ComputeKernel,
+    ComputeKernelBinding,
+    ComputeKernelBindingType,
+    ComputeKernelBindGroup,
 } from './core/contracts/index';
 
 export {
@@ -104,6 +108,11 @@ export type {
     ComposedShader,
     WgslCompositionErrorKind,
     FieldSpec,
+    ArrayFieldSpec,
+    StructFieldSpec,
+    RuntimeArrayFieldSpec,
+    WgslSymbol,
+    WgslSymbolKind,
     StructSchemaOptions,
     AddressSpace,
     VertexLayout,

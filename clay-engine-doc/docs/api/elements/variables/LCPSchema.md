@@ -8,8 +8,7 @@
 
 > `const` **LCPSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/LCPSchema.ts:9](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/schemas/LCPSchema.ts#L9)
+Defined in: [elements/physics/bodies/schemas/LCPSchema.ts:8](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/bodies/schemas/LCPSchema.ts#L8)
 
 Schema do RigidBody integrado pelo LCPFlow (10 vec4f = 160B).
-Layout casa byte-a-byte com o struct WGSL `RigidBody` em
-`gpu/wgsl/structs/rigid_body.wgsl` consumido pelo kernel `rb_predict`.
+Fonte única do struct WGSL `RigidBody` (gerado deste schema pela montagem dos shaders) — lido pelo kernel rb_predict.

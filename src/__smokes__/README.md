@@ -38,6 +38,23 @@ são verificados por `npm run typecheck:bench`.
 | `shaderLibrary.ts`  | Spec 005: cada módulo da `wgslLib` compila sozinho num kernel de teste; valores na GPU contra referência em CPU (256 entradas por caso, erro relativo) para quat, linalg, mat (inclui decomposição polar com partida a quente), sdf, núcleos SPH, pesos MPM (partição da unidade), FEM, ruído (contra `support/noiseReference.ts`), cor, BRDF e XPBD/LCP; para cada schema do motor (40), um kernel grava sentinelas campo a campo no struct gerado e a CPU confere cada `offsetOf` (layout TS ≡ WGSL).                                                                                                                                                                                | ~1s          |
 | `computeKernels.ts` | Spec 005: kernels genéricos contra CPU — `PrefixSum` (N até 70 000 × 256 > 65 535 grupos, exclusiva/inclusiva, entrada preservada), `RadixSort` (N até 4 M; chaves aleatórias/iguais/decrescentes; 8 e 32 bits; estável), `Compaction` (50%/1%, atômica e estável, capacidade excedida sem escrita além), `Reduce` (sum/min/max × u32/i32/f32), `GraphColorer` (grade 2D, malha de tetraedros, grafo aleatório de 1 M arestas: válida, ≤ 2Δ − 1 cores, intervalos cobrem todas as arestas; laço rejeitado), `fixed_point` (1 M contribuições iguais à CPU, saturação). Medido (apple-metal-3): PrefixSum 4 M 1,9 ms; RadixSort 4 M (32 bits) 8,5 ms; 1 M arestas → 40 cores em ~50 ms. | ~9s          |
 
+## Resultados (spec 005, perfil apple-metal-3, 2026-10-12)
+
+Os 13 smokes passam no código-fonte e sobre o build minificado (`npm run build:lib && npm run smoke -- … --dist`):
+`time`, `transforms`, `integration`, `multiApp`, `limits`, `churn`, `bigMesh`, `rigidContacts`, `stress60s`,
+`trajectories` (bit a bit com as fixtures gravadas antes da migração), `render` (pixels idênticos), `shaderLibrary`,
+`computeKernels`.
+
+| Medida                              | Código-fonte    | `--dist` |
+| ----------------------------------- | --------------- | -------- |
+| `rigidContacts` 1k (GPU+CPU/quadro) | 8,4 ms          | 9,9 ms   |
+| `rigidContacts` 10k                 | 220,5 ms        | 226,3 ms |
+| `PrefixSum` 4 M                     | 1,93 ms         | —        |
+| `RadixSort` 4 M (32 bits)           | 8,98 ms         | —        |
+| `GraphColorer` 1 M arestas (Δ = 40) | 40 cores, 46 ms | —        |
+
+A referência da 004 para `rigidContacts` 10k é 223,7 ms; a diferença entre execuções fica em ±3%.
+
 ## Convenção de logs
 
 - Cada smoke usa prefixo `[<nome>]` no console (e.g. `[stress] frame 600: …`).

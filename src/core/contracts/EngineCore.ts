@@ -93,6 +93,7 @@ export interface ComputeKernelBindGroup {
  * ```
  */
 export interface ComputeKernel {
+    /** Pipeline de compute (montado do módulo de entrada) — passe a `pass.bind.setPipeline`. */
     readonly pipeline: ComputePipelineSpec;
     /** Primeiro bindgroup. Atalho para casos single-set; equivale a `bindGroups[0]`. */
     readonly bindGroup: BindGroupSpec;

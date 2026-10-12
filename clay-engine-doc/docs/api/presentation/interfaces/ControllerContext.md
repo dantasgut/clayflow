@@ -6,7 +6,7 @@
 
 # Interface: ControllerContext
 
-Defined in: [presentation/input/InputDrivenController.ts:7](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/input/InputDrivenController.ts#L7)
+Defined in: [presentation/input/InputDrivenController.ts:7](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/InputDrivenController.ts#L7)
 
 Contexto passado pelo InteractionSystem aos controllers em cada tick.
 Contém `input` (state agregado) + `dt` (tempo desde último frame).
@@ -17,7 +17,7 @@ Contém `input` (state agregado) + `dt` (tempo desde último frame).
 
 > `readonly` **dt**: `number`
 
-Defined in: [presentation/input/InputDrivenController.ts:11](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/input/InputDrivenController.ts#L11)
+Defined in: [presentation/input/InputDrivenController.ts:11](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/InputDrivenController.ts#L11)
 
 Delta time em segundos para integração frame-rate-independent.
 
@@ -27,6 +27,6 @@ Delta time em segundos para integração frame-rate-independent.
 
 > `readonly` **input**: [`Input`](../classes/Input.md)
 
-Defined in: [presentation/input/InputDrivenController.ts:9](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/presentation/input/InputDrivenController.ts#L9)
+Defined in: [presentation/input/InputDrivenController.ts:9](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/InputDrivenController.ts#L9)
 
 Input state shared (key state, pointer deltas, etc.).

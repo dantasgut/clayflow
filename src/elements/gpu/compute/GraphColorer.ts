@@ -21,6 +21,24 @@ import type { WgslModule } from '../../../scene/shaders/WgslModule';
 /** Subpassos gravados entre duas leituras do estado. */
 const STEPS_PER_BATCH = 32;
 
+/** Intervalo das arestas de uma cor em `edgesByColor`, lido para a CPU. */
+export interface ColorRangeCpu {
+    /** Primeira posição da cor em `edgesByColor`. */
+    readonly offset: number;
+    /** Arestas da cor. */
+    readonly count: number;
+}
+
+/** Resultado de `verifyEdgeColoring`. */
+export interface EdgeColoringVerdict {
+    /** Nenhuma cor com duas arestas no mesmo vértice. */
+    readonly valid: boolean;
+    /** Maior cor + 1. */
+    readonly colorCount: number;
+    /** Primeiro par de arestas em conflito (índices), quando inválida. */
+    readonly conflict?: readonly [number, number];
+}
+
 /** Resultado de uma coloração de arestas. Os buffers pertencem ao `GraphColorer` e valem até a próxima coloração. */
 export interface GraphColoring {
     /** Cores usadas (`0..colorCount-1`). */
@@ -32,7 +50,7 @@ export interface GraphColoring {
     /** `ColorRange[colorCount]`: `{ offset, count }` de cada cor em `edgesByColor`. */
     readonly ranges: StorageBufferSpec;
     /** Os mesmos intervalos, lidos para a CPU (para gravar um despacho por cor). */
-    readonly rangesCpu: readonly { readonly offset: number; readonly count: number }[];
+    readonly rangesCpu: readonly ColorRangeCpu[];
 }
 
 /** Opções de `GraphColorer`. */
@@ -74,10 +92,7 @@ export function readGraphColorStatus(bytes: ArrayBuffer): GraphColorStatus {
 }
 
 /** Decodifica `count` intervalos (`ColorRangeSchema`) lidos da GPU. */
-export function readColorRanges(
-    bytes: ArrayBuffer,
-    count: number,
-): { readonly offset: number; readonly count: number }[] {
+export function readColorRanges(bytes: ArrayBuffer, count: number): ColorRangeCpu[] {
     const u32 = new Uint32Array(bytes);
     const stride = ColorRangeSchema.stride / 4;
     const offset = ColorRangeSchema.offsetOf('offset') / 4;
@@ -113,14 +128,7 @@ export function nextColoringAction(
  * Verifica uma coloração de arestas: nenhuma cor com duas arestas no mesmo vértice. `edges` são pares `(a, b)`
  * achatados. Usada pelos testes e pelo smoke `computeKernels`.
  */
-export function verifyEdgeColoring(
-    edges: Uint32Array,
-    colors: Uint32Array,
-): {
-    readonly valid: boolean;
-    readonly colorCount: number;
-    readonly conflict?: readonly [number, number];
-} {
+export function verifyEdgeColoring(edges: Uint32Array, colors: Uint32Array): EdgeColoringVerdict {
     let colorCount = 0;
     for (const c of colors) colorCount = Math.max(colorCount, c + 1);
     // Chave numérica (vértice, cor): exata até 2^53.

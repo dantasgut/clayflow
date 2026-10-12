@@ -77,6 +77,7 @@ export type {
     ComposedShader,
     WgslCompositionErrorKind,
     WgslSymbol,
+    WgslSymbolKind,
 } from './shaders/index';
 export type { Phase } from './flows/index';
 

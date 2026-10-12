@@ -32,6 +32,24 @@ export interface ParticleMaterialOptions {
 /** Expoente da equação de Tait do SPH fracamente compressível. */
 export const TAIT_GAMMA = 7;
 
+/** Constantes de Lamé derivadas do módulo de Young e do coeficiente de Poisson. */
+export interface LameParameters {
+    /** μ — módulo de cisalhamento. */
+    readonly mu: number;
+    /** λ — primeiro parâmetro de Lamé. */
+    readonly lambda: number;
+}
+
+/** Grade uniforme que cobre o domínio das partículas. */
+export interface ParticleGrid {
+    /** Canto mínimo da grade (mundo). */
+    readonly origin: [number, number, number];
+    /** Células por eixo. */
+    readonly gridDim: [number, number, number];
+    /** Aresta da célula (mundo). */
+    readonly cellSize: number;
+}
+
 function positive(name: string, value: number): number {
     if (!(value > 0) || !Number.isFinite(value)) {
         throw new RangeError(`ParticleMaterial: ${name} deve ser > 0 (recebeu ${value})`);
@@ -192,7 +210,7 @@ export class ParticleMaterial extends Entity implements Resource {
     }
 
     /** Parâmetros de Lamé (μ, λ) dos sólidos MPM, de E e ν. */
-    get lame(): { readonly mu: number; readonly lambda: number } {
+    get lame(): LameParameters {
         const e = this.num('youngModulus');
         const nu = this.num('poissonRatio');
         return { mu: e / (2 * (1 + nu)), lambda: (e * nu) / ((1 + nu) * (1 - 2 * nu)) };
@@ -214,11 +232,7 @@ export class ParticleMaterial extends Entity implements Resource {
      * Grade que cobre o domínio com células de `cellSize`: origem no canto mínimo e dimensões arredondadas para cima
      * (usada pela vizinhança do SPH/PBF e pela grade do MPM).
      */
-    gridFor(cellSize: number): {
-        readonly origin: [number, number, number];
-        readonly gridDim: [number, number, number];
-        readonly cellSize: number;
-    } {
+    gridFor(cellSize: number): ParticleGrid {
         const min = this.domainMin;
         const max = this.domainMax;
         const dim = (i: 0 | 1 | 2): number =>

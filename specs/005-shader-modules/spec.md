@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-11
 
-**Status**: Draft
+**Status**: Implementada (2026-10-12) — gate completo verde; 13 smokes no código-fonte e com `--dist`; `bench:check` pendente de rodada com a máquina sem carga externa (T084)
 
 **Input**: User description: "Núcleo de shaders (spec 005, fase F1 do roadmap — `005-shader-modules`). Implementar no
 lugar arquitetural certo (refundação C1–C4), sem helpers nem atalhos, o núcleo de shaders do ROADMAP §4.2: módulos WGSL
