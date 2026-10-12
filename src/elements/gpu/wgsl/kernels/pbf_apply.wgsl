@@ -11,7 +11,7 @@ fn pbf_apply_position_main(
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let i = gid3.x + gid3.y * nwg.x * 64u;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
     particles[i].pos = vec4f(particles[i].pos.xyz + pbf_delta[i].xyz, particles[i].pos.w);
 }
 
@@ -22,6 +22,6 @@ fn pbf_apply_velocity_main(
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let i = gid3.x + gid3.y * nwg.x * 64u;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
     particles[i].vel = vec4f(particles[i].vel.xyz + pbf_delta[i].xyz, particles[i].vel.w);
 }

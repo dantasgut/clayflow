@@ -34,14 +34,14 @@ fn pbf_xsph_main(
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let i = gid3.x + gid3.y * nwg.x * 64u;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
 
-    let h        = pbf_params.config.y;
-    let eps_v    = pbf_params.config2.y;  // vorticity_eps
-    let c        = pbf_params.config2.z;  // xsph_c
-    let dt       = pbf_params.gravity_dt.w;
-    let m_rho0   = pbf_params.mass.y;     // m / ρ₀
-    let max_nb   = pbf_params.counts.z;
+    let h        = pbf_params.h;
+    let eps_v    = pbf_params.vorticity_eps;  // vorticity_eps
+    let c        = pbf_params.xsph_c;  // xsph_c
+    let dt       = pbf_params.dt;
+    let m_rho0   = pbf_params.mass_over_density;     // m / ρ₀
+    let max_nb   = pbf_params.max_neighbors;
     let nb_count = neighbor_count[i];
 
     let xi      = particles[i].pos.xyz;

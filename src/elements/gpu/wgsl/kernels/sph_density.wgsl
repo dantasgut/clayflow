@@ -12,11 +12,11 @@ fn sph_density_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= sph_params.counts.x) { return; }
+    if (i >= sph_params.particle_count) { return; }
 
-    let h      = sph_params.fluid.y;
-    let mass   = sph_params.mass.x;
-    let max_nb = sph_params.counts.z;
+    let h      = sph_params.h;
+    let mass   = sph_params.particle_mass;
+    let max_nb = sph_params.max_neighbors;
     let nb_n   = neighbor_count[i];
     let xi     = particles[i].pos.xyz;
 

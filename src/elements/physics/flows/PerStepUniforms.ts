@@ -3,13 +3,14 @@ import type {
     EngineCore,
     UniformBufferSpec,
 } from '../../../core/contracts/index';
+import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /** Opções de `PerStepUniforms`. */
 export interface PerStepUniformsOptions {
     /** Prefixo do discriminator do buffer (único por Flow). */
     readonly discriminator: string;
-    /** Tamanho do struct de parâmetros em bytes (o que o shader enxerga por iteração). */
-    readonly byteSize: number;
+    /** Schema do struct de parâmetros (`addressSpace: 'uniform'`): layout, empacotamento e struct WGSL. */
+    readonly schema: StructSchema;
 }
 
 /**
@@ -18,14 +19,14 @@ export interface PerStepUniformsOptions {
  *
  * Por que existe (research A1): `core.write` entra na fila antes do command buffer do quadro — reescrever o mesmo
  * uniform durante a gravação faz todos os passes lerem o último valor. Com N passos × M substeps no mesmo quadro,
- * cada iteração precisa da sua região: o Flow preenche as regiões (`f32(i)`/`u32(i)`), envia tudo com `flush`, e
- * liga a iteração `i` com `setBindGroup(g, bg, [offset(i)])`.
+ * cada iteração precisa da sua região: o Flow grava cada região por campo (`write(i, dados)`, pelo schema), envia
+ * tudo com `flush`, e liga a iteração `i` com `setBindGroup(g, bg, [offset(i)])`.
  *
  * Crescimento (`reserve` acima da capacidade) recria o buffer, destrói o anterior e incrementa `generation`: o
  * Flow refaz os bind groups que usam `binding(...)`.
  */
 export class PerStepUniforms {
-    private readonly structSize: number;
+    private readonly schema: StructSchema;
     private cachedRegionSize = 0;
     private readonly discriminator: string;
     private spec: UniformBufferSpec | null = null;
@@ -37,7 +38,12 @@ export class PerStepUniforms {
         private readonly core: EngineCore,
         options: PerStepUniformsOptions,
     ) {
-        this.structSize = options.byteSize;
+        if (options.schema.addressSpace !== 'uniform') {
+            throw new TypeError(
+                `PerStepUniforms(${options.discriminator}): o schema '${options.schema.name}' precisa ser de uniform.`,
+            );
+        }
+        this.schema = options.schema;
         this.discriminator = options.discriminator;
     }
 
@@ -49,7 +55,7 @@ export class PerStepUniforms {
         if (this.cachedRegionSize === 0) {
             const alignment =
                 this.core.capabilities().limits.minUniformBufferOffsetAlignment ?? 256;
-            this.cachedRegionSize = Math.ceil(this.structSize / alignment) * alignment;
+            this.cachedRegionSize = Math.ceil(this.schema.stride / alignment) * alignment;
         }
         return this.cachedRegionSize;
     }
@@ -100,16 +106,10 @@ export class PerStepUniforms {
         return i * this.regionSize;
     }
 
-    /** Visão `f32` da região `i` (tamanho do struct) para preencher. */
-    f32(i: number): Float32Array {
+    /** Grava a região `i` campo a campo pelo schema (padding zerado; campos ausentes ficam 0). */
+    write(i: number, data: Record<string, unknown>): void {
         this.checkRegion(i);
-        return new Float32Array(this.staging, this.offset(i), this.structSize / 4);
-    }
-
-    /** Visão `u32` da região `i` (tamanho do struct) para preencher. */
-    u32(i: number): Uint32Array {
-        this.checkRegion(i);
-        return new Uint32Array(this.staging, this.offset(i), this.structSize / 4);
+        this.schema.packInto(this.staging, this.offset(i), data);
     }
 
     /** Envia as regiões `[0, count)` numa única escrita. `count = 0` não escreve. */
@@ -130,7 +130,7 @@ export class PerStepUniforms {
             type: 'uniform',
             buffer: this.buffer,
             hasDynamicOffset: true,
-            size: this.structSize,
+            size: this.schema.stride,
         };
     }
 

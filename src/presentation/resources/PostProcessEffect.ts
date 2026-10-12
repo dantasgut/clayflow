@@ -4,6 +4,7 @@ import type { Resource } from '../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
+import { EffectParamsSchema } from '../flows/renderSchemas';
 
 /**
  * Opções comuns a todos os post-process effects. Cada effect concreto
@@ -79,14 +80,15 @@ export abstract class PostProcessEffect extends Entity implements Resource {
      * compatibilidade com o pipeline padrão.
      */
     paramsBytes(): Uint8Array {
-        const buf = new ArrayBuffer(16);
-        const f32 = new Float32Array(buf);
-        f32[0] = (this.data.strength as number) ?? 1.0;
-        const aux = (this.data.aux as readonly number[]) ?? [0, 0, 0];
-        f32[1] = aux[0] ?? 0;
-        f32[2] = aux[1] ?? 0;
-        f32[3] = aux[2] ?? 0;
-        return new Uint8Array(buf);
+        const aux = (this.data.aux as readonly number[] | undefined) ?? [0, 0, 0];
+        return EffectParamsSchema.pack({
+            p0: [
+                (this.data.strength as number | undefined) ?? 1.0,
+                aux[0] ?? 0,
+                aux[1] ?? 0,
+                aux[2] ?? 0,
+            ],
+        });
     }
 
     /** Effects não declaram GPUDescriptors — params buffer é gerenciado pelo PostFlow. */

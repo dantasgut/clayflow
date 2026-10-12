@@ -19,10 +19,10 @@ fn pbf_vorticity_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
 
-    let h        = pbf_params.config.y;
-    let max_nb   = pbf_params.counts.z;
+    let h        = pbf_params.h;
+    let max_nb   = pbf_params.max_neighbors;
     let nb_count = neighbor_count[i];
     let xi  = particles[i].pos.xyz;
     let vi  = particles[i].vel.xyz;
@@ -38,7 +38,7 @@ fn pbf_vorticity_main(
         let r  = length(dv);
         let gw = grad_W_spiky(dv, r, h);
         let vij = vj - vi;  // vᵢⱼ = vⱼ − vᵢ  (convenção PBF 2013)
-        omega += pbf_params.mass.y * cross(vij, gw);   // ω = Σ (m/ρ₀) vᵢⱼ × ∇W
+        omega += pbf_params.mass_over_density * cross(vij, gw);   // ω = Σ (m/ρ₀) vᵢⱼ × ∇W
     }
 
     // Passo 2: ηᵢ = Σⱼ ‖ωⱼ‖ · ∇W  (lendo curl armazenado do frame anterior — ok para 1ª iteração = 0)

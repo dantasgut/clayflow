@@ -29,12 +29,12 @@ fn pbf_position_correct_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
 
-    let h       = pbf_params.config.y;
-    let k_corr  = pbf_params.config.w;            // s_corr_k
-    let n_corr  = pbf_params.config2.x;           // s_corr_n (f32)
-    let max_nb  = pbf_params.counts.z;
+    let h       = pbf_params.h;
+    let k_corr  = pbf_params.s_corr_k;            // s_corr_k
+    let n_corr  = pbf_params.s_corr_n;           // s_corr_n (f32)
+    let max_nb  = pbf_params.max_neighbors;
     let nb_count = neighbor_count[i];
     let xi      = particles[i].pos.xyz;
     let li      = particles[i].pos.w;             // lambda_i
@@ -64,6 +64,6 @@ fn pbf_position_correct_main(
         delta += (li + lj + s_corr) * gw;
     }
 
-    delta *= pbf_params.mass.y;   // m / ρ₀ (Macklin & Müller 2013 com massa)
+    delta *= pbf_params.mass_over_density;   // m / ρ₀ (Macklin & Müller 2013 com massa)
     pbf_delta[i] = vec4f(delta, 0.0);
 }

@@ -11,6 +11,7 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { PBFSimParamsSchema } from '../schemas/simParams';
 import { ColliderSet } from '../colliders/ColliderSet';
 import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
@@ -27,7 +28,12 @@ import {
 } from '../shaders/pbf';
 
 /** Bytes do struct `PBFSimParams`. */
-const PBF_SIM_PARAMS_BYTE_SIZE = 96;
+/** Expoente n do `s_corr`. */
+const PBF_S_CORR_N = 4;
+/** ε do confinamento de vorticidade (0 = desligado). */
+const PBF_VORTICITY_EPS = 0;
+/** Coeficiente do XSPH. */
+const PBF_XSPH = 0.05;
 /** Relaxação ε do denominador de λ (Macklin & Müller 2013), nas unidades de |∇C|² (1/m²). */
 const PBF_RELAXATION = 600;
 /** Coeficiente do `s_corr` para espaçamento de 0,05 m; escala com s² (mesma unidade de λ). */
@@ -88,7 +94,7 @@ export class PBFFlow extends Flow {
         this.maxNeighbors = options.maxNeighbors ?? 64;
         this.params = new PerStepUniforms(core, {
             discriminator: 'pbf_params',
-            byteSize: PBF_SIM_PARAMS_BYTE_SIZE,
+            schema: PBFSimParamsSchema,
         });
         this.colliders = new ColliderSet(core, world, resources, {
             discriminator: 'pbf_colliders',
@@ -353,34 +359,26 @@ export class PBFFlow extends Flow {
         accel: readonly number[],
         material: ParticleMaterial,
     ): void {
-        const f32 = this.params.f32(region);
-        const u32 = this.params.u32(region);
-        f32[0] = accel[0] ?? 0;
-        f32[1] = accel[1] ?? -9.81;
-        f32[2] = accel[2] ?? 0;
-        f32[3] = dtSub;
         const spacingRatio = material.particleSpacing / 0.05;
-        f32[4] = material.restDensity;
-        f32[5] = material.pbfSmoothingLength;
-        f32[6] = PBF_RELAXATION;
-        f32[7] = PBF_S_CORR_K_AT_5CM * spacingRatio * spacingRatio;
-        f32[8] = 4; // expoente n do s_corr (f32; gravado antes como u32 e lido como denormal ⇒ pow(0, 0) = NaN)
-        f32[9] = 0.0;
-        f32[10] = 0.05;
-        f32[11] = stepDt;
-        u32[12] = particleCount;
-        u32[13] = 0;
-        u32[14] = this.maxNeighbors;
-        u32[15] = 16;
-        const min = material.domainMin;
-        f32[16] = min[0];
-        f32[17] = min[1];
-        f32[18] = min[2];
-        f32[19] = material.restitution;
-        f32[20] = material.particleMass;
-        f32[21] = material.particleMass / material.restDensity;
-        f32[22] = material.particleSpacing / 2;
-        f32[23] = 0;
+        this.params.write(region, {
+            gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
+            dt: dtSub,
+            rest_density: material.restDensity,
+            h: material.pbfSmoothingLength,
+            relaxation: PBF_RELAXATION,
+            s_corr_k: PBF_S_CORR_K_AT_5CM * spacingRatio * spacingRatio,
+            s_corr_n: PBF_S_CORR_N,
+            vorticity_eps: PBF_VORTICITY_EPS,
+            xsph_c: PBF_XSPH,
+            dt_frame: stepDt,
+            particle_count: particleCount,
+            max_neighbors: this.maxNeighbors,
+            restitution: material.restitution,
+            collision_radius: material.particleSpacing / 2,
+            bound_min: material.domainMin,
+            particle_mass: material.particleMass,
+            mass_over_density: material.particleMass / material.restDensity,
+        });
     }
 
     dispatch(frame: Frame): void {

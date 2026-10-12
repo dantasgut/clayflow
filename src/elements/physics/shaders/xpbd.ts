@@ -1,13 +1,11 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { xpbd } from '../../gpu/shaders/math';
-import {
-    distanceConstraintStructs,
-    particleStructs,
-    simParamsStructs,
-} from '../../gpu/shaders/structs';
 import predictSource from '../../gpu/wgsl/kernels/predict.wgsl?raw';
 import velocityUpdateSource from '../../gpu/wgsl/kernels/velocity_update.wgsl?raw';
 import distanceSolveSource from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw';
+import { DistanceConstraint } from '../../physics/constraints/DistanceConstraint';
+import { XPBDSoftSchema } from '../../physics/bodies/schemas/XPBDSoftSchema';
+import { SimParamsSchema } from '../../physics/schemas/simParams';
 
 // Kernels do XPBD de partículas.
 
@@ -15,19 +13,20 @@ import distanceSolveSource from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw'
 export const xpbdPredict = wgslModule({
     name: 'xpbd_predict',
     source: predictSource,
-    requires: [simParamsStructs, particleStructs],
+    structs: [SimParamsSchema, XPBDSoftSchema],
 });
 
 /** Velocidade a partir de `pred − pos` e avanço de `pos`. */
 export const xpbdVelocityUpdate = wgslModule({
     name: 'xpbd_velocity_update',
     source: velocityUpdateSource,
-    requires: [simParamsStructs, particleStructs],
+    structs: [SimParamsSchema, XPBDSoftSchema],
 });
 
 /** Restrições de distância (Gauss-Seidel serial). */
 export const xpbdDistanceSolve = wgslModule({
     name: 'xpbd_distance_solve',
     source: distanceSolveSource,
-    requires: [xpbd, simParamsStructs, particleStructs, distanceConstraintStructs],
+    requires: [xpbd],
+    structs: [SimParamsSchema, XPBDSoftSchema, DistanceConstraint.schema],
 });

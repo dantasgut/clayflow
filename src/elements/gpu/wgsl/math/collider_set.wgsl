@@ -2,14 +2,8 @@
 // vinda do corpo dono. Ligado no grupo 2 pelos estágios que colidem partículas/nós contra o mundo (SPH, PBF, MPM);
 // o `ColliderSet` (C3) fornece os buffers. `MeshCollider` não gera contato (igual à narrowphase do LCP).
 //
-// Requer: structs `PlaneCollider`, `BoxCollider`, `SphereCollider`, `RigidBody`; `quat.wgsl`; `sdf.wgsl`.
-
-struct ColliderSetCounts {
-    plane_count:  u32,
-    box_count:    u32,
-    sphere_count: u32,
-    mesh_count:   u32,
-}
+// Requer: structs `ColliderSetCounts`, `PlaneCollider`, `BoxCollider`, `SphereCollider`, `RigidBody` (gerados dos
+// schemas); `quat.wgsl`; `sdf.wgsl`.
 
 @group(2) @binding(0) var<uniform>       collider_counts:        ColliderSetCounts;
 @group(2) @binding(1) var<storage, read> collider_planes:        array<PlaneCollider>;

@@ -15,18 +15,18 @@ fn ns_find_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= ns_params.counts.x) { return; }
+    if (i >= ns_params.particle_count) { return; }
 
-    let stride    = ns_params.counts.y;
-    let max_nb    = ns_params.counts.z;
-    let h         = ns_params.origin_cell.w;
+    let stride    = ns_params.particle_stride;
+    let max_nb    = ns_params.max_neighbors;
+    let h         = ns_params.cell_size;
     let h_sq      = h * h;
-    let origin    = ns_params.origin_cell.xyz;
+    let origin    = ns_params.origin;
     let cell_size = h;
-    let gx        = ns_params.dims.x;
-    let gy        = ns_params.dims.y;
-    let gz        = ns_params.dims.z;
-    let n_cells   = ns_params.dims.w;
+    let gx        = ns_params.grid_x;
+    let gy        = ns_params.grid_y;
+    let gz        = ns_params.grid_z;
+    let n_cells   = ns_params.cell_count;
 
     let px = particle_data[i * stride + 0u];
     let py = particle_data[i * stride + 1u];

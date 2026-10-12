@@ -1,15 +1,4 @@
-struct UiQuad {
-    rect:     vec4<f32>,  // x, y, w, h em pixels
-    color:    vec4<f32>,  // tint RGBA pré-multiplicado pelo callsite
-    uv:       vec4<f32>,  // u0, v0, u1, v1 (atlas) — apenas para textured=1
-    textured: vec4<f32>,  // x = textured flag (0|1), yzw = pad
-}
-
-struct ScreenParams {
-    size: vec2<f32>,
-    _pad: vec2<f32>,
-}
-
+// Quads de UI. Structs `UiQuad` e `ScreenParams` gerados dos schemas.
 @group(0) @binding(0) var<uniform>             screen: ScreenParams;
 @group(0) @binding(1) var<storage, read>       quads:  array<UiQuad>;
 @group(0) @binding(2) var                      atlas:  texture_2d<f32>;

@@ -11,14 +11,14 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { MPMSimParamsSchema } from '../schemas/simParams';
+import { MPMGridNodeSchema } from '../schemas/simState';
 import { ColliderSet } from '../colliders/ColliderSet';
 import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
 import { mpmClearGrid, mpmG2P, mpmGridUpdate, mpmP2G, mpmParticleCollision } from '../shaders/mpm';
 
-const MPM_GRID_NODE_SIZE = 32;
 /** Bytes do struct `MPMSimParams`. */
-const MPM_SIM_PARAMS_BYTE_SIZE = 96;
 /** Escala do ponto fixo das somas atômicas da grade. */
 const MPM_FIXED_SCALE = 1e7;
 /** `material_id` do WGSL. */
@@ -75,7 +75,7 @@ export class MPMFlow extends Flow {
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.params = new PerStepUniforms(core, {
             discriminator: 'mpm_params',
-            byteSize: MPM_SIM_PARAMS_BYTE_SIZE,
+            schema: MPMSimParamsSchema,
         });
         this.colliders = new ColliderSet(core, world, resources, {
             discriminator: 'mpm_colliders',
@@ -187,7 +187,7 @@ export class MPMFlow extends Flow {
                 kind: 'buffer',
                 subkind: 'storage',
                 discriminator: 'mpm_grid',
-                byteSize: this.gridCellCount() * MPM_GRID_NODE_SIZE,
+                byteSize: this.gridCellCount() * MPMGridNodeSchema.stride,
             });
         }
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
@@ -258,33 +258,29 @@ export class MPMFlow extends Flow {
         material: ParticleMaterial,
         substeps: number,
     ): void {
-        const f32 = this.params.f32(region);
-        const u32 = this.params.u32(region);
-        f32[0] = accel[0] ?? 0;
-        f32[1] = accel[1] ?? -9.81;
-        f32[2] = accel[2] ?? 0;
-        f32[3] = dtSub;
         const { mu, lambda } = material.lame;
-        f32[4] = mu;
-        f32[5] = lambda;
-        f32[6] = MPM_FIXED_SCALE;
-        f32[7] = material.particleMass;
-        f32[8] = material.particleVolume;
-        f32[9] = material.bulkModulus;
-        f32[10] = material.viscosity;
-        f32[11] = stepDt;
-        u32[12] = particleCount;
-        u32[13] = this.grid.gridDim[0];
-        u32[14] = this.grid.gridDim[1];
-        u32[15] = this.grid.gridDim[2];
-        f32[16] = this.grid.origin[0];
-        f32[17] = this.grid.origin[1];
-        f32[18] = this.grid.origin[2];
-        f32[19] = this.grid.cellSize;
-        u32[20] = 0;
-        u32[21] = this.bodyType === 'MPMFluidSchema' ? MPM_MATERIAL_FLUID : MPM_MATERIAL_ELASTIC;
-        u32[22] = substeps;
-        f32[23] = 1.0 / this.grid.cellSize;
+        this.params.write(region, {
+            gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
+            dt_sub: dtSub,
+            mu,
+            lambda_lame: lambda,
+            fixed_scale: MPM_FIXED_SCALE,
+            particle_mass: material.particleMass,
+            particle_volume: material.particleVolume,
+            bulk_modulus: material.bulkModulus,
+            viscosity: material.viscosity,
+            dt_frame: stepDt,
+            particle_count: particleCount,
+            grid_x: this.grid.gridDim[0],
+            grid_y: this.grid.gridDim[1],
+            grid_z: this.grid.gridDim[2],
+            grid_origin: this.grid.origin,
+            cell_size: this.grid.cellSize,
+            material_id:
+                this.bodyType === 'MPMFluidSchema' ? MPM_MATERIAL_FLUID : MPM_MATERIAL_ELASTIC,
+            substep_count: substeps,
+            inv_dx: 1.0 / this.grid.cellSize,
+        });
     }
 
     dispatch(frame: Frame): void {

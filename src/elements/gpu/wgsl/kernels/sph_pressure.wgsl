@@ -10,11 +10,11 @@ fn sph_pressure_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= sph_params.counts.x) { return; }
+    if (i >= sph_params.particle_count) { return; }
 
-    let rho0 = sph_params.fluid.x;
-    let k0   = sph_params.fluid.z;
-    let gam  = sph_params.fluid.w;
+    let rho0 = sph_params.rest_density;
+    let k0   = sph_params.stiffness;
+    let gam  = sph_params.gamma;
     let rho  = particles[i].pos.w;
 
     let ratio = rho / rho0;

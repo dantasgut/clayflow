@@ -26,6 +26,7 @@ import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
 import type { ShadowFlow } from './ShadowFlow';
 import { composeWgsl } from '../../scene/shaders/composeWgsl';
+import { ForwardShadowParamsSchema } from '../../elements/material/forwardSchemas';
 
 interface RenderableSlot {
     readonly entityId: EntityId;
@@ -529,7 +530,7 @@ export class ForwardFlow extends RenderFlow {
                 kind: 'buffer',
                 subkind: 'uniform',
                 discriminator: 'forward_shadow_params',
-                byteSize: 96,
+                byteSize: ForwardShadowParamsSchema.stride,
             });
         }
         if (this.shadowSampler === null) {
@@ -611,19 +612,16 @@ export class ForwardFlow extends RenderFlow {
 
     private uploadShadowParams(): void {
         if (this.shadowParamsBuffer === null) return;
-        // ShadowParams (96B): lightViewProj mat4@0..64, lightDir vec4@64..80, bias f32@80, enabled f32@84, _pad @ 88..96
-        const buf = new ArrayBuffer(96);
-        const f32 = new Float32Array(buf);
-        const lvp = this.shadowFlow?.currentLightViewProj ?? identity();
-        for (let i = 0; i < 16; i++) f32[i] = lvp[i] ?? 0;
         const lightDir = this.shadowFlow?.currentLightDirection ?? [0.4, -1, 0.6, 0];
-        f32[16] = lightDir[0] ?? 0;
-        f32[17] = lightDir[1] ?? -1;
-        f32[18] = lightDir[2] ?? 0;
-        f32[19] = 0;
-        f32[20] = this.shadowFlow !== null ? 0.005 : 0;
-        f32[21] = this.shadowFlow !== null ? 1.0 : 0.0;
-        this.core.write(this.shadowParamsBuffer, new Uint8Array(buf));
+        this.core.write(
+            this.shadowParamsBuffer,
+            ForwardShadowParamsSchema.pack({
+                lightViewProj: this.shadowFlow?.currentLightViewProj ?? identity(),
+                lightDir: [lightDir[0] ?? 0, lightDir[1] ?? -1, lightDir[2] ?? 0, 0],
+                bias: this.shadowFlow !== null ? 0.005 : 0,
+                enabled: this.shadowFlow !== null ? 1.0 : 0.0,
+            }),
+        );
     }
 
     private ensureDepth(): void {

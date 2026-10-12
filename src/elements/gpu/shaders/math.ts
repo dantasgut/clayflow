@@ -9,7 +9,20 @@ import contactMathSource from '../wgsl/math/contact_math.wgsl?raw';
 import impulseSource from '../wgsl/math/impulse.wgsl?raw';
 import lcpSource from '../wgsl/math/lcp.wgsl?raw';
 import colliderSetSource from '../wgsl/math/collider_set.wgsl?raw';
-import { colliderDescStructs, rbSimParamsStructs, rigidBodyStructs } from './structs';
+import lcpStateSource from '../wgsl/math/lcp_state.wgsl?raw';
+import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
+import { LCPSchema } from '../../physics/bodies/schemas/LCPSchema';
+import { BoxCollider } from '../../physics/colliders/BoxCollider';
+import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
+import { SphereCollider } from '../../physics/colliders/SphereCollider';
+import { ColliderSetCountsSchema } from '../../physics/colliders/ColliderSet';
+import { RBSimParamsSchema } from '../../physics/schemas/simParams';
+import {
+    RBBodyCorrectionSchema,
+    RBBodyDeltaSchema,
+    RBContactCounterSchema,
+    RBWarmEntrySchema,
+} from '../../physics/schemas/simState';
 
 /** Quaternions: produto, rotação de vetor (e inversa), normalização, integração, Δ de velocidade angular. */
 export const quat = wgslModule({ name: 'quat', source: quatSource });
@@ -39,12 +52,30 @@ export const impulse = wgslModule({ name: 'impulse', source: impulseSource });
 export const lcp = wgslModule({
     name: 'lcp',
     source: lcpSource,
-    requires: [xpbd, rigidBodyStructs, rbSimParamsStructs],
+    requires: [xpbd],
+    structs: [LCPSchema, RBSimParamsSchema],
 });
+
+/** Estado dos contatos do LCP: chaves/regiões do warm start e ponto fixo das somas por corpo (com os seus structs). */
+export const lcpState = wgslModule({
+    name: 'lcp_state',
+    source: lcpStateSource,
+    structs: [RBContactCounterSchema, RBWarmEntrySchema, RBBodyDeltaSchema, RBBodyCorrectionSchema],
+});
+
+/** Tipos de material do MPM (`material_id`). */
+export const mpmMaterial = wgslModule({ name: 'mpm_material', source: mpmMaterialSource });
 
 /** Conjunto de colliders (grupo 2): pose pelo corpo dono, SDF, push-out de partículas, restrição de nós. */
 export const colliderSet = wgslModule({
     name: 'collider_set',
     source: colliderSetSource,
-    requires: [quat, sdf, colliderDescStructs, rigidBodyStructs],
+    requires: [quat, sdf],
+    structs: [
+        ColliderSetCountsSchema,
+        PlaneCollider.schema,
+        BoxCollider.schema,
+        SphereCollider.schema,
+        LCPSchema,
+    ],
 });

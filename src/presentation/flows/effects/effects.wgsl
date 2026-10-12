@@ -1,7 +1,4 @@
-struct EffectParams {
-    p0: vec4<f32>,  // .x = strength/intensity, .y = aux, .z = aux2, .w = aux3
-}
-
+// Pós-processamento. Struct `EffectParams` gerado do schema (`p0 = strength, aux0, aux1, aux2`).
 @group(0) @binding(0) var src_tex: texture_2d<f32>;
 @group(0) @binding(1) var src_smp: sampler;
 @group(0) @binding(2) var<uniform> params: EffectParams;

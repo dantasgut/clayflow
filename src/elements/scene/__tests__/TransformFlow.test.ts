@@ -129,13 +129,11 @@ describe('TransformFlow', () => {
 
     it('o shader monta sem erro (dependências e referências) e lê os pools certos', () => {
         const [desc] = setup().flow.getPipelineDescriptors();
-        expect(composeWgsl(desc!.shader).modules).toEqual([
-            'quat',
-            'mat',
-            'structs/transform',
-            'structs/world_transform',
-            'transform_compose',
-        ]);
+        const composed = composeWgsl(desc!.shader);
+        expect(composed.modules).toEqual(['quat', 'mat', 'transform_compose']);
+        // Structs gerados dos schemas, não escritos à mão.
+        expect(composed.spec.source).toContain(Transform.schema.toWGSL());
+        expect(composed.spec.source).toContain(Transform.worldSchema.toWGSL());
         expect(desc!.consumes).toEqual([Transform.schema.name]);
     });
 });

@@ -11,6 +11,7 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { FEMSimParamsSchema } from '../schemas/simParams';
 import { GravityField } from '../forcefields/GravityField';
 import { femPredict, femVelocityUpdate } from '../shaders/fem';
 
@@ -23,7 +24,6 @@ export interface FEMFlowOptions {
 }
 
 /** Bytes do struct `FEMSimParams`. */
-const FEM_SIM_PARAMS_BYTE_SIZE = 96;
 
 /**
  * FEMFlow — corpos macios por elementos finitos (predict + atualização de velocidade). O quadro executa
@@ -57,7 +57,7 @@ export class FEMFlow extends Flow {
         this.damping = options.damping ?? 0.05;
         this.params = new PerStepUniforms(core, {
             discriminator: 'fem_sim_params',
-            byteSize: FEM_SIM_PARAMS_BYTE_SIZE,
+            schema: FEMSimParamsSchema,
         });
     }
 
@@ -136,25 +136,19 @@ export class FEMFlow extends Flow {
         stepDt: number,
         accel: readonly number[],
     ): void {
-        const f32 = this.params.f32(region);
-        const u32 = this.params.u32(region);
-        f32[0] = accel[0] ?? 0;
-        f32[1] = accel[1] ?? -9.81;
-        f32[2] = accel[2] ?? 0;
-        f32[3] = dtSub; // dt_sub @ 12
-        f32[4] = this.mu; // mu @ 16
-        f32[5] = this.lambda; // lambda @ 20
-        f32[6] = this.damping; // damping @ 24
-        f32[7] = 0; // collision_radius @ 28
-        f32[8] = 1.0 / Math.max(this.lambda + 2 * this.mu, 1e-6); // alpha_h @ 32
-        f32[9] = 1.0 / Math.max(this.mu, 1e-6); // alpha_d @ 36
-        f32[10] = stepDt; // dt_frame @ 40
-        f32[11] = 0.2; // restitution @ 44
-        u32[12] = 0; // collider_count @ 48
-        u32[13] = nodeCount; // node_count @ 52
-        u32[14] = 0; // elem_count @ 56
-        u32[15] = 4; // solve_iters @ 60
-        u32[16] = 0; // rb_count @ 64
+        this.params.write(region, {
+            gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
+            dt_sub: dtSub,
+            mu: this.mu,
+            lambda: this.lambda,
+            damping: this.damping,
+            alpha_h: 1.0 / Math.max(this.lambda + 2 * this.mu, 1e-6),
+            alpha_d: 1.0 / Math.max(this.mu, 1e-6),
+            dt_frame: stepDt,
+            restitution: 0.2,
+            node_count: nodeCount,
+            solve_iters: 4,
+        });
     }
 
     dispatch(frame: Frame): void {

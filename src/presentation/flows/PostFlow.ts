@@ -18,6 +18,7 @@ import type { PostProcessEffect } from '../resources/PostProcessEffect';
 import type { ForwardFlow } from './ForwardFlow';
 import { composeWgsl } from '../../scene/shaders/composeWgsl';
 import { effectsBase } from './shaders';
+import { EffectParamsSchema } from './renderSchemas';
 
 interface EffectSlot {
     readonly effect: PostProcessEffect;
@@ -234,7 +235,7 @@ export class PostFlow extends Flow {
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: `post_params:${effect.name}`,
-            byteSize: 16,
+            byteSize: EffectParamsSchema.stride,
         });
         // Efeito próprio (fragmentModule, com requires: [effectsBase]) → shader montado dedicado; padrão: o comum.
         const customModule = effect.fragmentModule?.();
@@ -352,7 +353,7 @@ export class PostFlow extends Flow {
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: 'post_params:passthrough',
-            byteSize: 16,
+            byteSize: EffectParamsSchema.stride,
         });
         const pipeline = this.core.create<RenderPipelineSpec>({
             kind: 'pipeline',

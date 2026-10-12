@@ -23,6 +23,7 @@ import { Transform } from '../../elements/scene/Transform';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { composeWgsl } from '../../scene/shaders/composeWgsl';
 import { shadowDepth } from './shaders';
+import { ShadowDepthParamsSchema } from './renderSchemas';
 
 const SHADOW_MAP_SIZE = 1024;
 const WORLD_POOL = Transform.worldSchema.name;
@@ -261,7 +262,7 @@ export class ShadowFlow extends Flow {
                 kind: 'buffer',
                 subkind: 'uniform',
                 discriminator: 'shadow_params_buf',
-                byteSize: 64,
+                byteSize: ShadowDepthParamsSchema.stride,
             });
         }
         if (this.shadowParamsLayout === null) {
@@ -369,7 +370,10 @@ export class ShadowFlow extends Flow {
         const proj = ortho(-10, 10, -10, 10, 0.1, 50);
         const vp = mul(proj, view);
         this.lightViewProj = vp;
-        this.core.write(this.shadowParamsBuffer, new Float32Array(vp));
+        this.core.write(
+            this.shadowParamsBuffer,
+            ShadowDepthParamsSchema.pack({ lightViewProj: vp }),
+        );
     }
 
     private ensureSlot(

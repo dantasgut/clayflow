@@ -14,6 +14,7 @@ import {
 import { Flow, type Phase } from '../../../scene/flows/Flow';
 import { Transform } from '../Transform';
 import { transformCompose } from './shaders';
+import { TransformParamsSchema } from './TransformParams';
 
 const TRANSFORM_POOL = Transform.schema.name;
 const WORLD_POOL = Transform.worldSchema.name;
@@ -115,7 +116,7 @@ export class TransformFlow extends Flow {
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: 'transform_compose_params',
-            byteSize: 16,
+            byteSize: TransformParamsSchema.stride,
         });
         this.kernel = createComputeKernel(this.core, {
             discriminator: 'transform_compose',
@@ -132,7 +133,7 @@ export class TransformFlow extends Flow {
 
     private writeParams(count: number): void {
         if (this.paramsBuffer === null || count === this.paramsCount) return;
-        this.core.write(this.paramsBuffer, new Uint32Array([count, 0, 0, 0]));
+        this.core.write(this.paramsBuffer, TransformParamsSchema.pack({ count }));
         this.paramsCount = count;
     }
 }

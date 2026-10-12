@@ -11,10 +11,10 @@ fn sph_collision_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= sph_params.counts.x) { return; }
+    if (i >= sph_params.particle_count) { return; }
 
-    let restitution    = sph_params.bounds.w;
-    let bound_min      = sph_params.bounds.xyz;
+    let restitution    = sph_params.restitution;
+    let bound_min      = sph_params.bound_min;
 
     var pos = particles[i].pos.xyz;
     var vel = particles[i].vel.xyz;
@@ -26,7 +26,7 @@ fn sph_collision_main(
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
     // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento).
-    collider_set_push_out(&pos, &vel, sph_params.mass.z, restitution);
+    collider_set_push_out(&pos, &vel, sph_params.collision_radius, restitution);
 
     particles[i].pos = vec4f(pos, particles[i].pos.w);
     particles[i].vel = vec4f(vel, particles[i].vel.w);

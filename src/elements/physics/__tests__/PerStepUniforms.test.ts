@@ -2,11 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { PerStepUniforms } from '../flows/PerStepUniforms';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import type { UniformBufferSpec } from '../../../core/contracts/index';
+import { StructSchema, fieldArray } from '../../../scene/descriptors/StructSchema';
+import { FieldType } from '../../../scene/descriptors/FieldType';
 
-function setup(byteSize = 80) {
+/** Schema de uniform com `vec4f`s suficientes para `bytes` (múltiplo de 16). */
+function schemaOf(bytes: number): StructSchema {
+    return new StructSchema(
+        `P${bytes}`,
+        { x: FieldType.f32, n: FieldType.u32, rest: fieldArray(FieldType.vec4f, bytes / 16 - 1) },
+        { addressSpace: 'uniform' },
+    );
+}
+
+function setup(bytes = 80) {
     const { core, writes } = fakeResourceCore();
-    const params = new PerStepUniforms(core, { discriminator: 'test_params', byteSize });
-    return { core, writes, params };
+    const schema = schemaOf(bytes);
+    const params = new PerStepUniforms(core, { discriminator: 'test_params', schema });
+    return { core, writes, params, schema };
 }
 
 describe('PerStepUniforms — uma região de parâmetros por iteração', () => {
@@ -18,7 +30,7 @@ describe('PerStepUniforms — uma região de parâmetros por iteração', () => 
     });
 
     it('struct maior que o alinhamento ocupa múltiplos do alinhamento', () => {
-        const { params } = setup(300);
+        const { params } = setup(304);
         expect(params.regionSize).toBe(512);
     });
 
@@ -34,8 +46,7 @@ describe('PerStepUniforms — uma região de parâmetros por iteração', () => 
     it('uma única escrita por quadro com as regiões usadas preenchidas', () => {
         const { params, writes } = setup();
         params.reserve(4);
-        for (let i = 0; i < 3; i++) params.f32(i)[0] = i + 0.5;
-        params.u32(2)[1] = 7;
+        for (let i = 0; i < 3; i++) params.write(i, { x: i + 0.5, n: i === 2 ? 7 : 0 });
         params.flush(3);
         expect(writes).toHaveLength(1);
         const w = writes[0]!;
@@ -82,7 +93,9 @@ describe('PerStepUniforms — uma região de parâmetros por iteração', () => 
     it('acesso a região além da capacidade lança', () => {
         const { params } = setup();
         params.reserve(2);
-        expect(() => params.f32(params.capacity)).toThrow(RangeError);
+        expect(() => {
+            params.write(params.capacity, {});
+        }).toThrow(RangeError);
         expect(() => {
             params.flush(params.capacity + 1);
         }).toThrow(RangeError);
@@ -94,5 +107,13 @@ describe('PerStepUniforms — uma região de parâmetros por iteração', () => 
         const buf = params.buffer;
         params.dispose();
         expect(core.destroy).toHaveBeenCalledWith(buf);
+    });
+
+    it('schema que não é de uniform é recusado', () => {
+        const { core } = fakeResourceCore();
+        const storage = new StructSchema('S', { a: FieldType.vec4f });
+        expect(() => new PerStepUniforms(core, { discriminator: 'bad', schema: storage })).toThrow(
+            /uniform/,
+        );
     });
 });

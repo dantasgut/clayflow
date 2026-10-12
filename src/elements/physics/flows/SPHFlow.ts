@@ -11,6 +11,7 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { SPHSimParamsSchema } from '../schemas/simParams';
 import { ColliderSet } from '../colliders/ColliderSet';
 import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
@@ -18,7 +19,8 @@ import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
 import { sphCollision, sphDensity, sphForces, sphIntegrate, sphPressure } from '../shaders/sph';
 
 /** Bytes do struct `SPHSimParams`. */
-const SPH_SIM_PARAMS_BYTE_SIZE = 96;
+/** Coeficiente do XSPH (suavização de velocidade). */
+const SPH_XSPH = 0.05;
 
 export interface SPHFlowOptions {
     /** Mínimo de substeps por passo (default 1); o passo estável do `ParticleMaterial` pode exigir mais. */
@@ -67,7 +69,7 @@ export class SPHFlow extends Flow {
         this.maxNeighbors = options.maxNeighbors ?? 128;
         this.params = new PerStepUniforms(core, {
             discriminator: 'sph_params',
-            byteSize: SPH_SIM_PARAMS_BYTE_SIZE,
+            schema: SPHSimParamsSchema,
         });
         this.colliders = new ColliderSet(core, world, resources, {
             discriminator: 'sph_colliders',
@@ -257,33 +259,24 @@ export class SPHFlow extends Flow {
         accel: readonly number[],
         material: ParticleMaterial,
     ): void {
-        const f32 = this.params.f32(region);
-        const u32 = this.params.u32(region);
-        f32[0] = accel[0] ?? 0;
-        f32[1] = accel[1] ?? -9.81;
-        f32[2] = accel[2] ?? 0;
-        f32[3] = dtSub;
-        f32[4] = material.restDensity;
-        f32[5] = material.sphSmoothingLength;
-        f32[6] = material.taitStiffness;
-        f32[7] = TAIT_GAMMA;
-        f32[8] = material.viscosity;
-        f32[9] = 0.05;
-        f32[10] = stepDt;
-        f32[11] = 0;
-        u32[12] = particleCount;
-        u32[13] = 0;
-        u32[14] = this.maxNeighbors;
-        u32[15] = 16;
-        const min = material.domainMin;
-        f32[16] = min[0];
-        f32[17] = min[1];
-        f32[18] = min[2];
-        f32[19] = material.restitution;
-        f32[20] = material.particleMass;
-        f32[21] = 1 / material.particleMass;
-        f32[22] = material.particleSpacing / 2;
-        f32[23] = 0;
+        this.params.write(region, {
+            gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
+            dt: dtSub,
+            rest_density: material.restDensity,
+            h: material.sphSmoothingLength,
+            stiffness: material.taitStiffness,
+            gamma: TAIT_GAMMA,
+            viscosity: material.viscosity,
+            xsph_c: SPH_XSPH,
+            dt_frame: stepDt,
+            collision_radius: material.particleSpacing / 2,
+            particle_count: particleCount,
+            max_neighbors: this.maxNeighbors,
+            restitution: material.restitution,
+            bound_min: material.domainMin,
+            particle_mass: material.particleMass,
+            inv_particle_mass: 1 / material.particleMass,
+        });
     }
 
     dispatch(frame: Frame): void {

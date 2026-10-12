@@ -31,18 +31,18 @@ fn pbf_density_lambda_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
 
-    let h        = pbf_params.config.y;
-    let rho0     = pbf_params.config.x;
-    let epsilon  = pbf_params.config.z;
-    let max_nb   = pbf_params.counts.z;
+    let h        = pbf_params.h;
+    let rho0     = pbf_params.rest_density;
+    let epsilon  = pbf_params.relaxation;
+    let max_nb   = pbf_params.max_neighbors;
     let nb_count = neighbor_count[i];
     let xi       = particles[i].pos.xyz;
 
     // Densidade
-    let mass     = pbf_params.mass.x;
-    let m_rho0   = pbf_params.mass.y;   // m / ρ₀
+    let mass     = pbf_params.particle_mass;
+    let m_rho0   = pbf_params.mass_over_density;   // m / ρ₀
     var rho = mass * W_poly6(0.0, h);  // auto-contribuição (r=0)
     var sum_grad_sq = 0.0;
     var grad_i = vec3f(0.0);

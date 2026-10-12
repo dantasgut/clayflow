@@ -15,6 +15,11 @@ import {
 } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { countPasses, recordingFrame } from './helpers/recordingFrame';
 import type { Flow } from '../../../scene/flows/Flow';
+import { PBFSimParamsSchema, SPHSimParamsSchema } from '../schemas/simParams';
+import type { StructSchema } from '../../../scene/descriptors/StructSchema';
+
+/** Índice f32/u32 de um campo do schema. */
+const at = (schema: StructSchema, field: string): number => schema.offsetOf(field) / 4;
 
 type FlowCtor = (
     core: ReturnType<typeof fakeResourceCore>['core'],
@@ -69,15 +74,15 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         s.time.advance(1 / 60);
         s.flow.dispatch(recordingFrame().frame);
         const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
-        expect(f32[4]).toBeCloseTo(900);
-        expect(f32[5]).toBeCloseTo(material.sphSmoothingLength, 6);
-        expect(f32[6]).toBeCloseTo((900 * 144) / TAIT_GAMMA, 1);
-        expect(f32[7]).toBe(TAIT_GAMMA);
-        expect(f32[8]).toBeCloseTo(0.02);
-        expect(f32[16]).toBe(-1);
-        expect(f32[17]).toBe(-0.5);
-        expect(f32[19]).toBeCloseTo(0.3);
-        expect(f32[20]).toBeCloseTo(material.particleMass, 6);
+        expect(f32[at(SPHSimParamsSchema, 'rest_density')]).toBeCloseTo(900);
+        expect(f32[at(SPHSimParamsSchema, 'h')]).toBeCloseTo(material.sphSmoothingLength, 6);
+        expect(f32[at(SPHSimParamsSchema, 'stiffness')]).toBeCloseTo((900 * 144) / TAIT_GAMMA, 1);
+        expect(f32[at(SPHSimParamsSchema, 'gamma')]).toBe(TAIT_GAMMA);
+        expect(f32[at(SPHSimParamsSchema, 'viscosity')]).toBeCloseTo(0.02);
+        expect(f32[at(SPHSimParamsSchema, 'bound_min')]).toBe(-1);
+        expect(f32[at(SPHSimParamsSchema, 'bound_min') + 1]).toBe(-0.5);
+        expect(f32[at(SPHSimParamsSchema, 'restitution')]).toBeCloseTo(0.3);
+        expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(material.particleMass, 6);
     });
 
     it('substeps pelo passo estável (CFL 0,4 h/c)', () => {
@@ -115,7 +120,10 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         s.time.advance(1 / 60);
         s.flow.dispatch(recordingFrame().frame);
         const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
-        expect(f32[20]).toBeCloseTo(ParticleMaterial.defaults.particleMass, 6);
+        expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(
+            ParticleMaterial.defaults.particleMass,
+            6,
+        );
     });
 });
 
@@ -131,11 +139,14 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
         s.time.advance(1 / 60);
         s.flow.dispatch(recordingFrame().frame);
         const { f32 } = lastWrite(s.writes, 'pbf_params:per_step');
-        expect(f32[4]).toBeCloseTo(900);
-        expect(f32[5]).toBeCloseTo(0.08, 6);
-        expect(f32[7]).toBeCloseTo(1e-4 * (0.04 / 0.05) ** 2, 9);
-        expect(f32[20]).toBeCloseTo(material.particleMass, 6);
-        expect(f32[21]).toBeCloseTo(material.particleMass / 900, 9);
+        expect(f32[at(PBFSimParamsSchema, 'rest_density')]).toBeCloseTo(900);
+        expect(f32[at(PBFSimParamsSchema, 'h')]).toBeCloseTo(0.08, 6);
+        expect(f32[at(PBFSimParamsSchema, 's_corr_k')]).toBeCloseTo(1e-4 * (0.04 / 0.05) ** 2, 9);
+        expect(f32[at(PBFSimParamsSchema, 'particle_mass')]).toBeCloseTo(material.particleMass, 6);
+        expect(f32[at(PBFSimParamsSchema, 'mass_over_density')]).toBeCloseTo(
+            material.particleMass / 900,
+            9,
+        );
     });
 
     it('vizinhança com raio = h', () => {

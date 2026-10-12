@@ -12,7 +12,7 @@ fn ns_scatter_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= ns_params.counts.x) { return; }  // particle_count
+    if (i >= ns_params.particle_count) { return; }  // particle_count
 
     let cell = cell_ids[i];
     if (cell == 0xFFFFFFFFu) { return; }  // NS_INVALID_CELL

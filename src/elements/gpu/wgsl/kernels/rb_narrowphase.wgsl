@@ -24,13 +24,6 @@
 
 // Binding 5: pool específico da variante — declarado por kernel via concat WGSL no TS.
 
-struct NarrowphaseParams {
-    pool_count:       u32,  // número de colliders neste pool
-    pool_base:        u32,  // offset deste pool dentro da linha de contatos do body
-    total_col_count:  u32,  // soma de todos os pools (= rb_params.collider_count)
-    _pad0:            u32,
-}
-
 const SHAPE_TYPE_BODY_SPHERE: u32 = 0u;
 const SHAPE_TYPE_BODY_BOX:    u32 = 1u;
 

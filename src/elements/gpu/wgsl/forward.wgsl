@@ -1,42 +1,9 @@
-struct Camera {
-    view: mat4x4<f32>,
-    projection: mat4x4<f32>,
-    viewProjection: mat4x4<f32>,
-    position: vec4<f32>,
-    near: f32,
-    far: f32,
-    fov: f32,
-    aspect: f32,
-}
-
-// Produto do TransformFlow — mesma forma de `Transform.worldSchema`.
-struct WorldTransform {
-    world: mat4x4<f32>,
-    normal: mat3x3<f32>,
-}
-
-struct StandardMaterial {
-    albedo: vec4<f32>,
-    roughness: f32,
-    metallic: f32,
-    _pad0: f32,
-    _pad1: f32,
-}
-
-struct ShadowParams {
-    lightViewProj: mat4x4<f32>,
-    lightDir: vec4<f32>,
-    bias: f32,
-    enabled: f32,
-    _pad0: f32,
-    _pad1: f32,
-}
-
+// Desenho forward. Structs `Camera`, `WorldTransform`, `StandardMaterial` e `ForwardShadowParams` gerados dos schemas.
 @group(0) @binding(0) var<uniform> camera: Camera;
 // Pool WorldTransform, indexado pelo slot da entidade (firstInstance do draw).
 @group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
 @group(2) @binding(0) var<uniform> material: StandardMaterial;
-@group(3) @binding(0) var<uniform> shadow: ShadowParams;
+@group(3) @binding(0) var<uniform> shadow: ForwardShadowParams;
 @group(3) @binding(1) var shadow_map: texture_depth_2d;
 @group(3) @binding(2) var shadow_sampler: sampler_comparison;
 

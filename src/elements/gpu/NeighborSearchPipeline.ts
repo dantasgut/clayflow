@@ -17,6 +17,7 @@ import {
     nsScanLocal,
     nsScatter,
 } from './shaders/neighborSearch';
+import { NsScanLevelSchema, NsSimParamsSchema } from './schemas';
 
 /** Teto de vizinhos por partícula: tamanho do vetor local em que `ns_find` ordena a lista (`NS_MAX_NEIGHBORS`). */
 const MAX_NEIGHBORS = 128;
@@ -165,7 +166,7 @@ export class NeighborSearchPipeline {
                 kind: 'buffer',
                 subkind: 'uniform',
                 discriminator: `ns_params:${this.disc}`,
-                byteSize: 48,
+                byteSize: NsSimParamsSchema.stride,
             });
         }
         if (this.cellCountBuffer === null) {
@@ -236,9 +237,9 @@ export class NeighborSearchPipeline {
                 kind: 'buffer',
                 subkind: 'uniform',
                 discriminator: `ns_scan_level:${this.disc}:${k}`,
-                byteSize: 16,
+                byteSize: NsScanLevelSchema.stride,
             });
-            this.core.write(uniform, new Uint32Array([count, 0, 0, 0]));
+            this.core.write(uniform, NsScanLevelSchema.pack({ count }));
             return { uniform, count };
         });
         const storage = (name: string, k: number): StorageBufferSpec =>
@@ -505,22 +506,20 @@ export class NeighborSearchPipeline {
     private uploadParams(particleCount: number): void {
         if (this.paramsBuffer === null || this.uploadedParticleCount === particleCount) return;
         this.uploadedParticleCount = particleCount;
-        const buf = new ArrayBuffer(48);
-        const f32 = new Float32Array(buf);
-        const u32 = new Uint32Array(buf);
-        f32[0] = this.origin[0];
-        f32[1] = this.origin[1];
-        f32[2] = this.origin[2];
-        f32[3] = this.cellSize;
-        u32[4] = this.gridDim[0];
-        u32[5] = this.gridDim[1];
-        u32[6] = this.gridDim[2];
-        u32[7] = this.cellCount;
-        u32[8] = particleCount;
-        u32[9] = this.particleStrideF32;
-        u32[10] = this.maxNeighbors;
-        u32[11] = 0;
-        this.core.write(this.paramsBuffer, new Uint8Array(buf));
+        this.core.write(
+            this.paramsBuffer,
+            NsSimParamsSchema.pack({
+                origin: this.origin,
+                cell_size: this.cellSize,
+                grid_x: this.gridDim[0],
+                grid_y: this.gridDim[1],
+                grid_z: this.gridDim[2],
+                cell_count: this.cellCount,
+                particle_count: particleCount,
+                particle_stride: this.particleStrideF32,
+                max_neighbors: this.maxNeighbors,
+            }),
+        );
     }
 
     /**
