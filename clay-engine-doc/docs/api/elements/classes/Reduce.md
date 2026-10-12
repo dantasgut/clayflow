@@ -6,11 +6,14 @@
 
 # Class: Reduce
 
-Defined in: [elements/gpu/compute/Reduce.ts:63](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Reduce.ts#L63)
+Defined in: [elements/gpu/compute/Reduce.ts:63](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/Reduce.ts#L63)
 
-Redução de `T[count]` a um valor (research R11): árvore por grupo de 256 em memória de workgroup, níveis até restar
-um valor. Soma, mínimo ou máximo de u32, i32 ou f32 (módulo de operação `reduceOp`, memorizado). Soma de f32 tem
-ordem de soma diferente da sequencial: tolerância relativa `1e-5 × log2(count)` (contrato).
+Redução de `T[count]` a um valor (research R11 da 005): árvore por grupo de 256 em memória de workgroup, níveis até
+restar um valor. Soma, mínimo ou máximo de u32, i32 ou f32 (módulo de operação `reduceOp`, memorizado). Soma de f32
+tem ordem de soma diferente da sequencial: tolerância relativa `1e-5 × log2(count)` (contrato).
+
+Duas fases (spec 006): `prepare(src, out, gravaçõesPorQuadro)` cria parciais, kernels de todos os passes possíveis e
+regiões de uniform, fora da gravação; `record` só grava.
 
 ## Constructors
 
@@ -18,7 +21,7 @@ ordem de soma diferente da sequencial: tolerância relativa `1e-5 × log2(count)
 
 > **new Reduce**(`core`, `options`): `Reduce`
 
-Defined in: [elements/gpu/compute/Reduce.ts:75](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Reduce.ts#L75)
+Defined in: [elements/gpu/compute/Reduce.ts:74](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/Reduce.ts#L74)
 
 #### Parameters
 
@@ -40,9 +43,38 @@ Defined in: [elements/gpu/compute/Reduce.ts:75](https://github.com/dantasgut/cla
 
 > **destroy**(): `void`
 
-Defined in: [elements/gpu/compute/Reduce.ts:142](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Reduce.ts#L142)
+Defined in: [elements/gpu/compute/Reduce.ts:160](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/Reduce.ts#L160)
 
 Libera kernels, parciais e uniforms.
+
+#### Returns
+
+`void`
+
+***
+
+### prepare()
+
+> **prepare**(`src`, `out`, `recordsPerFrame?`): `void`
+
+Defined in: [elements/gpu/compute/Reduce.ts:97](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/Reduce.ts#L97)
+
+Prepara a redução de `src` em `out` para até `recordsPerFrame` gravações por quadro. Idempotente; fora da
+gravação.
+
+#### Parameters
+
+##### src
+
+`StorageBufferSpec`
+
+##### out
+
+`StorageBufferSpec`
+
+##### recordsPerFrame?
+
+`number` = `1`
 
 #### Returns
 
@@ -54,7 +86,7 @@ Libera kernels, parciais e uniforms.
 
 > **record**(`frame`, `args`): `void`
 
-Defined in: [elements/gpu/compute/Reduce.ts:95](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Reduce.ts#L95)
+Defined in: [elements/gpu/compute/Reduce.ts:117](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/Reduce.ts#L117)
 
 Grava a redução de `src[0, count)` em `out[outOffset]`.
 
@@ -71,3 +103,7 @@ Grava a redução de `src[0, count)` em `out[outOffset]`.
 #### Returns
 
 `void`
+
+#### Throws
+
+Error se (`src`, `out`) não foi preparado.

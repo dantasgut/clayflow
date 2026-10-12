@@ -6,52 +6,45 @@
 
 # Class: ForwardFlow
 
-Defined in: [presentation/flows/ForwardFlow.ts:79](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L79)
+Defined in: [presentation/flows/ForwardFlow.ts:125](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L125)
 
-ForwardFlow é o render pass principal. Itera sobre Renderables (entidades
-com Geometry + Material + Transform), constrói pipelines per-entity e
-dispatcha um render pass com:
-  - 4 bindgroups: camera (group 0), matrizes de mundo (1), material (2), shadow (3)
-  - o grupo 1 é o pool `WorldTransform` produzido pelo `TransformFlow`, lido no vertex
-    shader por `instance_index` (o slot da entidade vai como `firstInstance` do draw)
-  - depth attachment (depth24plus)
-  - color attachment para canvas ou offscreen target (PostFlow ping-pong)
+ForwardFlow — o render principal: desenha as entidades com geometria, material e transform.
 
-Pode operar em modo offscreen (`setRenderToOffscreen(true)`) renderizando
-em uma textura para PostFlow consumir, ou direto no canvasView.
+Tudo vem do que a C2 já alocou, sem objeto de GPU por entidade:
+  - grupo 0: a câmera ativa (`consumes: 'Camera'`), enviada pela C2 quando muda;
+  - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`), lido pelo slot da entidade
+    (`firstInstance` do draw);
+  - grupo 2: o pool uniforme do material do seu schema, com offset dinâmico `slot × stride` por desenho;
+  - grupo 3: parâmetros do quadro (direção da luz, sombra ligada, slot do mapa), o mapa de sombra da luz que
+    projeta (`ShadowMap`: textura e, pelo pool, matriz e viés) e o sampler de comparação;
+  - vértices e índices: os buffers da `Geometry` alocados pela C2.
 
-Suporte: shadows via `bindShadowFlow`, profiler timestamps via
-`setProfileTimestamps`, async pipeline compilation via `setPreferAsync`.
+Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando mudam entre desenhos. Um pipeline
+por shader de material e orientação de faces (escala espelhada ⇒ `frontFace: 'cw'`), preparado numa transição
+quando o material entra na cena. Recursos privados (parâmetros do quadro, sampler, substitutos da sombra) são
+religados em transições.
 
 ## Extends
 
-- `RenderFlow`
+- `RenderFlow`\<[`ForwardSlots`](../interfaces/ForwardSlots.md), `"idle"`\>
 
 ## Constructors
 
 ### Constructor
 
-> **new ForwardFlow**(`core`, `world`, `resources`, `canvas`): `ForwardFlow`
+> **new ForwardFlow**(`ctx`, `options?`): `ForwardFlow`
 
-Defined in: [presentation/flows/ForwardFlow.ts:123](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L123)
+Defined in: [presentation/flows/ForwardFlow.ts:156](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L156)
 
 #### Parameters
 
-##### core
+##### ctx
 
-`EngineCore`
+`FlowContext`
 
-##### world
+##### options?
 
-`World`
-
-##### resources
-
-`PoolDirectory`
-
-##### canvas
-
-`HTMLCanvasElement`
+[`ForwardFlowOptions`](../interfaces/ForwardFlowOptions.md) = `{}`
 
 #### Returns
 
@@ -59,54 +52,101 @@ Defined in: [presentation/flows/ForwardFlow.ts:123](https://github.com/dantasgut
 
 #### Overrides
 
-`RenderFlow.constructor`
+`RenderFlow<ForwardSlots, 'idle'>.constructor`
 
 ## Properties
 
-### bodyType
+### bindings
 
-> `readonly` **bodyType**: `""` = `''`
+> `readonly` **bindings**: `BindingSources`
 
-Defined in: [presentation/flows/ForwardFlow.ts:81](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L81)
+Defined in: [presentation/flows/ForwardFlow.ts:128](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L128)
 
-Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
-para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
-quando o flow não é body-bound. Usado por FlowRegistry.resolve(bodyType)
-para encontrar o flow responsável por cada Resource.
+Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
 #### Overrides
 
-`RenderFlow.bodyType`
+`RenderFlow.bindings`
 
 ***
 
-### phase
+### initialState
 
-> `readonly` **phase**: `Phase` = `'forward'`
+> `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/ForwardFlow.ts:82](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L82)
+Defined in: [presentation/flows/ForwardFlow.ts:129](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L129)
 
-Fase do pipeline em que o flow executa.
+Estado inicial do algoritmo.
 
 #### Overrides
 
-`RenderFlow.phase`
+`RenderFlow.initialState`
 
 ***
 
-### priority
+### listens
 
-> **priority**: `number` = `0`
+> `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [presentation/flows/ForwardFlow.ts:83](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L83)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L69)
 
-Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
-Útil quando dois flows compartilham phase mas têm dependência de ordem
-(e.g. um flow gera dado que outro consome).
+Schemas cujos `resourceReady` o Flow recebe como evento.
+
+#### Inherited from
+
+[`PostFlow`](PostFlow.md).[`listens`](PostFlow.md#listens)
+
+***
+
+### pipelines
+
+> `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
+
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L65)
+
+Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
+
+#### Inherited from
+
+[`PostFlow`](PostFlow.md).[`pipelines`](PostFlow.md#pipelines)
+
+***
+
+### profileTimestamps
+
+> **profileTimestamps**: `boolean` = `false`
+
+Defined in: [presentation/flows/ForwardFlow.ts:154](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L154)
+
+Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda.
+
+***
+
+### slots
+
+> `readonly` **slots**: [`ForwardSlots`](../interfaces/ForwardSlots.md)
+
+Defined in: [presentation/flows/ForwardFlow.ts:127](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L127)
+
+Slots consumidos, por nome.
 
 #### Overrides
 
-[`PostFlow`](PostFlow.md).[`priority`](PostFlow.md#priority)
+`RenderFlow.slots`
+
+***
+
+### transitions
+
+> `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`ForwardSlots`](../interfaces/ForwardSlots.md)\>\>
+
+Defined in: [presentation/flows/ForwardFlow.ts:130](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L130)
+
+Tabela de transições (estado × evento).
+
+#### Overrides
+
+`RenderFlow.transitions`
 
 ***
 
@@ -114,9 +154,9 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"ForwardFlow"` = `'ForwardFlow'`
 
-Defined in: [presentation/flows/ForwardFlow.ts:80](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L80)
+Defined in: [presentation/flows/ForwardFlow.ts:126](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L126)
 
-Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
+Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
@@ -124,63 +164,91 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 ## Accessors
 
-### colorOutputView
+### lifecycle
 
 #### Get Signature
 
-> **get** **colorOutputView**(): `TextureViewSpec` \| `null`
+> **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [presentation/flows/ForwardFlow.ts:193](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L193)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L79)
 
-View da textura offscreen onde ForwardFlow renderiza (quando
-setRenderToOffscreen=true). Consumido pelo PostFlow como input do chain.
-Null se renderToOffscreen=false ou ainda não inicializado.
+Estado do ciclo de vida (só a C2 o muda).
 
 ##### Returns
 
-`TextureViewSpec` \| `null`
+`FlowLifecycle`
 
-## Methods
+#### Inherited from
 
-### bindShadowFlow()
-
-> **bindShadowFlow**(`shadowFlow`): `this`
-
-Defined in: [presentation/flows/ForwardFlow.ts:155](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L155)
-
-Vincula um ShadowFlow para que ForwardFlow leia o depth map de
-shadow no fragment shader. Sem esse bind, shadow é desabilitado
-(usa dummy texture branca).
-
-#### Parameters
-
-##### shadowFlow
-
-[`ShadowFlow`](ShadowFlow.md)
-
-#### Returns
-
-`this`
+`RenderFlow.lifecycle`
 
 ***
 
-### dispatch()
+### state
 
-> **dispatch**(`frame`): `void`
+#### Get Signature
 
-Defined in: [presentation/flows/ForwardFlow.ts:315](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L315)
+> **get** **state**(): `S`
 
-Render pass principal por frame. Sequência:
-  1. Ensure layouts/depth/shadow/outputColor (idempotente).
-  2. Coleta renderables do World (Camera + Geometry + Material + Transform).
-  3. Upload uniforms per-frame (camera/material) — transformações já estão na GPU.
-  4. Render pass: itera renderables, bind groups, draw.indexed com firstInstance = slot.
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L84)
+
+Estado próprio do algoritmo (só transições o mudam).
+
+##### Returns
+
+`S`
+
+#### Inherited from
+
+`RenderFlow.state`
+
+## Methods
+
+### colorView()
+
+> `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
+
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/RenderFlow.ts#L20)
+
+View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
 #### Parameters
 
 ##### frame
 
 `Frame`
+
+##### target
+
+`BoundTarget`
+
+#### Returns
+
+`TextureViewSpec` \| `undefined`
+
+#### Inherited from
+
+`RenderFlow.colorView`
+
+***
+
+### dispatch()
+
+> **dispatch**(`frame`, `bound`): `void`
+
+Defined in: [presentation/flows/ForwardFlow.ts:238](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L238)
+
+Grava o passe principal: grupos compartilhados uma vez; por desenho, pipeline e material só quando mudam.
+
+#### Parameters
+
+##### frame
+
+`Frame`
+
+##### bound
+
+`BoundFlow`\<[`ForwardSlots`](../interfaces/ForwardSlots.md)\>
 
 #### Returns
 
@@ -196,10 +264,9 @@ Render pass principal por frame. Sequência:
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/ForwardFlow.ts:235](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L235)
+Defined in: [presentation/flows/ForwardFlow.ts:312](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/ForwardFlow.ts#L312)
 
-Descarte do estágio: libera os objetos de cada entidade, as variantes de pipeline, as texturas de tamanho do
-canvas e os recursos compartilhados (layouts, sombra, bind groups).
+Libera os recursos privados.
 
 #### Returns
 
@@ -208,287 +275,3 @@ canvas e os recursos compartilhados (layouts, sombra, bind groups).
 #### Overrides
 
 `RenderFlow.dispose`
-
-***
-
-### getPipelineDescriptors()
-
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
-
-Defined in: [presentation/flows/ForwardFlow.ts:198](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L198)
-
-ForwardFlow não declara pipelines descriptors (cria per-entity em ensureSlot).
-
-#### Returns
-
-readonly `PipelineDescriptor`[]
-
-#### Overrides
-
-`RenderFlow.getPipelineDescriptors`
-
-***
-
-### isReady()
-
-> **isReady**(): `boolean`
-
-Defined in: [presentation/flows/ForwardFlow.ts:203](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L203)
-
-Sempre ready — renderizáveis vazios resultam em no-op gracioso.
-
-#### Returns
-
-`boolean`
-
-#### Overrides
-
-`RenderFlow.isReady`
-
-***
-
-### onCanvasResized()
-
-> **onCanvasResized**(`_width`, `_height`): `void`
-
-Defined in: [presentation/flows/ForwardFlow.ts:214](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L214)
-
-Chamado quando o canvas é redimensionado. Subclasses que mantêm
-textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
-devem destruir e nullificar para recriarem na próxima dispatch.
-Importante: destruir bindgroups que referenciam essas textures ANTES
-para evitar use-after-free na GPU.
-
-#### Parameters
-
-##### \_width
-
-`number`
-
-##### \_height
-
-`number`
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`RenderFlow.onCanvasResized`
-
-***
-
-### onEntitiesInserted()
-
-> **onEntitiesInserted**(`entityIds`): `void`
-
-Defined in: [presentation/flows/ForwardFlow.ts:134](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L134)
-
-Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
-um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
-cada quadro.
-
-#### Parameters
-
-##### entityIds
-
-readonly `number`[]
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`RenderFlow.onEntitiesInserted`
-
-***
-
-### onEntitiesRemoved()
-
-> **onEntitiesRemoved**(`entityIds`): `void`
-
-Defined in: [presentation/flows/ForwardFlow.ts:269](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L269)
-
-Chamado quando entidades são removidas do World. Subclasses que
-cacheiam slots por EntityId devem limpar os entries afetados para
-evitar leaks de slots órfãos.
-
-#### Parameters
-
-##### entityIds
-
-readonly `number`[]
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`RenderFlow.onEntitiesRemoved`
-
-***
-
-### onEvent()
-
-> **onEvent**(`_event`, `_payload`): `void`
-
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L66)
-
-Hook genérico de eventos. Default no-op. A maioria dos flows usa os
-hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
-
-#### Parameters
-
-##### \_event
-
-`string`
-
-##### \_payload
-
-`unknown`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`RenderFlow.onEvent`
-
-***
-
-### onPoolReallocated()
-
-> **onPoolReallocated**(`poolKey`): `void`
-
-Defined in: [presentation/flows/ForwardFlow.ts:208](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L208)
-
-O pool de matrizes de mundo foi realocado: o bind group do grupo 1 é recriado.
-
-#### Parameters
-
-##### poolKey
-
-`string`
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`RenderFlow.onPoolReallocated`
-
-***
-
-### recordRenderPass()
-
-> **recordRenderPass**(`_frame`, `_target`): `void`
-
-Defined in: [presentation/flows/ForwardFlow.ts:304](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L304)
-
-RenderFlow base API — no-op em ForwardFlow (lógica inteira em dispatch).
-
-#### Parameters
-
-##### \_frame
-
-`Frame`
-
-##### \_target
-
-`RenderTarget`
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`RenderFlow.recordRenderPass`
-
-***
-
-### resolveTarget()
-
-> **resolveTarget**(): `RenderTarget`
-
-Defined in: [presentation/flows/ForwardFlow.ts:299](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L299)
-
-RenderFlow base API — não usada por ForwardFlow (que constrói target
-inline em dispatch). Lança se chamada fora de dispatch.
-
-#### Returns
-
-`RenderTarget`
-
-#### Overrides
-
-`RenderFlow.resolveTarget`
-
-***
-
-### setPreferAsync()
-
-> **setPreferAsync**(`enabled`): `this`
-
-Defined in: [presentation/flows/ForwardFlow.ts:183](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L183)
-
-Habilita async pipeline compilation (createAsync). Slots novos não
-stallam o frame durante shader compile; renderizam quando prontos.
-
-#### Parameters
-
-##### enabled
-
-`boolean`
-
-#### Returns
-
-`this`
-
-***
-
-### setProfileTimestamps()
-
-> **setProfileTimestamps**(`enabled`): `this`
-
-Defined in: [presentation/flows/ForwardFlow.ts:174](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L174)
-
-Habilita timestamp queries no render pass. Requer device com
-`timestamp-query` feature. Profiler emite stagesNs em profilerStats event.
-
-#### Parameters
-
-##### enabled
-
-`boolean`
-
-#### Returns
-
-`this`
-
-***
-
-### setRenderToOffscreen()
-
-> **setRenderToOffscreen**(`enabled`): `this`
-
-Defined in: [presentation/flows/ForwardFlow.ts:165](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ForwardFlow.ts#L165)
-
-Alterna entre render direto no canvas (false) ou em uma textura
-offscreen consumida pelo PostFlow (true). Habilitado por default
-pelo `Application` quando PostFlow está registrado.
-
-#### Parameters
-
-##### enabled
-
-`boolean`
-
-#### Returns
-
-`this`

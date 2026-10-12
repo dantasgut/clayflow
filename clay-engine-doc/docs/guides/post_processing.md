@@ -63,8 +63,13 @@ Para o WGSL, expanda o `effects.wgsl` ou injete um shader source customizado via
 
 ## Render flow
 
-1. `ForwardFlow.setRenderToOffscreen(true)` → cor renderizada em texture `outputColorView`.
-2. `PostFlow` lê `forward.colorOutputView`, aplica effects ativos com 2 textures ping-pong (alocadas size-aware, recriadas em `onCanvasResized`).
-3. Último effect renderiza no swapchain (canvas) com `loadOp: clear`.
+1. O `ForwardFlow` (registrado com `output: 'scene'`) desenha a cena nos `FrameTargets` — cor no formato do canvas e
+   profundidade `depth24plus`, recriadas pela C2 quando o canvas muda.
+2. O `PostFlow` lê a cor pelo slot `scene` (`slot.texture(FrameTargets.schema, 'color')`) e aplica os effects ativos
+   com 2 texturas pingue-pongue privadas (do tamanho do canvas, recriadas na transição `canvasReconfigured`). Cada
+   effect tem o seu pipeline (`post:<nome>`) e os seus privados por pipeline (`post:<nome>:src_tex`,
+   `post:<nome>:params`), preparados e religados em `framePrepare` quando a cadeia muda.
+3. O último effect renderiza no canvas (slot `target: 'canvas'`) com `loadOp: clear`; sem effects ligados, uma
+   passagem direta (`post:passthrough`) copia a cena.
 
 Performance: cada effect = 1 fullscreen triangle pass. Para 4 effects @ 1080p ≈ 4 × 2M pixels × ~2-5 sample reads = baixo overhead em GPUs decentes.

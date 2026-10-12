@@ -47,7 +47,7 @@ type Ctx = TransitionContext<TransformSlots>;
  * euclidianas do roadmap.
  */
 export class TransformFlow extends Flow<TransformSlots, TransformState> {
-    readonly type = 'transform';
+    readonly type = 'TransformFlow';
     readonly slots = slots;
     override readonly listens = [Transform.schema];
     override readonly pipelines: readonly PipelineDescriptor[] = [

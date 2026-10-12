@@ -6,29 +6,36 @@
 
 # Class: DebugFlow
 
-Defined in: [presentation/flows/DebugFlow.ts:35](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L35)
+Defined in: [presentation/flows/DebugFlow.ts:45](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L45)
 
 DebugFlow — overlay opcional de FPS/frame time + emissão periódica de
 `profilerStats`. Não desenha nada por padrão (flow lightweight); um
 UIFlow/UiText pode subscrever ao evento e renderizar o texto.
 
+Sem slots nem pipelines: observa `frameTick` (tempo do quadro) e `frameComplete` (tempos de GPU por passe) no
+EventBus da cena desde a construção.
+
 ## Extends
 
-- `Flow`
+- `Flow`\<[`DebugSlots`](../type-aliases/DebugSlots.md), `"idle"`\>
 
 ## Constructors
 
 ### Constructor
 
-> **new DebugFlow**(`options?`): `DebugFlow`
+> **new DebugFlow**(`ctx`, `options?`): `DebugFlow`
 
-Defined in: [presentation/flows/DebugFlow.ts:53](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L53)
+Defined in: [presentation/flows/DebugFlow.ts:70](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L70)
 
 #### Parameters
 
+##### ctx
+
+`Pick`\<`FlowContext`, `"events"`\>
+
 ##### options?
 
-`DebugFlowOptions` = `{}`
+[`DebugFlowOptions`](../interfaces/DebugFlowOptions.md) = `{}`
 
 #### Returns
 
@@ -36,54 +43,91 @@ Defined in: [presentation/flows/DebugFlow.ts:53](https://github.com/dantasgut/cl
 
 #### Overrides
 
-`Flow.constructor`
+`Flow<DebugSlots, 'idle'>.constructor`
 
 ## Properties
 
-### bodyType
+### bindings
 
-> `readonly` **bodyType**: `""` = `''`
+> `readonly` **bindings**: `BindingSources` = `{}`
 
-Defined in: [presentation/flows/DebugFlow.ts:37](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L37)
+Defined in: [scene/flows/Flow.ts:67](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L67)
 
-Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
-para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
-quando o flow não é body-bound. Usado por FlowRegistry.resolve(bodyType)
-para encontrar o flow responsável por cada Resource.
+Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
-#### Overrides
+#### Inherited from
 
-`Flow.bodyType`
+`Flow.bindings`
 
 ***
 
-### phase
+### initialState
 
-> `readonly` **phase**: `Phase` = `'forward'`
+> `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/DebugFlow.ts:38](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L38)
+Defined in: [presentation/flows/DebugFlow.ts:48](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L48)
 
-Fase do pipeline em que o flow executa.
+Estado inicial do algoritmo.
 
 #### Overrides
 
-`Flow.phase`
+`Flow.initialState`
 
 ***
 
-### priority
+### listens
 
-> **priority**: `number` = `-100`
+> `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [presentation/flows/DebugFlow.ts:39](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L39)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L69)
 
-Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
-Útil quando dois flows compartilham phase mas têm dependência de ordem
-(e.g. um flow gera dado que outro consome).
+Schemas cujos `resourceReady` o Flow recebe como evento.
+
+#### Inherited from
+
+`Flow.listens`
+
+***
+
+### pipelines
+
+> `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
+
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L65)
+
+Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
+
+#### Inherited from
+
+`Flow.pipelines`
+
+***
+
+### slots
+
+> `readonly` **slots**: `Readonly`\<`Record`\<`string`, `never`\>\>
+
+Defined in: [presentation/flows/DebugFlow.ts:47](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L47)
+
+Slots consumidos, por nome.
 
 #### Overrides
 
-`Flow.priority`
+`Flow.slots`
+
+***
+
+### transitions
+
+> `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`DebugSlots`](../type-aliases/DebugSlots.md)\>\>
+
+Defined in: [presentation/flows/DebugFlow.ts:49](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L49)
+
+Tabela de transições (estado × evento).
+
+#### Overrides
+
+`Flow.transitions`
 
 ***
 
@@ -91,46 +135,63 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"DebugFlow"` = `'DebugFlow'`
 
-Defined in: [presentation/flows/DebugFlow.ts:36](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L36)
+Defined in: [presentation/flows/DebugFlow.ts:46](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L46)
 
-Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
+Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
 `Flow.type`
 
-## Methods
+## Accessors
 
-### bindEvents()
+### lifecycle
 
-> **bindEvents**(`events`): `this`
+#### Get Signature
 
-Defined in: [presentation/flows/DebugFlow.ts:64](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L64)
+> **get** **lifecycle**(): `FlowLifecycle`
 
-Anexa o flow a um EventBus para emitir profilerStats e ouvir a tecla de alternância. Reanexar desfaz as
-inscrições anteriores.
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L79)
 
-#### Parameters
+Estado do ciclo de vida (só a C2 o muda).
 
-##### events
+##### Returns
 
-`EventBus`
+`FlowLifecycle`
 
-#### Returns
+#### Inherited from
 
-`this`
+`Flow.lifecycle`
 
 ***
+
+### state
+
+#### Get Signature
+
+> **get** **state**(): `S`
+
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/scene/flows/Flow.ts#L84)
+
+Estado próprio do algoritmo (só transições o mudam).
+
+##### Returns
+
+`S`
+
+#### Inherited from
+
+`Flow.state`
+
+## Methods
 
 ### dispatch()
 
 > **dispatch**(`_frame`): `void`
 
-Defined in: [presentation/flows/DebugFlow.ts:136](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L136)
+Defined in: [presentation/flows/DebugFlow.ts:141](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L141)
 
-Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
-contém o command encoder ativo — use `frame.compute(...)` ou
-`frame.render(target, ...)` para emitir comandos GPU.
+Grava os comandos do quadro. Chamado só quando `lifecycle === 'ready'`.
 
 #### Parameters
 
@@ -152,7 +213,7 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/DebugFlow.ts:85](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L85)
+Defined in: [presentation/flows/DebugFlow.ts:98](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L98)
 
 Descarte do estágio: remove as inscrições no EventBus e o ouvinte de teclado.
 
@@ -166,31 +227,11 @@ Descarte do estágio: remove as inscrições no EventBus e o ouvinte de teclado.
 
 ***
 
-### getPipelineDescriptors()
-
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
-
-Defined in: [presentation/flows/DebugFlow.ts:108](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L108)
-
-Retorna os descritores de pipelines GPU que este flow precisa criar
-(para introspeção arquitetural / debugging — o flow ainda materializa
-via core.create internamente).
-
-#### Returns
-
-readonly `PipelineDescriptor`[]
-
-#### Overrides
-
-`Flow.getPipelineDescriptors`
-
-***
-
 ### isEnabled()
 
 > **isEnabled**(): `boolean`
 
-Defined in: [presentation/flows/DebugFlow.ts:104](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L104)
+Defined in: [presentation/flows/DebugFlow.ts:117](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L117)
 
 True se DebugFlow está coletando + emitindo stats.
 
@@ -200,173 +241,11 @@ True se DebugFlow está coletando + emitindo stats.
 
 ***
 
-### isReady()
-
-> **isReady**(): `boolean`
-
-Defined in: [presentation/flows/DebugFlow.ts:112](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L112)
-
-Indica se o flow tem trabalho válido para esta frame. Default: true
-(sempre dispatch). Override para gating em prerequisites: e.g. presença
-de Camera no World, pool não-vazio, pipeline async ainda compilando.
-ExecutionSystem skipa flows com `isReady() === false`.
-
-#### Returns
-
-`boolean`
-
-#### Overrides
-
-`Flow.isReady`
-
-***
-
-### onCanvasResized()
-
-> **onCanvasResized**(`_width`, `_height`): `void`
-
-Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L114)
-
-Chamado quando o canvas é redimensionado. Subclasses que mantêm
-textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
-devem destruir e nullificar para recriarem na próxima dispatch.
-Importante: destruir bindgroups que referenciam essas textures ANTES
-para evitar use-after-free na GPU.
-
-#### Parameters
-
-##### \_width
-
-`number`
-
-##### \_height
-
-`number`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onCanvasResized`
-
-***
-
-### onEntitiesInserted()
-
-> **onEntitiesInserted**(`_entityIds`): `void`
-
-Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L94)
-
-Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
-um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
-cada quadro.
-
-#### Parameters
-
-##### \_entityIds
-
-readonly `number`[]
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onEntitiesInserted`
-
-***
-
-### onEntitiesRemoved()
-
-> **onEntitiesRemoved**(`_entityIds`): `void`
-
-Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L103)
-
-Chamado quando entidades são removidas do World. Subclasses que
-cacheiam slots por EntityId devem limpar os entries afetados para
-evitar leaks de slots órfãos.
-
-#### Parameters
-
-##### \_entityIds
-
-readonly `number`[]
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onEntitiesRemoved`
-
-***
-
-### onEvent()
-
-> **onEvent**(`_event`, `_payload`): `void`
-
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L66)
-
-Hook genérico de eventos. Default no-op. A maioria dos flows usa os
-hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
-
-#### Parameters
-
-##### \_event
-
-`string`
-
-##### \_payload
-
-`unknown`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onEvent`
-
-***
-
-### onPoolReallocated()
-
-> **onPoolReallocated**(`_poolKey`): `void`
-
-Defined in: [scene/flows/Flow.ts:77](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L77)
-
-Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
-ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
-`BindGroupSpec` dependentes do pool devem invalidar o cache aqui
-(set para null) para que a próxima dispatch reconstrua via
-`resources.poolBindGroup(poolKey)`.
-
-#### Parameters
-
-##### \_poolKey
-
-`string`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onPoolReallocated`
-
-***
-
 ### setEnabled()
 
 > **setEnabled**(`value`): `void`
 
-Defined in: [presentation/flows/DebugFlow.ts:100](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/DebugFlow.ts#L100)
+Defined in: [presentation/flows/DebugFlow.ts:113](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/DebugFlow.ts#L113)
 
 Habilita/desabilita emissão de profilerStats event a cada frame.
 

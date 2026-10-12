@@ -95,58 +95,64 @@ Para forçar limpeza imediata sem reload, você pode chamar
 ## Adicionando um Flow novo
 
 Um Flow é uma unidade de execução por frame, normalmente uma compute pass
-ou render pass. Esqueleto:
+ou render pass. Ele declara slots, pipelines, recursos privados e uma tabela
+de transições; a C2 infere os layouts do WGSL, liga os bind groups e decide
+quando o Flow entra no quadro. Guia completo: [Flows](./flows.md). Esqueleto:
 
 ```ts
-import { Flow, createComputeKernel, wgslModule, wgslLib, type Phase } from 'webgpu-engine';
-import type { ComputeKernel, EngineCore, Frame, StorageBufferSpec } from 'webgpu-engine';
+import { Flow, wgslModule, wgslLib } from 'webgpu-engine';
+import type {
+    BindingSources, BoundFlow, FlowTransitions, Frame, PipelineDescriptor, StorageBufferSpec, TransitionContext,
+} from 'webgpu-engine';
 import mySource from './my_flow.wgsl?raw';
 
 // Módulo de entrada: dependências por `requires`, structs gerados dos schemas em `structs`.
+// O WGSL declara `@group(0) @binding(0) var<storage, read_write> data: array<f32>;`.
 const myShader = wgslModule({ name: 'my_flow', source: mySource, requires: [wgslLib.quat] });
 
-export class MyFlow extends Flow {
+const slots = {};
+type Ctx = TransitionContext<typeof slots>;
+
+export class MyFlow extends Flow<typeof slots, 'idle'> {
     readonly type = 'MyFlow';
-    readonly bodyType = '';
-    readonly phase: Phase = 'physics'; // ou 'transform' | 'shadow' | 'forward' | 'post' | 'ui'
-    private readonly kernel: ComputeKernel;
+    readonly slots = slots;
+    // Compilado antes de o Flow ficar pronto; layout inferido do WGSL.
+    override readonly pipelines: readonly PipelineDescriptor[] = [
+        { id: 'my', role: 'compute', shader: myShader, entryPoints: ['my_main'], consumes: [] },
+    ];
+    override readonly bindings: BindingSources;
+    protected readonly initialState = 'idle' as const;
+    protected readonly transitions: FlowTransitions<'idle', Ctx> = {
+        '*': { slotsResolved: 'ignore', slotLost: 'ignore', pipelinesCompiled: 'ignore', bindGroupReplaced: 'ignore' },
+    };
 
-    constructor(
-        private readonly core: EngineCore,
-        private readonly data: StorageBufferSpec,
-        private readonly count: number,
-    ) {
+    constructor(data: StorageBufferSpec, private readonly count: number) {
         super();
-        // Criado uma vez (montagem e pipeline memorizados); nunca por quadro.
-        this.kernel = createComputeKernel(core, {
-            discriminator: 'my_flow',
-            shader: myShader,
-            entryPoint: 'my_main',
-            bindings: [{ binding: 0, type: 'storage', buffer: data }],
-        });
+        this.bindings = { data }; // privado, pelo nome da variável no WGSL
     }
 
-    getPipelineDescriptors() {
-        return [];
-    }
-
-    override isReady() {
-        return true;
-    }
-
-    dispatch(frame: Frame) {
+    dispatch(frame: Frame, bound: BoundFlow<typeof slots>) {
+        const p = bound.compute('my'); // bind groups da C2 — leia a cada quadro, não guarde
         frame.compute('MyFlow', (pass) => {
-            pass.bind.setPipeline(this.kernel.pipeline).setBindGroup(0, this.kernel.bindGroup);
+            pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
             pass.dispatch.invocations(this.count, 64); // o shader indexa por num_workgroups
         });
     }
 }
 
-// Registro:
-app.flows.register(new MyFlow(app.core, dataBuffer, count));
+// Registro por factory: a fase e a prioridade vêm das opções.
+app.flows.register(() => new MyFlow(dataBuffer, count), { type: 'MyFlow', phase: 'physics' });
 // Ou via plugin para reutilização:
-app.use({ name: 'my', install(a) { a.flows.register(new MyFlow(a.core, dataBuffer, count)); } });
+app.use({
+    name: 'my',
+    install(a) {
+        a.flows.register(() => new MyFlow(dataBuffer, count), { type: 'MyFlow', phase: 'physics' });
+    },
+});
 ```
+
+Para um kernel avulso fora de um Flow, `createComputeKernel(core, { discriminator, shader, entryPoint, bindings })`
+recebe as fontes **pelo nome da variável** (`bindings: { data: dataBuffer }`) e infere o layout do mesmo jeito.
 
 ## Adicionando um Resource novo
 

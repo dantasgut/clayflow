@@ -6,7 +6,7 @@
 
 # Class: FpsController
 
-Defined in: [presentation/input/controllers/FpsController.ts:13](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/controllers/FpsController.ts#L13)
+Defined in: [presentation/input/controllers/FpsController.ts:13](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/input/controllers/FpsController.ts#L13)
 
 Base abstrata de controllers (OrbitController, FpsController, FlyController).
 Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
@@ -23,7 +23,7 @@ Transform) conforme input.
 
 > **new FpsController**(`camera`, `options?`): `FpsController`
 
-Defined in: [presentation/input/controllers/FpsController.ts:22](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/controllers/FpsController.ts#L22)
+Defined in: [presentation/input/controllers/FpsController.ts:22](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/input/controllers/FpsController.ts#L22)
 
 #### Parameters
 
@@ -49,7 +49,7 @@ Defined in: [presentation/input/controllers/FpsController.ts:22](https://github.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/controllers/FpsController.ts:36](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/controllers/FpsController.ts#L36)
+Defined in: [presentation/input/controllers/FpsController.ts:36](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/input/controllers/FpsController.ts#L36)
 
 Remove o ouvinte de clique (pointer lock) do canvas.
 
@@ -67,7 +67,7 @@ Remove o ouvinte de clique (pointer lock) do canvas.
 
 > **update**(`ctx`): `void`
 
-Defined in: [presentation/input/controllers/FpsController.ts:59](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/controllers/FpsController.ts#L59)
+Defined in: [presentation/input/controllers/FpsController.ts:59](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/input/controllers/FpsController.ts#L59)
 
 Hook chamado a cada frameTick — leia input, atualize state externo.
 

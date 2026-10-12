@@ -6,57 +6,16 @@
 
 # Interface: PresentationDefaultsOptions
 
-Defined in: [presentation/flows/defaults.ts:17](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L17)
+Defined in: [presentation/flows/defaults.ts:13](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/defaults.ts#L13)
 
-Dependências necessárias para construir os Flows default. Application
-passa essas refs do `SceneContext` quando chama `registerPresentationDefaults`.
+Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`).
 
 ## Properties
-
-### canvas
-
-> `readonly` **canvas**: `HTMLCanvasElement`
-
-Defined in: [presentation/flows/defaults.ts:19](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L19)
-
-Canvas onde os flows renderizam.
-
-***
-
-### core
-
-> `readonly` **core**: `EngineCore`
-
-Defined in: [presentation/flows/defaults.ts:21](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L21)
-
-EngineCore (Camada 1) — passado para os flows criarem GPU specs.
-
-***
-
-### events
-
-> `readonly` **events**: `EventBus`
-
-Defined in: [presentation/flows/defaults.ts:27](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L27)
-
-EventBus da cena — o TransformFlow reage a `resourceReady`; o DebugFlow emite profilerStats.
-
-***
-
-### resources
-
-> `readonly` **resources**: `ResourceSystem`
-
-Defined in: [presentation/flows/defaults.ts:25](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L25)
-
-ResourceSystem para acesso aos pools (poolBufferSpec, poolBindGroup).
-
-***
 
 ### world
 
 > `readonly` **world**: `World`
 
-Defined in: [presentation/flows/defaults.ts:23](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L23)
+Defined in: [presentation/flows/defaults.ts:15](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/defaults.ts#L15)
 
-World (Camada 2) — flows query Resources via World.queryBySchemaName.
+World da cena.

@@ -8,18 +8,18 @@
 
 > **registerPresentationDefaults**(`flows`, `options`): [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/flows/defaults.ts:71](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L71)
+Defined in: [presentation/flows/defaults.ts:62](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/presentation/flows/defaults.ts#L62)
 
-Registra os Flows default da cena — Transform, Shadow, Forward, Post, Debug e UI — com bindings adequados
-(forward bind shadow, post bind forward, debug bind events). **Uma vez por cena**: chamadas seguintes com o
-mesmo `FlowRegistry` devolvem os mesmos estágios e contam mais um usuário (várias aplicações na mesma cena não
-duplicam estágios). Cada chamada deve ser pareada com `releasePresentationDefaults`.
+Registra por factory os estágios padrão da cena — Transform, Shadow, Forward, Post, Debug e UI, mais os solvers
+padrão — e insere os alvos do quadro (`FrameTargets`: o render principal desenha neles, o pós-processamento os lê
+pelo slot). **Uma vez por cena**: chamadas seguintes com o mesmo `FlowRegistry` devolvem os mesmos estágios e
+contam mais um usuário (várias aplicações na mesma cena não duplicam estágios). Cada chamada deve ser pareada com
+`releasePresentationDefaults`.
 
-Ordem importa: Shadow → Forward → Post → Debug → UI (priority dentro
-das phases).
+A ordem no quadro vem das fases (`transform → shadow → forward → post → ui`) e da prioridade dentro delas.
 
-Chamado por `Application.create`. Apps que querem pipeline customizado podem ignorar e construir flows
-manualmente.
+Chamado por `Application.create`. Apps que querem outro pipeline podem registrar as suas factories
+(`flows.register`/`flows.override`).
 
 ## Parameters
 

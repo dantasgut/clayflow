@@ -76,7 +76,7 @@ describe('nenhum layout nem bind group criado por estágio (SC-004)', () => {
                 'MPMFlow',
                 'SPHFlow',
                 'PBFFlow',
-                'transform',
+                'TransformFlow',
                 'ShadowFlow',
                 'ForwardFlow',
                 'PostFlow',

@@ -6,7 +6,7 @@
 
 # Interface: RadixSortRecordArgs
 
-Defined in: [elements/gpu/compute/RadixSort.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L32)
+Defined in: [elements/gpu/compute/RadixSort.ts:27](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L27)
 
 Argumentos de `RadixSort.record`.
 
@@ -16,7 +16,7 @@ Argumentos de `RadixSort.record`.
 
 > `readonly` `optional` **bits?**: `number`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:40](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L40)
+Defined in: [elements/gpu/compute/RadixSort.ts:35](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L35)
 
 Bits menos significativos considerados: múltiplo de 4 em [4, 32]. Padrão 32.
 
@@ -26,7 +26,7 @@ Bits menos significativos considerados: múltiplo de 4 em [4, 32]. Padrão 32.
 
 > `readonly` **count**: `number`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:38](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L38)
+Defined in: [elements/gpu/compute/RadixSort.ts:33](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L33)
 
 Elementos (≤ `capacity`). `0` não grava nada.
 
@@ -36,9 +36,9 @@ Elementos (≤ `capacity`). `0` não grava nada.
 
 > `readonly` **keys**: `StorageBufferSpec`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:34](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L34)
+Defined in: [elements/gpu/compute/RadixSort.ts:29](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L29)
 
-Chaves `u32[count]`, ordenadas no lugar (crescente).
+Chaves `u32[count]`, ordenadas no lugar (crescente); preparadas antes (`prepare`).
 
 ***
 
@@ -46,6 +46,6 @@ Chaves `u32[count]`, ordenadas no lugar (crescente).
 
 > `readonly` `optional` **values?**: `StorageBufferSpec`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:36](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L36)
+Defined in: [elements/gpu/compute/RadixSort.ts:31](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L31)
 
 Valores `u32[count]` permutados junto com as chaves (exige `withValues`).

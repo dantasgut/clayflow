@@ -6,7 +6,7 @@
 
 # Interface: PrefixSumOptions
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/PrefixSum.ts#L32)
+Defined in: [elements/gpu/compute/PrefixSum.ts:27](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/PrefixSum.ts#L27)
 
 Opções de `PrefixSum`.
 
@@ -16,7 +16,7 @@ Opções de `PrefixSum`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:36](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/PrefixSum.ts#L36)
+Defined in: [elements/gpu/compute/PrefixSum.ts:31](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/PrefixSum.ts#L31)
 
 Maior `count` aceito por `record` (dimensiona os buffers dos níveis).
 
@@ -26,6 +26,6 @@ Maior `count` aceito por `record` (dimensiona os buffers dos níveis).
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:34](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/PrefixSum.ts#L34)
+Defined in: [elements/gpu/compute/PrefixSum.ts:29](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/PrefixSum.ts#L29)
 
 Prefixo único dos recursos da instância.

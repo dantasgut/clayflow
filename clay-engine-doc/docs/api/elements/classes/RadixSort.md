@@ -6,14 +6,16 @@
 
 # Class: RadixSort
 
-Defined in: [elements/gpu/compute/RadixSort.ts:59](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L59)
+Defined in: [elements/gpu/compute/RadixSort.ts:64](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L64)
 
-Ordenação radix LSD estável de chaves u32 (research R9), com valores u32 opcionais. Cada passe de 4 bits: histograma
-dos 16 dígitos por grupo de 256 (dígito-maior), soma de prefixos exclusiva dele (`PrefixSum`) — a base global de cada
-(dígito, grupo) — e espalhamento estável. Sem atômicos na saída: o resultado é determinístico.
+Ordenação radix LSD estável de chaves u32 (research R9 da 005), com valores u32 opcionais. Cada passe de 4 bits:
+histograma dos 16 dígitos por grupo de 256 (dígito-maior), soma de prefixos exclusiva dele (`PrefixSum`) — a base
+global de cada (dígito, grupo) — e espalhamento estável. Sem atômicos na saída: o resultado é determinístico.
 
-Os passes alternam entre o buffer do chamador e um temporário interno (pingue-pongue); com número ímpar de passes, o
-resultado é copiado de volta, então ele sempre termina em `keys` (e `values`).
+Os passes alternam entre o buffer do chamador e um temporário interno (pingue-pongue); com número ímpar de passes,
+o resultado é copiado de volta, então ele sempre termina em `keys` (e `values`).
+
+Duas fases (spec 006): `prepare(keys, values, gravaçõesPorQuadro)` fora da gravação; `record` só grava.
 
 ## Constructors
 
@@ -21,7 +23,7 @@ resultado é copiado de volta, então ele sempre termina em `keys` (e `values`).
 
 > **new RadixSort**(`core`, `options`): `RadixSort`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:72](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L72)
+Defined in: [elements/gpu/compute/RadixSort.ts:75](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L75)
 
 #### Parameters
 
@@ -43,9 +45,38 @@ Defined in: [elements/gpu/compute/RadixSort.ts:72](https://github.com/dantasgut/
 
 > **destroy**(): `void`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:161](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L161)
+Defined in: [elements/gpu/compute/RadixSort.ts:170](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L170)
 
 Libera kernels, temporários, a soma de prefixos interna e os uniforms.
+
+#### Returns
+
+`void`
+
+***
+
+### prepare()
+
+> **prepare**(`keys`, `values?`, `recordsPerFrame?`): `void`
+
+Defined in: [elements/gpu/compute/RadixSort.ts:101](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L101)
+
+Prepara a ordenação de `keys` (e `values`, com `withValues`) para até `recordsPerFrame` gravações por quadro.
+Idempotente; fora da gravação.
+
+#### Parameters
+
+##### keys
+
+`StorageBufferSpec`
+
+##### values?
+
+`StorageBufferSpec`
+
+##### recordsPerFrame?
+
+`number` = `1`
 
 #### Returns
 
@@ -57,7 +88,7 @@ Libera kernels, temporários, a soma de prefixos interna e os uniforms.
 
 > **record**(`frame`, `args`): `void`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:95](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/RadixSort.ts#L95)
+Defined in: [elements/gpu/compute/RadixSort.ts:129](https://github.com/dantasgut/clayflow/blob/5bbc103f761cefaddb7550b2709ec33b35ebe0e0/src/elements/gpu/compute/RadixSort.ts#L129)
 
 Grava a ordenação de `keys[0, count)` (e `values`) no lugar.
 
@@ -74,3 +105,7 @@ Grava a ordenação de `keys[0, count)` (e `values`) no lugar.
 #### Returns
 
 `void`
+
+#### Throws
+
+Error se (`keys`, `values`) não foi preparado.

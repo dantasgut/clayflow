@@ -241,16 +241,31 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 > `scene/contracts/gpu`; verificado no lint), relatório de sincronização no topo e `CLAUDE.md` em v1.1.0. **Pendente
 > para o PR**: o corpo do PR da 006 pede a ratificação da 1.1.0 ao mantenedor (item `RATIFICATION(1.1.0)`).
 
-- [ ] T061 [US6] `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: toda marca "alvo da 006" vira estado atual (Flow com slots, `RegisterOptions`, `LayoutInferencer.infer`, `ConsumerResolver` com fontes, `bindGroupReplaced`, pool de Material, `ShadowMap` lido pelo shader, `FrameTargets`); exemplos de Flow, `register` e `consumes` reescritos com a API real
-- [ ] T062 [P] [US6] Guia novo `clay-engine-doc/docs/guides/flows.md` (escrever um Flow N3: slots, `consumes`, privados, transições, registro) com link na barra lateral do Docusaurus
-- [ ] T063 [P] [US6] Migração (tabela do quickstart) em `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`; `physics_flows.md`, `post_processing.md`, `shaders.md` e `getting_started.md` onde citarem a API removida
+- [x] T061 [US6] `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: toda marca "alvo da 006" vira estado atual (Flow com slots, `RegisterOptions`, `LayoutInferencer.infer`, `ConsumerResolver` com fontes, `bindGroupReplaced`, pool de Material, `ShadowMap` lido pelo shader, `FrameTargets`); exemplos de Flow, `register` e `consumes` reescritos com a API real
+- [x] T062 [P] [US6] Guia novo `clay-engine-doc/docs/guides/flows.md` (escrever um Flow N3: slots, `consumes`, privados, transições, registro) com link na barra lateral do Docusaurus
+- [x] T063 [P] [US6] Migração (tabela do quickstart) em `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`; `physics_flows.md`, `post_processing.md`, `shaders.md` e `getting_started.md` onde citarem a API removida
+
+> **Execução (T061–T063, 2026-10-12)**: `architecture_resource_loaders.md` sem nenhuma marca "alvo da 006" (o que
+> continua fora — pool `Renderable`, instancing, câmeras offscreen — marcado F2/007); exemplos de Flow, `register`,
+> `consumes`, ResourceSystem, ExecutionSystem e estágios da C4 reescritos com a API real. Guia novo `flows.md` (Flow
+> N3; o exemplo completo passa no `tsc` contra `src/index`), entrando na barra lateral autogerada por
+> `sidebar_position`. `migration_legacy_to_clean.md` com a seção da 006 (tabela de API removida → substituta e a
+> mudança `shadowEnabled = 0` sem luz que projeta sombra); `physics_flows.md`, `post_processing.md`, `shaders.md`,
+> `getting_started.md` e `dev_workflow.md` atualizados. Divergências achadas e corrigidas nos guias: grade do MPM vem
+> do `ParticleMaterial`; `Application.create` não recebe `flows` (usar `app.flows.register`/`override`);
+> `createComputeKernel` exige `discriminator`; `DistanceConstraint` usa `restLength`. `TransformFlow.type` passou a
+> `'TransformFlow'` (como os demais Flows; o registro continua `type: 'transform'`). Build do Docusaurus verde.
 
 ---
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
 - [ ] T064 [P] `specs/ROADMAP.md`: F1/006 concluída, §6 com os números novos; `specs/PENDENCIAS.md` atualizado (achados resolvidos: readback do LCP, TransformFlow, malha no `ColliderSet`)
-- [ ] T065 JSDoc em todos os exports novos; `npm run doc:coverage`; regenerar a API (`npm run doc`)
+- [x] T065 JSDoc em todos os exports novos; `npm run doc:coverage`; regenerar a API (`npm run doc`)
+
+> **Execução (T065, 2026-10-12)**: `doc:coverage` com 0 membros sem documentação e 47 avisos de tipo não incluído
+> (base do `develop`: 59, todos anteriores à 006; nenhum novo). API regenerada (`npm run doc`).
+
 - [x] T066 Verificações da 005 mantidas: `src/elements/__tests__/noManualOffsets.test.ts`, `noManualWgslAssembly.test.ts`, `wgslInventory.test.ts` verdes (FR-029, nenhum struct duplicado)
 - [ ] T067 Smokes completos no código-fonte e sobre o dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar em `src/__smokes__/README.md` (SC-006, SC-007, SC-009)
 - [ ] T068 `npm run bench:check` com a máquina sem carga externa: CPU por quadro de `instances/10k` −30% e montagem menor contra o baseline, sem regressão > 10% nas demais (SC-003); registrar os números abaixo deste item em `specs/006-flow-slots/tasks.md`; refazer junto a T084 da 005 se ainda pendente
