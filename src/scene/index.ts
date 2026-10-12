@@ -83,16 +83,17 @@ export type { Phase } from './flows/index';
 
 export {
     ConsumerResolverRegistry,
+    ConsumerResolutionError,
     SingletonResolver,
-    PerEntityResolver,
     PoolResolver,
+    TextureResolver,
 } from './consumers/index';
 export type {
     ConsumerResolver,
     ResolveContext,
-    SingletonBindingFactory,
-    PerEntityBindingFactory,
-    PoolBindingFactory,
+    ResolvedSource,
+    BindableBufferSpec,
+    SingletonResolverOptions,
 } from './consumers/index';
 
 export { DefaultEventBus } from './events/DefaultEventBus';

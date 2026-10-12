@@ -79,14 +79,14 @@ nada (`src/scene/__tests__/integration/FlowSlots.test.ts`).
 
 ### Inferência de layout
 
-- [ ] T010 [P] [US1] Testes em `src/scene/__tests__/LayoutInferencer.test.ts`: visibilidade por alcance de chamadas (binding usado só numa função auxiliar chamada pelo fragment → só `FRAGMENT`; usado por vertex e fragment → ambos), tipos (`uniform`, `read-only-storage`, `storage`, `texture_depth_2d`, `texture_2d<f32>`, `texture_storage_2d<fmt, access>`, `sampler`, `sampler_comparison`), `typeName` do struct e do elemento de `array<…>`, binding citado por nenhuma entrada → erro, campos explícitos vencem (FR-013)
-- [ ] T011 [US1] Implementar `LayoutInferencer.infer(composed, entryPoints)` em `src/scene/systems/LayoutInferencer.ts` sobre a varredura de símbolos da 005 (`src/scene/shaders/scanWgslSymbols.ts`), devolvendo `InferredLayout` (contracts/layout-inference.md) — T010 verde
+- [x] T010 [P] [US1] Testes em `src/scene/__tests__/LayoutInferencer.test.ts`: visibilidade por alcance de chamadas (binding usado só numa função auxiliar chamada pelo fragment → só `FRAGMENT`; usado por vertex e fragment → ambos), tipos (`uniform`, `read-only-storage`, `storage`, `texture_depth_2d`, `texture_2d<f32>`, `texture_storage_2d<fmt, access>`, `sampler`, `sampler_comparison`), `typeName` do struct e do elemento de `array<…>`, binding citado por nenhuma entrada → erro, campos explícitos vencem (FR-013)
+- [x] T011 [US1] Implementar `LayoutInferencer.infer(composed, entryPoints)` em `src/scene/systems/LayoutInferencer.ts` sobre a varredura de símbolos da 005 (`src/scene/shaders/scanWgslSymbols.ts`), devolvendo `InferredLayout` (contracts/layout-inference.md) — T010 verde
 
 ### Fontes e resolvers
 
-- [ ] T012 [P] [US1] Testes em `src/scene/__tests__/ConsumerResolverRegistry.test.ts`: resolvers devolvem `ResolvedSource` (`buffer`/`textureView`/`sampler`, `dynamic`, `generation`), `undefined` quando ausente, nome não registrado lista os disponíveis; `PoolResolver` registrado automaticamente ao criar pool sem sobrescrever um existente; `SingletonResolver` de `Camera` escolhe a primeira câmera inserida que continua na cena
-- [ ] T013 [US1] Reescrever `src/scene/consumers/ConsumerResolver.ts` (`resolve(ctx): ResolvedSource | undefined`, `ResolveContext { world, resources }`) e `src/scene/consumers/ConsumerResolverRegistry.ts`; adaptar `src/scene/consumers/strategies/SingletonResolver.ts` e `PoolResolver.ts`; criar `src/scene/consumers/strategies/TextureResolver.ts`; remover `PerEntityResolver.ts` e seus exports — T012 verde
-- [ ] T014 [US1] Registrar os resolvers padrão (`Camera`, `Time`, `ParticleMaterial`, `GravityField`) em `src/scene/SceneContext.ts` e o `PoolResolver` automático na criação de pool em `src/scene/systems/ResourceSystem.ts`; teste em `src/scene/__tests__/SceneContext.test.ts`
+- [x] T012 [P] [US1] Testes em `src/scene/__tests__/ConsumerResolverRegistry.test.ts`: resolvers devolvem `ResolvedSource` (`buffer`/`textureView`/`sampler`, `dynamic`, `generation`), `undefined` quando ausente, nome não registrado lista os disponíveis; `PoolResolver` registrado automaticamente ao criar pool sem sobrescrever um existente; `SingletonResolver` de `Camera` escolhe a primeira câmera inserida que continua na cena
+- [x] T013 [US1] Reescrever `src/scene/consumers/ConsumerResolver.ts` (`resolve(ctx): ResolvedSource | undefined`, `ResolveContext { world, resources }`) e `src/scene/consumers/ConsumerResolverRegistry.ts`; adaptar `src/scene/consumers/strategies/SingletonResolver.ts` e `PoolResolver.ts`; criar `src/scene/consumers/strategies/TextureResolver.ts`; remover `PerEntityResolver.ts` e seus exports — T012 verde
+- [x] T014 [US1] Registrar os resolvers padrão (`Camera`, `Time`, `ParticleMaterial`, `GravityField`) em `src/scene/SceneContext.ts` e o `PoolResolver` automático na criação de pool em `src/scene/systems/ResourceSystem.ts`; teste em `src/scene/__tests__/SceneContext.test.ts`
 
 ### Slots, Flow e transições
 
@@ -125,7 +125,7 @@ verificar instâncias, ordem, `flowReady` só após a compilação e liberação
 - [ ] T028 [US3] Reescrever `src/scene/flows/FlowRegistry.ts`: `register`, `override`, `unregister`, `resolve`, `flowsInPhase`, `phasesInOrder`, `FlowContext`, `RegisterOptions`, `FlowRegistration`; sem `bodyType` instancia no registro e chama `ensureFlowAllocated`; com `bodyType` instancia sob demanda — T027 verde
 - [ ] T029 [US3] Em `src/scene/systems/ResourceSystem.ts`, ao alocar Resource cujo pool tem chave = `bodyType` registrado sem instância, instanciar por `registry.resolve` e alocar
 - [ ] T030 [US3] Remover `DEFAULT_FLOW_FACTORIES`/`autoRegisterFlows` (`src/elements/physics/flows/defaultFlows.ts`) e o uso em `src/presentation/app/Application.ts`; registrar as factories padrão dos solvers em `src/scene/SceneContext.ts` a partir de uma lista exportada por `src/elements/physics/flows/index.ts` (sem instanciar); substituir `src/elements/physics/__tests__/defaultFlows.test.ts` e `flowAutoRegister.test.ts` por testes de seleção pela C2
-- [ ] T031 [US3] `Application.create({ consumers })` em `src/presentation/app/Application.ts` para resolvers de aplicação; teste em `src/presentation/app/__tests__/Application.consumers.test.ts`
+- [x] T031 [US3] `Application.create({ consumers })` em `src/presentation/app/Application.ts` para resolvers de aplicação; teste em `src/presentation/app/__tests__/Application.consumers.test.ts`
 
 **Checkpoint**: registro e seleção prontos; os solvers ainda são migrados na Fase 5.
 

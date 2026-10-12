@@ -3,6 +3,7 @@ import { Schema } from './Schema';
 
 export class TensorSchema extends Schema {
     readonly name: string;
+    readonly wgslName: string;
     readonly shape: readonly number[];
     readonly elementType: FieldType;
     readonly stride: number;
@@ -11,6 +12,7 @@ export class TensorSchema extends Schema {
         super();
         if (shape.length === 0) throw new Error(`TensorSchema(${name}): shape must be non-empty`);
         this.name = name;
+        this.wgslName = fieldWgsl(elementType);
         this.shape = shape;
         this.elementType = elementType;
         const totalElements = shape.reduce((a, b) => a * b, 1);

@@ -23,6 +23,8 @@ import { ResourceStateHandlerRegistry } from '../lifecycle/ResourceStateHandlerR
 import type { World } from '../world/World';
 import type { EntityId } from '../world/EntityId';
 import { makeReactive } from './reactiveData';
+import { ConsumerResolverRegistry } from '../consumers/ConsumerResolverRegistry';
+import { PoolResolver } from '../consumers/strategies/PoolResolver';
 
 type UploadPolicy = NonNullable<GPUDescriptor['upload']>;
 
@@ -119,10 +121,15 @@ export class ResourceSystem implements ResourceDirectory {
     private readonly subscriptions: Unsubscribe[];
     private anonCounter = 0;
 
+    /**
+     * @param consumers Registro de `consumes` da cena: cada pool criado registra o seu `PoolResolver` (sem substituir
+     *   um resolver já registrado com o nome do pool).
+     */
     constructor(
         private readonly core: EngineCore,
         private readonly events: EventBus,
         private readonly world: World,
+        readonly consumers: ConsumerResolverRegistry = new ConsumerResolverRegistry(),
     ) {
         this.subscriptions = [
             this.events.on('resourcesChanged', (e) => {
@@ -582,6 +589,7 @@ export class ResourceSystem implements ResourceDirectory {
             generation: 0,
         };
         this.pools.set(poolKey, entry);
+        this.consumers.registerDefault(new PoolResolver(poolKey, schema));
         return entry;
     }
 

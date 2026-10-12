@@ -22,6 +22,7 @@ import {
 } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
 import { autoRegisterFlows } from '../../elements/physics/flows/defaultFlows';
+import { ELEMENT_CONSUMERS } from '../../elements/consumers';
 
 /**
  * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
@@ -74,6 +75,11 @@ export interface ApplicationOptions {
      * trabalho na GPU sem limite quando ela é mais lenta que a CPU; `step()` não espera.
      */
     maxFramesInFlight?: number;
+    /**
+     * Registra resolvers de `consumes` próprios da aplicação (ex.: `r.register(new SingletonResolver(Wind.schema,
+     * 'wind'))`). Roda depois dos padrão do motor; `register` de um nome existente o substitui.
+     */
+    consumers?: (registry: ConsumerResolverRegistry) => void;
 }
 
 /**
@@ -200,6 +206,8 @@ export class Application {
         const scene: SceneContext = options.scene ?? defaultScene;
         const ownsScene = options.scene !== undefined;
         await scene.initialize(options.canvas, options.canvasOptions, options.device);
+        for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
+        options.consumers?.(scene.consumers);
         const defaults = registerPresentationDefaults(scene.flows, {
             canvas: options.canvas,
             core: scene.core,

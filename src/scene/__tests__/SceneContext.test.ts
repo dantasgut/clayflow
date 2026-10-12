@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createScene } from '../SceneContext';
+import { fakeSceneCore } from './helpers/fakeSceneCore';
+import { SingletonResolver } from '../consumers/strategies/SingletonResolver';
 
 describe('createScene', () => {
     it('cria instâncias frescas de events/world/flows', () => {
@@ -57,5 +59,25 @@ describe('createScene', () => {
         // wiring não quebra após dispose.
         s.dispose();
         expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("registra o resolver de 'Time' e o resolve depois do initialize (Time inserido no World)", async () => {
+        const s = createScene({ core: fakeSceneCore().core });
+        expect(s.consumers.get('Time')).toBeInstanceOf(SingletonResolver);
+        expect(
+            s.consumers.resolve('Time', { world: s.world, resources: s.resourceSystem }),
+        ).toBeUndefined();
+        await s.initialize();
+        expect(
+            s.consumers.resolve('Time', { world: s.world, resources: s.resourceSystem }),
+        ).toEqual({
+            kind: 'buffer',
+            buffer: s.resourceSystem.bufferOf(s.time, 'time'),
+        });
+    });
+
+    it('o ResourceSystem registra os PoolResolvers no registro da cena', () => {
+        const s = createScene({ core: fakeSceneCore().core });
+        expect(s.resourceSystem.consumers).toBe(s.consumers);
     });
 });

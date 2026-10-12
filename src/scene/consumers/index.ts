@@ -1,8 +1,11 @@
-export type { ConsumerResolver, ResolveContext } from './ConsumerResolver';
-export { ConsumerResolverRegistry } from './ConsumerResolverRegistry';
+export type {
+    ConsumerResolver,
+    ResolveContext,
+    ResolvedSource,
+    BindableBufferSpec,
+} from './ConsumerResolver';
+export { ConsumerResolverRegistry, ConsumerResolutionError } from './ConsumerResolverRegistry';
 export { SingletonResolver } from './strategies/SingletonResolver';
-export type { SingletonBindingFactory } from './strategies/SingletonResolver';
-export { PerEntityResolver } from './strategies/PerEntityResolver';
-export type { PerEntityBindingFactory } from './strategies/PerEntityResolver';
+export type { SingletonResolverOptions } from './strategies/SingletonResolver';
 export { PoolResolver } from './strategies/PoolResolver';
-export type { PoolBindingFactory } from './strategies/PoolResolver';
+export { TextureResolver } from './strategies/TextureResolver';

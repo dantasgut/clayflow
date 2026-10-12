@@ -1,6 +1,7 @@
 import { GpuEngineCore } from '../core/gpu/GpuEngineCore';
 import type { CanvasOptions, DeviceOptions, EngineCore } from '../core/contracts/index';
 import { ConsumerResolverRegistry } from './consumers/ConsumerResolverRegistry';
+import { SingletonResolver } from './consumers/strategies/SingletonResolver';
 import type { EventBus } from './events/EventBus';
 import { DefaultEventBus } from './events/DefaultEventBus';
 import type { FlowRegistry as FlowRegistryType } from './flows/FlowRegistry';
@@ -78,9 +79,10 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
     const layoutInferencer = new LayoutInferencer();
     const consumers = new ConsumerResolverRegistry();
     const world = new World(events);
-    const resourceSystem = new ResourceSystem(core, events, world);
+    const resourceSystem = new ResourceSystem(core, events, world, consumers);
     const executionSystem = new ExecutionSystem(core, events, flows);
     const time = new Time(events);
+    consumers.register(new SingletonResolver(Time.schema, 'time'));
 
     const unsubscribeDeviceLost = core.onDeviceLost((info) => {
         events.emit('deviceLost', { reason: info.reason, message: info.message });

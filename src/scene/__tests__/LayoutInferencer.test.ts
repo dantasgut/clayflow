@@ -1,101 +1,158 @@
 import { describe, expect, it } from 'vitest';
-import { LayoutInferencer } from '../systems/LayoutInferencer';
+import { LayoutInferencer, LayoutInferenceError } from '../systems/LayoutInferencer';
+
+const S = { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 } as const;
+
+function entry(source: string, entryPoints: readonly string[], group = 0, binding = 0) {
+    const layout = new LayoutInferencer().infer(source, entryPoints);
+    return layout.groups.find((g) => g.group === group)?.entries.find((e) => e.binding === binding);
+}
 
 describe('LayoutInferencer.parseWGSL', () => {
-    const inf = new LayoutInferencer();
-
-    it('parsea binding storage rw em compute simples', () => {
-        const src = `
-@group(0) @binding(0) var<storage, read_write> bodies: array<f32>;
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    bodies[gid.x] = 1.0;
-}`;
-        const info = inf.parseWGSL(src);
-        expect(info.bindings).toHaveLength(1);
-        expect(info.bindings[0]?.name).toBe('bodies');
-        expect(info.bindings[0]?.group).toBe(0);
-        expect(info.bindings[0]?.binding).toBe(0);
-        expect(info.bindings[0]?.stages.has('compute')).toBe(true);
+    it('extrai grupo, binding, nome, address space, acesso e tipo', () => {
+        const info = new LayoutInferencer().parseWGSL(`
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(1) @binding(2) var<storage, read_write> bodies: array<RigidBody>;
+@vertex fn vs() -> @builtin(position) vec4f { return camera.viewProjection[0]; }
+@compute @workgroup_size(64) fn cs() { bodies[0].pos = vec4f(0.0); }
+`);
+        expect(info.bindings).toHaveLength(2);
+        const [cam, bodies] = info.bindings;
+        expect(cam).toMatchObject({
+            group: 0,
+            binding: 0,
+            name: 'camera',
+            addressSpace: 'uniform',
+        });
+        expect(bodies).toMatchObject({
+            group: 1,
+            binding: 2,
+            name: 'bodies',
+            addressSpace: 'storage',
+            access: 'read_write',
+            typeText: 'array<RigidBody>',
+        });
+        expect([...cam!.stages]).toEqual(['vertex']);
+        expect([...bodies!.stages]).toEqual(['compute']);
     });
 
-    it('detecta múltiplos groups', () => {
-        const src = `
-@group(0) @binding(0) var<uniform> camera: f32;
-@group(1) @binding(0) var<uniform> light: f32;
-@group(2) @binding(0) var<storage, read> particles: array<f32>;
-@compute @workgroup_size(64)
-fn main() {
-    let _x = camera + light + particles[0];
-}`;
-        const info = inf.parseWGSL(src);
-        expect(info.bindings).toHaveLength(3);
-        const groups = info.bindings.map((b) => b.group).sort();
-        expect(groups).toEqual([0, 1, 2]);
+    it('estágios por alcance de chamadas: binding citado só numa função auxiliar chamada pela entrada', () => {
+        const info = new LayoutInferencer().parseWGSL(`
+@group(0) @binding(0) var<uniform> light: Light;
+fn shade(n: vec3f) -> f32 { return dot(n, light.dir.xyz); }
+fn indirect(n: vec3f) -> f32 { return shade(n); }
+@fragment fn fs() -> @location(0) vec4f { return vec4f(indirect(vec3f(0.0, 1.0, 0.0))); }
+`);
+        expect([...info.bindings[0]!.stages]).toEqual(['fragment']);
     });
 
-    it('@workgroup_size entre @compute e fn não bloqueia detecção de stage', () => {
-        const src = `
-@group(0) @binding(0) var<storage, read_write> data: array<u32>;
-@compute @workgroup_size(64)
-fn cs_main() { data[0] = 1u; }`;
-        const info = inf.parseWGSL(src);
-        expect(info.bindings[0]?.stages.has('compute')).toBe(true);
-    });
-
-    it('vertex + fragment multi-stage detectado', () => {
-        const src = `
-@group(0) @binding(0) var<uniform> camera: f32;
-struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) c: vec3<f32> }
-@vertex fn vs_main() -> VsOut { var o: VsOut; o.pos = vec4<f32>(camera); return o; }
-@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> { return vec4<f32>(camera); }`;
-        const info = inf.parseWGSL(src);
-        expect(info.bindings[0]?.stages.has('vertex')).toBe(true);
-        expect(info.bindings[0]?.stages.has('fragment')).toBe(true);
-    });
-
-    it('binding usado só em fragment não aparece no vertex', () => {
-        const src = `
-@group(0) @binding(0) var<uniform> mat: f32;
-struct VsOut { @builtin(position) pos: vec4<f32> }
-@vertex fn vs_main() -> VsOut { var o: VsOut; o.pos = vec4<f32>(0); return o; }
-@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> { return vec4<f32>(mat); }`;
-        const info = inf.parseWGSL(src);
-        expect(info.bindings[0]?.stages.has('fragment')).toBe(true);
-        expect(info.bindings[0]?.stages.has('vertex')).toBe(false);
-    });
-
-    it('shader sem bindings retorna lista vazia', () => {
-        const info = inf.parseWGSL(`
-@compute @workgroup_size(1) fn main() {}`);
-        expect(info.bindings).toHaveLength(0);
+    it('comentários não contam como uso', () => {
+        const info = new LayoutInferencer().parseWGSL(`
+@group(0) @binding(0) var<uniform> unused: Params;
+@compute @workgroup_size(1) fn main() { // unused
+}
+`);
+        expect(info.bindings[0]!.stages.size).toBe(0);
     });
 });
 
-describe('LayoutInferencer.inferUsageFromRole', () => {
-    const inf = new LayoutInferencer();
+describe('LayoutInferencer.infer — visibilidade (FR-010)', () => {
+    const shared = `
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<uniform> material: StandardMaterial;
+fn tint() -> vec4f { return material.albedo; }
+@vertex fn vs_main() -> @builtin(position) vec4f { return camera.viewProjection[0]; }
+@fragment fn fs_main() -> @location(0) vec4f { return tint() * camera.viewProjection[1]; }
+`;
 
-    it('uniform → UNIFORM | COPY_DST', () => {
-        const u = inf.inferUsageFromRole('uniform');
-        expect(u & GPUBufferUsage.UNIFORM).toBeTruthy();
-        expect(u & GPUBufferUsage.COPY_DST).toBeTruthy();
+    it('binding usado só no fragment (via função auxiliar) → só FRAGMENT', () => {
+        expect(entry(shared, ['vs_main', 'fs_main'], 0, 1)?.visibility).toBe(S.FRAGMENT);
     });
 
-    it('storage-rw → STORAGE | COPY_SRC | COPY_DST', () => {
-        const u = inf.inferUsageFromRole('storage-rw');
-        expect(u & GPUBufferUsage.STORAGE).toBeTruthy();
-        expect(u & GPUBufferUsage.COPY_SRC).toBeTruthy();
+    it('binding usado por vertex e fragment → ambos', () => {
+        expect(entry(shared, ['vs_main', 'fs_main'], 0, 0)?.visibility).toBe(S.VERTEX | S.FRAGMENT);
     });
 
-    it('vertex inclui VERTEX e STORAGE', () => {
-        const u = inf.inferUsageFromRole('vertex');
-        expect(u & GPUBufferUsage.VERTEX).toBeTruthy();
-        expect(u & GPUBufferUsage.STORAGE).toBeTruthy();
+    it('binding não alcançado pelas entradas listadas fica fora do layout; o grupo é mantido', () => {
+        const layout = new LayoutInferencer().infer(
+            `
+@group(0) @binding(0) var<storage, read_write> a: array<f32>;
+@group(1) @binding(0) var<storage, read_write> b: array<f32>;
+@compute @workgroup_size(64) fn only_b() { b[0] = 1.0; }
+@compute @workgroup_size(64) fn only_a() { a[0] = 1.0; }
+`,
+            ['only_b'],
+        );
+        expect(layout.groups).toHaveLength(2);
+        expect(layout.groups[0]).toEqual({ group: 0, entries: [] });
+        expect(layout.groups[1]!.entries.map((e) => e.name)).toEqual(['b']);
     });
 
-    it('staging → COPY_DST | MAP_READ', () => {
-        const u = inf.inferUsageFromRole('staging');
-        expect(u & GPUBufferUsage.COPY_DST).toBeTruthy();
-        expect(u & GPUBufferUsage.MAP_READ).toBeTruthy();
+    it('entrada inexistente → erro nomeando a entrada', () => {
+        expect(() =>
+            new LayoutInferencer().infer('@compute @workgroup_size(1) fn a() {}', ['b']),
+        ).toThrow(LayoutInferenceError);
+        expect(() =>
+            new LayoutInferencer().infer('@compute @workgroup_size(1) fn a() {}', ['b']),
+        ).toThrow(/'b'/);
+    });
+});
+
+describe('LayoutInferencer.infer — tipos de binding', () => {
+    const cases: [string, string, unknown][] = [
+        ['var<uniform> p: Params', 'Params', 'uniform'],
+        ['var<storage> p: array<Particle>', 'Particle', 'read-only-storage'],
+        ['var<storage, read> p: array<Particle>', 'Particle', 'read-only-storage'],
+        ['var<storage, read_write> p: array<Particle>', 'Particle', 'storage'],
+        ['var<storage, read_write> p: array<atomic<u32>>', 'atomic<u32>', 'storage'],
+        ['var<storage, read_write> p: array<vec4f, 64>', 'vec4f', 'storage'],
+        [
+            'var p: texture_depth_2d',
+            'texture_depth_2d',
+            { texture: { sampleType: 'depth', viewDimension: '2d', multisampled: false } },
+        ],
+        [
+            'var p: texture_2d<f32>',
+            'texture_2d<f32>',
+            { texture: { sampleType: 'float', viewDimension: '2d', multisampled: false } },
+        ],
+        [
+            'var p: texture_2d_array<u32>',
+            'texture_2d_array<u32>',
+            { texture: { sampleType: 'uint', viewDimension: '2d-array', multisampled: false } },
+        ],
+        [
+            'var p: texture_3d<i32>',
+            'texture_3d<i32>',
+            { texture: { sampleType: 'sint', viewDimension: '3d', multisampled: false } },
+        ],
+        [
+            'var p: texture_multisampled_2d<f32>',
+            'texture_multisampled_2d<f32>',
+            { texture: { sampleType: 'float', viewDimension: '2d', multisampled: true } },
+        ],
+        [
+            'var p: texture_storage_2d<rgba16float, write>',
+            'texture_storage_2d<rgba16float, write>',
+            {
+                storageTexture: {
+                    format: 'rgba16float',
+                    access: 'write-only',
+                    viewDimension: '2d',
+                },
+            },
+        ],
+        [
+            'var p: texture_storage_3d<r32float, read_write>',
+            'texture_storage_3d<r32float, read_write>',
+            { storageTexture: { format: 'r32float', access: 'read-write', viewDimension: '3d' } },
+        ],
+        ['var p: sampler', 'sampler', { sampler: 'filtering' }],
+        ['var p: sampler_comparison', 'sampler_comparison', { sampler: 'comparison' }],
+    ];
+
+    it.each(cases)('%s → typeName %s', (decl, typeName, resource) => {
+        const e = entry(`@group(0) @binding(0) ${decl};\n@fragment fn fs() { _ = p; }`, ['fs']);
+        expect(e).toMatchObject({ name: 'p', typeName, resource, visibility: S.FRAGMENT });
     });
 });
