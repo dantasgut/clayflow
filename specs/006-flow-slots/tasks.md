@@ -31,10 +31,24 @@ render-stages), quickstart.md
 
 **Purpose**: fixar o comportamento e os números de hoje antes de mexer em qualquer estágio (R14).
 
-- [ ] T001 Registrar a linha de base verde da branch: `npx tsc --noEmit`, `npm test`, `npm run lint`, `npm run smoke -- trajectories,render,churn`; anotar abaixo deste item em `specs/006-flow-slots/tasks.md`
-- [ ] T002 Estender `src/__smokes__/trajectories.ts` para rodar cada cena com quadros de 1/30, 1/60 e 1/144 s (passo fixo de 1/60 pelo `Time`) contra a mesma fixture da 005, informando o desvio máximo por cena e por taxa; documentar em `src/__smokes__/README.md`; rodar e confirmar verde antes de qualquer migração
-- [ ] T003 [P] Medir e anotar em `specs/006-flow-slots/tasks.md` (abaixo deste item) os números de hoje: objetos de GPU criados por entidade no forward e na sombra, escritas de câmera e de material por quadro, e a CPU por quadro e a montagem de `instances/10k` do baseline `bench/baselines/apple-metal-3-chrome154-macos-1280x720-syhprh.json`
-- [ ] T004 [P] Criar o double de contagem `src/scene/__tests__/helpers/countingCore.ts` (implementa `EngineCore`): conta `create*` por tipo de spec, `write` por spec e por quadro, e marca qualquer `create*` feito durante `frame.compute`/`frame.render` (gravação), exposto por `stats()`/`resetFrame()`
+- [x] T001 Registrar a linha de base verde da branch: `npx tsc --noEmit`, `npm test`, `npm run lint`, `npm run smoke -- trajectories,render,churn`; anotar abaixo deste item em `specs/006-flow-slots/tasks.md`
+
+> **Linha de base (T001, 2026-10-12)**: `tsc` ✅, `npm test` 810/810 ✅, `lint` 0 erros (184 avisos), `trajectories`
+> bit a bit nas 7 cenas ✅, `render` 10 cenas idênticas ✅, `churn` 100 ciclos × 1000 objetos com variação 0,000% ✅.
+
+- [x] T002 Estender `src/__smokes__/trajectories.ts` para rodar cada cena com quadros de 1/30, 1/60 e 1/144 s (passo fixo de 1/60 pelo `Time`) contra a mesma fixture da 005, informando o desvio máximo por cena e por taxa; documentar em `src/__smokes__/README.md`; rodar e confirmar verde antes de qualquer migração
+- [x] T003 [P] Medir e anotar em `specs/006-flow-slots/tasks.md` (abaixo deste item) os números de hoje: objetos de GPU criados por entidade no forward e na sombra, escritas de câmera e de material por quadro, e a CPU por quadro e a montagem de `instances/10k` do baseline `bench/baselines/apple-metal-3-chrome154-macos-1280x720-syhprh.json`
+
+> **Números de hoje (T003, `countingCore` + `Application` com os estágios padrão, 1000 caixas com
+> `StandardMaterial` e `Transform`, câmera e luz com sombra)**: inserir 1000 renderizáveis cria **12 047 objetos**, cerca
+> de 12 por entidade — 3 buffers de vértice e 3 de índice (C2, forward e sombra), 3 uniformes (material da C2, câmera e
+> material do forward), 2 bind groups e 1 shader. Escritas por quadro: **2003** (1000 `forward_camera` + 1000
+> `forward_material` + `Time`, parâmetros da sombra e do forward); com 2000 entidades, 4003. Uma criação durante a
+> gravação de passe no primeiro quadro. Baseline `instances/10k`: CPU 88,39 ms/quadro, quadro médio 96,75 ms, p95
+> 102,58 ms, 10 001 draws (o baseline não registra tempo de montagem; a montagem é medida pela contagem de objetos
+> acima).
+
+- [x] T004 [P] Criar o double de contagem `src/scene/__tests__/helpers/countingCore.ts` (implementa `EngineCore`): conta `create*` por tipo de spec, `write` por spec e por quadro, e marca qualquer `create*` feito durante `frame.compute`/`frame.render` (gravação), exposto por `stats()`/`resetFrame()`
 
 ---
 
