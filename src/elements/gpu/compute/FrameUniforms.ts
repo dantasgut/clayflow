@@ -7,7 +7,7 @@ import type {
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /** Opções de `FrameUniforms`. */
-export interface FrameUniformsOptions {
+interface FrameUniformsOptions {
     /** Prefixo do discriminator do buffer (único por instância). */
     readonly discriminator: string;
     /** Schema dos parâmetros (`addressSpace: 'uniform'`). */
@@ -24,8 +24,9 @@ export interface FrameUniformsOptions {
  * duas gravações faz as duas lerem o último valor. Um quadro é um `core.record` (um envio): as regiões valem até o
  * fim dele e a primeira chamada de um quadro novo recomeça da região 0.
  *
- * Crescimento no meio do quadro cria um buffer maior e incrementa `generation` (quem liga `binding(...)` refaz os bind
- * groups); o buffer anterior ainda está ligado a passes já gravados, então só é destruído no quadro seguinte.
+ * Crescimento no meio do quadro cria um buffer maior com as regiões já gravadas no quadro (cópia em CPU) e incrementa
+ * `generation` (quem liga `binding(...)` refaz os bind groups); o buffer anterior ainda está ligado a passes já
+ * gravados, então só é destruído no quadro seguinte.
  */
 export class FrameUniforms {
     private readonly schema: StructSchema;
@@ -37,6 +38,8 @@ export class FrameUniforms {
     private frame: Frame | null = null;
     private bufferGeneration = 0;
     private retired: UniformBufferSpec[] = [];
+    /** Cópia em CPU das regiões gravadas (regravadas no buffer novo ao crescer). */
+    private staging = new ArrayBuffer(0);
 
     constructor(
         private readonly core: EngineCore,
@@ -89,10 +92,20 @@ export class FrameUniforms {
             this.retired.push(this.spec!);
             this.regionCount *= 2;
             this.createBuffer();
+            // Regiões anteriores do quadro: as chamadas que ainda vão ligar o buffer novo podem usá-las.
+            this.core.write(
+                this.spec!,
+                new Uint8Array(this.staging, 0, this.cursor * this.regionSize),
+            );
         }
         const offset = this.cursor * this.regionSize;
         this.cursor++;
-        this.core.write(this.spec!, this.schema.pack(data), offset);
+        this.schema.packInto(this.staging, offset, data);
+        this.core.write(
+            this.spec!,
+            new Uint8Array(this.staging, offset, this.schema.stride),
+            offset,
+        );
         return offset;
     }
 
@@ -118,6 +131,9 @@ export class FrameUniforms {
     }
 
     private createBuffer(): void {
+        const staging = new ArrayBuffer(this.regionCount * this.regionSize);
+        new Uint8Array(staging).set(new Uint8Array(this.staging));
+        this.staging = staging;
         this.bufferGeneration++;
         this.spec = this.core.create<UniformBufferSpec>({
             kind: 'buffer',

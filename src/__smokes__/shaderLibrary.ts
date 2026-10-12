@@ -25,7 +25,7 @@ import { DistanceConstraint } from '../elements/physics/constraints/DistanceCons
 import * as Params from '../elements/physics/schemas/simParams';
 import * as State from '../elements/physics/schemas/simState';
 import { NsSimParamsSchema } from '../elements/gpu/schemas';
-import { AtomicAllocCounterSchema, ScanLevelSchema } from '../elements/gpu/compute/schemas';
+import * as ComputeSchemas from '../elements/gpu/compute/schemas';
 import { TransformParamsSchema } from '../elements/scene/flows/TransformParams';
 import { Transform } from '../elements/scene/Transform';
 import { Camera } from '../elements/scene/Camera';
@@ -481,8 +481,7 @@ const SCHEMAS: readonly StructSchema[] = [
     ...Object.values(Params),
     ...Object.values(State),
     NsSimParamsSchema,
-    ScanLevelSchema,
-    AtomicAllocCounterSchema,
+    ...Object.values(ComputeSchemas),
     TransformParamsSchema,
     Transform.schema,
     Transform.worldSchema,

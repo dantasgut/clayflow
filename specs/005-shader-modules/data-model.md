@@ -33,17 +33,17 @@ distintos com o mesmo `wgslName`).
 
 ## StructSchema (C2, `scene/descriptors/`) — alterado
 
-| Campo/método                   | Mudança                                                                                                  |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `wgslName`                     | **novo** — nome do struct WGSL (padrão `name`; `name` continua sendo o pool key)                         |
-| `addressSpace`                 | **novo** — `'storage'` (padrão) ou `'uniform'`; muda arredondamentos e proíbe atômicos/array em execução |
-| `fields`                       | aceita `FieldType` primitivo, `array(elem, n)`, `struct(schema)`, `runtimeArray(elem)` (último campo)    |
-| `layout`/`stride`/`offsetOf`   | calculados pelas regras do `addressSpace`                                                                |
-| `toWGSL()`                     | tipos válidos (forma curta), `wgslName`, arrays/aninhados/atômicos                                       |
-| `packInto(view, offset, data)` | **novo** — empacota sem alocar; `pack()` delega                                                          |
+| Campo/método                   | Mudança                                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `wgslName`                     | **novo** — nome do struct WGSL (padrão `name`; `name` continua sendo o pool key)                                     |
+| `addressSpace`                 | **novo** — `'storage'` (padrão) ou `'uniform'`; muda arredondamentos e proíbe atômicos/array em execução             |
+| `fields`                       | aceita `FieldType` primitivo, `fieldArray(elem, n)`, `fieldStruct(schema)`, `fieldRuntimeArray(elem)` (último campo) |
+| `layout`/`stride`/`offsetOf`   | calculados pelas regras do `addressSpace`                                                                            |
+| `toWGSL()`                     | tipos válidos (forma curta), `wgslName`, arrays/aninhados/atômicos                                                   |
+| `packInto(view, offset, data)` | **novo** — empacota sem alocar; `pack()` delega                                                                      |
 
-`FieldType`: remove `u16`/`i16`; adiciona `atomicU32`, `atomicI32`. Construtores de tipo composto:
-`FieldType.array(elem, n)`, `FieldType.struct(schema)`, `FieldType.runtimeArray(elem)`.
+`FieldType`: remove `u16`/`i16`; adiciona `atomicU32`, `atomicI32`. Construtores de tipo composto (funções de
+`StructSchema.ts`): `fieldArray(elem, n)`, `fieldStruct(schema)`, `fieldRuntimeArray(elem)`.
 
 **Regras de layout** (WGSL):
 
@@ -79,6 +79,11 @@ distintos com o mesmo `wgslName`).
 | `NsSimParamsSchema`         | `NsSimParams`         | uniform | `NeighborSearchPipeline`                             |
 | `ScanLevelSchema`           | `ScanLevel`           | uniform | `PrefixSum` (substitui `NsScanLevel`)                |
 | `ColorRangeSchema`          | `ColorRange`          | storage | `GraphColoring`                                      |
+| `RadixParamsSchema`         | `RadixParams`         | uniform | `RadixSort` (contagem, deslocamento, grupos)         |
+| `CompactParamsSchema`       | `CompactParams`       | uniform | `Compaction` (contagem, capacidade)                  |
+| `ReduceLevelSchema`         | `ReduceLevel`         | uniform | `Reduce` (contagem, índice de saída)                 |
+| `GraphColorParamsSchema`    | `GraphColorParams`    | uniform | `GraphColorer`                                       |
+| `GraphColorStatusSchema`    | `GraphColorStatus`    | storage | `GraphColorer` (cor corrente, contadores, validação) |
 | `TransformParamsSchema`     | `TransformParams`     | uniform | `TransformFlow`                                      |
 | `ForwardShadowParamsSchema` | `ForwardShadowParams` | uniform | forward                                              |
 | `ShadowDepthParamsSchema`   | `ShadowDepthParams`   | uniform | `ShadowFlow`                                         |

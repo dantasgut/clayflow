@@ -4,6 +4,11 @@ Todos em C3 (`elements/gpu/compute/`), exportados por `elements` para os estági
 fachada de domínio (N0). Todos usam `createComputeKernel` com `WgslModule`, despacho linear da 004
 (`Dispatcher.invocations`, índice por `num_workgroups`) e não despacham com `count = 0`.
 
+**Parâmetros por chamada** (`FrameUniforms`): `count`, modo etc. vão numa região própria de um uniform com offset
+dinâmico, renovada a cada quadro (um `core.record` = um envio; `core.write` entra na fila antes do quadro inteiro —
+research A1). A mesma instância pode, portanto, ser gravada várias vezes no quadro com valores diferentes. Crescimento
+no meio do quadro cria um buffer maior com as regiões já gravadas e adia a destruição do anterior ao quadro seguinte.
+
 ## `PrefixSum`
 
 ```ts
@@ -24,6 +29,7 @@ class PrefixSum {
 
 - Níveis `n_{l+1} = ⌈n_l / 256⌉` até ≤ 256 (topo num grupo); sem teto além de `maxStorageBufferBindingSize`.
 - `count > capacity` → `RangeError`. Uniform `ScanLevel` por nível (schema `ScanLevelSchema`).
+- O nível 0 roda no lugar em `dst`; com `src ≠ dst`, `src` é copiado antes (no fluxo de comandos) e não é alterado.
 
 ## `RadixSort`
 
@@ -47,24 +53,38 @@ class RadixSort {
 ```
 
 - LSD, 4 bits por passe, estável. Buffers temporários dimensionados pela capacidade.
+- Espalhamento: dentro do grupo de 256, o dígito é ordenado por quatro divisões estáveis por bit (soma de prefixos de
+  flags em memória de workgroup) — mesmo resultado que 16 somas por dígito, com um quarto das barreiras.
+- `values` exige `withValues: true` (e vice-versa); com número ímpar de passes o resultado é copiado de volta.
 
 ## `Compaction`
 
 ```ts
 class Compaction {
-  constructor(core: EngineCore, options: {
-    discriminator: string;
-    predicate: WgslModule; // define fn compact_keep(i: u32) -> bool e fn compact_value(i: u32) -> u32
-    capacity: number; // tamanho máximo da saída
-    stable?: boolean; // padrão false
-    bindings?: …; // buffers que o predicado lê (grupo 1)
-  });
-  record(frame: Frame, args: { count: number; out: StorageBufferSpec; counter: StorageBufferSpec }): void;
+  constructor(
+    core: EngineCore,
+    options: {
+      discriminator: string;
+      predicate: WgslModule; // define fn compact_keep(i: u32) -> bool e fn compact_value(i: u32) -> u32
+      capacity: number; // tamanho máximo da saída
+      stable?: boolean; // padrão false
+      inputCapacity?: number; // maior count de entrada — obrigatório com stable (flags e soma de prefixos)
+      bindings?: readonly ComputeKernelBinding[]; // buffers que o predicado lê (grupo 1)
+    },
+  );
+  record(
+    frame: Frame,
+    args: { count: number; out: StorageBufferSpec; counter: StorageBufferSpec },
+  ): void;
   destroy(): void;
 }
 ```
 
-- `counter` usa `AtomicAllocCounterSchema` (`count`, `overflow`); excedente conta e não escreve fora do buffer.
+- `counter` usa `AtomicAllocCounterSchema` (`count`, `overflow`), zerado pelo próprio `record`; nos dois modos `count` =
+  total de aceitos (inclusive os recusados por falta de espaço) e `overflow` = recusados; nada é escrito além de
+  `capacity`.
+- Os módulos de compactação são gerados por predicado (`compactionModules(predicate)`, memorizado); predicado sem
+  `compact_keep`/`compact_value` → erro na criação.
 - `stable: true`: flags + `PrefixSum` + espalhamento (ordem de entrada preservada); `false`: `atomic_alloc` (ordem
   não garantida).
 
@@ -105,7 +125,9 @@ class Reduce {
 }
 ```
 
-- `reduceOp(op, type)` gera (memorizado) o módulo com `alias ReduceT`, `const REDUCE_IDENTITY`, `fn reduce_op`.
+- `reduceOp(op, type)` gera (memorizado) o módulo com `alias ReduceT`, `const REDUCE_IDENTITY`, `fn reduce_op`
+  (identidades de f32 em hexadecimal exato, `±0x1.fffffep+127f`).
+- `outOffset` em elementos.
 - Soma f32: tolerância relativa `1e-5 × log2(count)` contra a CPU (documentada).
 
 ## `GraphColoring`
@@ -133,10 +155,14 @@ class GraphColorer {
 }
 ```
 
-- Jones–Plassmann por rodada (prioridade por hash + índice); Δ por `Reduce` max; `maxColors` padrão 2Δ; agrupamento
-  por `RadixSort` (8 bits) + histograma + `PrefixSum`.
+- Cada cor é um emparelhamento **maximal** construído por subpassos (prioridade única por aresta: `pcg_hash`, bijeção
+  de u32; máximo atômico nos vértices; a aresta que vence nos dois vértices recebe a cor e marca os vértices); sem
+  candidatas, a cor seguinte começa — por isso ≤ 2Δ − 1 cores. Δ por `Reduce` max; `maxColors` padrão 2Δ (passar dele
+  é erro); agrupamento por `RadixSort` (bits suficientes para as cores) + contagem + `PrefixSum`.
+- Os buffers do resultado pertencem ao `GraphColorer` e valem até a próxima coloração; uma coloração por vez;
+  `verifyEdgeColoring(edges, colors)` (CPU) verifica a validade — usada nos testes e no smoke.
 - Laço (`a == b`) → erro na validação (lida de volta junto da contagem); arestas repetidas recebem cores distintas.
-- Uso na criação/mudança de topologia (assíncrono), não por quadro.
+- Uso na criação/mudança de topologia (assíncrono, com envios próprios — fora de um `core.record`), não por quadro.
 - Substitui o `GraphColorSolver` em CPU (removido).
 
 ## Validação na GPU (smoke `computeKernels`)

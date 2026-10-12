@@ -323,6 +323,9 @@ prefixos, sem atômicos (determinístico). 4 bits mantém o histograma em 16 × 
 **Alternativas rejeitadas**: bitônico (O(n log² n), não estável); 8 bits por passe (histograma 16× maior e posto
 local com 256 dígitos).
 
+**Na implementação**: o posto local vem de quatro divisões estáveis por bit (scan de flags) em vez de 16 scans por
+dígito — mesmo resultado, um quarto das barreiras. Medido (apple-metal-3): 4 M chaves de 32 bits em 8,5 ms.
+
 ### R10 — Compactação, alocação atômica e acumulação em ponto fixo
 
 **Decisão**:
@@ -370,6 +373,11 @@ testes verificam a validade da coloração (nenhuma cor com arestas adjacentes),
 
 **Alternativas rejeitadas**: guloso em CPU na criação (serial, O(E·Δ), e duplicaria a capacidade); coloração de
 vértices do grafo de linha materializado (memória O(E·Δ)).
+
+**Na implementação**: uma rodada por cor deixava o limite de cores sem garantia (um máximo local não é um
+emparelhamento maximal). Cada cor passou a ser construída por subpassos até não restar candidata (aresta sem cor com os
+dois vértices livres nessa cor) — emparelhamento maximal, logo ≤ 2Δ − 1 cores. A prioridade é `pcg_hash(e ^
+pcg_hash(passo))`, única por aresta porque `pcg_hash` é uma bijeção de u32. Medido: 1 M arestas, Δ = 40 → 40 cores.
 
 ### R13 — Verificação de órfãos e de duplicação no gate
 

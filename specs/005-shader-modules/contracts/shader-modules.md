@@ -98,20 +98,20 @@ interface PipelineDescriptor {
 `wgslLib` é um objeto congelado `{ quat, linalg, mat, sdf, sph_kernels, mpm_weights, xpbd, lcp, fem, noise, color,
 brdf, fixed_point, atomic_alloc }` — evita nomes genéricos soltos no barrel público.
 
-| Módulo        | Requer           | Conteúdo (funções principais)                                                                                   |
-| ------------- | ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| `quat`        | —                | `quat_mul`, `quat_rotate_vec`, `quat_rotate_vec_inv`, `quat_normalize`, `quat_delta_omega`…                     |
-| `linalg`      | —                | `mat3_det`, `mat3_inverse`, `mat3_transpose`, `mat3_mul`, `mat3_frobenius_norm`, `polar_decomp_quaternion`      |
-| `mat`         | `quat`, `linalg` | `mat3_from_quat`, `mat3_from_cols`, `quat_to_mat4`, `mat4_upper3x3_transform`, `rigid_mat4_inverse`             |
-| `sdf`         | —                | `sdf_sphere`, `sdf_box`, `sdf_plane`, `eval_sdf`, `sdf_gradient`                                                |
-| `sph_kernels` | —                | `W_cubic`, `grad_W_cubic`, `laplacian_W_visc`, `W_poly6`, `grad_W_spiky`                                        |
-| `mpm_weights` | —                | pesos quadráticos B-spline e gradientes                                                                         |
-| `xpbd`        | —                | `rigid_generalized_mass`, delta-λ de restrição com compliance                                                   |
-| `lcp`         | `quat`, `xpbd`   | matemática de contato e impulso (absorve `contact_math`, `impulse`)                                             |
-| `fem`         | `linalg`         | `compute_Ds`, `compute_F`, `compute_J`, `grad_hydrostatic`, `grad_deviatoric`, `grad_node0`, `fem_delta_lambda` |
-| `noise`       | —                | `pcg_hash`, `hash2`, `hash3`, `value_noise2/3`, `gradient_noise2/3`                                             |
-| `color`       | —                | `tonemap_exposure`, `gamma_encode`, `luminance`                                                                 |
-| `brdf`        | —                | `lambert_diffuse`, `ambient_term`, `sample_shadow_pcf`                                                          |
+| Módulo        | Requer           | Conteúdo (funções principais)                                                                                                                                |
+| ------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `quat`        | —                | `quat_mul`, `quat_rotate_vec`, `quat_rotate_vec_inv`, `quat_normalize`, `quat_delta_omega`…                                                                  |
+| `linalg`      | —                | `mat3_det`, `mat3_inverse`, `mat3_transpose`, `mat3_mul`, `mat3_frobenius_norm`                                                                              |
+| `mat`         | `quat`, `linalg` | `mat3_from_quat`, `mat3_from_cols`, `quat_to_mat4`, `mat4_upper3x3_transform`, `rigid_mat4_inverse`, `polar_decomp_quaternion` (iterativa, partida a quente) |
+| `sdf`         | —                | `sdf_sphere`, `sdf_box`, `sdf_plane`, `eval_sdf`, `sdf_gradient`                                                                                             |
+| `sph_kernels` | —                | `W_cubic`, `grad_W_cubic`, `laplacian_W_visc`, `W_poly6`, `grad_W_spiky`                                                                                     |
+| `mpm_weights` | —                | pesos quadráticos B-spline e gradientes                                                                                                                      |
+| `xpbd`        | —                | `rigid_generalized_mass`, delta-λ de restrição com compliance                                                                                                |
+| `lcp`         | `xpbd`           | Delassus, viés, passos PGS, tangente, velocidade no ponto, `coulomb_clamp`, `combine_mu` (`contact_math` e `impulse` fundidos nele)                          |
+| `fem`         | `linalg`         | `compute_Ds`, `compute_F`, `compute_J`, `grad_hydrostatic`, `grad_deviatoric`, `grad_node0`, `fem_delta_lambda`                                              |
+| `noise`       | —                | `pcg_hash`, `hash2`, `hash3`, `value_noise2/3`, `gradient_noise2/3`                                                                                          |
+| `color`       | —                | `tonemap_exposure`, `gamma_encode`, `luminance` (pesos BT.601: 0,299 / 0,587 / 0,114)                                                                        |
+| `brdf`        | —                | `lambert_diffuse`, `lambert_lit` (ambiente + difuso com sombra), `sample_shadow_pcf` (textura e sampler como parâmetros)                                     |
 
 Suporte aos kernels genéricos: `fixed_point`, `atomic_alloc`, `reduceOp(op, type)` (ver
 [compute-kernels.md](./compute-kernels.md)).

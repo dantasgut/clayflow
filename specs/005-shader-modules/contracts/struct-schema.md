@@ -5,9 +5,9 @@
 ```ts
 type FieldSpec =
   | FieldType // primitivo: f32, vec2f…vec4f, mat3x3f, mat4x4f, u32, vec2u…vec4u, i32, vec2i…vec4i, atomicU32, atomicI32
-  | ArrayField // FieldType.array(elem, n)
-  | StructField // FieldType.struct(schema)
-  | RuntimeArrayField; // FieldType.runtimeArray(elem) — último campo, só storage
+  | ArrayFieldSpec // fieldArray(elem, n)
+  | StructFieldSpec // fieldStruct(schema)
+  | RuntimeArrayFieldSpec; // fieldRuntimeArray(elem) — último campo, só storage
 
 class StructSchema extends Schema {
   constructor(
@@ -35,8 +35,8 @@ Regras:
 
 - Layout pelas regras de WGSL do `addressSpace` (tabela em [data-model.md](../data-model.md)); `offsetOf`, `stride`,
   `pack`, `packInto` e `toWGSL` usam o mesmo layout — concordância por construção.
-- `uniform` com `atomicU32`/`atomicI32` ou `runtimeArray` → `TypeError` na construção, nomeando o campo.
-- `runtimeArray` fora da última posição → `TypeError`.
+- `uniform` com `atomicU32`/`atomicI32` ou `fieldRuntimeArray` → `TypeError` na construção, nomeando o campo.
+- `fieldRuntimeArray` fora da última posição → `TypeError`.
 - `wgslName` precisa ser identificador WGSL válido e não reservado → `TypeError`.
 - `toWGSL()`: `struct <wgslName> {\n    campo: tipo,\n}` com tipos curtos (`vec3f`, `mat4x4f`, `atomic<u32>`,
   `array<vec4f, 8>`, `array<u32>`), structs aninhados por `wgslName` (o struct aninhado é emitido pela montagem como
