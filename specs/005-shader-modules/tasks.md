@@ -236,14 +236,14 @@ vizinhança e LCP migrados (FR-019–FR-027, SC-005).
 **Independent Test**: registro item a item em `specs/005-shader-modules/inventory.md` (seção "D5") com a seção
 corrigida; testes das duas correções de código.
 
-- [ ] T071 [P] [US6] Teste em `src/scene/__tests__/FlowRegistry.resolve.test.ts`: `resolve(bodyType)` devolve o de maior `priority`, empate = último registrado; `override` continua vencendo
-- [ ] T072 [US6] Corrigir `src/scene/flows/FlowRegistry.ts` (`resolve` por prioridade)
-- [ ] T073 [P] [US6] Teste em `src/elements/__tests__/Scene.add.test.ts`: `scene.add(e)` insere no World e anexa como filho, devolve `this`; `addEntity` devolve `EntityId`; reuso continua lançando `ReuseError`
-- [ ] T074 [US6] Corrigir `src/elements/scene/Scene.ts` (`add` sobrescrito inserindo no World)
-- [ ] T075 [US6] Corrigir `clay-engine-doc/docs/guides/architecture_resource_loaders.md` itens 1–5 da D5 conforme R15 (transições; exemplos por spec em L1122-1124/L1770-1785/L2023/L2045-2051/L2061/L924-951; membros do `Resource` em L2081/L3884; `Flow` público N3 em L3733-3735; `register` atual × alvo 006 em L1538-1540/L2117/L2229/L2307/L4638-4652)
-- [ ] T076 [US6] Corrigir itens 6–10 (ordem sem `before/after` e `resolve` por prioridade; `Scene.add`/`addEntity`; pool `Renderable` alvo F2 e tabela de pools L1983-2008 completa com status; Material pool alvo 006 × estado atual em L1328/L1985/L2613; ponte partículas → geometria alvo F2 em L2207/L2720/L2940-2972)
-- [ ] T077 [US6] Reescrever a seção de shaders (L2063-2065, L2775-2803, L3776-3778): módulos, `requires`, deduplicação por símbolo, structs gerados, `{{struct:X}}`, `wgslLib`, kernels genéricos; `consumes` marcado como alvo da 006
-- [ ] T078 [US6] Registrar em `specs/005-shader-modules/inventory.md` (seção "D5") cada item com a seção corrigida; verificar que nenhum exemplo do documento usa API inexistente (busca por `id:` em specs, `pack` no `Resource`, `FlowFactory`, `before:`)
+- [x] T071 [P] [US6] Teste em `src/scene/__tests__/FlowRegistry.resolve.test.ts`: `resolve(bodyType)` devolve o de maior `priority`, empate = último registrado; `override` continua vencendo
+- [x] T072 [US6] Corrigir `src/scene/flows/FlowRegistry.ts` (`resolve` por prioridade)
+- [x] T073 [P] [US6] Teste em `src/elements/__tests__/Scene.add.test.ts`: `scene.add(e)` insere no World e anexa como filho, devolve `this`; `addEntity` devolve `EntityId`; reuso continua lançando `ReuseError`
+- [x] T074 [US6] Corrigir `src/elements/scene/Scene.ts` (`add` sobrescrito inserindo no World)
+- [x] T075 [US6] Corrigir `clay-engine-doc/docs/guides/architecture_resource_loaders.md` itens 1–5 da D5 conforme R15 (transições; exemplos por spec em L1122-1124/L1770-1785/L2023/L2045-2051/L2061/L924-951; membros do `Resource` em L2081/L3884; `Flow` público N3 em L3733-3735; `register` atual × alvo 006 em L1538-1540/L2117/L2229/L2307/L4638-4652)
+- [x] T076 [US6] Corrigir itens 6–10 (ordem sem `before/after` e `resolve` por prioridade; `Scene.add`/`addEntity`; pool `Renderable` alvo F2 e tabela de pools L1983-2008 completa com status; Material pool alvo 006 × estado atual em L1328/L1985/L2613; ponte partículas → geometria alvo F2 em L2207/L2720/L2940-2972)
+- [x] T077 [US6] Reescrever a seção de shaders (L2063-2065, L2775-2803, L3776-3778): módulos, `requires`, deduplicação por símbolo, structs gerados, `{{struct:X}}`, `wgslLib`, kernels genéricos; `consumes` marcado como alvo da 006
+- [x] T078 [US6] Registrar em `specs/005-shader-modules/inventory.md` (seção "D5") cada item com a seção corrigida; verificar que nenhum exemplo do documento usa API inexistente (busca por `id:` em specs, `pack` no `Resource`, `FlowFactory`, `before:`)
 
 **Checkpoint**: SC-008 atingido.
 
