@@ -19,6 +19,7 @@ import { FEMSchema } from '../bodies/schemas/FEMSchema';
 import { MPMFluidSchema } from '../bodies/schemas/MPMFluidSchema';
 import { MPMSoftSchema } from '../bodies/schemas/MPMSoftSchema';
 import { SPHSchema } from '../bodies/schemas/SPHSchema';
+import { PBFSchema } from '../bodies/schemas/PBFSchema';
 
 /** Constrói um Flow a partir das dependências de runtime (C1/C2). */
 export type FlowFactory = (core: EngineCore, world: World, resources: ResourceSystem) => Flow;
@@ -35,10 +36,7 @@ export type FlowFactory = (core: EngineCore, world: World, resources: ResourceSy
 export const DEFAULT_FLOW_FACTORIES: ReadonlyMap<string, FlowFactory> = new Map<
     string,
     FlowFactory
->([
-    ['LCPSchema', (c, w, r) => new LCPFlow(c, w, r)],
-    ['PBFSchema', (c, w, r) => new PBFFlow(c, w, r)],
-]);
+>([['LCPSchema', (c, w, r) => new LCPFlow(c, w, r)]]);
 
 /** Registro padrão de um solver no modelo de slots: factory e opções (fase, tipo de corpo, prioridade). */
 export interface SolverRegistration {
@@ -71,6 +69,10 @@ export const DEFAULT_SOLVER_REGISTRATIONS: readonly SolverRegistration[] = [
     {
         factory: (ctx) => new SPHFlow(ctx),
         options: { type: 'SPHFlow', phase: 'physics', bodyType: SPHSchema.name },
+    },
+    {
+        factory: (ctx) => new PBFFlow(ctx),
+        options: { type: 'PBFFlow', phase: 'physics', bodyType: PBFSchema.name },
     },
 ];
 
