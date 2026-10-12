@@ -1,4 +1,4 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../core/contracts/index';
+import type { EngineCore, Frame } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
@@ -11,11 +11,16 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
 import pbfSimParamsStruct from '../../gpu/wgsl/structs/pbf_sim_params.wgsl?raw';
 import pbfParticleStruct from '../../gpu/wgsl/structs/pbf_particle.wgsl?raw';
 import colliderDescStruct from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
+import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
+import quatLib from '../../gpu/wgsl/math/quat.wgsl?raw';
+import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
+import colliderSetLib from '../../gpu/wgsl/math/collider_set.wgsl?raw';
 import sphKernelsLib from '../../gpu/wgsl/math/sph_kernels.wgsl?raw';
 import pbfPredictKernel from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
 import pbfDensityLambdaKernel from '../../gpu/wgsl/kernels/pbf_density_lambda.wgsl?raw';
@@ -25,7 +30,6 @@ import pbfXsphKernel from '../../gpu/wgsl/kernels/pbf_xsph.wgsl?raw';
 import pbfVorticityKernel from '../../gpu/wgsl/kernels/pbf_vorticity.wgsl?raw';
 import pbfCollisionKernel from '../../gpu/wgsl/kernels/pbf_collision.wgsl?raw';
 
-const COLLIDER_DESC_SIZE = 160;
 /** Bytes do struct `PBFSimParams`. */
 const PBF_SIM_PARAMS_BYTE_SIZE = 96;
 
@@ -52,7 +56,10 @@ export class PBFFlow extends Flow {
 
     private readonly params: PerStepUniforms;
     private neighborSearch: NeighborSearchPipeline | null = null;
-    private collidersBuffer: StorageBufferSpec | null = null;
+    /** Pools de collider e mapas de dono (grupo 2 do kernel de colisão). */
+    private readonly colliders: ColliderSet;
+    /** `colliders.generation` com que os kernels foram criados. */
+    private collidersGeneration = -1;
     private predictKernel: ComputeKernel | null = null;
     private densityLambdaKernel: ComputeKernel | null = null;
     private positionCorrectKernel: ComputeKernel | null = null;
@@ -74,6 +81,9 @@ export class PBFFlow extends Flow {
         this.params = new PerStepUniforms(core, {
             discriminator: 'pbf_params',
             byteSize: PBF_SIM_PARAMS_BYTE_SIZE,
+        });
+        this.colliders = new ColliderSet(core, world, resources, {
+            discriminator: 'pbf_colliders',
         });
     }
 
@@ -131,7 +141,14 @@ export class PBFFlow extends Flow {
             {
                 id: 'pipeline_pbf_collision',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfCollisionKernel,
+                shaderSource: [
+                    b,
+                    quatLib,
+                    sdfLib,
+                    rigidBodyStruct,
+                    colliderSetLib,
+                    pbfCollisionKernel,
+                ].join('\n'),
                 entryPoints: ['pbf_collision_main'],
                 consumes: [this.bodyType],
             },
@@ -142,10 +159,17 @@ export class PBFFlow extends Flow {
     override dispose(): void {
         this.invalidateKernels();
         this.params.dispose();
-        if (this.collidersBuffer !== null) this.core.destroy(this.collidersBuffer);
-        this.collidersBuffer = null;
+        this.colliders.destroy();
         this.neighborSearch?.dispose();
         this.neighborSearch = null;
+    }
+
+    override onEntitiesInserted(_ids: readonly number[]): void {
+        this.colliders.markDirty();
+    }
+
+    override onEntitiesRemoved(_ids: readonly number[]): void {
+        this.colliders.markDirty();
     }
 
     override isReady(): boolean {
@@ -153,6 +177,7 @@ export class PBFFlow extends Flow {
     }
 
     override onPoolReallocated(poolKey: string): void {
+        this.colliders.onPoolReallocated(poolKey);
         if (poolKey === this.bodyType) {
             this.invalidateKernels();
             this.neighborSearch?.invalidateParticlesBinding();
@@ -194,13 +219,6 @@ export class PBFFlow extends Flow {
                 origin: [-1.6, -1.6, -1.6],
             });
         }
-        if (this.collidersBuffer === null)
-            this.collidersBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: 'pbf_colliders',
-                byteSize: COLLIDER_DESC_SIZE,
-            });
 
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
@@ -221,11 +239,7 @@ export class PBFFlow extends Flow {
                 { binding: 1, type: 'read-only-storage' as const, buffer: ncount },
             ],
         };
-        const collidersGroup = {
-            bindings: [
-                { binding: 0, type: 'read-only-storage' as const, buffer: this.collidersBuffer },
-            ],
-        };
+        const collidersGroup = { bindings: this.colliders.bindings() };
 
         if (this.predictKernel === null) {
             this.predictKernel = createComputeKernel(this.core, {
@@ -278,7 +292,14 @@ export class PBFFlow extends Flow {
         if (this.collisionKernel === null) {
             this.collisionKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_collision',
-                shaderSource: b + '\n' + pbfCollisionKernel,
+                shaderSource: [
+                    b,
+                    quatLib,
+                    sdfLib,
+                    rigidBodyStruct,
+                    colliderSetLib,
+                    pbfCollisionKernel,
+                ].join('\n'),
                 entryPoint: 'pbf_collision_main',
                 bindGroups: [paramsGroup, particlesGroup, collidersGroup],
             });
@@ -336,6 +357,11 @@ export class PBFFlow extends Flow {
         }
         this.params.flush(iterations);
 
+        this.colliders.refresh();
+        if (this.colliders.generation !== this.collidersGeneration) {
+            this.invalidateKernels();
+            this.collidersGeneration = this.colliders.generation;
+        }
         this.ensureGpuObjects();
         const predict = this.predictKernel;
         const densityLambda = this.densityLambdaKernel;

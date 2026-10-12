@@ -115,6 +115,22 @@ caiu em queda livre (y ≈ −68 m depois de 4 s). Causas:
 - Os mapas `collider → corpo dono` só existem dentro do `LCPFlow` (`rebuildBodyOwners`), então nenhum outro estágio
   consegue saber a pose de um collider dinâmico.
 
+### A8 — Solvers de fluido incoerentes (depois de corrigir a colisão, 2026-10-11)
+
+Com a colisão corrigida (R17), os fluidos executam pela primeira vez:
+
+- **PBF** (`pbf_density_lambda`, `pbf_position_correct`): densidade ρ = Σ W com massa 1 implícita contra ρ₀ = 1000 e
+  h = 0,1 — ρ estimada na ordem de 10⁹, C = ρ/ρ₀ − 1 enorme, λ explode, NaN em todas as partículas.
+- **SPH** (`sph_density`, `sph_forces`): spline cúbica com suporte 2h = 0,2, mas a busca de vizinhança usa células de
+  0,1 (núcleo truncado à metade do suporte); massa fixa 0,01 kg (coerente só com espaçamento ≈ 2,2 cm, que a
+  fachada não permite informar); rigidez k₀ = 1000, γ = 7 ⇒ velocidade do som ≈ 2,6 m/s, no limite do CFL com
+  1 substep. Resultado caótico (7 m de desvio entre execuções).
+- **MPM**: massa e volume por partícula lidos de `pos.w`/`vel.w`, que o `FluidBody` deixa em 0 (o fluido não se
+  move); `F` zerado na fachada (deveria ser identidade); `material_id` sempre 0 (o "fluido" é simulado como sólido
+  elástico); μ = λ = 10³ fixos; 1 substep de 1/60 s sem verificação de estabilidade.
+- Não existe parâmetro de material para partículas: cada Flow tem constantes fixas e a fachada não expõe densidade,
+  espaçamento nem rigidez.
+
 ---
 
 ## Decisões
@@ -231,7 +247,7 @@ dois `ShadowParams` com o `ShadowMap` como Resource é da 006.
 **Decisão**: `brdf` recebe `lambert_diffuse(n, l)` e `ambient_term` com os coeficientes atuais do forward e
 `sample_shadow_pcf` (hoje `sample_shadow` no `forward.wgsl:66`); `color` recebe `tonemap_exposure(c, e)` e
 `gamma_encode(c, g)` extraídos de `fs_tonemap` e `fs_color_grading`, e `luminance` (Rec. 709), usada pelo SSAO/FXAA
-atuais se a expressão já existir inline — sem mudar a imagem (FR-037: comparação de pixels antes/depois no smoke de
+atuais se a expressão já existir inline — sem mudar a imagem (FR-041: comparação de pixels antes/depois no smoke de
 render). PBR completo é da F4. `noise`: hash PCG de 32 bits (`pcg_hash`, `hash2`, `hash3`), ruído de valor 2D/3D e
 gradiente (Perlin) 2D/3D com interpolação quíntica, valores de referência calculados em CPU pela mesma fórmula
 (teste unitário de referência em TS + smoke GPU comparando dentro de 1e-6).
@@ -391,3 +407,37 @@ vizinhança e o LCP com os kernels genéricos — os smokes `limits` e `rigidCon
 
 **Alternativas rejeitadas**: tirar a colisão dos fluidos até a F5 (o usuário decidiu corrigir na 005); copiar o código
 de mapa de dono do LCP para cada fluido (duplicação que esta spec existe para eliminar).
+
+### R18 — Fluidos coerentes: `ParticleMaterial` e solvers corrigidos
+
+**Decisão**:
+
+- **`ParticleMaterial`** (C3, `elements/physics/materials/ParticleMaterial.ts`, exportado na fachada): Resource
+  singleton por World (como o `GravityField`), vocabulário de domínio — `restDensity` (kg/m³, 1000),
+  `particleSpacing` (m, 0,05), `viscosity` (0,01), `speedOfSound` (m/s, 10), `restitution` (0,2), `youngModulus`
+  (Pa, 5·10⁴), `poissonRatio` (0,3), `domainMin`/`domainMax` (m, ±2). Validação na construção (valores > 0,
+  Poisson em [0, 0,5), domínio não vazio). Grandezas derivadas puras (testadas em CPU): massa da partícula
+  m = ρ₀ s³, volume s³, h do SPH = 1,3 s (spline cúbica, suporte 2h), h do PBF = 2 s (poly6/spiky, suporte h), célula
+  do MPM = 2 s (8 partículas por célula), módulo volumétrico K = ρ₀ c², Lamé μ/λ de E e ν, passo estável por
+  algoritmo (SPH: 0,4 h / c; MPM: 0,3 dx / max(c, √((λ+2μ)/ρ₀)); PBF: 1 substep, estável por construção).
+  Sem `ParticleMaterial` no World, os Flows usam os padrões.
+- **Substeps pelo passo estável**: cada Flow de fluido usa `substeps = max(configurado, ⌈stepDt / dtEstável⌉)`; os
+  parâmetros por iteração já são por região (004), então o número variável de iterações não muda o mecanismo.
+- **Grade da vizinhança pelo material**: célula = raio de suporte (SPH 2h, PBF h), origem e dimensões pelo domínio;
+  a busca de vizinhança é recriada quando o material muda.
+- **SPH**: massa do material; Tait com k₀ = ρ₀ c² / γ (γ = 7); vizinhos no suporte inteiro.
+- **PBF** (Macklin & Müller 2013): ρ = m Σ W; ∇C = (m/ρ₀) ∇W; Δp = (m/ρ₀) Σ(λᵢ + λⱼ + s_corr) ∇W; `s_corr` com
+  k = 0,1, n = 4, Δq = 0,2 h; ε de relaxação como parâmetro nomeado.
+- **MPM** (MLS-MPM): massa e volume do material (uniform), não da partícula; `material_id` pelo tipo de corpo —
+  fluido: P Fᵀ = K J (J − 1) I e F reiniciado para J^{1/3} I (sem cisalhamento acumulado); elástico: neo-Hookean com
+  μ/λ do material.
+- **Fachadas**: `FluidBody({ algorithm: 'MPM' })` cria F = I; `SoftBody` ganha `algorithm: 'MPM'` (sólido MPM pela
+  fachada, F = I), em vez de dados crus.
+- **Critérios físicos** no smoke `trajectories` (antes de gravar): sem NaN; partículas dentro do domínio e acima do
+  chão (y ≥ −s/2); fluido assentado (velocidade média < 0,25 m/s após 4 s) e altura média abaixo da inicial; SPH com
+  densidade média das partículas internas dentro de ±15% de ρ₀.
+
+**Alternativas rejeitadas**: parâmetros por Flow (opções do construtor) — ficam fora do World e da fachada, e duas
+cenas com materiais diferentes exigiriam Flows diferentes; massa por partícula no struct — muda o layout de todas as
+partículas sem necessidade enquanto um fluido tem um único material (corpos como contêineres de partículas com
+material próprio são da F2/F5, roadmap §3.1).

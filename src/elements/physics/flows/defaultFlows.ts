@@ -10,6 +10,7 @@ import { FEMFlow } from './FEMFlow';
 import { MPMFlow } from './MPMFlow';
 import { SPHFlow } from './SPHFlow';
 import { PBFFlow } from './PBFFlow';
+import { DistanceConstraint } from '../constraints/DistanceConstraint';
 
 /** Constrói um Flow a partir das dependências de runtime (C1/C2). */
 export type FlowFactory = (core: EngineCore, world: World, resources: ResourceSystem) => Flow;
@@ -28,7 +29,10 @@ export const DEFAULT_FLOW_FACTORIES: ReadonlyMap<string, FlowFactory> = new Map<
     FlowFactory
 >([
     ['LCPSchema', (c, w, r) => new LCPFlow(c, w, r)],
-    ['XPBDSoftSchema', (c, w, r) => new XPBDFlow(c, w, r)],
+    [
+        'XPBDSoftSchema',
+        (c, w, r) => new XPBDFlow(c, w, r, { constraintPoolKey: DistanceConstraint.schema.name }),
+    ],
     ['FEMSchema', (c, w, r) => new FEMFlow(c, w, r)],
     ['MPMFluidSchema', (c, w, r) => new MPMFlow(c, w, r)],
     ['MPMSoftSchema', (c, w, r) => new MPMFlow(c, w, r, { bodyType: 'MPMSoftSchema' })],

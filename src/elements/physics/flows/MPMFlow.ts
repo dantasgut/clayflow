@@ -11,11 +11,15 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import mpmSimParamsStruct from '../../gpu/wgsl/structs/mpm_sim_params.wgsl?raw';
 import mpmParticleStruct from '../../gpu/wgsl/structs/mpm_particle.wgsl?raw';
 import mpmGridNodeStruct from '../../gpu/wgsl/structs/mpm_grid_node.wgsl?raw';
 import colliderDescStruct from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
+import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
+import quatLib from '../../gpu/wgsl/math/quat.wgsl?raw';
+import colliderSetLib from '../../gpu/wgsl/math/collider_set.wgsl?raw';
 import matLib from '../../gpu/wgsl/math/mat.wgsl?raw';
 import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
 import mpmWeightsLib from '../../gpu/wgsl/math/mpm_weights.wgsl?raw';
@@ -24,7 +28,6 @@ import mpmGridUpdateKernel from '../../gpu/wgsl/kernels/mpm_grid_update.wgsl?raw
 import mpmG2PKernel from '../../gpu/wgsl/kernels/mpm_g2p.wgsl?raw';
 import mpmClearGridKernel from '../../gpu/wgsl/kernels/mpm_clear_grid.wgsl?raw';
 
-const COLLIDER_DESC_SIZE = 160;
 const MPM_GRID_NODE_SIZE = 32;
 /** Bytes do struct `MPMSimParams`. */
 const MPM_SIM_PARAMS_BYTE_SIZE = 96;
@@ -55,7 +58,10 @@ export class MPMFlow extends Flow {
 
     private readonly params: PerStepUniforms;
     private gridBuffer: StorageBufferSpec | null = null;
-    private collidersBuffer: StorageBufferSpec | null = null;
+    /** Pools de collider e mapas de dono (grupo 2 do kernel de colisão). */
+    private readonly colliders: ColliderSet;
+    /** `colliders.generation` com que os kernels foram criados. */
+    private collidersGeneration = -1;
     private clearGridKernel: ComputeKernel | null = null;
     private p2gKernel: ComputeKernel | null = null;
     private gridUpdateKernel: ComputeKernel | null = null;
@@ -76,6 +82,9 @@ export class MPMFlow extends Flow {
         this.params = new PerStepUniforms(core, {
             discriminator: 'mpm_params',
             byteSize: MPM_SIM_PARAMS_BYTE_SIZE,
+        });
+        this.colliders = new ColliderSet(core, world, resources, {
+            discriminator: 'mpm_colliders',
         });
     }
 
@@ -100,7 +109,13 @@ export class MPMFlow extends Flow {
             {
                 id: 'pipeline_mpm_grid_update',
                 role: 'compute',
-                shaderSource: baseSrc + '\n' + mpmGridUpdateKernel,
+                shaderSource: [
+                    baseSrc,
+                    quatLib,
+                    rigidBodyStruct,
+                    colliderSetLib,
+                    mpmGridUpdateKernel,
+                ].join('\n'),
                 entryPoints: ['mpm_grid_update_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
@@ -119,9 +134,16 @@ export class MPMFlow extends Flow {
         this.invalidateKernels();
         this.params.dispose();
         if (this.gridBuffer !== null) this.core.destroy(this.gridBuffer);
-        if (this.collidersBuffer !== null) this.core.destroy(this.collidersBuffer);
+        this.colliders.destroy();
         this.gridBuffer = null;
-        this.collidersBuffer = null;
+    }
+
+    override onEntitiesInserted(_ids: readonly number[]): void {
+        this.colliders.markDirty();
+    }
+
+    override onEntitiesRemoved(_ids: readonly number[]): void {
+        this.colliders.markDirty();
     }
 
     override isReady(): boolean {
@@ -129,6 +151,7 @@ export class MPMFlow extends Flow {
     }
 
     override onPoolReallocated(poolKey: string): void {
+        this.colliders.onPoolReallocated(poolKey);
         // Pool buffer mudou — invalida kernels que referenciam o particles buffer.
         if (poolKey === this.bodyType) this.invalidateParticleKernels();
     }
@@ -172,14 +195,6 @@ export class MPMFlow extends Flow {
                 byteSize: this.gridCellCount() * MPM_GRID_NODE_SIZE,
             });
         }
-        if (this.collidersBuffer === null) {
-            this.collidersBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: 'mpm_colliders',
-                byteSize: COLLIDER_DESC_SIZE,
-            });
-        }
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
 
@@ -194,11 +209,7 @@ export class MPMFlow extends Flow {
         const particlesGroup = {
             bindings: [{ binding: 0, type: 'storage' as const, buffer: particlesBuf }],
         };
-        const collidersGroup = {
-            bindings: [
-                { binding: 0, type: 'read-only-storage' as const, buffer: this.collidersBuffer },
-            ],
-        };
+        const collidersGroup = { bindings: this.colliders.bindings() };
 
         if (this.clearGridKernel === null) {
             this.clearGridKernel = createComputeKernel(this.core, {
@@ -219,9 +230,15 @@ export class MPMFlow extends Flow {
         if (this.gridUpdateKernel === null) {
             this.gridUpdateKernel = createComputeKernel(this.core, {
                 discriminator: 'mpm_grid_update',
-                shaderSource: baseSrc + '\n' + mpmGridUpdateKernel,
+                shaderSource: [
+                    baseSrc,
+                    quatLib,
+                    rigidBodyStruct,
+                    colliderSetLib,
+                    mpmGridUpdateKernel,
+                ].join('\n'),
                 entryPoint: 'mpm_grid_update_main',
-                bindGroups: [paramsGroup, gridGroup, particlesGroup, collidersGroup],
+                bindGroups: [paramsGroup, gridGroup, collidersGroup],
             });
         }
         if (this.g2pKernel === null) {
@@ -285,6 +302,11 @@ export class MPMFlow extends Flow {
         }
         this.params.flush(iterations);
 
+        this.colliders.refresh();
+        if (this.colliders.generation !== this.collidersGeneration) {
+            this.invalidateParticleKernels();
+            this.collidersGeneration = this.colliders.generation;
+        }
         this.ensureGpuObjects();
         const clear = this.clearGridKernel;
         const p2g = this.p2gKernel;

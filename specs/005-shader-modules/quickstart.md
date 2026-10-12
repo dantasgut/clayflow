@@ -69,7 +69,7 @@ npm run bench:check
 ```
 
 - `trajectories`: compara com a fixture gravada antes da 005 (bit a bit; tolerância registrada para SPH/PBF).
-- `render`: compara pixels das cenas do bench com a captura de antes (FR-037).
+- `render`: compara pixels das cenas do bench com a captura de antes (FR-041).
 - Gate de CPU inclui `wgslInventory` (nenhum `.wgsl` órfão) e `wgslSymbols` (nenhuma função duplicada).
 
 ## Migração (0.x, incompatível)

@@ -26,8 +26,10 @@ Substituir a colagem de texto de WGSL por um núcleo de shaders conforme a refun
 6. **Documento de arquitetura**: as 10 inconsistências da D5 com definição única (estado atual × alvo marcados), seção
    de shaders reescrita; duas correções de código que o documento exige (`resolve` por prioridade, `Scene.add`
    inserindo no World).
-7. **Física que nunca rodou** (research A7/R17): `ColliderSet` compartilhado (LCP e fluidos), colisão de SPH/PBF/MPM
-   contra os pools tipados, XPBD padrão ligado às restrições — antes de gravar as fixtures.
+7. **Física que nunca rodou** (research A7/A8, R17/R18): `ColliderSet` compartilhado (LCP e fluidos), colisão de
+   SPH/PBF/MPM contra os pools tipados, XPBD padrão ligado às restrições; fluidos coerentes por `ParticleMaterial`
+   (massa, suavização, grade e passo estável derivados), PBF com massa, SPH no suporte do núcleo, MPM com material de
+   fluido e fachadas com F = I — antes de gravar as fixtures.
 8. **Verificação**: fixtures de trajetória e de imagem gravadas **antes** de mexer em WGSL; smokes novos
    `trajectories`, `render`, `shaderLibrary`, `computeKernels`; gate e `bench:check` sem regressão.
 
@@ -146,7 +148,7 @@ src/
 │   └── ui/UiGpuPipeline.ts                    # ScreenParams/UiQuad por schema
 └── __smokes__/
     ├── trajectories.ts                        # NOVO — grava/compara fixture (R14)
-    ├── render.ts                              # NOVO — compara pixels das cenas (FR-037)
+    ├── render.ts                              # NOVO — compara pixels das cenas (FR-041)
     ├── shaderLibrary.ts                       # NOVO — compila todos os módulos + referências na GPU
     ├── computeKernels.ts                      # NOVO — kernels genéricos contra CPU
     └── fixtures/                              # NOVO — trajetórias e imagens de antes da 005

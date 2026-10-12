@@ -352,20 +352,26 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
 
 **Física quebrada encontrada na gravação das fixtures**
 
-- **FR-039**: SPH, PBF e MPM MUST colidir com os pools tipados de colliders (plano, caixa, esfera), com a pose do
+- **FR-036**: SPH, PBF e MPM MUST colidir com os pools tipados de colliders (plano, caixa, esfera), com a pose do
   collider vinda do corpo dono quando houver, pelo mesmo conjunto de colliders que o LCP usa (sem cópia da montagem
   dos mapas de dono); `MeshCollider` segue sem contato, como no LCP (registrado para a F5).
-- **FR-040**: O XPBD padrão MUST resolver as restrições de distância inseridas no World (`DistanceConstraint`).
-- **FR-041**: O smoke de trajetórias MUST reprovar se uma cena não simula (sem movimento, valores não finitos ou erro
+- **FR-037**: Os fluidos MUST ser fisicamente coerentes: parâmetros de material de partícula declarados num recurso
+  do World em vocabulário de domínio (densidade de repouso, espaçamento, viscosidade, velocidade do som, módulo de
+  Young, Poisson, restituição, domínio), com massa, raio de suavização, grade e passo estável derivados dele; PBF com
+  massa na densidade e no gradiente da restrição; SPH com vizinhança no suporte do núcleo; MPM com massa/volume do
+  material, material de fluido distinto do elástico e substeps pelo passo estável; fachadas criando partículas MPM
+  com gradiente de deformação identidade.
+- **FR-038**: O XPBD padrão MUST resolver as restrições de distância inseridas no World (`DistanceConstraint`).
+- **FR-039**: O smoke de trajetórias MUST reprovar se uma cena não simula (sem movimento, valores não finitos ou erro
   capturado de estágio) e MUST conferir o comportamento físico esperado de cada cena (fluidos assentam sobre o chão,
   corrente XPBD pendura do ponto fixo sem esticar além da tolerância, corpos rígidos repousam sobre o chão).
 
 **Transversais**
 
-- **FR-036**: A simulação MUST produzir a mesma trajetória antes e depois desta spec: idêntica bit a bit, ou dentro de
+- **FR-040**: A simulação MUST produzir a mesma trajetória antes e depois desta spec: idêntica bit a bit, ou dentro de
   tolerância registrada na pesquisa onde uma implementação duplicada divergente for trocada pela canônica.
-- **FR-037**: A imagem renderizada das cenas do bench MUST ser a mesma antes e depois.
-- **FR-038**: O build minificado MUST funcionar: nomes de módulos e structs são dados explícitos, não nomes de classe.
+- **FR-041**: A imagem renderizada das cenas do bench MUST ser a mesma antes e depois.
+- **FR-042**: O build minificado MUST funcionar: nomes de módulos e structs são dados explícitos, não nomes de classe.
 
 ### Key Entities
 

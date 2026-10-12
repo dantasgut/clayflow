@@ -30,7 +30,7 @@ compute-kernels), quickstart.md
 
 ## Phase 1: Setup — fixtures de antes
 
-**Purpose**: gravar o comportamento atual antes de qualquer mudança em WGSL (R14, FR-036, FR-037).
+**Purpose**: gravar o comportamento atual antes de qualquer mudança em WGSL (R14, FR-040, FR-041).
 
 - [x] T001 Registrar a linha de base verde da branch: `npm test`, `npx tsc --noEmit`, `npm run smoke -- limits,rigidContacts` (tempos de referência 8,2 ms / 223,7 ms) e `npm run bench:check -- --from bench/results/latest.json` se houver resultado local; anotar abaixo deste item em `specs/005-shader-modules/tasks.md`
 
@@ -41,14 +41,21 @@ compute-kernels), quickstart.md
 - [ ] T003 Medir o determinismo entre execuções no código atual: rodar `trajectories` em `record` duas vezes seguidas e comparar; classificar cada cena em bit a bit (esperado: LCP, XPBD, FEM, MPM) ou não determinística (esperado: SPH, PBF — ordem dos vizinhos por contador atômico); gravar a tolerância por cena (= 2 × desvio máximo observado) no JSON da fixture e registrar os números em `specs/005-shader-modules/research.md` (R14)
 - [ ] T004 Criar o smoke `src/__smokes__/render.ts`: renderiza as cenas `instances/10k`, `unique-objects/1k` e `rigid-bodies/1k` do bench (mesmas câmeras, um quadro após `app.step` fixo), lê o canvas de volta (`copyTextureToBuffer` pela C1) e, em `record`, grava `src/__smokes__/fixtures/render-<cena>-<perfil>.png`; em `compare` exige igualdade de pixels; incluir também uma passagem com `PostFlow` (exposição + color grading) para cobrir `color`; registrar no README dos smokes
 
-### Phase 1b: física que nunca rodou (research A7/R17, FR-039–FR-041) — antes de gravar
+### Phase 1b: física que nunca rodou (research A7/A8, R17/R18, FR-036–FR-039) — antes de gravar
 
 - [ ] T086 Smoke `trajectories`: reprovar com `engineError` capturado, valores não finitos ou cena parada; critérios físicos por cena antes de gravar — LCP: todos os corpos sobre o chão ou fora dele por queda lateral registrada, nenhum abaixo de y = −0,05 dentro da área do chão; XPBD: partícula 0 fixa, elos com comprimento dentro de 5% do repouso; SPH/PBF/MPM: nenhuma partícula abaixo do topo do chão (y ≥ −0,01) e altura média abaixo da inicial (assentaram); FEM: queda livre esperada (só integra gravidade — A5) com y médio = y₀ − ½g t² ± 1%
-- [ ] T087 [P] Teste `src/elements/physics/__tests__/ColliderSet.test.ts`: mapa de dono por pool (corpo dinâmico → slot do `LCPSchema`, collider sem corpo → `0xFFFFFFFF`), buffers mínimos para pools ausentes, contagens, reconstrução em realocação de pool de collider/corpo e em remoção de entidades, `generation` muda só quando buffers mudam, bindings do grupo 2 (b0–b7)
-- [ ] T088 Implementar `src/elements/physics/colliders/ColliderSet.ts` e exportar por `src/elements/physics/colliders/index.ts`
-- [ ] T089 Migrar `src/elements/physics/flows/LCPFlow.ts` para obter pools, mapas de dono e contagens do `ColliderSet` (remove `rebuildBodyOwners`/`ensureBodyOwnersBuffer`/`bodyOwnersBuffers`); `LCPFlow.*.test.ts`, `time` e `rigidContacts` verdes e LCP bit a bit contra a gravação provisória da T086
-- [ ] T090 Criar `src/elements/gpu/wgsl/math/collider_set.wgsl` (bindings do grupo 2, `ColliderSetCounts`, `collider_set_push_out`, `collider_set_constrain`, pose por dono, SDF por `sdf.wgsl`) e trocar `ColliderDesc` por ele em `kernels/sph_collision.wgsl`, `kernels/pbf_collision.wgsl` e `kernels/mpm_grid_update.wgsl` (MPM: colliders do grupo 3 para o 2; remove o grupo de partículas não usado); ajustar `SPHFlow.ts`, `PBFFlow.ts`, `MPMFlow.ts` (bind group 2 do `ColliderSet`, invalidação por `generation`, `collider_count`/`COLLIDER_DESC_SIZE` removidos dos parâmetros e buffers)
-- [ ] T091 Ligar o XPBD padrão às restrições: `constraintPoolKey: DistanceConstraint.schema.name` em `src/elements/physics/flows/defaultFlows.ts`; teste em `src/elements/physics/__tests__/defaultFlows.test.ts`
+- [x] T087 [P] Teste `src/elements/physics/__tests__/ColliderSet.test.ts`: mapa de dono por pool (corpo dinâmico → slot do `LCPSchema`, collider sem corpo → `0xFFFFFFFF`), buffers mínimos para pools ausentes, contagens, reconstrução em realocação de pool de collider/corpo e em remoção de entidades, `generation` muda só quando buffers mudam, bindings do grupo 2 (b0–b7)
+- [x] T088 Implementar `src/elements/physics/colliders/ColliderSet.ts` e exportar por `src/elements/physics/colliders/index.ts`
+- [x] T089 Migrar `src/elements/physics/flows/LCPFlow.ts` para obter pools, mapas de dono e contagens do `ColliderSet` (remove `rebuildBodyOwners`/`ensureBodyOwnersBuffer`/`bodyOwnersBuffers`); `LCPFlow.*.test.ts`, `time` e `rigidContacts` verdes e LCP bit a bit contra a gravação provisória da T086
+- [x] T090 Criar `src/elements/gpu/wgsl/math/collider_set.wgsl` (bindings do grupo 2, `ColliderSetCounts`, `collider_set_push_out`, `collider_set_constrain`, pose por dono, SDF por `sdf.wgsl`) e trocar `ColliderDesc` por ele em `kernels/sph_collision.wgsl`, `kernels/pbf_collision.wgsl` e `kernels/mpm_grid_update.wgsl` (MPM: colliders do grupo 3 para o 2; remove o grupo de partículas não usado); ajustar `SPHFlow.ts`, `PBFFlow.ts`, `MPMFlow.ts` (bind group 2 do `ColliderSet`, invalidação por `generation`, `collider_count`/`COLLIDER_DESC_SIZE` removidos dos parâmetros e buffers)
+- [x] T091 Ligar o XPBD padrão às restrições: `constraintPoolKey: DistanceConstraint.schema.name` em `src/elements/physics/flows/defaultFlows.ts`; teste em `src/elements/physics/__tests__/defaultFlows.test.ts`
+- [ ] T093 [P] Teste `src/elements/physics/__tests__/ParticleMaterial.test.ts`: padrões, validação (valores ≤ 0, Poisson fora de [0, 0,5), domínio vazio), grandezas derivadas (massa ρ₀s³, volume, h do SPH 1,3 s, h do PBF 2 s, célula MPM 2 s, K = ρ₀c², Lamé de E/ν, passos estáveis), `ParticleMaterial.of(world)` devolve o do World ou o padrão
+- [ ] T094 Implementar `src/elements/physics/materials/ParticleMaterial.ts` (Resource singleton, schema, getters derivados, `of(world)`) e exportar por `src/elements/physics/index.ts` e pela fachada com JSDoc
+- [ ] T095 SPH: `SPHFlow.ts` lê o `ParticleMaterial` (massa, h, k₀ = ρ₀c²/γ, viscosidade, restituição, domínio), substeps pelo passo estável, busca de vizinhança com célula = 2h e grade pelo domínio (recriada quando o material muda); `src/elements/physics/__tests__/SPHFlow.material.test.ts` (parâmetros gravados, substeps, recriação da vizinhança)
+- [ ] T096 PBF: `kernels/pbf_density_lambda.wgsl` e `kernels/pbf_position_correct.wgsl` com massa (ρ = mΣW, ∇C e Δp com m/ρ₀), `s_corr` k = 0,1/n = 4/Δq = 0,2h; `PBFFlow.ts` lê o material (massa, h = 2s, ε, domínio, vizinhança com célula = h); `src/elements/physics/__tests__/PBFFlow.material.test.ts`
+- [ ] T097 MPM: `kernels/mpm_p2g.wgsl` com massa/volume do material (uniform) e tensão por `material_id` (fluido: P Fᵀ = K J (J−1) I; elástico: neo-Hookean com μ/λ do material), `kernels/mpm_g2p.wgsl` reiniciando F = J^{1/3} I no fluido; `structs/mpm_sim_params.wgsl` com `particle_mass`, `particle_volume`, `bulk_modulus` (substituem campos de neve não usados, documentado); `MPMFlow.ts` com `material_id` pelo tipo de corpo, célula 2s, grade pelo domínio, substeps pelo passo estável; `src/elements/physics/__tests__/MPMFlow.material.test.ts`
+- [ ] T098 Fachadas: `FluidBody({ algorithm: 'MPM' })` cria F = I; `SoftBody` aceita `algorithm: 'MPM'` (schema `MPMSoftSchema`, F = I); testes em `src/elements/physics/__tests__/fluidBodyAuthoring.test.ts`/`softBodyAuthoring.test.ts`; o smoke `trajectories` usa a fachada (sem dados crus) e blocos com o espaçamento do material
+- [ ] T099 Critérios físicos dos fluidos no smoke `trajectories` (R18): sem NaN, dentro do domínio, acima do chão (y ≥ −s/2), assentado (velocidade média < 0,25 m/s em 4 s), altura média abaixo da inicial; SPH com densidade média interna em ±15% de ρ₀
 - [ ] T092 Rodar `npm test`, `npm run smoke -- trajectories --record` (critérios físicos verdes, sem `engineError`), `time`, `rigidContacts`, `integration`; registrar em `research.md` (A7) o comportamento medido de cada cena
 
 - [ ] T005 Gravar as fixtures (`npm run smoke -- trajectories,render -- --record`, opção nova no runner `bench/runner/smoke.ts` repassada à página) com a GPU sem outra carga e commitar `src/__smokes__/fixtures/`
@@ -232,7 +239,7 @@ corrigida; testes das duas correções de código.
 
 ```mermaid
 graph LR
-  S[Setup T001-T005 + Fase 1b T086-T092] --> F[Foundational T006-T014]
+  S[Setup T001-T005 + Fase 1b T086-T099] --> F[Foundational T006-T014]
   F --> US1[US1 T015-T030]
   US1 --> US2[US2 T031-T043]
   US2 --> US3[US3 T044-T053]
@@ -244,7 +251,7 @@ graph LR
   US6 --> P
 ```
 
-- A Fase 1 grava as fixtures — a Fase 1b (T086–T092) corrige antes a física que nunca rodou, para que a fixture
+- A Fase 1 grava as fixtures — a Fase 1b (T086–T099) corrige antes a física que nunca rodou, para que a fixture
   registre física funcionando; fora isso, nada de WGSL muda antes da gravação (T005).
 - US1 → US2: a US2 substitui por schemas os módulos de struct que a US1 cria a partir dos arquivos atuais (T041 remove os dois).
 - US3 e US4 dependem da US2 (schemas de parâmetros e estado) e podem andar em paralelo, exceto o LCP: T046 (US3) e

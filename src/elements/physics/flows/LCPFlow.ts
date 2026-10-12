@@ -19,6 +19,7 @@ import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
 import { GravityField } from '../forcefields/GravityField';
 import { Transform } from '../../scene/Transform';
+import { ColliderSet } from '../colliders/ColliderSet';
 import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
 import rbSimParamsStruct from '../../gpu/wgsl/structs/rb_sim_params.wgsl?raw';
 import rbContactStruct from '../../gpu/wgsl/structs/rb_contact.wgsl?raw';
@@ -219,8 +220,10 @@ export class LCPFlow extends Flow {
     private commitKernel: ComputeKernel | null = null;
 
     private readonly npParamsBuffers = new Map<string, UniformBufferSpec>();
-    private readonly bodyOwnersBuffers = new Map<string, StorageBufferSpec>();
-    private readonly bodyOwnersCapacity = new Map<string, number>();
+    /** Pools de collider e mapas collider → corpo dono (compartilhado com a colisão dos fluidos). */
+    private readonly colliders: ColliderSet;
+    /** `colliders.generation` com que os kernels de narrowphase foram criados. */
+    private narrowphaseGeneration = -1;
 
     private readbackInFlight = false;
 
@@ -241,6 +244,10 @@ export class LCPFlow extends Flow {
         this.params = new PerStepUniforms(core, {
             discriminator: 'lcp_sim_params',
             byteSize: RB_SIM_PARAMS_BYTE_SIZE,
+        });
+        this.colliders = new ColliderSet(core, world, resources, {
+            discriminator: 'lcp_colliders',
+            bodiesPoolKey: this.bodiesPoolKey,
         });
     }
 
@@ -316,10 +323,8 @@ export class LCPFlow extends Flow {
         this.bodiesStaging = null;
         this.bodiesStagingByteSize = 0;
         for (const buf of this.npParamsBuffers.values()) this.core.destroy(buf);
-        for (const buf of this.bodyOwnersBuffers.values()) this.core.destroy(buf);
         this.npParamsBuffers.clear();
-        this.bodyOwnersBuffers.clear();
-        this.bodyOwnersCapacity.clear();
+        this.colliders.destroy();
     }
 
     override isReady(): boolean {
@@ -327,6 +332,7 @@ export class LCPFlow extends Flow {
     }
 
     override onPoolReallocated(poolKey: string): void {
+        this.colliders.onPoolReallocated(poolKey);
         if (poolKey === this.bodiesPoolKey) {
             this.invalidateAllKernels();
             this.releaseContacts();
@@ -335,15 +341,17 @@ export class LCPFlow extends Flow {
         if (SHAPE_POOLS.some((s) => s.poolKey === poolKey)) {
             this.invalidateNarrowphase(poolKey);
             this.releaseContacts();
-            this.bodyOwnersCapacity.delete(poolKey);
         }
     }
 
+    override onEntitiesInserted(_ids: readonly number[]): void {
+        // Colliders novos entram nos mapas de dono.
+        this.colliders.markDirty();
+    }
+
     override onEntitiesRemoved(_ids: readonly number[]): void {
-        // Mapas body_owners precisam ser regerados — slots podem mudar.
-        for (const shape of SHAPE_POOLS) {
-            this.bodyOwnersCapacity.delete(shape.poolKey);
-        }
+        // Mapas de dono precisam ser regerados — slots podem mudar.
+        this.colliders.markDirty();
     }
 
     /** Libera e esquece todos os kernels (bind groups dependem de buffers que mudaram). */
@@ -521,46 +529,6 @@ export class LCPFlow extends Flow {
         return buf;
     }
 
-    private ensureBodyOwnersBuffer(poolKey: string, count: number): StorageBufferSpec {
-        const minBytes = Math.max(16, count * 4);
-        let buf = this.bodyOwnersBuffers.get(poolKey);
-        const cap = this.bodyOwnersCapacity.get(poolKey) ?? 0;
-        if (buf === undefined || cap < count) {
-            if (buf !== undefined) this.core.destroy(buf);
-            buf = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `lcp_body_owners_${poolKey}_${count}`,
-                byteSize: minBytes,
-            });
-            this.bodyOwnersBuffers.set(poolKey, buf);
-            this.bodyOwnersCapacity.set(poolKey, count);
-            this.invalidateNarrowphase(poolKey); // bind group precisa refazer
-        }
-        return buf;
-    }
-
-    /** Itera o pool de uma shape e escreve `body_owners[slot] = rb_idx` ou 0xFFFFFFFFu. */
-    private rebuildBodyOwners(poolKey: string): number {
-        const entityIds = this.world.queryBySchemaName(poolKey);
-        const count = entityIds.length;
-        if (count === 0) return 0;
-        const buf = this.ensureBodyOwnersBuffer(poolKey, count);
-        const owners = new Uint32Array(Math.max(4, count));
-        owners.fill(0xffffffff);
-        for (let i = 0; i < count; i++) {
-            const eid = entityIds[i]!;
-            const slotInPool = this.resources.poolSlotOf(poolKey, eid);
-            if (slotInPool === undefined) continue;
-            const rbSlot = this.resources.poolSlotOf(this.bodiesPoolKey, eid);
-            if (rbSlot !== undefined) {
-                owners[slotInPool] = rbSlot;
-            }
-        }
-        this.core.write(buf, new Uint8Array(owners.buffer));
-        return count;
-    }
-
     /**
      * Preenche a região `region` de `RBSimParams`: `gravity.w` = dt da iteração (passo inteiro em predict/commit,
      * `stepDt / substeps` nos substeps), `dt_frame` = `stepDt`, capacidade da lista de contatos e carimbo do
@@ -643,9 +611,10 @@ export class LCPFlow extends Flow {
             return this.narrowphaseKernels.get(shape.poolKey) ?? null;
         }
         const npParams = this.ensureNpParamsBuffer(shape.poolKey);
-        const ownersBuf = this.bodyOwnersBuffers.get(shape.poolKey);
-        const poolBuf = this.resources.poolBufferSpec(shape.poolKey);
-        if (ownersBuf === undefined || poolBuf === undefined) return null;
+        const pool = this.colliders.pool(shape.poolKey);
+        if (pool.count === 0) return null;
+        const ownersBuf = pool.owners;
+        const poolBuf = pool.buffer;
         const kernel = createComputeKernel(this.core, {
             discriminator: `lcp_narrowphase_${shape.poolKey}`,
             shaderSource: NARROWPHASE_SHADER,
@@ -767,7 +736,12 @@ export class LCPFlow extends Flow {
         const bodiesBuf = this.resources.poolBufferSpec(this.bodiesPoolKey);
         if (bodiesBuf === undefined) return;
 
-        // Re-resolve body_owners por pool e calcula offsets cumulativos.
+        // Mapas de dono e contagens por pool; offsets cumulativos dos pools na linha de contatos do corpo.
+        this.colliders.refresh();
+        if (this.colliders.generation !== this.narrowphaseGeneration) {
+            for (const shape of SHAPE_POOLS) this.invalidateNarrowphase(shape.poolKey);
+            this.narrowphaseGeneration = this.colliders.generation;
+        }
         const poolInfo: {
             shape: ShapePool;
             count: number;
@@ -775,7 +749,7 @@ export class LCPFlow extends Flow {
         }[] = [];
         let totalCol = 0;
         for (const shape of SHAPE_POOLS) {
-            const count = this.rebuildBodyOwners(shape.poolKey);
+            const count = this.colliders.pool(shape.poolKey).count;
             poolInfo.push({ shape, count, base: totalCol });
             totalCol += count;
         }
