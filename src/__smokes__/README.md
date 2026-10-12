@@ -12,6 +12,7 @@ Pelo servidor do bench (Chrome da máquina com WebGPU, via Playwright):
 npm run smoke -- time                     # um smoke
 npm run smoke -- transforms,time,bigMesh  # vários, um por página
 npm run build:lib && npm run smoke -- time --dist   # sobre o build minificado (dist/index.js)
+npm run smoke -- trajectories,render --record      # grava as fixtures de src/__smokes__/fixtures (perfil da GPU)
 ```
 
 Cada smoke abre `bench/smoke.html?name=<nome>` numa página nova e o runner espera `… SMOKE PASSED` ou `FAIL: …`
@@ -32,6 +33,8 @@ são verificados por `npm run typecheck:bench`.
 | `bigMesh.ts`       | Spec 004: `ParametricGeometry` 300 × 300 (90 601 vértices) com índices `uint32` cobre 100% da área projetada nas duas metades (a de cima usa vértices de índice ≥ 65 536 — com `uint16` truncado cai para ~48%) (SC-008).                                                                                                                                                                                                                                       | ~1s          |
 | `churn.ts`         | Spec 004: 100 ciclos de inserir, desenhar e remover 1 000 objetos (com sombra): memória de GPU volta à referência do 1º ciclo (±1%) e a contagem de ouvintes fica estável (SC-006). Sem a liberação por entidade, cresce para ~1,2 GB e falha.                                                                                                                                                                                                                  | ~25s         |
 | `rigidContacts.ts` | Spec 004: pilhas de esferas e caixas (grade, camadas) num recinto estático com 1 000 e 10 000 corpos, 12 s simulados: nenhum atravessa o chão (≤ folga + 1 cm) nem sai do recinto; ≥ 99% em repouso (< 0,05 m/s), média < 0,01 m/s, nenhum > 1 m/s; sem excedente de contatos (SC-013). Registra GPU+CPU por quadro e memória. Medido (perfil apple-metal-3): 1k — 8,2 ms/quadro, 100% em repouso, 5,7 MiB; 10k — 223,7 ms/quadro, 99,87% em repouso, 70,5 MiB. | ~30s         |
+| `trajectories.ts`  | Spec 005: LCP, XPBD (corrente presa), FEM, MPM sólido e fluido, SPH e PBF (tanque com paredes) por 240 passos de `app.step(1/60)`; critérios físicos por cena (sem NaN, no domínio, acima do chão, fluidos assentados, SPH com densidade mediana em ±15% de ρ₀, elos XPBD em ±5%) e comparação bit a bit com a fixture `fixtures/trajectories-<perfil>.{bin,json}`. `--record` roda cada cena duas vezes (exige determinismo) e grava.                          | ~3s          |
+| `render.ts`        | Spec 005: forward (StandardMaterial, WireframeMaterial, sombra), cada efeito de pós isolado e UI, um quadro por cena por `app.step`; pixels comparados com `fixtures/render-<cena>-<perfil>.png` (igualdade exata). `--record` exige duas renderizações idênticas e grava.                                                                                                                                                                                      | ~1s          |
 
 ## Convenção de logs
 

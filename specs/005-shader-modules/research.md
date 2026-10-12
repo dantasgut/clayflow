@@ -165,6 +165,13 @@ Com o smoke `trajectories` conferindo critérios físicos (T086/T099), a depura�
 - **XPBD — convergência**: 1 substep × 4 iterações de Gauss-Seidel deixava a corrente de 31 elos esticar 20–45%.
   Decisão: padrão de 8 substeps × 1 iteração ("Small Steps", Macklin 2019) — estiramento ≤ 3%.
 
+- **`ColorGrading` apagava a imagem com os padrões** (smoke `render`): a classe não tinha opções e a intensidade
+  (padrão 1) ia para o campo que o shader lê como _lift_, com _gain_ = 0 ⇒ (c − 1)·0 = preto. Decisão: opções de
+  domínio `lift`/`gain`/`gamma` (identidade por padrão) e `strength` como mistura com o original.
+- **Câmera sem matrizes**: a `Camera` só guarda matrizes; sem controller a visão-projeção é a identidade (o smoke
+  `integration` só conferia PNG não vazio). Composição da câmera é da F2 (roadmap §3.1); o smoke `render` usa o mesmo
+  cálculo de usuário do bench.
+
 Resultado (T092): as sete cenas passam nos critérios físicos e são determinísticas bit a bit entre execuções.
 
 ---

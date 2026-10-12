@@ -38,8 +38,8 @@ compute-kernels), quickstart.md
 > 10k 228,7 ms/quadro ✅, `bench:check --from latest.json` PASSOU.
 
 - [x] T002 Criar o smoke `src/__smokes__/trajectories.ts`: monta as cenas de física (LCP com esferas e caixas; XPBD com cadeia de restrições de distância; FEM; MPM sólido; MPM fluido; SPH; PBF) com posições iniciais determinísticas, avança 240 passos com `app.step(1/60)`, lê de volta o pool de cada corpo e, no modo `record`, grava `src/__smokes__/fixtures/trajectories-<perfil>.bin` + `trajectories-<perfil>.json` (cena, contagem, stride, offsets de `pos`/`vel` por `schema.offsetOf`); no modo `compare` (padrão) compara campo a campo e informa desvio máximo por cena; registrar em `src/__smokes__/README.md`
-- [ ] T003 Medir o determinismo entre execuções no código atual: rodar `trajectories` em `record` duas vezes seguidas e comparar; classificar cada cena em bit a bit (esperado: LCP, XPBD, FEM, MPM) ou não determinística (esperado: SPH, PBF — ordem dos vizinhos por contador atômico); gravar a tolerância por cena (= 2 × desvio máximo observado) no JSON da fixture e registrar os números em `specs/005-shader-modules/research.md` (R14)
-- [ ] T004 Criar o smoke `src/__smokes__/render.ts`: renderiza as cenas `instances/10k`, `unique-objects/1k` e `rigid-bodies/1k` do bench (mesmas câmeras, um quadro após `app.step` fixo), lê o canvas de volta (`copyTextureToBuffer` pela C1) e, em `record`, grava `src/__smokes__/fixtures/render-<cena>-<perfil>.png`; em `compare` exige igualdade de pixels; incluir também uma passagem com `PostFlow` (exposição + color grading) para cobrir `color`; registrar no README dos smokes
+- [x] T003 Medir o determinismo entre execuções no código atual: rodar `trajectories` em `record` duas vezes seguidas e comparar; classificar cada cena em bit a bit (esperado: LCP, XPBD, FEM, MPM) ou não determinística (esperado: SPH, PBF — ordem dos vizinhos por contador atômico); gravar a tolerância por cena (= 2 × desvio máximo observado) no JSON da fixture e registrar os números em `specs/005-shader-modules/research.md` (R14)
+- [x] T004 Criar o smoke `src/__smokes__/render.ts`: renderiza as cenas `instances/10k`, `unique-objects/1k` e `rigid-bodies/1k` do bench (mesmas câmeras, um quadro após `app.step` fixo), lê o canvas de volta (`copyTextureToBuffer` pela C1) e, em `record`, grava `src/__smokes__/fixtures/render-<cena>-<perfil>.png`; em `compare` exige igualdade de pixels; incluir também uma passagem com `PostFlow` (exposição + color grading) para cobrir `color`; registrar no README dos smokes
 
 ### Phase 1b: física que nunca rodou (research A7/A8, R17/R18, FR-036–FR-039) — antes de gravar
 
@@ -64,7 +64,12 @@ compute-kernels), quickstart.md
 > determinísticas bit a bit (LCP, XPBD, FEM, MPM sólido, MPM fluido, SPH, PBF); `time`, `limits`, `integration`, `multiApp`,
 > `transforms`, `churn`, `bigMesh`, `rigidContacts` (1k 10,7 ms · 10k 222,0 ms por quadro) verdes.
 
-- [ ] T005 Gravar as fixtures (`npm run smoke -- trajectories,render -- --record`, opção nova no runner `bench/runner/smoke.ts` repassada à página) com a GPU sem outra carga e commitar `src/__smokes__/fixtures/`
+- [x] T005 Gravar as fixtures (`npm run smoke -- trajectories,render -- --record`, opção nova no runner `bench/runner/smoke.ts` repassada à página) com a GPU sem outra carga e commitar `src/__smokes__/fixtures/`
+
+> **T003–T005 (2026-10-11)**: as 7 cenas de `trajectories` são determinísticas bit a bit entre execuções (depois da Fase 1b;
+> tolerância 0 em todas). `render`: 10 cenas (forward com sombra e wireframe, 8 efeitos isolados, UI), duas renderizações
+> idênticas. A gravação revelou o `ColorGrading` apagando a imagem com os padrões (lift = strength, gain = 0) — corrigido
+> com vocabulário de domínio (lift/gain/gamma, identidade por padrão). Fixtures do perfil `apple-metal-3` versionadas.
 
 **Checkpoint**: fixtures versionadas; `npm run smoke -- trajectories,render` passa contra elas no código atual.
 

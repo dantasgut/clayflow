@@ -101,11 +101,12 @@ fn fs_chromatic(in: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_color_grading(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(src_tex, src_smp, in.uv).rgb;
-    let lift = params.p0.x;
-    let gain = params.p0.y;
-    let gamma = max(params.p0.z, 0.01);
+    // p0 = (strength, lift, gain, gamma) — `ColorGrading` em vocabulário de domínio.
+    let lift = params.p0.y;
+    let gain = params.p0.z;
+    let gamma = max(params.p0.w, 0.01);
     let graded = pow(clamp((c - lift) * gain, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / gamma));
-    return vec4<f32>(graded, 1.0);
+    return vec4<f32>(mix(c, graded, params.p0.x), 1.0);
 }
 
 @fragment
