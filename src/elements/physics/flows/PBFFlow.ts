@@ -1,4 +1,4 @@
-import type { EngineCore, Frame } from '../../../core/contracts/index';
+import type { EngineCore, Frame, StorageBufferSpec } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
@@ -12,6 +12,7 @@ import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
 import { ColliderSet } from '../colliders/ColliderSet';
+import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
 import pbfSimParamsStruct from '../../gpu/wgsl/structs/pbf_sim_params.wgsl?raw';
@@ -29,9 +30,16 @@ import pbfVelocityUpdateKernel from '../../gpu/wgsl/kernels/pbf_velocity_update.
 import pbfXsphKernel from '../../gpu/wgsl/kernels/pbf_xsph.wgsl?raw';
 import pbfVorticityKernel from '../../gpu/wgsl/kernels/pbf_vorticity.wgsl?raw';
 import pbfCollisionKernel from '../../gpu/wgsl/kernels/pbf_collision.wgsl?raw';
+import pbfApplyKernel from '../../gpu/wgsl/kernels/pbf_apply.wgsl?raw';
 
 /** Bytes do struct `PBFSimParams`. */
 const PBF_SIM_PARAMS_BYTE_SIZE = 96;
+/** Relaxação ε do denominador de λ (Macklin & Müller 2013), nas unidades de |∇C|² (1/m²). */
+const PBF_RELAXATION = 600;
+/** Coeficiente do `s_corr` para espaçamento de 0,05 m; escala com s² (mesma unidade de λ). */
+const PBF_S_CORR_K_AT_5CM = 1e-4;
+/** Capacidade de partículas (igual à da busca de vizinhança). */
+const PBF_MAX_PARTICLES = 65536;
 
 export interface PBFFlowOptions {
     /** Substeps por passo de física (default 1). O passo vem do `Time` da cena. */
@@ -56,6 +64,8 @@ export class PBFFlow extends Flow {
 
     private readonly params: PerStepUniforms;
     private neighborSearch: NeighborSearchPipeline | null = null;
+    /** Grade com que a vizinhança foi criada (recriada quando o material muda). */
+    private neighborKey = '';
     /** Pools de collider e mapas de dono (grupo 2 do kernel de colisão). */
     private readonly colliders: ColliderSet;
     /** `colliders.generation` com que os kernels foram criados. */
@@ -67,6 +77,10 @@ export class PBFFlow extends Flow {
     private xsphKernel: ComputeKernel | null = null;
     private vorticityKernel: ComputeKernel | null = null;
     private collisionKernel: ComputeKernel | null = null;
+    private applyPositionKernel: ComputeKernel | null = null;
+    private applyVelocityKernel: ComputeKernel | null = null;
+    /** Correções Δp/Δv por partícula (vec4f), separadas das posições/velocidades lidas pelos vizinhos. */
+    private deltaBuffer: StorageBufferSpec | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -132,6 +146,13 @@ export class PBFFlow extends Flow {
                 consumes: [this.bodyType],
             },
             {
+                id: 'pipeline_pbf_apply',
+                role: 'compute',
+                shaderSource: b + '\n' + pbfApplyKernel,
+                entryPoints: ['pbf_apply_position_main', 'pbf_apply_velocity_main'],
+                consumes: [this.bodyType],
+            },
+            {
                 id: 'pipeline_pbf_vorticity',
                 role: 'compute',
                 shaderSource: b + '\n' + pbfVorticityKernel,
@@ -162,6 +183,8 @@ export class PBFFlow extends Flow {
         this.colliders.destroy();
         this.neighborSearch?.dispose();
         this.neighborSearch = null;
+        if (this.deltaBuffer !== null) this.core.destroy(this.deltaBuffer);
+        this.deltaBuffer = null;
     }
 
     override onEntitiesInserted(_ids: readonly number[]): void {
@@ -194,6 +217,8 @@ export class PBFFlow extends Flow {
             this.xsphKernel,
             this.vorticityKernel,
             this.collisionKernel,
+            this.applyPositionKernel,
+            this.applyVelocityKernel,
         ]) {
             if (k !== null) destroyComputeKernel(this.core, k);
         }
@@ -204,21 +229,13 @@ export class PBFFlow extends Flow {
         this.xsphKernel = null;
         this.vorticityKernel = null;
         this.collisionKernel = null;
+        this.applyPositionKernel = null;
+        this.applyVelocityKernel = null;
     }
 
     private ensureGpuObjects(): void {
         const b = this.base();
-        if (this.neighborSearch === null) {
-            this.neighborSearch = new NeighborSearchPipeline(this.core, {
-                discriminator: 'pbf',
-                maxParticles: 65536,
-                maxNeighbors: this.maxNeighbors,
-                particleStrideF32: 16,
-                cellSize: 0.1,
-                gridDim: [32, 32, 32],
-                origin: [-1.6, -1.6, -1.6],
-            });
-        }
+        if (this.neighborSearch === null) return;
 
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
@@ -240,6 +257,20 @@ export class PBFFlow extends Flow {
             ],
         };
         const collidersGroup = { bindings: this.colliders.bindings() };
+        this.deltaBuffer ??= this.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'pbf_delta',
+            byteSize: PBF_MAX_PARTICLES * 16,
+        });
+        const deltaWriteGroup = {
+            bindings: [{ binding: 0, type: 'storage' as const, buffer: this.deltaBuffer }],
+        };
+        const deltaReadGroup = {
+            bindings: [
+                { binding: 0, type: 'read-only-storage' as const, buffer: this.deltaBuffer },
+            ],
+        };
 
         if (this.predictKernel === null) {
             this.predictKernel = createComputeKernel(this.core, {
@@ -262,7 +293,7 @@ export class PBFFlow extends Flow {
                 discriminator: 'pbf_position_correct',
                 shaderSource: b + '\n' + pbfPositionCorrectKernel,
                 entryPoint: 'pbf_position_correct_main',
-                bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
+                bindGroups: [paramsGroup, particlesGroup, neighborsGroup, deltaWriteGroup],
             });
         }
         if (this.velocityUpdateKernel === null) {
@@ -278,7 +309,23 @@ export class PBFFlow extends Flow {
                 discriminator: 'pbf_xsph',
                 shaderSource: b + '\n' + pbfXsphKernel,
                 entryPoint: 'pbf_xsph_main',
-                bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
+                bindGroups: [paramsGroup, particlesGroup, neighborsGroup, deltaWriteGroup],
+            });
+        }
+        if (this.applyPositionKernel === null) {
+            this.applyPositionKernel = createComputeKernel(this.core, {
+                discriminator: 'pbf_apply_position',
+                shaderSource: b + '\n' + pbfApplyKernel,
+                entryPoint: 'pbf_apply_position_main',
+                bindGroups: [paramsGroup, particlesGroup, deltaReadGroup],
+            });
+        }
+        if (this.applyVelocityKernel === null) {
+            this.applyVelocityKernel = createComputeKernel(this.core, {
+                discriminator: 'pbf_apply_velocity',
+                shaderSource: b + '\n' + pbfApplyKernel,
+                entryPoint: 'pbf_apply_velocity_main',
+                bindGroups: [paramsGroup, particlesGroup, deltaReadGroup],
             });
         }
         if (this.vorticityKernel === null) {
@@ -307,12 +354,32 @@ export class PBFFlow extends Flow {
     }
 
     /** Preenche a região `region` de `PBFSimParams` com o `dt` da iteração e do passo. */
+    /** Vizinhança com raio = suporte do núcleo (h) e grade pelo domínio; recriada quando o material muda. */
+    private ensureNeighborSearch(material: ParticleMaterial): void {
+        const grid = material.gridFor(material.pbfSmoothingLength);
+        const key = `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
+        if (this.neighborSearch !== null && key === this.neighborKey) return;
+        this.neighborSearch?.dispose();
+        this.invalidateKernels();
+        this.neighborSearch = new NeighborSearchPipeline(this.core, {
+            discriminator: 'pbf',
+            maxParticles: 65536,
+            maxNeighbors: this.maxNeighbors,
+            particleStrideF32: 16,
+            cellSize: grid.cellSize,
+            gridDim: grid.gridDim,
+            origin: grid.origin,
+        });
+        this.neighborKey = key;
+    }
+
     private fillParams(
         region: number,
         particleCount: number,
         dtSub: number,
         stepDt: number,
         accel: readonly number[],
+        material: ParticleMaterial,
     ): void {
         const f32 = this.params.f32(region);
         const u32 = this.params.u32(region);
@@ -320,11 +387,12 @@ export class PBFFlow extends Flow {
         f32[1] = accel[1] ?? -9.81;
         f32[2] = accel[2] ?? 0;
         f32[3] = dtSub;
-        f32[4] = 1000;
-        f32[5] = 0.1;
-        f32[6] = 600;
-        f32[7] = 0.0001;
-        u32[8] = 4;
+        const spacingRatio = material.particleSpacing / 0.05;
+        f32[4] = material.restDensity;
+        f32[5] = material.pbfSmoothingLength;
+        f32[6] = PBF_RELAXATION;
+        f32[7] = PBF_S_CORR_K_AT_5CM * spacingRatio * spacingRatio;
+        f32[8] = 4; // expoente n do s_corr (f32; gravado antes como u32 e lido como denormal ⇒ pow(0, 0) = NaN)
         f32[9] = 0.0;
         f32[10] = 0.05;
         f32[11] = stepDt;
@@ -332,13 +400,14 @@ export class PBFFlow extends Flow {
         u32[13] = 0;
         u32[14] = this.maxNeighbors;
         u32[15] = 16;
-        f32[16] = -10;
-        f32[17] = -10;
-        f32[18] = -10;
-        f32[19] = 0.2;
-        f32[20] = 0;
-        f32[21] = 0;
-        f32[22] = 0;
+        const min = material.domainMin;
+        f32[16] = min[0];
+        f32[17] = min[1];
+        f32[18] = min[2];
+        f32[19] = material.restitution;
+        f32[20] = material.particleMass;
+        f32[21] = material.particleMass / material.restDensity;
+        f32[22] = material.particleSpacing / 2;
         f32[23] = 0;
     }
 
@@ -352,9 +421,11 @@ export class PBFFlow extends Flow {
         if (this.params.reserve(iterations)) this.invalidateKernels();
         const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
             .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
+        const material = ParticleMaterial.of(this.world);
         for (let i = 0; i < iterations; i++) {
-            this.fillParams(i, count, time.stepDt / this.substeps, time.stepDt, accel);
+            this.fillParams(i, count, time.stepDt / this.substeps, time.stepDt, accel, material);
         }
+        this.ensureNeighborSearch(material);
         this.params.flush(iterations);
 
         this.colliders.refresh();
@@ -370,6 +441,8 @@ export class PBFFlow extends Flow {
         const xsph = this.xsphKernel;
         const vorticity = this.vorticityKernel;
         const collision = this.collisionKernel;
+        const applyPosition = this.applyPositionKernel;
+        const applyVelocity = this.applyVelocityKernel;
         if (
             predict === null
             || densityLambda === null
@@ -378,6 +451,8 @@ export class PBFFlow extends Flow {
             || xsph === null
             || vorticity === null
             || collision === null
+            || applyPosition === null
+            || applyVelocity === null
         )
             return;
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
@@ -397,14 +472,17 @@ export class PBFFlow extends Flow {
             // A vizinhança acompanha cada iteração (as posições mudam entre elas).
             this.neighborSearch?.rebuild(frame, particlesBuf, count);
             run('PBFFlow.predict', predict, offset);
+            // Colisão dentro do laço do solver: cada projeção de densidade é seguida da projeção nos colliders.
             for (let it = 0; it < this.solverIters; it++) {
                 run('PBFFlow.density_lambda', densityLambda, offset);
                 run('PBFFlow.position_correct', positionCorrect, offset);
+                run('PBFFlow.apply_position', applyPosition, offset);
+                run('PBFFlow.collision', collision, offset);
             }
-            run('PBFFlow.collision', collision, offset);
             run('PBFFlow.velocity_update', velocityUpdate, offset);
             run('PBFFlow.vorticity', vorticity, offset);
             run('PBFFlow.xsph', xsph, offset);
+            run('PBFFlow.apply_velocity', applyVelocity, offset);
         }
     }
 }

@@ -6,10 +6,10 @@ struct MPMSimParams {
     mu:              f32,     // Lamé shear modulus
     lambda_lame:     f32,     // Lamé bulk modulus
     fixed_scale:     f32,     // fator de ponto fixo para atomic<i32>
-    hardening:       f32,     // coeficiente de hardening (snow)
+    particle_mass:   f32,     // massa da partícula ρ₀s³ (ParticleMaterial)
 
-    theta_c:         f32,     // critical compression (snow)
-    theta_s:         f32,     // critical stretch (snow)
+    particle_volume: f32,     // volume de repouso da partícula s³ (ParticleMaterial)
+    bulk_modulus:    f32,     // K = ρ₀c² do fluido (ParticleMaterial)
     viscosity:       f32,     // viscosidade dinâmica (fluid)
     dt_frame:        f32,     // passo de tempo do frame
 
@@ -21,8 +21,11 @@ struct MPMSimParams {
     grid_origin:     vec3f,   // canto mínimo da grade em world space
     cell_size:       f32,     // tamanho de célula dx (metros)
 
-    collider_count:  u32,     // número de ColliderDesc
-    material_id:     u32,     // 0=elastic, 1=snow, 2=fluid, 3=sand
+    _reserved0:      u32,
+    material_id:     u32,     // MPM_MATERIAL_ELASTIC (0) ou MPM_MATERIAL_FLUID (2)
     substep_count:   u32,     // substeps por frame
     inv_dx:          f32,     // 1.0 / cell_size (pré-calculado)
 }
+
+const MPM_MATERIAL_ELASTIC: u32 = 0u;
+const MPM_MATERIAL_FLUID:   u32 = 2u;

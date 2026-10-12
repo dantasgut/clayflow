@@ -41,7 +41,9 @@ fn pbf_density_lambda_main(
     let xi       = particles[i].pos.xyz;
 
     // Densidade
-    var rho = W_poly6(0.0, h);  // auto-contribuição (r=0)
+    let mass     = pbf_params.mass.x;
+    let m_rho0   = pbf_params.mass.y;   // m / ρ₀
+    var rho = mass * W_poly6(0.0, h);  // auto-contribuição (r=0)
     var sum_grad_sq = 0.0;
     var grad_i = vec3f(0.0);
 
@@ -52,17 +54,18 @@ fn pbf_density_lambda_main(
         let r_sq = dot(dv, dv);
         let r    = sqrt(r_sq);
 
-        rho += W_poly6(r_sq, h);
+        rho += mass * W_poly6(r_sq, h);
 
         // ∇_{xi} C_i acumula; ∇_{xj} C_i = −gw → ‖−gw‖² = ‖gw‖²
-        let gw = grad_W_spiky(dv, r, h) / rho0;
+        let gw = m_rho0 * grad_W_spiky(dv, r, h);
         grad_i      += gw;
         sum_grad_sq += dot(gw, gw);   // contribuição de j (∇_{xj} C_i)
     }
     // Contribuição de i (∇_{xi} C_i) — adicionada UMA vez fora do loop
     sum_grad_sq += dot(grad_i, grad_i);
 
-    let C = rho / rho0 - 1.0;
+    // Restrição unilateral: só resiste a compressão (na superfície livre ρ < ρ₀ atrairia partículas e aglomeraria).
+    let C = max(rho / rho0 - 1.0, 0.0);
     let lambda = -C / (sum_grad_sq + epsilon);
 
     // Escreve λ em pos.w

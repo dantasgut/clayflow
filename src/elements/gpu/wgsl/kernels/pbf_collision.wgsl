@@ -29,7 +29,8 @@ fn pbf_collision_main(
     if (pos.z < bound_min.z) { pos.z = bound_min.z; vel.z = abs(vel.z) * restitution; }
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
-    collider_set_push_out(&pos, &vel, 0.0, restitution);
+    // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento).
+    collider_set_push_out(&pos, &vel, pbf_params.mass.z, restitution);
 
     particles[i].pos = vec4f(pos, particles[i].pos.w);
     particles[i].vel = vec4f(vel, 0.0);

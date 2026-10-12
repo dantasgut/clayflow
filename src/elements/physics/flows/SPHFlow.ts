@@ -12,6 +12,7 @@ import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
 import { ColliderSet } from '../colliders/ColliderSet';
+import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
 import sphSimParamsStruct from '../../gpu/wgsl/structs/sph_sim_params.wgsl?raw';
@@ -32,15 +33,18 @@ import sphCollisionKernel from '../../gpu/wgsl/kernels/sph_collision.wgsl?raw';
 const SPH_SIM_PARAMS_BYTE_SIZE = 96;
 
 export interface SPHFlowOptions {
-    /** Substeps por passo de física (default 1). O passo vem do `Time` da cena. */
+    /** Mínimo de substeps por passo (default 1); o passo estável do `ParticleMaterial` pode exigir mais. */
     readonly substeps?: number;
+    /** Vizinhos guardados por partícula (default 128; o suporte 2h tem ~73 vizinhos em repouso). */
     readonly maxNeighbors?: number;
 }
 
 /**
- * SPHFlow — fluidos por Smoothed Particle Hydrodynamics. O quadro executa `time.steps × substeps` iterações; cada
- * uma reconstrói a vizinhança e roda densidade → pressão → forças → integração → colisão com a sua região de
- * `SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico.
+ * SPHFlow — fluidos por Smoothed Particle Hydrodynamics fracamente compressível (Tait). O quadro executa
+ * `time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticleMaterial` (CFL 0,4 h/c); cada
+ * uma reconstrói a vizinhança (raio = suporte 2h) e roda densidade → pressão → forças → integração → colisão com a
+ * sua região de `SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico. Massa,
+ * suavização, rigidez, viscosidade, restituição e domínio vêm do material.
  */
 export class SPHFlow extends Flow {
     readonly type = 'SPHFlow';
@@ -52,6 +56,8 @@ export class SPHFlow extends Flow {
 
     private readonly params: PerStepUniforms;
     private neighborSearch: NeighborSearchPipeline | null = null;
+    /** Grade com que a vizinhança foi criada (recriada quando o material muda). */
+    private neighborKey = '';
     /** Pools de collider e mapas de dono (grupo 2 do kernel de colisão). */
     private readonly colliders: ColliderSet;
     /** `colliders.generation` com que os kernels foram criados. */
@@ -70,7 +76,7 @@ export class SPHFlow extends Flow {
     ) {
         super();
         this.substeps = Math.max(1, options.substeps ?? 1);
-        this.maxNeighbors = options.maxNeighbors ?? 64;
+        this.maxNeighbors = options.maxNeighbors ?? 128;
         this.params = new PerStepUniforms(core, {
             discriminator: 'sph_params',
             byteSize: SPH_SIM_PARAMS_BYTE_SIZE,
@@ -183,17 +189,7 @@ export class SPHFlow extends Flow {
 
     private ensureGpuObjects(): void {
         const b = this.base();
-        if (this.neighborSearch === null) {
-            this.neighborSearch = new NeighborSearchPipeline(this.core, {
-                discriminator: 'sph',
-                maxParticles: 65536,
-                maxNeighbors: this.maxNeighbors,
-                particleStrideF32: 16,
-                cellSize: 0.1,
-                gridDim: [32, 32, 32],
-                origin: [-1.6, -1.6, -1.6],
-            });
-        }
+        if (this.neighborSearch === null) return;
 
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
@@ -267,13 +263,33 @@ export class SPHFlow extends Flow {
         }
     }
 
-    /** Preenche a região `region` de `SPHSimParams` com o `dt` da iteração e do passo. */
+    /** Vizinhança com raio = suporte do núcleo (2h) e grade pelo domínio; recriada quando o material muda. */
+    private ensureNeighborSearch(material: ParticleMaterial): void {
+        const grid = material.gridFor(2 * material.sphSmoothingLength);
+        const key = `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
+        if (this.neighborSearch !== null && key === this.neighborKey) return;
+        this.neighborSearch?.dispose();
+        this.invalidateKernels();
+        this.neighborSearch = new NeighborSearchPipeline(this.core, {
+            discriminator: 'sph',
+            maxParticles: 65536,
+            maxNeighbors: this.maxNeighbors,
+            particleStrideF32: 16,
+            cellSize: grid.cellSize,
+            gridDim: grid.gridDim,
+            origin: grid.origin,
+        });
+        this.neighborKey = key;
+    }
+
+    /** Preenche a região `region` de `SPHSimParams` com o `dt` da iteração e do passo e os derivados do material. */
     private fillParams(
         region: number,
         particleCount: number,
         dtSub: number,
         stepDt: number,
         accel: readonly number[],
+        material: ParticleMaterial,
     ): void {
         const f32 = this.params.f32(region);
         const u32 = this.params.u32(region);
@@ -281,11 +297,11 @@ export class SPHFlow extends Flow {
         f32[1] = accel[1] ?? -9.81;
         f32[2] = accel[2] ?? 0;
         f32[3] = dtSub;
-        f32[4] = 1000;
-        f32[5] = 0.1;
-        f32[6] = 1000;
-        f32[7] = 7;
-        f32[8] = 0.01;
+        f32[4] = material.restDensity;
+        f32[5] = material.sphSmoothingLength;
+        f32[6] = material.taitStiffness;
+        f32[7] = TAIT_GAMMA;
+        f32[8] = material.viscosity;
         f32[9] = 0.05;
         f32[10] = stepDt;
         f32[11] = 0;
@@ -293,13 +309,14 @@ export class SPHFlow extends Flow {
         u32[13] = 0;
         u32[14] = this.maxNeighbors;
         u32[15] = 16;
-        f32[16] = -10;
-        f32[17] = -10;
-        f32[18] = -10;
-        f32[19] = 0.2;
-        f32[20] = 0.02;
-        f32[21] = 50;
-        f32[22] = 0;
+        const min = material.domainMin;
+        f32[16] = min[0];
+        f32[17] = min[1];
+        f32[18] = min[2];
+        f32[19] = material.restitution;
+        f32[20] = material.particleMass;
+        f32[21] = 1 / material.particleMass;
+        f32[22] = material.particleSpacing / 2;
         f32[23] = 0;
     }
 
@@ -309,13 +326,20 @@ export class SPHFlow extends Flow {
         if (time === undefined || steps === 0) return;
         const count = this.resources.poolCount(this.bodyType);
         if (count === 0) return;
-        const iterations = steps * this.substeps;
+        const material = ParticleMaterial.of(this.world);
+        const substeps = ParticleMaterial.substepsFor(
+            time.stepDt,
+            material.sphStableDt,
+            this.substeps,
+        );
+        const iterations = steps * substeps;
         if (this.params.reserve(iterations)) this.invalidateKernels();
         const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
             .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
         for (let i = 0; i < iterations; i++) {
-            this.fillParams(i, count, time.stepDt / this.substeps, time.stepDt, accel);
+            this.fillParams(i, count, time.stepDt / substeps, time.stepDt, accel, material);
         }
+        this.ensureNeighborSearch(material);
         this.params.flush(iterations);
 
         this.colliders.refresh();

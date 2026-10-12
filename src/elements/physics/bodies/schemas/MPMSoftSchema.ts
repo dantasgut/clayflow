@@ -17,3 +17,12 @@ export const MPMSoftSchema = new StructSchema('MPMSoftSchema', {
     C_col1: FieldType.vec4f,
     C_col2: FieldType.vec4f,
 });
+
+/** Gradiente de deformação em repouso (identidade) — estado inicial de toda partícula MPM criada pela fachada. */
+export const MPM_REST_DEFORMATION: Readonly<
+    Record<'F_col0' | 'F_col1' | 'F_col2', readonly number[]>
+> = {
+    F_col0: [1, 0, 0, 0],
+    F_col1: [0, 1, 0, 0],
+    F_col2: [0, 0, 1, 0],
+};

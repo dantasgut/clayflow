@@ -22,8 +22,6 @@ fn pbf_vorticity_main(
     if (i >= pbf_params.counts.x) { return; }
 
     let h        = pbf_params.config.y;
-    let eps_v    = pbf_params.config2.y;
-    let dt       = pbf_params.gravity_dt.w;
     let max_nb   = pbf_params.counts.z;
     let nb_count = neighbor_count[i];
     let xi  = particles[i].pos.xyz;
@@ -31,7 +29,6 @@ fn pbf_vorticity_main(
 
     // Passo 1: computa ωᵢ = Σ vᵢⱼ × ∇W
     var omega = vec3f(0.0);
-    var eta   = vec3f(0.0);
 
     for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
         let j  = neighbor_list[i * max_nb + k];
@@ -41,28 +38,10 @@ fn pbf_vorticity_main(
         let r  = length(dv);
         let gw = grad_W_spiky(dv, r, h);
         let vij = vj - vi;  // vᵢⱼ = vⱼ − vᵢ  (convenção PBF 2013)
-        omega += cross(vij, gw);
+        omega += pbf_params.mass.y * cross(vij, gw);   // ω = Σ (m/ρ₀) vᵢⱼ × ∇W
     }
 
     // Passo 2: ηᵢ = Σⱼ ‖ωⱼ‖ · ∇W  (lendo curl armazenado do frame anterior — ok para 1ª iteração = 0)
-    for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
-        let j  = neighbor_list[i * max_nb + k];
-        let xj = particles[j].pos.xyz;
-        let dv = xi - xj;
-        let r  = length(dv);
-        let gw = grad_W_spiky(dv, r, h);
-        let omega_j_mag = length(particles[j].curl.xyz);
-        eta += omega_j_mag * gw;
-    }
-
-    let eta_len = length(eta);
-    var f_vort = vec3f(0.0);
-    if (eta_len > 0.0001) {
-        let N = eta / eta_len;
-        f_vort = eps_v * cross(N, omega);
-    }
-
-    // Aplica força + salva curl
-    particles[i].vel    = vec4f(vi + dt * f_vort, 0.0);
-    particles[i].curl   = vec4f(omega, 0.0);
+    // Só ω: a força de confinamento lê |ωⱼ| dos vizinhos e é aplicada no passe seguinte (junto do XSPH).
+    particles[i].curl = vec4f(omega, 0.0);
 }

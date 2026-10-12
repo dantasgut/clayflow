@@ -3,6 +3,8 @@
 @group(1) @binding(0) var<storage, read_write> particles:      array<PBFParticle>;
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
+// Correção Δp da iteração (separada da posição: os vizinhos leem as posições desta iteração, sem corrida).
+@group(3) @binding(0) var<storage, read_write> pbf_delta:      array<vec4f>;
 
 fn W_poly6(r_sq: f32, h: f32) -> f32 {
     let h_sq = h * h;
@@ -30,9 +32,8 @@ fn pbf_position_correct_main(
     if (i >= pbf_params.counts.x) { return; }
 
     let h       = pbf_params.config.y;
-    let rho0    = pbf_params.config.x;
     let k_corr  = pbf_params.config.w;            // s_corr_k
-    let n_corr  = f32(pbf_params.config2.x);      // s_corr_n (cast u32→f32 no WGSL via bitcast u32)
+    let n_corr  = pbf_params.config2.x;           // s_corr_n (f32)
     let max_nb  = pbf_params.counts.z;
     let nb_count = neighbor_count[i];
     let xi      = particles[i].pos.xyz;
@@ -63,6 +64,6 @@ fn pbf_position_correct_main(
         delta += (li + lj + s_corr) * gw;
     }
 
-    delta /= rho0;
-    particles[i].pos = vec4f(xi + delta, li);
+    delta *= pbf_params.mass.y;   // m / ρ₀ (Macklin & Müller 2013 com massa)
+    pbf_delta[i] = vec4f(delta, 0.0);
 }

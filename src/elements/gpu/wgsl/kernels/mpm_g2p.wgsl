@@ -18,7 +18,8 @@ fn mpm_g2p_main(
     let dt     = mpm_params.dt_sub;
 
     // ── Pesos B-spline ────────────────────────────────────────────────────────
-    let o    = pos * inv_dx;
+    // Coordenada de grade relativa à origem (o nó (i, j, k) está em origem + (i, j, k)·dx).
+    let o    = (pos - mpm_params.grid_origin) * inv_dx;
     let base = vec3i(i32(floor(o.x - 0.5)), i32(floor(o.y - 0.5)), i32(floor(o.z - 0.5)));
     let fx   = o - vec3f(vec3i(base));
 
@@ -100,8 +101,13 @@ fn mpm_g2p_main(
         vec3f(      dt * C_col2.x,       dt * C_col2.y, 1.0 + dt * C_col2.z),
     );
 
-    let F_new = mat3_mul(I_plus_dC, F_old);
+    var F_new = mat3_mul(I_plus_dC, F_old);
     let J_new = mat3_det(F_new);
+    if (mpm_params.material_id == MPM_MATERIAL_FLUID) {
+        // Fluido sem cisalhamento acumulado: F = J^{1/3} I.
+        let c = pow(max(J_new, 1e-6), 1.0 / 3.0);
+        F_new = mat3_from_cols(vec3f(c, 0.0, 0.0), vec3f(0.0, c, 0.0), vec3f(0.0, 0.0, c));
+    }
 
     // ── Escreve resultados ────────────────────────────────────────────────────
     particles[p].vel    = vec4f(v_new,    particles[p].vel.w);

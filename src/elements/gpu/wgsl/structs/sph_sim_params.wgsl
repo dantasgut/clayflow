@@ -5,5 +5,5 @@ struct SPHSimParams {
     viscosity:  vec4f,   // x=viscosity_mu, y=xsph_c, z=dt_frame, w=pad
     counts:     vec4u,   // x=particle_count, y=collider_count, z=max_neighbors, w=particle_stride_f32
     bounds:     vec4f,   // xyz=bound_min, w=restitution
-    mass:       vec4f,   // x=particle_mass, y=inv_particle_mass, z=pad, w=pad
+    mass:       vec4f,   // x=particle_mass, y=inv_particle_mass, z=collision_radius (s/2), w=pad
 }

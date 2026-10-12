@@ -5,6 +5,7 @@ import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
 import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
+import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { countPasses, recordingFrame } from './helpers/recordingFrame';
 
@@ -15,6 +16,8 @@ function setup(substeps: number) {
     const resources = new ResourceSystem(core, events, world);
     const time = new Time(events);
     world.insert(time);
+    // Passo estável bem maior que o passo da cena: substeps = o configurado (a derivação pelo material tem teste próprio).
+    world.insert(new ParticleMaterial({ speedOfSound: 0.1, youngModulus: 1 }));
     world.insert(new FluidBody({ algorithm: 'MPM', position: [0, 0, 0] }));
     const flow = new MPMFlow(core, world, resources, { substeps });
     return { time, flow, writes };

@@ -131,6 +131,42 @@ Com a colisão corrigida (R17), os fluidos executam pela primeira vez:
 - Não existe parâmetro de material para partículas: cada Flow tem constantes fixas e a fachada não expõe densidade,
   espaçamento nem rigidez.
 
+### A9 — Defeitos encontrados ao fazer os fluidos e o XPBD funcionarem (2026-10-11)
+
+Com o smoke `trajectories` conferindo critérios físicos (T086/T099), a depuração encontrou, além de A7/A8:
+
+- **MPM — origem da grade ignorada**: `mpm_p2g`/`mpm_g2p` calculavam o índice de grade por `pos · inv_dx`, sem
+  subtrair `grid_origin`, mas reconstruíam a posição do nó somando a origem: com origem ≠ 0 o deslocamento
+  partícula → nó era de metros e o J explodia (10²³) já no primeiro passo.
+- **MPM — fronteira de collider na grade**: impor a condição só nos nós dentro do collider não segura paredes de
+  ~2 células (dentro da parede a face mais próxima passa a ser a de fora e a normal inverte) — o fluido atravessava
+  paredes e chão. Decisão: condição de deslizamento nos nós a até uma célula da superfície, e salvaguarda das partículas
+  com raio 0 (projetar com raio maior move partículas sem atualizar o J e compacta o fluido). Limitação de
+  resolução: a fronteira efetiva fica a até uma célula da superfície do collider.
+- **PBF — expoente do `s_corr` gravado como inteiro** num campo `f32` (`u32[8] = 4`): lido como denormal 5,6·10⁻⁴⁵,
+  zerado pela GPU ⇒ `pow(0, 0)` = NaN em todo vizinho fora do suporte.
+- **PBF — XSPH e vorticidade sem m/ρ₀**: a correção de velocidade ficava ~8000× forte (19 600 m/s no 1º passo).
+- **PBF — restrição bilateral**: na superfície livre ρ < ρ₀ fazia λ atrair partículas (aglomeração e jatos de 11 m/s).
+  Decisão: C = max(ρ/ρ₀ − 1, 0) (unilateral, prática padrão).
+- **PBF — colisão fora do laço do solver**: projeções de densidade empurravam partículas para dentro das paredes e a
+  colisão única depois do laço convertia o deslocamento em velocidade. Decisão: colisão dentro do laço.
+- **PBF — corrida de dados**: `position_correct`, `xsph` e `vorticity` gravavam a posição/velocidade da própria
+  partícula no mesmo passe em que os vizinhos as liam (resultado não determinístico). Decisão: correções num buffer de
+  deltas, aplicadas em passes próprios; ω num passe, confinamento + XSPH no seguinte.
+- **Vizinhança não determinística**: a ordem dos vizinhos vinha do espalhamento por contador atômico nas células;
+  as somas dos solvers mudavam entre execuções (SPH: 1,2 m de desvio). Decisão: `ns_find` grava a lista de vizinhos de
+  cada partícula ordenada por índice (vetor local de até 128; `MAX_NEIGHBORS` validado) — SPH e PBF bit a bit.
+- **Colisão de partícula com raio 0**: as partículas assentavam exatamente na superfície e, com paredes apoiadas no
+  chão, escapavam pela fronteira comum (distância 0, sem contato). Decisão: partícula de SPH/PBF colide como esfera de
+  raio s/2.
+- **XPBD — predição de partícula fixa**: `predict` pulava partículas com massa infinita sem copiar `pos` para
+  `pred`, e as restrições liam `pred` na origem (o 1º elo media 1,45 m após um passo) — mesmo defeito do `pos_pred`
+  do LCP na 004. Decisão: partícula fixa recebe `pred = pos` no kernel, e a fachada inicia `pred` com a posição.
+- **XPBD — convergência**: 1 substep × 4 iterações de Gauss-Seidel deixava a corrente de 31 elos esticar 20–45%.
+  Decisão: padrão de 8 substeps × 1 iteração ("Small Steps", Macklin 2019) — estiramento ≤ 3%.
+
+Resultado (T092): as sete cenas passam nos critérios físicos e são determinísticas bit a bit entre execuções.
+
 ---
 
 ## Decisões
@@ -427,7 +463,8 @@ de mapa de dono do LCP para cada fluido (duplicação que esta spec existe para 
   a busca de vizinhança é recriada quando o material muda.
 - **SPH**: massa do material; Tait com k₀ = ρ₀ c² / γ (γ = 7); vizinhos no suporte inteiro.
 - **PBF** (Macklin & Müller 2013): ρ = m Σ W; ∇C = (m/ρ₀) ∇W; Δp = (m/ρ₀) Σ(λᵢ + λⱼ + s_corr) ∇W; `s_corr` com
-  k = 0,1, n = 4, Δq = 0,2 h; ε de relaxação como parâmetro nomeado.
+  n = 4, Δq = 0,2 h e k na escala de λ (λ tem unidade de m²: k = 10⁻⁴ (s/0,05)²; o 0,1 do artigo é de outro sistema
+  de unidades e dominaria λ); ε de relaxação como parâmetro nomeado; demais correções em A9.
 - **MPM** (MLS-MPM): massa e volume do material (uniform), não da partícula; `material_id` pelo tipo de corpo —
   fluido: P Fᵀ = K J (J − 1) I e F reiniciado para J^{1/3} I (sem cisalhamento acumulado); elástico: neo-Hookean com
   μ/λ do material.

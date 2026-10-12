@@ -12,6 +12,7 @@ import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
 import { ColliderSet } from '../colliders/ColliderSet';
+import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
 import mpmSimParamsStruct from '../../gpu/wgsl/structs/mpm_sim_params.wgsl?raw';
 import mpmParticleStruct from '../../gpu/wgsl/structs/mpm_particle.wgsl?raw';
@@ -25,26 +26,32 @@ import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
 import mpmWeightsLib from '../../gpu/wgsl/math/mpm_weights.wgsl?raw';
 import mpmP2GKernel from '../../gpu/wgsl/kernels/mpm_p2g.wgsl?raw';
 import mpmGridUpdateKernel from '../../gpu/wgsl/kernels/mpm_grid_update.wgsl?raw';
+import mpmParticleCollisionKernel from '../../gpu/wgsl/kernels/mpm_particle_collision.wgsl?raw';
 import mpmG2PKernel from '../../gpu/wgsl/kernels/mpm_g2p.wgsl?raw';
 import mpmClearGridKernel from '../../gpu/wgsl/kernels/mpm_clear_grid.wgsl?raw';
 
 const MPM_GRID_NODE_SIZE = 32;
 /** Bytes do struct `MPMSimParams`. */
 const MPM_SIM_PARAMS_BYTE_SIZE = 96;
+/** Escala do ponto fixo das somas atômicas da grade. */
+const MPM_FIXED_SCALE = 1e7;
+/** `material_id` do WGSL. */
+const MPM_MATERIAL_ELASTIC = 0;
+const MPM_MATERIAL_FLUID = 2;
 
 export interface MPMFlowOptions {
+    /** Pool simulado: `MPMFluidSchema` (fluido, default) ou `MPMSoftSchema` (sólido elástico). */
     readonly bodyType?: string;
-    /** Substeps por passo de física (default 1). O passo vem do `Time` da cena. */
+    /** Mínimo de substeps por passo (default 1); o passo estável do `ParticleMaterial` pode exigir mais. */
     readonly substeps?: number;
-    readonly gridDim?: readonly [number, number, number];
-    readonly cellSize?: number;
-    readonly gridOrigin?: readonly [number, number, number];
 }
 
 /**
- * MPMFlow — fluidos por Material Point Method (limpa grade → P2G → atualização da grade → G2P). O quadro executa
- * `time.steps × substeps` iterações, cada uma com a sua região de `MPMSimParams` (`dt = stepDt / substeps`,
- * `dt_frame = stepDt`) ligada por offset dinâmico.
+ * MPMFlow — corpos por Material Point Method (MLS-MPM: limpa grade → P2G → atualização da grade → G2P): fluido
+ * fracamente compressível (`MPMFluidSchema`) ou sólido neo-Hookean (`MPMSoftSchema`). O quadro executa
+ * `time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticleMaterial`, cada uma com a sua região
+ * de `MPMSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico. Massa, volume, grade
+ * (célula 2s sobre o domínio), módulo volumétrico e Lamé vêm do material.
  */
 export class MPMFlow extends Flow {
     readonly type = 'MPMFlow';
@@ -52,9 +59,11 @@ export class MPMFlow extends Flow {
     readonly phase: Phase = 'physics';
 
     private readonly substeps: number;
-    private readonly gridDim: readonly [number, number, number];
-    private readonly cellSize: number;
-    private readonly gridOrigin: readonly [number, number, number];
+    /** Grade corrente (do material); a grade de GPU é recriada quando muda. */
+    private grid: ReturnType<ParticleMaterial['gridFor']> = ParticleMaterial.defaults.gridFor(
+        ParticleMaterial.defaults.mpmCellSize,
+    );
+    private gridKey = '';
 
     private readonly params: PerStepUniforms;
     private gridBuffer: StorageBufferSpec | null = null;
@@ -66,6 +75,8 @@ export class MPMFlow extends Flow {
     private p2gKernel: ComputeKernel | null = null;
     private gridUpdateKernel: ComputeKernel | null = null;
     private g2pKernel: ComputeKernel | null = null;
+    /** Projeção das partículas para fora dos colliders depois do G2P. */
+    private collisionKernel: ComputeKernel | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -76,9 +87,6 @@ export class MPMFlow extends Flow {
         super();
         this.bodyType = options.bodyType ?? 'MPMFluidSchema';
         this.substeps = Math.max(1, options.substeps ?? 1);
-        this.gridDim = options.gridDim ?? [32, 32, 32];
-        this.cellSize = options.cellSize ?? 0.1;
-        this.gridOrigin = options.gridOrigin ?? [-1.6, -1.6, -1.6];
         this.params = new PerStepUniforms(core, {
             discriminator: 'mpm_params',
             byteSize: MPM_SIM_PARAMS_BYTE_SIZE,
@@ -126,6 +134,19 @@ export class MPMFlow extends Flow {
                 entryPoints: ['mpm_g2p_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
+            {
+                id: 'pipeline_mpm_particle_collision',
+                role: 'compute',
+                shaderSource: [
+                    baseSrc,
+                    quatLib,
+                    rigidBodyStruct,
+                    colliderSetLib,
+                    mpmParticleCollisionKernel,
+                ].join('\n'),
+                entryPoints: ['mpm_particle_collision_main'],
+                consumes: [this.bodyType],
+            },
         ];
     }
 
@@ -158,12 +179,18 @@ export class MPMFlow extends Flow {
 
     /** Libera e esquece os kernels que ligam o buffer de partículas. */
     private invalidateParticleKernels(): void {
-        for (const k of [this.p2gKernel, this.gridUpdateKernel, this.g2pKernel]) {
+        for (const k of [
+            this.p2gKernel,
+            this.gridUpdateKernel,
+            this.g2pKernel,
+            this.collisionKernel,
+        ]) {
             if (k !== null) destroyComputeKernel(this.core, k);
         }
         this.p2gKernel = null;
         this.gridUpdateKernel = null;
         this.g2pKernel = null;
+        this.collisionKernel = null;
     }
 
     /** Libera todos os kernels (o buffer de parâmetros mudou). */
@@ -174,7 +201,19 @@ export class MPMFlow extends Flow {
     }
 
     private gridCellCount(): number {
-        return this.gridDim[0] * this.gridDim[1] * this.gridDim[2];
+        return this.grid.gridDim[0] * this.grid.gridDim[1] * this.grid.gridDim[2];
+    }
+
+    /** Grade pelo material (célula 2s sobre o domínio); recria o buffer e os kernels quando muda. */
+    private ensureGrid(material: ParticleMaterial): void {
+        const grid = material.gridFor(material.mpmCellSize);
+        const key = `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
+        if (key === this.gridKey) return;
+        this.grid = grid;
+        this.gridKey = key;
+        if (this.gridBuffer !== null) this.core.destroy(this.gridBuffer);
+        this.gridBuffer = null;
+        this.invalidateKernels();
     }
 
     private ensureGpuObjects(): void {
@@ -249,6 +288,20 @@ export class MPMFlow extends Flow {
                 bindGroups: [paramsGroup, gridGroup, particlesGroup],
             });
         }
+        if (this.collisionKernel === null) {
+            this.collisionKernel = createComputeKernel(this.core, {
+                discriminator: 'mpm_particle_collision',
+                shaderSource: [
+                    baseSrc,
+                    quatLib,
+                    rigidBodyStruct,
+                    colliderSetLib,
+                    mpmParticleCollisionKernel,
+                ].join('\n'),
+                entryPoint: 'mpm_particle_collision_main',
+                bindGroups: [paramsGroup, particlesGroup, collidersGroup],
+            });
+        }
     }
 
     /** Preenche a região `region` de `MPMSimParams` com o `dt` da iteração e do passo. */
@@ -258,6 +311,8 @@ export class MPMFlow extends Flow {
         dtSub: number,
         stepDt: number,
         accel: readonly number[],
+        material: ParticleMaterial,
+        substeps: number,
     ): void {
         const f32 = this.params.f32(region);
         const u32 = this.params.u32(region);
@@ -265,26 +320,27 @@ export class MPMFlow extends Flow {
         f32[1] = accel[1] ?? -9.81;
         f32[2] = accel[2] ?? 0;
         f32[3] = dtSub;
-        f32[4] = 1e3;
-        f32[5] = 1e3;
-        f32[6] = 1e7;
-        f32[7] = 0;
-        f32[8] = 0;
-        f32[9] = 0;
-        f32[10] = 0;
+        const { mu, lambda } = material.lame;
+        f32[4] = mu;
+        f32[5] = lambda;
+        f32[6] = MPM_FIXED_SCALE;
+        f32[7] = material.particleMass;
+        f32[8] = material.particleVolume;
+        f32[9] = material.bulkModulus;
+        f32[10] = material.viscosity;
         f32[11] = stepDt;
         u32[12] = particleCount;
-        u32[13] = this.gridDim[0];
-        u32[14] = this.gridDim[1];
-        u32[15] = this.gridDim[2];
-        f32[16] = this.gridOrigin[0];
-        f32[17] = this.gridOrigin[1];
-        f32[18] = this.gridOrigin[2];
-        f32[19] = this.cellSize;
+        u32[13] = this.grid.gridDim[0];
+        u32[14] = this.grid.gridDim[1];
+        u32[15] = this.grid.gridDim[2];
+        f32[16] = this.grid.origin[0];
+        f32[17] = this.grid.origin[1];
+        f32[18] = this.grid.origin[2];
+        f32[19] = this.grid.cellSize;
         u32[20] = 0;
-        u32[21] = 0;
-        u32[22] = this.substeps;
-        f32[23] = 1.0 / this.cellSize;
+        u32[21] = this.bodyType === 'MPMFluidSchema' ? MPM_MATERIAL_FLUID : MPM_MATERIAL_ELASTIC;
+        u32[22] = substeps;
+        f32[23] = 1.0 / this.grid.cellSize;
     }
 
     dispatch(frame: Frame): void {
@@ -293,12 +349,27 @@ export class MPMFlow extends Flow {
         if (time === undefined || steps === 0) return;
         const count = this.resources.poolCount(this.bodyType);
         if (count === 0) return;
-        const iterations = steps * this.substeps;
+        const material = ParticleMaterial.of(this.world);
+        this.ensureGrid(material);
+        const substeps = ParticleMaterial.substepsFor(
+            time.stepDt,
+            material.mpmStableDt,
+            this.substeps,
+        );
+        const iterations = steps * substeps;
         if (this.params.reserve(iterations)) this.invalidateKernels();
         const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
             .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
         for (let i = 0; i < iterations; i++) {
-            this.fillParams(i, count, time.stepDt / this.substeps, time.stepDt, accel);
+            this.fillParams(
+                i,
+                count,
+                time.stepDt / substeps,
+                time.stepDt,
+                accel,
+                material,
+                substeps,
+            );
         }
         this.params.flush(iterations);
 
@@ -312,7 +383,15 @@ export class MPMFlow extends Flow {
         const p2g = this.p2gKernel;
         const gridUpdate = this.gridUpdateKernel;
         const g2p = this.g2pKernel;
-        if (clear === null || p2g === null || gridUpdate === null || g2p === null) return;
+        const collision = this.collisionKernel;
+        if (
+            clear === null
+            || p2g === null
+            || gridUpdate === null
+            || g2p === null
+            || collision === null
+        )
+            return;
 
         const cells = this.gridCellCount();
         const run = (
@@ -336,6 +415,7 @@ export class MPMFlow extends Flow {
             run('MPMFlow.p2g', p2g, count, offset);
             run('MPMFlow.grid_update', gridUpdate, cells, offset);
             run('MPMFlow.g2p', g2p, count, offset);
+            run('MPMFlow.collision', collision, count, offset);
         }
     }
 }

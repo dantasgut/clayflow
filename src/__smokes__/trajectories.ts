@@ -18,6 +18,7 @@ import {
     LCPSchema,
     MPMFluidSchema,
     MPMSoftSchema,
+    ParticleMaterial,
     PBFSchema,
     RigidBody,
     SoftBody,
@@ -61,13 +62,61 @@ interface Scene {
     /** Campos `vec4f` comparados com tolerância quando a cena não é determinística. */
     readonly fields: readonly string[];
     readonly build: (app: Application) => void;
+    /** Critérios físicos do estado final; mensagens de falha (vazio = ok). */
+    readonly check: (view: PoolView) => string[];
+}
+
+/** Leitura tipada do pool lido de volta: `vec(e, campo)` devolve o `vec4f` do elemento `e`. */
+interface PoolView {
+    readonly count: number;
+    vec(e: number, field: string): [number, number, number, number];
+}
+
+function poolView(bytes: Uint8Array, count: number, schema: StructSchema): PoolView {
+    const f = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    const stride = schema.stride / 4;
+    return {
+        count,
+        vec(e, field) {
+            const base = e * stride + schema.offsetOf(field) / 4;
+            return [f[base]!, f[base + 1]!, f[base + 2]!, f[base + 3]!];
+        },
+    };
+}
+
+/** Espaçamento das partículas (material padrão). */
+const SPACING = ParticleMaterial.defaults.particleSpacing;
+/** Meia largura interna do tanque dos fluidos (m). */
+const TANK = 0.5;
+
+function gravity(app: Application): void {
+    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
 }
 
 function ground(app: Application): void {
-    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+    gravity(app);
     app.world.insert(
         new RigidBody({ shape: 'box', mass: 0, halfExtents: [4, 0.5, 4], position: [0, -0.5, 0] }),
     );
+}
+
+/** Chão + 4 paredes estáticas: tanque de 2·TANK × 2·TANK com topo do chão em y = 0. */
+function tank(app: Application): void {
+    ground(app);
+    const t = 0.1;
+    const h = 0.6;
+    // Paredes enterradas 0,2 m no chão: a face de baixo não coincide com a superfície do chão.
+    const y = h - 0.2;
+    for (const [x, z, hx, hz] of [
+        [TANK + t, 0, t, TANK + 2 * t],
+        [-(TANK + t), 0, t, TANK + 2 * t],
+        [0, TANK + t, TANK, t],
+        [0, -(TANK + t), TANK, t],
+    ] as const) {
+        app.world.insert(
+            new RigidBody({ shape: 'box', mass: 0, halfExtents: [hx, h, hz], position: [x, y, z] }),
+        );
+    }
 }
 
 function block(
@@ -92,7 +141,38 @@ function block(
     return out;
 }
 
-const IDENTITY_F = { F_col0: [1, 0, 0, 0], F_col1: [0, 1, 0, 0], F_col2: [0, 0, 1, 0] };
+/** Bloco de 10×10×10 partículas centrado no tanque, base a 0,1 m do chão (altura média inicial ≈ 0,325 m). */
+const FLUID_BLOCK = (seed: number): [number, number, number][] =>
+    block(1000, SPACING, [-4.5 * SPACING, 0.1, -4.5 * SPACING], seed);
+const FLUID_START_MEAN_Y = 0.1 + 4.5 * SPACING;
+
+/** Critérios dos fluidos (R18): finitos, no domínio, acima do chão, assentados, abaixo da altura inicial. */
+function fluidChecks(v: PoolView): string[] {
+    const out: string[] = [];
+    const min = ParticleMaterial.defaults.domainMin;
+    const max = ParticleMaterial.defaults.domainMax;
+    let sumY = 0;
+    let sumSpeed = 0;
+    let below = 0;
+    let outside = 0;
+    for (let e = 0; e < v.count; e++) {
+        const p = v.vec(e, 'pos');
+        const u = v.vec(e, 'vel');
+        if (![p[0], p[1], p[2], u[0], u[1], u[2]].every(Number.isFinite))
+            return ['valores não finitos'];
+        if (p[1] < -SPACING / 2) below++;
+        if (p.slice(0, 3).some((c, i) => c < min[i]! || c > max[i]!)) outside++;
+        sumY += p[1];
+        sumSpeed += Math.hypot(u[0], u[1], u[2]);
+    }
+    const meanY = sumY / v.count;
+    const meanSpeed = sumSpeed / v.count;
+    if (below > 0) out.push(`${below} partículas abaixo do chão`);
+    if (outside > 0) out.push(`${outside} partículas fora do domínio`);
+    if (!(meanSpeed < 0.25)) out.push(`não assentou: velocidade média ${meanSpeed.toFixed(3)} m/s`);
+    if (!(meanY < FLUID_START_MEAN_Y)) out.push(`altura média ${meanY.toFixed(3)} não caiu`);
+    return out;
+}
 
 const SCENES: readonly Scene[] = [
     {
@@ -120,13 +200,23 @@ const SCENES: readonly Scene[] = [
                 );
             }
         },
+        // Sobre o chão (|x|, |z| < 4): nenhum centro abaixo da superfície; quem rolou para fora do chão cai (registrado).
+        check: (v) => {
+            let sunk = 0;
+            for (let e = 1; e < v.count; e++) {
+                const p = v.vec(e, 'pos');
+                if (!p.every(Number.isFinite)) return ['valores não finitos'];
+                if (Math.abs(p[0]) < 4 && Math.abs(p[2]) < 4 && p[1] < -0.05) sunk++;
+            }
+            return sunk > 0 ? [`${sunk} corpos atravessaram o chão`] : [];
+        },
     },
     {
         name: 'xpbd',
         schema: XPBDSoftSchema,
         fields: ['pos', 'vel'],
         build: (app) => {
-            app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+            gravity(app);
             const n = 32;
             for (let i = 0; i < n; i++) {
                 app.world.insert(
@@ -143,16 +233,49 @@ const SCENES: readonly Scene[] = [
                 );
             }
         },
+        // Ponto fixo parado; elos dentro de 5% do repouso (a corrente pendura, não estica).
+        check: (v) => {
+            const out: string[] = [];
+            const p0 = v.vec(0, 'pos');
+            if (Math.hypot(p0[0], p0[1] - 2, p0[2]) > 1e-6) out.push('ponto fixo se moveu');
+            let worst = 0;
+            for (let e = 0; e + 1 < v.count; e++) {
+                const a = v.vec(e, 'pos');
+                const b = v.vec(e + 1, 'pos');
+                worst = Math.max(
+                    worst,
+                    Math.abs(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / 0.1 - 1),
+                );
+            }
+            if (!(worst <= 0.05)) out.push(`elo esticado ${(worst * 100).toFixed(1)}%`);
+            return out;
+        },
     },
     {
         name: 'fem',
         schema: FEMSchema,
         fields: ['pos', 'vel'],
         build: (app) => {
-            app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+            gravity(app);
             for (const position of block(64, 0.1, [0, 1, 0], 2)) {
                 app.world.insert(new SoftBody({ algorithm: 'FEM', position, mass: 0.05 }));
             }
+        },
+        // O FEM só integra gravidade (A5): nós independentes com a mesma dinâmica — o bloco cai sem deformar.
+        check: (v) => {
+            let lo = Infinity;
+            let hi = -Infinity;
+            for (let e = 0; e < v.count; e++) {
+                const y = v.vec(e, 'pos')[1];
+                if (!Number.isFinite(y)) return ['valores não finitos'];
+                lo = Math.min(lo, y);
+                hi = Math.max(hi, y);
+            }
+            const out: string[] = [];
+            if (!(hi < 0)) out.push('o bloco não caiu');
+            if (!(Math.abs(hi - lo - 0.3) < 0.03))
+                out.push(`o bloco deformou (altura ${(hi - lo).toFixed(3)})`);
+            return out;
         },
     },
     {
@@ -160,15 +283,22 @@ const SCENES: readonly Scene[] = [
         schema: MPMSoftSchema,
         fields: ['pos', 'vel'],
         build: (app) => {
-            ground(app);
-            for (const [x, y, z] of block(512, 0.05, [-0.2, 0.3, -0.2], 3)) {
-                app.world.insert(
-                    new SoftBody({
-                        schema: MPMSoftSchema,
-                        data: { pos: [x, y, z, 1], ...IDENTITY_F },
-                    }),
-                );
+            tank(app);
+            for (const position of block(512, SPACING, [-3.5 * SPACING, 0.1, -3.5 * SPACING], 3)) {
+                app.world.insert(new SoftBody({ algorithm: 'MPM', position }));
             }
+        },
+        // Sólido elástico: assenta inteiro sobre o chão, sem se espalhar além da largura inicial + 50%.
+        check: (v) => {
+            const out = fluidChecks(v).filter((m) => !m.startsWith('altura'));
+            let spread = 0;
+            for (let e = 0; e < v.count; e++) {
+                const p = v.vec(e, 'pos');
+                spread = Math.max(spread, Math.abs(p[0]), Math.abs(p[2]));
+            }
+            if (!(spread < 1.5 * 4 * SPACING))
+                out.push(`o sólido se espalhou (${spread.toFixed(3)} m)`);
+            return out;
         },
     },
     {
@@ -176,21 +306,34 @@ const SCENES: readonly Scene[] = [
         schema: MPMFluidSchema,
         fields: ['pos', 'vel'],
         build: (app) => {
-            ground(app);
-            for (const position of block(512, 0.05, [-0.2, 0.3, -0.2], 4)) {
+            tank(app);
+            for (const position of FLUID_BLOCK(4)) {
                 app.world.insert(new FluidBody({ algorithm: 'MPM', position }));
             }
         },
+        check: fluidChecks,
     },
     {
         name: 'sph',
         schema: SPHSchema,
         fields: ['pos', 'vel'],
         build: (app) => {
-            ground(app);
-            for (const position of block(1000, 0.05, [-0.25, 0.2, -0.25], 5)) {
+            tank(app);
+            for (const position of FLUID_BLOCK(5)) {
                 app.world.insert(new FluidBody({ algorithm: 'SPH', position }));
             }
+        },
+        // Além dos critérios gerais: densidade mediana (pos.w) em ±15% de ρ₀ — a superfície fica abaixo, o miolo perto.
+        check: (v) => {
+            const out = fluidChecks(v);
+            const rho = Array.from({ length: v.count }, (_, e) => v.vec(e, 'pos')[3]).sort(
+                (a, b) => a - b,
+            );
+            const median = rho[Math.floor(rho.length / 2)]!;
+            const rho0 = ParticleMaterial.defaults.restDensity;
+            if (!(Math.abs(median / rho0 - 1) <= 0.15))
+                out.push(`densidade mediana ${median.toFixed(0)} kg/m³`);
+            return out;
         },
     },
     {
@@ -198,11 +341,12 @@ const SCENES: readonly Scene[] = [
         schema: PBFSchema,
         fields: ['pos', 'vel'],
         build: (app) => {
-            ground(app);
-            for (const position of block(1000, 0.05, [-0.25, 0.2, -0.25], 6)) {
+            tank(app);
+            for (const position of FLUID_BLOCK(6)) {
                 app.world.insert(new FluidBody({ algorithm: 'PBF', position }));
             }
         },
+        check: fluidChecks,
     },
 ];
 
@@ -327,7 +471,8 @@ function fieldOffsets(schema: StructSchema, names: readonly string[]): Record<st
     return Object.fromEntries(names.map((n) => [n, schema.offsetOf(n)]));
 }
 
-async function record(): Promise<void> {
+async function record(): Promise<string[]> {
+    const failures: string[] = [];
     const records: SceneRecord[] = [];
     const chunks: Uint8Array[] = [];
     let offset = 0;
@@ -354,10 +499,14 @@ async function record(): Promise<void> {
         });
         chunks.push(first.bytes);
         offset += first.bytes.byteLength;
+        for (const f of scene.check(poolView(first.bytes, first.count, first.schema))) {
+            failures.push(`${scene.name}: ${f}`);
+        }
         log(
             `${scene.name}: ${first.count} elementos, ${summary(first.bytes, first.count, first.schema)}, ${same ? 'determinística (bit a bit)' : `desvio entre execuções ${runToRun.toExponential(2)}`}`,
         );
     }
+    if (failures.length > 0 || engineErrors.length > 0) return failures;
     const bin = new Uint8Array(offset);
     let at = 0;
     for (const c of chunks) {
@@ -371,6 +520,7 @@ async function record(): Promise<void> {
         scenes: records,
     } satisfies Manifest);
     log(`fixture gravada: trajectories-${profile}.{bin,json}`);
+    return failures;
 }
 
 async function compare(): Promise<string[]> {
@@ -397,6 +547,9 @@ async function compare(): Promise<string[]> {
             );
             continue;
         }
+        for (const f of scene.check(poolView(current.bytes, current.count, current.schema))) {
+            failures.push(`${scene.name}: ${f}`);
+        }
         const expected = bin!.subarray(rec.offset, rec.offset + rec.count * rec.stride);
         if (rec.tolerance === 0) {
             const ok = bitwiseEqual(expected, current.bytes);
@@ -421,12 +574,10 @@ async function compare(): Promise<string[]> {
 
 async function main(): Promise<void> {
     if (recording()) {
-        await record();
-        if (engineErrors.length > 0) {
-            log(`FAIL: erros nos estágios: ${[...new Set(engineErrors)].join(' | ')}`);
-            return;
-        }
-        log('TRAJECTORIES SMOKE PASSED');
+        const failures = await record();
+        failures.push(...new Set(engineErrors));
+        if (failures.length > 0) log(`FAIL: (fixture não gravada) ${failures.join(' | ')}`);
+        else log('TRAJECTORIES SMOKE PASSED');
         return;
     }
     const failures = await compare();

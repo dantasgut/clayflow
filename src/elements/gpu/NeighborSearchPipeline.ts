@@ -18,6 +18,9 @@ import nsScanCombine from './wgsl/kernels/ns_scan_combine.wgsl?raw';
 import nsScatter from './wgsl/kernels/ns_scatter.wgsl?raw';
 import nsFind from './wgsl/kernels/ns_find.wgsl?raw';
 
+/** Teto de vizinhos por partícula: tamanho do vetor local em que `ns_find` ordena a lista (`NS_MAX_NEIGHBORS`). */
+export const MAX_NEIGHBORS = 128;
+
 /** Elementos por grupo da soma de prefixos (tamanho do workgroup dos kernels de scan). */
 const SCAN_GROUP = 256;
 
@@ -120,6 +123,11 @@ export class NeighborSearchPipeline {
         private readonly core: EngineCore,
         options: NeighborSearchOptions,
     ) {
+        if (!(options.maxNeighbors >= 1 && options.maxNeighbors <= MAX_NEIGHBORS)) {
+            throw new RangeError(
+                `NeighborSearchPipeline: maxNeighbors deve estar em [1, ${MAX_NEIGHBORS}] (recebeu ${options.maxNeighbors})`,
+            );
+        }
         this.disc = options.discriminator;
         this.gridDim = options.gridDim ?? [32, 32, 32];
         this.cellSize = options.cellSize ?? 0.1;

@@ -50,7 +50,9 @@ fn mpm_grid_update_main(
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
     let node_world = vec3f(f32(ix), f32(iy), f32(iz)) * mpm_params.cell_size + mpm_params.grid_origin;
-    collider_set_constrain(node_world, &v_i);
+    // Faixa de uma célula: a grade não segura paredes finas (dentro de uma parede de ~2 células a face mais próxima
+    // já é a de fora e a normal inverte); bloquear a velocidade entrante a até dx da superfície mantém o fluido fora.
+    collider_set_constrain(node_world, &v_i, mpm_params.cell_size);
 
     // Escreve velocidade normalizada para G2P
     grid[idx].vel = v_i;

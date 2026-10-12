@@ -38,6 +38,9 @@ fn ns_find_main(
 
     var nb_count: u32 = 0u;
     let list_base = i * max_nb;
+    // Vizinhos coletados localmente e ordenados por índice antes de gravar: a ordem nas células vem do espalhamento
+    // por contador atômico (varia entre execuções); com a lista ordenada as somas dos solvers ficam determinísticas.
+    var found: array<u32, NS_MAX_NEIGHBORS>;
 
     // Stencil 3×3×3
     for (var dz: i32 = -1; dz <= 1; dz++) {
@@ -64,11 +67,23 @@ fn ns_find_main(
             let dist_sq = qx*qx + qy*qy + qz*qz;
 
             if (dist_sq < h_sq && nb_count < max_nb) {
-                neighbor_list[list_base + nb_count] = j;
+                // Inserção ordenada (lista curta: dezenas de vizinhos).
+                var k = nb_count;
+                while (k > 0u && found[k - 1u] > j) {
+                    found[k] = found[k - 1u];
+                    k--;
+                }
+                found[k] = j;
                 nb_count++;
             }
         }
     }}}
 
+    for (var k = 0u; k < nb_count; k++) {
+        neighbor_list[list_base + k] = found[k];
+    }
     neighbor_count[i] = nb_count;
 }
+
+// Teto de vizinhos por partícula (tamanho do vetor local de ordenação); `NeighborSearchPipeline` valida `maxNeighbors`.
+const NS_MAX_NEIGHBORS: u32 = 128u;

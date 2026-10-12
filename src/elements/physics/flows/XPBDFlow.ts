@@ -60,8 +60,8 @@ export class XPBDFlow extends Flow {
     ) {
         super();
         this.bodyType = options.bodyType ?? 'XPBDSoftSchema';
-        this.substeps = Math.max(1, options.substeps ?? 1);
-        this.solverIters = Math.max(1, options.solverIters ?? 4);
+        this.substeps = Math.max(1, options.substeps ?? 8);
+        this.solverIters = Math.max(1, options.solverIters ?? 1);
         this.poolKey = this.bodyType;
         this.constraintPoolKey = options.constraintPoolKey ?? null;
         this.params = new PerStepUniforms(core, {

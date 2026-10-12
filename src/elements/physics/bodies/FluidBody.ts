@@ -3,6 +3,7 @@ import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { SPHSchema } from './schemas/SPHSchema';
 import { PBFSchema } from './schemas/PBFSchema';
 import { MPMFluidSchema } from './schemas/MPMFluidSchema';
+import { MPM_REST_DEFORMATION } from './schemas/MPMSoftSchema';
 import { PhysicsBody } from './PhysicsBody';
 
 /** Algoritmo de fluido, em vocabulário de domínio. */
@@ -72,7 +73,12 @@ export class FluidBody extends PhysicsBody {
         this.schema = schema;
         // pos.w / vel.w são específicos do algoritmo (densidade, pressão, lambda) —
         // deixados no default (0) para o solver inicializar.
-        this.data = schema.applyDefaults({ pos: [px, py, pz, 0], vel: [vx, vy, vz, 0] });
+        this.data = schema.applyDefaults({
+            pos: [px, py, pz, 0],
+            vel: [vx, vy, vz, 0],
+            // MPM: gradiente de deformação em repouso (identidade); massa e volume vêm do `ParticleMaterial`.
+            ...(options.algorithm === 'MPM' ? MPM_REST_DEFORMATION : {}),
+        });
     }
 
     /** Pool storage para coalescer N FluidBodies do mesmo schema em 1 buffer GPU. */

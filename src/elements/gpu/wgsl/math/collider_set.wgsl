@@ -94,21 +94,23 @@ fn collider_set_push_out(p: ptr<function, vec3f>, v: ptr<function, vec3f>, radiu
     }
 }
 
-// Nó de grade dentro de um collider: remove a componente normal entrante da velocidade (deslizamento livre).
-fn collider_constrain_node(hit: ColliderHit, v: ptr<function, vec3f>) {
-    if (hit.dist >= 0.0) { return; }
+// Nó de grade a menos de `band` da superfície (ou dentro): remove a componente normal entrante da velocidade
+// (deslizamento livre). A faixa de uma célula mantém as partículas fora do collider sem mover posições (o volume
+// das partículas fica coerente com o J).
+fn collider_constrain_node(hit: ColliderHit, v: ptr<function, vec3f>, band: f32) {
+    if (hit.dist >= band) { return; }
     let vn = dot(*v, hit.normal);
     if (vn < 0.0) { *v -= vn * hit.normal; }
 }
 
-fn collider_set_constrain(p: vec3f, v: ptr<function, vec3f>) {
+fn collider_set_constrain(p: vec3f, v: ptr<function, vec3f>, band: f32) {
     for (var i = 0u; i < collider_counts.plane_count; i++) {
-        collider_constrain_node(collider_hit_plane(i, p), v);
+        collider_constrain_node(collider_hit_plane(i, p), v, band);
     }
     for (var i = 0u; i < collider_counts.box_count; i++) {
-        collider_constrain_node(collider_hit_box(i, p), v);
+        collider_constrain_node(collider_hit_box(i, p), v, band);
     }
     for (var i = 0u; i < collider_counts.sphere_count; i++) {
-        collider_constrain_node(collider_hit_sphere(i, p), v);
+        collider_constrain_node(collider_hit_sphere(i, p), v, band);
     }
 }
