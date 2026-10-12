@@ -62,6 +62,15 @@ Com `ShadowFlow`, `ForwardFlow` e `PostFlow` no modelo de slots (sem objeto de G
 idênticos às fixtures da 005; `churn` fica em 5,29 MiB e 22 ouvintes do 1º ao 100º ciclo (variação 0,000%); `bigMesh`
 desenha 90 601 vértices com índice `uint32` e cobertura de 100%; `integration` roda 30 quadros com 4 efeitos e 0 erros.
 
+## Spec 006 — todos os Flows em slots (T054, perfil apple-metal-3, 2026-10-12)
+
+Com o caminho legado removido (todos os estágios registrados por factory), `npm run smoke --
+trajectories,render,churn,limits,rigidContacts,multiApp,stress60s,shaderLibrary,computeKernels` passa: trajetórias
+bit a bit nas 7 cenas a 30/60/144 Hz; `render` com as 10 cenas idênticas (UI inclusive); `churn` estável; `stress60s`
+com 3600 quadros, 8 efeitos, 0 erros e memória 11,40 MiB → 11,40 MiB; `rigidContacts` 1k em 9,1 ms e 10k em
+199,7 ms por quadro (GPU+CPU; referência da 005: 8,4 e 220,5 ms), 100,00% e 99,87% em repouso; `shaderLibrary` (14
+módulos, 47 schemas) e `computeKernels` (PrefixSum 4 M 2,18 ms, RadixSort 4 M 8,57 ms) verdes.
+
 ## Convenção de logs
 
 - Cada smoke usa prefixo `[<nome>]` no console (e.g. `[stress] frame 600: …`).
