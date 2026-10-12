@@ -100,6 +100,21 @@ Seção de shaders: L2063-2065 ("`{{struct:X}}` substituído pelo `LayoutInferen
 contradiz L2798-2803 ("não há `WgslComposer`; `shaderSource` carrega o fonte completo"); L2775-2796 fala em
 `#include` ou concatenação; L3776-3778 usa `RB_PROLOGUE + predictWGSL`.
 
+### A7 — Física que nunca rodou (gravação das fixtures, 2026-10-11)
+
+Ao gravar `trajectories`, as cenas de SPH, PBF e MPM terminaram com as posições iniciais exatas, e a corrente XPBD
+caiu em queda livre (y ≈ −68 m depois de 4 s). Causas:
+
+- `sph_collision.wgsl`, `pbf_collision.wgsl` e `mpm_grid_update.wgsl` declaram `array<ColliderDesc>` — o struct único
+  de 160 B do legado, substituído pelos pools tipados (`PlaneCollider`, `BoxCollider`, `SphereCollider`,
+  `MeshCollider`). A compilação falha (`unresolved type 'ColliderDesc'`), o pipeline fica inválido e o WebGPU invalida
+  o command buffer inteiro do quadro: **nenhum passe do fluido executa**. O erro só aparece como `engineError`
+  (com `captureErrors`), que nenhum smoke escutava. A correção da 004 ("SPH/PBF nunca simulavam") tratou os buffers da
+  vizinhança e não percebeu isto, porque nada conferia movimento.
+- `DEFAULT_FLOW_FACTORIES` cria `new XPBDFlow(c, w, r)` sem `constraintPoolKey`; o kernel de distância nunca é criado.
+- Os mapas `collider → corpo dono` só existem dentro do `LCPFlow` (`rebuildBodyOwners`), então nenhum outro estágio
+  consegue saber a pose de um collider dinâmico.
+
 ---
 
 ## Decisões
@@ -350,3 +365,29 @@ vizinhança e o LCP com os kernels genéricos — os smokes `limits` e `rigidCon
 (8,2 ms / 223,7 ms no perfil de referência); (b) o empacotamento por schema (`packInto` com objeto de campos) nos
 `fillParams` por iteração — custo de CPU medido pelo `bench:check`. Se `packInto` com objeto pesar, o schema oferece
 `fieldView(view, offset)` com setters por campo pré-compilados (decidido na implementação pela medição).
+
+### R17 — Conjunto de colliders compartilhado e colisão dos fluidos
+
+**Decisão**:
+
+- `ColliderSet` (C3, `elements/physics/colliders/ColliderSet.ts`): mantém, para cada pool de collider (`PlaneCollider`,
+  `BoxCollider`, `SphereCollider`, `MeshCollider`), o buffer do pool, o mapa de dono (slot no pool `LCPSchema`, ou
+  `0xFFFFFFFF` para estático) e a contagem; reconstrói os mapas quando um pool de collider ou de corpo é realocado ou
+  quando entidades saem; cria buffers mínimos para pools ausentes (bindings sempre válidos); `generation` muda quando
+  os buffers mudam (os consumidores refazem bind groups). O `LCPFlow` passa a usá-lo no lugar de
+  `rebuildBodyOwners`/`ensureBodyOwnersBuffer` (a lógica de dono existe num lugar só).
+- Grupo de binding 2 = conjunto de colliders para os consumidores de colisão de fluido: `b0` uniform `ColliderSetCounts`
+  (plano, caixa, esfera), `b1–b3` pools, `b4–b6` mapas de dono, `b7` pool `RigidBody` (pose dos donos). O
+  `mpm_grid_update` passa de grupo 3 para 2 (o grupo 2 atual liga partículas que o shader não usa).
+- Fonte WGSL `collider_set.wgsl` (vira módulo na US1): declara os bindings do grupo 2 e oferece
+  `collider_set_push_out(p, v, radius, restitution)` (SPH/PBF: empurra para fora pela normal do SDF e reflete a
+  componente normal da velocidade, como o kernel legado pretendia) e `collider_set_constrain(p, v)` (MPM: remove a
+  componente normal entrante da velocidade do nó, como o `grid_update` pretendia). Pose do collider: dono dinâmico →
+  `pos_pred`/`rot_pred` do corpo + centro local rotacionado; sem dono → centro como posição de mundo, rotação
+  identidade (igual à narrowphase). SDF e gradiente pelo módulo `sdf`. `MeshCollider` sem contato (igual ao LCP).
+- `DEFAULT_FLOW_FACTORIES`: XPBD com `constraintPoolKey: DistanceConstraint.schema.name`.
+- O smoke `trajectories` passa a reprovar cena parada, valores não finitos ou `engineError`, e confere critérios
+  físicos por cena antes de gravar (SC-010).
+
+**Alternativas rejeitadas**: tirar a colisão dos fluidos até a F5 (o usuário decidiu corrigir na 005); copiar o código
+de mapa de dono do LCP para cada fluido (duplicação que esta spec existe para eliminar).

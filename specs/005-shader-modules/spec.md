@@ -46,6 +46,10 @@ bibliotecas de matemática compartilhadas, marcadores `{{struct:X}}` resolvidos 
   compilam), do UBO por objeto, de vertex buffer intercalado fixo e de estado de um único corpo; vários são seriais
   (uma thread); `vertex_write` existe em 3 cópias, `mat3_*` em 3 arquivos, `ColorRange` em 2 layouts conflitantes, e o
   acumulador atômico em ponto fixo do Jacobi repete o padrão que o LCP já usa. Nenhum é compilado nem testado.
+- **Física que nunca rodou** (descoberto ao gravar as fixtures de trajetória): os kernels de colisão do SPH, do PBF
+  e do MPM ainda usam o collider único do legado, que não existe mais; o pipeline é inválido e invalida o quadro
+  inteiro — **nenhum fluido simula**. O XPBD padrão é criado sem o pool de restrições e ignora o `DistanceConstraint`.
+  Nenhum smoke conferia que essas cenas se movem. A fixture de "antes" precisa registrar física que funciona.
 - **Documento de arquitetura com contradições** (decisão D5 do roadmap): modelo de transição de estado, exemplos com a
   API antiga por `id`, `pack` listado após remoção, "o desenvolvedor não escreve Flows" × `Flow` público,
   `register(factory)` × instância, `add(stage, {before/after})` × ordem de registro, `Scene.add` retornando `this` ×
@@ -346,6 +350,16 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
   `resolve(bodyType)` devolve o Flow de maior prioridade (hoje devolve o último registrado) e `Scene.add(entity)`
   insere a entidade no World (hoje só anexa como filho, sem inserir).
 
+**Física quebrada encontrada na gravação das fixtures**
+
+- **FR-039**: SPH, PBF e MPM MUST colidir com os pools tipados de colliders (plano, caixa, esfera), com a pose do
+  collider vinda do corpo dono quando houver, pelo mesmo conjunto de colliders que o LCP usa (sem cópia da montagem
+  dos mapas de dono); `MeshCollider` segue sem contato, como no LCP (registrado para a F5).
+- **FR-040**: O XPBD padrão MUST resolver as restrições de distância inseridas no World (`DistanceConstraint`).
+- **FR-041**: O smoke de trajetórias MUST reprovar se uma cena não simula (sem movimento, valores não finitos ou erro
+  capturado de estágio) e MUST conferir o comportamento físico esperado de cada cena (fluidos assentam sobre o chão,
+  corrente XPBD pendura do ponto fixo sem esticar além da tolerância, corpos rígidos repousam sobre o chão).
+
 **Transversais**
 
 - **FR-036**: A simulação MUST produzir a mesma trajetória antes e depois desta spec: idêntica bit a bit, ou dentro de
@@ -385,6 +399,8 @@ registro da spec; nenhum exemplo do documento usa API que não existe.
   com tempo por quadro não pior que o registrado na 004.
 - **SC-008**: As 10 inconsistências da D5 resolvidas, cada uma com a seção citada no registro da spec.
 - **SC-009**: Gate completo verde; build minificado funciona; todos os smokes passam, inclusive com `--dist`.
+- **SC-010**: As sete cenas de física simulam e passam nos critérios físicos do smoke de trajetórias antes da
+  gravação das fixtures (fluidos acima do chão, corrente com elos dentro de 5% do comprimento de repouso).
 
 ## Assumptions
 

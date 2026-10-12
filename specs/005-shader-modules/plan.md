@@ -26,7 +26,9 @@ Substituir a colagem de texto de WGSL por um núcleo de shaders conforme a refun
 6. **Documento de arquitetura**: as 10 inconsistências da D5 com definição única (estado atual × alvo marcados), seção
    de shaders reescrita; duas correções de código que o documento exige (`resolve` por prioridade, `Scene.add`
    inserindo no World).
-7. **Verificação**: fixtures de trajetória e de imagem gravadas **antes** de mexer em WGSL; smokes novos
+7. **Física que nunca rodou** (research A7/R17): `ColliderSet` compartilhado (LCP e fluidos), colisão de SPH/PBF/MPM
+   contra os pools tipados, XPBD padrão ligado às restrições — antes de gravar as fixtures.
+8. **Verificação**: fixtures de trajetória e de imagem gravadas **antes** de mexer em WGSL; smokes novos
    `trajectories`, `render`, `shaderLibrary`, `computeKernels`; gate e `bench:check` sem regressão.
 
 Decisões e alternativas em [research.md](./research.md).
@@ -162,8 +164,9 @@ mudança em WGSL, e versionadas.
 
 ## Fases de implementação (para `/speckit-tasks`)
 
-1. **Fixtures de antes**: smokes `trajectories` (com medição de determinismo entre execuções) e `render`, gravados no
-   código atual.
+1. **Fixtures de antes**: smokes `trajectories` (com medição de determinismo entre execuções e critérios físicos) e
+   `render`; correção da física que nunca rodou (Fase 1b: `ColliderSet`, colisão dos fluidos, XPBD com restrições);
+   gravação.
 2. **Fundação C2**: varredor, `wgslModule`, `composeWgsl`, erros; `StructSchema` (tipos, `addressSpace`, `toWGSL`,
    `packInto`); `createComputeKernel`/`PipelineDescriptor` com `WgslModule`.
 3. **US1 + US2** por estágio, um de cada vez, com fixtures verdes a cada passo: TransformFlow → busca de vizinhança →

@@ -32,10 +32,25 @@ compute-kernels), quickstart.md
 
 **Purpose**: gravar o comportamento atual antes de qualquer mudança em WGSL (R14, FR-036, FR-037).
 
-- [ ] T001 Registrar a linha de base verde da branch: `npm test`, `npx tsc --noEmit`, `npm run smoke -- limits,rigidContacts` (tempos de referência 8,2 ms / 223,7 ms) e `npm run bench:check -- --from bench/results/latest.json` se houver resultado local; anotar abaixo deste item em `specs/005-shader-modules/tasks.md`
-- [ ] T002 Criar o smoke `src/__smokes__/trajectories.ts`: monta as cenas de física (LCP com esferas e caixas; XPBD com cadeia de restrições de distância; FEM; MPM sólido; MPM fluido; SPH; PBF) com posições iniciais determinísticas, avança 240 passos com `app.step(1/60)`, lê de volta o pool de cada corpo e, no modo `record`, grava `src/__smokes__/fixtures/trajectories-<perfil>.bin` + `trajectories-<perfil>.json` (cena, contagem, stride, offsets de `pos`/`vel` por `schema.offsetOf`); no modo `compare` (padrão) compara campo a campo e informa desvio máximo por cena; registrar em `src/__smokes__/README.md`
+- [x] T001 Registrar a linha de base verde da branch: `npm test`, `npx tsc --noEmit`, `npm run smoke -- limits,rigidContacts` (tempos de referência 8,2 ms / 223,7 ms) e `npm run bench:check -- --from bench/results/latest.json` se houver resultado local; anotar abaixo deste item em `specs/005-shader-modules/tasks.md`
+
+> **Linha de base (T001, 2026-10-11)**: `tsc` ✅, `npm test` 618/618 ✅, `limits` ✅, `rigidContacts` 1k 8,1 ms/quadro ·
+> 10k 228,7 ms/quadro ✅, `bench:check --from latest.json` PASSOU.
+
+- [x] T002 Criar o smoke `src/__smokes__/trajectories.ts`: monta as cenas de física (LCP com esferas e caixas; XPBD com cadeia de restrições de distância; FEM; MPM sólido; MPM fluido; SPH; PBF) com posições iniciais determinísticas, avança 240 passos com `app.step(1/60)`, lê de volta o pool de cada corpo e, no modo `record`, grava `src/__smokes__/fixtures/trajectories-<perfil>.bin` + `trajectories-<perfil>.json` (cena, contagem, stride, offsets de `pos`/`vel` por `schema.offsetOf`); no modo `compare` (padrão) compara campo a campo e informa desvio máximo por cena; registrar em `src/__smokes__/README.md`
 - [ ] T003 Medir o determinismo entre execuções no código atual: rodar `trajectories` em `record` duas vezes seguidas e comparar; classificar cada cena em bit a bit (esperado: LCP, XPBD, FEM, MPM) ou não determinística (esperado: SPH, PBF — ordem dos vizinhos por contador atômico); gravar a tolerância por cena (= 2 × desvio máximo observado) no JSON da fixture e registrar os números em `specs/005-shader-modules/research.md` (R14)
 - [ ] T004 Criar o smoke `src/__smokes__/render.ts`: renderiza as cenas `instances/10k`, `unique-objects/1k` e `rigid-bodies/1k` do bench (mesmas câmeras, um quadro após `app.step` fixo), lê o canvas de volta (`copyTextureToBuffer` pela C1) e, em `record`, grava `src/__smokes__/fixtures/render-<cena>-<perfil>.png`; em `compare` exige igualdade de pixels; incluir também uma passagem com `PostFlow` (exposição + color grading) para cobrir `color`; registrar no README dos smokes
+
+### Phase 1b: física que nunca rodou (research A7/R17, FR-039–FR-041) — antes de gravar
+
+- [ ] T086 Smoke `trajectories`: reprovar com `engineError` capturado, valores não finitos ou cena parada; critérios físicos por cena antes de gravar — LCP: todos os corpos sobre o chão ou fora dele por queda lateral registrada, nenhum abaixo de y = −0,05 dentro da área do chão; XPBD: partícula 0 fixa, elos com comprimento dentro de 5% do repouso; SPH/PBF/MPM: nenhuma partícula abaixo do topo do chão (y ≥ −0,01) e altura média abaixo da inicial (assentaram); FEM: queda livre esperada (só integra gravidade — A5) com y médio = y₀ − ½g t² ± 1%
+- [ ] T087 [P] Teste `src/elements/physics/__tests__/ColliderSet.test.ts`: mapa de dono por pool (corpo dinâmico → slot do `LCPSchema`, collider sem corpo → `0xFFFFFFFF`), buffers mínimos para pools ausentes, contagens, reconstrução em realocação de pool de collider/corpo e em remoção de entidades, `generation` muda só quando buffers mudam, bindings do grupo 2 (b0–b7)
+- [ ] T088 Implementar `src/elements/physics/colliders/ColliderSet.ts` e exportar por `src/elements/physics/colliders/index.ts`
+- [ ] T089 Migrar `src/elements/physics/flows/LCPFlow.ts` para obter pools, mapas de dono e contagens do `ColliderSet` (remove `rebuildBodyOwners`/`ensureBodyOwnersBuffer`/`bodyOwnersBuffers`); `LCPFlow.*.test.ts`, `time` e `rigidContacts` verdes e LCP bit a bit contra a gravação provisória da T086
+- [ ] T090 Criar `src/elements/gpu/wgsl/math/collider_set.wgsl` (bindings do grupo 2, `ColliderSetCounts`, `collider_set_push_out`, `collider_set_constrain`, pose por dono, SDF por `sdf.wgsl`) e trocar `ColliderDesc` por ele em `kernels/sph_collision.wgsl`, `kernels/pbf_collision.wgsl` e `kernels/mpm_grid_update.wgsl` (MPM: colliders do grupo 3 para o 2; remove o grupo de partículas não usado); ajustar `SPHFlow.ts`, `PBFFlow.ts`, `MPMFlow.ts` (bind group 2 do `ColliderSet`, invalidação por `generation`, `collider_count`/`COLLIDER_DESC_SIZE` removidos dos parâmetros e buffers)
+- [ ] T091 Ligar o XPBD padrão às restrições: `constraintPoolKey: DistanceConstraint.schema.name` em `src/elements/physics/flows/defaultFlows.ts`; teste em `src/elements/physics/__tests__/defaultFlows.test.ts`
+- [ ] T092 Rodar `npm test`, `npm run smoke -- trajectories --record` (critérios físicos verdes, sem `engineError`), `time`, `rigidContacts`, `integration`; registrar em `research.md` (A7) o comportamento medido de cada cena
+
 - [ ] T005 Gravar as fixtures (`npm run smoke -- trajectories,render -- --record`, opção nova no runner `bench/runner/smoke.ts` repassada à página) com a GPU sem outra carga e commitar `src/__smokes__/fixtures/`
 
 **Checkpoint**: fixtures versionadas; `npm run smoke -- trajectories,render` passa contra elas no código atual.
@@ -217,7 +232,7 @@ corrigida; testes das duas correções de código.
 
 ```mermaid
 graph LR
-  S[Setup T001-T005] --> F[Foundational T006-T014]
+  S[Setup T001-T005 + Fase 1b T086-T092] --> F[Foundational T006-T014]
   F --> US1[US1 T015-T030]
   US1 --> US2[US2 T031-T043]
   US2 --> US3[US3 T044-T053]
@@ -229,7 +244,8 @@ graph LR
   US6 --> P
 ```
 
-- A Fase 1 grava as fixtures no código atual — nada de WGSL muda antes dela.
+- A Fase 1 grava as fixtures — a Fase 1b (T086–T092) corrige antes a física que nunca rodou, para que a fixture
+  registre física funcionando; fora isso, nada de WGSL muda antes da gravação (T005).
 - US1 → US2: a US2 substitui por schemas os módulos de struct que a US1 cria a partir dos arquivos atuais (T041 remove os dois).
 - US3 e US4 dependem da US2 (schemas de parâmetros e estado) e podem andar em paralelo, exceto o LCP: T046 (US3) e
   T057 (US4) mexem em `src/elements/physics/shaders/lcp.ts` — fazer T046 antes de T057.
