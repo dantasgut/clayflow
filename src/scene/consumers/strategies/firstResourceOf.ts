@@ -3,7 +3,7 @@ import type { Schema } from '../../descriptors/Schema';
 import type { World } from '../../world/World';
 
 /**
- * Primeiro recurso (ordem de inserção das entidades) que tem um descritor com `schema`, declara o descritor `descId`
+ * Primeiro recurso (ordem de inserção das entidades) do `schema` (o estático da classe ou o de um descritor), declara o descritor `descId`
  * (de qualquer papel — buffer, textura, sampler) e passa em `select`. Reconhece pelo schema dos descritores — dado
  * explícito, que sobrevive à minificação.
  */

@@ -26,7 +26,9 @@ export class WireframeMaterial extends Material {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'material', role: 'uniform', schema: WireframeMaterial.schema }];
+        return [
+            { id: 'material', role: 'uniform', schema: WireframeMaterial.schema, storage: 'pool' },
+        ];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
@@ -36,7 +38,11 @@ export class WireframeMaterial extends Material {
                 role: 'render',
                 shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: ['Camera', 'Transform'],
+                consumes: [
+                    'Camera',
+                    'WorldTransform',
+                    { name: WireframeMaterial.schema.name, as: 'StandardMaterial' },
+                ],
                 topology: 'line-list',
             },
         ];

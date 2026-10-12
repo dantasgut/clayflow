@@ -2,7 +2,7 @@ import type { EngineCore, BindGroupSpec } from '../../../core/contracts/index';
 import type { ResolvedSource } from '../../consumers/ConsumerResolver';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
 import type { Resource } from '../../contracts/Resource';
-import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
+import { consumesName, type PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
@@ -314,7 +314,7 @@ export class FlowRuntime {
 
     /** Todo nome de `consumes` precisa de resolver (FR-012). */
     private checkConsumes(descriptor: PipelineDescriptor): void {
-        for (const name of descriptor.consumes) {
+        for (const name of descriptor.consumes.map(consumesName)) {
             if (this.host.consumers.has(name)) continue;
             throw new FlowBindingError(
                 `Flow '${this.flow.type}', pipeline '${descriptor.id}': consumes '${name}' sem resolver (disponíveis: ${this.host.consumers.names().join(', ') || 'nenhum'}).`,
@@ -334,9 +334,15 @@ export class FlowRuntime {
             this.privates.get(`${state.id}:${entry.name}`) ?? this.privates.get(entry.name);
         if (priv !== undefined) return normalizeSource(priv);
         const consumes = state.descriptor.consumes;
-        const candidates = consumes.filter(
-            (n) => this.host.consumers.get(n)?.typeName === entry.typeName,
-        );
+        // O tipo lido pelo shader: o `as` da entrada, ou o struct que o resolver preenche.
+        const candidates = consumes
+            .filter(
+                (c) =>
+                    (typeof c === 'string' ? this.host.consumers.get(c)?.typeName : c.as)
+                    === entry.typeName,
+            )
+            .map(consumesName);
+        const names = consumes.map(consumesName);
         const where = `binding '${entry.name}' (@group(${group}) @binding(${entry.binding}), tipo '${entry.typeName}') do pipeline '${state.id}' do Flow '${this.flow.type}'`;
         const details = {
             flow: this.flow.type,
@@ -347,7 +353,7 @@ export class FlowRuntime {
         };
         if (candidates.length === 0) {
             throw new FlowBindingError(
-                `${where} sem fonte: nenhum binding privado '${entry.name}' e nenhum nome de consumes [${consumes.join(', ')}] com esse tipo.`,
+                `${where} sem fonte: nenhum binding privado '${entry.name}' e nenhum nome de consumes [${names.join(', ')}] com esse tipo.`,
                 details,
             );
         }
@@ -540,7 +546,7 @@ export class FlowRuntime {
     }
 
     private targetOf(
-        color: 'canvas' | TextureRef,
+        color: 'canvas' | 'none' | TextureRef,
         depthRef: TextureRef | undefined,
     ): BoundTarget | undefined {
         let depth: BoundTexture | undefined;
@@ -552,6 +558,7 @@ export class FlowRuntime {
             depth !== undefined ? { depth: depth.view, depthFormat: depth.texture.format } : {};
         if (color === 'canvas')
             return { color: 'canvas', format: this.host.core.canvasFormat, ...depthPart };
+        if (color === 'none') return { color: 'none', ...depthPart };
         const tex = this.textureOf(color);
         return tex === undefined
             ? undefined
@@ -568,7 +575,7 @@ export class FlowRuntime {
         for (const id of world.queryBySchemaName(schema.name)) {
             for (const r of world.resourcesOf(id)) {
                 const descs = r.getDescriptors();
-                if (!descs.some((d) => d.schema === schema)) continue;
+                if (!hasSchema(r, schema)) continue;
                 if (descId !== undefined && !descs.some((d) => d.id === descId)) continue;
                 if (select === undefined || select(r)) return r;
             }
@@ -597,4 +604,10 @@ export class FlowRuntime {
             },
         };
     }
+}
+
+/** O recurso é do schema: o `schema` estático da classe (o que o World indexa) ou o de algum descritor. */
+function hasSchema(resource: Resource, schema: Schema): boolean {
+    if ((resource.constructor as { schema?: Schema }).schema === schema) return true;
+    return resource.getDescriptors().some((d) => d.schema === schema);
 }

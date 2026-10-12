@@ -10,6 +10,7 @@ import { UIFlow } from './UIFlow';
 import { DebugFlow } from './DebugFlow';
 import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
+import { FrameTargets } from '../app/FrameTargets';
 
 /**
  * Dependências necessárias para construir os Flows default. Application
@@ -48,10 +49,12 @@ export interface PresentationDefaults {
     readonly debug: DebugFlow;
 }
 
-/** Estágios padrão de uma cena, os registros por factory e quantas aplicações os usam. */
+/** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
 interface RegisteredDefaults {
     readonly defaults: PresentationDefaults;
     readonly registrations: readonly FlowRegistration[];
+    readonly frameTargets: FrameTargets;
+    readonly world: World;
     users: number;
 }
 
@@ -59,8 +62,8 @@ interface RegisteredDefaults {
 const DEFAULTS_BY_SCENE = new WeakMap<FlowRegistry, RegisteredDefaults>();
 
 /**
- * Registra os Flows default da cena — Transform, Shadow, Forward, Post, Debug e UI — com bindings adequados
- * (forward bind shadow, post bind forward, debug bind events). **Uma vez por cena**: chamadas seguintes com o
+ * Registra os Flows default da cena — Transform, Shadow, Forward, Post, Debug e UI — e insere os alvos do quadro
+ * (`FrameTargets`: o render principal desenha neles, o pós-processamento os lê pelo slot). **Uma vez por cena**: chamadas seguintes com o
  * mesmo `FlowRegistry` devolvem os mesmos estágios e contam mais um usuário (várias aplicações na mesma cena não
  * duplicam estágios). Cada chamada deve ser pareada com `releasePresentationDefaults`.
  *
@@ -79,8 +82,16 @@ export function registerPresentationDefaults(
         existing.users++;
         return existing.defaults;
     }
+    const frameTargets = new FrameTargets();
+    options.world.insert(frameTargets);
     const { defaults, registrations } = createPresentationDefaults(flows, options);
-    DEFAULTS_BY_SCENE.set(flows, { defaults, registrations, users: 1 });
+    DEFAULTS_BY_SCENE.set(flows, {
+        defaults,
+        registrations,
+        frameTargets,
+        world: options.world,
+        users: 1,
+    });
     return defaults;
 }
 
@@ -95,10 +106,9 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
     const d = entry.defaults;
-    for (const flow of [d.ui, d.debug, d.post, d.forward, d.shadow]) {
-        flows.unregister(flow);
-    }
+    for (const flow of [d.ui, d.debug]) flows.unregister(flow);
     for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
+    entry.world.remove(entry.frameTargets);
     return true;
 }
 
@@ -111,27 +121,40 @@ function createPresentationDefaults(
         phase: 'transform',
     });
     const transform = transformRegistration.flow!;
-    const shadow = new ShadowFlow(options.core, options.world, options.resources);
-    const forward = new ForwardFlow(
-        options.core,
-        options.world,
-        options.resources,
-        options.canvas,
-    ).bindShadowFlow(shadow);
-    const post = new PostFlow({ canvas: options.canvas }, options.core).bindForwardFlow(forward);
-    forward.setRenderToOffscreen(true);
+    const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
+        type: 'shadow',
+        phase: 'shadow',
+    });
+    const forwardRegistration = flows.register((ctx) => new ForwardFlow(ctx, { output: 'scene' }), {
+        type: 'forward',
+        phase: 'forward',
+    });
+    const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
+        type: 'post',
+        phase: 'post',
+    });
     const ui = new UIFlow(options.core, options.canvas);
     const debug = new DebugFlow();
     debug.bindEvents(options.events);
-    flows.register(shadow);
-    flows.register(forward);
-    flows.register(post);
     flows.register(debug);
     flows.register(ui);
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
-        defaults: { transform, forward, shadow, post, ui, debug },
-        registrations: [transformRegistration, ...solvers],
+        defaults: {
+            transform,
+            shadow: shadowRegistration.flow!,
+            forward: forwardRegistration.flow!,
+            post: postRegistration.flow!,
+            ui,
+            debug,
+        },
+        registrations: [
+            transformRegistration,
+            shadowRegistration,
+            forwardRegistration,
+            postRegistration,
+            ...solvers,
+        ],
     };
 }

@@ -55,6 +55,13 @@ Os 13 smokes passam no código-fonte e sobre o build minificado (`npm run build:
 
 A referência da 004 para `rigidContacts` 10k é 223,7 ms; a diferença entre execuções fica em ±3%.
 
+## Spec 006 — render em slots (T048, perfil apple-metal-3, 2026-10-12)
+
+Com `ShadowFlow`, `ForwardFlow` e `PostFlow` no modelo de slots (sem objeto de GPU por entidade; alvos do quadro em
+`FrameTargets`), `npm run smoke -- render,churn,bigMesh,integration` passa: as 10 cenas de `render` saem com pixels
+idênticos às fixtures da 005; `churn` fica em 5,29 MiB e 22 ouvintes do 1º ao 100º ciclo (variação 0,000%); `bigMesh`
+desenha 90 601 vértices com índice `uint32` e cobertura de 100%; `integration` roda 30 quadros com 4 efeitos e 0 erros.
+
 ## Convenção de logs
 
 - Cada smoke usa prefixo `[<nome>]` no console (e.g. `[stress] frame 600: …`).

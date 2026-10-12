@@ -13,8 +13,9 @@ export abstract class RenderFlow<
     TSlots extends RenderSlotMap = RenderSlotMap,
     S extends string = string,
 > extends Flow<TSlots, S> {
-    /** View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas). */
-    protected colorView(frame: Frame, target: BoundTarget): TextureViewSpec {
+    /** View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor). */
+    protected colorView(frame: Frame, target: BoundTarget): TextureViewSpec | undefined {
+        if (target.color === 'none') return undefined;
         return target.color === 'canvas' ? frame.canvasView : target.color;
     }
 }

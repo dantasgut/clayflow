@@ -62,10 +62,13 @@ export interface TextureRef {
     readonly select?: (resource: Resource) => boolean;
 }
 
-/** Alvo de render: o canvas do quadro, ou a textura de cor de um Resource (com profundidade opcional). */
+/**
+ * Alvo de render: a cor no canvas do quadro, na textura de um Resource, ou nenhuma (`'none'`, passe só de
+ * profundidade — ex.: sombra), com profundidade opcional de um Resource.
+ */
 export interface TargetSlot {
     readonly kind: 'target';
-    readonly color: 'canvas' | TextureRef;
+    readonly color: 'canvas' | 'none' | TextureRef;
     readonly depth?: TextureRef;
 }
 
@@ -132,11 +135,11 @@ export interface BoundTexture {
     readonly view: TextureViewSpec;
 }
 
-/** Alvo resolvido. `color: 'canvas'` → `frame.canvasView` no `dispatch`. */
+/** Alvo resolvido. `color: 'canvas'` → `frame.canvasView` no `dispatch`; `'none'` → sem anexo de cor. */
 export interface BoundTarget {
-    readonly color: 'canvas' | TextureViewSpec;
-    /** Formato de cor do alvo (o do canvas ou o da textura). */
-    readonly format: GPUTextureFormat;
+    readonly color: 'canvas' | 'none' | TextureViewSpec;
+    /** Formato de cor do alvo (o do canvas ou o da textura); ausente sem cor. */
+    readonly format?: GPUTextureFormat;
     readonly depth?: TextureViewSpec;
     readonly depthFormat?: GPUTextureFormat;
 }
@@ -228,7 +231,9 @@ export const slot = {
      * de um Resource (ex.: `{ color: 'canvas', depth: { schema: FrameTargets.schema, descId: 'depth' } }`).
      */
     target(
-        target: 'canvas' | { readonly color: 'canvas' | TextureRef; readonly depth?: TextureRef },
+        target:
+            | 'canvas'
+            | { readonly color: 'canvas' | 'none' | TextureRef; readonly depth?: TextureRef },
     ): TargetSlot {
         if (target === 'canvas') return Object.freeze({ kind: 'target', color: 'canvas' });
         return Object.freeze({

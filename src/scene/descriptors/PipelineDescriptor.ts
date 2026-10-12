@@ -6,6 +6,14 @@ import type {
 } from '../../core/contracts/index';
 import type { WgslModule } from '../shaders/WgslModule';
 
+/** Entrada de `consumes`: o nome do resolver, ou o nome e o struct WGSL com que o shader lê o dado. */
+export type ConsumesEntry = string | { readonly name: string; readonly as: string };
+
+/** Nome do resolver de uma entrada de `consumes`. */
+export function consumesName(entry: ConsumesEntry): string {
+    return typeof entry === 'string' ? entry : entry.name;
+}
+
 /**
  * Tipo de pipeline declarado por um Resource. `compute` para kernels GPGPU,
  * `render` para vertex+fragment passes.
@@ -32,9 +40,11 @@ export interface PipelineDescriptor {
     /**
      * Nomes (de schema ou chave de pool) dos dados que o pipeline lê da cena, resolvidos pelo
      * `ConsumerResolverRegistry`: um binding cujo tipo WGSL é o `typeName` do resolver recebe a fonte dele
-     * (ex.: `consumes: ['Camera', 'WorldTransform']`).
+     * (ex.: `consumes: ['Camera', 'WorldTransform']`). A forma `{ name, as }` declara que o dado de `name` é lido
+     * pelo shader como o struct `as` — layouts iguais com outro nome (ex.: o pool `WireframeMaterial` lido como
+     * `StandardMaterial` pelo `forward.wgsl`).
      */
-    readonly consumes: readonly string[];
+    readonly consumes: readonly ConsumesEntry[];
     /** Topologia da primitive (apenas render pipelines). Default: triangle-list. */
     readonly topology?: GPUPrimitiveTopology;
     /** Cull mode (apenas render). Default: 'none'. */

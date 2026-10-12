@@ -30,7 +30,8 @@ import { TransformParamsSchema } from '../elements/scene/flows/TransformParams';
 import { Transform } from '../elements/scene/Transform';
 import { Camera } from '../elements/scene/Camera';
 import { StandardMaterialSchema } from '../elements/material/StandardMaterialSchema';
-import { ForwardShadowParamsSchema } from '../elements/material/forwardSchemas';
+import { ForwardFrameParamsSchema } from '../elements/material/forwardSchemas';
+import { ShadowMap } from '../elements/scene/ShadowMap';
 import { ParticleMaterial } from '../elements/physics/materials/ParticleMaterial';
 import * as Render from '../presentation/flows/renderSchemas';
 import { gradientNoise2, gradientNoise3, valueNoise2, valueNoise3 } from './support/noiseReference';
@@ -484,7 +485,8 @@ const SCHEMAS: readonly StructSchema[] = [
     Transform.worldSchema,
     Camera.schema,
     StandardMaterialSchema,
-    ForwardShadowParamsSchema,
+    ForwardFrameParamsSchema,
+    ShadowMap.schema,
     ParticleMaterial.schema,
     ...Object.values(Render),
 ];

@@ -3,7 +3,8 @@ import { brdf } from '../gpu/shaders/math';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
-import { ForwardShadowParamsSchema } from './forwardSchemas';
+import { ForwardFrameParamsSchema } from './forwardSchemas';
+import { ShadowMap } from '../scene/ShadowMap';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
 
 /** Shader do desenho forward (vértice + fragmento), usado pelos materiais padrão. */
@@ -15,6 +16,7 @@ export const forward = wgslModule({
         Camera.schema,
         Transform.worldSchema,
         StandardMaterialSchema,
-        ForwardShadowParamsSchema,
+        ForwardFrameParamsSchema,
+        ShadowMap.schema,
     ],
 });

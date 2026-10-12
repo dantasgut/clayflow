@@ -22,7 +22,9 @@ export class StandardMaterial extends Material {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'material', role: 'uniform', schema: StandardMaterial.schema }];
+        return [
+            { id: 'material', role: 'uniform', schema: StandardMaterial.schema, storage: 'pool' },
+        ];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
@@ -32,7 +34,7 @@ export class StandardMaterial extends Material {
                 role: 'render',
                 shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: ['Camera', 'Transform'],
+                consumes: ['Camera', 'WorldTransform', 'StandardMaterial'],
                 topology: 'triangle-list',
                 cullMode: 'back',
             },
