@@ -10,9 +10,9 @@ fn sph_integrate_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= sph_params.counts.x) { return; }
+    if (i >= sph_params.particle_count) { return; }
 
-    let dt = sph_params.gravity_dt.w;
+    let dt = sph_params.dt;
 
     var vel = particles[i].vel.xyz;
     let acc = particles[i].force.xyz;

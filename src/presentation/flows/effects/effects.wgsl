@@ -1,7 +1,4 @@
-struct EffectParams {
-    p0: vec4<f32>,  // .x = strength/intensity, .y = aux, .z = aux2, .w = aux3
-}
-
+// Pós-processamento. Struct `EffectParams` gerado do schema (`p0 = strength, aux0, aux1, aux2`).
 @group(0) @binding(0) var src_tex: texture_2d<f32>;
 @group(0) @binding(1) var src_smp: sampler;
 @group(0) @binding(2) var<uniform> params: EffectParams;
@@ -50,7 +47,7 @@ fn fs_fxaa(in: VsOut) -> @location(0) vec4<f32> {
 fn fs_tonemap(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(src_tex, src_smp, in.uv).rgb;
     let exposure = params.p0.x;
-    let mapped = vec3<f32>(1.0) - exp(-c * exposure);
+    let mapped = tonemap_exposure(c, exposure);
     return vec4<f32>(mapped, 1.0);
 }
 
@@ -101,11 +98,12 @@ fn fs_chromatic(in: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_color_grading(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(src_tex, src_smp, in.uv).rgb;
-    let lift = params.p0.x;
-    let gain = params.p0.y;
-    let gamma = max(params.p0.z, 0.01);
-    let graded = pow(clamp((c - lift) * gain, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / gamma));
-    return vec4<f32>(graded, 1.0);
+    // p0 = (strength, lift, gain, gamma) — `ColorGrading` em vocabulário de domínio.
+    let lift = params.p0.y;
+    let gain = params.p0.z;
+    let gamma = max(params.p0.w, 0.01);
+    let graded = gamma_encode(clamp((c - lift) * gain, vec3<f32>(0.0), vec3<f32>(1.0)), gamma);
+    return vec4<f32>(mix(c, graded, params.p0.x), 1.0);
 }
 
 @fragment
@@ -118,8 +116,8 @@ fn fs_ssao(in: VsOut) -> @location(0) vec4<f32> {
         let theta = f32(i) * 0.7853;
         let off = vec2<f32>(cos(theta), sin(theta)) * radius;
         let s = textureSample(src_tex, src_smp, in.uv + off * texel).rgb;
-        let lum_c = dot(c, vec3<f32>(0.299, 0.587, 0.114));
-        let lum_s = dot(s, vec3<f32>(0.299, 0.587, 0.114));
+        let lum_c = luminance(c);
+        let lum_s = luminance(s);
         occlusion = occlusion + max(0.0, lum_c - lum_s);
     }
     let ao = clamp(1.0 - occlusion * 0.125, 0.0, 1.0);

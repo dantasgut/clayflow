@@ -21,7 +21,6 @@ export type {
     MemoryUsageReport,
     MemoryUsageEntry,
     ComputeKernel,
-    ComputeKernelOptions,
     ComputeKernelBinding,
     ComputeKernelBindingType,
     ComputeKernelBindGroup,

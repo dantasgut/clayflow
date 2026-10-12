@@ -64,6 +64,7 @@ Para implementar Resources/Flows customizados, importe diretamente de
 ## Interfaces
 
 - [ApplicationOptions](interfaces/ApplicationOptions.md)
+- [ColorGradingOptions](interfaces/ColorGradingOptions.md)
 - [ControllerContext](interfaces/ControllerContext.md)
 - [EnginePlugin](interfaces/EnginePlugin.md)
 - [GltfAnimation](interfaces/GltfAnimation.md)
@@ -93,6 +94,10 @@ Para implementar Resources/Flows customizados, importe diretamente de
 
 - [GltfAnimationPath](type-aliases/GltfAnimationPath.md)
 - [GltfInterpolation](type-aliases/GltfInterpolation.md)
+
+## Variables
+
+- [effectsBase](variables/effectsBase.md)
 
 ## Functions
 

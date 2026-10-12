@@ -1,5 +1,5 @@
-// portado de legacy/elements/physics/gpu/wgsl/math/mat.wgsl.ts
-// ── Operações matriciais ─────────────────────────────────────────────────────
+// Construção de matrizes (spec 005, R6): de quaternion, de colunas, TRS, transformação 3×3 de vetores, inversa
+// rígida e extração da rotação por decomposição polar. Requer `quat` e `linalg`.
 
 // Transforma v pela parte superior 3×3 de uma mat4x4f (rotation+scale, sem translação).
 // Usado para transformar normais e gradientes SDF de espaço local para mundo.
@@ -46,51 +46,6 @@ fn mat3_from_cols(c0: vec3f, c1: vec3f, c2: vec3f) -> mat3x3f {
     return mat3x3f(c0, c1, c2);
 }
 
-// Transposta de mat3x3f (column-major: m[col][row]).
-fn mat3_transpose(m: mat3x3f) -> mat3x3f {
-    return mat3x3f(
-        vec3f(m[0].x, m[1].x, m[2].x),
-        vec3f(m[0].y, m[1].y, m[2].y),
-        vec3f(m[0].z, m[1].z, m[2].z),
-    );
-}
-
-// Determinante de mat3x3f via expansão da primeira linha.
-fn mat3_det(m: mat3x3f) -> f32 {
-    return
-          m[0].x * (m[1].y*m[2].z - m[2].y*m[1].z)
-        - m[1].x * (m[0].y*m[2].z - m[2].y*m[0].z)
-        + m[2].x * (m[0].y*m[1].z - m[1].y*m[0].z);
-}
-
-// Inversa de mat3x3f via matriz adjunta / determinante.
-// Caller deve garantir det != 0 (ou tolerar NaN/Inf).
-fn mat3_inverse(m: mat3x3f) -> mat3x3f {
-    let det = mat3_det(m);
-    let inv_det = 1.0 / det;
-    let c00 =  (m[1].y*m[2].z - m[2].y*m[1].z) * inv_det;
-    let c01 = -(m[0].y*m[2].z - m[2].y*m[0].z) * inv_det;
-    let c02 =  (m[0].y*m[1].z - m[1].y*m[0].z) * inv_det;
-    let c10 = -(m[1].x*m[2].z - m[2].x*m[1].z) * inv_det;
-    let c11 =  (m[0].x*m[2].z - m[2].x*m[0].z) * inv_det;
-    let c12 = -(m[0].x*m[1].z - m[1].x*m[0].z) * inv_det;
-    let c20 =  (m[1].x*m[2].y - m[2].x*m[1].y) * inv_det;
-    let c21 = -(m[0].x*m[2].y - m[2].x*m[0].y) * inv_det;
-    let c22 =  (m[0].x*m[1].y - m[1].x*m[0].y) * inv_det;
-    // Já vem como adjunta transposta (cofactor[col][row]) → forma colunas direto.
-    return mat3x3f(
-        vec3f(c00, c01, c02),
-        vec3f(c10, c11, c12),
-        vec3f(c20, c21, c22),
-    );
-}
-
-// Multiplicação A × B (column-major). WGSL operator * sobre mat3x3f já faz isso,
-// mas mantemos wrapper nominal para clareza dos call sites em kernels MPM/FEM.
-fn mat3_mul(a: mat3x3f, b: mat3x3f) -> mat3x3f {
-    return a * b;
-}
-
 // Inversa exata de uma matriz rígida (rotação + translação, sem escala).
 // M = [R | t]  →  M⁻¹ = [Rᵀ | -Rᵀ·t]
 fn rigid_mat4_inverse(m: mat4x4f) -> mat4x4f {
@@ -108,4 +63,31 @@ fn rigid_mat4_inverse(m: mat4x4f) -> mat4x4f {
         vec4f(r2, 0.0),
         vec4f(it, 1.0),
     );
+}
+
+// Extrai a rotação R de A_pq tal que A_pq ≈ R·S (decomposição polar).
+// Usa iteração de quaternion convergindo em 4-6 iterações para deformações típicas.
+//
+// A_pq   — gradiente de deformação (Σ w_i · (pred_i − cm) ⊗ r_i)
+// q_prev — quaternion da iteração anterior (warm-start); (0,0,0,1) = identidade
+// Retorna quaternion XYZW representando R.
+//
+// Requer: mat3_from_quat (mat.wgsl), quat_normalize + quat_apply_angular_delta (quat.wgsl).
+fn polar_decomp_quaternion(A_pq: mat3x3f, q_prev: vec4f) -> vec4f {
+    var q = q_prev;
+    for (var k = 0u; k < 6u; k++) {
+        let R    = mat3_from_quat(q);
+        let AR_t = mat3_mul(A_pq, mat3_transpose(R));
+        // Parte anti-simétrica de AR^T → vetor de correção angular
+        let omega = vec3f(
+            AR_t[1].z - AR_t[2].y,
+            AR_t[2].x - AR_t[0].z,
+            AR_t[0].y - AR_t[1].x,
+        );
+        let denom = abs(AR_t[0].x + AR_t[1].y + AR_t[2].z) + 1e-9;
+        let omega_scaled = omega / denom;
+        if (dot(omega_scaled, omega_scaled) < 1e-12) { break; }
+        q = quat_apply_angular_delta(q, 0.5 * omega_scaled);
+    }
+    return quat_normalize(q);
 }

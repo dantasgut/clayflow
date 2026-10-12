@@ -189,6 +189,24 @@ t.data.position[0] = 5; // a mudança aparece no quadro seguinte, sem chamada ma
 | `pass.dispatch.workgroups(n)` acima de 65 535 grupos falhava em silêncio | `RangeError` nomeando o limite; use `pass.dispatch.invocations(count, workgroupSize)` |
 | `Application.dispose` numa cena passada em `options.scene` sempre a descartava | a cena é descartada com a última aplicação que a usa; os estágios padrão são registrados uma vez por cena |
 
+## Mudanças incompatíveis da spec 005 (núcleo de shaders)
+
+Shaders passam a ser montados de módulos (`wgslModule` + `composeWgsl`); ver o guia [Shaders](./shaders.md).
+
+| Antes | Agora |
+| --- | --- |
+| `createComputeKernel({ shaderSource })` / `core.compute(...)` | `createComputeKernel(core, { shader: wgslModule(…), entryPoint, bindings })` |
+| `PipelineDescriptor.shaderSource` | `PipelineDescriptor.shader` (`WgslModule`) |
+| `PostProcessEffect.fragmentSource()` com concatenação | `fragmentModule()` devolvendo um módulo com `requires: [effectsBase]` |
+| Structs WGSL escritos à mão (`wgsl/structs/*.wgsl`) | gerados do `StructSchema` (`wgslName`, `addressSpace`, `fieldArray`/`fieldStruct`/`fieldRuntimeArray`) |
+| `new PerStepUniforms(core, { byteSize })` + `f32(i)[k] = …` | `new PerStepUniforms(core, { discriminator, schema })` + `write(i, dados)` |
+| `FieldType.u16` / `FieldType.i16` | removidos (não são tipo de campo WGSL) |
+| `GraphColorSolver.color(edges)` (CPU) | `new GraphColorer(core, { discriminator, capacity }).color(edges, count, vertexCount)` (GPU, assíncrono) |
+| `scene.add(e)` só anexava (sem inserir no World) | insere no World e anexa (encadeável); `scene.addEntity(e)` devolve o `EntityId` |
+| `flows.resolve(bodyType)` devolvia o último registrado | `override`, senão maior `priority` (empate: último registrado) |
+
+Novos: `wgslLib` (módulos de base), `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `GraphColorer`.
+
 ## Convivência durante a transição
 
 `webgpu-engine/legacy` continua exportado e funcional, apontando para

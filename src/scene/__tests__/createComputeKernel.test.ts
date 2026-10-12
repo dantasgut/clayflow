@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createComputeKernel, destroyComputeKernel } from '../flows/createComputeKernel';
 import { fakeResourceCore } from './helpers/fakeResourceCore';
+import { wgslModule } from '../shaders/WgslModule';
+import { WgslCompositionError } from '../shaders/WgslCompositionError';
 import type {
     BindGroupSpec,
     ComputePipelineSpec,
@@ -42,10 +44,13 @@ function recordingCore(): {
     return { core, creates, asyncCreates };
 }
 
-const TRIVIAL_SHADER = `
+const TRIVIAL_SHADER = wgslModule({
+    name: 'trivial',
+    source: `
 @compute @workgroup_size(1)
 fn main() {}
-`;
+`,
+});
 
 describe('createComputeKernel', () => {
     it('cria layout + shader + pipeline + bindgroup em 1 chamada (sync)', () => {
@@ -58,7 +63,7 @@ describe('createComputeKernel', () => {
         };
         const k = createComputeKernel(core, {
             discriminator: 'k1',
-            shaderSource: TRIVIAL_SHADER,
+            shader: TRIVIAL_SHADER,
             entryPoint: 'main',
             bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
         });
@@ -85,7 +90,7 @@ describe('createComputeKernel', () => {
         };
         createComputeKernel(core, {
             discriminator: 'k_async',
-            shaderSource: TRIVIAL_SHADER,
+            shader: TRIVIAL_SHADER,
             entryPoint: 'main',
             bindings: [{ binding: 0, type: 'storage', buffer: sbo }],
             preferAsync: true,
@@ -106,7 +111,7 @@ describe('createComputeKernel', () => {
         };
         createComputeKernel(core, {
             discriminator: 'kPrefix',
-            shaderSource: TRIVIAL_SHADER,
+            shader: TRIVIAL_SHADER,
             entryPoint: 'main',
             bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
         });
@@ -115,7 +120,7 @@ describe('createComputeKernel', () => {
         const pipelineDisc = creates.find((c) => c.kind === 'pipeline')?.discriminator;
         const bgDisc = creates.find((c) => c.kind === 'bindgroup')?.discriminator;
         expect(layoutDisc).toBe('kPrefix_layout');
-        expect(shaderDisc).toBe('kPrefix_shader');
+        expect(shaderDisc).toBe('wgsl:trivial'); // identidade do shader = módulo montado
         expect(pipelineDisc).toBe('kPrefix_pipeline');
         expect(bgDisc).toBe('kPrefix_bg');
     });
@@ -128,15 +133,18 @@ describe('createComputeKernel', () => {
             discriminator: 'u',
             byteSize: 16,
         };
-        const badShader = `
+        const badShader = wgslModule({
+            name: 'bad',
+            source: `
             fn driver() {
                 missing_helper(0.0);
             }
-        `;
+        `,
+        });
         expect(() =>
             createComputeKernel(core, {
                 discriminator: 'kBad',
-                shaderSource: badShader,
+                shader: badShader,
                 entryPoint: 'driver',
                 bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
             }),
@@ -159,7 +167,7 @@ describe('createComputeKernel', () => {
         };
         const k = createComputeKernel(core, {
             discriminator: 'kMulti',
-            shaderSource: TRIVIAL_SHADER,
+            shader: TRIVIAL_SHADER,
             entryPoint: 'main',
             bindings: [
                 { binding: 0, type: 'uniform', buffer: ubo },
@@ -191,7 +199,10 @@ describe('destroyComputeKernel', () => {
         };
         const kernel = createComputeKernel(core, {
             discriminator: 'k',
-            shaderSource: '@compute @workgroup_size(1) fn main() {}',
+            shader: wgslModule({
+                name: 'two_groups',
+                source: '@compute @workgroup_size(1) fn main() {}',
+            }),
             entryPoint: 'main',
             bindGroups: [
                 { bindings: [{ binding: 0, type: 'storage', buffer }] },
@@ -208,5 +219,71 @@ describe('destroyComputeKernel', () => {
             kernel.layouts[0],
             kernel.layouts[1],
         ]);
+    });
+
+    it('entry point que não é função do módulo de entrada → erro legível', () => {
+        const { core } = recordingCore();
+        const ubo: UniformBufferSpec = {
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'u',
+            byteSize: 16,
+        };
+        expect(() =>
+            createComputeKernel(core, {
+                discriminator: 'kEntry',
+                shader: TRIVIAL_SHADER,
+                entryPoint: 'nao_existe',
+                bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
+            }),
+        ).toThrowError(/entry point 'nao_existe'.*'trivial'/);
+    });
+
+    it('erro de montagem propagado com o motivo', () => {
+        const { core } = recordingCore();
+        const ubo: UniformBufferSpec = {
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'u',
+            byteSize: 16,
+        };
+        const a = wgslModule({ name: 'dup', source: 'fn x() {}' });
+        const b = wgslModule({ name: 'dup', source: 'fn y() {}' });
+        const entry = wgslModule({
+            name: 'e',
+            source: '@compute @workgroup_size(1) fn main() { x(); y(); }',
+            requires: [a, b],
+        });
+        try {
+            createComputeKernel(core, {
+                discriminator: 'kDup',
+                shader: entry,
+                entryPoint: 'main',
+                bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
+            });
+            expect.unreachable();
+        } catch (e) {
+            expect(e).toBeInstanceOf(WgslCompositionError);
+            expect((e as WgslCompositionError).kind).toBe('duplicate-module-name');
+        }
+    });
+
+    it('cada kernel recebe a sua cópia da spec montada (posse independente), com o mesmo texto', () => {
+        const { core } = recordingCore();
+        const ubo: UniformBufferSpec = {
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'u',
+            byteSize: 16,
+        };
+        const opts = {
+            shader: TRIVIAL_SHADER,
+            entryPoint: 'main',
+            bindings: [{ binding: 0, type: 'uniform' as const, buffer: ubo }],
+        };
+        const k1 = createComputeKernel(core, { discriminator: 'kA', ...opts });
+        const k2 = createComputeKernel(core, { discriminator: 'kB', ...opts });
+        expect(k1.pipeline.shader).not.toBe(k2.pipeline.shader);
+        expect(k1.pipeline.shader).toEqual(k2.pipeline.shader);
     });
 });

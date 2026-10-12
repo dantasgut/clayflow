@@ -40,13 +40,15 @@ fn split_of(rb: u32) -> f32 {
 }
 
 // Soma P·inv_mass (Δv) e (r × P)·I_inv (Δω) no corpo — sinal já aplicado pelo chamador.
-fn add_body_delta(rb: u32, dv: vec3f, dw: vec3f) {
-    atomicAdd(&body_delta[rb].dv_x, rb_to_fixed(dv.x));
-    atomicAdd(&body_delta[rb].dv_y, rb_to_fixed(dv.y));
-    atomicAdd(&body_delta[rb].dv_z, rb_to_fixed(dv.z));
-    atomicAdd(&body_delta[rb].dw_x, rb_to_fixed(dw.x));
-    atomicAdd(&body_delta[rb].dw_y, rb_to_fixed(dw.y));
-    atomicAdd(&body_delta[rb].dw_z, rb_to_fixed(dw.z));
+fn add_body_delta(rb: u32, dv_raw: vec3f, dw_raw: vec3f) {
+    let dv = clamp(dv_raw, vec3f(-RB_FIXED_LIMIT), vec3f(RB_FIXED_LIMIT));
+    let dw = clamp(dw_raw, vec3f(-RB_FIXED_LIMIT), vec3f(RB_FIXED_LIMIT));
+    atomicAdd(&body_delta[rb].dv_x, fixed_from_f32(dv.x, RB_FIXED_SCALE));
+    atomicAdd(&body_delta[rb].dv_y, fixed_from_f32(dv.y, RB_FIXED_SCALE));
+    atomicAdd(&body_delta[rb].dv_z, fixed_from_f32(dv.z, RB_FIXED_SCALE));
+    atomicAdd(&body_delta[rb].dw_x, fixed_from_f32(dw.x, RB_FIXED_SCALE));
+    atomicAdd(&body_delta[rb].dw_y, fixed_from_f32(dw.y, RB_FIXED_SCALE));
+    atomicAdd(&body_delta[rb].dw_z, fixed_from_f32(dw.z, RB_FIXED_SCALE));
 }
 
 // Aplica um impulso linear P no ponto (r_a em A, r_b em B) e um impulso angular L puro (A recebe +, B recebe −).
@@ -182,14 +184,14 @@ fn rb_apply_body_delta_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let i = contact_index(gid3, nwg);
     if (i >= rb_params.body_count) { return; }
     let dv = vec3f(
-        rb_from_fixed(atomicExchange(&body_delta[i].dv_x, 0)),
-        rb_from_fixed(atomicExchange(&body_delta[i].dv_y, 0)),
-        rb_from_fixed(atomicExchange(&body_delta[i].dv_z, 0)),
+        fixed_to_f32(atomicExchange(&body_delta[i].dv_x, 0), RB_FIXED_SCALE),
+        fixed_to_f32(atomicExchange(&body_delta[i].dv_y, 0), RB_FIXED_SCALE),
+        fixed_to_f32(atomicExchange(&body_delta[i].dv_z, 0), RB_FIXED_SCALE),
     );
     let dw = vec3f(
-        rb_from_fixed(atomicExchange(&body_delta[i].dw_x, 0)),
-        rb_from_fixed(atomicExchange(&body_delta[i].dw_y, 0)),
-        rb_from_fixed(atomicExchange(&body_delta[i].dw_z, 0)),
+        fixed_to_f32(atomicExchange(&body_delta[i].dw_x, 0), RB_FIXED_SCALE),
+        fixed_to_f32(atomicExchange(&body_delta[i].dw_y, 0), RB_FIXED_SCALE),
+        fixed_to_f32(atomicExchange(&body_delta[i].dw_z, 0), RB_FIXED_SCALE),
     );
     if (bodies[i].pos.w == 0.0) { return; }
     bodies[i].vel   = vec4f(bodies[i].vel.xyz + dv,   bodies[i].vel.w);

@@ -13,7 +13,11 @@ fn predict_main(
     if (i >= params.particle_count) { return; }
 
     let inv_mass = particles[i].pos.w;
-    if (inv_mass == 0.0) { return; }  // partícula fixada — ignora
+    if (inv_mass == 0.0) {
+        // Partícula fixa: a predição é a própria posição (as restrições leem `pred`).
+        particles[i].pred = vec4f(particles[i].pos.xyz, particles[i].pred.w);
+        return;
+    }
 
     // 1. Integra gravidade → velocidade (replica XPBDSoftBodySolver)
     let vel = particles[i].vel.xyz + params.gravity * params.dt;

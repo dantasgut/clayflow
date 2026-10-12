@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StructSchema } from '../descriptors/StructSchema';
+import { StructSchema, fieldArray } from '../descriptors/StructSchema';
 import { FieldType } from '../descriptors/FieldType';
 
 describe('StructSchema.vertexLayout — layout de vértice compacto', () => {
@@ -40,13 +40,15 @@ describe('StructSchema.vertexLayout — layout de vértice compacto', () => {
         expect(schema.vertexLayout.stride).toBe(60);
     });
 
-    it.each([FieldType.mat4x4f, FieldType.mat3x3f, FieldType.u16, FieldType.i16])(
-        'tipo %s não é atributo de vértice → lança',
-        (type) => {
-            const schema = new StructSchema('Bad', { x: type });
-            expect(() => schema.vertexLayout).toThrow(/vértice/);
-        },
-    );
+    it.each([
+        FieldType.mat4x4f,
+        FieldType.mat3x3f,
+        FieldType.atomicU32,
+        fieldArray(FieldType.f32, 2),
+    ])('tipo %s não é atributo de vértice → lança', (type) => {
+        const schema = new StructSchema('Bad', { x: type });
+        expect(() => schema.vertexLayout).toThrow(/vértice/);
+    });
 
     it('é calculado uma vez (mesmo objeto)', () => {
         const schema = new StructSchema('V', { p: FieldType.vec3f });

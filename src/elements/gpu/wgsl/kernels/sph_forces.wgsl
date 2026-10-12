@@ -12,15 +12,15 @@ fn sph_forces_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= sph_params.counts.x) { return; }
+    if (i >= sph_params.particle_count) { return; }
 
-    let h      = sph_params.fluid.y;
-    let mu     = sph_params.viscosity.x;
-    let xsph_c = sph_params.viscosity.y;
-    let mass   = sph_params.mass.x;
-    let max_nb = sph_params.counts.z;
+    let h      = sph_params.h;
+    let mu     = sph_params.viscosity;
+    let xsph_c = sph_params.xsph_c;
+    let mass   = sph_params.particle_mass;
+    let max_nb = sph_params.max_neighbors;
     let nb_n   = neighbor_count[i];
-    let g      = sph_params.gravity_dt.xyz;
+    let g      = sph_params.gravity;
 
     let xi   = particles[i].pos.xyz;
     let vi   = particles[i].vel.xyz;

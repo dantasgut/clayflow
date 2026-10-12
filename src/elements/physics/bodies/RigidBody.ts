@@ -71,7 +71,7 @@ function isRaw(options: RigidBodyOptions): options is RigidBodyRawOptions {
 }
 
 // ── Helpers de setup co-localizados (puros; fonte única do layout do struct) ──
-// Referência do struct: src/elements/gpu/wgsl/structs/rigid_body.wgsl
+// Struct WGSL `RigidBody` gerado de `LCPSchema` (fonte única do layout).
 //   pos.w     = inv_mass (0 = cinemático)
 //   mat_props = (x=restitution, y=friction, z=lin_damping, w=ang_damping)
 //   body_shape= (x=shape_type [0=Sphere,1=Box], yzw=half_extents)

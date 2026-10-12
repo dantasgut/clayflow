@@ -1,8 +1,7 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import { FieldType } from '../../scene/descriptors/FieldType';
-import { StructSchema } from '../../scene/descriptors/StructSchema';
-import forwardWGSL from '../gpu/wgsl/forward.wgsl?raw';
+import { forward } from './shaders';
+import { StandardMaterialSchema } from './StandardMaterialSchema';
 import { Material } from './Material';
 
 /**
@@ -11,13 +10,7 @@ import { Material } from './Material';
  */
 export class StandardMaterial extends Material {
     /** StructSchema do StandardMaterial (albedo + roughness + metallic). */
-    static readonly schema = new StructSchema('StandardMaterial', {
-        albedo: FieldType.vec4f,
-        roughness: FieldType.f32,
-        metallic: FieldType.f32,
-        _pad0: FieldType.f32,
-        _pad1: FieldType.f32,
-    });
+    static readonly schema = StandardMaterialSchema;
 
     constructor(values: Record<string, unknown> = {}) {
         super();
@@ -37,7 +30,7 @@ export class StandardMaterial extends Material {
             {
                 id: 'pipeline_standard',
                 role: 'render',
-                shaderSource: forwardWGSL,
+                shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
                 consumes: ['Camera', 'Transform'],
                 topology: 'triangle-list',

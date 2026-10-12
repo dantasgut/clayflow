@@ -7,7 +7,7 @@ import type { LoadedFont } from '../assets/FontLoader';
 import { UiFlattener } from '../ui/flatten/UiFlattener';
 import { UiTextLayout } from '../ui/flatten/UiTextLayout';
 import { UiGpuPipeline } from '../ui/UiGpuPipeline';
-import uiWGSL from './ui.wgsl?raw';
+import { ui } from './shaders';
 
 /**
  * UIFlow orquestra o pipeline de UI: mantém o `UiTree` (modelo), delega
@@ -48,7 +48,7 @@ export class UIFlow extends Flow {
             {
                 id: 'pipeline_ui_quads',
                 role: 'render',
-                shaderSource: uiWGSL,
+                shader: ui,
                 entryPoints: ['vs_main', 'fs_main'],
                 consumes: [],
             },

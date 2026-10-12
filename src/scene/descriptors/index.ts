@@ -8,8 +8,17 @@ export {
     fieldWgsl,
 } from './FieldType';
 export { Schema } from './Schema';
-export { StructSchema } from './StructSchema';
-export type { VertexLayout, VertexAttributeLayout } from './StructSchema';
+export { StructSchema, fieldArray, fieldRuntimeArray, fieldStruct } from './StructSchema';
+export type {
+    AddressSpace,
+    ArrayFieldSpec,
+    FieldSpec,
+    RuntimeArrayFieldSpec,
+    StructFieldSpec,
+    StructSchemaOptions,
+    VertexLayout,
+    VertexAttributeLayout,
+} from './StructSchema';
 export { TensorSchema } from './TensorSchema';
 export type { TextureShape } from './TextureShape';
 export type { SamplerShape } from './SamplerShape';

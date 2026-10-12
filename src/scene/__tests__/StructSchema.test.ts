@@ -145,7 +145,7 @@ describe('StructSchema.toWGSL', () => {
         });
         const wgsl = s.toWGSL();
         expect(wgsl).toContain('struct Camera');
-        expect(wgsl).toContain('view: mat4x4<f32>');
+        expect(wgsl).toContain('view: mat4x4f');
         expect(wgsl).toContain('near: f32');
     });
 });

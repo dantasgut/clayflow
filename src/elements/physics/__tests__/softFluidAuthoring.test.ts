@@ -6,6 +6,7 @@ import { FEMSchema } from '../bodies/schemas/FEMSchema';
 import { SPHSchema } from '../bodies/schemas/SPHSchema';
 import { PBFSchema } from '../bodies/schemas/PBFSchema';
 import { MPMFluidSchema } from '../bodies/schemas/MPMFluidSchema';
+import { MPMSoftSchema } from '../bodies/schemas/MPMSoftSchema';
 
 describe('SoftBody authoring — algorithm→schema + pos.w=invMass (T018)', () => {
     it('XPBD usa XPBDSoftSchema e codifica invMass em pos.w', () => {
@@ -26,7 +27,10 @@ describe('SoftBody authoring — algorithm→schema + pos.w=invMass (T018)', () 
 describe('SoftBody authoring — equivalência domínio↔cru (T019 / FR-006)', () => {
     it('mesmo buffer empacotado', () => {
         const domain = new SoftBody({ algorithm: 'XPBD', position: [1, 2, 3], mass: 2 });
-        const raw = new SoftBody({ schema: XPBDSoftSchema, data: { pos: [1, 2, 3, 0.5] } });
+        const raw = new SoftBody({
+            schema: XPBDSoftSchema,
+            data: { pos: [1, 2, 3, 0.5], pred: [1, 2, 3, 0] },
+        });
         expect(XPBDSoftSchema.pack(domain.data)).toEqual(XPBDSoftSchema.pack(raw.data));
     });
 });
@@ -67,5 +71,23 @@ describe('schemas referenciados', () => {
         for (const s of [XPBDSoftSchema, FEMSchema, SPHSchema, PBFSchema, MPMFluidSchema]) {
             expect(s.name.length).toBeGreaterThan(0);
         }
+    });
+});
+
+describe('Fachadas MPM — gradiente de deformação em repouso (R18)', () => {
+    it('SoftBody MPM usa MPMSoftSchema com F = I e massa do material (pos.w = 0)', () => {
+        const b = new SoftBody({ algorithm: 'MPM', position: [1, 2, 3], mass: 5 });
+        expect(b.getDescriptors()[0]!.schema).toBe(MPMSoftSchema);
+        expect(b.data.pos).toEqual([1, 2, 3, 0]);
+        expect(b.data.F_col0).toEqual([1, 0, 0, 0]);
+        expect(b.data.F_col1).toEqual([0, 1, 0, 0]);
+        expect(b.data.F_col2).toEqual([0, 0, 1, 0]);
+    });
+
+    it('FluidBody MPM cria F = I; SPH/PBF não têm F', () => {
+        const mpm = new FluidBody({ algorithm: 'MPM', position: [0, 1, 0] });
+        expect(mpm.data.F_col0).toEqual([1, 0, 0, 0]);
+        expect(mpm.data.F_col2).toEqual([0, 0, 1, 0]);
+        expect(new FluidBody({ algorithm: 'SPH' }).data.F_col0).toBeUndefined();
     });
 });

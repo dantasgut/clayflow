@@ -13,22 +13,12 @@ import {
 } from '../../../scene/flows/createComputeKernel';
 import { Flow, type Phase } from '../../../scene/flows/Flow';
 import { Transform } from '../Transform';
-import transformStruct from '../../gpu/wgsl/structs/transform.wgsl?raw';
-import worldTransformStruct from '../../gpu/wgsl/structs/world_transform.wgsl?raw';
-import quatMath from '../../gpu/wgsl/math/quat.wgsl?raw';
-import matMath from '../../gpu/wgsl/math/mat.wgsl?raw';
-import composeKernel from '../../gpu/wgsl/kernels/transform_compose.wgsl?raw';
+import { transformCompose } from './shaders';
+import { TransformParamsSchema } from './TransformParams';
 
 const TRANSFORM_POOL = Transform.schema.name;
 const WORLD_POOL = Transform.worldSchema.name;
 const WORKGROUP_SIZE = 64;
-const SHADER_SOURCE = [
-    transformStruct,
-    worldTransformStruct,
-    quatMath,
-    matMath,
-    composeKernel,
-].join('\n');
 
 /**
  * Estágio de transformação — produz, na GPU, a matriz de mundo e a matriz de normais de
@@ -73,7 +63,7 @@ export class TransformFlow extends Flow {
             {
                 id: 'transform_compose',
                 role: 'compute',
-                shaderSource: SHADER_SOURCE,
+                shader: transformCompose,
                 entryPoints: ['transform_compose_main'],
                 consumes: [TRANSFORM_POOL],
             },
@@ -126,11 +116,11 @@ export class TransformFlow extends Flow {
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: 'transform_compose_params',
-            byteSize: 16,
+            byteSize: TransformParamsSchema.stride,
         });
         this.kernel = createComputeKernel(this.core, {
             discriminator: 'transform_compose',
-            shaderSource: SHADER_SOURCE,
+            shader: transformCompose,
             entryPoint: 'transform_compose_main',
             bindings: [
                 { binding: 0, type: 'read-only-storage', buffer: transforms },
@@ -143,7 +133,7 @@ export class TransformFlow extends Flow {
 
     private writeParams(count: number): void {
         if (this.paramsBuffer === null || count === this.paramsCount) return;
-        this.core.write(this.paramsBuffer, new Uint32Array([count, 0, 0, 0]));
+        this.core.write(this.paramsBuffer, TransformParamsSchema.pack({ count }));
         this.paramsCount = count;
     }
 }

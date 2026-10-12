@@ -75,7 +75,7 @@ describe('LCPFlow — contatos compactados (R19)', () => {
         expect(created(s.core, 'lcp_contacts_')[0]!.byteSize).toBe(capacity * 96);
         expect(created(s.core, 'lcp_bvec_')[0]!.byteSize).toBe(capacity * 4);
         expect(created(s.core, 'lcp_warm_')[0]!.byteSize).toBe(2 * 4096 * 16); // 2 regiões de 2^k ≥ 2C
-        expect(created(s.core, 'lcp_contact_counter')[0]!.byteSize).toBe(16);
+        expect(created(s.core, 'lcp_contact_counter')[0]!.byteSize).toBe(8); // AtomicAllocCounter
     });
 
     it('por substep: contador, contatos por corpo, somas do solve e a região de warm start zerados antes da narrowphase; correção zerada antes do commit', () => {

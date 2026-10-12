@@ -6,25 +6,11 @@
 
 # Class: Scene
 
-Defined in: [elements/scene/Scene.ts:5](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Scene.ts#L5)
+Defined in: [elements/scene/Scene.ts:10](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Scene.ts#L10)
 
-Entity é a unidade composicional da Camada 2 (Sync) — qualquer objeto
-inserido em `World` herda de Entity. A composição é via `add(child)`:
-uma Entity-pai agrega Entity-filhas em uma árvore plana, e
-`World.insert(root)` percorre a árvore registrando cada filho como
-`Resource` indexável.
-
-Padrão de uso típico:
-```ts
-const box = new BoxGeometry({ size: [1, 1, 1] });
-box.add(new StandardMaterial({ albedo: [0.7, 0.3, 0.2, 1] }));
-box.add(new Transform({ position: [0, 0, 0, 1] }));
-world.insert(box);  // registra geometria + material + transform
-```
-
-Subclasses concretas (Camera, Transform, BoxGeometry, etc.) implementam
-`Resource` (descritores GPU + dados), enquanto Entity puro provê apenas
-a hierarquia. Entity é abstrata — não pode ser instanciada diretamente.
+Raiz da cena. `add(entity)` e `addEntity(entity)` inserem a entidade no World (visível aos Flows) e a anexam como
+filha da cena; `add` devolve `this` (encadeável), `addEntity` devolve o `EntityId`. Para anexar um filho a outra
+entidade (sem inserir), use o `add` dessa entidade (`Entity.add`).
 
 ## Extends
 
@@ -36,7 +22,7 @@ a hierarquia. Entity é abstrata — não pode ser instanciada diretamente.
 
 > **new Scene**(`world`): `Scene`
 
-Defined in: [elements/scene/Scene.ts:6](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Scene.ts#L6)
+Defined in: [elements/scene/Scene.ts:11](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Scene.ts#L11)
 
 #### Parameters
 
@@ -60,7 +46,7 @@ Defined in: [elements/scene/Scene.ts:6](https://github.com/dantasgut/clayflow/bl
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -77,16 +63,15 @@ readonly [`Entity`](Entity.md)[]
 
 ### add()
 
-> **add**(`e`): `this`
+> **add**(`entity`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L32)
+Defined in: [elements/scene/Scene.ts:16](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Scene.ts#L16)
 
-Anexa uma Entity-filha. Retorna `this` para chaining fluente.
-Não valida ciclos nem múltiplos pais — responsabilidade do caller.
+Insere a entidade no World e a anexa à cena. Encadeável. Reuso de instância lança `ReuseError`.
 
 #### Parameters
 
-##### e
+##### entity
 
 [`Entity`](Entity.md)
 
@@ -94,7 +79,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 `this`
 
-#### Inherited from
+#### Overrides
 
 [`Entity`](Entity.md).[`add`](Entity.md#add)
 
@@ -104,10 +89,10 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **addEntity**(`entity`): `EntityId`
 
-Defined in: [elements/scene/Scene.ts:14](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Scene.ts#L14)
+Defined in: [elements/scene/Scene.ts:25](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Scene.ts#L25)
 
-Insere uma entidade na cena: adiciona como part do Scene (composição) +
-registra no World (visibilidade para flows). Retorna o EntityId atribuído.
+Insere a entidade no World e a anexa à cena; devolve o EntityId atribuído. Reuso de instância lança
+`ReuseError` e nada é anexado.
 
 #### Parameters
 
@@ -125,7 +110,7 @@ registra no World (visibilidade para flows). Retorna o EntityId atribuído.
 
 > **removeEntity**(`entity`): `void`
 
-Defined in: [elements/scene/Scene.ts:20](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Scene.ts#L20)
+Defined in: [elements/scene/Scene.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Scene.ts#L32)
 
 Remove a entidade do World (flows param de processá-la no próximo tick).
 

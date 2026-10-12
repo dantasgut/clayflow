@@ -1,14 +1,5 @@
-struct ShadowParams {
-    lightViewProj: mat4x4<f32>,
-}
-
-// Produto do TransformFlow — mesma forma de `Transform.worldSchema`.
-struct WorldTransform {
-    world: mat4x4<f32>,
-    normal: mat3x3<f32>,
-}
-
-@group(0) @binding(0) var<uniform> shadow: ShadowParams;
+// Profundidade do mapa de sombra. Structs `ShadowDepthParams` e `WorldTransform` gerados dos schemas.
+@group(0) @binding(0) var<uniform> shadow: ShadowDepthParams;
 // Pool WorldTransform, indexado pelo slot da entidade (firstInstance do draw).
 @group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
 

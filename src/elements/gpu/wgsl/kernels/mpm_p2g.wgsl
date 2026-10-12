@@ -16,8 +16,9 @@ fn mpm_p2g_main(
     let particle = particles[p];
     let pos      = particle.pos.xyz;
     let vel      = particle.vel.xyz;
-    let mass_p   = particle.pos.w;
-    let vol0_p   = particle.vel.w;
+    // Massa e volume de repouso vêm do material (todas as partículas do corpo têm o mesmo).
+    let mass_p   = mpm_params.particle_mass;
+    let vol0_p   = mpm_params.particle_volume;
     let dt       = mpm_params.dt_sub;
     let inv_dx   = mpm_params.inv_dx;
     let fs       = mpm_params.fixed_scale;
@@ -29,22 +30,33 @@ fn mpm_p2g_main(
     let C = mat3_from_cols(particle.C_col0.xyz, particle.C_col1.xyz, particle.C_col2.xyz);
 
     // ── Modelo Neo-Hookean: calcula P × F^T ──────────────────────────────────
-    let J         = mat3_det(F);
-    let mu        = mpm_params.mu;
-    let lam       = mpm_params.lambda_lame;
-    let F_inv     = mat3_inverse(F);
-    let F_inv_T   = mat3_transpose(F_inv);
-    let log_J     = log(max(J, 1e-6));
-    // P = mu*(F - F_invT) + lambda*log(J)*F_invT
-    let P_col0 = mu * (F[0] - F_inv_T[0]) + lam * log_J * F_inv_T[0];
-    let P_col1 = mu * (F[1] - F_inv_T[1]) + lam * log_J * F_inv_T[1];
-    let P_col2 = mu * (F[2] - F_inv_T[2]) + lam * log_J * F_inv_T[2];
-    let P  = mat3_from_cols(P_col0, P_col1, P_col2);
-    let FT = mat3_transpose(F);
-    let PFT = mat3_mul(P, FT);  // P × F^T, contribuição de força
+    // Tensão de Kirchhoff τ = P Fᵀ por material.
+    var PFT: mat3x3f;
+    if (mpm_params.material_id == MPM_MATERIAL_FLUID) {
+        // Fluido fracamente compressível: p = K (1 − J), σ = −p I ⇒ τ = J σ = K J (J − 1) I.
+        let J_f = mat3_det(F);
+        let s_f = mpm_params.bulk_modulus * J_f * (J_f - 1.0);
+        PFT = mat3_from_cols(vec3f(s_f, 0.0, 0.0), vec3f(0.0, s_f, 0.0), vec3f(0.0, 0.0, s_f));
+    } else {
+        // Neo-Hookean com μ/λ do material.
+        let J         = mat3_det(F);
+        let mu        = mpm_params.mu;
+        let lam       = mpm_params.lambda_lame;
+        let F_inv     = mat3_inverse(F);
+        let F_inv_T   = mat3_transpose(F_inv);
+        let log_J     = log(max(J, 1e-6));
+        // P = mu*(F - F_invT) + lambda*log(J)*F_invT
+        let P_col0 = mu * (F[0] - F_inv_T[0]) + lam * log_J * F_inv_T[0];
+        let P_col1 = mu * (F[1] - F_inv_T[1]) + lam * log_J * F_inv_T[1];
+        let P_col2 = mu * (F[2] - F_inv_T[2]) + lam * log_J * F_inv_T[2];
+        let P  = mat3_from_cols(P_col0, P_col1, P_col2);
+        let FT = mat3_transpose(F);
+        PFT = mat3_mul(P, FT);  // P × F^T, contribuição de força
+    }
 
     // ── Pesos B-spline ────────────────────────────────────────────────────────
-    let o    = pos * inv_dx;
+    // Coordenada de grade relativa à origem (o nó (i, j, k) está em origem + (i, j, k)·dx).
+    let o    = (pos - mpm_params.grid_origin) * inv_dx;
     let base = vec3i(i32(floor(o.x - 0.5)), i32(floor(o.y - 0.5)), i32(floor(o.z - 0.5)));
     let fx   = o - vec3f(vec3i(base));
 

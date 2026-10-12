@@ -8,8 +8,12 @@ import { StructSchema } from '../../../../scene/descriptors/StructSchema';
  * com solvers distintos no mesmo frame. FEM agrega esses nós em tetraedros
  * via FEMElement (estrutura separada gerenciada pelo FEMFlow).
  */
-export const FEMSchema = new StructSchema('FEMSchema', {
-    pos: FieldType.vec4f,
-    pred: FieldType.vec4f,
-    vel: FieldType.vec4f,
-});
+export const FEMSchema = new StructSchema(
+    'FEMSchema',
+    {
+        pos: FieldType.vec4f,
+        pred: FieldType.vec4f,
+        vel: FieldType.vec4f,
+    },
+    { wgslName: 'Particle' },
+);

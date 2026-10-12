@@ -14,9 +14,10 @@ import type {
 } from '../../core/contracts/index';
 import type { LoadedFont } from '../assets/FontLoader';
 import type { UiQuadCpu } from './flatten/UiQuadCpu';
-import uiWGSL from '../flows/ui.wgsl?raw';
+import { composeWgsl } from '../../scene/shaders/composeWgsl';
+import { ui } from '../flows/shaders';
+import { ScreenParamsSchema, UiQuadSchema } from '../flows/renderSchemas';
 
-const QUAD_BYTES = 64;
 const MAX_QUADS = 1024;
 
 /**
@@ -147,24 +148,20 @@ export class UiGpuPipeline {
 
     ensureGpuObjects(): void {
         if (this.shader === null)
-            this.shader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ui_shader',
-                source: uiWGSL,
-            });
+            this.shader = this.core.create<ShaderModuleSpec>({ ...composeWgsl(ui).spec });
         if (this.screenBuffer === null)
             this.screenBuffer = this.core.create<UniformBufferSpec>({
                 kind: 'buffer',
                 subkind: 'uniform',
                 discriminator: 'ui_screen',
-                byteSize: 16,
+                byteSize: ScreenParamsSchema.stride,
             });
         if (this.quadsBuffer === null)
             this.quadsBuffer = this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
                 subkind: 'storage',
                 discriminator: 'ui_quads',
-                byteSize: MAX_QUADS * QUAD_BYTES,
+                byteSize: MAX_QUADS * UiQuadSchema.stride,
             });
         if (this.atlasSampler === null)
             this.atlasSampler = this.core.create<SamplerSpec>({
@@ -262,31 +259,21 @@ export class UiGpuPipeline {
 
     upload(quads: readonly UiQuadCpu[]): void {
         if (this.screenBuffer === null || this.quadsBuffer === null) return;
-        const screenBytes = new Float32Array([this.canvas.width, this.canvas.height, 0, 0]);
-        this.core.write(this.screenBuffer, screenBytes);
+        this.core.write(
+            this.screenBuffer,
+            ScreenParamsSchema.pack({ size: [this.canvas.width, this.canvas.height] }),
+        );
 
         this.quadCount = Math.min(quads.length, MAX_QUADS);
-        const buf = new ArrayBuffer(MAX_QUADS * QUAD_BYTES);
-        const f32 = new Float32Array(buf);
+        const buf = new ArrayBuffer(MAX_QUADS * UiQuadSchema.stride);
         for (let i = 0; i < this.quadCount; i++) {
             const q = quads[i]!;
-            const base = i * 16;
-            f32[base + 0] = q.rect[0];
-            f32[base + 1] = q.rect[1];
-            f32[base + 2] = q.rect[2];
-            f32[base + 3] = q.rect[3];
-            f32[base + 4] = q.color[0];
-            f32[base + 5] = q.color[1];
-            f32[base + 6] = q.color[2];
-            f32[base + 7] = q.color[3];
-            f32[base + 8] = q.uv[0];
-            f32[base + 9] = q.uv[1];
-            f32[base + 10] = q.uv[2];
-            f32[base + 11] = q.uv[3];
-            f32[base + 12] = q.textured;
-            f32[base + 13] = 0;
-            f32[base + 14] = 0;
-            f32[base + 15] = 0;
+            UiQuadSchema.packInto(buf, i * UiQuadSchema.stride, {
+                rect: q.rect,
+                color: q.color,
+                uv: q.uv,
+                textured: [q.textured, 0, 0, 0],
+            });
         }
         this.core.write(this.quadsBuffer, new Uint8Array(buf));
     }

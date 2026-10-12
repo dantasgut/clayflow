@@ -3,21 +3,47 @@ import type {
     ComputeKernel,
     ComputeKernelBindGroup,
     ComputeKernelBinding,
-    ComputeKernelOptions,
     ComputePipelineSpec,
     EngineCore,
     LayoutSpec,
     ShaderModuleSpec,
 } from '../../core/contracts/index';
-import { validateWgslReferences } from './validateWgslReferences';
+import { composeWgsl } from '../shaders/composeWgsl';
+import type { WgslModule } from '../shaders/WgslModule';
 
 export type {
     ComputeKernel,
     ComputeKernelBinding,
     ComputeKernelBindingType,
     ComputeKernelBindGroup,
-    ComputeKernelOptions,
 } from '../../core/contracts/index';
+
+/**
+ * Opções de `createComputeKernel`: módulo WGSL de entrada (montado por `composeWgsl`), entry point e bindgroups.
+ *
+ * Use **`bindings`** (single-bindgroup atalho) para casos simples (1 group).
+ * Use **`bindGroups`** (multi-bindgroup) quando o kernel WGSL declara `@group(0)`, `@group(1)`, etc.
+ */
+export interface ComputeKernelOptions {
+    /**
+     * Prefixo único usado para gerar discriminator de cada artifact (`{prefix}_layout`, `{prefix}_pipeline`,
+     * `{prefix}_bg`). Mesma string → mesmo specHash → reuso idempotente do GPU object.
+     */
+    readonly discriminator: string;
+    /** Módulo de entrada; dependências e structs entram pela montagem (`composeWgsl`). */
+    readonly shader: WgslModule;
+    /** Nome da função `@compute @workgroup_size(...)`, definida no módulo de entrada. */
+    readonly entryPoint: string;
+    /** Single-bindgroup form (atalho). Use OU `bindings` OU `bindGroups`, não os dois. */
+    readonly bindings?: readonly ComputeKernelBinding[];
+    /** Multi-bindgroup form: `bindGroups[0]` → @group(0), [1] → @group(1)... */
+    readonly bindGroups?: readonly ComputeKernelBindGroup[];
+    /**
+     * Se true, usa `core.createAsync` para compilar o pipeline em background (sem bloquear o frame). O Flow
+     * consumidor deve checar `isReady()` ou tolerar que o pipeline ainda não esteja no store nos primeiros frames.
+     */
+    readonly preferAsync?: boolean;
+}
 
 /**
  * Encapsula a sequência shader + layouts + bindgroups + pipeline em 1 chamada
@@ -27,12 +53,17 @@ export type {
  * **Single-bindgroup** (atalho): use `opts.bindings`.
  * **Multi-bindgroup** (kernels com @group(0), @group(1)...): use `opts.bindGroups`.
  *
- * O shader source é validado por uma regex que procura chamadas a funções
- * `fn xxx()` não-definidas (catch barato para concatenações WGSL incompletas,
- * e.g. helpers ausentes em base sources). O custo é microsegundos no startup.
+ * O shader vem da montagem do módulo de entrada (`composeWgsl`: dependências, structs gerados, conflitos e
+ * referências verificados; memorizada por módulo). Cada kernel recebe a sua cópia da spec montada — mesmo conteúdo,
+ * mesmo objeto de GPU por dedup de conteúdo, posse independente em `destroyComputeKernel`.
  */
 export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions): ComputeKernel {
-    validateWgslReferences(opts.shaderSource, `kernel "${opts.discriminator}"`);
+    const composed = composeWgsl(opts.shader);
+    if (!opts.shader.symbols.some((s) => s.kind === 'fn' && s.name === opts.entryPoint)) {
+        throw new Error(
+            `createComputeKernel("${opts.discriminator}"): entry point '${opts.entryPoint}' não é função do módulo '${opts.shader.name}'.`,
+        );
+    }
 
     const groups = normalizeGroups(opts);
     if (groups.length === 0) {
@@ -55,11 +86,7 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
         }),
     );
 
-    const shader = core.create<ShaderModuleSpec>({
-        kind: 'shader',
-        discriminator: `${opts.discriminator}_shader`,
-        source: opts.shaderSource,
-    });
+    const shader = core.create<ShaderModuleSpec>({ ...composed.spec });
 
     const pipelineSpec: ComputePipelineSpec = {
         kind: 'pipeline',
@@ -99,7 +126,7 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
 }
 
 /**
- * Libera a posse das specs criadas por `createComputeKernel`/`core.compute` para `kernel`: bind groups, pipeline,
+ * Libera a posse das specs criadas por `createComputeKernel` para `kernel`: bind groups, pipeline,
  * shader e layouts. Objetos de GPU compartilhados por conteúdo com outros kernels vivos continuam existindo (posse
  * por spec, `EngineCore.destroy`). Use ao substituir um kernel (crescimento de buffer, pool realocado) e no
  * descarte do Flow.

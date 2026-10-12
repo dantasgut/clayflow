@@ -1,4 +1,4 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../core/contracts/index';
+import type { EngineCore, Frame } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type { Phase } from '../../../scene/flows/Flow';
@@ -11,32 +11,30 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { SPHSimParamsSchema } from '../schemas/simParams';
+import { ColliderSet } from '../colliders/ColliderSet';
+import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
-import sphSimParamsStruct from '../../gpu/wgsl/structs/sph_sim_params.wgsl?raw';
-import sphParticleStruct from '../../gpu/wgsl/structs/sph_particle.wgsl?raw';
-import colliderDescStruct from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
-import sphKernelsLib from '../../gpu/wgsl/math/sph_kernels.wgsl?raw';
-import sphDensityKernel from '../../gpu/wgsl/kernels/sph_density.wgsl?raw';
-import sphPressureKernel from '../../gpu/wgsl/kernels/sph_pressure.wgsl?raw';
-import sphForcesKernel from '../../gpu/wgsl/kernels/sph_forces.wgsl?raw';
-import sphIntegrateKernel from '../../gpu/wgsl/kernels/sph_integrate.wgsl?raw';
-import sphCollisionKernel from '../../gpu/wgsl/kernels/sph_collision.wgsl?raw';
+import { sphCollision, sphDensity, sphForces, sphIntegrate, sphPressure } from '../shaders/sph';
 
-const COLLIDER_DESC_SIZE = 160;
 /** Bytes do struct `SPHSimParams`. */
-const SPH_SIM_PARAMS_BYTE_SIZE = 96;
+/** Coeficiente do XSPH (suavização de velocidade). */
+const SPH_XSPH = 0.05;
 
 export interface SPHFlowOptions {
-    /** Substeps por passo de física (default 1). O passo vem do `Time` da cena. */
+    /** Mínimo de substeps por passo (default 1); o passo estável do `ParticleMaterial` pode exigir mais. */
     readonly substeps?: number;
+    /** Vizinhos guardados por partícula (default 128; o suporte 2h tem ~73 vizinhos em repouso). */
     readonly maxNeighbors?: number;
 }
 
 /**
- * SPHFlow — fluidos por Smoothed Particle Hydrodynamics. O quadro executa `time.steps × substeps` iterações; cada
- * uma reconstrói a vizinhança e roda densidade → pressão → forças → integração → colisão com a sua região de
- * `SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico.
+ * SPHFlow — fluidos por Smoothed Particle Hydrodynamics fracamente compressível (Tait). O quadro executa
+ * `time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticleMaterial` (CFL 0,4 h/c); cada
+ * uma reconstrói a vizinhança (raio = suporte 2h) e roda densidade → pressão → forças → integração → colisão com a
+ * sua região de `SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico. Massa,
+ * suavização, rigidez, viscosidade, restituição e domínio vêm do material.
  */
 export class SPHFlow extends Flow {
     readonly type = 'SPHFlow';
@@ -48,7 +46,12 @@ export class SPHFlow extends Flow {
 
     private readonly params: PerStepUniforms;
     private neighborSearch: NeighborSearchPipeline | null = null;
-    private collidersBuffer: StorageBufferSpec | null = null;
+    /** Grade com que a vizinhança foi criada (recriada quando o material muda). */
+    private neighborKey = '';
+    /** Pools de collider e mapas de dono (grupo 2 do kernel de colisão). */
+    private readonly colliders: ColliderSet;
+    /** `colliders.generation` com que os kernels foram criados. */
+    private collidersGeneration = -1;
     private densityKernel: ComputeKernel | null = null;
     private pressureKernel: ComputeKernel | null = null;
     private forcesKernel: ComputeKernel | null = null;
@@ -63,54 +66,50 @@ export class SPHFlow extends Flow {
     ) {
         super();
         this.substeps = Math.max(1, options.substeps ?? 1);
-        this.maxNeighbors = options.maxNeighbors ?? 64;
+        this.maxNeighbors = options.maxNeighbors ?? 128;
         this.params = new PerStepUniforms(core, {
             discriminator: 'sph_params',
-            byteSize: SPH_SIM_PARAMS_BYTE_SIZE,
+            schema: SPHSimParamsSchema,
+        });
+        this.colliders = new ColliderSet(core, world, resources, {
+            discriminator: 'sph_colliders',
         });
     }
 
-    private base(): string {
-        return [sphSimParamsStruct, sphParticleStruct, colliderDescStruct, sphKernelsLib].join(
-            '\n',
-        );
-    }
-
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        const b = this.base();
         return [
             {
                 id: 'pipeline_sph_density',
                 role: 'compute',
-                shaderSource: b + '\n' + sphDensityKernel,
+                shader: sphDensity,
                 entryPoints: ['sph_density_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_sph_pressure',
                 role: 'compute',
-                shaderSource: b + '\n' + sphPressureKernel,
+                shader: sphPressure,
                 entryPoints: ['sph_pressure_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_sph_forces',
                 role: 'compute',
-                shaderSource: b + '\n' + sphForcesKernel,
+                shader: sphForces,
                 entryPoints: ['sph_forces_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_sph_integrate',
                 role: 'compute',
-                shaderSource: b + '\n' + sphIntegrateKernel,
+                shader: sphIntegrate,
                 entryPoints: ['sph_integrate_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_sph_collision',
                 role: 'compute',
-                shaderSource: b + '\n' + sphCollisionKernel,
+                shader: sphCollision,
                 entryPoints: ['sph_collision_main'],
                 consumes: [this.bodyType],
             },
@@ -121,10 +120,17 @@ export class SPHFlow extends Flow {
     override dispose(): void {
         this.invalidateKernels();
         this.params.dispose();
-        if (this.collidersBuffer !== null) this.core.destroy(this.collidersBuffer);
-        this.collidersBuffer = null;
+        this.colliders.destroy();
         this.neighborSearch?.dispose();
         this.neighborSearch = null;
+    }
+
+    override onEntitiesInserted(_ids: readonly number[]): void {
+        this.colliders.markDirty();
+    }
+
+    override onEntitiesRemoved(_ids: readonly number[]): void {
+        this.colliders.markDirty();
     }
 
     override isReady(): boolean {
@@ -132,6 +138,7 @@ export class SPHFlow extends Flow {
     }
 
     override onPoolReallocated(poolKey: string): void {
+        this.colliders.onPoolReallocated(poolKey);
         if (poolKey === this.bodyType) {
             this.invalidateKernels();
             this.neighborSearch?.invalidateParticlesBinding();
@@ -157,25 +164,7 @@ export class SPHFlow extends Flow {
     }
 
     private ensureGpuObjects(): void {
-        const b = this.base();
-        if (this.neighborSearch === null) {
-            this.neighborSearch = new NeighborSearchPipeline(this.core, {
-                discriminator: 'sph',
-                maxParticles: 65536,
-                maxNeighbors: this.maxNeighbors,
-                particleStrideF32: 16,
-                cellSize: 0.1,
-                gridDim: [32, 32, 32],
-                origin: [-1.6, -1.6, -1.6],
-            });
-        }
-        if (this.collidersBuffer === null)
-            this.collidersBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: 'sph_colliders',
-                byteSize: COLLIDER_DESC_SIZE,
-            });
+        if (this.neighborSearch === null) return;
 
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
         if (particlesBuf === undefined) return;
@@ -198,16 +187,12 @@ export class SPHFlow extends Flow {
                 { binding: 1, type: 'read-only-storage' as const, buffer: ncount },
             ],
         };
-        const collidersGroup = {
-            bindings: [
-                { binding: 0, type: 'read-only-storage' as const, buffer: this.collidersBuffer },
-            ],
-        };
+        const collidersGroup = { bindings: this.colliders.bindings() };
 
         if (this.densityKernel === null) {
             this.densityKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_density',
-                shaderSource: b + '\n' + sphDensityKernel,
+                shader: sphDensity,
                 entryPoint: 'sph_density_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
@@ -215,7 +200,7 @@ export class SPHFlow extends Flow {
         if (this.pressureKernel === null) {
             this.pressureKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_pressure',
-                shaderSource: b + '\n' + sphPressureKernel,
+                shader: sphPressure,
                 entryPoint: 'sph_pressure_main',
                 bindGroups: [paramsGroup, particlesGroup],
             });
@@ -223,7 +208,7 @@ export class SPHFlow extends Flow {
         if (this.forcesKernel === null) {
             this.forcesKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_forces',
-                shaderSource: b + '\n' + sphForcesKernel,
+                shader: sphForces,
                 entryPoint: 'sph_forces_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
@@ -231,7 +216,7 @@ export class SPHFlow extends Flow {
         if (this.integrateKernel === null) {
             this.integrateKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_integrate',
-                shaderSource: b + '\n' + sphIntegrateKernel,
+                shader: sphIntegrate,
                 entryPoint: 'sph_integrate_main',
                 bindGroups: [paramsGroup, particlesGroup],
             });
@@ -239,47 +224,59 @@ export class SPHFlow extends Flow {
         if (this.collisionKernel === null) {
             this.collisionKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_collision',
-                shaderSource: b + '\n' + sphCollisionKernel,
+                shader: sphCollision,
                 entryPoint: 'sph_collision_main',
                 bindGroups: [paramsGroup, particlesGroup, collidersGroup],
             });
         }
     }
 
-    /** Preenche a região `region` de `SPHSimParams` com o `dt` da iteração e do passo. */
+    /** Vizinhança com raio = suporte do núcleo (2h) e grade pelo domínio; recriada quando o material muda. */
+    private ensureNeighborSearch(material: ParticleMaterial): void {
+        const grid = material.gridFor(2 * material.sphSmoothingLength);
+        const key = `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
+        if (this.neighborSearch !== null && key === this.neighborKey) return;
+        this.neighborSearch?.dispose();
+        this.invalidateKernels();
+        this.neighborSearch = new NeighborSearchPipeline(this.core, {
+            discriminator: 'sph',
+            maxParticles: 65536,
+            maxNeighbors: this.maxNeighbors,
+            particleStrideF32: 16,
+            cellSize: grid.cellSize,
+            gridDim: grid.gridDim,
+            origin: grid.origin,
+        });
+        this.neighborKey = key;
+    }
+
+    /** Preenche a região `region` de `SPHSimParams` com o `dt` da iteração e do passo e os derivados do material. */
     private fillParams(
         region: number,
         particleCount: number,
         dtSub: number,
         stepDt: number,
         accel: readonly number[],
+        material: ParticleMaterial,
     ): void {
-        const f32 = this.params.f32(region);
-        const u32 = this.params.u32(region);
-        f32[0] = accel[0] ?? 0;
-        f32[1] = accel[1] ?? -9.81;
-        f32[2] = accel[2] ?? 0;
-        f32[3] = dtSub;
-        f32[4] = 1000;
-        f32[5] = 0.1;
-        f32[6] = 1000;
-        f32[7] = 7;
-        f32[8] = 0.01;
-        f32[9] = 0.05;
-        f32[10] = stepDt;
-        f32[11] = 0;
-        u32[12] = particleCount;
-        u32[13] = 0;
-        u32[14] = this.maxNeighbors;
-        u32[15] = 16;
-        f32[16] = -10;
-        f32[17] = -10;
-        f32[18] = -10;
-        f32[19] = 0.2;
-        f32[20] = 0.02;
-        f32[21] = 50;
-        f32[22] = 0;
-        f32[23] = 0;
+        this.params.write(region, {
+            gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
+            dt: dtSub,
+            rest_density: material.restDensity,
+            h: material.sphSmoothingLength,
+            stiffness: material.taitStiffness,
+            gamma: TAIT_GAMMA,
+            viscosity: material.viscosity,
+            xsph_c: SPH_XSPH,
+            dt_frame: stepDt,
+            collision_radius: material.particleSpacing / 2,
+            particle_count: particleCount,
+            max_neighbors: this.maxNeighbors,
+            restitution: material.restitution,
+            bound_min: material.domainMin,
+            particle_mass: material.particleMass,
+            inv_particle_mass: 1 / material.particleMass,
+        });
     }
 
     dispatch(frame: Frame): void {
@@ -288,15 +285,27 @@ export class SPHFlow extends Flow {
         if (time === undefined || steps === 0) return;
         const count = this.resources.poolCount(this.bodyType);
         if (count === 0) return;
-        const iterations = steps * this.substeps;
+        const material = ParticleMaterial.of(this.world);
+        const substeps = ParticleMaterial.substepsFor(
+            time.stepDt,
+            material.sphStableDt,
+            this.substeps,
+        );
+        const iterations = steps * substeps;
         if (this.params.reserve(iterations)) this.invalidateKernels();
         const accel = (this.world.findResource(GravityField.schema, GravityField)?.data
             .acceleration as readonly number[] | undefined) ?? [0, -9.81, 0, 0];
         for (let i = 0; i < iterations; i++) {
-            this.fillParams(i, count, time.stepDt / this.substeps, time.stepDt, accel);
+            this.fillParams(i, count, time.stepDt / substeps, time.stepDt, accel, material);
         }
+        this.ensureNeighborSearch(material);
         this.params.flush(iterations);
 
+        this.colliders.refresh();
+        if (this.colliders.generation !== this.collidersGeneration) {
+            this.invalidateKernels();
+            this.collidersGeneration = this.colliders.generation;
+        }
         this.ensureGpuObjects();
         const density = this.densityKernel;
         const pressure = this.pressureKernel;

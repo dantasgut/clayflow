@@ -7,7 +7,13 @@
 //       devolve, para cada partícula, o mesmo conjunto de vizinhos de uma busca de referência na CPU.
 //
 // Para rodar: `npm run smoke -- limits` (servidor do bench). Resultado: `LIMITS SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene, NeighborSearchPipeline } from 'clayflow';
+import {
+    Application,
+    createComputeKernel,
+    createScene,
+    NeighborSearchPipeline,
+    wgslModule,
+} from 'clayflow';
 import type {
     StagingBufferSpec,
     StorageBufferSpec,
@@ -41,7 +47,9 @@ async function readBuffer(
     return data;
 }
 
-const MARK_SHADER = /* wgsl */ `
+const MARK_SHADER = wgslModule({
+    name: 'limits_mark',
+    source: /* wgsl */ `
 @group(0) @binding(0) var<uniform>             params:  vec4u;
 @group(0) @binding(1) var<storage, read_write> marks:   array<u32>;
 @group(0) @binding(2) var<storage, read_write> counter: array<atomic<u32>>;
@@ -56,7 +64,8 @@ fn mark_main(
     marks[i] = marks[i] + 1u;
     atomicAdd(&counter[0], 1u);
 }
-`;
+`,
+});
 
 /** (a) Despacho acima de 65 535 grupos: cada elemento exatamente uma vez. */
 async function checkDispatch(app: App, failures: string[]): Promise<void> {
@@ -80,9 +89,9 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
         byteSize: 16,
     });
     app.core.write(params, new Uint32Array([count, 0, 0, 0]));
-    const kernel = app.core.compute({
+    const kernel = createComputeKernel(app.core, {
         discriminator: 'limits_mark',
-        shaderSource: MARK_SHADER,
+        shader: MARK_SHADER,
         entryPoint: 'mark_main',
         bindings: [
             { binding: 0, type: 'uniform', buffer: params },

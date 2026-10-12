@@ -14,18 +14,18 @@ fn ns_assign_count_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= ns_params.counts.x) { return; }  // counts.x = particle_count
+    if (i >= ns_params.particle_count) { return; }  // counts.x = particle_count
 
-    let stride = ns_params.counts.y;  // particle_stride_f32
+    let stride = ns_params.particle_stride;  // particle_stride_f32
     let px = particle_data[i * stride + 0u];
     let py = particle_data[i * stride + 1u];
     let pz = particle_data[i * stride + 2u];
 
-    let origin    = ns_params.origin_cell.xyz;
-    let cell_size = ns_params.origin_cell.w;
-    let gx = ns_params.dims.x;
-    let gy = ns_params.dims.y;
-    let gz = ns_params.dims.z;
+    let origin    = ns_params.origin;
+    let cell_size = ns_params.cell_size;
+    let gx = ns_params.grid_x;
+    let gy = ns_params.grid_y;
+    let gz = ns_params.grid_z;
 
     // Coordenadas de célula
     let ix = i32(floor((px - origin.x) / cell_size));

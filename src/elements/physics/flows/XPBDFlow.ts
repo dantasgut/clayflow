@@ -11,14 +11,9 @@ import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
+import { SimParamsSchema } from '../schemas/simParams';
 import { GravityField } from '../forcefields/GravityField';
-import simParamsStruct from '../../gpu/wgsl/structs/sim_params.wgsl?raw';
-import particleStruct from '../../gpu/wgsl/structs/particle.wgsl?raw';
-import distanceConstraintStruct from '../../gpu/wgsl/structs/distance_constraint.wgsl?raw';
-import xpbdMath from '../../gpu/wgsl/math/xpbd.wgsl?raw';
-import predictKernel from '../../gpu/wgsl/kernels/predict.wgsl?raw';
-import velocityUpdateKernel from '../../gpu/wgsl/kernels/velocity_update.wgsl?raw';
-import distanceSolveKernel from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw';
+import { xpbdDistanceSolve, xpbdPredict, xpbdVelocityUpdate } from '../shaders/xpbd';
 
 export interface XPBDFlowOptions {
     readonly bodyType?: string;
@@ -29,7 +24,6 @@ export interface XPBDFlowOptions {
 }
 
 /** Bytes do struct `SimParams` (48, alocados 64). */
-const SIM_PARAMS_BYTE_SIZE = 64;
 
 /**
  * XPBDFlow — corpos macios por XPBD (partículas + restrições de distância). O quadro executa
@@ -60,13 +54,13 @@ export class XPBDFlow extends Flow {
     ) {
         super();
         this.bodyType = options.bodyType ?? 'XPBDSoftSchema';
-        this.substeps = Math.max(1, options.substeps ?? 1);
-        this.solverIters = Math.max(1, options.solverIters ?? 4);
+        this.substeps = Math.max(1, options.substeps ?? 8);
+        this.solverIters = Math.max(1, options.solverIters ?? 1);
         this.poolKey = this.bodyType;
         this.constraintPoolKey = options.constraintPoolKey ?? null;
         this.params = new PerStepUniforms(core, {
             discriminator: 'xpbd_sim_params',
-            byteSize: SIM_PARAMS_BYTE_SIZE,
+            schema: SimParamsSchema,
         });
     }
 
@@ -75,14 +69,14 @@ export class XPBDFlow extends Flow {
             {
                 id: 'pipeline_xpbd_predict',
                 role: 'compute',
-                shaderSource: [simParamsStruct, particleStruct, xpbdMath, predictKernel].join('\n'),
+                shader: xpbdPredict,
                 entryPoints: ['predict_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_xpbd_velocity_update',
                 role: 'compute',
-                shaderSource: [simParamsStruct, particleStruct, velocityUpdateKernel].join('\n'),
+                shader: xpbdVelocityUpdate,
                 entryPoints: ['velocity_update_main'],
                 consumes: [this.bodyType],
             },
@@ -91,13 +85,7 @@ export class XPBDFlow extends Flow {
             list.push({
                 id: 'pipeline_xpbd_distance_solve',
                 role: 'compute',
-                shaderSource: [
-                    simParamsStruct,
-                    particleStruct,
-                    distanceConstraintStruct,
-                    xpbdMath,
-                    distanceSolveKernel,
-                ].join('\n'),
+                shader: xpbdDistanceSolve,
                 entryPoints: ['distance_solve_main'],
                 consumes: [this.bodyType, this.constraintPoolKey],
             });
@@ -144,7 +132,7 @@ export class XPBDFlow extends Flow {
         if (this.predictKernel === null) {
             this.predictKernel = createComputeKernel(this.core, {
                 discriminator: 'xpbd_predict',
-                shaderSource: [simParamsStruct, particleStruct, xpbdMath, predictKernel].join('\n'),
+                shader: xpbdPredict,
                 entryPoint: 'predict_main',
                 bindings: baseBindings,
             });
@@ -152,7 +140,7 @@ export class XPBDFlow extends Flow {
         if (this.velUpdateKernel === null) {
             this.velUpdateKernel = createComputeKernel(this.core, {
                 discriminator: 'xpbd_velocity_update',
-                shaderSource: [simParamsStruct, particleStruct, velocityUpdateKernel].join('\n'),
+                shader: xpbdVelocityUpdate,
                 entryPoint: 'velocity_update_main',
                 bindings: baseBindings,
             });
@@ -162,13 +150,7 @@ export class XPBDFlow extends Flow {
             if (constraintsBuf === undefined) return;
             this.distanceKernel = createComputeKernel(this.core, {
                 discriminator: 'xpbd_distance_solve',
-                shaderSource: [
-                    simParamsStruct,
-                    particleStruct,
-                    distanceConstraintStruct,
-                    xpbdMath,
-                    distanceSolveKernel,
-                ].join('\n'),
+                shader: xpbdDistanceSolve,
                 entryPoint: 'distance_solve_main',
                 bindings: [
                     ...baseBindings,
@@ -189,28 +171,18 @@ export class XPBDFlow extends Flow {
         dtSub: number,
         accel: readonly number[],
     ): void {
-        // SimParams (WGSL natural layout, vec3 size=12 align=16):
-        //   gravity vec3f @ 0..12 (size 12)
-        //   dt f32 @ 12..16
-        //   restitution @ 16, damping @ 20, particle_radius @ 24
-        //   particle_count u32 @ 28, constraint_count u32 @ 32, collider_count u32 @ 36
-        //   shape_stiffness @ 40, collision_radius @ 44
-        //   stride aligned to 16 = 48 (we allocate 64 for safety)
-        const f32 = this.params.f32(region);
-        const u32 = this.params.u32(region);
-        f32[0] = accel[0] ?? 0;
-        f32[1] = accel[1] ?? -9.81;
-        f32[2] = accel[2] ?? 0;
-        f32[3] = dtSub; // dt @ offset 12
-        f32[4] = 0.2; // restitution @ 16
-        f32[5] = 0.05; // damping @ 20
-        f32[6] = 0.05; // particle_radius @ 24
-        u32[7] = particleCount; // particle_count @ 28
-        u32[8] =
-            this.constraintPoolKey !== null ? this.resources.poolCount(this.constraintPoolKey) : 0;
-        u32[9] = 0; // collider_count @ 36
-        f32[10] = 0; // shape_stiffness @ 40
-        f32[11] = 0; // collision_radius @ 44
+        this.params.write(region, {
+            gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
+            dt: dtSub,
+            restitution: 0.2,
+            damping: 0.05,
+            particle_radius: 0.05,
+            particle_count: particleCount,
+            constraint_count:
+                this.constraintPoolKey !== null
+                    ? this.resources.poolCount(this.constraintPoolKey)
+                    : 0,
+        });
     }
 
     dispatch(frame: Frame): void {

@@ -4,25 +4,6 @@
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
 
-// Poly6 W(r, h): suave perto do centro
-fn W_poly6(r_sq: f32, h: f32) -> f32 {
-    let h_sq = h * h;
-    if (r_sq >= h_sq) { return 0.0; }
-    let d = h_sq - r_sq;
-    // 315 / (64 * PI * h^9)
-    let coeff = 315.0 / (64.0 * 3.14159265 * pow(h, 9.0));
-    return coeff * d * d * d;
-}
-
-// Gradiente Spiky ∇W(r, h): não nulo em r=0; bom para pressão
-fn grad_W_spiky(r_vec: vec3f, r: f32, h: f32) -> vec3f {
-    if (r <= 0.0001 || r >= h) { return vec3f(0.0); }
-    // -45 / (PI * h^6) * (h - r)^2 / r * r_vec
-    let coeff = -45.0 / (3.14159265 * pow(h, 6.0));
-    let d = h - r;
-    return coeff * (d * d / r) * r_vec;
-}
-
 @compute @workgroup_size(64)
 fn pbf_density_lambda_main(
     @builtin(global_invocation_id) gid3: vec3u,
@@ -31,17 +12,19 @@ fn pbf_density_lambda_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
 
-    let h        = pbf_params.config.y;
-    let rho0     = pbf_params.config.x;
-    let epsilon  = pbf_params.config.z;
-    let max_nb   = pbf_params.counts.z;
+    let h        = pbf_params.h;
+    let rho0     = pbf_params.rest_density;
+    let epsilon  = pbf_params.relaxation;
+    let max_nb   = pbf_params.max_neighbors;
     let nb_count = neighbor_count[i];
     let xi       = particles[i].pos.xyz;
 
     // Densidade
-    var rho = W_poly6(0.0, h);  // auto-contribuição (r=0)
+    let mass     = pbf_params.particle_mass;
+    let m_rho0   = pbf_params.mass_over_density;   // m / ρ₀
+    var rho = mass * W_poly6(0.0, h);  // auto-contribuição (r=0)
     var sum_grad_sq = 0.0;
     var grad_i = vec3f(0.0);
 
@@ -52,17 +35,18 @@ fn pbf_density_lambda_main(
         let r_sq = dot(dv, dv);
         let r    = sqrt(r_sq);
 
-        rho += W_poly6(r_sq, h);
+        rho += mass * W_poly6(r_sq, h);
 
         // ∇_{xi} C_i acumula; ∇_{xj} C_i = −gw → ‖−gw‖² = ‖gw‖²
-        let gw = grad_W_spiky(dv, r, h) / rho0;
+        let gw = m_rho0 * grad_W_spiky(dv, r, h);
         grad_i      += gw;
         sum_grad_sq += dot(gw, gw);   // contribuição de j (∇_{xj} C_i)
     }
     // Contribuição de i (∇_{xi} C_i) — adicionada UMA vez fora do loop
     sum_grad_sq += dot(grad_i, grad_i);
 
-    let C = rho / rho0 - 1.0;
+    // Restrição unilateral: só resiste a compressão (na superfície livre ρ < ρ₀ atrairia partículas e aglomeraria).
+    let C = max(rho / rho0 - 1.0, 0.0);
     let lambda = -C / (sum_grad_sq + epsilon);
 
     // Escreve λ em pos.w

@@ -6,7 +6,7 @@
 
 # Class: LCPFlow
 
-Defined in: [elements/physics/flows/LCPFlow.ts:171](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L171)
+Defined in: [elements/physics/flows/LCPFlow.ts:96](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L96)
 
 LCPFlow — solver de RigidBody via LCP (Linear Complementarity Problem) com
 4 fases canônicas conforme arquitetura revisada: DetectContacts → AssembleA →
@@ -37,7 +37,7 @@ pose direto na GPU.)
 
 > **new LCPFlow**(`core`, `world`, `resources`, `options?`): `LCPFlow`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:227](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L227)
+Defined in: [elements/physics/flows/LCPFlow.ts:154](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L154)
 
 #### Parameters
 
@@ -71,7 +71,7 @@ Defined in: [elements/physics/flows/LCPFlow.ts:227](https://github.com/dantasgut
 
 > `readonly` **bodyType**: `"LCPSchema"` = `'LCPSchema'`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:173](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L173)
+Defined in: [elements/physics/flows/LCPFlow.ts:98](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L98)
 
 Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
 para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
@@ -88,7 +88,7 @@ para encontrar o flow responsável por cada Resource.
 
 > `readonly` **phase**: `Phase` = `'physics'`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:174](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L174)
+Defined in: [elements/physics/flows/LCPFlow.ts:99](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L99)
 
 Fase do pipeline em que o flow executa.
 
@@ -102,7 +102,7 @@ Fase do pipeline em que o flow executa.
 
 > **priority**: `number` = `10`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:175](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L175)
+Defined in: [elements/physics/flows/LCPFlow.ts:100](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L100)
 
 Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 Útil quando dois flows compartilham phase mas têm dependência de ordem
@@ -118,7 +118,7 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"LCPFlow"` = `'LCPFlow'`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:172](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L172)
+Defined in: [elements/physics/flows/LCPFlow.ts:97](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L97)
 
 Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
@@ -132,7 +132,7 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > `protected` **applyTransformsFromReadback**(`ab`): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:1012](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L1012)
+Defined in: [elements/physics/flows/LCPFlow.ts:910](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L910)
 
 Publica a pose lida da GPU no `Transform` de cada corpo: só posição e rotação
 (normalizada; nula ⇒ identidade). A escala não é tocada.
@@ -153,7 +153,7 @@ Publica a pose lida da GPU no `Transform` de cada corpo: só posição e rotaç�
 
 > **contactCapacity**(`bodyCount`, `totalCol`): `number`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:381](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L381)
+Defined in: [elements/physics/flows/LCPFlow.ts:313](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L313)
 
 Capacidade da lista compactada de contatos (research R19): no máximo 8 contatos por par (cantos), `maxContactsPerBody`
 por corpo e o que cabe num binding de storage do device.
@@ -178,7 +178,7 @@ por corpo e o que cabe num binding de storage do device.
 
 > **dispatch**(`frame`): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:761](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L761)
+Defined in: [elements/physics/flows/LCPFlow.ts:652](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L652)
 
 Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
 contém o command encoder ativo — use `frame.compute(...)` ou
@@ -204,7 +204,7 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:296](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L296)
+Defined in: [elements/physics/flows/LCPFlow.ts:227](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L227)
 
 Descarte do estágio: libera kernels, parâmetros, contatos, staging e buffers auxiliares.
 
@@ -222,7 +222,7 @@ Descarte do estágio: libera kernels, parâmetros, contatos, staging e buffers a
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/LCPFlow.ts:247](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L247)
+Defined in: [elements/physics/flows/LCPFlow.ts:178](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L178)
 
 Retorna os descritores de pipelines GPU que este flow precisa criar
 (para introspeção arquitetural / debugging — o flow ainda materializa
@@ -242,7 +242,7 @@ readonly `PipelineDescriptor`[]
 
 > **isReady**(): `boolean`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:325](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L325)
+Defined in: [elements/physics/flows/LCPFlow.ts:254](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L254)
 
 Indica se o flow tem trabalho válido para esta frame. Default: true
 (sempre dispatch). Override para gating em prerequisites: e.g. presença
@@ -263,7 +263,7 @@ ExecutionSystem skipa flows com `isReady() === false`.
 
 > **onCanvasResized**(`_width`, `_height`): `void`
 
-Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L114)
+Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L114)
 
 Chamado quando o canvas é redimensionado. Subclasses que mantêm
 textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
@@ -293,9 +293,9 @@ para evitar use-after-free na GPU.
 
 ### onEntitiesInserted()
 
-> **onEntitiesInserted**(`_entityIds`): `void`
+> **onEntitiesInserted**(`_ids`): `void`
 
-Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L94)
+Defined in: [elements/physics/flows/LCPFlow.ts:271](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L271)
 
 Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
 um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
@@ -303,7 +303,7 @@ cada quadro.
 
 #### Parameters
 
-##### \_entityIds
+##### \_ids
 
 readonly `number`[]
 
@@ -311,7 +311,7 @@ readonly `number`[]
 
 `void`
 
-#### Inherited from
+#### Overrides
 
 `Flow.onEntitiesInserted`
 
@@ -321,7 +321,7 @@ readonly `number`[]
 
 > **onEntitiesRemoved**(`_ids`): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:342](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L342)
+Defined in: [elements/physics/flows/LCPFlow.ts:276](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L276)
 
 Chamado quando entidades são removidas do World. Subclasses que
 cacheiam slots por EntityId devem limpar os entries afetados para
@@ -347,7 +347,7 @@ readonly `number`[]
 
 > **onEvent**(`_event`, `_payload`): `void`
 
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/flows/Flow.ts#L66)
+Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L66)
 
 Hook genérico de eventos. Default no-op. A maioria dos flows usa os
 hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
@@ -376,7 +376,7 @@ hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:329](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L329)
+Defined in: [elements/physics/flows/LCPFlow.ts:258](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L258)
 
 Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
 ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
@@ -404,7 +404,7 @@ ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
 
 > `protected` **reportContactOverflow**(`counter`): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:998](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/flows/LCPFlow.ts#L998)
+Defined in: [elements/physics/flows/LCPFlow.ts:894](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L894)
 
 Avisa (uma vez) quando a narrowphase encontrou mais contatos que a capacidade da lista compactada.
 

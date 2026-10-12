@@ -6,7 +6,7 @@
 
 # Interface: TransformValues
 
-Defined in: [elements/scene/Transform.ts:10](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Transform.ts#L10)
+Defined in: [elements/scene/Transform.ts:10](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Transform.ts#L10)
 
 Valores de construção de um `Transform` (todos opcionais).
 
@@ -16,7 +16,7 @@ Valores de construção de um `Transform` (todos opcionais).
 
 > `readonly` `optional` **position?**: readonly `number`[]
 
-Defined in: [elements/scene/Transform.ts:12](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Transform.ts#L12)
+Defined in: [elements/scene/Transform.ts:12](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Transform.ts#L12)
 
 Posição no mundo `[x, y, z, 1]`. Default `[0, 0, 0, 1]`.
 
@@ -26,7 +26,7 @@ Posição no mundo `[x, y, z, 1]`. Default `[0, 0, 0, 1]`.
 
 > `readonly` `optional` **rotation?**: readonly `number`[]
 
-Defined in: [elements/scene/Transform.ts:14](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Transform.ts#L14)
+Defined in: [elements/scene/Transform.ts:14](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Transform.ts#L14)
 
 Rotação como quaternion `[x, y, z, w]`. Default identidade `[0, 0, 0, 1]`.
 
@@ -36,6 +36,6 @@ Rotação como quaternion `[x, y, z, w]`. Default identidade `[0, 0, 0, 1]`.
 
 > `readonly` `optional` **scale?**: readonly `number`[]
 
-Defined in: [elements/scene/Transform.ts:16](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/scene/Transform.ts#L16)
+Defined in: [elements/scene/Transform.ts:16](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Transform.ts#L16)
 
 Escala por eixo `[sx, sy, sz, 1]`. Default `[1, 1, 1, 1]`; negativa espelha.

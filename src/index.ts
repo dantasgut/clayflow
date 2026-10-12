@@ -50,6 +50,10 @@ export type {
     DeviceCapabilities,
     AdapterDescription,
     ClampedLimit,
+    ComputeKernel,
+    ComputeKernelBinding,
+    ComputeKernelBindingType,
+    ComputeKernelBindGroup,
 } from './core/contracts/index';
 
 export {
@@ -65,7 +69,15 @@ export {
     Entity as SceneEntity,
     StructSchema,
     FieldType,
+    fieldArray,
+    fieldRuntimeArray,
+    fieldStruct,
     createScene,
+    createComputeKernel,
+    destroyComputeKernel,
+    wgslModule,
+    composeWgsl,
+    WgslCompositionError,
 } from './scene/index';
 
 export type {
@@ -90,6 +102,19 @@ export type {
     EntitiesRemovedPayload,
     SceneContext,
     CreateSceneOptions,
+    ComputeKernelOptions,
+    WgslModule,
+    WgslModuleOptions,
+    ComposedShader,
+    WgslCompositionErrorKind,
+    FieldSpec,
+    ArrayFieldSpec,
+    StructFieldSpec,
+    RuntimeArrayFieldSpec,
+    WgslSymbol,
+    WgslSymbolKind,
+    StructSchemaOptions,
+    AddressSpace,
     VertexLayout,
     VertexAttributeLayout,
 } from './scene/index';

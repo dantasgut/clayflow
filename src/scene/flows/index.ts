@@ -9,4 +9,3 @@ export type {
     ComputeKernelBinding,
     ComputeKernelBindingType,
 } from './createComputeKernel';
-export { validateWgslReferences } from './validateWgslReferences';

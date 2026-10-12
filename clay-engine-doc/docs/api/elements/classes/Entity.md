@@ -6,7 +6,7 @@
 
 # Abstract Class: Entity
 
-Defined in: [scene/contracts/Entity.ts:20](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L20)
+Defined in: [scene/contracts/Entity.ts:20](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L20)
 
 Entity é a unidade composicional da Camada 2 (Sync) — qualquer objeto
 inserido em `World` herda de Entity. A composição é via `add(child)`:
@@ -43,6 +43,7 @@ a hierarquia. Entity é abstrata — não pode ser instanciada diretamente.
 - [`ForceField`](ForceField.md)
 - [`Collider`](Collider.md)
 - [`Constraint`](Constraint.md)
+- [`ParticleMaterial`](ParticleMaterial.md)
 - [`ParticleEmitter`](ParticleEmitter.md)
 - [`NeighborSearchGrid`](NeighborSearchGrid.md)
 - [`EulerianGrid`](EulerianGrid.md)
@@ -65,7 +66,7 @@ a hierarquia. Entity é abstrata — não pode ser instanciada diretamente.
 
 > **get** **attached**(): readonly `Entity`[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -80,7 +81,7 @@ readonly `Entity`[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.

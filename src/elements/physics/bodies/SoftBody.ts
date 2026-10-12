@@ -2,14 +2,16 @@ import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { XPBDSoftSchema } from './schemas/XPBDSoftSchema';
 import { FEMSchema } from './schemas/FEMSchema';
+import { MPM_REST_DEFORMATION, MPMSoftSchema } from './schemas/MPMSoftSchema';
 import { PhysicsBody } from './PhysicsBody';
 
 /** Algoritmo de soft body, em vocabulário de domínio. */
-export type SoftBodyAlgorithm = 'XPBD' | 'FEM';
+export type SoftBodyAlgorithm = 'XPBD' | 'FEM' | 'MPM';
 
 const SOFT_SCHEMAS: Record<SoftBodyAlgorithm, StructSchema> = {
     XPBD: XPBDSoftSchema,
     FEM: FEMSchema,
+    MPM: MPMSoftSchema,
 };
 
 /**
@@ -18,11 +20,14 @@ const SOFT_SCHEMAS: Record<SoftBodyAlgorithm, StructSchema> = {
  * seleciona o schema; `pos.w` carrega o inverso da massa.
  */
 export interface SoftBodyDomainOptions {
-    /** Seleciona o schema/flow integrador (XPBD ou FEM). */
+    /**
+     * Seleciona o schema/flow integrador: XPBD, FEM ou MPM (sólido elástico; massa, volume e rigidez vêm do
+     * `ParticleMaterial` da cena).
+     */
     readonly algorithm: SoftBodyAlgorithm;
     /** Posição inicial da partícula (mundo). Default [0,0,0]. */
     readonly position?: readonly [number, number, number];
-    /** Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0). */
+    /** Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0). Ignorada no MPM (massa do material). */
     readonly mass?: number;
 }
 
@@ -70,7 +75,12 @@ export class SoftBody extends PhysicsBody {
         const [px, py, pz] = options.position ?? [0, 0, 0];
         const invMass = options.mass !== undefined && options.mass > 0 ? 1 / options.mass : 0;
         this.schema = schema;
-        this.data = schema.applyDefaults({ pos: [px, py, pz, invMass] });
+        this.data = schema.applyDefaults(
+            options.algorithm === 'MPM'
+                ? { pos: [px, py, pz, 0], ...MPM_REST_DEFORMATION }
+                : // Predição inicial = posição: partículas fixas não passam pela predição e as restrições leem `pred`.
+                  { pos: [px, py, pz, invMass], pred: [px, py, pz, 0] },
+        );
     }
 
     /** Pool storage para coalescer N SoftBodies do mesmo schema em 1 buffer GPU. */

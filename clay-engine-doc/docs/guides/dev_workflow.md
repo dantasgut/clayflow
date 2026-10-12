@@ -98,16 +98,32 @@ Um Flow é uma unidade de execução por frame, normalmente uma compute pass
 ou render pass. Esqueleto:
 
 ```ts
-import { Flow, type Phase } from 'webgpu-engine';
-import type { Frame, EngineCore } from 'webgpu-engine';
+import { Flow, createComputeKernel, wgslModule, wgslLib, type Phase } from 'webgpu-engine';
+import type { ComputeKernel, EngineCore, Frame, StorageBufferSpec } from 'webgpu-engine';
+import mySource from './my_flow.wgsl?raw';
+
+// Módulo de entrada: dependências por `requires`, structs gerados dos schemas em `structs`.
+const myShader = wgslModule({ name: 'my_flow', source: mySource, requires: [wgslLib.quat] });
 
 export class MyFlow extends Flow {
     readonly type = 'MyFlow';
     readonly bodyType = '';
-    readonly phase: Phase = 'physics'; // ou 'shadow' | 'forward' | 'post' | 'ui'
+    readonly phase: Phase = 'physics'; // ou 'transform' | 'shadow' | 'forward' | 'post' | 'ui'
+    private readonly kernel: ComputeKernel;
 
-    constructor(private readonly core: EngineCore) {
+    constructor(
+        private readonly core: EngineCore,
+        private readonly data: StorageBufferSpec,
+        private readonly count: number,
+    ) {
         super();
+        // Criado uma vez (montagem e pipeline memorizados); nunca por quadro.
+        this.kernel = createComputeKernel(core, {
+            discriminator: 'my_flow',
+            shader: myShader,
+            entryPoint: 'my_main',
+            bindings: [{ binding: 0, type: 'storage', buffer: data }],
+        });
     }
 
     getPipelineDescriptors() {
@@ -119,24 +135,17 @@ export class MyFlow extends Flow {
     }
 
     dispatch(frame: Frame) {
-        // Use createComputeKernel ou core.compute para reduzir boilerplate.
-        const kernel = this.core.compute({
-            discriminator: 'my_flow',
-            shaderSource: '...',
-            entryPoint: 'main',
-            bindings: [/* ... */],
-        });
         frame.compute('MyFlow', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
-            pass.dispatch.workgroups(1);
+            pass.bind.setPipeline(this.kernel.pipeline).setBindGroup(0, this.kernel.bindGroup);
+            pass.dispatch.invocations(this.count, 64); // o shader indexa por num_workgroups
         });
     }
 }
 
 // Registro:
-app.flows.register(new MyFlow(app.core));
+app.flows.register(new MyFlow(app.core, dataBuffer, count));
 // Ou via plugin para reutilização:
-app.use({ name: 'my', install(a) { a.flows.register(new MyFlow(a.core)); } });
+app.use({ name: 'my', install(a) { a.flows.register(new MyFlow(a.core, dataBuffer, count)); } });
 ```
 
 ## Adicionando um Resource novo

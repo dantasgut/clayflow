@@ -3,9 +3,10 @@
  * valores correspondem aos nomes WGSL exatos (f32, vec3f, mat4x4f, etc.)
  * para preservar mapeamento direto JS ↔ shader.
  *
- * O StructSchema usa estes tipos para calcular layout (size + align) por
- * regras WGSL std430-like, gerar TypedArrays correspondentes, e emitir
- * WGSL struct definitions sincronizadas com a memória JS.
+ * O StructSchema usa estes tipos para calcular layout (size + align) pelas
+ * regras de layout do WGSL, gerar TypedArrays correspondentes, e emitir
+ * WGSL struct definitions sincronizadas com a memória JS. Todos são
+ * host-shareable (não há tipo de 16 bits: o WGSL não tem `u16`/`i16`).
  */
 export enum FieldType {
     /** float32 — 4 bytes, align 4. */
@@ -36,10 +37,10 @@ export enum FieldType {
     vec3i = 'vec3i',
     /** vec4 de i32 — 16 bytes, align 16. */
     vec4i = 'vec4i',
-    /** uint16 — 2 bytes, align 2. Disponível em WGSL via extension `f16`. */
-    u16 = 'u16',
-    /** int16 — 2 bytes, align 2. */
-    i16 = 'i16',
+    /** `atomic<u32>` — 4 bytes, align 4. Só em storage (contadores, somas em ponto fixo). */
+    atomicU32 = 'atomicU32',
+    /** `atomic<i32>` — 4 bytes, align 4. Só em storage. */
+    atomicI32 = 'atomicI32',
 }
 
 /**
@@ -49,9 +50,7 @@ export enum FieldType {
 export type TypedArrayCtor =
     | Float32ArrayConstructor
     | Uint32ArrayConstructor
-    | Int32ArrayConstructor
-    | Uint16ArrayConstructor
-    | Int16ArrayConstructor;
+    | Int32ArrayConstructor;
 
 /**
  * Metadados estáticos de cada FieldType — internal lookup table.
@@ -64,11 +63,11 @@ interface FieldInfo {
     readonly align: number;
     /** Número de elementos primitivos (f32 = 1, vec3f = 3, mat4x4f = 16). */
     readonly elements: number;
-    /** Bytes por elemento primitivo (4 para f32/u32/i32, 2 para u16/i16). */
+    /** Bytes por elemento primitivo (4 para f32/u32/i32). */
     readonly elementBytes: number;
     /** Constructor do TypedArray para serializar este tipo. */
     readonly ctor: TypedArrayCtor;
-    /** Nome canônico WGSL (e.g. 'vec3<f32>'). */
+    /** Nome WGSL na forma curta (e.g. 'vec3f', 'atomic<u32>'). */
     readonly wgsl: string;
 }
 
@@ -87,7 +86,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 2,
         elementBytes: 4,
         ctor: Float32Array,
-        wgsl: 'vec2<f32>',
+        wgsl: 'vec2f',
     },
     [FieldType.vec3f]: {
         bytes: 12,
@@ -95,7 +94,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 3,
         elementBytes: 4,
         ctor: Float32Array,
-        wgsl: 'vec3<f32>',
+        wgsl: 'vec3f',
     },
     [FieldType.vec4f]: {
         bytes: 16,
@@ -103,7 +102,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 4,
         elementBytes: 4,
         ctor: Float32Array,
-        wgsl: 'vec4<f32>',
+        wgsl: 'vec4f',
     },
     [FieldType.mat3x3f]: {
         bytes: 48,
@@ -111,7 +110,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 12,
         elementBytes: 4,
         ctor: Float32Array,
-        wgsl: 'mat3x3<f32>',
+        wgsl: 'mat3x3f',
     },
     [FieldType.mat4x4f]: {
         bytes: 64,
@@ -119,7 +118,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 16,
         elementBytes: 4,
         ctor: Float32Array,
-        wgsl: 'mat4x4<f32>',
+        wgsl: 'mat4x4f',
     },
     [FieldType.u32]: {
         bytes: 4,
@@ -135,7 +134,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 2,
         elementBytes: 4,
         ctor: Uint32Array,
-        wgsl: 'vec2<u32>',
+        wgsl: 'vec2u',
     },
     [FieldType.vec3u]: {
         bytes: 12,
@@ -143,7 +142,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 3,
         elementBytes: 4,
         ctor: Uint32Array,
-        wgsl: 'vec3<u32>',
+        wgsl: 'vec3u',
     },
     [FieldType.vec4u]: {
         bytes: 16,
@@ -151,7 +150,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 4,
         elementBytes: 4,
         ctor: Uint32Array,
-        wgsl: 'vec4<u32>',
+        wgsl: 'vec4u',
     },
     [FieldType.i32]: {
         bytes: 4,
@@ -167,7 +166,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 2,
         elementBytes: 4,
         ctor: Int32Array,
-        wgsl: 'vec2<i32>',
+        wgsl: 'vec2i',
     },
     [FieldType.vec3i]: {
         bytes: 12,
@@ -175,7 +174,7 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 3,
         elementBytes: 4,
         ctor: Int32Array,
-        wgsl: 'vec3<i32>',
+        wgsl: 'vec3i',
     },
     [FieldType.vec4i]: {
         bytes: 16,
@@ -183,23 +182,23 @@ const TABLE: Readonly<Record<FieldType, FieldInfo>> = {
         elements: 4,
         elementBytes: 4,
         ctor: Int32Array,
-        wgsl: 'vec4<i32>',
+        wgsl: 'vec4i',
     },
-    [FieldType.u16]: {
-        bytes: 2,
-        align: 2,
+    [FieldType.atomicU32]: {
+        bytes: 4,
+        align: 4,
         elements: 1,
-        elementBytes: 2,
-        ctor: Uint16Array,
-        wgsl: 'u16',
+        elementBytes: 4,
+        ctor: Uint32Array,
+        wgsl: 'atomic<u32>',
     },
-    [FieldType.i16]: {
-        bytes: 2,
-        align: 2,
+    [FieldType.atomicI32]: {
+        bytes: 4,
+        align: 4,
         elements: 1,
-        elementBytes: 2,
-        ctor: Int16Array,
-        wgsl: 'i16',
+        elementBytes: 4,
+        ctor: Int32Array,
+        wgsl: 'atomic<i32>',
     },
 };
 
@@ -215,7 +214,7 @@ export function fieldAlign(t: FieldType): number {
 export function fieldElements(t: FieldType): number {
     return TABLE[t].elements;
 }
-/** Bytes por elemento primitivo (4 = float/int, 2 = u16/i16). */
+/** Bytes por elemento primitivo (4 = float/int). */
 export function fieldElementBytes(t: FieldType): number {
     return TABLE[t].elementBytes;
 }
@@ -223,7 +222,12 @@ export function fieldElementBytes(t: FieldType): number {
 export function fieldCtor(t: FieldType): TypedArrayCtor {
     return TABLE[t].ctor;
 }
-/** Nome canônico WGSL — útil para gerar struct definitions sincronizadas. */
+/** Nome WGSL (forma curta) — usado para gerar struct definitions sincronizadas. */
 export function fieldWgsl(t: FieldType): string {
     return TABLE[t].wgsl;
+}
+
+/** `true` para os tipos atômicos (só em storage). */
+export function fieldIsAtomic(t: FieldType): boolean {
+    return t === FieldType.atomicU32 || t === FieldType.atomicI32;
 }

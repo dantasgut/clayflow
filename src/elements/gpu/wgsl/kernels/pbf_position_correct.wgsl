@@ -3,21 +3,8 @@
 @group(1) @binding(0) var<storage, read_write> particles:      array<PBFParticle>;
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
-
-fn W_poly6(r_sq: f32, h: f32) -> f32 {
-    let h_sq = h * h;
-    if (r_sq >= h_sq) { return 0.0; }
-    let d = h_sq - r_sq;
-    let coeff = 315.0 / (64.0 * 3.14159265 * pow(h, 9.0));
-    return coeff * d * d * d;
-}
-
-fn grad_W_spiky(r_vec: vec3f, r: f32, h: f32) -> vec3f {
-    if (r <= 0.0001 || r >= h) { return vec3f(0.0); }
-    let coeff = -45.0 / (3.14159265 * pow(h, 6.0));
-    let d = h - r;
-    return coeff * (d * d / r) * r_vec;
-}
+// Correção Δp da iteração (separada da posição: os vizinhos leem as posições desta iteração, sem corrida).
+@group(3) @binding(0) var<storage, read_write> pbf_delta:      array<vec4f>;
 
 @compute @workgroup_size(64)
 fn pbf_position_correct_main(
@@ -27,13 +14,12 @@ fn pbf_position_correct_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= pbf_params.counts.x) { return; }
+    if (i >= pbf_params.particle_count) { return; }
 
-    let h       = pbf_params.config.y;
-    let rho0    = pbf_params.config.x;
-    let k_corr  = pbf_params.config.w;            // s_corr_k
-    let n_corr  = f32(pbf_params.config2.x);      // s_corr_n (cast u32→f32 no WGSL via bitcast u32)
-    let max_nb  = pbf_params.counts.z;
+    let h       = pbf_params.h;
+    let k_corr  = pbf_params.s_corr_k;            // s_corr_k
+    let n_corr  = pbf_params.s_corr_n;           // s_corr_n (f32)
+    let max_nb  = pbf_params.max_neighbors;
     let nb_count = neighbor_count[i];
     let xi      = particles[i].pos.xyz;
     let li      = particles[i].pos.w;             // lambda_i
@@ -63,6 +49,6 @@ fn pbf_position_correct_main(
         delta += (li + lj + s_corr) * gw;
     }
 
-    delta /= rho0;
-    particles[i].pos = vec4f(xi + delta, li);
+    delta *= pbf_params.mass_over_density;   // m / ρ₀ (Macklin & Müller 2013 com massa)
+    pbf_delta[i] = vec4f(delta, 0.0);
 }

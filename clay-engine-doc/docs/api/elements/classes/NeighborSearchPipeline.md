@@ -6,14 +6,13 @@
 
 # Class: NeighborSearchPipeline
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:82](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L82)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:55](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L55)
 
 NeighborSearchPipeline implementa busca de vizinhos GPU via spatial
-hashing + parallel prefix scan + scatter. Pipeline com 6 kernels:
+hashing + parallel prefix scan + scatter:
   1. `assign_count`: cada partícula computa cell index + atomicAdd em cellCount.
-  2. soma de prefixos hierárquica cellCount → cellStart (offsets por cell): `scan_local` sobe nível a
-     nível (totais por grupo de 256), `scan_groups` escaneia o topo num grupo, `scan_combine` desce somando o
-     prefixo do grupo — qualquer número de células (spec 004, R17).
+  2. soma de prefixos exclusiva cellCount → cellStart (offsets por cell) pelo `PrefixSum` genérico — qualquer
+     número de células.
   3. `scatter`: cada partícula é escrita em sortedParticles[cellStart[cell] + cursor].
   4. `find`: cada partícula busca vizinhos nas 27 cells adjacentes via
      sortedParticles[cellStart[c]..cellStart[c]+cellCount[c]].
@@ -26,7 +25,7 @@ Usado por SPHFlow e PBFFlow para acelerar density/forces computation.
 
 > **new NeighborSearchPipeline**(`core`, `options`): `NeighborSearchPipeline`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:119](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L119)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:84](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L84)
 
 #### Parameters
 
@@ -50,7 +49,7 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:119](https://github.com/dant
 
 > **get** **neighborCount**(): `StorageBufferSpec` \| `null`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:538](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L538)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:388](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L388)
 
 Buffer de contadores — `neighborCount[p]` é o número de vizinhos
 encontrados para a partícula p (≤ maxNeighbors).
@@ -67,7 +66,7 @@ encontrados para a partícula p (≤ maxNeighbors).
 
 > **get** **neighborList**(): `StorageBufferSpec` \| `null`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:530](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L530)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:380](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L380)
 
 Buffer de neighbor indices flat — `neighborList[p*maxNeighbors + n]`
 dá o índice da n-ésima partícula vizinha de p (até `neighborCount[p]`).
@@ -83,7 +82,7 @@ Null antes de `rebuild` ser chamado pela primeira vez.
 
 > **allocate**(): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:158](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L158)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:124](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L124)
 
 Aloca os buffers da busca (grade, contagens, lista de vizinhos). Idempotente. Os Flows chamam antes de montar
 os próprios kernels, que ligam `neighborList`/`neighborCount`.
@@ -98,7 +97,7 @@ os próprios kernels, que ligam `neighborList`/`neighborCount`.
 
 > **dispose**(): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:329](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L329)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:196](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L196)
 
 Libera kernels, buffers e uniforms. A instância pode ser reutilizada (realoca no próximo uso).
 
@@ -112,7 +111,7 @@ Libera kernels, buffers e uniforms. A instância pode ser reutilizada (realoca n
 
 > **invalidateParticlesBinding**(): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:141](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L141)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:107](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L107)
 
 Invalida bind groups que dependem do particles buffer atual.
 Chamado por SPHFlow/PBFFlow quando o pool de partículas reallocate.
@@ -127,14 +126,14 @@ Chamado por SPHFlow/PBFFlow quando o pool de partículas reallocate.
 
 > **rebuild**(`frame`, `particlesBuffer`, `particleCount`): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:550](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/gpu/NeighborSearchPipeline.ts#L550)
+Defined in: [elements/gpu/NeighborSearchPipeline.ts:400](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/NeighborSearchPipeline.ts#L400)
 
 Reconstrói os buffers de vizinhos para o estado atual de partículas.
 Chamado uma vez por frame (no início do dispatch do flow consumidor).
 Se particleCount=0, no-op.
 
-Sequência de kernels: assign_count → scan_local → scan_groups →
-scan_combine → copy(cellStart, cellCursor) → scatter → find.
+Sequência: assign_count → soma de prefixos (cellCount → cellStart) →
+copy(cellStart, cellCursor) → scatter → find.
 
 #### Parameters
 

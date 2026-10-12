@@ -8,8 +8,7 @@
 
 > `const` **PBFSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/PBFSchema.ts:9](https://github.com/dantasgut/clayflow/blob/b17d5d6aad8e58344ec396008fda32fab9b22987/src/elements/physics/bodies/schemas/PBFSchema.ts#L9)
+Defined in: [elements/physics/bodies/schemas/PBFSchema.ts:8](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/bodies/schemas/PBFSchema.ts#L8)
 
 Schema da partícula PBF (4 vec4f = 64B).
-Layout casa byte-a-byte com o struct WGSL `PBFParticle` em
-`gpu/wgsl/structs/pbf_particle.wgsl` (pos.w=lambda, curl=vorticity).
+Fonte única do struct WGSL `PBFParticle` (gerado deste schema pela montagem dos shaders) (pos.w=lambda, curl=vorticity).
