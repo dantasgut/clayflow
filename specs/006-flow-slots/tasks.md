@@ -260,7 +260,7 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] T064 [P] `specs/ROADMAP.md`: F1/006 concluída, §6 com os números novos; `specs/PENDENCIAS.md` atualizado (achados resolvidos: readback do LCP, TransformFlow, malha no `ColliderSet`)
+- [x] T064 [P] `specs/ROADMAP.md`: F1/006 concluída, §6 com os números novos; `specs/PENDENCIAS.md` atualizado (achados resolvidos: readback do LCP, TransformFlow, malha no `ColliderSet`)
 - [x] T065 JSDoc em todos os exports novos; `npm run doc:coverage`; regenerar a API (`npm run doc`)
 
 > **Execução (T065, 2026-10-12)**: `doc:coverage` com 0 membros sem documentação e 47 avisos de tipo não incluído
@@ -269,7 +269,23 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 - [x] T066 Verificações da 005 mantidas: `src/elements/__tests__/noManualOffsets.test.ts`, `noManualWgslAssembly.test.ts`, `wgslInventory.test.ts` verdes (FR-029, nenhum struct duplicado)
 - [x] T067 Smokes completos no código-fonte e sobre o dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar em `src/__smokes__/README.md` (SC-006, SC-007, SC-009)
 - [ ] T068 `npm run bench:check` com a máquina sem carga externa: CPU por quadro de `instances/10k` −30% e montagem menor contra o baseline, sem regressão > 10% nas demais (SC-003); registrar os números abaixo deste item em `specs/006-flow-slots/tasks.md`; refazer junto a T084 da 005 se ainda pendente
-- [ ] T069 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/006-flow-slots/spec.md` com status e `checklists/requirements.md`
+
+> **Rodada com carga externa (2026-10-12, commit 00d255e)**: `completion_test` do holos-rust a 100% de CPU e
+> `mediaanalysisd` ativo durante toda a rodada (11,6 min). Gate **REPROVADO** só em métricas de quadro/GPU:
+> `unique-objects/1k` p95 14,68 → 20,22 ms e p99 15,71 → 20,42 ms (CPU 7,75 → 1,08 ms, −86%); `instances/10k-moving`
+> GPU 0,93 → 1,08 ms (a GPU dessa cena oscila entre estados de clock — T085 da 004). Critério SC-003 atendido nesta
+> rodada: **CPU por quadro de `instances/10k` 88,39 → 16,85 ms (−80,9%)**, p95 102,58 → 18,15 ms; montagem (contagem
+> de objetos, T003): de 12 objetos de GPU por entidade para os 2 da geometria da própria entidade (VBO/IBO da C2),
+> nenhum dos estágios (SC-001). Demais melhorias: `instances/100k` passou de timeout a ok (166 ms CPU);
+> `instances/10k-moving` CPU −32,5%; `rigid-bodies/1k` CPU −75%, GPU −40%; `rigid-bodies/10k` CPU −80,9%, p95 −21,6%.
+> Adaptador do bench sem as duas limitações resolvidas (forward por entidade, geometria duplicada).
+> **Pendente**: repetir `npm run bench:check` com a máquina livre; se verde, `npm run bench:baseline`.
+
+- [x] T069 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/006-flow-slots/spec.md` com status e `checklists/requirements.md`
+
+> **Gate (T069, 2026-10-12)**: `format:check` ✅, `lint` 0 erros, `tsc` ✅, `test:coverage` 913/913 (linhas 87,0%,
+> statements 86,3%), `build:lib` ✅ (564,75 kB, 144,78 kB gzip); bench do harness 81/81. Checklist de requisitos 16/16.
+> Spec marcada como implementada, com a T068 (rodada de bench com a máquina livre) e a ratificação da 1.1.0 pendentes.
 
 ---
 

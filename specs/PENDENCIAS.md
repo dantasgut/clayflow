@@ -4,11 +4,12 @@ Levantamento feito no código após a spec 005 (`feature/005-shader-modules`, PR
 não simula, os limites de escala e a pendência de verificação da 005. Cada item aponta a evidência no código e a fase
 do [ROADMAP](ROADMAP.md) em que está previsto.
 
-## 0. Verificação pendente da 005
+## 0. Verificações de desempenho pendentes (005 e 006)
 
-| Item                 | Estado                                                                                                                                                                                                                                                                          | Próximo passo                                                                                                         |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| T084 — `bench:check` | REPROVADO numa rodada com carga externa (`completion_test` e `mediaanalysisd` a ~90–100% de CPU): timeout em `instances/10k-moving`, p99 de `unique-objects/1k`, p95/p99 de `rigid-bodies/10k`. Todas as médias melhoraram 13–46%; `instances/10k-moving` isolado: 272 × 304 ms | Repetir `npm run bench:check` com a máquina livre; se verde, `npm run bench:baseline` (melhorias acima da tolerância) |
+| Item                        | Estado                                                                                                                                                                                                                                                                          | Próximo passo                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| T084 — `bench:check`        | REPROVADO numa rodada com carga externa (`completion_test` e `mediaanalysisd` a ~90–100% de CPU): timeout em `instances/10k-moving`, p99 de `unique-objects/1k`, p95/p99 de `rigid-bodies/10k`. Todas as médias melhoraram 13–46%; `instances/10k-moving` isolado: 272 × 304 ms | Repetir `npm run bench:check` com a máquina livre; se verde, `npm run bench:baseline` (melhorias acima da tolerância) |
+| T068 da 006 — `bench:check` | REPROVADO numa rodada com carga externa (2026-10-12) só em quadro/GPU: p95/p99 de `unique-objects/1k` (+38%/+30%) e GPU de `instances/10k-moving` (+16%); CPU de todas as cenas caiu 33–86% (`instances/10k` −81%, meta −30%)                                                   | O mesmo: uma rodada com a máquina livre cobre a T084 da 005 e a T068 da 006                                           |
 
 ## 1. Na API, sem simulação
 
@@ -18,7 +19,7 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | P2  | `MeshCollider` não gera contatos                  | `rb_narrowphase_mesh_main` não emite contato (`elements/gpu/wgsl/kernels/rb_narrowphase.wgsl`); fluidos também não colidem com malha                         | F5 (015) |
 | P3  | Campos de força ignorados                         | Só `GravityField` é consumido pelos solvers; `WindField`, `DragField`, `VortexField` e `BuoyancyField` alocam dados que nenhum Flow lê                       | F5 (016) |
 | P4  | `JointConstraint` e `SpringConstraint` sem solver | Nenhum Flow nem kernel os consome; só `DistanceConstraint` (XPBD) é resolvida                                                                                | F5 (015) |
-| P5  | `XPBDRigidSchema` sem Flow                        | Ausente de `DEFAULT_FLOW_FACTORIES` (`elements/physics/flows/defaultFlows.ts`); nenhum solver o simula                                                       | F5 (015) |
+| P5  | `XPBDRigidSchema` sem Flow                        | Ausente de `DEFAULT_SOLVER_REGISTRATIONS` (`elements/physics/flows/defaultFlows.ts`); nenhum solver o simula                                                 | F5 (015) |
 | P6  | Emissores de partículas sem simulação             | `ComputeParticleEmitter` e `ScriptedParticleEmitter` só declaram descritores (spawn, update e idade não existem); formas `Point`/`Sphere`/`Cone` sem uso     | F9 (025) |
 | P7  | Sem acoplamento entre solvers                     | Cada solver reage só aos colliders do `ColliderSet`: fluido não empurra rígido, rígido não interage com macio, MPM e SPH/PBF não se veem                     | F5       |
 | P8  | Corpo rígido só com esfera e caixa                | `RigidBody` aceita `shape: 'sphere' \| 'box'` (`elements/physics/bodies/RigidBody.ts`); sem cápsula, convexo ou SDF                                          | F5 (015) |
@@ -27,15 +28,37 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 
 ## 2. Limites de escala
 
-| #   | Limite                                      | Estado atual (evidência)                                                                                                                                                         | Fase         |
-| --- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| E1  | XPBD resolve em uma única thread            | `distance_solve_main` com `@workgroup_size(1)` percorre todas as restrições em laço (`elements/gpu/wgsl/kernels/distance_solve.wgsl`); `GraphColorer` já existe para paralelizar | F5 (015)     |
-| E2  | LCP sem broadphase                          | Cada corpo testa todos os colliders (O(N·M)); `rigid-bodies/10k` ≈ 340 ms/quadro. A busca de vizinhança (spec 005) é a base prevista                                             | F5 (015)     |
-| E3  | Readback dos corpos rígidos por quadro      | Pose lida de volta para a CPU com 1 quadro de atraso                                                                                                                             | F2           |
-| E4  | Teto de partículas fixo                     | SPH e PBF alocam 65 536 partículas (`SPHFlow.ts:243`, `PBFFlow.ts:42`)                                                                                                           | F5           |
-| E5  | Render sem instancing; forward por entidade | 1 draw por objeto; forward aloca buffers e bind groups por entidade                                                                                                              | F1 (006), F2 |
+| #   | Limite                                 | Estado atual (evidência)                                                                                                                                                         | Fase     |
+| --- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| E1  | XPBD resolve em uma única thread       | `distance_solve_main` com `@workgroup_size(1)` percorre todas as restrições em laço (`elements/gpu/wgsl/kernels/distance_solve.wgsl`); `GraphColorer` já existe para paralelizar | F5 (015) |
+| E2  | LCP sem broadphase                     | Cada corpo testa todos os colliders (O(N·M)); `rigid-bodies/10k` ≈ 340 ms/quadro. A busca de vizinhança (spec 005) é a base prevista                                             | F5 (015) |
+| E3  | Readback dos corpos rígidos por quadro | Pose lida de volta para a CPU com 1 quadro de atraso                                                                                                                             | F2       |
+| E4  | Teto de partículas fixo                | SPH e PBF alocam 65 536 partículas (`SPHFlow.ts:243`, `PBFFlow.ts:42`)                                                                                                           | F5       |
+| E5  | Render sem instancing                  | 1 draw por objeto. A alocação por entidade do forward saiu na 006 (câmera, mundo e material pelos slots; nenhum objeto de GPU por entidade); falta instancing / vertex pulling   | F2 (007) |
 
-## 3. Ordem do ROADMAP
+## 3. Resolvidos na 006 (2026-10-12)
 
-F1 (006 — slots de Flow, `consumes`, migração do forward) → F2 bloqueiam o resto; F3, F4 e F5 podem andar em
-paralelo depois. As pendências P1–P5, P7–P10, E1, E2 e E4 são da F5; P6 da F9; E3 da F2; E5 da 006/F2.
+| Achado (A6 do levantamento da 006)                                                    | Correção                                                                                                      |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Readback do LCP mapeava slot → entidade quando a leitura resolvia, não quando copiava | Mapa slot → entidade capturado em `framePrepare` e a leitura iniciada em `frameRecorded` (`LCPFlow`)          |
+| `TransformFlow` não recompunha quando a contagem caía por remoção                     | Remoção de entidade (`entitiesChanged`) volta a `stale` e recompõe                                            |
+| `ColliderSet` omitia o pool de malha                                                  | Pool de malha no grupo de colliders (`collider_meshes`/`collider_mesh_owners`); contato com malha segue em P2 |
+| Comentário do `XPBDFlow` dizia 1 substep padrão (o código usa 8)                      | Documentação corrigida                                                                                        |
+| `ShadowMap.schema` não era lido por shader                                            | `forward.wgsl` e `shadow_depth.wgsl` leem `array<ShadowMap>` pelo slot do caster                              |
+| Inserção em massa O(n²) com o forward pronto e nos solvers com colliders              | Só as entidades adicionadas são processadas; o `ColliderSet` é reconstruído uma vez por quadro                |
+
+## 4. Fora do escopo da 006
+
+| Item                                                                         | Fase     |
+| ---------------------------------------------------------------------------- | -------- |
+| Pools de Transform/Camera/Light/Material/Renderable lidos pela GPU sem a CPU | F2 (007) |
+| Instancing e vertex pulling (E5)                                             | F2 (007) |
+| Fim do readback da física (E3)                                               | F2 (007) |
+| Geometria gerada em compute                                                  | F2 (008) |
+| Pontos de extensão matemáticos (métrica, espaços não euclidianos)            | F3       |
+| Lacunas de simulação P1–P10 e limites E1, E2, E4                             | F5       |
+
+## 5. Ordem do ROADMAP
+
+F1 (004, 005, 006) concluída; F2 (007 — ponte compute↔render; 008 — geometria em compute) bloqueia o resto; F3, F4 e
+F5 podem andar em paralelo depois. As pendências P1–P5, P7–P10, E1, E2 e E4 são da F5; P6 da F9; E3 e E5 da F2.

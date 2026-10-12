@@ -4,7 +4,8 @@
 
 **Created**: 2026-10-12
 
-**Status**: Draft
+**Status**: Implementada (2026-10-12) — pendentes: `bench:check` com a máquina livre (T068) e ratificação da
+constituição 1.1.0 no PR
 
 **Input**: User description: "Slots de Flow (spec 006, fase F1 do roadmap — `006-flow-slots`). Implementar no lugar
 arquitetural certo (refundação C1–C4, `architecture_resource_loaders.md` autoritativo, com as definições corrigidas na
