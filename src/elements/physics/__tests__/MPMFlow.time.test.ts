@@ -1,54 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import { MPMFlow } from '../flows/MPMFlow';
 import { FluidBody } from '../bodies/FluidBody';
-import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
-import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
-import { World } from '../../../scene/world/World';
-import { Time } from '../../../scene/time/Time';
+import { RigidBody } from '../bodies/RigidBody';
 import { ParticleMaterial } from '../materials/ParticleMaterial';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
-import { countPasses, recordingFrame } from './helpers/recordingFrame';
+import { countPasses } from './helpers/recordingFrame';
+import { solverScene } from './helpers/solverScene';
 
-function setup(substeps: number) {
-    const events = new DefaultEventBus();
-    const world = new World(events);
-    const { core, writes } = fakeResourceCore();
-    const resources = new ResourceSystem(core, events, world);
-    const time = new Time(events);
-    world.insert(time);
+async function setup(substeps: number) {
+    const s = await solverScene();
+    s.scene.flows.register((ctx) => new MPMFlow(ctx, { substeps }), {
+        type: 'MPMFlow',
+        phase: 'physics',
+        bodyType: 'MPMFluidSchema',
+    });
     // Passo estável bem maior que o passo da cena: substeps = o configurado (a derivação pelo material tem teste próprio).
-    world.insert(new ParticleMaterial({ speedOfSound: 0.1, youngModulus: 1 }));
-    world.insert(new FluidBody({ algorithm: 'MPM', position: [0, 0, 0] }));
-    const flow = new MPMFlow(core, world, resources, { substeps });
-    return { time, flow, writes };
+    s.scene.world.insert(new ParticleMaterial({ speedOfSound: 0.1, youngModulus: 1 }));
+    s.scene.world.insert(new FluidBody({ algorithm: 'MPM', position: [0, 0, 0] }));
+    return s;
 }
 
-describe('MPMFlow — avanço governado pelo Time', () => {
-    it('cada iteração executa as 4 etapas com a região própria no grupo 0', () => {
-        const { time, flow } = setup(2);
-        time.advance(2 / 60);
-        const rec = recordingFrame();
-        flow.dispatch(rec.frame);
+describe('MPMFlow — avanço governado pelo Time (slots)', () => {
+    it('cada iteração executa as etapas com a região própria só no grupo dos parâmetros', async () => {
+        const { step } = await setup(2);
+        const passes = step(2 / 60);
         for (const label of [
             'MPMFlow.clear_grid',
             'MPMFlow.p2g',
             'MPMFlow.grid_update',
             'MPMFlow.g2p',
+            'MPMFlow.collision',
         ]) {
-            expect(countPasses(rec.passes, label)).toBe(4);
+            expect(countPasses(passes, label)).toBe(4);
         }
-        const g2p = rec.passes.filter((p) => p.label === 'MPMFlow.g2p');
+        const g2p = passes.filter((p) => p.label === 'MPMFlow.g2p');
         expect(g2p.map((p) => p.offsets[0]?.[0])).toEqual([0, 256, 512, 768]);
-        // grupos 1+ (grade, partículas) sem offset dinâmico
         expect(g2p[0]!.offsets.slice(1).every((o) => o === undefined)).toBe(true);
     });
 
-    it('dt e dt_frame por região, uma escrita por quadro', () => {
-        const { time, flow, writes } = setup(2);
-        time.advance(1 / 60);
-        flow.dispatch(recordingFrame().frame);
+    it('dt e dt_frame por região, uma escrita por quadro', async () => {
+        const { step, writes } = await setup(2);
+        writes.length = 0;
+        step(1 / 60);
         const w = writes.filter((x) =>
-            (x.spec as { discriminator: string }).discriminator.includes('per_step'),
+            (x.spec as { discriminator: string }).discriminator.includes('mpm_params:per_step'),
         );
         expect(w).toHaveLength(1);
         const f32 = new Float32Array(
@@ -60,12 +54,38 @@ describe('MPMFlow — avanço governado pelo Time', () => {
         expect(f32[64 + 11]).toBeCloseTo(1 / 60, 7);
     });
 
-    it('steps = 0 não grava passes', () => {
-        const { time, flow } = setup(1);
-        time.pausePhysics();
-        time.advance(1 / 60);
-        const rec = recordingFrame();
-        flow.dispatch(rec.frame);
-        expect(rec.passes).toHaveLength(0);
+    it('steps = 0 não grava passes; nada criado na gravação', async () => {
+        const s = await setup(1);
+        s.scene.time.pausePhysics();
+        expect(s.step(1 / 60)).toHaveLength(0);
+        s.scene.time.resumePhysics();
+        s.step(2 / 60);
+        expect(s.createdWhileRecording).toBe(0);
+    });
+
+    it('collider inserido depois: mapas de dono reconstruídos em transição e grupo de colliders religado', async () => {
+        const s = await setup(1);
+        s.step();
+        const replaced: string[] = [];
+        s.scene.events.on('bindGroupReplaced', (e) => replaced.push(e.pipeline));
+        s.scene.world.insert(new RigidBody({ shape: 'box', mass: 0, halfExtents: [2, 0.1, 2] }));
+        s.step();
+        expect(replaced).toContain('mpm_grid_update');
+        expect(replaced).toContain('mpm_particle_collision');
+        expect(s.createdWhileRecording).toBe(0);
+    });
+
+    it('material com outra grade: grade recriada e religada antes da gravação', async () => {
+        const s = await setup(1);
+        s.step();
+        const mat = s.scene.world.rootOf(
+            s.scene.world.queryBySchemaName('ParticleMaterial')[0]!,
+        ) as ParticleMaterial;
+        mat.data.particleSpacing = 0.08;
+        const replaced: string[] = [];
+        s.scene.events.on('bindGroupReplaced', (e) => replaced.push(e.pipeline));
+        s.step();
+        expect(replaced).toContain('mpm_clear_grid');
+        expect(s.createdWhileRecording).toBe(0);
     });
 });

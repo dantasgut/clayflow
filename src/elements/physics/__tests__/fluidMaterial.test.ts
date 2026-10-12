@@ -14,6 +14,7 @@ import {
     type WriteCall,
 } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { countPasses, recordingFrame } from './helpers/recordingFrame';
+import { solverScene } from './helpers/solverScene';
 import type { LegacyFlow as Flow } from '../../../scene/flows/LegacyFlow';
 import { PBFSimParamsSchema, SPHSimParamsSchema } from '../schemas/simParams';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
@@ -162,15 +163,21 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
 });
 
 describe('MPMFlow — parâmetros do ParticleMaterial', () => {
-    it('fluido: material_id 2, massa/volume/K do material, grade 2s pelo domínio', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'MPM' }),
-            (c, w, r) => new MPMFlow(c, w, r),
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        const rec = recordingFrame();
-        s.flow.dispatch(rec.frame);
+    async function mpm(body: () => FluidBody | SoftBody, bodyType: string) {
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new MPMFlow(ctx), {
+            type: 'MPMFlow',
+            phase: 'physics',
+            bodyType,
+        });
+        s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        s.scene.world.insert(body());
+        return s;
+    }
+
+    it('fluido: material_id 2, massa/volume/K do material, grade 2s pelo domínio', async () => {
+        const s = await mpm(() => new FluidBody({ algorithm: 'MPM' }), 'MPMFluidSchema');
+        const passes = s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(f32[7]).toBeCloseTo(material.particleMass, 6);
         expect(f32[8]).toBeCloseTo(material.particleVolume, 9);
@@ -181,17 +188,12 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
         expect(u32[21]).toBe(2);
         const substeps = ParticleMaterial.substepsFor(1 / 60, material.mpmStableDt);
         expect(u32[22]).toBe(substeps);
-        expect(countPasses(rec.passes, 'MPMFlow.p2g')).toBe(substeps);
+        expect(countPasses(passes, 'MPMFlow.p2g')).toBe(substeps);
     });
 
-    it('sólido: material_id 0 e Lamé do material', () => {
-        const s = setup(
-            () => new SoftBody({ algorithm: 'MPM' }),
-            (c, w, r) => new MPMFlow(c, w, r, { bodyType: 'MPMSoftSchema' }),
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('sólido: material_id 0 e Lamé do material', async () => {
+        const s = await mpm(() => new SoftBody({ algorithm: 'MPM' }), 'MPMSoftSchema');
+        s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(u32[21]).toBe(0);
         expect(f32[4]).toBeCloseTo(material.lame.mu, 0);
