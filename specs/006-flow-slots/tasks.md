@@ -121,10 +121,14 @@ o estágio na mesma tarefa quando a remoção o quebrar).
 verificar instâncias, ordem, `flowReady` só após a compilação e liberação por `unregister`
 (`src/scene/__tests__/FlowRegistry.factory.test.ts`).
 
-- [ ] T027 [US3] Testes em `src/scene/__tests__/FlowRegistry.factory.test.ts`: nenhum Flow instanciado sem corpo do tipo; primeiro corpo instancia e só emite `flowReady` após `pipelinesCompiled`; regra única (override → maior prioridade → último registrado); `unregister` libera objetos de GPU e inscrições e cancela compilação em curso (concluída depois não reativa); `FlowRegistrationError` para `type` repetido na fase e `bodyType` vazio; pool `${schema}:${algoritmo}` com `FlowDescriptor` (FR-009); último corpo removido mantém o Flow sem despacho com contagem 0; substituir `FlowRegistry.resolve.test.ts`
-- [ ] T028 [US3] Reescrever `src/scene/flows/FlowRegistry.ts`: `register`, `override`, `unregister`, `resolve`, `flowsInPhase`, `phasesInOrder`, `FlowContext`, `RegisterOptions`, `FlowRegistration`; sem `bodyType` instancia no registro e chama `ensureFlowAllocated`; com `bodyType` instancia sob demanda — T027 verde
-- [ ] T029 [US3] Em `src/scene/systems/ResourceSystem.ts`, ao alocar Resource cujo pool tem chave = `bodyType` registrado sem instância, instanciar por `registry.resolve` e alocar
+- [x] T027 [US3] Testes em `src/scene/__tests__/FlowRegistry.factory.test.ts`: nenhum Flow instanciado sem corpo do tipo; primeiro corpo instancia e só emite `flowReady` após `pipelinesCompiled`; regra única (override → maior prioridade → último registrado); `unregister` libera objetos de GPU e inscrições e cancela compilação em curso (concluída depois não reativa); `FlowRegistrationError` para `type` repetido na fase e `bodyType` vazio; pool `${schema}:${algoritmo}` com `FlowDescriptor` (FR-009); último corpo removido mantém o Flow sem despacho com contagem 0; substituir `FlowRegistry.resolve.test.ts`
+- [x] T028 [US3] Reescrever `src/scene/flows/FlowRegistry.ts`: `register`, `override`, `unregister`, `resolve`, `flowsInPhase`, `phasesInOrder`, `FlowContext`, `RegisterOptions`, `FlowRegistration`; sem `bodyType` instancia no registro e chama `ensureFlowAllocated`; com `bodyType` instancia sob demanda — T027 verde
+- [x] T029 [US3] Em `src/scene/systems/ResourceSystem.ts`, ao alocar Resource cujo pool tem chave = `bodyType` registrado sem instância, instanciar por `registry.resolve` e alocar
 - [ ] T030 [US3] Remover `DEFAULT_FLOW_FACTORIES`/`autoRegisterFlows` (`src/elements/physics/flows/defaultFlows.ts`) e o uso em `src/presentation/app/Application.ts`; registrar as factories padrão dos solvers em `src/scene/SceneContext.ts` a partir de uma lista exportada por `src/elements/physics/flows/index.ts` (sem instanciar); substituir `src/elements/physics/__tests__/defaultFlows.test.ts` e `flowAutoRegister.test.ts` por testes de seleção pela C2
+
+> **Ordem (2026-10-12)**: a T030 depende dos solvers já no modelo de slots (as factories registradas produzem `Flow`
+> novos), então roda depois da T041. Os registros e testes de seleção (T027–T029) já valem para qualquer Flow.
+
 - [x] T031 [US3] `Application.create({ consumers })` em `src/presentation/app/Application.ts` para resolvers de aplicação; teste em `src/presentation/app/__tests__/Application.consumers.test.ts`
 
 **Checkpoint**: registro e seleção prontos; os solvers ainda são migrados na Fase 5.
