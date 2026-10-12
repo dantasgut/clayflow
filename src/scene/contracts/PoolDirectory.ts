@@ -1,6 +1,30 @@
-import type { StorageBufferSpec } from '../../core/contracts/index';
+import type { StorageBufferSpec, UniformBufferSpec } from '../../core/contracts/index';
+import type { Schema } from '../descriptors/Schema';
 import type { EntityId } from '../world/EntityId';
 import type { Resource } from './Resource';
+
+/** Buffer de um pool: storage, ou uniform nos pools de uniforms (lidos com offset dinâmico). */
+export type PoolBufferSpec = StorageBufferSpec | UniformBufferSpec;
+
+/** Estado de um pool num instante (cópia; não acompanha mudanças posteriores). */
+export interface PoolInfo {
+    /** Chave do pool (`schema.name`, ou `schema.name:algoritmo`). */
+    readonly poolKey: string;
+    /** Schema dos registros. */
+    readonly schema: Schema;
+    /** Buffer atual. */
+    readonly buffer: PoolBufferSpec;
+    /** `uniform`: pool de uniforms, um registro por offset dinâmico; `storage`: `array<T>` no shader. */
+    readonly addressSpace: 'storage' | 'uniform';
+    /** Bytes por registro (alinhado a 16, ou a `minUniformBufferOffsetAlignment` no pool uniforme). */
+    readonly stride: number;
+    /** Slots ocupáveis (maior slot já usado + 1). */
+    readonly count: number;
+    /** Registros que cabem no buffer atual. */
+    readonly capacity: number;
+    /** Incrementa a cada recriação do buffer (crescimento). */
+    readonly generation: number;
+}
 
 /**
  * Consulta de leitura aos pools do `ResourceSystem` — o contrato que estágios (Flows) de
@@ -12,7 +36,9 @@ import type { Resource } from './Resource';
  */
 export interface PoolDirectory {
     /** Buffer do pool, para bind groups de estágios. `undefined` se o pool não existe. */
-    poolBufferSpec(poolKey: string): StorageBufferSpec | undefined;
+    poolBufferSpec(poolKey: string): PoolBufferSpec | undefined;
+    /** Buffer, stride, contagem, capacidade e geração do pool, ou `undefined` se não existe. */
+    poolInfo(poolKey: string): PoolInfo | undefined;
     /** Número de slots ocupáveis (maior slot já usado + 1). 0 se o pool não existe. */
     poolCount(poolKey: string): number;
     /** Slot da entidade no pool; igual em todos os pools de um mesmo recurso. */

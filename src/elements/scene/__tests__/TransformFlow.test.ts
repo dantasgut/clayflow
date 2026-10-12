@@ -24,6 +24,7 @@ function setup(count = 3) {
         poolCount: (k) => (k === 'Transform' ? state.count : 0),
         poolSlotOf: () => undefined,
         poolKeyForResource: (r) => (r as { pool?: string }).pool ?? undefined,
+        poolInfo: () => undefined,
     };
     const core = {
         create: vi.fn(<S>(spec: S) => spec),

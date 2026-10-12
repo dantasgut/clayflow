@@ -162,7 +162,10 @@ export class LayoutInferencer {
                     viewDimension: descriptor.textureShape?.viewDimension ?? '2d',
                 };
             case 'storage-texture': {
-                if (descriptor.textureShape === undefined) {
+                if (
+                    descriptor.textureShape === undefined
+                    || descriptor.textureShape.format === 'canvas'
+                ) {
                     throw new Error(
                         `LayoutInferencer: storage-texture descriptor '${descriptor.id}' missing textureShape`,
                     );

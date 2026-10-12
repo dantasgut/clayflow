@@ -7,9 +7,7 @@ import type { ComputePipelineSpec } from './specs/ComputePipelineSpec';
 import type { LayoutSpec } from './specs/LayoutSpec';
 import type { AnyBufferSpec, ResourceSpec } from './specs/ResourceSpec';
 import type { StagingBufferSpec } from './specs/StagingBufferSpec';
-import type { StorageBufferSpec } from './specs/StorageBufferSpec';
 import type { TextureSpec } from './specs/TextureSpec';
-import type { UniformBufferSpec } from './specs/UniformBufferSpec';
 
 /**
  * Entry no relatório de memória GPU. Cada entry corresponde a um spec
@@ -61,8 +59,12 @@ export interface ComputeKernelBinding {
     readonly binding: number;
     /** Tipo do binding — controla layout e visibilidade no shader. */
     readonly type: ComputeKernelBindingType;
-    /** Buffer concreto que ocupa este slot. */
-    readonly buffer: UniformBufferSpec | StorageBufferSpec;
+    /**
+     * Buffer concreto que ocupa este slot. Além de uniform e storage, aceita buffers de vértice, índice e indireto
+     * (criados com `STORAGE`): um kernel pode produzir geometria ou argumentos de desenho usados pelo render no mesmo
+     * quadro. Staging não é ligável.
+     */
+    readonly buffer: Exclude<AnyBufferSpec, StagingBufferSpec>;
     /**
      * Binding com offset dinâmico: o offset é informado a cada `setBindGroup(i, bg, [offset])` (ex.: uma região
      * de parâmetros por iteração). Exige `size`. Default false.

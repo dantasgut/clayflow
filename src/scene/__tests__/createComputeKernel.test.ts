@@ -188,6 +188,40 @@ void ({} as LayoutSpec);
 void ({} as ShaderModuleSpec);
 void ({} as BindGroupSpec);
 
+describe('createComputeKernel — buffers de vértice, índice e indireto (FR-015)', () => {
+    it.each([
+        {
+            kind: 'buffer',
+            subkind: 'vertex',
+            discriminator: 'vbo',
+            byteSize: 64,
+            stride: 16,
+            count: 4,
+        },
+        {
+            kind: 'buffer',
+            subkind: 'index',
+            discriminator: 'ibo',
+            byteSize: 12,
+            count: 6,
+            format: 'uint16',
+        },
+        { kind: 'buffer', subkind: 'indirect', discriminator: 'args', byteSize: 20 },
+    ] as const)('$subkind entra como binding de storage do kernel', (buffer) => {
+        const { core } = recordingCore();
+        const k = createComputeKernel(core, {
+            discriminator: `k_${buffer.subkind}`,
+            shader: TRIVIAL_SHADER,
+            entryPoint: 'main',
+            bindings: [{ binding: 0, type: 'storage', buffer }],
+        });
+        const entry = k.bindGroup.bindings[0];
+        expect(entry?.kind).toBe('buffer');
+        expect(entry?.kind === 'buffer' ? entry.buffer : undefined).toBe(buffer);
+        expect(k.layout.entries[0]).toMatchObject({ kind: 'buffer', type: 'storage' });
+    });
+});
+
 describe('destroyComputeKernel', () => {
     it('libera bind groups, pipeline, shader e layouts do kernel', () => {
         const { core } = fakeResourceCore();

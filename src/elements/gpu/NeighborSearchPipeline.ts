@@ -1,3 +1,4 @@
+import type { PoolBufferSpec } from '../../scene/contracts/PoolDirectory';
 import type {
     EngineCore,
     Frame,
@@ -79,7 +80,7 @@ export class NeighborSearchPipeline {
 
     /** Contagem escrita em `NsSimParams` (-1 = ainda não escrito). */
     private uploadedParticleCount = -1;
-    private currentParticlesBuffer: StorageBufferSpec | null = null;
+    private currentParticlesBuffer: PoolBufferSpec | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -222,7 +223,7 @@ export class NeighborSearchPipeline {
         this.uploadedParticleCount = -1;
     }
 
-    private ensureKernels(particlesBuffer: StorageBufferSpec): void {
+    private ensureKernels(particlesBuffer: PoolBufferSpec): void {
         if (this.currentParticlesBuffer !== particlesBuffer) {
             // Particles buffer mudou — invalida kernels que o referenciam.
             this.releaseParticleKernels();
@@ -397,7 +398,7 @@ export class NeighborSearchPipeline {
      * Sequência: assign_count → soma de prefixos (cellCount → cellStart) →
      * copy(cellStart, cellCursor) → scatter → find.
      */
-    rebuild(frame: Frame, particlesBuffer: StorageBufferSpec, particleCount: number): void {
+    rebuild(frame: Frame, particlesBuffer: PoolBufferSpec, particleCount: number): void {
         if (particleCount === 0) return;
         this.allocate();
         this.ensureKernels(particlesBuffer);

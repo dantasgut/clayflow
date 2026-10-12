@@ -37,6 +37,7 @@ export function fakeResourceCore(): {
             });
         }),
         submit: vi.fn(),
+        canvasFormat: 'bgra8unorm',
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
         capabilities: vi.fn(defaultCapabilities),

@@ -7,6 +7,7 @@ import type {
 } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
+import type { PoolBufferSpec } from '../../../scene/contracts/PoolDirectory';
 import type { Phase } from '../../../scene/flows/Flow';
 import {
     createComputeKernel,
@@ -505,7 +506,7 @@ export class LCPFlow extends Flow {
         );
     }
 
-    private ensurePredictKernels(bodiesBuf: StorageBufferSpec): void {
+    private ensurePredictKernels(bodiesBuf: PoolBufferSpec): void {
         if (this.predictKernel !== null && this.gravityKernel !== null) return;
         const kernel = (discriminator: string, entryPoint: string) =>
             createComputeKernel(this.core, {
@@ -523,7 +524,7 @@ export class LCPFlow extends Flow {
 
     private ensureNarrowphaseKernel(
         shape: ShapePool,
-        bodiesBuf: StorageBufferSpec,
+        bodiesBuf: PoolBufferSpec,
         contacts: StorageBufferSpec,
         counter: StorageBufferSpec,
         warm: StorageBufferSpec,
@@ -558,7 +559,7 @@ export class LCPFlow extends Flow {
     }
 
     private ensureBuildLcpKernel(
-        bodiesBuf: StorageBufferSpec,
+        bodiesBuf: PoolBufferSpec,
         contacts: StorageBufferSpec,
         bVec: StorageBufferSpec,
         counter: StorageBufferSpec,
@@ -581,7 +582,7 @@ export class LCPFlow extends Flow {
     }
 
     private ensureSolveKernels(
-        bodiesBuf: StorageBufferSpec,
+        bodiesBuf: PoolBufferSpec,
         contacts: StorageBufferSpec,
         bVec: StorageBufferSpec,
         counter: StorageBufferSpec,
@@ -635,7 +636,7 @@ export class LCPFlow extends Flow {
         });
     }
 
-    private ensureCommitKernel(bodiesBuf: StorageBufferSpec, bodyContact: StorageBufferSpec): void {
+    private ensureCommitKernel(bodiesBuf: PoolBufferSpec, bodyContact: StorageBufferSpec): void {
         if (this.commitKernel !== null) return;
         this.commitKernel = createComputeKernel(this.core, {
             discriminator: 'lcp_commit',
@@ -843,7 +844,7 @@ export class LCPFlow extends Flow {
      */
     private schedulePosRotReadback(
         frame: Frame,
-        bodiesBuf: StorageBufferSpec,
+        bodiesBuf: PoolBufferSpec,
         bodyCount: number,
         counter: StorageBufferSpec,
     ): void {

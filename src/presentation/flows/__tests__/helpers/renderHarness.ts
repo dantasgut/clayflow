@@ -59,6 +59,7 @@ export function renderHarness() {
         poolCount: () => slots.size,
         poolSlotOf: (key, id) => (key === 'WorldTransform' ? slots.get(id) : undefined),
         poolKeyForResource: () => undefined,
+        poolInfo: () => undefined,
     };
 
     let draws: DrawCall[] = [];

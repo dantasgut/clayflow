@@ -1,3 +1,4 @@
+import type { PoolBufferSpec } from '../../../scene/contracts/PoolDirectory';
 import type {
     ComputeKernelBinding,
     EngineCore,
@@ -36,7 +37,7 @@ export const ColliderSetCountsSchema = new StructSchema('ColliderSetCounts', {
 /** Visão de um pool de collider: buffer do pool, mapa de dono e contagem. */
 export interface ColliderPoolView {
     /** Pool tipado (ou buffer mínimo se o pool não existe). */
-    readonly buffer: StorageBufferSpec;
+    readonly buffer: PoolBufferSpec;
     /** `owners[slot]` = slot do corpo dono no pool de corpos, ou `NO_OWNER`. */
     readonly owners: StorageBufferSpec;
     /** Colliders no pool. */
@@ -72,7 +73,7 @@ export class ColliderSet {
     private readonly owners = new Map<string, OwnerBuffer>();
     private readonly empties = new Map<string, StorageBufferSpec>();
     private readonly counts = new Map<string, number>();
-    private readonly boundPools = new Map<string, StorageBufferSpec>();
+    private readonly boundPools = new Map<string, PoolBufferSpec>();
     private countsBuffer: UniformBufferSpec | null = null;
     private dirty = true;
     private gen = 0;
@@ -132,7 +133,7 @@ export class ColliderSet {
     }
 
     /** Pool de corpos donos (ou buffer mínimo). */
-    bodiesBuffer(): StorageBufferSpec {
+    bodiesBuffer(): PoolBufferSpec {
         return (
             this.resources.poolBufferSpec(this.bodiesPoolKey)
             ?? this.empty(this.bodiesPoolKey, LCPSchema.stride)
@@ -171,7 +172,7 @@ export class ColliderSet {
         this.dirty = true;
     }
 
-    private poolBuffer(poolKey: string): StorageBufferSpec {
+    private poolBuffer(poolKey: string): PoolBufferSpec {
         const schema = COLLIDER_POOLS.find((s) => s.name === poolKey);
         if (schema === undefined)
             throw new Error(`ColliderSet: pool de collider desconhecido '${poolKey}'`);

@@ -1,10 +1,8 @@
 import type {
     AnyBufferSpec,
-    BindGroupSpec,
     EngineCore,
     IndexBufferSpec,
     IndirectBufferSpec,
-    LayoutSpec,
     SamplerSpec,
     StagingBufferSpec,
     StorageBufferSpec,
@@ -16,6 +14,7 @@ import type {
 import { ResourceState } from '../contracts/ResourceState';
 import type { Resource } from '../contracts/Resource';
 import type { ResourceDirectory } from '../contracts/ResourceDirectory';
+import type { PoolBufferSpec, PoolInfo } from '../contracts/PoolDirectory';
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import type { Schema } from '../descriptors/Schema';
 import { StructSchema } from '../descriptors/StructSchema';
@@ -32,9 +31,9 @@ interface PoolEntry {
     readonly stride: number;
     readonly schema: Schema;
     readonly upload: UploadPolicy;
-    bufferSpec: StorageBufferSpec;
-    layoutSpec: LayoutSpec;
-    bindGroupSpec: BindGroupSpec;
+    /** `uniform` para descritores `role: 'uniform'` (lidos com offset dinâmico); `storage` nos demais. */
+    readonly addressSpace: 'storage' | 'uniform';
+    bufferSpec: PoolBufferSpec;
     capacity: number;
     count: number;
     readonly slotByEntity: Map<EntityId, number>;
@@ -104,7 +103,9 @@ const INDIRECT_RECORD_BYTES = 20;
  * **Storage**:
  *   - `individual`: objetos próprios por descritor (Camera, ShadowParams, geometrias).
  *   - `pool`: 1 GPUBuffer compartilhado por N members do mesmo schema. Cresce 2× quando
- *     a capacidade estoura (destrói buffer e bind group anteriores) e emite `poolReallocated`.
+ *     a capacidade estoura (destrói o buffer anterior) e emite `poolReallocated`. Descritores `role: 'uniform'`
+ *     formam um **pool uniforme**: stride alinhado a `minUniformBufferOffsetAlignment`, lido com offset dinâmico
+ *     `slot × stride` (ex.: materiais por schema).
  *     Um recurso com vários descritores em pool ocupa o **mesmo slot** em todos eles.
  */
 export class ResourceSystem implements ResourceDirectory {
@@ -163,11 +164,6 @@ export class ResourceSystem implements ResourceDirectory {
         return this.allocations.get(resource)?.get(descId)?.sampler;
     }
 
-    /** BindGroupSpec do pool — input para flows que consomem o pool inteiro. */
-    poolBindGroup(poolKey: string): BindGroupSpec | undefined {
-        return this.pools.get(poolKey)?.bindGroupSpec;
-    }
-
     /** Número de slots ocupáveis no pool (maior slot já usado + 1). 0 se o pool não existe. */
     poolCount(poolKey: string): number {
         return this.pools.get(poolKey)?.count ?? 0;
@@ -183,9 +179,24 @@ export class ResourceSystem implements ResourceDirectory {
         return this.pools.get(poolKey)?.entityBySlot.get(slot);
     }
 
-    /** StorageBufferSpec do pool — uso direto em pipelines custom. */
-    poolBufferSpec(poolKey: string): StorageBufferSpec | undefined {
+    /** Buffer do pool (storage, ou uniform para pools de uniforms). */
+    poolBufferSpec(poolKey: string): PoolBufferSpec | undefined {
         return this.pools.get(poolKey)?.bufferSpec;
+    }
+
+    poolInfo(poolKey: string): PoolInfo | undefined {
+        const entry = this.pools.get(poolKey);
+        if (entry === undefined) return undefined;
+        return {
+            poolKey,
+            schema: entry.schema,
+            buffer: entry.bufferSpec,
+            addressSpace: entry.addressSpace,
+            stride: entry.stride,
+            count: entry.count,
+            capacity: entry.capacity,
+            generation: entry.generation,
+        };
     }
 
     /**
@@ -452,18 +463,14 @@ export class ResourceSystem implements ResourceDirectory {
                 `ResourceSystem: textura '${desc.id}' sem tamanho (width/height ou sizeFromCanvas com canvas).`,
             );
         }
-        const U = GPUTextureUsage;
-        const usage =
-            desc.role === 'storage-texture'
-                ? U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST
-                : U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT;
+        const format = shape.format === 'canvas' ? this.core.canvasFormat : shape.format;
         const texture = this.core.create<TextureSpec>({
             kind: 'texture',
             discriminator: `${disc}:${size.width}x${size.height}`,
             width: size.width,
             height: size.height,
-            format: shape.format,
-            usage,
+            format,
+            usage: textureUsage(desc.role, format),
             ...(shape.dimension !== undefined ? { dimension: shape.dimension } : {}),
             ...(shape.depthOrArrayLayers !== undefined
                 ? { depthOrArrayLayers: shape.depthOrArrayLayers }
@@ -476,6 +483,7 @@ export class ResourceSystem implements ResourceDirectory {
             kind: 'textureview',
             discriminator: `${disc}:view:${size.width}x${size.height}`,
             source: texture,
+            format,
             ...(shape.viewDimension !== undefined ? { dimension: shape.viewDimension } : {}),
         });
     }
@@ -550,40 +558,21 @@ export class ResourceSystem implements ResourceDirectory {
     }
 
     private createPool(poolKey: string, desc: GPUDescriptor, schema: Schema): PoolEntry {
-        const stride = alignUp(schema.stride, 16);
+        const addressSpace = desc.role === 'uniform' ? 'uniform' : 'storage';
+        // Pool uniforme: cada registro começa num offset dinâmico válido (`slot × stride`).
+        const alignment =
+            addressSpace === 'uniform'
+                ? (this.core.capabilities().limits.minUniformBufferOffsetAlignment ?? 256)
+                : 16;
+        const stride = alignUp(schema.stride, alignment);
         const capacity = INITIAL_POOL_CAPACITY;
-        const bufferSpec = this.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `pool:${poolKey}`,
-            byteSize: stride * capacity,
-        });
-        const layoutSpec = this.core.create<LayoutSpec>({
-            kind: 'layout',
-            discriminator: `pool_layout:${poolKey}`,
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    kind: 'buffer',
-                    type: 'storage',
-                },
-            ],
-        });
-        const bindGroupSpec = this.core.create<BindGroupSpec>({
-            kind: 'bindgroup',
-            discriminator: `pool_bg:${poolKey}:0`,
-            layout: layoutSpec,
-            bindings: [{ binding: 0, kind: 'buffer', buffer: bufferSpec }],
-        });
         const entry: PoolEntry = {
             poolKey,
             stride,
             schema,
             upload: policyOf(desc),
-            bufferSpec,
-            layoutSpec,
-            bindGroupSpec,
+            addressSpace,
+            bufferSpec: this.createPoolBuffer(poolKey, addressSpace, stride * capacity, 0),
             capacity,
             count: 0,
             slotByEntity: new Map(),
@@ -596,23 +585,39 @@ export class ResourceSystem implements ResourceDirectory {
         return entry;
     }
 
+    private createPoolBuffer(
+        poolKey: string,
+        addressSpace: PoolEntry['addressSpace'],
+        byteSize: number,
+        generation: number,
+    ): PoolBufferSpec {
+        const discriminator =
+            generation === 0 ? `pool:${poolKey}` : `pool:${poolKey}:gen${generation}`;
+        return addressSpace === 'uniform'
+            ? this.core.create<UniformBufferSpec>({
+                  kind: 'buffer',
+                  subkind: 'uniform',
+                  discriminator,
+                  byteSize,
+              })
+            : this.core.create<StorageBufferSpec>({
+                  kind: 'buffer',
+                  subkind: 'storage',
+                  discriminator,
+                  byteSize,
+              });
+    }
+
     private growPool(entry: PoolEntry): void {
         const oldByteSize = entry.bufferSpec.byteSize;
         const oldSpec = entry.bufferSpec;
-        const oldBindGroup = entry.bindGroupSpec;
         entry.capacity *= 2;
-        entry.bufferSpec = this.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `pool:${entry.poolKey}:gen${++entry.generation}`,
-            byteSize: entry.stride * entry.capacity,
-        });
-        entry.bindGroupSpec = this.core.create<BindGroupSpec>({
-            kind: 'bindgroup',
-            discriminator: `pool_bg:${entry.poolKey}:${entry.generation}`,
-            layout: entry.layoutSpec,
-            bindings: [{ binding: 0, kind: 'buffer', buffer: entry.bufferSpec }],
-        });
+        entry.bufferSpec = this.createPoolBuffer(
+            entry.poolKey,
+            entry.addressSpace,
+            entry.stride * entry.capacity,
+            ++entry.generation,
+        );
         // Preserva o conteúdo conforme quem é dono do dado:
         //   - 'initial': a GPU é dona (ex.: simulação) — copia o buffer antigo na GPU;
         //     reempacotar da CPU reverteria o estado simulado ao valor inicial.
@@ -631,7 +636,6 @@ export class ResourceSystem implements ResourceDirectory {
                 this.core.write(entry.bufferSpec, schema.pack(resource.data), slot * entry.stride);
             }
         }
-        this.core.destroy(oldBindGroup);
         this.core.destroy(oldSpec);
         this.events.emit('poolReallocated', {
             poolKey: entry.poolKey,
@@ -754,6 +758,23 @@ function policyOf(desc: GPUDescriptor): UploadPolicy {
 /** Papéis de buffer tipado por schema (uniform/storage) — os que entram na regra de `GpuManaged`. */
 function isTypedBufferRole(desc: GPUDescriptor): boolean {
     return desc.role === 'uniform' || desc.role === 'storage-ro' || desc.role === 'storage-rw';
+}
+
+/**
+ * Uso de uma textura alocada, derivado do papel e do formato: storage-texture é ligável como storage e amostrável;
+ * textura de profundidade/stencil é anexo de render e amostrável (sem cópia — formatos de profundidade não são
+ * copiáveis em todos os aspectos); textura de cor é anexo, amostrável e copiável nos dois sentidos.
+ */
+function textureUsage(role: GPUDescriptor['role'], format: GPUTextureFormat): number {
+    const U = GPUTextureUsage;
+    if (role === 'storage-texture')
+        return U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST;
+    if (isDepthOrStencil(format)) return U.RENDER_ATTACHMENT | U.TEXTURE_BINDING;
+    return U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT;
+}
+
+function isDepthOrStencil(format: GPUTextureFormat): boolean {
+    return format.startsWith('depth') || format === 'stencil8';
 }
 
 function alignUp(value: number, alignment: number): number {
