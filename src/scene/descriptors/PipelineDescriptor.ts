@@ -4,6 +4,7 @@ import type {
     MultisampleSpec,
     VertexBufferLayout,
 } from '../../core/contracts/index';
+import type { WgslModule } from '../shaders/WgslModule';
 
 /**
  * Tipo de pipeline declarado por um Resource. `compute` para kernels GPGPU,
@@ -26,8 +27,8 @@ export interface PipelineDescriptor {
     readonly id: string;
     /** Tipo do pipeline ('compute' para GPGPU, 'render' para vertex+fragment). */
     readonly role: PipelineDescriptorRole;
-    /** WGSL source completo contendo todos os entry points listados. */
-    readonly shaderSource: string;
+    /** Módulo WGSL de entrada (montado por `composeWgsl`) que define todos os entry points listados. */
+    readonly shader: WgslModule;
     /** Nomes das funções `@compute`/`@vertex`/`@fragment` no source. */
     readonly entryPoints: readonly string[];
     /**

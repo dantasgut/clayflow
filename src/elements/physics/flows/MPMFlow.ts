@@ -14,21 +14,7 @@ import { PerStepUniforms } from './PerStepUniforms';
 import { ColliderSet } from '../colliders/ColliderSet';
 import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
-import mpmSimParamsStruct from '../../gpu/wgsl/structs/mpm_sim_params.wgsl?raw';
-import mpmParticleStruct from '../../gpu/wgsl/structs/mpm_particle.wgsl?raw';
-import mpmGridNodeStruct from '../../gpu/wgsl/structs/mpm_grid_node.wgsl?raw';
-import colliderDescStruct from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
-import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
-import quatLib from '../../gpu/wgsl/math/quat.wgsl?raw';
-import colliderSetLib from '../../gpu/wgsl/math/collider_set.wgsl?raw';
-import matLib from '../../gpu/wgsl/math/mat.wgsl?raw';
-import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
-import mpmWeightsLib from '../../gpu/wgsl/math/mpm_weights.wgsl?raw';
-import mpmP2GKernel from '../../gpu/wgsl/kernels/mpm_p2g.wgsl?raw';
-import mpmGridUpdateKernel from '../../gpu/wgsl/kernels/mpm_grid_update.wgsl?raw';
-import mpmParticleCollisionKernel from '../../gpu/wgsl/kernels/mpm_particle_collision.wgsl?raw';
-import mpmG2PKernel from '../../gpu/wgsl/kernels/mpm_g2p.wgsl?raw';
-import mpmClearGridKernel from '../../gpu/wgsl/kernels/mpm_clear_grid.wgsl?raw';
+import { mpmClearGrid, mpmG2P, mpmGridUpdate, mpmP2G, mpmParticleCollision } from '../shaders/mpm';
 
 const MPM_GRID_NODE_SIZE = 32;
 /** Bytes do struct `MPMSimParams`. */
@@ -97,53 +83,32 @@ export class MPMFlow extends Flow {
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        const baseSrc = [
-            mpmSimParamsStruct,
-            mpmParticleStruct,
-            mpmGridNodeStruct,
-            colliderDescStruct,
-            matLib,
-            sdfLib,
-            mpmWeightsLib,
-        ].join('\n');
         return [
             {
                 id: 'pipeline_mpm_p2g',
                 role: 'compute',
-                shaderSource: baseSrc + '\n' + mpmP2GKernel,
+                shader: mpmP2G,
                 entryPoints: ['mpm_p2g_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_mpm_grid_update',
                 role: 'compute',
-                shaderSource: [
-                    baseSrc,
-                    quatLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    mpmGridUpdateKernel,
-                ].join('\n'),
+                shader: mpmGridUpdate,
                 entryPoints: ['mpm_grid_update_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_mpm_g2p',
                 role: 'compute',
-                shaderSource: baseSrc + '\n' + mpmG2PKernel,
+                shader: mpmG2P,
                 entryPoints: ['mpm_g2p_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_mpm_particle_collision',
                 role: 'compute',
-                shaderSource: [
-                    baseSrc,
-                    quatLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    mpmParticleCollisionKernel,
-                ].join('\n'),
+                shader: mpmParticleCollision,
                 entryPoints: ['mpm_particle_collision_main'],
                 consumes: [this.bodyType],
             },
@@ -217,15 +182,6 @@ export class MPMFlow extends Flow {
     }
 
     private ensureGpuObjects(): void {
-        const baseSrc = [
-            mpmSimParamsStruct,
-            mpmParticleStruct,
-            mpmGridNodeStruct,
-            colliderDescStruct,
-            matLib,
-            sdfLib,
-            mpmWeightsLib,
-        ].join('\n');
         if (this.gridBuffer === null) {
             this.gridBuffer = this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
@@ -253,7 +209,7 @@ export class MPMFlow extends Flow {
         if (this.clearGridKernel === null) {
             this.clearGridKernel = createComputeKernel(this.core, {
                 discriminator: 'mpm_clear_grid',
-                shaderSource: baseSrc + '\n' + mpmClearGridKernel,
+                shader: mpmClearGrid,
                 entryPoint: 'mpm_clear_grid_main',
                 bindGroups: [paramsGroup, gridGroup],
             });
@@ -261,7 +217,7 @@ export class MPMFlow extends Flow {
         if (this.p2gKernel === null) {
             this.p2gKernel = createComputeKernel(this.core, {
                 discriminator: 'mpm_p2g',
-                shaderSource: baseSrc + '\n' + mpmP2GKernel,
+                shader: mpmP2G,
                 entryPoint: 'mpm_p2g_main',
                 bindGroups: [paramsGroup, gridGroup, particlesGroup],
             });
@@ -269,13 +225,7 @@ export class MPMFlow extends Flow {
         if (this.gridUpdateKernel === null) {
             this.gridUpdateKernel = createComputeKernel(this.core, {
                 discriminator: 'mpm_grid_update',
-                shaderSource: [
-                    baseSrc,
-                    quatLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    mpmGridUpdateKernel,
-                ].join('\n'),
+                shader: mpmGridUpdate,
                 entryPoint: 'mpm_grid_update_main',
                 bindGroups: [paramsGroup, gridGroup, collidersGroup],
             });
@@ -283,7 +233,7 @@ export class MPMFlow extends Flow {
         if (this.g2pKernel === null) {
             this.g2pKernel = createComputeKernel(this.core, {
                 discriminator: 'mpm_g2p',
-                shaderSource: baseSrc + '\n' + mpmG2PKernel,
+                shader: mpmG2P,
                 entryPoint: 'mpm_g2p_main',
                 bindGroups: [paramsGroup, gridGroup, particlesGroup],
             });
@@ -291,13 +241,7 @@ export class MPMFlow extends Flow {
         if (this.collisionKernel === null) {
             this.collisionKernel = createComputeKernel(this.core, {
                 discriminator: 'mpm_particle_collision',
-                shaderSource: [
-                    baseSrc,
-                    quatLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    mpmParticleCollisionKernel,
-                ].join('\n'),
+                shader: mpmParticleCollision,
                 entryPoint: 'mpm_particle_collision_main',
                 bindGroups: [paramsGroup, particlesGroup, collidersGroup],
             });

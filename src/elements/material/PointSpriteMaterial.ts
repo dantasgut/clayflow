@@ -2,7 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-import forwardWGSL from '../gpu/wgsl/forward.wgsl?raw';
+import { forward } from './shaders';
 import { Material } from './Material';
 
 /**
@@ -36,7 +36,7 @@ export class PointSpriteMaterial extends Material {
             {
                 id: 'pipeline_pointsprite',
                 role: 'render',
-                shaderSource: forwardWGSL,
+                shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
                 consumes: ['Camera', 'Transform'],
                 topology: 'point-list',

@@ -16,7 +16,8 @@ import type { Phase } from '../../scene/flows/Flow';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { PostProcessEffect } from '../resources/PostProcessEffect';
 import type { ForwardFlow } from './ForwardFlow';
-import effectsWGSL from './effects/effects.wgsl?raw';
+import { composeWgsl } from '../../scene/shaders/composeWgsl';
+import { effectsBase } from './shaders';
 
 interface EffectSlot {
     readonly effect: PostProcessEffect;
@@ -68,7 +69,7 @@ export class PostFlow extends Flow {
         return this.effects.map((eff) => ({
             id: `pipeline_post_${eff.name}`,
             role: 'render',
-            shaderSource: effectsWGSL,
+            shader: effectsBase,
             entryPoints: ['vs_fullscreen', eff.fragmentEntry],
             consumes: [],
         }));
@@ -122,7 +123,7 @@ export class PostFlow extends Flow {
         for (const slot of slots) {
             this.core.destroy(slot.pipeline);
             this.core.destroy(slot.paramsBuffer);
-            // Shader próprio do efeito (fragmentSource): o comum é liberado abaixo.
+            // Shader próprio do efeito (fragmentModule): o comum é liberado abaixo.
             if (slot.pipeline.vertex.shader !== this.shader)
                 this.core.destroy(slot.pipeline.vertex.shader);
         }
@@ -138,11 +139,7 @@ export class PostFlow extends Flow {
 
     private ensureShared(): void {
         if (this.shader === null) {
-            this.shader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'post_effects_shader',
-                source: effectsWGSL,
-            });
+            this.shader = this.core.create<ShaderModuleSpec>({ ...composeWgsl(effectsBase).spec });
         }
         if (this.sampler === null) {
             this.sampler = this.core.create<SamplerSpec>({
@@ -239,16 +236,11 @@ export class PostFlow extends Flow {
             discriminator: `post_params:${effect.name}`,
             byteSize: 16,
         });
-        // Custom shader path: effect.fragmentSource() defined → shader dedicado.
-        // Default: reusa o shared `effects.wgsl`.
-        const customSource = effect.fragmentSource?.();
+        // Efeito próprio (fragmentModule, com requires: [effectsBase]) → shader montado dedicado; padrão: o comum.
+        const customModule = effect.fragmentModule?.();
         const shader =
-            customSource !== undefined
-                ? this.core.create<ShaderModuleSpec>({
-                      kind: 'shader',
-                      discriminator: `post_custom_shader:${effect.name}`,
-                      source: customSource,
-                  })
+            customModule !== undefined
+                ? this.core.create<ShaderModuleSpec>({ ...composeWgsl(customModule).spec })
                 : this.shader;
         const pipeline = this.core.create<RenderPipelineSpec>({
             kind: 'pipeline',

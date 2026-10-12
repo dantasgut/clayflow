@@ -9,17 +9,17 @@ import {
     destroyComputeKernel,
     type ComputeKernel,
 } from '../../scene/flows/createComputeKernel';
-import nsSimParamsStruct from './wgsl/structs/ns_sim_params.wgsl?raw';
-import nsScanLevelStruct from './wgsl/structs/ns_scan_level.wgsl?raw';
-import nsAssignCount from './wgsl/kernels/ns_assign_count.wgsl?raw';
-import nsScanLocal from './wgsl/kernels/ns_scan_local.wgsl?raw';
-import nsScanGroups from './wgsl/kernels/ns_scan_groups.wgsl?raw';
-import nsScanCombine from './wgsl/kernels/ns_scan_combine.wgsl?raw';
-import nsScatter from './wgsl/kernels/ns_scatter.wgsl?raw';
-import nsFind from './wgsl/kernels/ns_find.wgsl?raw';
+import {
+    nsAssignCount,
+    nsFind,
+    nsScanCombine,
+    nsScanGroups,
+    nsScanLocal,
+    nsScatter,
+} from './shaders/neighborSearch';
 
 /** Teto de vizinhos por partícula: tamanho do vetor local em que `ns_find` ordena a lista (`NS_MAX_NEIGHBORS`). */
-export const MAX_NEIGHBORS = 128;
+const MAX_NEIGHBORS = 128;
 
 /** Elementos por grupo da soma de prefixos (tamanho do workgroup dos kernels de scan). */
 const SCAN_GROUP = 256;
@@ -136,10 +136,6 @@ export class NeighborSearchPipeline {
         this.maxNeighbors = options.maxNeighbors;
         this.particleStrideF32 = options.particleStrideF32;
         this.cellCount = this.gridDim[0] * this.gridDim[1] * this.gridDim[2];
-    }
-
-    private base(): string {
-        return nsSimParamsStruct;
     }
 
     /**
@@ -273,13 +269,11 @@ export class NeighborSearchPipeline {
         // Prefixo do grupo para descer ao nível k: o nível k+1 já resolvido (o topo é escaneado no lugar).
         const prefix = (k: number): StorageBufferSpec =>
             k + 1 === top ? this.scanSums[top - 1]! : this.scanPartials[k]!;
-        const localSrc = nsScanLevelStruct + '\n' + nsScanLocal;
-        const combineSrc = nsScanLevelStruct + '\n' + nsScanCombine;
         for (let k = 0; k < top; k++) {
             this.scanLocalKernels.push(
                 createComputeKernel(this.core, {
                     discriminator: `ns_scan_local:${this.disc}`,
-                    shaderSource: localSrc,
+                    shader: nsScanLocal,
                     entryPoint: 'ns_scan_local_main',
                     bindGroups: [
                         levelGroup(k),
@@ -300,7 +294,7 @@ export class NeighborSearchPipeline {
             this.scanCombineKernels.push(
                 createComputeKernel(this.core, {
                     discriminator: `ns_scan_combine:${this.disc}`,
-                    shaderSource: combineSrc,
+                    shader: nsScanCombine,
                     entryPoint: 'ns_scan_combine_main',
                     bindGroups: [
                         levelGroup(k),
@@ -320,7 +314,7 @@ export class NeighborSearchPipeline {
         }
         this.scanTopKernel = createComputeKernel(this.core, {
             discriminator: `ns_scan_groups:${this.disc}`,
-            shaderSource: nsScanLevelStruct + '\n' + nsScanGroups,
+            shader: nsScanGroups,
             entryPoint: 'ns_scan_groups_main',
             bindGroups: [
                 levelGroup(top),
@@ -395,7 +389,6 @@ export class NeighborSearchPipeline {
         )
             return;
 
-        const b = this.base();
         const paramsGroup = {
             bindings: [{ binding: 0, type: 'uniform' as const, buffer: this.paramsBuffer }],
         };
@@ -403,7 +396,7 @@ export class NeighborSearchPipeline {
         if (this.assignKernel === null) {
             this.assignKernel = createComputeKernel(this.core, {
                 discriminator: `ns_assign:${this.disc}`,
-                shaderSource: b + '\n' + nsAssignCount,
+                shader: nsAssignCount,
                 entryPoint: 'ns_assign_count_main',
                 bindGroups: [
                     paramsGroup,
@@ -433,7 +426,7 @@ export class NeighborSearchPipeline {
         if (this.scatterKernel === null) {
             this.scatterKernel = createComputeKernel(this.core, {
                 discriminator: `ns_scatter:${this.disc}`,
-                shaderSource: b + '\n' + nsScatter,
+                shader: nsScatter,
                 entryPoint: 'ns_scatter_main',
                 bindGroups: [
                     paramsGroup,
@@ -462,7 +455,7 @@ export class NeighborSearchPipeline {
         if (this.findKernel === null) {
             this.findKernel = createComputeKernel(this.core, {
                 discriminator: `ns_find:${this.disc}`,
-                shaderSource: b + '\n' + nsFind,
+                shader: nsFind,
                 entryPoint: 'ns_find_main',
                 bindGroups: [
                     paramsGroup,

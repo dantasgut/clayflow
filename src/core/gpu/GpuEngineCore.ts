@@ -1,7 +1,5 @@
 import type {
     CanvasOptions,
-    ComputeKernel,
-    ComputeKernelOptions,
     DeviceLostHandler,
     DeviceLostInfo,
     EngineCore,
@@ -328,78 +326,6 @@ export class GpuEngineCore implements EngineCore {
         console.warn(
             '[clayflow] profiling: o device não oferece `timestamp-query` — gpuTimeMs fica ausente.',
         );
-    }
-
-    compute(opts: ComputeKernelOptions): ComputeKernel {
-        // Idempotente via specHash (cache em this.store). Suporta single-bindgroup
-        // (`opts.bindings`) e multi-bindgroup (`opts.bindGroups`).
-        // Mesma lógica de scene/flows/createComputeKernel — duplicada aqui para
-        // evitar dependência core → scene. createComputeKernel permanece como
-        // helper público do scene layer (alias funcional).
-        const groups =
-            opts.bindGroups ?? (opts.bindings !== undefined ? [{ bindings: opts.bindings }] : []);
-        if (groups.length === 0) {
-            throw new Error(
-                `compute("${opts.discriminator}"): forneça 'bindings' ou 'bindGroups'.`,
-            );
-        }
-        const total = groups.length;
-        const layoutDiscriminator = (i: number): string =>
-            total === 1 ? `${opts.discriminator}_layout` : `${opts.discriminator}_layout_${i}`;
-        const bgDiscriminator = (i: number): string =>
-            total === 1 ? `${opts.discriminator}_bg` : `${opts.discriminator}_bg_${i}`;
-
-        const layouts: LayoutSpec[] = groups.map((g, i) =>
-            this.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: layoutDiscriminator(i),
-                entries: g.bindings.map((b) => ({
-                    binding: b.binding,
-                    visibility: GPUShaderStage.COMPUTE,
-                    kind: 'buffer' as const,
-                    type: b.type,
-                    ...(b.hasDynamicOffset === true ? { hasDynamicOffset: true } : {}),
-                })),
-            }),
-        );
-        const shader = this.create<ShaderModuleSpec>({
-            kind: 'shader',
-            discriminator: `${opts.discriminator}_shader`,
-            source: opts.shaderSource,
-        });
-        const pipelineSpec: ComputePipelineSpec = {
-            kind: 'pipeline',
-            subkind: 'compute',
-            discriminator: `${opts.discriminator}_pipeline`,
-            layouts,
-            shader,
-            entryPoint: opts.entryPoint,
-        };
-        if (opts.preferAsync === true) {
-            void this.createAsync<ComputePipelineSpec>(pipelineSpec);
-        } else {
-            this.create<ComputePipelineSpec>(pipelineSpec);
-        }
-        const bindGroups: BindGroupSpec[] = groups.map((g, i) =>
-            this.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: bgDiscriminator(i),
-                layout: layouts[i]!,
-                bindings: g.bindings.map((b) => ({
-                    binding: b.binding,
-                    kind: 'buffer' as const,
-                    buffer: b.buffer,
-                    ...(b.size !== undefined ? { size: b.size } : {}),
-                })),
-            }),
-        );
-        return {
-            pipeline: pipelineSpec,
-            bindGroup: bindGroups[0]!,
-            layout: layouts[0]!,
-            bindGroups,
-            layouts,
-        };
     }
 
     private storeWithMetadata(hash: string, spec: ResourceSpec, obj: StoredGpuObject): void {

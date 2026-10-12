@@ -15,19 +15,7 @@ import { ColliderSet } from '../colliders/ColliderSet';
 import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
-import sphSimParamsStruct from '../../gpu/wgsl/structs/sph_sim_params.wgsl?raw';
-import sphParticleStruct from '../../gpu/wgsl/structs/sph_particle.wgsl?raw';
-import colliderDescStruct from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
-import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
-import quatLib from '../../gpu/wgsl/math/quat.wgsl?raw';
-import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
-import colliderSetLib from '../../gpu/wgsl/math/collider_set.wgsl?raw';
-import sphKernelsLib from '../../gpu/wgsl/math/sph_kernels.wgsl?raw';
-import sphDensityKernel from '../../gpu/wgsl/kernels/sph_density.wgsl?raw';
-import sphPressureKernel from '../../gpu/wgsl/kernels/sph_pressure.wgsl?raw';
-import sphForcesKernel from '../../gpu/wgsl/kernels/sph_forces.wgsl?raw';
-import sphIntegrateKernel from '../../gpu/wgsl/kernels/sph_integrate.wgsl?raw';
-import sphCollisionKernel from '../../gpu/wgsl/kernels/sph_collision.wgsl?raw';
+import { sphCollision, sphDensity, sphForces, sphIntegrate, sphPressure } from '../shaders/sph';
 
 /** Bytes do struct `SPHSimParams`. */
 const SPH_SIM_PARAMS_BYTE_SIZE = 96;
@@ -86,54 +74,40 @@ export class SPHFlow extends Flow {
         });
     }
 
-    private base(): string {
-        return [sphSimParamsStruct, sphParticleStruct, colliderDescStruct, sphKernelsLib].join(
-            '\n',
-        );
-    }
-
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        const b = this.base();
         return [
             {
                 id: 'pipeline_sph_density',
                 role: 'compute',
-                shaderSource: b + '\n' + sphDensityKernel,
+                shader: sphDensity,
                 entryPoints: ['sph_density_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_sph_pressure',
                 role: 'compute',
-                shaderSource: b + '\n' + sphPressureKernel,
+                shader: sphPressure,
                 entryPoints: ['sph_pressure_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_sph_forces',
                 role: 'compute',
-                shaderSource: b + '\n' + sphForcesKernel,
+                shader: sphForces,
                 entryPoints: ['sph_forces_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_sph_integrate',
                 role: 'compute',
-                shaderSource: b + '\n' + sphIntegrateKernel,
+                shader: sphIntegrate,
                 entryPoints: ['sph_integrate_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_sph_collision',
                 role: 'compute',
-                shaderSource: [
-                    b,
-                    quatLib,
-                    sdfLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    sphCollisionKernel,
-                ].join('\n'),
+                shader: sphCollision,
                 entryPoints: ['sph_collision_main'],
                 consumes: [this.bodyType],
             },
@@ -188,7 +162,6 @@ export class SPHFlow extends Flow {
     }
 
     private ensureGpuObjects(): void {
-        const b = this.base();
         if (this.neighborSearch === null) return;
 
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
@@ -217,7 +190,7 @@ export class SPHFlow extends Flow {
         if (this.densityKernel === null) {
             this.densityKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_density',
-                shaderSource: b + '\n' + sphDensityKernel,
+                shader: sphDensity,
                 entryPoint: 'sph_density_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
@@ -225,7 +198,7 @@ export class SPHFlow extends Flow {
         if (this.pressureKernel === null) {
             this.pressureKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_pressure',
-                shaderSource: b + '\n' + sphPressureKernel,
+                shader: sphPressure,
                 entryPoint: 'sph_pressure_main',
                 bindGroups: [paramsGroup, particlesGroup],
             });
@@ -233,7 +206,7 @@ export class SPHFlow extends Flow {
         if (this.forcesKernel === null) {
             this.forcesKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_forces',
-                shaderSource: b + '\n' + sphForcesKernel,
+                shader: sphForces,
                 entryPoint: 'sph_forces_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
@@ -241,7 +214,7 @@ export class SPHFlow extends Flow {
         if (this.integrateKernel === null) {
             this.integrateKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_integrate',
-                shaderSource: b + '\n' + sphIntegrateKernel,
+                shader: sphIntegrate,
                 entryPoint: 'sph_integrate_main',
                 bindGroups: [paramsGroup, particlesGroup],
             });
@@ -249,14 +222,7 @@ export class SPHFlow extends Flow {
         if (this.collisionKernel === null) {
             this.collisionKernel = createComputeKernel(this.core, {
                 discriminator: 'sph_collision',
-                shaderSource: [
-                    b,
-                    quatLib,
-                    sdfLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    sphCollisionKernel,
-                ].join('\n'),
+                shader: sphCollision,
                 entryPoint: 'sph_collision_main',
                 bindGroups: [paramsGroup, particlesGroup, collidersGroup],
             });

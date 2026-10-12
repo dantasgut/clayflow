@@ -25,6 +25,7 @@ import { StandardMaterial } from '../../elements/material/StandardMaterial';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
 import type { ShadowFlow } from './ShadowFlow';
+import { composeWgsl } from '../../scene/shaders/composeWgsl';
 
 interface RenderableSlot {
     readonly entityId: EntityId;
@@ -740,10 +741,9 @@ export class ForwardFlow extends RenderFlow {
         const pipelineDescs = material.getPipelineDescriptors();
         const matPipelineDesc = pipelineDescs[0];
         if (matPipelineDesc === undefined) return null;
+        // Cópia da spec montada: mesmo objeto de GPU por conteúdo, posse própria do slot (liberada na remoção).
         const shader: ShaderModuleSpec = this.core.create({
-            kind: 'shader',
-            discriminator: matPipelineDesc.id,
-            source: matPipelineDesc.shaderSource,
+            ...composeWgsl(matPipelineDesc.shader).spec,
         });
         const slot: RenderableSlot = {
             entityId,

@@ -14,7 +14,8 @@ import type {
 } from '../../core/contracts/index';
 import type { LoadedFont } from '../assets/FontLoader';
 import type { UiQuadCpu } from './flatten/UiQuadCpu';
-import uiWGSL from '../flows/ui.wgsl?raw';
+import { composeWgsl } from '../../scene/shaders/composeWgsl';
+import { ui } from '../flows/shaders';
 
 const QUAD_BYTES = 64;
 const MAX_QUADS = 1024;
@@ -147,11 +148,7 @@ export class UiGpuPipeline {
 
     ensureGpuObjects(): void {
         if (this.shader === null)
-            this.shader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'ui_shader',
-                source: uiWGSL,
-            });
+            this.shader = this.core.create<ShaderModuleSpec>({ ...composeWgsl(ui).spec });
         if (this.screenBuffer === null)
             this.screenBuffer = this.core.create<UniformBufferSpec>({
                 kind: 'buffer',

@@ -15,22 +15,16 @@ import { ColliderSet } from '../colliders/ColliderSet';
 import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { GravityField } from '../forcefields/GravityField';
 import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
-import pbfSimParamsStruct from '../../gpu/wgsl/structs/pbf_sim_params.wgsl?raw';
-import pbfParticleStruct from '../../gpu/wgsl/structs/pbf_particle.wgsl?raw';
-import colliderDescStruct from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
-import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
-import quatLib from '../../gpu/wgsl/math/quat.wgsl?raw';
-import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
-import colliderSetLib from '../../gpu/wgsl/math/collider_set.wgsl?raw';
-import sphKernelsLib from '../../gpu/wgsl/math/sph_kernels.wgsl?raw';
-import pbfPredictKernel from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
-import pbfDensityLambdaKernel from '../../gpu/wgsl/kernels/pbf_density_lambda.wgsl?raw';
-import pbfPositionCorrectKernel from '../../gpu/wgsl/kernels/pbf_position_correct.wgsl?raw';
-import pbfVelocityUpdateKernel from '../../gpu/wgsl/kernels/pbf_velocity_update.wgsl?raw';
-import pbfXsphKernel from '../../gpu/wgsl/kernels/pbf_xsph.wgsl?raw';
-import pbfVorticityKernel from '../../gpu/wgsl/kernels/pbf_vorticity.wgsl?raw';
-import pbfCollisionKernel from '../../gpu/wgsl/kernels/pbf_collision.wgsl?raw';
-import pbfApplyKernel from '../../gpu/wgsl/kernels/pbf_apply.wgsl?raw';
+import {
+    pbfApply,
+    pbfCollision,
+    pbfDensityLambda,
+    pbfPositionCorrect,
+    pbfPredict,
+    pbfVelocityUpdate,
+    pbfVorticity,
+    pbfXsph,
+} from '../shaders/pbf';
 
 /** Bytes do struct `PBFSimParams`. */
 const PBF_SIM_PARAMS_BYTE_SIZE = 96;
@@ -101,75 +95,61 @@ export class PBFFlow extends Flow {
         });
     }
 
-    private base(): string {
-        return [pbfSimParamsStruct, pbfParticleStruct, colliderDescStruct, sphKernelsLib].join(
-            '\n',
-        );
-    }
-
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        const b = this.base();
         return [
             {
                 id: 'pipeline_pbf_predict',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfPredictKernel,
+                shader: pbfPredict,
                 entryPoints: ['pbf_predict_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_pbf_density_lambda',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfDensityLambdaKernel,
+                shader: pbfDensityLambda,
                 entryPoints: ['pbf_density_lambda_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_pbf_position_correct',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfPositionCorrectKernel,
+                shader: pbfPositionCorrect,
                 entryPoints: ['pbf_position_correct_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_pbf_velocity_update',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfVelocityUpdateKernel,
+                shader: pbfVelocityUpdate,
                 entryPoints: ['pbf_velocity_update_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_pbf_xsph',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfXsphKernel,
+                shader: pbfXsph,
                 entryPoints: ['pbf_xsph_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_pbf_apply',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfApplyKernel,
+                shader: pbfApply,
                 entryPoints: ['pbf_apply_position_main', 'pbf_apply_velocity_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_pbf_vorticity',
                 role: 'compute',
-                shaderSource: b + '\n' + pbfVorticityKernel,
+                shader: pbfVorticity,
                 entryPoints: ['pbf_vorticity_main'],
                 consumes: [this.bodyType],
             },
             {
                 id: 'pipeline_pbf_collision',
                 role: 'compute',
-                shaderSource: [
-                    b,
-                    quatLib,
-                    sdfLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    pbfCollisionKernel,
-                ].join('\n'),
+                shader: pbfCollision,
                 entryPoints: ['pbf_collision_main'],
                 consumes: [this.bodyType],
             },
@@ -234,7 +214,6 @@ export class PBFFlow extends Flow {
     }
 
     private ensureGpuObjects(): void {
-        const b = this.base();
         if (this.neighborSearch === null) return;
 
         const particlesBuf = this.resources.poolBufferSpec(this.bodyType);
@@ -275,7 +254,7 @@ export class PBFFlow extends Flow {
         if (this.predictKernel === null) {
             this.predictKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_predict',
-                shaderSource: b + '\n' + pbfPredictKernel,
+                shader: pbfPredict,
                 entryPoint: 'pbf_predict_main',
                 bindGroups: [paramsGroup, particlesGroup],
             });
@@ -283,7 +262,7 @@ export class PBFFlow extends Flow {
         if (this.densityLambdaKernel === null) {
             this.densityLambdaKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_density_lambda',
-                shaderSource: b + '\n' + pbfDensityLambdaKernel,
+                shader: pbfDensityLambda,
                 entryPoint: 'pbf_density_lambda_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
@@ -291,7 +270,7 @@ export class PBFFlow extends Flow {
         if (this.positionCorrectKernel === null) {
             this.positionCorrectKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_position_correct',
-                shaderSource: b + '\n' + pbfPositionCorrectKernel,
+                shader: pbfPositionCorrect,
                 entryPoint: 'pbf_position_correct_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup, deltaWriteGroup],
             });
@@ -299,7 +278,7 @@ export class PBFFlow extends Flow {
         if (this.velocityUpdateKernel === null) {
             this.velocityUpdateKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_velocity_update',
-                shaderSource: b + '\n' + pbfVelocityUpdateKernel,
+                shader: pbfVelocityUpdate,
                 entryPoint: 'pbf_velocity_update_main',
                 bindGroups: [paramsGroup, particlesGroup],
             });
@@ -307,7 +286,7 @@ export class PBFFlow extends Flow {
         if (this.xsphKernel === null) {
             this.xsphKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_xsph',
-                shaderSource: b + '\n' + pbfXsphKernel,
+                shader: pbfXsph,
                 entryPoint: 'pbf_xsph_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup, deltaWriteGroup],
             });
@@ -315,7 +294,7 @@ export class PBFFlow extends Flow {
         if (this.applyPositionKernel === null) {
             this.applyPositionKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_apply_position',
-                shaderSource: b + '\n' + pbfApplyKernel,
+                shader: pbfApply,
                 entryPoint: 'pbf_apply_position_main',
                 bindGroups: [paramsGroup, particlesGroup, deltaReadGroup],
             });
@@ -323,7 +302,7 @@ export class PBFFlow extends Flow {
         if (this.applyVelocityKernel === null) {
             this.applyVelocityKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_apply_velocity',
-                shaderSource: b + '\n' + pbfApplyKernel,
+                shader: pbfApply,
                 entryPoint: 'pbf_apply_velocity_main',
                 bindGroups: [paramsGroup, particlesGroup, deltaReadGroup],
             });
@@ -331,7 +310,7 @@ export class PBFFlow extends Flow {
         if (this.vorticityKernel === null) {
             this.vorticityKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_vorticity',
-                shaderSource: b + '\n' + pbfVorticityKernel,
+                shader: pbfVorticity,
                 entryPoint: 'pbf_vorticity_main',
                 bindGroups: [paramsGroup, particlesGroup, neighborsGroup],
             });
@@ -339,14 +318,7 @@ export class PBFFlow extends Flow {
         if (this.collisionKernel === null) {
             this.collisionKernel = createComputeKernel(this.core, {
                 discriminator: 'pbf_collision',
-                shaderSource: [
-                    b,
-                    quatLib,
-                    sdfLib,
-                    rigidBodyStruct,
-                    colliderSetLib,
-                    pbfCollisionKernel,
-                ].join('\n'),
+                shader: pbfCollision,
                 entryPoint: 'pbf_collision_main',
                 bindGroups: [paramsGroup, particlesGroup, collidersGroup],
             });

@@ -1,21 +1,8 @@
 /**
- * Dev-only WGSL static check.
- *
- * Procura chamadas `fn_name(...)` no source que não tenham uma `fn fn_name(...)`
- * correspondente. Catch barato para concatenações de WGSL incompletas
- * (helpers ausentes em base sources, ordem de concatenação errada).
- *
- * **Não é** um analisador WGSL real — apenas regex sobre o texto. Falsos
- * positivos: keywords (`if`, `for`), built-ins (`textureSample`, `dot`,
- * `length`, etc.) que parecem chamadas. Para evitar ruído, filtramos uma
- * lista de built-ins WGSL comuns. Se um false-positive surgir em build,
- * adicione-o aqui.
- *
- * Em produção (`import.meta.env.DEV !== true`), nunca é chamado — o erro
- * canônico do device.createShaderModule é mais preciso de qualquer forma.
+ * Identificadores WGSL que aparecem como chamada (`nome(`) sem serem funções do usuário: palavras-chave, construtores
+ * de tipo e funções nativas. A verificação de referências da montagem (`composeWgsl`) ignora estes nomes.
  */
-
-const BUILTIN_FUNCTIONS = new Set([
+export const WGSL_BUILTIN_CALLABLES: ReadonlySet<string> = new Set([
     // control flow
     'if',
     'else',
@@ -183,46 +170,3 @@ const BUILTIN_FUNCTIONS = new Set([
     'saturate',
     'sizeof',
 ]);
-
-const FN_DEF_REGEX = /\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[(<]/g;
-// Structs em WGSL podem ser usadas como construtores (`MyStruct(field1, ...)`),
-// então também contam como identificadores chamáveis.
-const STRUCT_DEF_REGEX = /\bstruct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/g;
-// Negative lookbehind para `@` exclui atributos WGSL (`@workgroup_size(1)`,
-// `@group(0)`, `@binding(0)`, `@location(0)`, `@compute`, `@vertex`, etc.).
-const CALL_REGEX = /(?<!@)\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
-
-export function validateWgslReferences(source: string, context: string): void {
-    const stripped = stripComments(source);
-    const defined = new Set<string>();
-    let m: RegExpExecArray | null;
-    while ((m = FN_DEF_REGEX.exec(stripped)) !== null) {
-        defined.add(m[1]!);
-    }
-    FN_DEF_REGEX.lastIndex = 0;
-    while ((m = STRUCT_DEF_REGEX.exec(stripped)) !== null) {
-        defined.add(m[1]!);
-    }
-    STRUCT_DEF_REGEX.lastIndex = 0;
-    const calls = new Set<string>();
-    while ((m = CALL_REGEX.exec(stripped)) !== null) {
-        calls.add(m[1]!);
-    }
-    CALL_REGEX.lastIndex = 0;
-    const missing: string[] = [];
-    for (const c of calls) {
-        if (BUILTIN_FUNCTIONS.has(c)) continue;
-        if (defined.has(c)) continue;
-        missing.push(c);
-    }
-    if (missing.length > 0) {
-        throw new Error(
-            `[WGSL] reference to '${missing.join("', '")}' but no fn defined in `
-                + `${context}; check baseSrc concatenation order or missing helpers.`,
-        );
-    }
-}
-
-function stripComments(src: string): string {
-    return src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-}

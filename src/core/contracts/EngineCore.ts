@@ -82,45 +82,7 @@ export interface ComputeKernelBindGroup {
 }
 
 /**
- * Opções para criar um compute kernel via `EngineCore.compute()` ou
- * `createComputeKernel()`. Encapsula tudo necessário: shader source,
- * entry point e configuração de bindgroups.
- *
- * Use **`bindings`** (single-bindgroup atalho) para casos simples (1 group).
- * Use **`bindGroups`** (multi-bindgroup) quando o kernel WGSL declara
- * `@group(0)`, `@group(1)`, etc.
- */
-export interface ComputeKernelOptions {
-    /**
-     * Prefixo único usado para gerar discriminator de cada artifact
-     * (`{prefix}_layout`, `{prefix}_shader`, `{prefix}_pipeline`, `{prefix}_bg`).
-     * Mesma string → mesmo specHash → reuso idempotente do GPU object.
-     */
-    readonly discriminator: string;
-    /** WGSL source contendo o entry point (validado por validateWgslReferences). */
-    readonly shaderSource: string;
-    /** Nome da função WGSL com `@compute @workgroup_size(...)`. */
-    readonly entryPoint: string;
-    /**
-     * Single-bindgroup form (atalho para casos simples). Use OU `bindings` OU
-     * `bindGroups`, não os dois.
-     */
-    readonly bindings?: readonly ComputeKernelBinding[];
-    /**
-     * Multi-bindgroup form. Cada entry vira um GPU bindgroup no slot
-     * correspondente (`bindGroups[0]` → @group(0), [1] → @group(1)...).
-     */
-    readonly bindGroups?: readonly ComputeKernelBindGroup[];
-    /**
-     * Se true, usa `core.createAsync` para compilar o pipeline em background
-     * (sem bloquear o frame). O Flow consumidor deve checar `isReady()` ou
-     * tolerar que o pipeline ainda não esteja no store nos primeiros frames.
-     */
-    readonly preferAsync?: boolean;
-}
-
-/**
- * Bag de specs retornado por `EngineCore.compute()` / `createComputeKernel()`.
+ * Bag de specs retornado por `createComputeKernel()` (C2).
  * Inclui o pipeline + bindgroups + layouts. Use durante dispatch:
  * ```ts
  * frame.compute('MyFlow.kernel', pass => {
@@ -265,15 +227,6 @@ export interface EngineCore {
      * 1–3 quadros; `gpuFrame` diz a que quadro pertence).
      */
     lastFrameStats(): FrameStats;
-
-    /**
-     * Higher-level helper para compute kernels paramétricos. Encapsula a
-     * sequência shader + layout + bindgroup + pipeline em 1 chamada. Equivalente
-     * a `createComputeKernel(this, opts)` (Camada 2) — exposto na interface
-     * para descoberta direta a partir do core. Use para casos simples; para
-     * custom layouts ou multi-kernel-shared-bindings, use `create()` baixo nível.
-     */
-    compute(opts: ComputeKernelOptions): ComputeKernel;
 
     /**
      * Cria (ou reutiliza, por conteúdo) o objeto de GPU descrito por `spec` e devolve `spec`.

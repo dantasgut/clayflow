@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TransformFlow } from '../flows/TransformFlow';
 import { Transform } from '../Transform';
 import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
-import { validateWgslReferences } from '../../../scene/flows/validateWgslReferences';
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
 import type { Resource } from '../../../scene/contracts/Resource';
 import type {
@@ -127,11 +127,15 @@ describe('TransformFlow', () => {
         expect(core.write).toHaveBeenCalledTimes(2);
     });
 
-    it('o shader composto é válido para validateWgslReferences e lê os pools certos', () => {
+    it('o shader monta sem erro (dependências e referências) e lê os pools certos', () => {
         const [desc] = setup().flow.getPipelineDescriptors();
-        expect(() => {
-            validateWgslReferences(desc!.shaderSource, 'transform_compose');
-        }).not.toThrow();
+        expect(composeWgsl(desc!.shader).modules).toEqual([
+            'quat',
+            'mat',
+            'structs/transform',
+            'structs/world_transform',
+            'transform_compose',
+        ]);
         expect(desc!.consumes).toEqual([Transform.schema.name]);
     });
 });

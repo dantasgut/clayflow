@@ -3,6 +3,7 @@ import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
+import type { WgslModule } from '../../scene/shaders/WgslModule';
 
 /**
  * Opções comuns a todos os post-process effects. Cada effect concreto
@@ -31,8 +32,8 @@ export interface PostProcessOptions {
  * texturas: scene → pp[0] → pp[1] → ... → canvas.
  *
  * Built-in effects: Bloom, Blur, ChromaticAberration, ColorGrading, Fxaa,
- * Ssao, ToneMapping, Vignette. Custom effects: implemente `fragmentSource()`
- * retornando WGSL próprio (ver método).
+ * Ssao, ToneMapping, Vignette. Custom effects: implemente `fragmentModule()`
+ * retornando um módulo WGSL próprio (ver método).
  *
  * Subclasses devem implementar `name` (identificador) e `fragmentEntry`
  * (nome do fragment fn no WGSL).
@@ -56,18 +57,16 @@ export abstract class PostProcessEffect extends Entity implements Resource {
     abstract get fragmentEntry(): string;
 
     /**
-     * Override opcional: retorna WGSL source customizado contendo o
-     * fragment entry point (`fragmentEntry`). Quando definido, PostFlow cria
-     * um `ShaderModuleSpec` dedicado para este effect em vez de usar o
-     * `effects.wgsl` monolítico. Útil para custom effects sem editar a engine.
-     *
-     * O source DEVE também conter um vertex entry — ou reutilizar
-     * `vs_fullscreen` do effects.wgsl via concatenação se desejar:
+     * Override opcional: módulo WGSL próprio contendo o fragment entry point (`fragmentEntry`). Quando definido, o
+     * PostFlow monta um shader dedicado para este effect em vez de usar o comum. O módulo declara
+     * `requires: [effectsBase]` para reutilizar os bindings e o `vs_fullscreen`:
      * ```ts
-     * fragmentSource() { return effectsBase + this.customFs; }
+     * fragmentModule() {
+     *     return wgslModule({ name: 'meu_efeito', source: meuFragmento, requires: [effectsBase] });
+     * }
      * ```
      */
-    fragmentSource?(): string;
+    fragmentModule?(): WgslModule;
 
     /** True se o effect deve participar do chain neste frame. Lê `data.enabled`. */
     get isEnabled(): boolean {

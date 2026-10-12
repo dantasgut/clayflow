@@ -91,7 +91,7 @@ export default tseslint.config(
                     // tipos de shader.
                     selector: 'enumMember',
                     format: null,
-                    filter: { regex: '^(f|i|u|vec|mat)[0-9]', match: true },
+                    filter: { regex: '^((f|i|u|vec|mat)[0-9]|atomic[UI]32$)', match: true },
                 },
                 {
                     selector: 'enumMember',

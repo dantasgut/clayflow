@@ -35,7 +35,16 @@ export type { GPUDescriptor, GPUDescriptorRole } from './descriptors/GPUDescript
 export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';
 export type { FlowDescriptor } from './descriptors/FlowDescriptor';
 export type { TextureShape } from './descriptors/TextureShape';
-export type { VertexLayout, VertexAttributeLayout } from './descriptors/index';
+export type {
+    AddressSpace,
+    ArrayFieldSpec,
+    FieldSpec,
+    RuntimeArrayFieldSpec,
+    StructFieldSpec,
+    StructSchemaOptions,
+    VertexLayout,
+    VertexAttributeLayout,
+} from './descriptors/index';
 export type { SamplerShape } from './descriptors/SamplerShape';
 export {
     FieldType,
@@ -45,6 +54,9 @@ export {
     fieldElementBytes,
     fieldElements,
     fieldWgsl,
+    fieldArray,
+    fieldRuntimeArray,
+    fieldStruct,
     Schema,
     StructSchema,
     TensorSchema,
@@ -56,6 +68,16 @@ export { asEntityId } from './world/EntityId';
 export type { EntityId } from './world/EntityId';
 
 export { Flow, RenderFlow, FlowRegistry } from './flows/index';
+export { createComputeKernel, destroyComputeKernel } from './flows/index';
+export type { ComputeKernelOptions } from './flows/index';
+export { wgslModule, composeWgsl, WgslCompositionError } from './shaders/index';
+export type {
+    WgslModule,
+    WgslModuleOptions,
+    ComposedShader,
+    WgslCompositionErrorKind,
+    WgslSymbol,
+} from './shaders/index';
 export type { Phase } from './flows/index';
 
 export {

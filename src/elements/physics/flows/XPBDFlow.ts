@@ -12,13 +12,7 @@ import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
 import { GravityField } from '../forcefields/GravityField';
-import simParamsStruct from '../../gpu/wgsl/structs/sim_params.wgsl?raw';
-import particleStruct from '../../gpu/wgsl/structs/particle.wgsl?raw';
-import distanceConstraintStruct from '../../gpu/wgsl/structs/distance_constraint.wgsl?raw';
-import xpbdMath from '../../gpu/wgsl/math/xpbd.wgsl?raw';
-import predictKernel from '../../gpu/wgsl/kernels/predict.wgsl?raw';
-import velocityUpdateKernel from '../../gpu/wgsl/kernels/velocity_update.wgsl?raw';
-import distanceSolveKernel from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw';
+import { xpbdDistanceSolve, xpbdPredict, xpbdVelocityUpdate } from '../shaders/xpbd';
 
 export interface XPBDFlowOptions {
     readonly bodyType?: string;
@@ -75,14 +69,14 @@ export class XPBDFlow extends Flow {
             {
                 id: 'pipeline_xpbd_predict',
                 role: 'compute',
-                shaderSource: [simParamsStruct, particleStruct, xpbdMath, predictKernel].join('\n'),
+                shader: xpbdPredict,
                 entryPoints: ['predict_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_xpbd_velocity_update',
                 role: 'compute',
-                shaderSource: [simParamsStruct, particleStruct, velocityUpdateKernel].join('\n'),
+                shader: xpbdVelocityUpdate,
                 entryPoints: ['velocity_update_main'],
                 consumes: [this.bodyType],
             },
@@ -91,13 +85,7 @@ export class XPBDFlow extends Flow {
             list.push({
                 id: 'pipeline_xpbd_distance_solve',
                 role: 'compute',
-                shaderSource: [
-                    simParamsStruct,
-                    particleStruct,
-                    distanceConstraintStruct,
-                    xpbdMath,
-                    distanceSolveKernel,
-                ].join('\n'),
+                shader: xpbdDistanceSolve,
                 entryPoints: ['distance_solve_main'],
                 consumes: [this.bodyType, this.constraintPoolKey],
             });
@@ -144,7 +132,7 @@ export class XPBDFlow extends Flow {
         if (this.predictKernel === null) {
             this.predictKernel = createComputeKernel(this.core, {
                 discriminator: 'xpbd_predict',
-                shaderSource: [simParamsStruct, particleStruct, xpbdMath, predictKernel].join('\n'),
+                shader: xpbdPredict,
                 entryPoint: 'predict_main',
                 bindings: baseBindings,
             });
@@ -152,7 +140,7 @@ export class XPBDFlow extends Flow {
         if (this.velUpdateKernel === null) {
             this.velUpdateKernel = createComputeKernel(this.core, {
                 discriminator: 'xpbd_velocity_update',
-                shaderSource: [simParamsStruct, particleStruct, velocityUpdateKernel].join('\n'),
+                shader: xpbdVelocityUpdate,
                 entryPoint: 'velocity_update_main',
                 bindings: baseBindings,
             });
@@ -162,13 +150,7 @@ export class XPBDFlow extends Flow {
             if (constraintsBuf === undefined) return;
             this.distanceKernel = createComputeKernel(this.core, {
                 discriminator: 'xpbd_distance_solve',
-                shaderSource: [
-                    simParamsStruct,
-                    particleStruct,
-                    distanceConstraintStruct,
-                    xpbdMath,
-                    distanceSolveKernel,
-                ].join('\n'),
+                shader: xpbdDistanceSolve,
                 entryPoint: 'distance_solve_main',
                 bindings: [
                     ...baseBindings,

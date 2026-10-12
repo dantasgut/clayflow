@@ -20,86 +20,14 @@ import { PerStepUniforms } from './PerStepUniforms';
 import { GravityField } from '../forcefields/GravityField';
 import { Transform } from '../../scene/Transform';
 import { ColliderSet } from '../colliders/ColliderSet';
-import rigidBodyStruct from '../../gpu/wgsl/structs/rigid_body.wgsl?raw';
-import rbSimParamsStruct from '../../gpu/wgsl/structs/rb_sim_params.wgsl?raw';
-import rbContactStruct from '../../gpu/wgsl/structs/rb_contact.wgsl?raw';
-import rbContactStateStruct from '../../gpu/wgsl/structs/rb_contact_state.wgsl?raw';
-import colliderDescStructs from '../../gpu/wgsl/structs/collider_desc.wgsl?raw';
-import quatLib from '../../gpu/wgsl/math/quat.wgsl?raw';
-import impulseLib from '../../gpu/wgsl/math/impulse.wgsl?raw';
-import contactMathLib from '../../gpu/wgsl/math/contact_math.wgsl?raw';
-import lcpLib from '../../gpu/wgsl/math/lcp.wgsl?raw';
-import sdfLib from '../../gpu/wgsl/math/sdf.wgsl?raw';
-import xpbdLib from '../../gpu/wgsl/math/xpbd.wgsl?raw';
-import rbPredictKernel from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
-import rbNarrowphaseKernel from '../../gpu/wgsl/kernels/rb_narrowphase.wgsl?raw';
-import rbBuildLcpKernel from '../../gpu/wgsl/kernels/rb_build_lcp.wgsl?raw';
-import rbSolveLcpKernel from '../../gpu/wgsl/kernels/rb_solve_lcp.wgsl?raw';
-import rbLcpCommitKernel from '../../gpu/wgsl/kernels/rb_lcp_commit.wgsl?raw';
-import rbContactAccumulateKernel from '../../gpu/wgsl/kernels/rb_contact_accumulate.wgsl?raw';
-
-const PREDICT_SHADER = [
-    rigidBodyStruct,
-    rbSimParamsStruct,
-    quatLib,
-    impulseLib,
-    rbPredictKernel,
-].join('\n');
-
-const NARROWPHASE_SHADER = [
-    rigidBodyStruct,
-    rbSimParamsStruct,
-    rbContactStruct,
-    rbContactStateStruct,
-    colliderDescStructs,
-    quatLib,
-    impulseLib,
-    sdfLib,
-    rbNarrowphaseKernel,
-].join('\n');
-
-const BUILD_LCP_SHADER = [
-    rigidBodyStruct,
-    rbSimParamsStruct,
-    rbContactStruct,
-    quatLib,
-    impulseLib,
-    xpbdLib,
-    contactMathLib,
-    lcpLib,
-    rbBuildLcpKernel,
-].join('\n');
-
-const SOLVE_LCP_SHADER = [
-    rigidBodyStruct,
-    rbSimParamsStruct,
-    rbContactStruct,
-    quatLib,
-    impulseLib,
-    xpbdLib,
-    contactMathLib,
-    lcpLib,
-    rbContactStateStruct,
-    rbSolveLcpKernel,
-].join('\n');
-
-const ACCUMULATE_SHADER = [
-    rbSimParamsStruct,
-    rbContactStruct,
-    rbContactStateStruct,
-    rbContactAccumulateKernel,
-].join('\n');
-
-const COMMIT_SHADER = [
-    rigidBodyStruct,
-    rbSimParamsStruct,
-    rbContactStruct,
-    quatLib,
-    impulseLib,
-    xpbdLib,
-    rbContactStateStruct,
-    rbLcpCommitKernel,
-].join('\n');
+import {
+    rbBuildLcp,
+    rbContactAccumulate,
+    rbLcpCommit,
+    rbNarrowphase,
+    rbPredict,
+    rbSolveLcp,
+} from '../shaders/lcp';
 
 const RB_SIM_PARAMS_BYTE_SIZE = 80;
 const NP_PARAMS_BYTE_SIZE = 16;
@@ -256,21 +184,21 @@ export class LCPFlow extends Flow {
             {
                 id: 'pipeline_lcp_predict',
                 role: 'compute',
-                shaderSource: PREDICT_SHADER,
+                shader: rbPredict,
                 entryPoints: ['rb_predict_main', 'rb_apply_gravity_main'],
                 consumes: ['LCPSchema', 'GravityField'],
             },
             {
                 id: 'pipeline_lcp_build',
                 role: 'compute',
-                shaderSource: BUILD_LCP_SHADER,
+                shader: rbBuildLcp,
                 entryPoints: ['rb_build_lcp'],
                 consumes: ['LCPSchema'],
             },
             {
                 id: 'pipeline_lcp_solve',
                 role: 'compute',
-                shaderSource: SOLVE_LCP_SHADER,
+                shader: rbSolveLcp,
                 entryPoints: [
                     'rb_warm_apply_main',
                     'rb_solve_contacts_main',
@@ -282,7 +210,7 @@ export class LCPFlow extends Flow {
             {
                 id: 'pipeline_lcp_commit',
                 role: 'compute',
-                shaderSource: COMMIT_SHADER,
+                shader: rbLcpCommit,
                 entryPoints: ['rb_lcp_commit_main'],
                 consumes: ['LCPSchema'],
             },
@@ -291,7 +219,7 @@ export class LCPFlow extends Flow {
             list.push({
                 id: `pipeline_lcp_narrowphase_${shape.poolKey.toLowerCase()}`,
                 role: 'compute',
-                shaderSource: NARROWPHASE_SHADER,
+                shader: rbNarrowphase,
                 entryPoints: [shape.entryPoint],
                 consumes: ['LCPSchema', shape.poolKey],
             });
@@ -588,7 +516,7 @@ export class LCPFlow extends Flow {
         const kernel = (discriminator: string, entryPoint: string) =>
             createComputeKernel(this.core, {
                 discriminator,
-                shaderSource: PREDICT_SHADER,
+                shader: rbPredict,
                 entryPoint,
                 bindings: [
                     this.params.binding(0),
@@ -617,7 +545,7 @@ export class LCPFlow extends Flow {
         const poolBuf = pool.buffer;
         const kernel = createComputeKernel(this.core, {
             discriminator: `lcp_narrowphase_${shape.poolKey}`,
-            shaderSource: NARROWPHASE_SHADER,
+            shader: rbNarrowphase,
             entryPoint: shape.entryPoint,
             bindings: [
                 this.params.binding(0),
@@ -645,7 +573,7 @@ export class LCPFlow extends Flow {
         if (this.buildLcpKernel !== null) return;
         this.buildLcpKernel = createComputeKernel(this.core, {
             discriminator: 'lcp_build_lcp',
-            shaderSource: BUILD_LCP_SHADER,
+            shader: rbBuildLcp,
             entryPoint: 'rb_build_lcp',
             bindings: [
                 this.params.binding(0),
@@ -672,7 +600,7 @@ export class LCPFlow extends Flow {
         const kernel = (entryPoint: string) =>
             createComputeKernel(this.core, {
                 discriminator: `lcp_${entryPoint}`,
-                shaderSource: SOLVE_LCP_SHADER,
+                shader: rbSolveLcp,
                 entryPoint,
                 bindings: [
                     this.params.binding(0),
@@ -702,7 +630,7 @@ export class LCPFlow extends Flow {
         if (this.accumulateKernel !== null) return;
         this.accumulateKernel = createComputeKernel(this.core, {
             discriminator: 'lcp_contact_accumulate',
-            shaderSource: ACCUMULATE_SHADER,
+            shader: rbContactAccumulate,
             entryPoint: 'rb_contact_accumulate_main',
             bindings: [
                 this.params.binding(0),
@@ -717,7 +645,7 @@ export class LCPFlow extends Flow {
         if (this.commitKernel !== null) return;
         this.commitKernel = createComputeKernel(this.core, {
             discriminator: 'lcp_commit',
-            shaderSource: COMMIT_SHADER,
+            shader: rbLcpCommit,
             entryPoint: 'rb_lcp_commit_main',
             bindings: [
                 this.params.binding(0),

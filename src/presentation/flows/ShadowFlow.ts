@@ -21,7 +21,8 @@ import type { EntityId } from '../../scene/world/EntityId';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { Transform } from '../../elements/scene/Transform';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
-import shadowDepthWGSL from './shadow_depth.wgsl?raw';
+import { composeWgsl } from '../../scene/shaders/composeWgsl';
+import { shadowDepth } from './shaders';
 
 const SHADOW_MAP_SIZE = 1024;
 const WORLD_POOL = Transform.worldSchema.name;
@@ -130,7 +131,7 @@ export class ShadowFlow extends Flow {
             {
                 id: 'pipeline_shadow_depth',
                 role: 'render',
-                shaderSource: shadowDepthWGSL,
+                shader: shadowDepth,
                 entryPoints: ['vs_main'],
                 consumes: ['Transform'],
             },
@@ -300,11 +301,7 @@ export class ShadowFlow extends Flow {
             });
         }
         if (this.shader === null) {
-            this.shader = this.core.create<ShaderModuleSpec>({
-                kind: 'shader',
-                discriminator: 'shadow_depth_shader',
-                source: shadowDepthWGSL,
-            });
+            this.shader = this.core.create<ShaderModuleSpec>({ ...composeWgsl(shadowDepth).spec });
         }
         if (this.pipeline === null && !this.preferAsyncPipeline) {
             const spec = this.buildPipelineSpec();

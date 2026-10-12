@@ -12,10 +12,7 @@ import type { World } from '../../../scene/world/World';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from './PerStepUniforms';
 import { GravityField } from '../forcefields/GravityField';
-import femSimParamsStruct from '../../gpu/wgsl/structs/fem_sim_params.wgsl?raw';
-import particleStruct from '../../gpu/wgsl/structs/particle.wgsl?raw';
-import femPredictKernel from '../../gpu/wgsl/kernels/fem_predict.wgsl?raw';
-import femVelocityUpdateKernel from '../../gpu/wgsl/kernels/fem_velocity_update.wgsl?raw';
+import { femPredict, femVelocityUpdate } from '../shaders/fem';
 
 export interface FEMFlowOptions {
     /** Substeps por passo de física (default 1). O passo vem do `Time` da cena. */
@@ -69,16 +66,14 @@ export class FEMFlow extends Flow {
             {
                 id: 'pipeline_fem_predict',
                 role: 'compute',
-                shaderSource: [femSimParamsStruct, particleStruct, femPredictKernel].join('\n'),
+                shader: femPredict,
                 entryPoints: ['fem_predict_main'],
                 consumes: [this.bodyType, 'GravityField'],
             },
             {
                 id: 'pipeline_fem_velocity_update',
                 role: 'compute',
-                shaderSource: [femSimParamsStruct, particleStruct, femVelocityUpdateKernel].join(
-                    '\n',
-                ),
+                shader: femVelocityUpdate,
                 entryPoints: ['fem_velocity_update_main'],
                 consumes: [this.bodyType],
             },
@@ -118,7 +113,7 @@ export class FEMFlow extends Flow {
         if (this.predictKernel === null) {
             this.predictKernel = createComputeKernel(this.core, {
                 discriminator: 'fem_predict',
-                shaderSource: [femSimParamsStruct, particleStruct, femPredictKernel].join('\n'),
+                shader: femPredict,
                 entryPoint: 'fem_predict_main',
                 bindings,
             });
@@ -126,9 +121,7 @@ export class FEMFlow extends Flow {
         if (this.velUpdateKernel === null) {
             this.velUpdateKernel = createComputeKernel(this.core, {
                 discriminator: 'fem_velocity_update',
-                shaderSource: [femSimParamsStruct, particleStruct, femVelocityUpdateKernel].join(
-                    '\n',
-                ),
+                shader: femVelocityUpdate,
                 entryPoint: 'fem_velocity_update_main',
                 bindings,
             });
