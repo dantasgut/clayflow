@@ -462,10 +462,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     /** Reconstrói os mapas de dono se sujos e religa as fontes que mudaram. */
     private syncColliders(ctx: Ctx): void {
         if (!this.colliderSet.refresh()) return;
-        const sources: Record<
-            string,
-            StorageBufferSpec | UniformBufferSpec | ReturnType<ColliderSet['bodiesBuffer']>
-        > = {};
+        const sources: Record<string, StorageBufferSpec | UniformBufferSpec> = {};
         for (const shape of SHAPE_POOLS) {
             const pool = this.colliderSet.pool(shape.poolKey);
             sources[SHAPE_VARIABLE[shape.poolKey]!] = pool.buffer;

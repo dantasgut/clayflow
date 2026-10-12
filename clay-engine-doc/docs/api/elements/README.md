@@ -157,6 +157,8 @@ pelo `Flow.bodyType` registrado.
 - [MPMSoftSchema](variables/MPMSoftSchema.md)
 - [NO\_OWNER](variables/NO_OWNER.md)
 - [PBFSchema](variables/PBFSchema.md)
+- [renderableRecord](variables/renderableRecord.md)
+- [RenderableSchema](variables/RenderableSchema.md)
 - [SCAN\_GROUP](variables/SCAN_GROUP.md)
 - [ScanLevelSchema](variables/ScanLevelSchema.md)
 - [SPHSchema](variables/SPHSchema.md)

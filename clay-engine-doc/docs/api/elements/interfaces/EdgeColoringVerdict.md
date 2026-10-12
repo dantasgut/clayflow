@@ -6,7 +6,7 @@
 
 # Interface: EdgeColoringVerdict
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:33](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L33)
+Defined in: [elements/gpu/compute/GraphColorer.ts:33](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/GraphColorer.ts#L33)
 
 Resultado de `verifyEdgeColoring`.
 
@@ -16,7 +16,7 @@ Resultado de `verifyEdgeColoring`.
 
 > `readonly` **colorCount**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:37](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L37)
+Defined in: [elements/gpu/compute/GraphColorer.ts:37](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/GraphColorer.ts#L37)
 
 Maior cor + 1.
 
@@ -26,7 +26,7 @@ Maior cor + 1.
 
 > `readonly` `optional` **conflict?**: readonly \[`number`, `number`\]
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:39](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L39)
+Defined in: [elements/gpu/compute/GraphColorer.ts:39](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/GraphColorer.ts#L39)
 
 Primeiro par de arestas em conflito (índices), quando inválida.
 
@@ -36,6 +36,6 @@ Primeiro par de arestas em conflito (índices), quando inválida.
 
 > `readonly` **valid**: `boolean`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:35](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/gpu/compute/GraphColorer.ts#L35)
+Defined in: [elements/gpu/compute/GraphColorer.ts:35](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/GraphColorer.ts#L35)
 
 Nenhuma cor com duas arestas no mesmo vértice.

@@ -1328,7 +1328,7 @@ A Camada 2 é a ponte entre o hardware (C1) e os elementos de cena (C3). Ela nã
 
 - **`Resource`** — contrato único de dado GPU. Implementado por classes data-bearing (Camera, Material, Transform, RigidBody, ...). Cada Resource declara `getDescriptors()` retornando uma bag de `GPUDescriptor`. Coalescing é declarativo via `storage: 'individual' | 'pool'` em cada descritor:
   - `storage: 'individual'` (default): buffer GPU próprio por instância — Camera, `Time`, a textura `depth` do `ShadowMap`, os alvos do quadro (`FrameTargets`).
-  - Materiais (`StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial`) usam `storage: 'pool'` com `role: 'uniform'`: um **pool uniforme** por schema (registro alinhado a 256 bytes), lido no shader com offset dinâmico `slot × stride` — ver "Pools canônicos".
+  - Materiais (`StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial`) usam `storage: 'pool'` com `role: 'storage-ro'`: um pool de storage por schema (`array<T>`, stride do struct), indexado no shader pelo `materialSlot` do registro `Renderable` — ver "Pools canônicos". Pools são sempre de storage: `role: 'uniform'` em pool é rejeitado.
   - `storage: 'pool'`: engine agrega N instâncias do mesmo schema em um buffer global contíguo. Pool key = `${schema.name}` (ou `${schema.name}:${algorithm}` quando o Resource declara FlowDescriptor). Membros indexam por slot estável atribuído na inserção; o ResourceSystem mantém isso em `Map<poolKey, PoolEntry>` interno. Um Flow consome o pool por um slot (`slot.pool('SchemaName')`, `slot.bodies()`) e/ou por `consumes: ['SchemaName']` no PipelineDescriptor, que o `PoolResolver` resolve para a fonte de binding (o buffer atual do pool); a C2 cria e mantém o bind group.
 
 Resources implementam ciclo de vida 7-state (`ResourceStateHandler`, State Pattern), são registrados no `World` ECS e observados pelo `EventBus`. Cardinalidade é declarativa por descritor, não por tipo separado.
@@ -1589,7 +1589,7 @@ classDiagram
         }
     }
     note for LayoutInferencer "Lê o WGSL montado por composeWgsl e devolve, para as entradas pedidas, os grupos e bindings\nusados, o tipo de cada recurso (uniform, storage, textura, sampler) e a visibilidade — a união dos\nestágios das entradas que alcançam a variável (chamadas transitivas contam).\n\nA ligação de Flows (C2, flowBinding) dá a cada binding inferido a sua fonte, nesta ordem:\n1. privado do Flow 'pipeline:variável'; 2. privado 'variável';\n3. nome de consumes cujo tipo (ou o 'as') é o tipo do binding — ConsumerResolver;\n4. senão FlowBindingError. Fonte ainda inexistente → o pipeline espera.\n\nLayouts e bind groups são criados pela C2; nenhum estágio os cria (verificado no gate).\nOverride: a visibilidade explícita do descritor do Resource vence a inferida."
-    note for ResourceSystem "Reage a eventos do World (resourcesChanged, resourceDirty).\nRoteia por descriptor.storage:\n- 'individual' → core.create(spec) próprio por instância.\n- 'pool' → poolKey = schema.name (+ algoritmo se getFlowDescriptors presente).\n  Pool aloca buffer global com capacity inicial, realoca 2× ao exceder (pool uniforme:\n  registro alinhado a 256, lido com offset dinâmico). Slots seguem POLÍTICA FREE-LIST:\n  remoção marca slot como livre; próxima inserção reusa slot livre antes de crescer.\n  Slots NUNCA migram.\n\nPrimeiro recurso de um schema → poolCreated(poolKey); realocação → poolReallocated(poolKey).\nA ligação de Flows (ensureFlowAllocated) recria os bind groups que usavam o buffer e emite\nbindGroupReplaced { flow, pipeline, group, oldSpec, newSpec }.\n\nPipelines com preferAsync=true → core.createAsync; o Flow só fica ready (flowReady)\ndepois de compilar. Enquanto compila, o ExecutionSystem não o grava."
+    note for ResourceSystem "Reage a eventos do World (resourcesChanged, resourceDirty).\nRoteia por descriptor.storage:\n- 'individual' → core.create(spec) próprio por instância.\n- 'pool' → poolKey = schema.name (+ algoritmo se getFlowDescriptors presente).\n  Pool aloca buffer global de storage (array<T>, stride do struct) com capacity inicial,\n  realoca 2× ao exceder. Registros de entidade (slot.entities com record, ex.: Renderable)\n  são pools mantidos pela C2 com os slots referidos. Slots seguem POLÍTICA FREE-LIST:\n  remoção marca slot como livre; próxima inserção reusa slot livre antes de crescer.\n  Slots NUNCA migram.\n\nPrimeiro recurso de um schema → poolCreated(poolKey); realocação → poolReallocated(poolKey).\nA ligação de Flows (ensureFlowAllocated) recria os bind groups que usavam o buffer e emite\nbindGroupReplaced { flow, pipeline, group, oldSpec, newSpec }.\n\nPipelines com preferAsync=true → core.createAsync; o Flow só fica ready (flowReady)\ndepois de compilar. Enquanto compila, o ExecutionSystem não o grava."
     note for ExecutionSystem "Não tem loop imperativo. Reage a eventos:\n- flowReady / flowSuspended: mantém os Flows ativos (com o BoundFlow de cada um).\n- frameTick: emite frameRecording (a C2 envia os dados sujos, reconcilia os Flows e entrega\n  framePrepare), abre core.record('frame', frame => { ... }) UMA vez por frame.\n\nDentro do record, itera os Flows ativos pelas fases na ordem fixa\nphysics → transform → shadow → forward → post → ui (dentro da fase: priority decrescente,\nempate pelo registro). Cada flow.dispatch(frame, bound) grava os seus passes.\n\nAo sair do callback, chama core.submit() e emite frameComplete { timestamp, dt, elapsed }.\nBarreiras inter-pass são automáticas (WebGPU). Submit único, encoder único, sem micro-requests."
 
     %% ── FENÔMENOS GLOBAIS ────────────────────────────────────────────────────
@@ -2025,9 +2025,9 @@ A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescript
 |---|---|---|---|
 | `Transform` / `WorldTransform` | intenção (posição, rotação, escala) e matriz de mundo | `TransformFlow` → forward, sombra, física | atual |
 | `Camera` | — (individual: uma por câmera) | forward, sombra | atual (individual) |
-| `StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial` | material por schema — **pool uniforme** (registro alinhado a 256), lido com offset dinâmico `slot × stride` | forward | atual |
+| `StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial` | material por schema — pool de storage (`array<T>`, stride do struct), indexado pelo `materialSlot` do `Renderable` | forward | atual |
 | `ShadowMap` | matriz luz-vista-projeção, vieses e tamanho de cada luz que projeta sombra (`array<ShadowMap>` no shader); a textura `depth` é individual | sombra (desenha na `depth`), forward (lê pelo slot do caster) | atual |
-| `Renderable` | `{ geometry, materialSlot, transformSlot }` para cada entidade com Geometry + Material + Transform, preenchido pela C2 | forward e sombra: desenho agrupado por (geometria, pipeline) com instâncias/indireto | **alvo da F2** (hoje o forward e a sombra iteram o slot `entities` de Geometry + Material + Transform e desenham uma entidade por draw, com `firstInstance` = slot no `WorldTransform`) |
+| `Renderable` | `{ transformSlot, materialSlot }` para cada entidade com Geometry + Material + Transform, mantido pela C2 a partir de `slot.entities({ all, record })` | forward: `firstInstance` = slot do registro; o shader lê a matriz e o material por ele — nenhum bind group muda entre draws do mesmo pipeline | atual (006, Emenda 1); desenho agrupado por (geometria, pipeline) com instâncias/indireto sobre ele: **alvo da F2** |
 | `LCPSchema` | corpo rígido — LCP | `LCPFlow` | atual |
 | `XPBDSoftSchema` | partícula de corpo mole (XPBD) | `XPBDFlow` | atual |
 | `XPBDRigidSchema` | corpo rígido XPBD | — (solver posicional rígido: alvo da F5) | schema sem Flow |
@@ -2664,7 +2664,7 @@ classDiagram
     Scene ..> World : add/addEntity inserem via world.insert (não implementa Resource)
 
     %% storage: 'pool' — engine coalesce instâncias do mesmo schema em buffer único (PoolEntry interno)
-    %% Pool key = `${schema.name}` (`${schema.name}:${algorithm}` se houver FlowDescriptor). Materiais em pool uniforme (offset dinâmico).
+    %% Pool key = `${schema.name}` (`${schema.name}:${algorithm}` se houver FlowDescriptor). Materiais em pool de storage, indexados pelo Renderable.
     RigidBody          ..> ResourceSystem : storage 'pool'
     SoftBody           ..> ResourceSystem : storage 'pool'
     FluidBody          ..> ResourceSystem : storage 'pool'
@@ -3137,10 +3137,10 @@ class StandardMaterial extends Entity implements Resource {
     this.data = StandardMaterial.schema.applyDefaults(values);
   }
 
-  // Bag: o material vai para o pool uniforme do seu schema (um registro por entidade, offset dinâmico).
-  // Mapas entrariam como `role: 'texture'` (textureShape) e `role: 'sampler'` (samplerShape) no mesmo bag.
+  // Bag: o material vai para o pool de storage do seu schema (um registro por entidade, lido como array<T> pelo
+  // `materialSlot` do Renderable). Mapas entrariam como `role: 'texture'` e `role: 'sampler'` no mesmo bag.
   getDescriptors(): GPUDescriptor[] {
-    return [{ id: 'material', role: 'uniform', schema: StandardMaterial.schema, storage: 'pool' }];
+    return [{ id: 'material', role: 'storage-ro', schema: StandardMaterial.schema, storage: 'pool' }];
   }
 
   // O render principal prepara um pipeline por shader de material (e orientação de faces) quando o material
@@ -4573,9 +4573,10 @@ do quadro são um Resource da C4, **`FrameTargets`** (cor no formato do canvas e
 `sizeFromCanvas`), inserido uma vez por cena: o forward desenha neles e o pós lê a cor.
 
 Nenhum estágio cria objeto de GPU por entidade: geometria, materiais e matrizes vêm do que a C2 alocou (os pools
-`WorldTransform`, `StandardMaterial`…, os buffers da `Geometry`). O desenho é uma entidade por draw, com
-`firstInstance` = slot no `WorldTransform`; desenho agrupado por instâncias/indireto e o pool `Renderable` são da
-**F2/007**.
+`WorldTransform`, `StandardMaterial`…, os buffers da `Geometry`). O forward desenha uma entidade por draw com
+`firstInstance` = slot do registro `Renderable` (mantido pela C2: `slot.entities({ all, record })`), e o shader lê por
+ele a matriz de mundo e o material — sem bind group por desenho. A sombra desenha com `firstInstance` = slot no
+`WorldTransform`. Desenho agrupado por instâncias/indireto sobre o `Renderable` é da **F2/007**.
 
 **`ShadowFlow`** — passe só de profundidade do ponto de vista da primeira `DirectionalLight` que projeta sombra, na
 textura `depth` do `ShadowMap` dela:
@@ -4628,7 +4629,7 @@ function slotsOf(world: World, output: 'scene' | 'canvas') {
   return {
     camera:        slot.singleton(Camera.schema),                               // câmera ativa
     world:         slot.pool(Transform.worldSchema.name),
-    renderables:   slot.entities({ all: [Geometry, Material, Transform] }),
+    renderables:   slot.entities({ all: [Geometry, Material, Transform], record: renderableRecord }),
     caster:        slot.singleton(ShadowMap.schema, { optional: true, select }),
     shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
     shadowMaps:    slot.pool(ShadowMap.schema.name, { optional: true }),
@@ -4640,8 +4641,10 @@ function slotsOf(world: World, output: 'scene' | 'canvas') {
 ```
 
 - Grupo 0: a câmera (`consumes: 'Camera'`), enviada pela C2 quando muda — uma escrita por quadro em que muda.
-- Grupo 1: o pool `WorldTransform`, lido pelo slot da entidade (`firstInstance`).
-- Grupo 2: o pool uniforme do material do schema, com offset dinâmico `slot × stride` por desenho (só quando muda).
+- Grupo 1: o pool `WorldTransform` e o pool `Renderable` — o registro `{ transformSlot, materialSlot }` de cada
+  entidade, mantido pela C2 e indexado pelo `firstInstance` do desenho (`recordSlot` da entrada).
+- Grupo 2: o pool de storage do material do schema do pipeline (`array<StandardMaterial>`), lido por `materialSlot` —
+  ligado uma vez por pipeline; nenhum bind group muda entre desenhos do mesmo pipeline.
 - Grupo 3: `ForwardFrameParams` privado (direção da luz, sombra ligada, slot do mapa — escrito em `framePrepare` só
   quando muda), a textura `depth` do `ShadowMap` e `array<ShadowMap>` (o shader lê `shadow_maps[shadowSlot]`) e o
   sampler de comparação. Sem luz que projeta sombra, `shadowEnabled = 0`.

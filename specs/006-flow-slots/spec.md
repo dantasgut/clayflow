@@ -324,8 +324,9 @@ documento não tem mais "alvo da 006" e que seus exemplos usam só a API exporta
   `slot.entities` nomeia, por campo, o Resource e o descritor cujo slot de pool vai no campo. A C2 preenche, atualiza
   (troca de material, mudança de slot) e libera os registros por eventos; estágios não escrevem nele. Conjuntos com a
   mesma declaração compartilham o pool.
-- **FR-031** (Emenda 1): Forward e sombra MUST desenhar com `firstInstance` = slot do `Renderable` e ler matriz de
-  mundo e material pelo registro; o pool uniforme com offset dinâmico por draw sai do forward.
+- **FR-031** (Emenda 1): O forward MUST desenhar com `firstInstance` = slot do `Renderable` e ler matriz de mundo e
+  material pelo registro; o pool uniforme com offset dinâmico por draw sai. A sombra continua com `firstInstance` =
+  slot do `WorldTransform`: o conjunto dela é Geometry + Transform (sem material) e já não tem bind por draw.
 - **FR-020**: Geometria MUST existir uma vez na GPU (alocação da Camada 2), consumida por forward e sombra.
 - **FR-021**: O shader do forward MUST ler matriz da luz e vieses da sombra pelo struct gerado do `ShadowMap.schema`.
 

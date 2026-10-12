@@ -27,7 +27,12 @@ export class WireframeMaterial extends Material {
 
     getDescriptors(): readonly GPUDescriptor[] {
         return [
-            { id: 'material', role: 'uniform', schema: WireframeMaterial.schema, storage: 'pool' },
+            {
+                id: 'material',
+                role: 'storage-ro',
+                schema: WireframeMaterial.schema,
+                storage: 'pool',
+            },
         ];
     }
 
@@ -41,6 +46,7 @@ export class WireframeMaterial extends Material {
                 consumes: [
                     'Camera',
                     'WorldTransform',
+                    'Renderable',
                     { name: WireframeMaterial.schema.name, as: 'StandardMaterial' },
                 ],
                 topology: 'line-list',

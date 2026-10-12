@@ -6,7 +6,7 @@
 
 # Class: PostFlow
 
-Defined in: [presentation/flows/PostFlow.ts:57](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L57)
+Defined in: [presentation/flows/PostFlow.ts:57](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L57)
 
 PostFlow — cadeia de pós-processamento: lê a cor da cena (`FrameTargets.color`, slot `scene`) e aplica os efeitos
 ligados em pingue-pongue até o canvas (`scene → pp[0] → pp[1] → … → canvas`); sem efeitos, copia a cena para o
@@ -27,7 +27,7 @@ religada quando a cadeia muda.
 
 > **new PostFlow**(`ctx`): `PostFlow`
 
-Defined in: [presentation/flows/PostFlow.ts:76](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L76)
+Defined in: [presentation/flows/PostFlow.ts:76](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L76)
 
 #### Parameters
 
@@ -49,7 +49,7 @@ Defined in: [presentation/flows/PostFlow.ts:76](https://github.com/dantasgut/cla
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [presentation/flows/PostFlow.ts:60](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L60)
+Defined in: [presentation/flows/PostFlow.ts:60](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L60)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -63,7 +63,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/PostFlow.ts:61](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L61)
+Defined in: [presentation/flows/PostFlow.ts:61](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L61)
 
 Estado inicial do algoritmo.
 
@@ -77,7 +77,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -91,7 +91,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L65)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L65)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -105,7 +105,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`PostSlots`](../interfaces/PostSlots.md)
 
-Defined in: [presentation/flows/PostFlow.ts:59](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L59)
+Defined in: [presentation/flows/PostFlow.ts:59](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L59)
 
 Slots consumidos, por nome.
 
@@ -119,7 +119,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`PostSlots`](../interfaces/PostSlots.md)\>\>
 
-Defined in: [presentation/flows/PostFlow.ts:62](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L62)
+Defined in: [presentation/flows/PostFlow.ts:62](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L62)
 
 Tabela de transições (estado × evento).
 
@@ -133,7 +133,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"PostFlow"` = `'PostFlow'`
 
-Defined in: [presentation/flows/PostFlow.ts:58](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L58)
+Defined in: [presentation/flows/PostFlow.ts:58](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L58)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -149,7 +149,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -169,7 +169,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -187,7 +187,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **addEffect**(`effect`): `this`
 
-Defined in: [presentation/flows/PostFlow.ts:121](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L121)
+Defined in: [presentation/flows/PostFlow.ts:121](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L121)
 
 Empilha um efeito na cadeia. A ordem importa: efeitos são aplicados em sequência (`Bloom → ToneMapping → Fxaa →
 …`); desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo. Builder fluente.
@@ -208,7 +208,7 @@ Empilha um efeito na cadeia. A ordem importa: efeitos são aplicados em sequênc
 
 > `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/RenderFlow.ts#L20)
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/RenderFlow.ts#L20)
 
 View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
@@ -236,7 +236,7 @@ View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `u
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [presentation/flows/PostFlow.ts:127](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L127)
+Defined in: [presentation/flows/PostFlow.ts:127](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L127)
 
 Grava a cadeia preparada em `framePrepare`.
 
@@ -264,7 +264,7 @@ Grava a cadeia preparada em `framePrepare`.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/PostFlow.ts:153](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/PostFlow.ts#L153)
+Defined in: [presentation/flows/PostFlow.ts:153](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L153)
 
 Libera pingue-pongue, sampler e os uniforms dos efeitos.
 

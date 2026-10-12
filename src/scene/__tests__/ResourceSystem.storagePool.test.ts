@@ -10,11 +10,8 @@ import { ResourceSystem } from '../systems/ResourceSystem';
 import { World } from '../world/World';
 import { f32At, fakeResourceCore } from './helpers/fakeResourceCore';
 
-const Tint = new StructSchema(
-    'PoolTint',
-    { color: FieldType.vec4f, gain: FieldType.f32 },
-    { addressSpace: 'uniform' },
-);
+/** 32 bytes (vec4f + f32, alinhado a 16). */
+const Tint = new StructSchema('PoolTint', { color: FieldType.vec4f, gain: FieldType.f32 });
 
 class TintResource extends Entity implements Resource {
     static readonly schema = Tint;
@@ -25,7 +22,7 @@ class TintResource extends Entity implements Resource {
         this.data = { color: [1, 0, 0, 1], gain };
     }
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'tint', role: 'uniform', schema: Tint, storage: 'pool' }];
+        return [{ id: 'tint', role: 'storage-ro', schema: Tint, storage: 'pool' }];
     }
     getPipelineDescriptors() {
         return [];
@@ -40,16 +37,29 @@ function setup() {
     return { events, world, system, ...fake };
 }
 
-describe('ResourceSystem — pool uniforme (R8)', () => {
-    it("role 'uniform' + storage 'pool' cria buffer UNIFORM com stride alinhado a minUniformBufferOffsetAlignment", () => {
+describe('ResourceSystem — pool de storage (Emenda 1 da 006)', () => {
+    it('buffer STORAGE com o stride do struct (o do array<T> no WGSL)', () => {
         const { world, system } = setup();
         world.insert(new TintResource(1));
         const pool = system.poolInfo('PoolTint')!;
-        expect(pool.addressSpace).toBe('uniform');
-        expect(pool.stride).toBe(256);
-        expect(pool.buffer.subkind).toBe('uniform');
-        expect(pool.buffer.byteSize).toBe(256 * 16);
+        expect(pool.stride).toBe(Tint.stride);
+        expect(pool.buffer.subkind).toBe('storage');
+        expect(pool.buffer.byteSize).toBe(Tint.stride * 16);
         expect(system.poolBufferSpec('PoolTint')).toBe(pool.buffer);
+    });
+
+    it('stride que não é múltiplo de 16 não é arredondado (struct de 8 bytes ⇒ stride 8)', () => {
+        const { world, system } = setup();
+        const Pair = new StructSchema('PoolPair', { a: FieldType.u32, b: FieldType.u32 });
+        world.insert(
+            new (class extends TintResource {
+                override getDescriptors(): readonly GPUDescriptor[] {
+                    return [{ id: 'p', role: 'storage-ro', schema: Pair, storage: 'pool' }];
+                }
+            })(0),
+        );
+        expect(Pair.stride).toBe(8);
+        expect(system.poolInfo('PoolPair')!.stride).toBe(8);
     });
 
     it('cada recurso no seu slot: escrita no offset slot × stride; slots estáveis na remoção', () => {
@@ -59,19 +69,11 @@ describe('ResourceSystem — pool uniforme (R8)', () => {
         world.insert(a);
         const bId = world.insert(b);
         const pool = system.poolInfo('PoolTint')!;
-        const toB = writes.filter((w) => w.spec === pool.buffer && w.offset === 256);
+        const toB = writes.filter((w) => w.spec === pool.buffer && w.offset === Tint.stride);
         expect(toB).toHaveLength(1);
         expect(f32At(toB[0]!, 4)).toBe(2);
         world.remove(a);
         expect(system.poolSlotOf('PoolTint', bId)).toBe(1);
-    });
-
-    it('fonte dinâmica: o slot da entidade dá o offset do bind group (slot × stride)', () => {
-        const { world, system } = setup();
-        world.insert(new TintResource(1));
-        const id = world.insert(new TintResource(2));
-        const pool = system.poolInfo('PoolTint')!;
-        expect(system.poolSlotOf('PoolTint', id)! * pool.stride).toBe(256);
     });
 
     it('crescimento preserva os dados (reempacota da CPU) e destrói o buffer anterior', () => {
@@ -82,28 +84,24 @@ describe('ResourceSystem — pool uniforme (R8)', () => {
         world.insert(new TintResource(99));
         const grown = system.poolInfo('PoolTint')!;
         expect(grown.buffer).not.toBe(first);
-        expect(grown.buffer.subkind).toBe('uniform');
-        expect(grown.buffer.byteSize).toBe(256 * 32);
+        expect(grown.buffer.byteSize).toBe(Tint.stride * 32);
         expect(grown.generation).toBe(1);
         const rewritten = writes.filter((w) => w.spec === grown.buffer);
         expect(rewritten).toHaveLength(17);
-        expect(f32At(rewritten.find((w) => w.offset === 5 * 256)!, 4)).toBe(5);
+        expect(f32At(rewritten.find((w) => w.offset === 5 * Tint.stride)!, 4)).toBe(5);
         expect(core.destroy).toHaveBeenCalledWith(first);
     });
 
-    it('pool de storage continua com stride alinhado a 16', () => {
-        const { world, system } = setup();
-        const S = new StructSchema('PoolStorageItem', { v: FieldType.vec4f, w: FieldType.f32 });
-        world.insert(
-            new (class extends TintResource {
-                override getDescriptors(): readonly GPUDescriptor[] {
-                    return [{ id: 's', role: 'storage-rw', schema: S, storage: 'pool' }];
-                }
-            })(0),
-        );
-        const pool = system.poolInfo('PoolStorageItem')!;
-        expect(pool.addressSpace).toBe('storage');
-        expect(pool.stride).toBe(32);
-        expect(pool.buffer.subkind).toBe('storage');
+    it("descritor 'uniform' em pool é rejeitado com erro claro", () => {
+        const { world } = setup();
+        expect(() =>
+            world.insert(
+                new (class extends TintResource {
+                    override getDescriptors(): readonly GPUDescriptor[] {
+                        return [{ id: 'u', role: 'uniform', schema: Tint, storage: 'pool' }];
+                    }
+                })(0),
+            ),
+        ).toThrow(/'uniform' em pool/);
     });
 });

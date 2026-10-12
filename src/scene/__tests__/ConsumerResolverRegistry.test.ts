@@ -130,22 +130,12 @@ describe('PoolResolver', () => {
         });
     });
 
-    it('pool uniforme → um registro com offset dinâmico de stride alinhado', () => {
-        const { world, ctx } = scene();
-        world.insert(new Bag([{ id: 'm', role: 'uniform', schema: Mat, storage: 'pool' }]));
-        expect(new PoolResolver('ResolverMat', Mat).resolve(ctx)).toMatchObject({
-            kind: 'buffer',
-            size: Mat.stride,
-            dynamic: { stride: 256 },
-        });
-    });
-
     it('a C2 registra um PoolResolver ao criar o pool, sem substituir um existente', () => {
         const { world, consumers } = scene();
         const custom = stub('ResolverMat');
         consumers.register(custom);
         world.insert(new Bag([{ id: 'i', role: 'storage-rw', schema: Item, storage: 'pool' }]));
-        world.insert(new Bag([{ id: 'm', role: 'uniform', schema: Mat, storage: 'pool' }]));
+        world.insert(new Bag([{ id: 'm', role: 'storage-ro', schema: Mat, storage: 'pool' }]));
         expect(consumers.get('ResolverItem')).toBeInstanceOf(PoolResolver);
         expect(consumers.get('ResolverMat')).toBe(custom);
     });

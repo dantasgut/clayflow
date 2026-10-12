@@ -38,6 +38,7 @@ import { Camera } from '../../elements/scene/Camera';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
+import { renderableRecord } from '../../elements/scene/Renderable';
 import { FrameTargets } from '../app/FrameTargets';
 import { castingShadowMap, isMirrored } from './ShadowFlow';
 
@@ -64,9 +65,9 @@ export type ForwardOutput = 'scene' | 'canvas';
 export interface ForwardSlots extends SlotMap {
     /** Câmera ativa (grupo 0, enviada pela C2 quando muda). */
     readonly camera: SingletonSlot<false>;
-    /** Pool `WorldTransform` (grupo 1, matriz de mundo pelo slot da entidade). */
+    /** Pool `WorldTransform` (grupo 1, matriz de mundo pelo `transformSlot` do registro). */
     readonly world: PoolSlot<false>;
-    /** Entidades desenhadas: geometria + material + transform. */
+    /** Entidades desenhadas (geometria + material + transform), com o registro `Renderable` mantido pela C2. */
     readonly renderables: EntitiesSlot;
     /** `ShadowMap` da luz que projeta sombra (opcional; sem ele, `shadowEnabled = 0`). */
     readonly caster: SingletonSlot<true>;
@@ -84,7 +85,10 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
     return {
         camera: slot.singleton(Camera.schema),
         world: slot.pool(Transform.worldSchema.name),
-        renderables: slot.entities({ all: [Geometry, Material, Transform] }),
+        renderables: slot.entities({
+            all: [Geometry, Material, Transform],
+            record: renderableRecord,
+        }),
         caster: slot.singleton(ShadowMap.schema, { optional: true, select }),
         shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
         shadowMaps: slot.pool(ShadowMap.schema.name, { optional: true }),
@@ -111,14 +115,15 @@ export interface ForwardFlowOptions {
  *
  * Tudo vem do que a C2 já alocou, sem objeto de GPU por entidade:
  *   - grupo 0: a câmera ativa (`consumes: 'Camera'`), enviada pela C2 quando muda;
- *   - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`), lido pelo slot da entidade
- *     (`firstInstance` do draw);
- *   - grupo 2: o pool uniforme do material do seu schema, com offset dinâmico `slot × stride` por desenho;
+ *   - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`) e o pool `Renderable` — o registro de cada
+ *     entidade (`transformSlot`, `materialSlot`), mantido pela C2 e indexado pelo `firstInstance` do draw;
+ *   - grupo 2: o pool de storage do material do schema do pipeline, indexado pelo `materialSlot` do registro;
  *   - grupo 3: parâmetros do quadro (direção da luz, sombra ligada, slot do mapa), o mapa de sombra da luz que
  *     projeta (`ShadowMap`: textura e, pelo pool, matriz e viés) e o sampler de comparação;
  *   - vértices e índices: os buffers da `Geometry` alocados pela C2.
  *
- * Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando mudam entre desenhos. Um pipeline
+ * Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando o pipeline muda. Entre desenhos do
+ * mesmo pipeline nenhum bind group muda: a entidade é selecionada só pelo `firstInstance`. Um pipeline
  * por shader de material e orientação de faces (escala espelhada ⇒ `frontFace: 'cw'`), preparado numa transição
  * quando o material entra na cena. Recursos privados (parâmetros do quadro, sampler, substitutos da sombra) são
  * religados em transições.
@@ -146,13 +151,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         string,
         { readonly ccw: string; readonly cw: string }
     >();
-    /** Chave do pool e id do shader por material (pelo descritor; reconhecido uma vez por instância). */
     /** Entidades cujo material ainda não tem pool (tentadas de novo em `framePrepare`). */
     private readonly pendingMaterials = new Set<EntityId>();
-    private readonly materialInfo = new WeakMap<
-        Material,
-        { readonly pool: string; readonly shader: string; readonly stride: number }
-    >();
+    /** Id do shader de cada material (pelo descritor; reconhecido uma vez por instância). */
+    private readonly materialShader = new WeakMap<Material, string>();
     /** Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda. */
     profileTimestamps = false;
 
@@ -241,7 +243,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         };
     }
 
-    /** Grava o passe principal: grupos compartilhados uma vez; por desenho, pipeline e material só quando mudam. */
+    /** Grava o passe principal: grupos compartilhados uma vez; pipeline e grupo do material só quando o pipeline muda. */
     dispatch(frame: Frame, bound: BoundFlow<ForwardSlots>): void {
         const target = bound.slots.target;
         const colorView = this.colorView(frame, target);
@@ -262,55 +264,39 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             ...(tsWrites !== undefined ? { timestampWrites: tsWrites } : {}),
         };
         const entries = bound.slots.renderables.entries;
-        const world = bound.slots.world;
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
             let shared = false;
             let current: PreparedRender | undefined;
-            let currentMaterial: string | undefined;
-            let currentOffset = -1;
             for (const entry of entries) {
-                const worldSlot = world.slotOf(entry.entityId);
-                if (worldSlot === undefined) continue; // ainda sem slot ⇒ não desenha neste quadro
-                const material = entry.get(Material);
-                const info = this.materialInfo.get(material);
-                const ids =
-                    info === undefined ? undefined : this.materialPipelines.get(info.shader);
-                if (info === undefined || ids === undefined) continue;
+                const drawSlot = entry.recordSlot;
+                if (drawSlot === undefined) continue; // sem registro (algum slot ausente) ⇒ não desenha
+                const shader = this.materialShader.get(entry.get(Material));
+                const ids = shader === undefined ? undefined : this.materialPipelines.get(shader);
+                if (ids === undefined) continue;
                 const prepared = bound.pipelines.get(
                     isMirrored(entry.get(Transform)) ? ids.cw : ids.ccw,
                 );
                 if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
-                const materialSlot = this.resources.poolSlotOf(info.pool, entry.entityId);
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 const indices = this.resources.bufferOf(geometry, 'indices');
-                if (
-                    materialSlot === undefined
-                    || vertices?.subkind !== 'vertex'
-                    || indices?.subkind !== 'index'
-                ) {
-                    continue;
-                }
+                if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') continue;
                 if (prepared !== current) {
                     pass.bind.setPipeline(prepared.spec);
+                    if (!shared) {
+                        // Câmera, mundo + registros e sombra: os mesmos para todos os pipelines do passe.
+                        pass.bind
+                            .setBindGroup(0, prepared.groups[0]!)
+                            .setBindGroup(1, prepared.groups[1]!)
+                            .setBindGroup(3, prepared.groups[3]!);
+                        shared = true;
+                    }
+                    // Material: o pool do schema do pipeline, indexado no shader pelo registro.
+                    pass.bind.setBindGroup(2, prepared.groups[2]!);
                     current = prepared;
                 }
-                if (!shared) {
-                    // Câmera, mundo e sombra: os mesmos para todos os pipelines do passe.
-                    pass.bind
-                        .setBindGroup(0, prepared.groups[0]!)
-                        .setBindGroup(1, prepared.groups[1]!)
-                        .setBindGroup(3, prepared.groups[3]!);
-                    shared = true;
-                }
-                const offset = materialSlot * info.stride;
-                if (info.pool !== currentMaterial || offset !== currentOffset) {
-                    pass.bind.setBindGroup(2, prepared.groups[2]!, [offset]);
-                    currentMaterial = info.pool;
-                    currentOffset = offset;
-                }
                 pass.geometry.vertex(0, vertices).index(indices);
-                pass.draw.indexed(indices.count, 1, 0, 0, worldSlot);
+                pass.draw.indexed(indices.count, 1, 0, 0, drawSlot);
             }
         });
     }
@@ -351,7 +337,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const format = ctx.bound.slots.target.format ?? this.core.canvasFormat;
         for (const entry of entries) {
             const material = entry.get(Material);
-            if (this.materialInfo.has(material)) {
+            if (this.materialShader.has(material)) {
                 this.pendingMaterials.delete(entry.entityId);
                 continue;
             }
@@ -359,13 +345,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             this.pendingMaterials.delete(entry.entityId);
             if (desc === undefined) continue; // material sem shader de forward: nunca desenhado
             const pool = this.resources.poolKeyForResource(material);
-            const stride = pool === undefined ? undefined : this.resources.poolInfo(pool)?.stride;
-            if (pool === undefined || stride === undefined) {
+            if (pool === undefined || this.resources.poolInfo(pool) === undefined) {
                 this.pendingMaterials.add(entry.entityId);
                 continue;
             }
-            // O stride de um pool não muda (alinhamento do schema): o offset do material é `slot × stride`.
-            this.materialInfo.set(material, { pool, shader: desc.id, stride });
+            this.materialShader.set(material, desc.id);
             if (this.materialPipelines.has(desc.id)) continue;
             const variant = (frontFace: GPUFrontFace): string => {
                 const descriptor: PipelineDescriptor = {

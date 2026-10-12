@@ -6,7 +6,7 @@
 
 # Class: Assets
 
-Defined in: [presentation/assets/Assets.ts:15](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/Assets.ts#L15)
+Defined in: [presentation/assets/Assets.ts:15](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/Assets.ts#L15)
 
 Assets é o ponto de acesso unificado para os asset loaders. Cria
 uma instância de cada loader; consumers acessam via `assets.texture.load(...)`,
@@ -31,7 +31,7 @@ por Application é a prática recomendada.
 
 > `readonly` **audio**: [`AudioLoader`](AudioLoader.md)
 
-Defined in: [presentation/assets/Assets.ts:23](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/Assets.ts#L23)
+Defined in: [presentation/assets/Assets.ts:23](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/Assets.ts#L23)
 
 Loader de audio (mp3/ogg/wav via Web Audio API).
 
@@ -41,7 +41,7 @@ Loader de audio (mp3/ogg/wav via Web Audio API).
 
 > `readonly` **font**: [`FontLoader`](FontLoader.md)
 
-Defined in: [presentation/assets/Assets.ts:25](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/Assets.ts#L25)
+Defined in: [presentation/assets/Assets.ts:25](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/Assets.ts#L25)
 
 Loader de fonts (woff/ttf via FontFace + atlas glyph).
 
@@ -51,7 +51,7 @@ Loader de fonts (woff/ttf via FontFace + atlas glyph).
 
 > `readonly` **gltf**: [`GltfLoader`](GltfLoader.md)
 
-Defined in: [presentation/assets/Assets.ts:19](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/Assets.ts#L19)
+Defined in: [presentation/assets/Assets.ts:19](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/Assets.ts#L19)
 
 Loader de glTF/GLB models (mesh + materials + animations + skins).
 
@@ -61,7 +61,7 @@ Loader de glTF/GLB models (mesh + materials + animations + skins).
 
 > `readonly` **heightmap**: [`HeightmapLoader`](HeightmapLoader.md)
 
-Defined in: [presentation/assets/Assets.ts:21](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/Assets.ts#L21)
+Defined in: [presentation/assets/Assets.ts:21](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/Assets.ts#L21)
 
 Loader de heightmaps (RGBA → terrain mesh tessellated).
 
@@ -71,6 +71,6 @@ Loader de heightmaps (RGBA → terrain mesh tessellated).
 
 > `readonly` **texture**: [`TextureLoader`](TextureLoader.md)
 
-Defined in: [presentation/assets/Assets.ts:17](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/Assets.ts#L17)
+Defined in: [presentation/assets/Assets.ts:17](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/Assets.ts#L17)
 
 Loader de texturas 2D (PNG/JPG/HDR via fetch + ImageBitmap).

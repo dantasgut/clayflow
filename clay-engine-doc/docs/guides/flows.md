@@ -33,9 +33,15 @@ Cada slot é resolvido pela C2 e entregue ao `dispatch` em `bound.slots`, com ti
 | `slot.pool(key, { optional? })` | `BoundPool` (buffer, `count`, `stride`, `slotOf`, `entityAt`) | `WorldTransform`, restrições |
 | `slot.pools(keys)` | mapa chave → `BoundPool \| undefined` | conjunto de colliders |
 | `slot.singleton(schema, { optional?, select? })` | `BoundSingleton` (`resource`, `bufferOf(descId)`…) | câmera, `Time`, `GravityField` |
-| `slot.entities({ all: [A, B, …] })` | `BoundEntities` (entidades com um Resource de cada tipo) | renderizáveis |
+| `slot.entities({ all: [A, B, …], record? })` | `BoundEntities` (entidades com um Resource de cada tipo; com `record`, `entry.recordSlot` e `records`) | renderizáveis |
 | `slot.texture(schema, descId, { optional?, select? })` | `BoundTexture` (`texture`, `view`) | cor da cena, mapa de sombra |
 | `slot.target('canvas' \| { color, depth? })` | `BoundTarget` (só em `RenderFlow`) | alvo de render |
+
+Com `record`, a C2 mantém um registro de GPU por entidade do conjunto, num pool com chave `record.schema.name`: cada
+campo (`u32`) recebe o slot de pool do descritor nomeado de um Resource da entidade — ex.: `renderableRecord` =
+`{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`. O estágio desenha com
+`firstInstance = entry.recordSlot` e o shader lê o registro (`renderables[instance_index]`), sem bind group por
+entidade. Conjuntos com a mesma declaração compartilham o pool; o estágio nunca escreve nele.
 
 Slot obrigatório não resolvido mantém o Flow `pending` (fora do quadro). Slots opcionais resolvem como `undefined`
 enquanto o dado não existe; quando aparecem, somem ou trocam de recurso, o Flow recebe `slotChanged`.

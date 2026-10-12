@@ -28,13 +28,13 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 
 ## 2. Limites de escala
 
-| #   | Limite                                 | Estado atual (evidência)                                                                                                                                                         | Fase     |
-| --- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| E1  | XPBD resolve em uma única thread       | `distance_solve_main` com `@workgroup_size(1)` percorre todas as restrições em laço (`elements/gpu/wgsl/kernels/distance_solve.wgsl`); `GraphColorer` já existe para paralelizar | F5 (015) |
-| E2  | LCP sem broadphase                     | Cada corpo testa todos os colliders (O(N·M)); `rigid-bodies/10k` ≈ 340 ms/quadro. A busca de vizinhança (spec 005) é a base prevista                                             | F5 (015) |
-| E3  | Readback dos corpos rígidos por quadro | Pose lida de volta para a CPU com 1 quadro de atraso                                                                                                                             | F2       |
-| E4  | Teto de partículas fixo                | SPH e PBF alocam 65 536 partículas (`SPHFlow.ts:243`, `PBFFlow.ts:42`)                                                                                                           | F5       |
-| E5  | Render sem instancing                  | 1 draw por objeto. A alocação por entidade do forward saiu na 006 (câmera, mundo e material pelos slots; nenhum objeto de GPU por entidade); falta instancing / vertex pulling   | F2 (007) |
+| #   | Limite                                 | Estado atual (evidência)                                                                                                                                                                                                                                                                                 | Fase     |
+| --- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| E1  | XPBD resolve em uma única thread       | `distance_solve_main` com `@workgroup_size(1)` percorre todas as restrições em laço (`elements/gpu/wgsl/kernels/distance_solve.wgsl`); `GraphColorer` já existe para paralelizar                                                                                                                         | F5 (015) |
+| E2  | LCP sem broadphase                     | Cada corpo testa todos os colliders (O(N·M)); `rigid-bodies/10k` ≈ 340 ms/quadro. A busca de vizinhança (spec 005) é a base prevista                                                                                                                                                                     | F5 (015) |
+| E3  | Readback dos corpos rígidos por quadro | Pose lida de volta para a CPU com 1 quadro de atraso                                                                                                                                                                                                                                                     | F2       |
+| E4  | Teto de partículas fixo                | SPH e PBF alocam 65 536 partículas (`SPHFlow.ts:243`, `PBFFlow.ts:42`)                                                                                                                                                                                                                                   | F5       |
+| E5  | Render sem instancing                  | 1 draw por objeto. A alocação por entidade do forward saiu na 006 (câmera, mundo e material pelos slots; nenhum objeto de GPU por entidade) e o bind por draw também (registro `Renderable` mantido pela C2, Emenda 1); falta agrupar os draws por (geometria, pipeline) com instancing / vertex pulling | F2 (007) |
 
 ## 3. Resolvidos na 006 (2026-10-12)
 
@@ -46,17 +46,20 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | Comentário do `XPBDFlow` dizia 1 substep padrão (o código usa 8)                      | Documentação corrigida                                                                                        |
 | `ShadowMap.schema` não era lido por shader                                            | `forward.wgsl` e `shadow_depth.wgsl` leem `array<ShadowMap>` pelo slot do caster                              |
 | Inserção em massa O(n²) com o forward pronto e nos solvers com colliders              | Só as entidades adicionadas são processadas; o `ColliderSet` é reconstruído uma vez por quadro                |
+| Rebind do material com offset dinâmico a cada draw (R8) dobrava a GPU de `instances`  | Registro `Renderable` mantido pela C2 e material em pool de storage (Emenda 1, R16): GPU 1,07 → 0,66 ms       |
+| Laço gastava RAFs sem desenhar com a GPU cheia (sem vsync, ~1/60 s de espera)         | Evento `frameRetired`: `GameLoop` e o bench esperam a vaga na GPU antes do RAF                                |
+| Pool de storage arredondava o stride a 16 (≠ stride do `array<T>` em structs menores) | Stride do pool = stride do struct; `role: 'uniform'` em pool rejeitado (o pool uniforme saiu)                 |
 
 ## 4. Fora do escopo da 006
 
-| Item                                                                         | Fase     |
-| ---------------------------------------------------------------------------- | -------- |
-| Pools de Transform/Camera/Light/Material/Renderable lidos pela GPU sem a CPU | F2 (007) |
-| Instancing e vertex pulling (E5)                                             | F2 (007) |
-| Fim do readback da física (E3)                                               | F2 (007) |
-| Geometria gerada em compute                                                  | F2 (008) |
-| Pontos de extensão matemáticos (métrica, espaços não euclidianos)            | F3       |
-| Lacunas de simulação P1–P10 e limites E1, E2, E4                             | F5       |
+| Item                                                                                                                          | Fase     |
+| ----------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Pools de Transform/Camera/Light/Material/Renderable produzidos e lidos pela GPU sem a CPU (o `Renderable` existe desde a 006) | F2 (007) |
+| Instancing e vertex pulling (E5)                                                                                              | F2 (007) |
+| Fim do readback da física (E3)                                                                                                | F2 (007) |
+| Geometria gerada em compute                                                                                                   | F2 (008) |
+| Pontos de extensão matemáticos (métrica, espaços não euclidianos)                                                             | F3       |
+| Lacunas de simulação P1–P10 e limites E1, E2, E4                                                                              | F5       |
 
 ## 5. Ordem do ROADMAP
 

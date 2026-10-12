@@ -6,7 +6,7 @@
 
 # Class: GltfLoader
 
-Defined in: [presentation/assets/GltfLoader.ts:277](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/GltfLoader.ts#L277)
+Defined in: [presentation/assets/GltfLoader.ts:277](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/GltfLoader.ts#L277)
 
 GltfLoader carrega arquivos glTF (`.gltf` JSON ou `.glb` binário) em
 `GltfDocument`. Resolve buffers externos via fetch, decodifica
@@ -35,7 +35,7 @@ Suporte limitado vs. spec completa:
 
 > **load**(`url`): `Promise`\<[`GltfDocument`](../interfaces/GltfDocument.md)\>
 
-Defined in: [presentation/assets/GltfLoader.ts:287](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/GltfLoader.ts#L287)
+Defined in: [presentation/assets/GltfLoader.ts:287](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/GltfLoader.ts#L287)
 
 Load a glTF document from URL. Suporta:
   - .gltf JSON com buffers externos (URI)
@@ -61,7 +61,7 @@ sniffing nos primeiros 4 bytes da resposta.
 
 > **parse**(`data`, `url`): `Promise`\<[`GltfDocument`](../interfaces/GltfDocument.md)\>
 
-Defined in: [presentation/assets/GltfLoader.ts:297](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/assets/GltfLoader.ts#L297)
+Defined in: [presentation/assets/GltfLoader.ts:297](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/assets/GltfLoader.ts#L297)
 
 Parse de um glTF (.gltf JSON ou .glb binário) já em memória. Útil para
 testes determinísticos e para casos em que o cliente já possui os bytes.

@@ -6,6 +6,7 @@ export { Light } from './Light';
 export { DirectionalLight } from './DirectionalLight';
 export { PointLight } from './PointLight';
 export { ShadowMap } from './ShadowMap';
+export { RenderableSchema, renderableRecord } from './Renderable';
 export type { ShadowMapOptions } from './ShadowMap';
 export { CanvasRenderTarget, OffscreenRenderTarget } from './RenderTarget';
 export type { RenderTargetOptions } from './RenderTarget';

@@ -8,7 +8,7 @@
 
 > `const` **ELEMENT\_CONSUMERS**: readonly `ConsumerResolver`[]
 
-Defined in: [elements/consumers.ts:13](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/elements/consumers.ts#L13)
+Defined in: [elements/consumers.ts:13](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/consumers.ts#L13)
 
 Resolvers de `consumes` dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
 aplicação): `Camera` (a primeira câmera inserida que continua na cena), `GravityField` e `ParticleMaterial`. Os

@@ -6,7 +6,7 @@
 
 # Class: PointerDevice
 
-Defined in: [presentation/input/PointerDevice.ts:8](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/input/PointerDevice.ts#L8)
+Defined in: [presentation/input/PointerDevice.ts:8](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L8)
 
 Device de mouse/touch unificado (Pointer Events API). Popula
 `Input.state.pointerX/Y/Buttons/DeltaX/DeltaY/wheel`. Use deltas para
@@ -18,7 +18,7 @@ camera orbit; absolute coords para UI hit-testing.
 
 > **new PointerDevice**(`canvas`, `input`): `PointerDevice`
 
-Defined in: [presentation/input/PointerDevice.ts:9](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/input/PointerDevice.ts#L9)
+Defined in: [presentation/input/PointerDevice.ts:9](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L9)
 
 #### Parameters
 
@@ -40,7 +40,7 @@ Defined in: [presentation/input/PointerDevice.ts:9](https://github.com/dantasgut
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/PointerDevice.ts:15](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/input/PointerDevice.ts#L15)
+Defined in: [presentation/input/PointerDevice.ts:15](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L15)
 
 Registra listeners no canvas.
 
@@ -54,7 +54,7 @@ Registra listeners no canvas.
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/PointerDevice.ts:23](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/input/PointerDevice.ts#L23)
+Defined in: [presentation/input/PointerDevice.ts:23](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L23)
 
 Remove listeners.
 

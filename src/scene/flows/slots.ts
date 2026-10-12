@@ -1,13 +1,13 @@
 import type {
     TextureSpec,
     TextureViewSpec,
-    UniformBufferSpec,
     StorageBufferSpec,
     AnyBufferSpec,
     SamplerSpec,
 } from '../../core/contracts/index';
 import type { Resource } from '../contracts/Resource';
 import type { Schema } from '../descriptors/Schema';
+import type { StructSchema } from '../descriptors/StructSchema';
 import type { EntityId } from '../world/EntityId';
 
 /** Classe de um Resource (reconhecida por `instanceof`, que sobrevive à minificação). */
@@ -49,12 +49,27 @@ export interface SingletonSlot<O extends boolean = boolean> {
     readonly select?: (resource: Resource) => boolean;
 }
 
+/**
+ * Registro de GPU por entidade de um conjunto `entities`, mantido pela C2 num pool com chave `schema.name`. Cada campo
+ * (`u32` no schema) recebe o slot de pool do descritor `descId` do Resource da entidade que é instância do tipo dado —
+ * ex.: `Renderable` = `{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`. Conjuntos com a
+ * mesma declaração compartilham o pool e o slot; estágios só leem.
+ */
+export interface EntityRecordDeclaration {
+    /** Schema do registro (um campo `u32` por entrada de `fields`); o nome é a chave do pool. */
+    readonly schema: StructSchema;
+    /** Campo → [classe do Resource da entidade, id do descritor em pool cujo slot vai no campo]. */
+    readonly fields: Readonly<Record<string, readonly [ResourceType, string]>>;
+}
+
 /** Entidades que têm um Resource de cada tipo de `all`, mantidas pela C2 na inserção e na remoção. */
 export interface EntitiesSlot<T extends readonly ResourceType[] = readonly ResourceType[]> {
     /** Tipo do slot. */
     readonly kind: 'entities';
     /** Classes de Resource que a entidade precisa ter (todas). */
     readonly all: T;
+    /** Registro de GPU por entidade, mantido pela C2 (opcional). */
+    readonly record?: EntityRecordDeclaration;
 }
 
 /** Textura (e view) alocada pela C2 para o descritor `descId` do primeiro Resource com `schema`. */
@@ -113,8 +128,8 @@ export interface BoundPool {
     readonly poolKey: string;
     /** Schema do elemento do pool. */
     readonly schema: Schema;
-    /** Buffer atual do pool (storage, ou uniform num pool de uniforms). */
-    readonly buffer: StorageBufferSpec | UniformBufferSpec;
+    /** Buffer atual do pool (storage, `array<T>` no shader). */
+    readonly buffer: StorageBufferSpec;
     /** Slots ocupáveis (maior slot já usado + 1). */
     readonly count: number;
     /** Bytes por registro. */
@@ -149,6 +164,11 @@ export interface EntityEntry {
     readonly resources: readonly Resource[];
     /** O Resource da entidade que é instância de `type` (um dos tipos de `all`). */
     get<T extends Resource>(type: ResourceType<T>): T;
+    /**
+     * Slot do registro da entidade no pool do `record` do slot (o `firstInstance` do desenho), ou `undefined` sem
+     * `record` ou quando algum campo não tem slot (ex.: descritor fora de pool).
+     */
+    readonly recordSlot: number | undefined;
 }
 
 /** Conjunto de entidades resolvido, em ordem de inserção. */
@@ -157,6 +177,8 @@ export interface BoundEntities {
     readonly entries: readonly EntityEntry[];
     /** Entrada da entidade, ou `undefined`. */
     entry(entityId: EntityId): EntityEntry | undefined;
+    /** Pool dos registros, quando o slot declara `record` (visão viva, como `slot.pool`). */
+    readonly records: BoundPool | undefined;
 }
 
 /** Textura resolvida. */
@@ -240,11 +262,18 @@ export const slot = {
             ...(opts?.select !== undefined ? { select: opts.select } : {}),
         });
     },
-    /** Entidades com um Resource de cada tipo de `all` (ex.: geometria + material + transform). */
-    entities<T extends readonly ResourceType[]>(opts: { readonly all: T }): EntitiesSlot<T> {
+    /**
+     * Entidades com um Resource de cada tipo de `all` (ex.: geometria + material + transform); com `record`, a C2
+     * mantém também um registro de GPU por entidade (ver `EntityRecordDeclaration`).
+     */
+    entities<T extends readonly ResourceType[]>(opts: {
+        readonly all: T;
+        readonly record?: EntityRecordDeclaration;
+    }): EntitiesSlot<T> {
         return Object.freeze({
             kind: 'entities',
             all: Object.freeze([...opts.all]) as unknown as T,
+            ...(opts.record !== undefined ? { record: opts.record } : {}),
         });
     },
     /** Textura alocada para o descritor `descId` do primeiro Resource com `schema`. */

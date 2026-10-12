@@ -100,6 +100,8 @@ export class FlowRuntime {
         this.wantsFramePrepare = flowHandles(flow, 'framePrepare');
         for (const [name, decl] of Object.entries(flow.slots)) {
             if (decl.kind !== 'entities') continue;
+            if (decl.record !== undefined)
+                host.resources.acquireEntityRecords(decl.all, decl.record);
             const set = new Map<EntityId, EntityEntry>();
             this.entitySets.set(name, set);
             for (const record of host.world.allRecords()) {
@@ -261,6 +263,10 @@ export class FlowRuntime {
         }
         for (const state of this.pipelineStates.values()) state.release();
         this.pipelineStates.clear();
+        for (const decl of Object.values(this.flow.slots)) {
+            if (decl.kind === 'entities' && decl.record !== undefined)
+                this.host.resources.releaseEntityRecords(decl.record);
+        }
         setFlowLifecycle(this.flow, 'disposed');
         this.flow.dispose();
     }
@@ -521,7 +527,13 @@ export class FlowRuntime {
         if (view === undefined) {
             const set = this.entitySets.get(name)!;
             const cache = this.entityCaches;
+            const record = (this.flow.slots[name] as EntitiesSlot).record;
+            const records = (): BoundPool | undefined =>
+                record === undefined ? undefined : this.poolView(record.schema.name);
             view = {
+                get records() {
+                    return records();
+                },
                 get entries() {
                     let list = cache.get(name);
                     if (list === undefined) {
@@ -592,9 +604,14 @@ export class FlowRuntime {
             found.push(r);
         }
         const all = decl.all;
+        const recordKey = decl.record?.schema.name;
+        const directory = this.host.resources;
         return {
             entityId: id,
             resources,
+            get recordSlot() {
+                return recordKey === undefined ? undefined : directory.poolSlotOf(recordKey, id);
+            },
             get<T extends Resource>(type: ResourceType<T>): T {
                 const index = all.indexOf(type);
                 const r = index >= 0 ? found[index] : resources.find((x) => x instanceof type);

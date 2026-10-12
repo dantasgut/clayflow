@@ -6,7 +6,7 @@
 
 # Interface: UiBounds
 
-Defined in: [presentation/ui/UiElement.ts:5](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/ui/UiElement.ts#L5)
+Defined in: [presentation/ui/UiElement.ts:5](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/ui/UiElement.ts#L5)
 
 Bounds retangulares de um UiElement em coordenadas de tela (pixels).
 Origem no canto superior esquerdo do canvas (y cresce pra baixo).
@@ -17,7 +17,7 @@ Origem no canto superior esquerdo do canvas (y cresce pra baixo).
 
 > **height**: `number`
 
-Defined in: [presentation/ui/UiElement.ts:13](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/ui/UiElement.ts#L13)
+Defined in: [presentation/ui/UiElement.ts:13](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/ui/UiElement.ts#L13)
 
 Altura em pixels.
 
@@ -27,7 +27,7 @@ Altura em pixels.
 
 > **width**: `number`
 
-Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/ui/UiElement.ts#L11)
+Defined in: [presentation/ui/UiElement.ts:11](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/ui/UiElement.ts#L11)
 
 Largura em pixels.
 
@@ -37,7 +37,7 @@ Largura em pixels.
 
 > **x**: `number`
 
-Defined in: [presentation/ui/UiElement.ts:7](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/ui/UiElement.ts#L7)
+Defined in: [presentation/ui/UiElement.ts:7](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/ui/UiElement.ts#L7)
 
 Posição X em pixels do canto superior esquerdo.
 
@@ -47,6 +47,6 @@ Posição X em pixels do canto superior esquerdo.
 
 > **y**: `number`
 
-Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/ui/UiElement.ts#L9)
+Defined in: [presentation/ui/UiElement.ts:9](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/ui/UiElement.ts#L9)
 
 Posição Y em pixels do canto superior esquerdo.

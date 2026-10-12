@@ -107,6 +107,7 @@ export type {
     PoolsSlot,
     SingletonSlot,
     EntitiesSlot,
+    EntityRecordDeclaration,
     TextureSlot,
     TargetSlot,
     TextureRef,

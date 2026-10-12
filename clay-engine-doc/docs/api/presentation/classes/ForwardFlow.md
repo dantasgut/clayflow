@@ -6,20 +6,21 @@
 
 # Class: ForwardFlow
 
-Defined in: [presentation/flows/ForwardFlow.ts:126](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L126)
+Defined in: [presentation/flows/ForwardFlow.ts:131](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L131)
 
 ForwardFlow — o render principal: desenha as entidades com geometria, material e transform.
 
 Tudo vem do que a C2 já alocou, sem objeto de GPU por entidade:
   - grupo 0: a câmera ativa (`consumes: 'Camera'`), enviada pela C2 quando muda;
-  - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`), lido pelo slot da entidade
-    (`firstInstance` do draw);
-  - grupo 2: o pool uniforme do material do seu schema, com offset dinâmico `slot × stride` por desenho;
+  - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`) e o pool `Renderable` — o registro de cada
+    entidade (`transformSlot`, `materialSlot`), mantido pela C2 e indexado pelo `firstInstance` do draw;
+  - grupo 2: o pool de storage do material do schema do pipeline, indexado pelo `materialSlot` do registro;
   - grupo 3: parâmetros do quadro (direção da luz, sombra ligada, slot do mapa), o mapa de sombra da luz que
     projeta (`ShadowMap`: textura e, pelo pool, matriz e viés) e o sampler de comparação;
   - vértices e índices: os buffers da `Geometry` alocados pela C2.
 
-Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando mudam entre desenhos. Um pipeline
+Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando o pipeline muda. Entre desenhos do
+mesmo pipeline nenhum bind group muda: a entidade é selecionada só pelo `firstInstance`. Um pipeline
 por shader de material e orientação de faces (escala espelhada ⇒ `frontFace: 'cw'`), preparado numa transição
 quando o material entra na cena. Recursos privados (parâmetros do quadro, sampler, substitutos da sombra) são
 religados em transições.
@@ -34,7 +35,7 @@ religados em transições.
 
 > **new ForwardFlow**(`ctx`, `options?`): `ForwardFlow`
 
-Defined in: [presentation/flows/ForwardFlow.ts:159](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L159)
+Defined in: [presentation/flows/ForwardFlow.ts:161](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L161)
 
 #### Parameters
 
@@ -60,7 +61,7 @@ Defined in: [presentation/flows/ForwardFlow.ts:159](https://github.com/dantasgut
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [presentation/flows/ForwardFlow.ts:129](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L129)
+Defined in: [presentation/flows/ForwardFlow.ts:134](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L134)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -74,7 +75,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/ForwardFlow.ts:130](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L130)
+Defined in: [presentation/flows/ForwardFlow.ts:135](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L135)
 
 Estado inicial do algoritmo.
 
@@ -88,7 +89,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -102,7 +103,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L65)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L65)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -116,7 +117,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > **profileTimestamps**: `boolean` = `false`
 
-Defined in: [presentation/flows/ForwardFlow.ts:157](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L157)
+Defined in: [presentation/flows/ForwardFlow.ts:159](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L159)
 
 Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda.
 
@@ -126,7 +127,7 @@ Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a 
 
 > `readonly` **slots**: [`ForwardSlots`](../interfaces/ForwardSlots.md)
 
-Defined in: [presentation/flows/ForwardFlow.ts:128](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L128)
+Defined in: [presentation/flows/ForwardFlow.ts:133](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L133)
 
 Slots consumidos, por nome.
 
@@ -140,7 +141,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`ForwardSlots`](../interfaces/ForwardSlots.md)\>\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:131](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L131)
+Defined in: [presentation/flows/ForwardFlow.ts:136](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L136)
 
 Tabela de transições (estado × evento).
 
@@ -154,7 +155,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"ForwardFlow"` = `'ForwardFlow'`
 
-Defined in: [presentation/flows/ForwardFlow.ts:127](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L127)
+Defined in: [presentation/flows/ForwardFlow.ts:132](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L132)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -170,7 +171,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -190,7 +191,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -208,7 +209,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/scene/flows/RenderFlow.ts#L20)
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/RenderFlow.ts#L20)
 
 View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
@@ -236,9 +237,9 @@ View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `u
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [presentation/flows/ForwardFlow.ts:245](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L245)
+Defined in: [presentation/flows/ForwardFlow.ts:247](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L247)
 
-Grava o passe principal: grupos compartilhados uma vez; por desenho, pipeline e material só quando mudam.
+Grava o passe principal: grupos compartilhados uma vez; pipeline e grupo do material só quando o pipeline muda.
 
 #### Parameters
 
@@ -264,7 +265,7 @@ Grava o passe principal: grupos compartilhados uma vez; por desenho, pipeline e 
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/ForwardFlow.ts:319](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/flows/ForwardFlow.ts#L319)
+Defined in: [presentation/flows/ForwardFlow.ts:305](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ForwardFlow.ts#L305)
 
 Libera os recursos privados.
 

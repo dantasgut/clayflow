@@ -31,7 +31,7 @@ export class PointSpriteMaterial extends Material {
         return [
             {
                 id: 'material',
-                role: 'uniform',
+                role: 'storage-ro',
                 schema: PointSpriteMaterial.schema,
                 storage: 'pool',
             },
@@ -48,6 +48,7 @@ export class PointSpriteMaterial extends Material {
                 consumes: [
                     'Camera',
                     'WorldTransform',
+                    'Renderable',
                     { name: PointSpriteMaterial.schema.name, as: 'StandardMaterial' },
                 ],
                 topology: 'point-list',

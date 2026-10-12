@@ -233,10 +233,12 @@ Ver o guia [Flows](./flows.md).
 | `registerPresentationDefaults(flows, { canvas, core, world, resources, events })` | `registerPresentationDefaults(flows, { world })` — registra os estágios e os solvers por factory e insere os `FrameTargets` |
 | `DEFAULT_FLOW_FACTORIES` / `autoRegisterFlows` / `physicsPlugin()` | `DEFAULT_SOLVER_REGISTRATIONS`, registradas pelos defaults; a C2 instancia o solver quando o primeiro corpo cria o pool |
 | `createComputeKernel(core, { bindings: [{ binding, type, buffer }] })` (por índice, `ComputeKernelBinding*`) | `createComputeKernel(core, { discriminator, shader, entryPoint, bindings: { nomeDaVariavel: fonte } })` (layout inferido) |
-| Materiais com UBO por entidade (`storage: 'individual'`) | pool uniforme por schema (`storage: 'pool'`), offset dinâmico por desenho |
+| Materiais com UBO por entidade (`storage: 'individual'`) | pool de storage por schema (`role: 'storage-ro', storage: 'pool'`), lido como `array<T>` pelo `materialSlot` do registro `Renderable`; `role: 'uniform'` em pool é rejeitado |
+| Forward com `firstInstance` = slot do `WorldTransform` | `firstInstance` = slot do registro `Renderable` (`slot.entities({ all, record: renderableRecord })`, `entry.recordSlot`); shader lê `renderables[instance_index]` |
 | `import type { EngineCore } from '…/core/contracts'` em C3/C4 | `from '…/scene/contracts/gpu'` (ou o barrel `clayflow`) — o lint proíbe `core/` em C3/C4 |
 
-Novos: `slot`, `FlowTransitions`, `TransitionContext`, `BoundFlow`, `FlowTransitionError`, `FlowBindingError`,
+Novos: `slot` (com `record` em `slot.entities`, `EntityRecordDeclaration`), `RenderableSchema`/`renderableRecord`,
+evento `frameRetired`, `FlowTransitions`, `TransitionContext`, `BoundFlow`, `FlowTransitionError`, `FlowBindingError`,
 `FrameTargets`, `ShadowMap` (pool + textura `depth`), eventos `flowReady`, `flowSuspended`, `poolCreated` e
 `bindGroupReplaced`, resolvers `SingletonResolver`/`PoolResolver`/`TextureResolver` e
 `Application.create({ consumers })`.

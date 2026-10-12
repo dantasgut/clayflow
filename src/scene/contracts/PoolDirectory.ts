@@ -1,10 +1,10 @@
-import type { StorageBufferSpec, UniformBufferSpec } from '../../core/contracts/index';
+import type { StorageBufferSpec } from '../../core/contracts/index';
 import type { Schema } from '../descriptors/Schema';
 import type { EntityId } from '../world/EntityId';
 import type { Resource } from './Resource';
 
-/** Buffer de um pool: storage, ou uniform nos pools de uniforms (lidos com offset dinâmico). */
-export type PoolBufferSpec = StorageBufferSpec | UniformBufferSpec;
+/** Buffer de um pool: storage, lido como `array<T>` no shader. */
+export type PoolBufferSpec = StorageBufferSpec;
 
 /** Estado de um pool num instante (cópia; não acompanha mudanças posteriores). */
 export interface PoolInfo {
@@ -14,9 +14,7 @@ export interface PoolInfo {
     readonly schema: Schema;
     /** Buffer atual. */
     readonly buffer: PoolBufferSpec;
-    /** `uniform`: pool de uniforms, um registro por offset dinâmico; `storage`: `array<T>` no shader. */
-    readonly addressSpace: 'storage' | 'uniform';
-    /** Bytes por registro (alinhado a 16, ou a `minUniformBufferOffsetAlignment` no pool uniforme). */
+    /** Bytes por registro: o stride do struct gerado do schema (o do `array<T>` no WGSL). */
     readonly stride: number;
     /** Slots ocupáveis (maior slot já usado + 1). */
     readonly count: number;

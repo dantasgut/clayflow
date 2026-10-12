@@ -79,8 +79,9 @@ completar o conjunto, mudança de um slot referido, troca do Resource referido (
 ## Renderable (C3, `elements/scene/Renderable.ts`) — novo schema (Emenda 1)
 
 `StructSchema('Renderable', { transformSlot: u32, materialSlot: u32 })` e a declaração
-`{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`. Lido por forward e sombra
-(`var<storage, read> renderables: array<Renderable>`); `firstInstance` = `recordSlot`.
+`{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`. Lido pelo forward
+(`var<storage, read> renderables: array<Renderable>`); `firstInstance` = `recordSlot`. A sombra segue pelo slot do
+`WorldTransform` (conjunto Geometry + Transform, sem material).
 
 ## Materiais (C3) — alterado (Emenda 1)
 

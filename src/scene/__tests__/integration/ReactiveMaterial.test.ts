@@ -37,8 +37,8 @@ describe('material reativo', () => {
     });
 });
 
-describe('material em pool uniforme', () => {
-    it('cada schema de material tem o seu pool, com stride alinhado a 256', async () => {
+describe('material em pool de storage', () => {
+    it('cada schema de material tem o seu pool de storage, com o stride do struct (lido como array)', async () => {
         const s = await renderScene();
         s.scene.world.insert(new StandardMaterial());
         s.scene.world.insert(new WireframeMaterial());
@@ -46,7 +46,8 @@ describe('material em pool uniforme', () => {
         for (const name of [StandardMaterial.schema.name, WireframeMaterial.schema.name]) {
             const info = s.scene.resourceSystem.poolInfo(name);
             expect(info).toBeDefined();
-            expect(info!.stride % 256).toBe(0);
+            expect(info!.buffer.subkind).toBe('storage');
+            expect(info!.stride).toBe(32);
         }
     });
 

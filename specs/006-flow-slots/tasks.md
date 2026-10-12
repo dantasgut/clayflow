@@ -304,40 +304,50 @@ pela C2; imagem idêntica; T068 verde.
 **Independent Test**: contagem de `setBindGroup` por passe com 10 mil entidades depende só do número de pipelines;
 smokes `render` (10 cenas idênticas), `churn`, `bigMesh`, `integration`; A/B de GPU em `instances/10k` ≤ 0,52 ms.
 
-- [ ] T070 [US2] Testes em `src/scene/__tests__/entitiesRecord.test.ts`: `slot.entities({ all, record })` — registro
+- [x] T070 [US2] Testes em `src/scene/__tests__/entitiesRecord.test.ts`: `slot.entities({ all, record })` — registro
       criado ao completar o conjunto com os slots referidos (`poolSlotOf` do descritor nomeado), atualizado ao trocar o
       Resource referido (mesmo schema e schema diferente) e liberado ao sair do conjunto; slot estável e reutilizado
       (free-list); dois conjuntos com a mesma declaração compartilham pool e slot; crescimento emite `poolReallocated` e
       `bindGroupReplaced`; escrita só em `frameRecording` (lote dos sujos), nunca pelo estágio; build minificado (nomes
       explícitos)
-- [ ] T071 [US2] C2: `record` em `slot.entities` (`src/scene/flows/slots.ts`), manutenção do pool de registros no
+- [x] T071 [US2] C2: `record` em `slot.entities` (`src/scene/flows/slots.ts`), manutenção do pool de registros no
       `ResourceSystem` (`src/scene/systems/ResourceSystem.ts`) por eventos de entidade e de slot, `recordSlot` na entrada
       entregue ao estágio; `PoolResolver` do pool de registros; JSDoc
-- [ ] T072 [P] [US2] C3: `src/elements/scene/Renderable.ts` (schema `Renderable { transformSlot: u32, materialSlot: u32 }`
+- [x] T072 [P] [US2] C3: `src/elements/scene/Renderable.ts` (schema `Renderable { transformSlot: u32, materialSlot: u32 }`
       e a declaração `{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`), exportado por
       `elements/index.ts`; testes do schema e da declaração
-- [ ] T073 [P] [US2] C3: descritor `material` de `StandardMaterial`, `WireframeMaterial` e `PointSpriteMaterial` passa a
+- [x] T073 [P] [US2] C3: descritor `material` de `StandardMaterial`, `WireframeMaterial` e `PointSpriteMaterial` passa a
       `role: 'storage-ro'`, `storage: 'pool'`; testes dos materiais e do pool (stride natural)
-- [ ] T074 [US2] WGSL: `src/elements/gpu/wgsl/forward.wgsl` (e os shaders de wireframe/point-sprite) leem
+- [x] T074 [US2] WGSL: `src/elements/gpu/wgsl/forward.wgsl` (e os shaders de wireframe/point-sprite) leem
       `renderables[instance_index]`, a matriz por `transformSlot` e `materials[materialSlot]` (`@interpolate(flat)`);
-      `src/presentation/flows/shadow_depth.wgsl` lê a matriz por `renderables[instance_index].transformSlot`; structs
-      gerados (sem struct à mão — T066 continua verde)
-- [ ] T075 [US2] `ForwardFlow` e `ShadowFlow`: `renderables`/`casters` com `record: Renderable`; grupos 0/1/3 uma vez
+      structs gerados (sem struct à mão — T066 continua verde). A sombra fica com o slot do `WorldTransform` (conjunto
+      Geometry + Transform, sem material; já sem bind por draw)
+- [x] T075 [US2] `ForwardFlow`: `renderables` com `record: Renderable`; grupos 0/1/3 uma vez
       por passe, grupo 2 (material) uma vez por pipeline; `draw.indexed(indexCount, 1, 0, 0, recordSlot)`; sai o offset
       dinâmico; JSDoc
-- [ ] T076 [US2] Testes de contagem (SC-010) em `src/presentation/flows/__tests__/ForwardFlow.perEntity.test.ts` e
+- [x] T076 [US2] Testes de contagem (SC-010) em `src/presentation/flows/__tests__/ForwardFlow.perEntity.test.ts` e
       `ShadowFlow` equivalentes: 10 mil entidades, `setBindGroup` por passe = f(pipelines), 0 por entidade; troca de
       material entre schemas muda o pipeline no mesmo quadro; entidade sem Material sem draw nem aviso repetido;
       atualizar `renderables.test.ts`, `removalRelease.test.ts`, `ForwardFlow.worldTransform.test.ts`
-- [ ] T077 [US2] Pool uniforme: remover o caminho uniforme do `ResourceSystem` (stride alinhado, fonte dinâmica de
+- [x] T077 [US2] Pool uniforme: remover o caminho uniforme do `ResourceSystem` (stride alinhado, fonte dinâmica de
       pool) se nenhum descritor `role: 'uniform', storage: 'pool'` restar; ajustar testes da C2
 - [ ] T078 [US2] Smokes `render,churn,bigMesh,integration,trajectories` no fonte e com `--dist` (imagem idêntica,
       SC-007); A/B de GPU `instances/10k` e `10k-moving` contra `b437e47` (≤ 0,52 ms) registrado abaixo
-- [ ] T079 [US6] Documento de arquitetura: tabela de pools (`Renderable` atual na 006, material em pool de storage),
+
+  > **T078 (2026-10-12)**: smokes `render` (10 cenas idênticas), `churn`, `bigMesh`, `integration`, `trajectories`
+  > (3 taxas, bit a bit) verdes no fonte e com `--dist`; os 13 smokes da T067 também (26/26). GPU por quadro
+  > (`npm run bench -- --scene instances`, mediana de 3 repetições, VS Code com ~200% de CPU na máquina):
+  > `instances/10k` 1,07 → **0,66 ms**, `10k-moving` 1,08 → **0,67 ms** (baseline do gate: 0,92/0,93 ms). O alvo do
+  > SC-010 (≤ 0,52 ms, A/B de `b437e47`) **não foi atingido**: a diferença de ~0,12 ms já existia no código da R8 sem
+  > rebind (offset fixo: 0,64 ms) e não vem de binds nem do shader — material lido no vértice 0,64 ms; posição na luz
+  > calculada no vértice 0,65 ms; sem a indireção `renderables → worlds` 0,66 ms; formato de índice igual. Contagem
+  > SC-010 (binds por passe = f(pipelines)) verde em teste com 10 mil entidades.
+
+- [x] T079 [US6] Documento de arquitetura: tabela de pools (`Renderable` atual na 006, material em pool de storage),
       seção de estágios (`firstInstance` = slot do `Renderable`, sem bind por draw); `flows.md` (`record` em
       `slot.entities`); guia de migração (material storage, `Renderable`); ROADMAP/PENDENCIAS (`Renderable` saiu da F2;
       F2 fica com agrupamento/instancing/indireto)
-- [ ] T080 Gate completo (format, lint, tsc, `test:coverage`, `build:lib`, `doc:coverage` sem membro sem documentação,
+- [x] T080 Gate completo (format, lint, tsc, `test:coverage`, `build:lib`, `doc:coverage` sem membro sem documentação,
       API regenerada) e então a T068 (`bench:check` com a máquina livre; se verde, `bench:baseline`)
 
 ---

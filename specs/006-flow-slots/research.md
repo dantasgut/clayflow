@@ -318,8 +318,9 @@ transições; `bindShadowFlow`/`bindForwardFlow` → slots; `ShadowFlowOptions.m
   `var<storage, read> materials: array<StandardMaterial>` (e equivalentes por schema), stride natural do schema (sem
   alinhamento de 256: 10 mil materiais caem de 2,5 MB para o tamanho real).
 - **Shaders**: forward — `vs_main(@builtin(instance_index) r)` lê `renderables[r]`, a matriz por `transformSlot` e passa
-  `materialSlot` ao fragment (`@interpolate(flat)`); fragment lê `materials[slot]`. Sombra — lê `renderables[r]` e a
-  matriz por `transformSlot`. Grupos: câmera/parâmetros (0), `WorldTransform` + `Renderable` (1), material (2, por
+  `materialSlot` ao fragment (`@interpolate(flat)`); fragment lê `materials[slot]`. Sombra — inalterada:
+  `firstInstance` = slot do `WorldTransform` (o conjunto dela é Geometry + Transform, sem material, e não há grupo
+  por entidade; um `Renderable` excluiria quem projeta sombra sem material). Grupos: câmera/parâmetros (0), `WorldTransform` + `Renderable` (1), material (2, por
   pipeline), sombra (3) — nenhum muda entre draws do mesmo pipeline.
 - **Pool uniforme**: sem consumidor depois disto; o caminho uniforme do `ResourceSystem` (stride alinhado a
   `minUniformBufferOffsetAlignment`, fonte dinâmica) sai se nenhum outro descritor o usar, com os testes ajustados.

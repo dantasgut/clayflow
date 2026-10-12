@@ -6,7 +6,7 @@
 
 # Abstract Class: InputDrivenController
 
-Defined in: [presentation/input/InputDrivenController.ts:20](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/input/InputDrivenController.ts#L20)
+Defined in: [presentation/input/InputDrivenController.ts:20](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/InputDrivenController.ts#L20)
 
 Base abstrata de controllers (OrbitController, FpsController, FlyController).
 Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
@@ -35,7 +35,7 @@ Transform) conforme input.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/InputDrivenController.ts:25](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/input/InputDrivenController.ts#L25)
+Defined in: [presentation/input/InputDrivenController.ts:25](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/InputDrivenController.ts#L25)
 
 Remove ouvintes de DOM que o controller registrou. Default: no-op.
 
@@ -49,7 +49,7 @@ Remove ouvintes de DOM que o controller registrou. Default: no-op.
 
 > `abstract` **update**(`ctx`): `void`
 
-Defined in: [presentation/input/InputDrivenController.ts:22](https://github.com/dantasgut/clayflow/blob/0e40c7aba7f944bd9c33160d55756568121ff27d/src/presentation/input/InputDrivenController.ts#L22)
+Defined in: [presentation/input/InputDrivenController.ts:22](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/InputDrivenController.ts#L22)
 
 Hook chamado a cada frameTick — leia input, atualize state externo.
 
