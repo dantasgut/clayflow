@@ -1,0 +1,93 @@
+import type { BindGroupSpec } from '../../core/contracts/index';
+import type { Resource } from '../contracts/Resource';
+import type { Schema } from '../descriptors/Schema';
+import type { EntityId } from '../world/EntityId';
+
+/**
+ * Eventos entregues pela Camada 2 a um Flow. Só a C2 os produz; o estado do Flow muda só pela tabela de transições
+ * em reação a eles (FR-002).
+ *
+ * - `slotsResolved`: os slots obrigatórios passaram a existir (o Flow sai de `pending`); momento de criar recursos
+ *   privados que dependem dos slots e ligá-los (`ctx.bind`).
+ * - `slotLost`: um slot obrigatório deixou de existir (o Flow volta a `pending`).
+ * - `pipelinesCompiled`: os pipelines declarados (ou um preparado em transição, `pipeline`) compilaram.
+ * - `bindGroupReplaced`: a C2 recriou um bind group de um pipeline do Flow (fonte recriada).
+ * - `entitiesChanged`: entraram ou saíram entidades de um slot `entities`.
+ * - `canvasReconfigured`: o canvas mudou de tamanho (Flows com slot `target`).
+ * - `poolReallocated`: um pool de um slot do Flow foi recriado (crescimento).
+ * - `resourceReady`: um Resource de um schema de `listens` foi alocado ou enviado.
+ */
+export type FlowEvent =
+    | { readonly type: 'slotsResolved' }
+    | { readonly type: 'slotLost'; readonly slot: string }
+    | { readonly type: 'pipelinesCompiled'; readonly pipeline?: string }
+    | {
+          readonly type: 'bindGroupReplaced';
+          readonly pipeline: string;
+          readonly group: number;
+          readonly oldSpec: BindGroupSpec;
+          readonly newSpec: BindGroupSpec;
+      }
+    | {
+          readonly type: 'entitiesChanged';
+          readonly slot: string;
+          readonly added: readonly EntityId[];
+          readonly removed: readonly EntityId[];
+      }
+    | { readonly type: 'canvasReconfigured'; readonly width: number; readonly height: number }
+    | { readonly type: 'poolReallocated'; readonly poolKey: string }
+    | { readonly type: 'resourceReady'; readonly schema: Schema; readonly resource: Resource };
+
+/** Nome de um evento de Flow. */
+export type FlowEventName = FlowEvent['type'];
+
+/** O evento de nome `E`. */
+export type FlowEventOf<E extends FlowEventName> = Extract<FlowEvent, { readonly type: E }>;
+
+/**
+ * Destino de uma transição: `'ignore'` (o evento é esperado e não muda nada) ou o próximo estado, com um passo
+ * opcional `run` — onde o Flow recria recursos **privados** e os religa (`ctx.bind`), nunca no `dispatch`.
+ */
+export type FlowTransition<S extends string, C> =
+    | 'ignore'
+    | { readonly to: S; readonly run?: (event: FlowEvent, ctx: C) => void };
+
+/**
+ * Tabela de transições de um Flow: `estado → evento → destino`. A chave `'*'` vale para qualquer estado (consultada
+ * depois da do estado atual). Evento sem entrada é erro (`FlowTransitionError`).
+ */
+export type FlowTransitions<S extends string, C> = Readonly<
+    Partial<Record<S | '*', Readonly<Partial<Record<FlowEventName, FlowTransition<S, C>>>>>>
+>;
+
+/** Evento sem transição a partir do estado atual. */
+export class FlowTransitionError extends Error {
+    override readonly name = 'FlowTransitionError';
+    constructor(
+        readonly flowType: string,
+        readonly state: string,
+        readonly event: FlowEventName,
+    ) {
+        super(
+            `Flow '${flowType}': evento '${event}' sem transição a partir do estado '${state}' (declare-o na tabela, ou 'ignore').`,
+        );
+    }
+}
+
+/**
+ * Aplica a tabela ao estado atual: devolve o próximo estado (o mesmo para `'ignore'`) e executa `run`.
+ * @throws FlowTransitionError se não há entrada para o evento no estado nem em `'*'`.
+ */
+export function applyTransition<S extends string, C>(
+    flowType: string,
+    table: FlowTransitions<S, C>,
+    state: S,
+    event: FlowEvent,
+    ctx: C,
+): S {
+    const transition = table[state]?.[event.type] ?? table['*']?.[event.type];
+    if (transition === undefined) throw new FlowTransitionError(flowType, state, event.type);
+    if (transition === 'ignore') return state;
+    transition.run?.(event, ctx);
+    return transition.to;
+}

@@ -16,16 +16,16 @@ describe('autoRegisterFlows (T006 / FR-004)', () => {
     it('registra o LCPFlow para um RigidBody (LCPSchema) sem flow', () => {
         const flows = new FlowRegistry();
         const body = new RigidBody({ shape: 'sphere', radius: 0.4, mass: 1 });
-        expect(flows.resolve('LCPSchema')).toBeUndefined();
+        expect(flows.resolveLegacy('LCPSchema')).toBeUndefined();
         autoRegisterFlows([body], flows, core, world, resources);
-        expect(flows.resolve('LCPSchema')).toBeInstanceOf(LCPFlow);
+        expect(flows.resolveLegacy('LCPSchema')).toBeInstanceOf(LCPFlow);
     });
 
     it('registro manual prévio tem precedência (não duplica)', () => {
         const flows = new FlowRegistry();
         const manual = new LCPFlow(core, world, resources);
         flows.register(manual);
-        const before = flows.flowsInPhase('physics').length;
+        const before = flows.phaseEntries('physics').length;
         autoRegisterFlows(
             [new RigidBody({ shape: 'box', halfExtents: [1, 1, 1], mass: 1 })],
             flows,
@@ -33,23 +33,23 @@ describe('autoRegisterFlows (T006 / FR-004)', () => {
             world,
             resources,
         );
-        expect(flows.resolve('LCPSchema')).toBe(manual);
-        expect(flows.flowsInPhase('physics').length).toBe(before);
+        expect(flows.resolveLegacy('LCPSchema')).toBe(manual);
+        expect(flows.phaseEntries('physics').length).toBe(before);
     });
 
     it('idempotente — 2ª chamada não adiciona segundo flow', () => {
         const flows = new FlowRegistry();
         const body = new RigidBody({ shape: 'sphere', radius: 0.4, mass: 1 });
         autoRegisterFlows([body], flows, core, world, resources);
-        const after1 = flows.flowsInPhase('physics').length;
+        const after1 = flows.phaseEntries('physics').length;
         autoRegisterFlows([body], flows, core, world, resources);
-        expect(flows.flowsInPhase('physics').length).toBe(after1);
+        expect(flows.phaseEntries('physics').length).toBe(after1);
     });
 
     it('ignora resources sem schema mapeado (ex.: schema desconhecido)', () => {
         const flows = new FlowRegistry();
         // Um RigidBody cru com schema arbitrário não mapeado não registra flow.
         autoRegisterFlows([], flows, core, world, resources);
-        expect(flows.flowsInPhase('physics').length).toBe(0);
+        expect(flows.phaseEntries('physics').length).toBe(0);
     });
 });

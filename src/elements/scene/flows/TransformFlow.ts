@@ -11,7 +11,8 @@ import {
     createComputeKernel,
     destroyComputeKernel,
 } from '../../../scene/flows/createComputeKernel';
-import { Flow, type Phase } from '../../../scene/flows/Flow';
+import { LegacyFlow as Flow } from '../../../scene/flows/LegacyFlow';
+import type { Phase } from '../../../scene/flows/Phase';
 import { Transform } from '../Transform';
 import { transformCompose } from './shaders';
 import { TransformParamsSchema } from './TransformParams';

@@ -73,6 +73,8 @@ export interface InferredGroup {
 /** Layout de um pipeline: um grupo por índice de 0 até o maior grupo usado. */
 export interface InferredLayout {
     readonly groups: readonly InferredGroup[];
+    /** Estágio de cada entrada pedida. */
+    readonly stages: ReadonlyMap<string, WgslStage>;
 }
 
 /** Erro de inferência: entrada inexistente ou tipo de binding que a inferência não sabe ligar. */
@@ -163,7 +165,8 @@ export class LayoutInferencer {
             const entries = (byGroup.get(g) ?? []).sort((a, b) => a.binding - b.binding);
             groups.push({ group: g, entries });
         }
-        return { groups };
+        const stages = new Map(entryPoints.map((ep) => [ep, fns.get(ep)!.stage!]));
+        return { groups, stages };
     }
 }
 

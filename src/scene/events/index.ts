@@ -3,6 +3,8 @@ export type {
     EventMap,
     EventName,
     FlowReadyPayload,
+    FlowSuspendedPayload,
+    PoolCreatedPayload,
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,

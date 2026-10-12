@@ -25,6 +25,10 @@ import type { EntityId } from '../world/EntityId';
 import { makeReactive } from './reactiveData';
 import { ConsumerResolverRegistry } from '../consumers/ConsumerResolverRegistry';
 import { PoolResolver } from '../consumers/strategies/PoolResolver';
+import type { Flow } from '../flows/Flow';
+import type { FlowAllocator, RegisterOptions } from '../flows/FlowRegistry';
+import { FlowBinder } from './flowBinding/FlowBinder';
+import { LayoutInferencer } from './LayoutInferencer';
 
 type UploadPolicy = NonNullable<GPUDescriptor['upload']>;
 
@@ -66,6 +70,8 @@ interface GeometryShape {
 }
 
 const INITIAL_POOL_CAPACITY = 16;
+/** Rodadas máximas de envio por quadro (reações encadeadas a `resourceReady`). */
+const MAX_FLUSH_ROUNDS = 16;
 /** Bytes por registro de draw indireto indexado (5 × u32) — também cobre os 3 × u32 de dispatch. */
 const INDIRECT_RECORD_BYTES = 20;
 
@@ -110,7 +116,7 @@ const INDIRECT_RECORD_BYTES = 20;
  *     `slot × stride` (ex.: materiais por schema).
  *     Um recurso com vários descritores em pool ocupa o **mesmo slot** em todos eles.
  */
-export class ResourceSystem implements ResourceDirectory {
+export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
     private readonly pools = new Map<string, PoolEntry>();
     private readonly allocations = new Map<Resource, Map<string, Allocation>>();
@@ -119,17 +125,22 @@ export class ResourceSystem implements ResourceDirectory {
     private readonly dirty = new Set<Resource>();
     private readonly warnedGpuManaged = new Set<string>();
     private readonly subscriptions: Unsubscribe[];
+    private readonly binder: FlowBinder;
+    /** Pools criados na alocação em curso; `poolCreated` sai depois que o recurso ocupa o seu slot. */
+    private readonly createdPools: PoolEntry[] = [];
     private anonCounter = 0;
 
     /**
      * @param consumers Registro de `consumes` da cena: cada pool criado registra o seu `PoolResolver` (sem substituir
      *   um resolver já registrado com o nome do pool).
+     * @param inferencer Inferência de layout usada na preparação dos pipelines dos Flows.
      */
     constructor(
         private readonly core: EngineCore,
         private readonly events: EventBus,
         private readonly world: World,
         readonly consumers: ConsumerResolverRegistry = new ConsumerResolverRegistry(),
+        inferencer: LayoutInferencer = new LayoutInferencer(),
     ) {
         this.subscriptions = [
             this.events.on('resourcesChanged', (e) => {
@@ -140,15 +151,46 @@ export class ResourceSystem implements ResourceDirectory {
             }),
             this.events.on('frameRecording', () => {
                 this.flushDirty();
+                this.binder.reconcile();
             }),
             this.events.on('canvasReconfigured', (e) => {
                 this.resizeCanvasTextures(e.width, e.height);
             }),
         ];
+        // Depois das inscrições acima: no redimensionamento, as texturas já estão recriadas quando os Flows reagem.
+        this.binder = new FlowBinder({
+            core,
+            world,
+            resources: this,
+            consumers,
+            events,
+            inferencer,
+        });
     }
 
-    /** Desfaz as inscrições no EventBus (descarte da cena). Os objetos de GPU morrem com o core. */
+    // ── Flows (FlowAllocator) ────────────────────────────────────────────────
+
+    /**
+     * Aloca um Flow: resolve os slots, prepara os pipelines declarados (layout inferido do WGSL, fontes privadas ou
+     * de `consumes`), cria layouts e bind groups e emite `flowReady` quando o Flow fica pronto. A partir daí a C2 o
+     * mantém: recria bind groups de fontes recriadas (`bindGroupReplaced`) e entrega os eventos às transições dele.
+     */
+    ensureFlowAllocated(flow: Flow, options: RegisterOptions): void {
+        this.binder.ensure(flow, options);
+    }
+
+    /** Libera os pipelines e bind groups do Flow, emite `flowSuspended` se estava pronto e o descarta. */
+    releaseFlow(flow: Flow): void {
+        this.binder.release(flow);
+    }
+
+    hasPool(poolKey: string): boolean {
+        return this.pools.has(poolKey);
+    }
+
+    /** Desfaz as inscrições no EventBus e descarta os Flows alocados (descarte da cena). */
     dispose(): void {
+        this.binder.dispose();
         for (const off of this.subscriptions) off();
         this.subscriptions.length = 0;
     }
@@ -253,15 +295,27 @@ export class ResourceSystem implements ResourceDirectory {
         this.dirty.add(resource);
     }
 
+    /**
+     * Envia os recursos sujos e emite `resourceReady` para cada um, **até a fila esvaziar**: uma reação a
+     * `resourceReady` que suja outro recurso (ex.: a matriz da luz gravada no `ShadowMap`) entra no mesmo quadro.
+     */
     private flushDirty(): void {
-        if (this.dirty.size === 0) return;
-        const batch = [...this.dirty];
-        this.dirty.clear();
-        for (const resource of batch) {
-            if (!this.allocated.has(resource)) continue;
-            if (!this.stateRegistry.get(resource.state).suppressCpuUpload()) this.upload(resource);
-            this.transition(resource, ResourceState.Ready);
-            this.events.emit('resourceReady', { payload: { resource } });
+        let rounds = 0;
+        while (this.dirty.size > 0) {
+            if (++rounds > MAX_FLUSH_ROUNDS) {
+                throw new Error(
+                    `ResourceSystem: a fila de sujos não esvaziou em ${MAX_FLUSH_ROUNDS} rodadas (ciclo de reações a resourceReady).`,
+                );
+            }
+            const batch = [...this.dirty];
+            this.dirty.clear();
+            for (const resource of batch) {
+                if (!this.allocated.has(resource)) continue;
+                if (!this.stateRegistry.get(resource.state).suppressCpuUpload())
+                    this.upload(resource);
+                this.transition(resource, ResourceState.Ready);
+                this.events.emit('resourceReady', { payload: { resource } });
+            }
         }
     }
 
@@ -317,6 +371,9 @@ export class ResourceSystem implements ResourceDirectory {
         this.transition(resource, ResourceState.Ready);
         if (this.isGpuOwned(descs)) this.transition(resource, ResourceState.GpuManaged);
         this.events.emit('resourceReady', { payload: { resource } });
+        for (const entry of this.createdPools.splice(0)) {
+            this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
+        }
     }
 
     /** Recurso cujos descritores materializados são todos 'initial'/'never'. */
@@ -590,6 +647,7 @@ export class ResourceSystem implements ResourceDirectory {
         };
         this.pools.set(poolKey, entry);
         this.consumers.registerDefault(new PoolResolver(poolKey, schema));
+        this.createdPools.push(entry);
         return entry;
     }
 

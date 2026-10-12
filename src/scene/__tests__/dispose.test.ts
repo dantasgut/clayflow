@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createScene } from '../SceneContext';
-import { Flow, type Phase } from '../flows/Flow';
+import { LegacyFlow as Flow } from '../flows/LegacyFlow';
+import type { Phase } from '../flows/Phase';
 import { FlowRegistry } from '../flows/FlowRegistry';
 import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
 import { fakeSceneCore } from './helpers/fakeSceneCore';

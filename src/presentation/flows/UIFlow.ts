@@ -1,6 +1,6 @@
 import type { EngineCore, Frame, RenderTarget } from '../../core/contracts/index';
-import { Flow } from '../../scene/flows/Flow';
-import type { Phase } from '../../scene/flows/Flow';
+import { LegacyFlow as Flow } from '../../scene/flows/LegacyFlow';
+import type { Phase } from '../../scene/flows/Phase';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { UiTree } from '../ui/UiTree';
 import type { LoadedFont } from '../assets/FontLoader';

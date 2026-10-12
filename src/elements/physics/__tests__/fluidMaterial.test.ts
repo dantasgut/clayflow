@@ -14,7 +14,7 @@ import {
     type WriteCall,
 } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { countPasses, recordingFrame } from './helpers/recordingFrame';
-import type { Flow } from '../../../scene/flows/Flow';
+import type { LegacyFlow as Flow } from '../../../scene/flows/LegacyFlow';
 import { PBFSimParamsSchema, SPHSimParamsSchema } from '../schemas/simParams';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DefaultEventBus } from '../events/DefaultEventBus';
-import { Flow, type Phase } from '../flows/Flow';
+import { LegacyFlow as Flow } from '../flows/LegacyFlow';
+import type { Phase } from '../flows/Phase';
 import { FlowRegistry } from '../flows/FlowRegistry';
 import { ExecutionSystem } from '../systems/ExecutionSystem';
 import type { Frame } from '../../core/contracts/Frame';

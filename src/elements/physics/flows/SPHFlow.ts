@@ -1,7 +1,7 @@
 import type { EngineCore, Frame } from '../../../core/contracts/index';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
-import { Flow } from '../../../scene/flows/Flow';
-import type { Phase } from '../../../scene/flows/Flow';
+import { LegacyFlow as Flow } from '../../../scene/flows/LegacyFlow';
+import type { Phase } from '../../../scene/flows/Phase';
 import {
     createComputeKernel,
     destroyComputeKernel,

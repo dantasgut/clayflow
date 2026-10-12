@@ -2,7 +2,7 @@ import type { EngineCore } from '../../../core/contracts/index';
 import type { World } from '../../../scene/world/World';
 import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { FlowRegistry } from '../../../scene/flows/FlowRegistry';
-import type { Flow } from '../../../scene/flows/Flow';
+import type { LegacyFlow as Flow } from '../../../scene/flows/LegacyFlow';
 import type { Resource } from '../../../scene/contracts/Resource';
 import { LCPFlow } from './LCPFlow';
 import { XPBDFlow } from './XPBDFlow';
@@ -59,7 +59,7 @@ export function autoRegisterFlows(
             if (name === undefined) continue;
             const factory = DEFAULT_FLOW_FACTORIES.get(name);
             if (factory === undefined) continue;
-            if (flows.resolve(name) !== undefined) continue;
+            if (flows.resolveLegacy(name) !== undefined) continue;
             flows.register(factory(core, world, resources));
         }
     }

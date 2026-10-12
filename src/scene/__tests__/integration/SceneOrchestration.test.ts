@@ -10,7 +10,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { createScene } from '../../SceneContext';
-import { Flow, type Phase } from '../../flows/Flow';
+import { LegacyFlow as Flow } from '../../flows/LegacyFlow';
+import type { Phase } from '../../flows/Phase';
 import type { Frame } from '../../../core/contracts/Frame';
 import type { EngineCore } from '../../../core/contracts/EngineCore';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';

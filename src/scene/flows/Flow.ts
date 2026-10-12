@@ -1,127 +1,95 @@
 import type { Frame } from '../../core/contracts/index';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
+import type { Schema } from '../descriptors/Schema';
+import type { BindingSources, BoundFlow, TransitionContext } from './FlowBinding';
+import { applyTransition, type FlowEvent, type FlowTransitions } from './FlowTransitions';
+import type { SlotMap } from './slots';
 
 /**
- * Phase determina a ordem de execução dos Flows dentro de um frame.
- * Ordem fixa: `physics` (integração+colisões) → `transform` (estágios que produzem
- * transformações de mundo a partir da intenção dos `Transform`) → `shadow` (depth maps)
- * → `forward` (render principal) → `post` (post-processamento) → `ui`.
- * Múltiplos Flows na mesma phase são ordenados por `priority` decrescente.
+ * Ciclo de vida de um Flow, gerido pela Camada 2:
+ * `pending` (slot obrigatório ausente) → `preparing` (pipelines compilando) → `ready` (executa no quadro) →
+ * `disposed` (removido). Volta a `pending` se um slot obrigatório some.
  */
-export type Phase = 'physics' | 'transform' | 'shadow' | 'forward' | 'post' | 'ui';
+export type FlowLifecycle = 'pending' | 'preparing' | 'ready' | 'disposed';
+
+/** Acesso da C2 aos membros protegidos de um Flow (definido no bloco estático da classe). */
+interface FlowAccess {
+    deliver(flow: Flow, event: FlowEvent, ctx: TransitionContext): void;
+    setLifecycle(flow: Flow, lifecycle: FlowLifecycle): void;
+}
+
+let access: FlowAccess | undefined;
 
 /**
- * Flow é a unidade de trabalho por frame. Cada Flow concentra a lógica
- * de uma fase do pipeline (physics solver, shadow pass, render pass,
- * post-effect chain, etc.) e é executado pelo `ExecutionSystem` em ordem
- * de phase quando `isReady()` retorna true.
+ * Unidade de trabalho do quadro (um estágio): declara o que consome (`slots`, `pipelines` com `consumes`, bindings
+ * privados por nome) e grava comandos em `dispatch`. A Camada 2 resolve os slots, infere layouts do WGSL, cria
+ * pipelines e bind groups, mantém tudo atualizado e entrega o resultado (`BoundFlow`) a cada quadro. O Flow nunca
+ * cria layout nem bind group de dado consumido.
  *
- * Lifecycle:
- *   1. Construído pelo app/plugin e registrado em `FlowRegistry.register(flow)`.
- *   2. Em cada frameTick, ExecutionSystem invoca `dispatch(frame)` para Flows
- *      ready (em ordem de phase + priority).
- *   3. Reage a eventos via callbacks (`onPoolReallocated`, `onEntitiesRemoved`,
- *      `onCanvasResized`) para invalidar caches GPU dependentes.
+ * - **Estado**: `S` é o estado próprio do algoritmo; muda só pela tabela `transitions` em reação a eventos da C2
+ *   (`FlowEvent`). Não há método público de avanço de estado. O `run` de uma transição é onde recursos privados são
+ *   criados ou recriados e religados (`ctx.bind`).
+ * - **Gravação**: `dispatch(frame, bound)` só grava passes; não prepara pipelines, layouts nem bind groups.
+ * - **Registro**: por factory, com fase, tipo de corpo e prioridade (`FlowRegistry.register`).
  *
- * Subclasses concretas: ForwardFlow, ShadowFlow, PostFlow, UIFlow, DebugFlow,
- * LCPFlow, XPBDFlow, FEMFlow, MPMFlow, SPHFlow, PBFFlow.
+ * @typeParam TSlots Declarações de slots (`slot.*`).
+ * @typeParam S Estados próprios do Flow.
  */
-export abstract class Flow {
-    /** Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug. */
+export abstract class Flow<TSlots extends SlotMap = SlotMap, S extends string = string> {
+    static {
+        access = {
+            deliver(flow, event, ctx) {
+                flow.#state = applyTransition(flow.type, flow.transitions, flow.state, event, ctx);
+            },
+            setLifecycle(flow, lifecycle) {
+                flow.#lifecycle = lifecycle;
+            },
+        };
+    }
+
+    /** Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação). */
     abstract readonly type: string;
-    /**
-     * Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
-     * para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
-     * quando o flow não é body-bound. Usado por FlowRegistry.resolve(bodyType)
-     * para encontrar o flow responsável por cada Resource.
-     */
-    abstract readonly bodyType: string;
-    /** Fase do pipeline em que o flow executa. */
-    abstract readonly phase: Phase;
-    /**
-     * Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
-     * Útil quando dois flows compartilham phase mas têm dependência de ordem
-     * (e.g. um flow gera dado que outro consome).
-     */
-    priority = 0;
+    /** Slots consumidos, por nome. */
+    abstract readonly slots: TSlots;
+    /** Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto. */
+    readonly pipelines: readonly PipelineDescriptor[] = [];
+    /** Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo). */
+    readonly bindings: BindingSources = {};
+    /** Schemas cujos `resourceReady` o Flow recebe como evento. */
+    readonly listens: readonly Schema[] = [];
+    /** Estado inicial do algoritmo. */
+    protected abstract readonly initialState: S;
+    /** Tabela de transições (estado × evento). */
+    protected abstract readonly transitions: FlowTransitions<S, TransitionContext<TSlots>>;
 
-    /**
-     * Retorna os descritores de pipelines GPU que este flow precisa criar
-     * (para introspeção arquitetural / debugging — o flow ainda materializa
-     * via core.create internamente).
-     */
-    abstract getPipelineDescriptors(): readonly PipelineDescriptor[];
+    #state: S | undefined;
+    #lifecycle: FlowLifecycle = 'pending';
 
-    /**
-     * Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
-     * contém o command encoder ativo — use `frame.compute(...)` ou
-     * `frame.render(target, ...)` para emitir comandos GPU.
-     */
-    abstract dispatch(frame: Frame): void;
-
-    /**
-     * Hook genérico de eventos. Default no-op. A maioria dos flows usa os
-     * hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
-     */
-    onEvent(_event: string, _payload: unknown): void {
-        // default: no-op. Subclasses override to react to events.
+    /** Estado do ciclo de vida (só a C2 o muda). */
+    get lifecycle(): FlowLifecycle {
+        return this.#lifecycle;
     }
 
-    /**
-     * Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
-     * ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
-     * `BindGroupSpec` dependentes do pool devem invalidar o cache aqui
-     * (set para null) para que a próxima dispatch reconstrua via
-     * `resources.poolBindGroup(poolKey)`.
-     */
-    onPoolReallocated(_poolKey: string): void {
-        // default: no-op
+    /** Estado próprio do algoritmo (só transições o mudam). */
+    get state(): S {
+        return this.#state ?? this.initialState;
     }
 
-    /**
-     * Descarte do estágio: libera os objetos de GPU que ele criou e desfaz suas inscrições em eventos. Chamado por
-     * `FlowRegistry.unregister` (e, portanto, por `SceneContext.dispose`). Default: no-op.
-     */
+    /** Grava os comandos do quadro. Chamado só quando `lifecycle === 'ready'`. */
+    abstract dispatch(frame: Frame, bound: BoundFlow<TSlots>): void;
+
+    /** Libera os recursos privados do Flow. Chamado pela C2 no descarte (`unregister`). */
     dispose(): void {
-        // default: no-op
+        // Default: sem recursos privados.
     }
+}
 
-    /**
-     * Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
-     * um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
-     * cada quadro.
-     */
-    onEntitiesInserted(_entityIds: readonly number[]): void {
-        // default: no-op
-    }
+/** Entrega um evento ao Flow pela sua tabela de transições (C2). */
+export function deliverFlowEvent(flow: Flow, event: FlowEvent, ctx: TransitionContext): void {
+    access!.deliver(flow, event, ctx);
+}
 
-    /**
-     * Chamado quando entidades são removidas do World. Subclasses que
-     * cacheiam slots por EntityId devem limpar os entries afetados para
-     * evitar leaks de slots órfãos.
-     */
-    onEntitiesRemoved(_entityIds: readonly number[]): void {
-        // default: no-op
-    }
-
-    /**
-     * Chamado quando o canvas é redimensionado. Subclasses que mantêm
-     * textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
-     * devem destruir e nullificar para recriarem na próxima dispatch.
-     * Importante: destruir bindgroups que referenciam essas textures ANTES
-     * para evitar use-after-free na GPU.
-     */
-    onCanvasResized(_width: number, _height: number): void {
-        // default: no-op
-    }
-
-    /**
-     * Indica se o flow tem trabalho válido para esta frame. Default: true
-     * (sempre dispatch). Override para gating em prerequisites: e.g. presença
-     * de Camera no World, pool não-vazio, pipeline async ainda compilando.
-     * ExecutionSystem skipa flows com `isReady() === false`.
-     */
-    isReady(): boolean {
-        return true;
-    }
+/** Muda o ciclo de vida do Flow (C2). */
+export function setFlowLifecycle(flow: Flow, lifecycle: FlowLifecycle): void {
+    access!.setLifecycle(flow, lifecycle);
 }

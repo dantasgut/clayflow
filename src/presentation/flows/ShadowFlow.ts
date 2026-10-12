@@ -12,8 +12,8 @@ import type {
     UniformBufferSpec,
     VertexBufferSpec,
 } from '../../core/contracts/index';
-import { Flow } from '../../scene/flows/Flow';
-import type { Phase } from '../../scene/flows/Flow';
+import { LegacyFlow as Flow } from '../../scene/flows/LegacyFlow';
+import type { Phase } from '../../scene/flows/Phase';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { PoolDirectory } from '../../scene/contracts/PoolDirectory';
 import type { World } from '../../scene/world/World';

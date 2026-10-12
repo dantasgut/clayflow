@@ -9,7 +9,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { DefaultEventBus } from '../../events/DefaultEventBus';
-import { Flow, type Phase } from '../../flows/Flow';
+import { LegacyFlow as Flow } from '../../flows/LegacyFlow';
+import type { Phase } from '../../flows/Phase';
 import { FlowRegistry } from '../../flows/FlowRegistry';
 import { ExecutionSystem } from '../../systems/ExecutionSystem';
 import type { Frame } from '../../../core/contracts/Frame';
@@ -82,7 +83,7 @@ describe('Integration — Flow lifecycle', () => {
         events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
         // FlowRegistry sort é descending: `b.priority - a.priority`
         // (priority maior roda primeiro).
-        const active = flows.activeFlowsInPhase('forward').map((f) => f.type);
+        const active = flows.phaseEntries('forward').map((f) => f.type);
         expect(active).toEqual(['A', 'C', 'B']); // priority 10 → 5 → 0
     });
 

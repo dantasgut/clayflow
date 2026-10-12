@@ -85,6 +85,7 @@ fn tint() -> vec4f { return material.albedo; }
         );
         expect(layout.groups).toHaveLength(2);
         expect(layout.groups[0]).toEqual({ group: 0, entries: [] });
+        expect(layout.stages.get('only_b')).toBe('compute');
         expect(layout.groups[1]!.entries.map((e) => e.name)).toEqual(['b']);
     });
 

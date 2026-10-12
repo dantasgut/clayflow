@@ -112,6 +112,8 @@ export type {
     FrameCompleteEvent,
     FrameRecordingEvent,
     FlowReadyPayload,
+    FlowSuspendedPayload,
+    PoolCreatedPayload,
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,

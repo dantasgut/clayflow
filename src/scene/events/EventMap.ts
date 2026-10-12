@@ -1,4 +1,7 @@
 import type { Resource } from '../contracts/Resource';
+import type { Schema } from '../descriptors/Schema';
+import type { Flow } from '../flows/Flow';
+import type { BoundFlow } from '../flows/FlowBinding';
 import type { EntityId } from '../world/EntityId';
 import type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 import type { ChangedEvent } from './ChangedEvent';
@@ -10,15 +13,30 @@ import type { ReadyEvent } from './ReadyEvent';
 import type { TimeDroppedEvent } from './TimeDroppedEvent';
 
 /**
- * Payload disparado quando um Flow termina sua inicialização e está
- * pronto para dispatch. Útil para sistemas que dependem de um flow
- * específico estar ativo (e.g. UI mostrando "Loading..." até ForwardFlow ready).
+ * Payload de `flowReady`: a C2 resolveu os slots e compilou os pipelines do Flow, que passa a executar no quadro.
+ * O `ExecutionSystem` mantém os Flows ativos por este evento e por `flowSuspended`.
  */
 export interface FlowReadyPayload {
-    /** Identificador do flow (`Flow.type`, e.g. 'ForwardFlow'). */
+    /** Nome do estágio (`Flow.type`). */
     readonly type: string;
-    /** Body type associado ao flow (e.g. 'LCPSchema'); vazio se não-bound. */
+    /** Tipo de corpo atendido (chave do pool), nos registros com `bodyType`. */
     readonly bodyType?: string;
+    /** A instância pronta. */
+    readonly flow: Flow;
+    /** Slots e pipelines que o `dispatch` recebe (visão viva, mantida pela C2). */
+    readonly bound: BoundFlow;
+}
+
+/** Payload de `flowSuspended`: o Flow saiu de `ready` (slot obrigatório perdido ou descarte) e deixa o quadro. */
+export interface FlowSuspendedPayload {
+    readonly type: string;
+    readonly flow: Flow;
+}
+
+/** Payload de `poolCreated`: a C2 criou o pool `poolKey` (primeiro recurso com o schema/algoritmo). */
+export interface PoolCreatedPayload {
+    readonly poolKey: string;
+    readonly schema: Schema;
 }
 
 /**
@@ -154,11 +172,15 @@ export interface EventMap {
     resourceReady: ReadyEvent<ResourceReadyPayload>;
     /** App marcou Resource como modificado — re-upload pendente. */
     resourceDirty: ReadyEvent<ResourceDirtyPayload>;
-    /** Flow concluiu inicialização e está pronto para dispatch. */
+    /** A C2 deixou um Flow pronto (slots resolvidos, pipelines compilados) — entra no quadro. */
     flowReady: ReadyEvent<FlowReadyPayload>;
+    /** Um Flow saiu de `ready` — deixa o quadro. */
+    flowSuspended: ReadyEvent<FlowSuspendedPayload>;
+    /** A C2 criou um pool — registros de Flow com esse `bodyType` são instanciados. */
+    poolCreated: PoolCreatedPayload;
     /** Pool teve buffer realocado (capacity 2× growth) — flows invalidam bindings. */
     poolReallocated: PoolReallocatedEvent;
-    /** BindGroup foi substituído (e.g. textura source mudou). */
+    /** A C2 recriou um bind group de um pipeline de Flow porque uma fonte foi recriada. */
     bindGroupReplaced: BindGroupReplacedEvent;
     /** `Application.step()`/`GameLoop` emitem a cada quadro, depois de `time.advance()`. */
     frameTick: FrameTickEvent;
