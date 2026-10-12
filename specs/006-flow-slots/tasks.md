@@ -235,7 +235,12 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 '../../core/contracts'` temporário em `src/elements/scene/` falhou nomeando o arquivo, e o lint volta a 0 erros sem
 > ele.
 
-- [ ] T060 [US6] Emenda MINOR 1.1.0 em `.specify/memory/constitution.md` (Princípio I alinhado à D4, relatório de impacto de sincronização no topo, versão e data); atualizar a menção de versão em `CLAUDE.md`; registrar no corpo do PR que pede ratificação
+- [x] T060 [US6] Emenda MINOR 1.1.0 em `.specify/memory/constitution.md` (Princípio I alinhado à D4, relatório de impacto de sincronização no topo, versão e data); atualizar a menção de versão em `CLAUDE.md`; registrar no corpo do PR que pede ratificação
+
+> **Execução (T060, 2026-10-12)**: constituição 1.1.0 (Princípio I: C3/C4 só importam a C2; tipos da C1 por
+> `scene/contracts/gpu`; verificado no lint), relatório de sincronização no topo e `CLAUDE.md` em v1.1.0. **Pendente
+> para o PR**: o corpo do PR da 006 pede a ratificação da 1.1.0 ao mantenedor (item `RATIFICATION(1.1.0)`).
+
 - [ ] T061 [US6] `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: toda marca "alvo da 006" vira estado atual (Flow com slots, `RegisterOptions`, `LayoutInferencer.infer`, `ConsumerResolver` com fontes, `bindGroupReplaced`, pool de Material, `ShadowMap` lido pelo shader, `FrameTargets`); exemplos de Flow, `register` e `consumes` reescritos com a API real
 - [ ] T062 [P] [US6] Guia novo `clay-engine-doc/docs/guides/flows.md` (escrever um Flow N3: slots, `consumes`, privados, transições, registro) com link na barra lateral do Docusaurus
 - [ ] T063 [P] [US6] Migração (tabela do quickstart) em `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`; `physics_flows.md`, `post_processing.md`, `shaders.md` e `getting_started.md` onde citarem a API removida
