@@ -35,9 +35,9 @@ fn rb_lcp_commit_main(
 
     // Correção posicional e contato ativo acumulados por rb_contact_accumulate a partir da lista compactada.
     let pos_correction = vec3f(
-        rb_from_fixed(atomicLoad(&body_correction[i].c_x)),
-        rb_from_fixed(atomicLoad(&body_correction[i].c_y)),
-        rb_from_fixed(atomicLoad(&body_correction[i].c_z)),
+        fixed_to_f32(atomicLoad(&body_correction[i].c_x), RB_FIXED_SCALE),
+        fixed_to_f32(atomicLoad(&body_correction[i].c_y), RB_FIXED_SCALE),
+        fixed_to_f32(atomicLoad(&body_correction[i].c_z), RB_FIXED_SCALE),
     );
     let has_contact = atomicLoad(&body_correction[i].contacts) > 0;
 

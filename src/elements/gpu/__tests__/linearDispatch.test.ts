@@ -4,11 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const KERNELS = join(here, '../wgsl/kernels');
+const KERNEL_DIRS = [join(here, '../wgsl/kernels'), join(here, '../compute/wgsl')];
 const ELEMENTS = join(here, '../..');
 
 /** Kernels de grupo único (scan dos totais de grupo): despachados com `workgroups(1)`. */
-const SINGLE_GROUP_KERNELS = new Set(['ns_scan_groups.wgsl']);
+const SINGLE_GROUP_KERNELS = new Set(['scan_top.wgsl']);
 
 function workgroupSizeOf(src: string): number {
     const m = /@workgroup_size\(\s*(\d+)/.exec(src);
@@ -27,14 +27,18 @@ function tsFiles(dir: string): string[] {
 }
 
 describe('despacho linear (FR-029)', () => {
-    const kernels: string[] = readdirSync(KERNELS).filter((f) => f.endsWith('.wgsl'));
+    const kernels: string[] = KERNEL_DIRS.flatMap((dir) =>
+        readdirSync(dir)
+            .filter((f) => f.endsWith('.wgsl'))
+            .map((f) => relative(ELEMENTS, join(dir, f))),
+    );
 
     it.each(kernels)(
         '%s indexa por num_workgroups quando o grupo tem mais de 1 invocação',
-        (file: string) => {
-            const src = readFileSync(join(KERNELS, file), 'utf8');
+        (path: string) => {
+            const src = readFileSync(join(ELEMENTS, path), 'utf8');
             const size = workgroupSizeOf(src);
-            if (size === 1 || SINGLE_GROUP_KERNELS.has(file)) return;
+            if (size === 1 || SINGLE_GROUP_KERNELS.has(path.split('/').pop()!)) return;
             expect(src).toMatch(/@builtin\(num_workgroups\)\s+nwg\s*:\s*vec3u/);
             expect(src).toContain(`gid3.x + gid3.y * nwg.x * ${size}u`);
             // Nenhum uso cru de global_invocation_id fora da reconstrução linear.

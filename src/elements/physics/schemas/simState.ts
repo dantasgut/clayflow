@@ -23,14 +23,6 @@ export const RBContactSchema = new StructSchema('RBContact', {
     feature: FieldType.u32,
 });
 
-/** Contador da lista de contatos e excedente. */
-export const RBContactCounterSchema = new StructSchema('RBContactCounter', {
-    count: FieldType.atomicU32,
-    overflow: FieldType.atomicU32,
-    _pad0: FieldType.u32,
-    _pad1: FieldType.u32,
-});
-
 /** Entrada da tabela de warm start (chave por CAS + multiplicadores). */
 export const RBWarmEntrySchema = new StructSchema('RBWarmEntry', {
     key: FieldType.atomicU32,

@@ -23,7 +23,6 @@ import { RBSimParamsSchema } from '../../physics/schemas/simParams';
 import {
     RBBodyCorrectionSchema,
     RBBodyDeltaSchema,
-    RBContactCounterSchema,
     RBWarmEntrySchema,
 } from '../../physics/schemas/simState';
 
@@ -56,11 +55,11 @@ export const lcp = wgslModule({
     structs: [LCPSchema, RBSimParamsSchema],
 });
 
-/** Estado dos contatos do LCP: chaves/regiões do warm start e ponto fixo das somas por corpo (com os seus structs). */
+/** Estado dos contatos do LCP: chaves/regiões do warm start e escala do ponto fixo das somas por corpo (com os structs). */
 export const lcpState = wgslModule({
     name: 'lcp_state',
     source: lcpStateSource,
-    structs: [RBContactCounterSchema, RBWarmEntrySchema, RBBodyDeltaSchema, RBBodyCorrectionSchema],
+    structs: [RBWarmEntrySchema, RBBodyDeltaSchema, RBBodyCorrectionSchema],
 });
 
 /** Tipos de material do MPM (`material_id`). */

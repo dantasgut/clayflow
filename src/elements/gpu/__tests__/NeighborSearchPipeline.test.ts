@@ -1,0 +1,88 @@
+import { describe, expect, it } from 'vitest';
+import { NeighborSearchPipeline } from '../NeighborSearchPipeline';
+import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
+import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
+import type { StorageBufferSpec } from '../../../core/contracts/index';
+
+function setup(gridDim: [number, number, number]) {
+    const { core } = fakeResourceCore();
+    const ns = new NeighborSearchPipeline(core, {
+        discriminator: 'test',
+        maxParticles: 1024,
+        maxNeighbors: 16,
+        particleStrideF32: 16,
+        gridDim,
+    });
+    const particles: StorageBufferSpec = {
+        kind: 'buffer',
+        subkind: 'storage',
+        discriminator: 'particles',
+        byteSize: 1024 * 64,
+    };
+    return { core, ns, particles };
+}
+
+const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
+
+describe('NeighborSearchPipeline', () => {
+    it('maxNeighbors fora de [1, 128] → RangeError', () => {
+        const { core } = fakeResourceCore();
+        const options = { discriminator: 'x', maxParticles: 8, particleStrideF32: 16 };
+        expect(() => new NeighborSearchPipeline(core, { ...options, maxNeighbors: 0 })).toThrow(
+            RangeError,
+        );
+        expect(() => new NeighborSearchPipeline(core, { ...options, maxNeighbors: 129 })).toThrow(
+            RangeError,
+        );
+    });
+
+    it('sequência: contagem, soma de prefixos das células (PrefixSum), espalhamento e busca', () => {
+        const { ns, particles } = setup([64, 64, 64]);
+        const rec = recordingFrame();
+        ns.rebuild(rec.frame, particles, 100);
+        expect(rec.passes.map((p) => [p.label, p.dispatches[0]])).toEqual([
+            ['NS.assign_count', [100, 64]],
+            ['PrefixSum.scan_local', [262_144, 256]],
+            ['PrefixSum.scan_local', [1024, 256]],
+            ['PrefixSum.scan_top', [1]],
+            ['PrefixSum.scan_combine', [1024, 256]],
+            ['PrefixSum.scan_combine', [262_144, 256]],
+            ['NS.scatter', [100, 64]],
+            ['NS.find', [100, 64]],
+        ]);
+        // cellCount → cellStart (o scan roda no lugar em cellStart) e cellStart → cellCursor.
+        expect(rec.copies).toBe(2);
+    });
+
+    it('zera contagens no fluxo de comandos a cada reconstrução', () => {
+        const { ns, particles } = setup([16, 16, 16]);
+        const rec = recordingFrame();
+        ns.rebuild(rec.frame, particles, 10);
+        ns.rebuild(rec.frame, particles, 10);
+        expect(rec.sequence.filter((s) => s.startsWith('clear:'))).toEqual([
+            'clear:ns_cell_count:test@0',
+            'clear:ns_ncount:test@0',
+            'clear:ns_cell_count:test@0',
+            'clear:ns_ncount:test@0',
+        ]);
+    });
+
+    it('particleCount = 0 não grava nada', () => {
+        const { ns, particles } = setup([16, 16, 16]);
+        const rec = recordingFrame();
+        ns.rebuild(rec.frame, particles, 0);
+        expect(rec.passes).toHaveLength(0);
+    });
+
+    it('dispose libera os buffers da busca e os da soma de prefixos', () => {
+        const { ns, core, particles } = setup([64, 64, 64]);
+        ns.rebuild(recordingFrame().frame, particles, 100);
+        ns.dispose();
+        const destroyed = (
+            core.destroy as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls.map((c) => disc(c[0]));
+        expect(destroyed.filter((d) => d.startsWith('ns_scan:test:scan_level:'))).toHaveLength(2);
+        expect(destroyed).toContain('ns_cell_start:test');
+        expect(destroyed).toContain('ns_nlist:test');
+    });
+});

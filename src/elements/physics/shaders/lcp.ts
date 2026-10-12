@@ -1,5 +1,6 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { lcp, lcpState, quat, sdf, xpbd } from '../../gpu/shaders/math';
+import { atomicAlloc, fixedPoint } from '../../gpu/compute/shaders';
 import rbPredictSource from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
 import rbNarrowphaseSource from '../../gpu/wgsl/kernels/rb_narrowphase.wgsl?raw';
 import rbBuildLcpSource from '../../gpu/wgsl/kernels/rb_build_lcp.wgsl?raw';
@@ -28,7 +29,7 @@ export const rbPredict = wgslModule({
 export const rbNarrowphase = wgslModule({
     name: 'rb_narrowphase',
     source: rbNarrowphaseSource,
-    requires: [lcpState, quat, lcp, sdf],
+    requires: [lcpState, atomicAlloc, quat, lcp, sdf],
     structs: [
         LCPSchema,
         RBSimParamsSchema,
@@ -53,7 +54,7 @@ export const rbBuildLcp = wgslModule({
 export const rbSolveLcp = wgslModule({
     name: 'rb_solve_lcp',
     source: rbSolveLcpSource,
-    requires: [quat, lcp, xpbd, lcpState],
+    requires: [quat, lcp, xpbd, lcpState, fixedPoint],
     structs: [LCPSchema, RBSimParamsSchema, RBContactSchema],
 });
 
@@ -61,7 +62,7 @@ export const rbSolveLcp = wgslModule({
 export const rbContactAccumulate = wgslModule({
     name: 'rb_contact_accumulate',
     source: rbContactAccumulateSource,
-    requires: [lcpState],
+    requires: [lcpState, fixedPoint],
     structs: [RBSimParamsSchema, RBContactSchema],
 });
 
@@ -69,6 +70,6 @@ export const rbContactAccumulate = wgslModule({
 export const rbLcpCommit = wgslModule({
     name: 'rb_lcp_commit',
     source: rbLcpCommitSource,
-    requires: [quat, lcp, xpbd, lcpState],
+    requires: [quat, lcp, xpbd, lcpState, fixedPoint],
     structs: [LCPSchema, RBSimParamsSchema, RBContactSchema],
 });

@@ -17,8 +17,9 @@ fn rb_contact_accumulate_main(@builtin(global_invocation_id) gid3: vec3u, @built
     let actual_d = contacts[ci]._pad3; // SDF real (sem especulativo); negativo = penetração
     let slop = rb_params.penetration_slop;
     if (actual_d >= -slop) { return; }
-    let c = contacts[ci].normal.xyz * (-(actual_d + slop) * 0.1 * contacts[ci].weight);
-    atomicAdd(&body_correction[i].c_x, rb_to_fixed(c.x));
-    atomicAdd(&body_correction[i].c_y, rb_to_fixed(c.y));
-    atomicAdd(&body_correction[i].c_z, rb_to_fixed(c.z));
+    let c_raw = contacts[ci].normal.xyz * (-(actual_d + slop) * 0.1 * contacts[ci].weight);
+    let c = clamp(c_raw, vec3f(-RB_FIXED_LIMIT), vec3f(RB_FIXED_LIMIT));
+    atomicAdd(&body_correction[i].c_x, fixed_from_f32(c.x, RB_FIXED_SCALE));
+    atomicAdd(&body_correction[i].c_y, fixed_from_f32(c.y, RB_FIXED_SCALE));
+    atomicAdd(&body_correction[i].c_z, fixed_from_f32(c.z, RB_FIXED_SCALE));
 }

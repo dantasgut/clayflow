@@ -5,7 +5,7 @@
 //
 // Lê de: bodies (pool RigidBody:LCP), body_owners (mapa CPU: collider_slot →
 // rb_idx do owner, 0xFFFFFFFFu se estático), e pool tipado de colliders.
-// Escreve em: lista compactada `contacts` — cada contato reserva um índice em `contact_counter.count` (spec 004,
+// Escreve em: lista compactada `contacts` — cada contato reserva um índice por `atomic_alloc` (spec 004,
 // R19); o par é identificado por `slot = rb_i * total_col + pool_base + col_j` (id do par) e o contato por
 // (par, feature): caixa gera um contato por canto (manifold), esfera um só.
 //
@@ -17,7 +17,7 @@
 @group(0) @binding(2) var<uniform>             np_params:   NarrowphaseParams;
 @group(0) @binding(3) var<storage, read>       body_owners: array<u32>;
 @group(0) @binding(4) var<storage, read_write> contacts:    array<RBContact>;
-@group(0) @binding(9)  var<storage, read_write> contact_counter: RBContactCounter;
+@group(0) @binding(9)  var<storage, read_write> contact_counter: AtomicAllocCounter;
 @group(0) @binding(10) var<storage, read_write> warm_table:      array<RBWarmEntry>;
 // Contatos por corpo neste substep (divisão de massa do solve Jacobi) — zerado antes da narrowphase.
 @group(0) @binding(11) var<storage, read_write> body_split:      array<atomic<u32>>;
@@ -124,11 +124,8 @@ fn emit_contact(ctx: TestContext, wn: vec3f, d: f32, depth_eff: f32, test_world:
                 sphere_radius_offset: f32, feature: u32, weight: f32) {
     let contact_point = test_world - (depth_eff + sphere_radius_offset) * wn;
 
-    let k = atomicAdd(&contact_counter.count, 1u);
-    if (k >= rb_params.max_contacts) {
-        atomicAdd(&contact_counter.overflow, 1u);
-        return;
-    }
+    let k = atomic_alloc(&contact_counter, rb_params.max_contacts);
+    if (k == ATOMIC_ALLOC_FULL) { return; }
     let warm = warm_start_of(ctx.slot, feature);
     atomicAdd(&body_split[ctx.rb_i], 1u);
     if (ctx.is_dynamic_col && bodies[ctx.owner_rb].pos.w > 0.0) {

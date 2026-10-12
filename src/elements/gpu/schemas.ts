@@ -17,10 +17,3 @@ export const NsSimParamsSchema = new StructSchema(
     },
     { addressSpace: 'uniform' },
 );
-
-/** Contagem de um nível da soma de prefixos hierárquica. */
-export const NsScanLevelSchema = new StructSchema(
-    'NsScanLevel',
-    { count: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
-    { addressSpace: 'uniform' },
-);

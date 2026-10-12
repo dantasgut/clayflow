@@ -22,13 +22,13 @@ import { NarrowphaseParamsSchema, RBSimParamsSchema } from '../schemas/simParams
 import {
     RBBodyCorrectionSchema,
     RBBodyDeltaSchema,
-    RBContactCounterSchema,
     RBContactSchema,
     RBWarmEntrySchema,
 } from '../schemas/simState';
 import { GravityField } from '../forcefields/GravityField';
 import { Transform } from '../../scene/Transform';
 import { ColliderSet } from '../colliders/ColliderSet';
+import { AtomicAllocCounterSchema } from '../../gpu/compute/schemas';
 import {
     rbBuildLcp,
     rbContactAccumulate,
@@ -369,7 +369,7 @@ export class LCPFlow extends Flow {
             kind: 'buffer',
             subkind: 'storage',
             discriminator: 'lcp_contact_counter',
-            byteSize: RBContactCounterSchema.stride,
+            byteSize: AtomicAllocCounterSchema.stride,
         });
         return {
             contacts: this.contactsBuffer,
@@ -868,9 +868,9 @@ export class LCPFlow extends Flow {
             kind: 'buffer',
             subkind: 'staging',
             discriminator: 'lcp_contact_counter_staging',
-            byteSize: RBContactCounterSchema.stride,
+            byteSize: AtomicAllocCounterSchema.stride,
         }));
-        frame.copy(counter, counterStaging, RBContactCounterSchema.stride);
+        frame.copy(counter, counterStaging, AtomicAllocCounterSchema.stride);
         this.readbackInFlight = true;
         // Defer ao próximo macrotask: garante que core.submit() do frame atual
         // tenha rodado antes do mapAsync (sem isso, readback lê zeros).
@@ -893,8 +893,8 @@ export class LCPFlow extends Flow {
     /** Avisa (uma vez) quando a narrowphase encontrou mais contatos que a capacidade da lista compactada. */
     protected reportContactOverflow(counter: ArrayBuffer): void {
         const u32 = new Uint32Array(counter);
-        const count = u32[RBContactCounterSchema.offsetOf('count') / 4] ?? 0;
-        const overflow = u32[RBContactCounterSchema.offsetOf('overflow') / 4] ?? 0;
+        const count = u32[AtomicAllocCounterSchema.offsetOf('count') / 4] ?? 0;
+        const overflow = u32[AtomicAllocCounterSchema.offsetOf('overflow') / 4] ?? 0;
         if (overflow === 0 || this.overflowWarned) return;
         this.overflowWarned = true;
         console.warn(

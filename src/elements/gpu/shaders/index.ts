@@ -12,6 +12,7 @@ import {
     sphKernels,
     xpbd,
 } from './math';
+import { atomicAlloc, fixedPoint } from '../compute/shaders';
 
 /**
  * Biblioteca de módulos WGSL de base do motor (spec 005): cada função matemática existe num único módulo, usado por
@@ -30,4 +31,6 @@ export const wgslLib = Object.freeze({
     noise,
     color,
     brdf,
+    fixedPoint,
+    atomicAlloc,
 });
