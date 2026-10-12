@@ -107,6 +107,7 @@ async function prefixSum(): Promise<void> {
         for (const mode of ['exclusive', 'inclusive'] as const) {
             const src = upload(input);
             const dst = storage(n * 4);
+            scan.prepare(dst);
             app.core.record('ck-scan', (frame) => {
                 scan.record(frame, { src, dst, count: n, mode });
             });
@@ -136,6 +137,7 @@ async function prefixSum(): Promise<void> {
 
     const n = 4_194_304;
     const buf = upload(new Uint32Array(n).fill(1));
+    scan.prepare(buf);
     const ms = await timeIt(() => {
         app.core.record('ck-scan-time', (frame) => {
             scan.record(frame, { src: buf, dst: buf, count: n });
@@ -170,6 +172,7 @@ async function radixSort(): Promise<void> {
                 const values = Uint32Array.from({ length: n }, (_, i) => i);
                 const kb = upload(keys);
                 const vb = upload(values);
+                sort.prepare(kb, vb);
                 app.core.record('ck-sort', (frame) => {
                     sort.record(frame, { keys: kb, values: vb, count: n, bits });
                 });
@@ -199,6 +202,7 @@ async function radixSort(): Promise<void> {
     const n = 4_194_304;
     const keysOnly = new RadixSort(app.core, { discriminator: 'ck_sort_keys', capacity: n });
     const kb = upload(Uint32Array.from({ length: n }, () => Math.floor(r() * 4294967296)));
+    keysOnly.prepare(kb);
     const ms = await timeIt(() => {
         app.core.record('ck-sort-time', (frame) => {
             keysOnly.record(frame, { keys: kb, count: n });
@@ -243,14 +247,12 @@ async function compaction(): Promise<void> {
             capacity: c.capacity,
             stable: c.stable,
             inputCapacity: n,
-            bindings: [
-                { binding: 0, type: 'read-only-storage', buffer: valuesBuf },
-                { binding: 1, type: 'read-only-storage', buffer: threshold },
-            ],
+            bindings: { ck_values: valuesBuf, ck_threshold: threshold },
         });
         const guard = 64;
         const out = upload(new Uint32Array(c.capacity + guard).fill(SENTINEL));
         const counter = storage(AtomicAllocCounterSchema.stride);
+        compaction.prepare(out, counter);
         app.core.record('ck-compact', (frame) => {
             compaction.record(frame, { count: n, out, counter });
         });
@@ -314,6 +316,7 @@ async function reduce(): Promise<void> {
                           : Float32Array.from({ length: n }, () => r() * 2 - 0.5);
                 const src = upload(data);
                 const out = upload(new Uint32Array(4).fill(0xffffffff));
+                reducer.prepare(src, out);
                 app.core.record('ck-reduce', (frame) => {
                     reducer.record(frame, { src, count: n, out, outOffset: 2 });
                 });

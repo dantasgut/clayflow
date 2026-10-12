@@ -141,7 +141,6 @@ export class SPHFlow extends Flow {
         this.colliders.onPoolReallocated(poolKey);
         if (poolKey === this.bodyType) {
             this.invalidateKernels();
-            this.neighborSearch?.invalidateParticlesBinding();
         }
     }
 
@@ -332,10 +331,12 @@ export class SPHFlow extends Flow {
                 pass.dispatch.invocations(count, 64);
             });
         };
+        // Provisório até a migração deste estágio (T039/T040): prepara a busca para o buffer e as iterações atuais.
+        this.neighborSearch?.prepare(particlesBuf, iterations);
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
             // A vizinhança acompanha cada iteração (as posições mudam entre elas).
-            this.neighborSearch?.rebuild(frame, particlesBuf, count);
+            this.neighborSearch?.rebuild(frame, count);
             run('SPHFlow.density', density, offset);
             run('SPHFlow.pressure', pressure, offset);
             run('SPHFlow.forces', forces, offset);

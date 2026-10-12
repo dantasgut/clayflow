@@ -367,10 +367,7 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
         discriminator: `shaderlib_case_${index}`,
         shader: module,
         entryPoint: 'test_main',
-        bindings: [
-            { binding: 0, type: 'read-only-storage', buffer: inBuf },
-            { binding: 1, type: 'storage', buffer: outBuf },
-        ],
+        bindings: { inp: inBuf, outp: outBuf },
     });
     app.core.record('shaderlib-case', (frame) => {
         frame.compute('shaderlib.case', (pass) => {
@@ -509,7 +506,7 @@ fn probe_main() {
         discriminator: `shaderlib_layout_${index}`,
         shader: module,
         entryPoint: 'probe_main',
-        bindings: [{ binding: 0, type: 'storage', buffer: buf }],
+        bindings: { outp: buf },
     });
     app.core.record('shaderlib-layout', (frame) => {
         frame.clear(buf);
@@ -552,12 +549,11 @@ async function main(): Promise<void> {
                     requires: [module],
                     source: '@compute @workgroup_size(1) fn compile_main() {}',
                 });
-                const buf = storage(app, `shaderlib_compile_buf_${key}`, 16);
                 const k = createComputeKernel(app.core, {
                     discriminator: `shaderlib_compile_${key}`,
                     shader: probe,
                     entryPoint: 'compile_main',
-                    bindings: [{ binding: 0, type: 'storage', buffer: buf }],
+                    bindings: {},
                 });
                 destroyComputeKernel(app.core, k);
             });

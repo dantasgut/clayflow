@@ -1,11 +1,11 @@
 import type {
-    ComputeKernelBinding,
     EngineCore,
     Frame,
     StagingBufferSpec,
     StorageBufferSpec,
     UniformBufferSpec,
-} from '../../../core/contracts/index';
+} from '../../../scene/contracts/gpu';
+import type { BindingSources } from '../../../scene/flows/FlowBinding';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
@@ -175,7 +175,8 @@ interface VertexBuffers {
  * as arestas por cor e a soma de prefixos das contagens dá os intervalos.
  *
  * Assíncrona e com envios próprios: chamada na criação ou mudança de topologia, fora de um quadro (`core.record`),
- * nunca por quadro. Substitui o `GraphColorSolver` em CPU.
+ * nunca por quadro — kernels e preparações internas são criados antes de cada envio. Substitui o `GraphColorSolver`
+ * em CPU.
  */
 export class GraphColorer {
     private readonly disc: string;
@@ -290,12 +291,14 @@ export class GraphColorer {
                 max_colors: 0,
             }),
         );
-        const init = this.kernel(b, 'gc_init', gcInit, 'gc_init_main', [
-            { binding: 0, type: 'read-only-storage', buffer: edges },
-            { binding: 1, type: 'storage', buffer: b.colors },
-            { binding: 2, type: 'storage', buffer: vertex.degree },
-            { binding: 3, type: 'storage', buffer: status },
-        ]);
+        const init = this.kernel('gc_init', gcInit, 'gc_init_main', {
+            gc: b.params,
+            gc_edges: edges,
+            gc_colors: b.colors,
+            gc_degree: vertex.degree,
+            gc_status: status,
+        });
+        if (vertexCount > 0) vertex.reduce.prepare(vertex.degree, status);
         this.submit('GraphColorer.init', (frame) => {
             frame.clear(status);
             frame.clear(vertex.degree, 0, vertexCount * 4);
@@ -324,16 +327,19 @@ export class GraphColorer {
         const maxColors = this.maxColorsOption ?? defaultMaxColors(validated.maxDegree);
 
         // Subpassos por cor até não restar aresta sem cor.
-        const round: ComputeKernelBinding[] = [
-            { binding: 0, type: 'read-only-storage', buffer: edges },
-            { binding: 1, type: 'storage', buffer: b.colors },
-            { binding: 2, type: 'storage', buffer: vertex.vmax },
-            { binding: 3, type: 'storage', buffer: vertex.used },
-            { binding: 4, type: 'storage', buffer: status },
-        ];
-        const priority = this.kernel(b, 'gc_priority', gcRound, 'gc_priority_main', round);
-        const assign = this.kernel(b, 'gc_assign', gcRound, 'gc_assign_main', round);
-        const advance = this.kernel(b, 'gc_advance', gcRound, 'gc_advance_main', round);
+        const round: BindingSources = {
+            gc: b.params,
+            gc_edges: edges,
+            gc_colors: b.colors,
+            gc_vmax: vertex.vmax,
+            gc_used: vertex.used,
+            gc_status: status,
+        };
+        const priority = this.kernel('gc_priority', gcRound, 'gc_priority_main', round);
+        const assign = this.kernel('gc_assign', gcRound, 'gc_assign_main', round);
+        const advance = this.kernel('gc_advance', gcRound, 'gc_advance_main', {
+            gc_status: status,
+        });
         const counters = GraphColorStatusSchema.offsetOf('candidates');
         const counterBytes = GraphColorStatusSchema.offsetOf('loops') - counters;
         let state = validated;
@@ -359,18 +365,25 @@ export class GraphColorer {
         const colorCount = state.colorCount;
 
         // Agrupamento: ordenação por cor (estável por índice), contagens e intervalos.
-        const group: ComputeKernelBinding[] = [
-            { binding: 0, type: 'read-only-storage', buffer: b.colors },
-            { binding: 1, type: 'storage', buffer: b.keys },
-            { binding: 2, type: 'storage', buffer: b.values },
-            { binding: 3, type: 'storage', buffer: b.counts },
-            { binding: 4, type: 'read-only-storage', buffer: b.offsets },
-            { binding: 5, type: 'storage', buffer: b.ranges },
-            { binding: 6, type: 'storage', buffer: status },
-        ];
-        const sortInit = this.kernel(b, 'gc_sort_init', gcGroup, 'gc_sort_init_main', group);
-        const countColors = this.kernel(b, 'gc_count', gcGroup, 'gc_count_main', group);
-        const buildRanges = this.kernel(b, 'gc_ranges', gcGroup, 'gc_ranges_main', group);
+        const sortInit = this.kernel('gc_sort_init', gcGroup, 'gc_sort_init_main', {
+            gc: b.params,
+            gc_colors: b.colors,
+            gc_keys: b.keys,
+            gc_values: b.values,
+        });
+        const countColors = this.kernel('gc_count', gcGroup, 'gc_count_main', {
+            gc: b.params,
+            gc_colors: b.colors,
+            gc_counts: b.counts,
+        });
+        const buildRanges = this.kernel('gc_ranges', gcGroup, 'gc_ranges_main', {
+            gc_counts: b.counts,
+            gc_offsets: b.offsets,
+            gc_ranges: b.ranges,
+            gc_status: status,
+        });
+        this.sort.prepare(b.keys, b.values);
+        this.scan.prepare(b.offsets);
         const rangesBytes = colorCount * ColorRangeSchema.stride;
         this.submit('GraphColorer.group', (frame) => {
             this.dispatch(frame, 'GraphColorer.sort_init', sortInit, count);
@@ -466,20 +479,16 @@ export class GraphColorer {
     }
 
     private kernel(
-        b: EdgeBuffers,
         name: string,
         shader: WgslModule,
         entryPoint: string,
-        bindings: readonly ComputeKernelBinding[],
+        bindings: BindingSources,
     ): ComputeKernel {
         const kernel = createComputeKernel(this.core, {
             discriminator: `${this.disc}:${name}`,
             shader,
             entryPoint,
-            bindGroups: [
-                { bindings: [{ binding: 0, type: 'uniform', buffer: b.params }] },
-                { bindings },
-            ],
+            bindings,
         });
         this.kernels.push(kernel);
         return kernel;
@@ -493,10 +502,8 @@ export class GraphColorer {
         count: number | null,
     ): void {
         frame.compute(label, (pass) => {
-            pass.bind
-                .setPipeline(kernel.pipeline)
-                .setBindGroup(0, kernel.bindGroups[0]!)
-                .setBindGroup(1, kernel.bindGroups[1]!);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindGroups.forEach((bg, i) => pass.bind.setBindGroup(i, bg));
             if (count === null) pass.dispatch.workgroups(1);
             else pass.dispatch.invocations(count, SCAN_GROUP);
         });

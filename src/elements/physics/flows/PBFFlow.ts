@@ -189,7 +189,6 @@ export class PBFFlow extends Flow {
         this.colliders.onPoolReallocated(poolKey);
         if (poolKey === this.bodyType) {
             this.invalidateKernels();
-            this.neighborSearch?.invalidateParticlesBinding();
         }
     }
 
@@ -437,10 +436,12 @@ export class PBFFlow extends Flow {
                 pass.dispatch.invocations(count, 64);
             });
         };
+        // Provisório até a migração deste estágio (T039/T040): prepara a busca para o buffer e as iterações atuais.
+        this.neighborSearch?.prepare(particlesBuf, iterations);
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
             // A vizinhança acompanha cada iteração (as posições mudam entre elas).
-            this.neighborSearch?.rebuild(frame, particlesBuf, count);
+            this.neighborSearch?.rebuild(frame, count);
             run('PBFFlow.predict', predict, offset);
             // Colisão dentro do laço do solver: cada projeção de densidade é seguida da projeção nos colliders.
             for (let it = 0; it < this.solverIters; it++) {

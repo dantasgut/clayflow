@@ -10,7 +10,7 @@ import { SingletonResolver } from '../../consumers/strategies/SingletonResolver'
 import { Flow } from '../../flows/Flow';
 import type { BindingSources, BoundFlow, TransitionContext } from '../../flows/FlowBinding';
 import type { FlowEvent, FlowTransitions } from '../../flows/FlowTransitions';
-import { slot, type BodiesSlot, type SingletonSlot } from '../../flows/slots';
+import { slot } from '../../flows/slots';
 import { createScene, type SceneContext } from '../../SceneContext';
 import { wgslModule } from '../../shaders/WgslModule';
 import { countingCore } from './countingCore';
@@ -80,10 +80,9 @@ fn scale_of() -> vec4f { return cam.scale; }
 `,
 });
 
-export interface ProbeSlots {
-    readonly bodies: BodiesSlot;
-    readonly cam: SingletonSlot<false>;
-}
+/** Slots do Flow de teste; o tipo vem do próprio objeto (idioma dos Flows). */
+const probeSlots = { bodies: slot.bodies(), cam: slot.singleton(ProbeCamSchema) };
+export type ProbeSlots = typeof probeSlots;
 export type ProbeState = 'idle' | 'busy';
 
 export interface ProbeFlowOptions {
@@ -107,7 +106,7 @@ export function probePipeline(overrides: Partial<PipelineDescriptor> = {}): Pipe
 /** Flow de teste: registra os eventos recebidos e as gravações. */
 export class ProbeFlow extends Flow<ProbeSlots, ProbeState> {
     readonly type = 'ProbeFlow';
-    readonly slots = { bodies: slot.bodies(), cam: slot.singleton(ProbeCamSchema) };
+    readonly slots = probeSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
     override readonly bindings: BindingSources;
     protected readonly initialState = 'idle' as const;

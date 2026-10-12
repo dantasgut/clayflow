@@ -4,7 +4,7 @@ import type {
     Frame,
     StorageBufferSpec,
     UniformBufferSpec,
-} from '../../core/contracts/index';
+} from '../../scene/contracts/gpu';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -99,15 +99,6 @@ export class NeighborSearchPipeline {
         this.maxNeighbors = options.maxNeighbors;
         this.particleStrideF32 = options.particleStrideF32;
         this.cellCount = this.gridDim[0] * this.gridDim[1] * this.gridDim[2];
-    }
-
-    /**
-     * Invalida bind groups que dependem do particles buffer atual.
-     * Chamado por SPHFlow/PBFFlow quando o pool de partículas reallocate.
-     */
-    invalidateParticlesBinding(): void {
-        this.releaseParticleKernels();
-        this.currentParticlesBuffer = null;
     }
 
     /** Libera os kernels que ligam o buffer de partículas (assign e find). */
@@ -223,131 +214,55 @@ export class NeighborSearchPipeline {
         this.uploadedParticleCount = -1;
     }
 
-    private ensureKernels(particlesBuffer: PoolBufferSpec): void {
+    /**
+     * Prepara a busca para o buffer de partículas `particlesBuffer` e até `rebuildsPerFrame` reconstruções por quadro:
+     * buffers da grade, kernels e a soma de prefixos. Idempotente; fora da gravação (numa transição do Flow — ex.: o
+     * pool de partículas cresceu ou o número de passos do quadro mudou).
+     */
+    prepare(particlesBuffer: PoolBufferSpec, rebuildsPerFrame = 1): void {
+        this.allocate();
+        this.scan!.prepare(this.cellStartBuffer!, rebuildsPerFrame);
         if (this.currentParticlesBuffer !== particlesBuffer) {
-            // Particles buffer mudou — invalida kernels que o referenciam.
             this.releaseParticleKernels();
             this.currentParticlesBuffer = particlesBuffer;
         }
-
-        if (
-            this.paramsBuffer === null
-            || this.cellCountBuffer === null
-            || this.cellStartBuffer === null
-            || this.cellCursorBuffer === null
-            || this.cellIdsBuffer === null
-            || this.sortedParticlesBuffer === null
-            || this.neighborListBuffer === null
-            || this.neighborCountBuffer === null
-        )
-            return;
-
-        const paramsGroup = {
-            bindings: [{ binding: 0, type: 'uniform' as const, buffer: this.paramsBuffer }],
-        };
-
-        if (this.assignKernel === null) {
-            this.assignKernel = createComputeKernel(this.core, {
-                discriminator: `ns_assign:${this.disc}`,
-                shader: nsAssignCount,
-                entryPoint: 'ns_assign_count_main',
-                bindGroups: [
-                    paramsGroup,
-                    {
-                        bindings: [
-                            {
-                                binding: 0,
-                                type: 'read-only-storage' as const,
-                                buffer: particlesBuffer,
-                            },
-                            {
-                                binding: 1,
-                                type: 'storage' as const,
-                                buffer: this.cellIdsBuffer,
-                            },
-                        ],
-                    },
-                    {
-                        bindings: [
-                            { binding: 0, type: 'storage' as const, buffer: this.cellCountBuffer },
-                        ],
-                    },
-                ],
-            });
-        }
-        if (this.scatterKernel === null) {
-            this.scatterKernel = createComputeKernel(this.core, {
-                discriminator: `ns_scatter:${this.disc}`,
-                shader: nsScatter,
-                entryPoint: 'ns_scatter_main',
-                bindGroups: [
-                    paramsGroup,
-                    {
-                        bindings: [
-                            {
-                                binding: 0,
-                                type: 'read-only-storage' as const,
-                                buffer: this.cellIdsBuffer,
-                            },
-                            {
-                                binding: 1,
-                                type: 'storage' as const,
-                                buffer: this.cellCursorBuffer,
-                            },
-                            {
-                                binding: 2,
-                                type: 'storage' as const,
-                                buffer: this.sortedParticlesBuffer,
-                            },
-                        ],
-                    },
-                ],
-            });
-        }
-        if (this.findKernel === null) {
-            this.findKernel = createComputeKernel(this.core, {
-                discriminator: `ns_find:${this.disc}`,
-                shader: nsFind,
-                entryPoint: 'ns_find_main',
-                bindGroups: [
-                    paramsGroup,
-                    {
-                        bindings: [
-                            {
-                                binding: 0,
-                                type: 'read-only-storage' as const,
-                                buffer: particlesBuffer,
-                            },
-                            {
-                                binding: 1,
-                                type: 'read-only-storage' as const,
-                                buffer: this.cellStartBuffer,
-                            },
-                            {
-                                binding: 2,
-                                type: 'read-only-storage' as const,
-                                buffer: this.cellCountBuffer,
-                            },
-                            {
-                                binding: 3,
-                                type: 'read-only-storage' as const,
-                                buffer: this.sortedParticlesBuffer,
-                            },
-                            {
-                                binding: 4,
-                                type: 'storage' as const,
-                                buffer: this.neighborListBuffer,
-                            },
-                            {
-                                binding: 5,
-                                type: 'storage' as const,
-                                buffer: this.neighborCountBuffer,
-                            },
-                        ],
-                    },
-                ],
-            });
-        }
+        const nsParams = this.paramsBuffer!;
+        this.assignKernel ??= createComputeKernel(this.core, {
+            discriminator: `ns_assign:${this.disc}`,
+            shader: nsAssignCount,
+            entryPoint: 'ns_assign_count_main',
+            bindings: {
+                ns_params: nsParams,
+                particle_data: particlesBuffer,
+                cell_ids: this.cellIdsBuffer!,
+                cell_count: this.cellCountBuffer!,
+            },
+        });
+        this.scatterKernel ??= createComputeKernel(this.core, {
+            discriminator: `ns_scatter:${this.disc}`,
+            shader: nsScatter,
+            entryPoint: 'ns_scatter_main',
+            bindings: {
+                ns_params: nsParams,
+                cell_ids: this.cellIdsBuffer!,
+                cell_cursor: this.cellCursorBuffer!,
+                sorted_particles: this.sortedParticlesBuffer!,
+            },
+        });
+        this.findKernel ??= createComputeKernel(this.core, {
+            discriminator: `ns_find:${this.disc}`,
+            shader: nsFind,
+            entryPoint: 'ns_find_main',
+            bindings: {
+                ns_params: nsParams,
+                particle_data: particlesBuffer,
+                cell_start: this.cellStartBuffer!,
+                cell_count_buf: this.cellCountBuffer!,
+                sorted_particles: this.sortedParticlesBuffer!,
+                neighbor_list: this.neighborListBuffer!,
+                neighbor_count: this.neighborCountBuffer!,
+            },
+        });
     }
 
     /**
@@ -391,63 +306,43 @@ export class NeighborSearchPipeline {
     }
 
     /**
-     * Reconstrói os buffers de vizinhos para o estado atual de partículas.
-     * Chamado uma vez por frame (no início do dispatch do flow consumidor).
-     * Se particleCount=0, no-op.
+     * Grava a reconstrução das listas de vizinhos para as `particleCount` partículas do buffer preparado (`prepare`).
+     * `particleCount = 0` não grava nada.
      *
-     * Sequência: assign_count → soma de prefixos (cellCount → cellStart) →
-     * copy(cellStart, cellCursor) → scatter → find.
+     * Sequência: assign_count → soma de prefixos (cellCount → cellStart) → copy(cellStart, cellCursor) → scatter →
+     * find.
+     * @throws Error se `prepare` não foi chamado.
      */
-    rebuild(frame: Frame, particlesBuffer: PoolBufferSpec, particleCount: number): void {
+    rebuild(frame: Frame, particleCount: number): void {
         if (particleCount === 0) return;
-        this.allocate();
-        this.ensureKernels(particlesBuffer);
         const assign = this.assignKernel;
         const scan = this.scan;
         const scatter = this.scatterKernel;
         const find = this.findKernel;
-        if (
-            assign === null
-            || scan === null
-            || scatter === null
-            || find === null
-            || this.cellCountBuffer === null
-            || this.neighborCountBuffer === null
-            || this.cellStartBuffer === null
-            || this.cellCursorBuffer === null
-        )
-            return;
-
+        if (assign === null || scan === null || scatter === null || find === null) {
+            throw new Error(
+                `NeighborSearchPipeline(${this.disc}): prepare(partículas) antes de gravar.`,
+            );
+        }
+        const cellCount = this.cellCountBuffer!;
+        const cellStart = this.cellStartBuffer!;
         this.uploadParams(particleCount);
         // Zeradas no fluxo de comandos: cada reconstrução do quadro começa de contagens nulas.
-        frame.clear(this.cellCountBuffer, 0, this.cellCount * 4);
-        frame.clear(this.neighborCountBuffer, 0, particleCount * 4);
-
-        const run = (
-            label: string,
-            k: ComputeKernel,
-            invocations: number,
-            groupSize: number,
-        ): void => {
+        frame.clear(cellCount, 0, this.cellCount * 4);
+        frame.clear(this.neighborCountBuffer!, 0, particleCount * 4);
+        const run = (label: string, k: ComputeKernel, invocations: number): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(k.pipeline);
-                k.bindGroups.forEach((bg, i) => {
-                    pass.bind.setBindGroup(i, bg);
-                });
-                pass.dispatch.invocations(invocations, groupSize);
+                k.bindGroups.forEach((bg, i) => pass.bind.setBindGroup(i, bg));
+                pass.dispatch.invocations(invocations, 64);
             });
         };
-
-        run('NS.assign_count', assign, particleCount, 64);
-        scan.record(frame, {
-            src: this.cellCountBuffer,
-            dst: this.cellStartBuffer,
-            count: this.cellCount,
-        });
+        run('NS.assign_count', assign, particleCount);
+        scan.record(frame, { src: cellCount, dst: cellStart, count: this.cellCount });
         // cell_cursor recebe cópia de cell_start: scatter usa atomicAdd em
         // cell_cursor para alocar o slot dentro do range [start, start+count).
-        frame.copy(this.cellStartBuffer, this.cellCursorBuffer, this.cellCount * 4);
-        run('NS.scatter', scatter, particleCount, 64);
-        run('NS.find', find, particleCount, 64);
+        frame.copy(cellStart, this.cellCursorBuffer!, this.cellCount * 4);
+        run('NS.scatter', scatter, particleCount);
+        run('NS.find', find, particleCount);
     }
 }

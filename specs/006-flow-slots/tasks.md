@@ -144,7 +144,7 @@ nem bind group de dado consumido (verificação de T046).
 
 ### Peças compartilhadas
 
-- [ ] T032 [P] [US5] Kernels genéricos com bindings por nome: `src/elements/gpu/compute/{PrefixSum,RadixSort,Reduce,Compaction,GraphColorer,FrameUniforms}.ts` e `src/elements/gpu/NeighborSearchPipeline.ts` recebem buffers de slot e usam o `createComputeKernel` novo; testes em `src/elements/gpu/__tests__/` atualizados; `npm run smoke -- computeKernels` verde; registrar em `src/__smokes__/README.md`
+- [x] T032 [P] [US5] Kernels genéricos com bindings por nome: `src/elements/gpu/compute/{PrefixSum,RadixSort,Reduce,Compaction,GraphColorer,FrameUniforms}.ts` e `src/elements/gpu/NeighborSearchPipeline.ts` recebem buffers de slot e usam o `createComputeKernel` novo; testes em `src/elements/gpu/__tests__/` atualizados; `npm run smoke -- computeKernels` verde; registrar em `src/__smokes__/README.md`
 - [ ] T033 [P] [US5] `src/elements/physics/flows/PerStepUniforms.ts`: `reserve()` deixa de invalidar kernels; o buffer cresce em transição e é religado por `rebind`; teste em `src/elements/physics/__tests__/PerStepUniforms.test.ts`
 - [ ] T034 [P] [US5] `src/elements/physics/colliders/ColliderSet.ts` como peça de slot (`slot.pools` dos colliders): mapas de dono como recursos privados reconstruídos em transição, pool de malha incluído no grupo (A6); teste em `src/elements/physics/__tests__/ColliderSet.test.ts`
 
