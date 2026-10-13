@@ -268,7 +268,7 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 
 - [x] T066 Verificações da 005 mantidas: `src/elements/__tests__/noManualOffsets.test.ts`, `noManualWgslAssembly.test.ts`, `wgslInventory.test.ts` verdes (FR-029, nenhum struct duplicado)
 - [x] T067 Smokes completos no código-fonte e sobre o dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar em `src/__smokes__/README.md` (SC-006, SC-007, SC-009)
-- [ ] T068 `npm run bench:check` com a máquina sem carga externa: CPU por quadro de `instances/10k` −30% e montagem menor contra o baseline, sem regressão > 10% nas demais (SC-003); registrar os números abaixo deste item em `specs/006-flow-slots/tasks.md`; refazer junto a T084 da 005 se ainda pendente
+- [x] T068 `npm run bench:check` com a máquina sem carga externa: CPU por quadro de `instances/10k` −30% e montagem menor contra o baseline, sem regressão > 10% nas demais (SC-003); registrar os números abaixo deste item em `specs/006-flow-slots/tasks.md`; refazer junto a T084 da 005 se ainda pendente
 
 > **Rodada com carga externa (2026-10-12, commit 00d255e)**: `completion_test` do holos-rust a 100% de CPU e
 > `mediaanalysisd` ativo durante toda a rodada (11,6 min). Gate **REPROVADO** só em métricas de quadro/GPU:
@@ -287,6 +287,18 @@ arquivo de `src/elements/`; `grep -c "alvo da 006"` no documento = 0.
 > (evento `frameRetired`; `GameLoop` e o bench esperam a vaga sem RAF vazio): p95 2,65 ms, CPU −86,8%. (2) GPU de
 > `instances/10k` e `10k-moving` +10–17% (A/B: 0,52 ms antes do forward em slots, 1,07 ms depois; independe do ritmo).
 > Causa isolada: o rebind do grupo de material com offset dinâmico a cada draw (R8). Resolvido pela Emenda 1 (Phase 11).
+>
+> **Rodada final (2026-10-13, commit c1030d8, máquina livre)**: o Chrome atualizou de 154 para 155 (perfil novo,
+> `apple-metal-3-chrome155-macos-1280x720-ifpfky`); baseline do perfil gravado a partir do commit de referência
+> `b17d5d6` e `bench:check` rodado contra ele. **SC-003 atendido**: CPU por quadro de `instances/10k` 90,87 → 14,50 ms
+> (−84,0%), GPU 0,92 → 0,66 ms (−28,5%), p95 100,4 → 15,5 ms; `instances/10k-moving` CPU −30,7%; `unique-objects/1k`
+> CPU 7,73 → 0,74 ms (−90,4%), p95 −87,4%; `rigid-bodies/1k` CPU −88,0%; `rigid-bodies/10k` CPU −83,0%, p95 −25,3%;
+> `instances/100k` de timeout a ok (121,6 ms). O gate apontou uma métrica: GPU de `instances/10k-moving` 0,41 → 0,67 ms.
+> É o valor do baseline, não o código: no `b17d5d6` essa GPU é bimodal (rodadas isoladas deram 0,94 e 0,43 ms; o
+> baseline do Chrome 154 tinha repetições 0,41/0,93/0,94; o do 155 pegou 0,50/0,41/0,41 — os estados de clock da T085
+> da 004), enquanto `instances/10k` parado, mesmos 10 001 draws, é estável em 0,92 ms. O código atual é estável
+> (0,666/0,670/0,667 ms, igual ao `10k` parado). Baseline mantido como gravado (sem regravar até sair favorável);
+> registrado em `specs/PENDENCIAS.md` §0. `instances/1m` continua derrubando a aba (F2).
 
 - [x] T069 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/006-flow-slots/spec.md` com status e `checklists/requirements.md`
 
@@ -342,6 +354,9 @@ smokes `render` (10 cenas idênticas), `churn`, `bigMesh`, `integration`; A/B de
   > rebind (offset fixo: 0,64 ms) e não vem de binds nem do shader — material lido no vértice 0,64 ms; posição na luz
   > calculada no vértice 0,65 ms; sem a indireção `renderables → worlds` 0,66 ms; formato de índice igual. Contagem
   > SC-010 (binds por passe = f(pipelines)) verde em teste com 10 mil entidades.
+  >
+  > **Fechamento da 006 (2026-10-13)**: smokes e contagem verdes; o alvo de GPU (≤ 0,52 ms) fica aberto e passa para a
+  > spec seguinte (diagnóstico de paridade com o Three.js), registrado em `specs/PENDENCIAS.md` §0.
 
 - [x] T079 [US6] Documento de arquitetura: tabela de pools (`Renderable` atual na 006, material em pool de storage),
       seção de estágios (`firstInstance` = slot do `Renderable`, sem bind por draw); `flows.md` (`record` em

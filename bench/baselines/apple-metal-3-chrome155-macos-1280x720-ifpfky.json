@@ -1,0 +1,476 @@
+{
+  "schemaVersion": 1,
+  "profileId": "apple-metal-3-chrome155-macos-1280x720-ifpfky",
+  "createdAt": "2026-10-13T03:13:39.655Z",
+  "commit": "b17d5d6",
+  "tolerance": 0.1,
+  "results": [
+    {
+      "scene": "instances",
+      "variant": "10k",
+      "engine": "clayflow",
+      "status": "ok",
+      "metrics": {
+        "cpuMs": 90.86750000715256,
+        "gpuMs": 0.91757,
+        "frameMs": {
+          "mean": 95.15877358531053,
+          "p95": 100.36624997854233,
+          "p99": 108.18675000071526
+        },
+        "fps": 10.508752501980206,
+        "drawCalls": 10001,
+        "memoryBytes": 37047412,
+        "memoryKind": "exact",
+        "samples": {
+          "frames": 316,
+          "gpu": 161
+        },
+        "vsyncLimited": false
+      },
+      "repetitions": [
+        {
+          "cpuMs": 90.86750000715256,
+          "gpuMs": 0.9154445,
+          "frameMs": {
+            "mean": 95.15877358531053,
+            "p95": 99.64124998450279,
+            "p99": 108.18675000071526
+          },
+          "fps": 10.508752501980206,
+          "drawCalls": 10001,
+          "memoryBytes": 37047412,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 106,
+            "gpu": 54
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 92.73249995708466,
+          "gpuMs": 0.91757,
+          "frameMs": {
+            "mean": 96.32725961506367,
+            "p95": 102.9834999322891,
+            "p99": 110.3028500008583
+          },
+          "fps": 10.381277366304522,
+          "drawCalls": 10001,
+          "memoryBytes": 37047412,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 104,
+            "gpu": 53
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 89.33000004291534,
+          "gpuMs": 0.926111,
+          "frameMs": {
+            "mean": 94.77674528337874,
+            "p95": 100.36624997854233,
+            "p99": 106.11625000834465
+          },
+          "fps": 10.55111142517122,
+          "drawCalls": 10001,
+          "memoryBytes": 37047412,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 106,
+            "gpu": 54
+          },
+          "vsyncLimited": false
+        }
+      ],
+      "unstable": false,
+      "limitations": [
+        "forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)",
+        "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)",
+        "sem instancing no render: 1 draw por objeto (até F2)",
+        "render LDR 8 bits, sem MSAA (até F4)"
+      ]
+    },
+    {
+      "scene": "instances",
+      "variant": "100k",
+      "engine": "clayflow",
+      "status": "timeout",
+      "reason": "sem resultado em 60000 ms (página travada ou lenta)"
+    },
+    {
+      "scene": "instances",
+      "variant": "1m",
+      "engine": "clayflow",
+      "status": "timeout",
+      "reason": "sem resultado em 60000 ms (página travada ou lenta)"
+    },
+    {
+      "scene": "instances",
+      "variant": "10k-moving",
+      "engine": "clayflow",
+      "status": "ok",
+      "metrics": {
+        "cpuMs": 287.6749999523163,
+        "gpuMs": 0.413161,
+        "frameMs": {
+          "mean": 309.37303030129635,
+          "p95": 360.08099999427776,
+          "p99": 727.078200035095
+        },
+        "fps": 3.232343811695889,
+        "drawCalls": 10001,
+        "memoryBytes": 37047412,
+        "memoryKind": "exact",
+        "samples": {
+          "frames": 97,
+          "gpu": 53
+        },
+        "vsyncLimited": false
+      },
+      "repetitions": [
+        {
+          "cpuMs": 287.6749999523163,
+          "gpuMs": 0.4979725,
+          "frameMs": {
+            "mean": 309.37303030129635,
+            "p95": 360.08099999427776,
+            "p99": 688.9677999305724
+          },
+          "fps": 3.232343811695889,
+          "drawCalls": 10001,
+          "memoryBytes": 37047412,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 33,
+            "gpu": 18
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 297.5349999666214,
+          "gpuMs": 0.410911,
+          "frameMs": {
+            "mean": 323.7767741949327,
+            "p95": 424.08000004291534,
+            "p99": 733.467500066757
+          },
+          "fps": 3.088547665244021,
+          "drawCalls": 10001,
+          "memoryBytes": 37047412,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 31,
+            "gpu": 17
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 277.8250000476837,
+          "gpuMs": 0.413161,
+          "frameMs": {
+            "mean": 303.0743939406944,
+            "p95": 356.1400000572203,
+            "p99": 727.078200035095
+          },
+          "fps": 3.2995199198375036,
+          "drawCalls": 10001,
+          "memoryBytes": 37047412,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 33,
+            "gpu": 18
+          },
+          "vsyncLimited": false
+        }
+      ],
+      "unstable": false,
+      "limitations": [
+        "forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)",
+        "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)",
+        "sem instancing no render: 1 draw por objeto (até F2)",
+        "render LDR 8 bits, sem MSAA (até F4)",
+        "um envio por objeto alterado, sem agrupamento (até F2)"
+      ]
+    },
+    {
+      "scene": "unique-objects",
+      "variant": "1k",
+      "engine": "clayflow",
+      "status": "ok",
+      "metrics": {
+        "cpuMs": 7.730000019073486,
+        "gpuMs": 0.67547,
+        "frameMs": {
+          "mean": 8.729441535722524,
+          "p95": 14.610000002384187,
+          "p99": 15.489400010108948
+        },
+        "fps": 114.5548653837489,
+        "drawCalls": 1001,
+        "memoryBytes": 40484388,
+        "memoryKind": "exact",
+        "samples": {
+          "frames": 3443,
+          "gpu": 1724
+        },
+        "vsyncLimited": false
+      },
+      "repetitions": [
+        {
+          "cpuMs": 7.730000019073486,
+          "gpuMs": 0.67547,
+          "frameMs": {
+            "mean": 8.729441535722524,
+            "p95": 14.368750005960464,
+            "p99": 15.179999947547913
+          },
+          "fps": 114.5548653837489,
+          "drawCalls": 1001,
+          "memoryBytes": 40484388,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 1146,
+            "gpu": 574
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 7.699999928474426,
+          "gpuMs": 0.675532,
+          "frameMs": {
+            "mean": 8.668418544210635,
+            "p95": 14.68849998116493,
+            "p99": 15.489400010108948
+          },
+          "fps": 115.3612962848764,
+          "drawCalls": 1001,
+          "memoryBytes": 40484388,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 1154,
+            "gpu": 578
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 7.764999985694885,
+          "gpuMs": 0.675157,
+          "frameMs": {
+            "mean": 8.751474190676097,
+            "p95": 14.610000002384187,
+            "p99": 15.494800004959101
+          },
+          "fps": 114.26646279382386,
+          "drawCalls": 1001,
+          "memoryBytes": 40484388,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 1143,
+            "gpu": 572
+          },
+          "vsyncLimited": false
+        }
+      ],
+      "unstable": false,
+      "limitations": [
+        "forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)",
+        "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)",
+        "render LDR 8 bits, sem MSAA (até F4)"
+      ]
+    },
+    {
+      "scene": "point-lights",
+      "variant": "256",
+      "engine": "clayflow",
+      "status": "unsupported",
+      "reason": "o forward ignora PointLight",
+      "until": "F4"
+    },
+    {
+      "scene": "skinned-characters",
+      "variant": "500",
+      "engine": "clayflow",
+      "status": "unsupported",
+      "reason": "sem skinning/animação",
+      "until": "F8"
+    },
+    {
+      "scene": "rigid-bodies",
+      "variant": "1k",
+      "engine": "clayflow",
+      "status": "ok",
+      "metrics": {
+        "cpuMs": 8.929999947547913,
+        "gpuMs": 3.150492,
+        "frameMs": {
+          "mean": 16.5333636364661,
+          "p95": 33.76400008201599,
+          "p99": 36.73939996719364
+        },
+        "fps": 60.48376011003552,
+        "drawCalls": 1002,
+        "memoryBytes": 69108852,
+        "memoryKind": "exact",
+        "samples": {
+          "frames": 1868,
+          "gpu": 939
+        },
+        "vsyncLimited": true
+      },
+      "repetitions": [
+        {
+          "cpuMs": 8.92249995470047,
+          "gpuMs": 3.144835,
+          "frameMs": {
+            "mean": 14.943029850810321,
+            "p95": 33.381499993801114,
+            "p99": 35.666350049972365
+          },
+          "fps": 66.92083265468231,
+          "drawCalls": 1002,
+          "memoryBytes": 69108852,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 670,
+            "gpu": 337
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 8.929999947547913,
+          "gpuMs": 3.150492,
+          "frameMs": {
+            "mean": 16.5333636364661,
+            "p95": 33.76400008201599,
+            "p99": 37.63279999256146
+          },
+          "fps": 60.48376011003552,
+          "drawCalls": 1002,
+          "memoryBytes": 69108852,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 605,
+            "gpu": 304
+          },
+          "vsyncLimited": true
+        },
+        {
+          "cpuMs": 9.03000009059906,
+          "gpuMs": 3.1601615,
+          "frameMs": {
+            "mean": 16.883701517650287,
+            "p95": 33.891999983787535,
+            "p99": 36.73939996719364
+          },
+          "fps": 59.22871823779851,
+          "drawCalls": 1002,
+          "memoryBytes": 69108852,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 593,
+            "gpu": 298
+          },
+          "vsyncLimited": true
+        }
+      ],
+      "unstable": true,
+      "limitations": [
+        "forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)",
+        "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)",
+        "readback de todos os corpos para a CPU por quadro, pose publicada fora do quadro e com 1 quadro de atraso (até F2)",
+        "solver LCP em uma thread e narrowphase O(N·M) (até F5)",
+        "sem instancing no render (até F2)"
+      ]
+    },
+    {
+      "scene": "rigid-bodies",
+      "variant": "10k",
+      "engine": "clayflow",
+      "status": "ok",
+      "metrics": {
+        "cpuMs": 101.64999997615814,
+        "gpuMs": 30.06631,
+        "frameMs": {
+          "mean": 180.61833333341698,
+          "p95": 336.60299994945524,
+          "p99": 347.65720001697537
+        },
+        "fps": 5.536536527297175,
+        "drawCalls": 10002,
+        "memoryBytes": 573367572,
+        "memoryKind": "exact",
+        "samples": {
+          "frames": 169,
+          "gpu": 87
+        },
+        "vsyncLimited": false
+      },
+      "repetitions": [
+        {
+          "cpuMs": 103.67500007152557,
+          "gpuMs": 30.158393,
+          "frameMs": {
+            "mean": 181.8659090909091,
+            "p95": 342.9649999856949,
+            "p99": 344.18920001983645
+          },
+          "fps": 5.498556628884917,
+          "drawCalls": 10002,
+          "memoryBytes": 573367572,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 55,
+            "gpu": 28
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 101.64999997615814,
+          "gpuMs": 27.779908,
+          "frameMs": {
+            "mean": 180.61833333341698,
+            "p95": 336.60299994945524,
+            "p99": 404.61040003776515
+          },
+          "fps": 5.536536527297175,
+          "drawCalls": 10002,
+          "memoryBytes": 573367572,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 57,
+            "gpu": 29
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 101.35500001907349,
+          "gpuMs": 30.06631,
+          "frameMs": {
+            "mean": 180.06464912180314,
+            "p95": 333.1890000104904,
+            "p99": 347.65720001697537
+          },
+          "fps": 5.55356092868378,
+          "drawCalls": 10002,
+          "memoryBytes": 573367572,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 57,
+            "gpu": 30
+          },
+          "vsyncLimited": false
+        }
+      ],
+      "unstable": false,
+      "limitations": [
+        "forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)",
+        "geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)",
+        "readback de todos os corpos para a CPU por quadro, pose publicada fora do quadro e com 1 quadro de atraso (até F2)",
+        "solver LCP em uma thread e narrowphase O(N·M) (até F5)",
+        "sem instancing no render (até F2)"
+      ]
+    }
+  ]
+}

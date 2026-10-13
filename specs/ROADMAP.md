@@ -149,7 +149,7 @@ pelo harness da F0, como consequência da arquitetura.
 ### 3.6 Achados e correções da spec 006
 
 - **Forward fora da arquitetura de Flows** (causa principal do custo de `instances`): câmera, mundo e material pelos
-  slots, materiais em pool uniforme com offset dinâmico, grupos compartilhados uma vez por passe — nenhum objeto de GPU
+  slots, material em pool de storage selecionado pelo registro `Renderable` mantido pela C2 (Emenda 1), grupos definidos uma vez por passe — nenhum objeto de GPU
   por entidade (12 → 0 nos estágios) e uma escrita de câmera por quadro, só quando muda.
 - **Readback do LCP** mapeava slot → entidade na leitura, não na cópia; **`TransformFlow`** não recompunha na remoção;
   **`ColliderSet`** omitia o pool de malha: corrigidos.
@@ -331,6 +331,15 @@ rodada com carga externa (outro processo a 100% de CPU): CPU por quadro de `inst
 (−75%), `rigid-bodies/10k` 104 → 19,9 ms (−81%); `instances/100k` passou a completar (166 ms de CPU). O gate apontou
 p95/p99 de `unique-objects/1k` e a GPU de `instances/10k-moving` acima da tolerância — a confirmar numa rodada com a
 máquina livre antes de regravar o baseline. `instances/1m` ainda derruba a aba (sem instancing até a F2/007).
+
+**Status (2026-10-13)**: 006 fechada com a máquina livre (Chrome 155; baseline do perfil gravado do `b17d5d6`). CPU por
+quadro: `instances/10k` 90,9 → 14,5 ms (−84%), `instances/10k-moving` 288 → 199 ms (−31%), `unique-objects/1k` 7,73 →
+0,74 ms (−90%), `rigid-bodies/1k` 8,93 → 1,07 ms (−88%), `rigid-bodies/10k` 102 → 17,3 ms (−83%); GPU de
+`instances/10k` 0,92 → 0,66 ms com a Emenda 1 (sem bind por draw). O gate apontou a GPU de `instances/10k-moving`
+contra um baseline bimodal (ver PENDENCIAS §0). Contra o Three.js a distância segue grande: `instances/10k` 14,5 ms ×
+0,03 ms de CPU (10 001 draws × 2 com `InstancedMesh`), `instances/10k-moving` 199 × 1,3 ms (um envio por objeto
+alterado), `rigid-bodies/10k` 9 × 36 fps (GPU 28 × 6,7 ms pela narrowphase O(N·M) sem broadphase; p99 de 309 ms pelo
+readback da pose a cada quadro); só `unique-objects/1k` é mais rápido no clayflow (1,5×).
 
 ## 7. Adoção pelo MorphSociety (no repositório do jogo)
 

@@ -4,8 +4,9 @@
 
 **Created**: 2026-10-12
 
-**Status**: Emendada (2026-10-12, Emenda 1 — pool `Renderable` e material indexado) — implementação da emenda
-pendente (Phase 11 de `tasks.md`); depois, `bench:check` (T068) e ratificação da constituição 1.1.0 no PR
+**Status**: Implementada (2026-10-13) — Emenda 1 incluída; `bench:check` (T068) verde em CPU, com a GPU de
+`instances/10k-moving` apontada por baseline bimodal (ver tasks T068); alvo de GPU do SC-010 (≤ 0,52 ms) não atingido
+(0,66 ms, abaixo do baseline de 0,92 ms), passado à spec seguinte; ratificação da constituição 1.1.0 no PR
 
 **Input**: User description: "Slots de Flow (spec 006, fase F1 do roadmap — `006-flow-slots`). Implementar no lugar
 arquitetural certo (refundação C1–C4, `architecture_resource_loaders.md` autoritativo, com as definições corrigidas na
