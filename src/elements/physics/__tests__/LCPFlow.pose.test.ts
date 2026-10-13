@@ -51,10 +51,15 @@ describe('LCPFlow — pose publicada na GPU (spec 007)', () => {
         expect(s.core.readback).not.toHaveBeenCalled();
         s.step();
         await vi.runAllTimersAsync();
-        expect(s.core.readback).toHaveBeenCalledTimes(1); // o contador (8 bytes), não o pool de corpos
+        // Só os contadores de diagnóstico (contatos e pares da broadphase), não o pool de corpos.
+        const read = () =>
+            vi
+                .mocked(s.core.readback)
+                .mock.calls.map(([spec]) => (spec as { discriminator?: string }).discriminator);
+        expect(read()).toEqual(['lcp_contact_counter_staging', 'lcp_pair_counts_staging']);
         for (let i = 0; i < 10; i++) s.step();
         await vi.runAllTimersAsync();
-        expect(s.core.readback).toHaveBeenCalledTimes(1);
+        expect(read()).toHaveLength(2);
     });
 
     it('o Transform do corpo é de posse da GPU: mutação ignorada com aviso único', async () => {

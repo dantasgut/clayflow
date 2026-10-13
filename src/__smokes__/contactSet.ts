@@ -4,7 +4,8 @@
 // contatos do último substep. O conjunto é reduzido a uma forma canônica — os registros (96 B) ordenados pelos seus
 // bytes — e a um hash (FNV-1a, duas sementes). Com `--record`, grava a referência
 // (`contacts-<perfil>.json`, da narrowphase exaustiva); sem, compara passo a passo: a broadphase deve produzir o
-// mesmo conjunto de contatos (o solve independe da ordem — spec 004, R19), logo o mesmo hash.
+// mesmo conjunto de contatos (o solve independe da ordem — spec 004, R19), logo o mesmo hash. Mede também os pares
+// testados pela narrowphase contra N·M (SC-006: ≤ 1% em 10 000 corpos).
 //
 // Para rodar: `npm run smoke -- contactSet [--record]`. Resultado: `CONTACTSET SMOKE PASSED` ou `FAIL`.
 import { Application, createScene, LCPFlow } from 'clayflow';
@@ -17,6 +18,12 @@ const STEPS = 60;
 interface StepDigest {
     readonly count: number;
     readonly hash: string;
+}
+
+/** Pares testados pela narrowphase no último substep (caixas + esferas da broadphase) e o total N·M exaustivo. */
+interface PairStats {
+    tested: number;
+    exhaustive: number;
 }
 type Reference = Record<string, readonly StepDigest[]>;
 
@@ -72,7 +79,9 @@ function digest(contacts: ArrayBuffer, count: number, recordBytes: number): Step
     return { count, hash };
 }
 
-async function scenario(count: number): Promise<{ digests: StepDigest[]; profile: string }> {
+async function scenario(
+    count: number,
+): Promise<{ digests: StepDigest[]; profile: string; pairs: PairStats }> {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
@@ -82,9 +91,16 @@ async function scenario(count: number): Promise<{ digests: StepDigest[]; profile
     const flow = app.flows.resolve('LCPSchema')?.flow;
     if (!(flow instanceof LCPFlow)) throw new Error('LCPFlow não registrado para LCPSchema');
     const digests: StepDigest[] = [];
+    const pairs: PairStats = { tested: 0, exhaustive: 0 };
     for (let step = 0; step < STEPS; step++) {
         app.step(1 / 60);
-        const { contacts, counter, recordBytes, capacity } = flow.contactBuffers();
+        const { contacts, counter, recordBytes, capacity, pairCounts } = flow.contactBuffers();
+        const pc = new Uint32Array(await read(app, pairCounts, pairCounts.byteSize));
+        const bodies = app.resources.poolCount('LCPSchema');
+        const colliders =
+            app.resources.poolCount('BoxCollider') + app.resources.poolCount('SphereCollider');
+        pairs.tested += (pc[0] ?? 0) + (pc[1] ?? 0);
+        pairs.exhaustive += bodies * colliders;
         if (contacts === null) {
             digests.push({ count: 0, hash: '' });
             continue;
@@ -96,8 +112,10 @@ async function scenario(count: number): Promise<{ digests: StepDigest[]; profile
     }
     const profile = gpuProfile(app);
     app.dispose();
-    return { digests, profile };
+    return { digests, profile, pairs };
 }
+
+const pairFailures: string[] = [];
 
 async function main(): Promise<void> {
     const results: Record<string, StepDigest[]> = {};
@@ -107,7 +125,13 @@ async function main(): Promise<void> {
         results[String(count)] = r.digests;
         profile = r.profile;
         const total = r.digests.reduce((a, d) => a + d.count, 0);
-        log(`${count} corpos: ${STEPS} passos, ${total} contatos no último substep somados`);
+        const share = r.pairs.exhaustive === 0 ? 0 : r.pairs.tested / r.pairs.exhaustive;
+        log(
+            `${count} corpos: ${STEPS} passos, ${total} contatos no último substep somados; pares testados `
+                + `${(share * 100).toFixed(3)}% de N·M`,
+        );
+        if (count === 10_000 && share > 0.01)
+            pairFailures.push(`${count}: pares testados ${share} > 1% de N·M`);
     }
     const name = `contacts-${profile}.json`;
     if (recording()) {
@@ -118,7 +142,7 @@ async function main(): Promise<void> {
     }
     const reference = await readJsonFixture<Reference>(name);
     if (reference === null) throw new Error(`sem referência ${name} — rode com --record`);
-    const failures: string[] = [];
+    const failures: string[] = [...pairFailures];
     for (const [count, digests] of Object.entries(results)) {
         const ref = reference[count] ?? [];
         const firstDiff = digests.findIndex(

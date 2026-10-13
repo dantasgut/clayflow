@@ -44,6 +44,26 @@ export interface ColliderPoolView {
     readonly count: number;
 }
 
+/**
+ * Dados da broadphase do LCP (spec 007, research R9), derivados do tamanho dos colliders de caixa e esfera: os
+ * proxies são as caixas (`[0, boxCount)`) seguidas das esferas; os grandes (raio acima do limiar) ficam fora da grade e
+ * são testados contra todos os corpos, e a célula da grade tem o dobro do maior raio dos pequenos.
+ */
+export interface BroadphaseShape {
+    readonly boxCount: number;
+    readonly sphereCount: number;
+    /** Maior raio envolvente entre os proxies da grade (0 sem proxies). */
+    readonly maxSmallRadius: number;
+    /** Raio a partir do qual um proxy fica fora da grade. */
+    readonly largeRadius: number;
+    /** Índices de proxy dos grandes (u32), no mínimo 4 entradas. */
+    readonly large: StorageBufferSpec;
+    readonly largeCount: number;
+}
+
+/** Fator sobre o raio mediano a partir do qual um collider é grande (fora da grade). */
+const LARGE_FACTOR = 4;
+
 /** Opções do `ColliderSet`. */
 export interface ColliderSetOptions {
     /** Prefixo dos discriminadores dos buffers próprios. */
@@ -77,6 +97,10 @@ export class ColliderSet {
     private readonly counts = new Map<string, number>();
     private readonly boundPools = new Map<string, PoolBufferSpec>();
     private countsBuffer: UniformBufferSpec | null = null;
+    /** Raio envolvente de cada collider de caixa e de esfera, por slot (para a broadphase). */
+    private readonly radii = new Map<string, Float32Array>();
+    private largeBuffer: { spec: StorageBufferSpec; capacity: number } | null = null;
+    private shape: BroadphaseShape | null = null;
     private dirty = true;
     private gen = 0;
 
@@ -123,6 +147,7 @@ export class ColliderSet {
         if (!this.dirty && this.countsBuffer !== null) return this.gen !== before;
         for (const schema of COLLIDER_POOLS) this.rebuildOwners(schema.name);
         this.writeCounts();
+        this.rebuildBroadphase();
         this.dirty = false;
         return this.gen !== before;
     }
@@ -161,6 +186,12 @@ export class ColliderSet {
         };
     }
 
+    /** Dados da broadphase (válidos depois de `refresh()`). */
+    broadphase(): BroadphaseShape {
+        if (this.shape === null) throw new Error('ColliderSet: refresh() antes de broadphase()');
+        return this.shape;
+    }
+
     /** Pool de corpos donos (ou buffer mínimo). */
     bodiesBuffer(): PoolBufferSpec {
         return (
@@ -174,6 +205,10 @@ export class ColliderSet {
         for (const o of this.owners.values()) this.core.destroy(o.spec);
         for (const e of this.empties.values()) this.core.destroy(e);
         if (this.countsBuffer !== null) this.core.destroy(this.countsBuffer);
+        if (this.largeBuffer !== null) this.core.destroy(this.largeBuffer.spec);
+        this.largeBuffer = null;
+        this.shape = null;
+        this.radii.clear();
         this.owners.clear();
         this.empties.clear();
         this.counts.clear();
@@ -237,14 +272,83 @@ export class ColliderSet {
             this.gen++;
         }
         const owners = new Uint32Array(entry.capacity).fill(NO_OWNER);
+        const radii = new Float32Array(entry.capacity);
         for (const id of ids) {
             const slot = this.resources.poolSlotOf(poolKey, id);
             if (slot === undefined) continue;
             const owner = this.resources.poolSlotOf(this.bodiesPoolKey, id);
             if (owner !== undefined) owners[slot] = owner;
+            radii[slot] = this.boundingRadius(poolKey, id);
         }
+        this.radii.set(poolKey, radii);
         this.core.write(entry.spec, new Uint8Array(owners.buffer));
         this.counts.set(poolKey, count);
+    }
+
+    /** Raio da esfera envolvente do collider (caixa: meia-diagonal; esfera: o raio); 0 para outras formas. */
+    private boundingRadius(poolKey: string, id: Parameters<World['resourcesOf']>[0]): number {
+        if (poolKey !== BoxCollider.schema.name && poolKey !== SphereCollider.schema.name) return 0;
+        const collider = this.world
+            .resourcesOf(id)
+            .find(
+                (r) =>
+                    r
+                    instanceof (poolKey === BoxCollider.schema.name ? BoxCollider : SphereCollider),
+            );
+        if (collider === undefined) return 0;
+        if (poolKey === SphereCollider.schema.name)
+            return Math.abs(Number(collider.data.radius ?? 0));
+        const h = (collider.data.halfExtents as readonly number[] | undefined) ?? [0, 0, 0];
+        return Math.hypot(h[0] ?? 0, h[1] ?? 0, h[2] ?? 0);
+    }
+
+    /**
+     * Proxies da broadphase: os colliders de caixa e de esfera em `[0, contagem)` de cada pool (os mesmos que a
+     * narrowphase exaustiva percorria), o limiar de "grande" (`LARGE_FACTOR` × raio mediano), o maior raio dos pequenos
+     * e a lista dos grandes.
+     */
+    private rebuildBroadphase(): void {
+        const boxCount = this.counts.get(BoxCollider.schema.name) ?? 0;
+        const sphereCount = this.counts.get(SphereCollider.schema.name) ?? 0;
+        const boxR = this.radii.get(BoxCollider.schema.name) ?? new Float32Array(0);
+        const sphR = this.radii.get(SphereCollider.schema.name) ?? new Float32Array(0);
+        const all = new Float32Array(boxCount + sphereCount);
+        for (let j = 0; j < boxCount; j++) all[j] = boxR[j] ?? 0;
+        for (let j = 0; j < sphereCount; j++) all[boxCount + j] = sphR[j] ?? 0;
+        const sorted = Float32Array.from(all).sort();
+        const median = sorted.length === 0 ? 0 : sorted[sorted.length >> 1]!;
+        const largeRadius = median > 0 ? median * LARGE_FACTOR : Infinity;
+        const large: number[] = [];
+        let maxSmall = 0;
+        all.forEach((r, i) => {
+            if (r > largeRadius) large.push(i);
+            else maxSmall = Math.max(maxSmall, r);
+        });
+        const capacity = Math.max(4, large.length);
+        if (this.largeBuffer === null || this.largeBuffer.capacity < capacity) {
+            if (this.largeBuffer !== null) this.core.destroy(this.largeBuffer.spec);
+            this.largeBuffer = {
+                spec: this.core.create<StorageBufferSpec>({
+                    kind: 'buffer',
+                    subkind: 'storage',
+                    discriminator: `${this.options.discriminator}_large_${capacity}`,
+                    byteSize: capacity * 4,
+                }),
+                capacity,
+            };
+            this.gen++;
+        }
+        const list = new Uint32Array(this.largeBuffer.capacity);
+        list.set(large);
+        this.core.write(this.largeBuffer.spec, new Uint8Array(list.buffer));
+        this.shape = {
+            boxCount,
+            sphereCount,
+            maxSmallRadius: maxSmall,
+            largeRadius,
+            large: this.largeBuffer.spec,
+            largeCount: large.length,
+        };
     }
 
     private writeCounts(): void {

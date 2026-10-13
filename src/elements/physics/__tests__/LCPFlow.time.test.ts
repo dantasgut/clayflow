@@ -69,6 +69,11 @@ describe('LCPFlow — avanço governado pelo Time (slots)', () => {
             'LCPFlow.solveContacts',
             'LCPFlow.applyDelta',
             'LCPFlow.publishPose',
+            // Broadphase (spec 007): uma vez por passo, região do passo ou nenhuma (argumentos indiretos).
+            'LCPFlow.proxiesBox',
+            'LCPFlow.proxiesSphere',
+            'LCPFlow.pairs',
+            'LCPFlow.pairsIndirect',
         ]);
         const seen = sim
             .filter((p) => !inner.has(p.label) && !p.label.includes('narrowphase'))
@@ -78,7 +83,14 @@ describe('LCPFlow — avanço governado pelo Time (slots)', () => {
         const substepOffsets = new Set([256, 512, 1024, 1280]);
         const substepPasses = sim.filter(
             (x) =>
-                (inner.has(x.label) && x.label !== 'LCPFlow.publishPose')
+                (inner.has(x.label)
+                    && ![
+                        'LCPFlow.publishPose',
+                        'LCPFlow.proxiesBox',
+                        'LCPFlow.proxiesSphere',
+                        'LCPFlow.pairs',
+                        'LCPFlow.pairsIndirect',
+                    ].includes(x.label))
                 || x.label.includes('narrowphase'),
         );
         for (const p of substepPasses) {

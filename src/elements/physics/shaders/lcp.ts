@@ -1,6 +1,5 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { lcp, lcpState, quat, sdf, xpbd } from '../../gpu/shaders/math';
-import { atomicAlloc, fixedPoint } from '../../gpu/compute/shaders';
 import rbPredictSource from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
 import rbNarrowphaseSource from '../../gpu/wgsl/kernels/rb_narrowphase.wgsl?raw';
 import rbBuildLcpSource from '../../gpu/wgsl/kernels/rb_build_lcp.wgsl?raw';
@@ -8,6 +7,14 @@ import rbSolveLcpSource from '../../gpu/wgsl/kernels/rb_solve_lcp.wgsl?raw';
 import rbContactAccumulateSource from '../../gpu/wgsl/kernels/rb_contact_accumulate.wgsl?raw';
 import rbLcpCommitSource from '../../gpu/wgsl/kernels/rb_lcp_commit.wgsl?raw';
 import rbPublishPoseSource from '../../gpu/wgsl/kernels/rb_publish_pose.wgsl?raw';
+import rbBroadphaseSource from '../../gpu/wgsl/kernels/rb_broadphase.wgsl?raw';
+import { atomicAlloc, fixedPoint, spatialHash } from '../../gpu/compute/shaders';
+import {
+    BroadphaseParamsSchema,
+    CandidatePairCountsSchema,
+    CandidatePairSchema,
+    NarrowphaseDispatchSchema,
+} from '../schemas/broadphase';
 import { Transform } from '../../scene/Transform';
 import { PosePublishParamsSchema, RigidPoseInstanceSchema, RigidPoseSchema } from '../schemas/pose';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
@@ -37,6 +44,7 @@ export const rbNarrowphase = wgslModule({
         LCPSchema,
         RBSimParamsSchema,
         RBContactSchema,
+        CandidatePairSchema,
         PlaneCollider.schema,
         BoxCollider.schema,
         SphereCollider.schema,
@@ -87,5 +95,22 @@ export const rbPublishPose = wgslModule({
         RigidPoseInstanceSchema,
         Transform.schema,
         PosePublishParamsSchema,
+    ],
+});
+
+/** Broadphase: proxies dos colliders, pares candidatos sobre a grade hash e argumentos do despacho indireto. */
+export const rbBroadphase = wgslModule({
+    name: 'rb_broadphase',
+    source: rbBroadphaseSource,
+    requires: [quat, spatialHash],
+    structs: [
+        LCPSchema,
+        RBSimParamsSchema,
+        BoxCollider.schema,
+        SphereCollider.schema,
+        CandidatePairSchema,
+        BroadphaseParamsSchema,
+        CandidatePairCountsSchema,
+        NarrowphaseDispatchSchema,
     ],
 });

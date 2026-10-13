@@ -158,12 +158,25 @@ physics-gpu), quickstart.md
 - [x] T030 [US3] Kernel `src/elements/gpu/wgsl/kernels/rb_publish_pose.wgsl` e `PoseRecord` (schema gerado) em `src/elements/physics/`; `LCPFlow` declara `poses` com `record` e `owns` e despacha a publicação no fim do passo
 - [x] T031 [US3] Remover o readback por quadro do `LCPFlow` (staging, `requestReadback`, `startReadback`, `applyTransformsFromReadback`, mapa slot→entidade) e ligar o diagnóstico de excedente por `world.read` a cada 60 passos, sem bloquear, com aviso único
 - [x] T032 [US3] Migrar os smokes e testes que liam `transform.data` de corpos para `world.read`: `src/__smokes__/trajectories.ts`, `rigidContacts.ts`, `integration.ts`, `stress60s.ts` e testes em `src/elements/physics/__tests__/`; trajetórias bit a bit nas três taxas
-- [ ] T033 [P] [US3] Testes CPU da grade hash em `src/elements/gpu/__tests__/SpatialHashGrid.test.ts` (hash de célula, tamanho da tabela 2^k ≥ 2·proxies, recriação ao crescer, nomes explícitos de bindings)
-- [ ] T034 [US3] Variante hash da busca de vizinhança: `src/elements/gpu/SpatialHashGrid.ts` e kernels `src/elements/gpu/wgsl/kernels/sh_assign_count.wgsl`, `sh_scatter.wgsl` sobre `PrefixSum` (a grade limitada da `NeighborSearchPipeline` continua para SPH/PBF)
-- [ ] T035 [US3] Kernels `rb_collider_proxies.wgsl` (esfera envolvente na pose predita + margem do passo; lista "sempre" para planos e grandes) e `rb_candidate_pairs.wgsl` (27 células + "sempre", listas por forma, contadores, argumentos indiretos) em `src/elements/gpu/wgsl/kernels/`; célula calculada na CPU pela intenção dos colliders e atualizada por evento em `LCPFlow.ts`
-- [ ] T036 [US3] `rb_narrowphase.wgsl` lendo `(rb_i, col_j)` dos pares por forma e despacho por `workgroupsIndirect` em `LCPFlow.ts`; capacidade `N × maxPairsPerBody` (opção, padrão 64) com excedente no diagnóstico; broadphase uma vez por passo, narrowphase por substep
-- [ ] T037 [US3] Smoke `contactSet` contra a fixture de T003 (conjunto igual por substep em 1k e 10k) e `trajectories` bit a bit; contar pares testados em `rigid-bodies/10k` (SC-006 ≤ 1% de N·M) e anotar abaixo deste item
-- [ ] T038 [US3] Medir `npm run bench -- --scene rigid-bodies` (clayflow e three) e anotar abaixo deste item fps, p99, CPU e GPU de `1k` e `10k`
+- [x] T033 [P] [US3] Testes CPU da grade hash em `src/elements/gpu/__tests__/SpatialHashGrid.test.ts` (hash de célula, tamanho da tabela 2^k ≥ 2·proxies, recriação ao crescer, nomes explícitos de bindings)
+- [x] T034 [US3] Variante hash da busca de vizinhança: `src/elements/gpu/SpatialHashGrid.ts` e kernels `src/elements/gpu/wgsl/kernels/sh_assign_count.wgsl`, `sh_scatter.wgsl` sobre `PrefixSum` (a grade limitada da `NeighborSearchPipeline` continua para SPH/PBF)
+- [x] T035 [US3] Kernels `rb_collider_proxies.wgsl` (esfera envolvente na pose predita + margem do passo; lista "sempre" para planos e grandes) e `rb_candidate_pairs.wgsl` (27 células + "sempre", listas por forma, contadores, argumentos indiretos) em `src/elements/gpu/wgsl/kernels/`; célula calculada na CPU pela intenção dos colliders e atualizada por evento em `LCPFlow.ts`
+- [x] T036 [US3] `rb_narrowphase.wgsl` lendo `(rb_i, col_j)` dos pares por forma e despacho por `workgroupsIndirect` em `LCPFlow.ts`; capacidade `N × maxPairsPerBody` (opção, padrão 64) com excedente no diagnóstico; broadphase uma vez por passo, narrowphase por substep
+- [x] T037 [US3] Smoke `contactSet` contra a fixture de T003 (conjunto igual por substep em 1k e 10k) e `trajectories` bit a bit; contar pares testados em `rigid-bodies/10k` (SC-006 ≤ 1% de N·M) e anotar abaixo deste item
+
+> **Verificação (T037, 2026-10-13)**: `contactSet` — conjunto de contatos igual à referência exaustiva nos 60 passos em
+> 1k e 10k corpos; pares testados pela narrowphase **0,568%** (1k) e **0,087%** (10k) de N·M (SC-006 ≤ 1%);
+> `trajectories` bit a bit nas 3 taxas; `rigidContacts` 1k 4,2 ms e 10k **6,4 ms**/quadro (eram 231 ms), mesmas
+> estatísticas de repouso. Primeira versão (pares uma vez por passo, margem com fator 2) perdeu 1 contato no passo 23
+> de 10k: a velocidade cresce nos substeps. Corrigido com proxies e grade por passo (pose predita fixa) e pares por
+> substep com a velocidade do substep — a mesma da profundidade preditiva da narrowphase (margem exata). Planos seguem
+> exaustivos; malha não gera contato (P2) e deixou de ser despachada.
+
+- [x] T038 [US3] Medir `npm run bench -- --scene rigid-bodies` (clayflow e three) e anotar abaixo deste item fps, p99, CPU e GPU de `1k` e `10k`
+
+> **Medição (T038, 2026-10-13, máquina livre)**: `rigid-bodies/10k` — CPU 0,23 ms (Three + Rapier 27,14), GPU **3,53
+> ms** (6,66), **206 fps** (36), p99 10,9 ms (33,1) — eram 9 fps, GPU 28,3 ms e p99 309 ms; `rigid-bodies/1k` — 249 fps
+> (Three 2570), GPU 2,89 ms: o custo fixo dos ~100 passes de compute por passo de física domina com poucos corpos.
 
 **Checkpoint**: física sem readback e com broadphase; trajetórias bit a bit.
 

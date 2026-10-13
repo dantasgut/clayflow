@@ -1,6 +1,7 @@
 import type {
     EngineCore,
     Frame,
+    IndirectBufferSpec,
     StagingBufferSpec,
     StorageBufferSpec,
     UniformBufferSpec,
@@ -26,6 +27,13 @@ import {
 import { Time } from '../../../scene/time/Time';
 import type { World } from '../../../scene/world/World';
 import { AtomicAllocCounterSchema } from '../../gpu/compute/schemas';
+import { SpatialHashGrid } from '../../gpu/compute/SpatialHashGrid';
+import {
+    BroadphaseParamsSchema,
+    CandidatePairCountsSchema,
+    CandidatePairSchema,
+    NarrowphaseDispatchSchema,
+} from '../schemas/broadphase';
 import { Transform } from '../../scene/Transform';
 import { RigidBody } from '../bodies/RigidBody';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
@@ -40,6 +48,7 @@ import {
     RBWarmEntrySchema,
 } from '../schemas/simState';
 import {
+    rbBroadphase,
     rbBuildLcp,
     rbContactAccumulate,
     rbLcpCommit,
@@ -55,6 +64,12 @@ import { PerStepUniforms } from './PerStepUniforms';
 const RB_MAX_CONTACTS_PER_PAIR = 8;
 /** Contatos por corpo na capacidade padrão da lista compactada (research R19). */
 const DEFAULT_MAX_CONTACTS_PER_BODY = 32;
+/** Pares candidatos por corpo e por forma na capacidade padrão da broadphase (spec 007). */
+const DEFAULT_MAX_PAIRS_PER_BODY = 64;
+/** Fator da margem preditiva da broadphase (1: a velocidade é a do próprio substep). */
+const BROADPHASE_MARGIN_SCALE = 1;
+/** Folga absoluta da broadphase (m), contra arredondamento na fronteira do par. */
+const BROADPHASE_SKIN = 1e-3;
 /** Passos de física entre duas leituras do contador de excedente de contatos (diagnóstico, sem bloquear). */
 const OVERFLOW_CHECK_STEPS = 60;
 
@@ -108,6 +123,11 @@ export interface LCPFlowOptions {
      * contatos acima dela são contados e avisados.
      */
     readonly maxContactsPerBody?: number;
+    /**
+     * Pares candidatos da broadphase por corpo e por forma (padrão 64): capacidade de cada lista = corpos ×
+     * `maxPairsPerBody`; pares acima dela são contados e avisados (sem contato perdido em silêncio).
+     */
+    readonly maxPairsPerBody?: number;
 }
 
 /** Slots do LCP. */
@@ -157,6 +177,9 @@ interface FrameWork {
     readonly totalCol: number;
     readonly poolCounts: ReadonlyMap<string, number>;
     readonly stamps: readonly number[];
+    /** Proxies da broadphase (caixas, esferas). */
+    readonly boxCount: number;
+    readonly sphereCount: number;
 }
 
 /**
@@ -197,6 +220,19 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     private readonly substeps: number;
     private readonly solveIters: number;
     private readonly maxContactsPerBody: number;
+    private readonly maxPairsPerBody: number;
+    /** Broadphase: proxies, grade hash, pares por forma, contagens e argumentos indiretos (spec 007). */
+    private readonly grid: SpatialHashGrid;
+    private readonly bpParams: UniformBufferSpec;
+    private readonly pairCounts: StorageBufferSpec;
+    private readonly npArgs: IndirectBufferSpec;
+    private proxies: StorageBufferSpec | null = null;
+    private proxyCapacity = 0;
+    private boxPairs: StorageBufferSpec | null = null;
+    private spherePairs: StorageBufferSpec | null = null;
+    private pairCapacity = 0;
+    private writtenBroadphase = '';
+    private readonly pairCountsStaging: StagingBufferSpec;
 
     /** Região por passo (predict/commit) + uma por substep, ligadas por offset dinâmico. */
     private readonly params: PerStepUniforms;
@@ -245,7 +281,33 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             1,
             options.maxContactsPerBody ?? DEFAULT_MAX_CONTACTS_PER_BODY,
         );
+        this.maxPairsPerBody = Math.max(1, options.maxPairsPerBody ?? DEFAULT_MAX_PAIRS_PER_BODY);
         this.slots = slotsOf(this.bodiesPoolKey);
+        this.grid = new SpatialHashGrid(ctx.core, { discriminator: 'lcp_broadphase_grid' });
+        this.bpParams = ctx.core.create<UniformBufferSpec>({
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'lcp_broadphase_params',
+            byteSize: BroadphaseParamsSchema.stride,
+        });
+        this.pairCounts = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'lcp_pair_counts',
+            byteSize: CandidatePairCountsSchema.stride,
+        });
+        this.pairCountsStaging = ctx.core.create<StagingBufferSpec>({
+            kind: 'buffer',
+            subkind: 'staging',
+            discriminator: 'lcp_pair_counts_staging',
+            byteSize: CandidatePairCountsSchema.stride,
+        });
+        this.npArgs = ctx.core.create<IndirectBufferSpec>({
+            kind: 'buffer',
+            subkind: 'indirect',
+            discriminator: 'lcp_np_args',
+            byteSize: NarrowphaseDispatchSchema.stride,
+        });
         this.params = new PerStepUniforms(ctx.core, {
             discriminator: 'lcp_sim_params',
             schema: RBSimParamsSchema,
@@ -280,6 +342,9 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             rb_params: this.params.source(),
             contact_counter: this.counter,
             publish: this.publishParams,
+            bp_params: this.bpParams,
+            pair_counts: this.pairCounts,
+            np_args: { kind: 'buffer', buffer: this.npArgs },
         };
         for (const shape of SHAPE_POOLS) {
             const np = ctx.core.create<UniformBufferSpec>({
@@ -293,7 +358,16 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         }
         this.ensureContacts(1, 1);
         this.ensureBodyBuffers(1);
-        this.bindings = { ...privates, ...this.contactSources(), ...this.bodySources() };
+        this.ensureProxies(1);
+        this.ensurePairs(1);
+        this.grid.prepare(this.proxies!, 0, 1);
+        this.bindings = {
+            ...privates,
+            ...this.contactSources(),
+            ...this.bodySources(),
+            ...this.broadphaseSources(),
+            ...this.gridSources(),
+        };
         const consumes = [this.bodiesPoolKey];
         const compute = (
             id: string,
@@ -317,6 +391,10 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             compute('lcp_warm_store', rbSolveLcp, 'rb_warm_store_main'),
             compute('lcp_accumulate', rbContactAccumulate, 'rb_contact_accumulate_main'),
             compute('lcp_commit', rbLcpCommit, 'rb_lcp_commit_main'),
+            compute('lcp_bp_proxies_box', rbBroadphase, 'rb_proxies_box_main'),
+            compute('lcp_bp_proxies_sphere', rbBroadphase, 'rb_proxies_sphere_main'),
+            compute('lcp_bp_pairs', rbBroadphase, 'rb_candidate_pairs_main'),
+            compute('lcp_bp_indirect', rbBroadphase, 'rb_pairs_indirect_main'),
             {
                 id: 'lcp_publish_pose',
                 role: 'compute',
@@ -374,8 +452,9 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     }
 
     /**
-     * Lista compactada de contatos do último substep gravado e o seu contador `{ count, overflow }` (diagnóstico:
-     * smokes leem o conjunto de contatos para compará-lo entre versões da narrowphase). `contacts` é `null` até o
+     * Lista compactada de contatos do último substep gravado, o seu contador `{ count, overflow }` e as contagens de
+     * pares candidatos da broadphase (diagnóstico: smokes comparam o conjunto de contatos entre versões da narrowphase
+     * e medem os pares testados). `contacts` é `null` até o
      * primeiro quadro com corpos.
      */
     contactBuffers(): {
@@ -384,12 +463,15 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         readonly capacity: number;
         /** Bytes por contato (stride do struct `RBContact`). */
         readonly recordBytes: number;
+        /** Contagens de pares candidatos do último substep (`CandidatePairCounts`: caixas, esferas, excedente). */
+        readonly pairCounts: StorageBufferSpec;
     } {
         return {
             contacts: this.contacts,
             counter: this.counter,
             capacity: this.contactsCapacity,
             recordBytes: RBContactSchema.stride,
+            pairCounts: this.pairCounts,
         };
     }
 
@@ -439,11 +521,44 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                 pass.dispatch.invocations(invocations, 64);
             });
         };
+        const runIndirect = (
+            label: string,
+            p: PreparedCompute,
+            offset: number[],
+            argsOffset: number,
+        ): void => {
+            frame.compute(label, (pass) => {
+                pass.bind.setPipeline(p.spec);
+                p.groups.forEach((bg, g) =>
+                    pass.bind.setBindGroup(g, bg, p.dynamic[g] ? offset : undefined),
+                );
+                pass.dispatch.workgroupsIndirect(this.npArgs, argsOffset);
+            });
+        };
+        const { boxCount, sphereCount } = work;
         const warmRegionBytes = this.warmCapacity * RBWarmEntrySchema.stride;
         for (let step = 0; step < work.steps; step++) {
             const stepOffset = [this.params.offset(step * perStep)];
             // Predict 1× por passo: damping, giroscópico e pose predita.
             run('LCPFlow.predict', predict, stepOffset, bodyCount);
+            // Broadphase: proxies e grade 1× por passo (a pose predita é a do passo inteiro); os pares, em cada substep.
+            if (boxCount + sphereCount > 0) {
+                if (boxCount > 0)
+                    run(
+                        'LCPFlow.proxiesBox',
+                        bound.compute('lcp_bp_proxies_box'),
+                        stepOffset,
+                        boxCount,
+                    );
+                if (sphereCount > 0)
+                    run(
+                        'LCPFlow.proxiesSphere',
+                        bound.compute('lcp_bp_proxies_sphere'),
+                        stepOffset,
+                        sphereCount,
+                    );
+                this.grid.record(frame);
+            }
             // Substeps: gravidade (g · dtSub), detecção de contato e solve — predict e commit ficam fora.
             for (let k = 0; k < this.substeps; k++) {
                 const subOffset = [this.params.offset(step * perStep + 1 + k)];
@@ -456,17 +571,36 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                 frame.clear(this.bodySplit!);
                 frame.clear(this.bodyDelta!);
                 frame.clear(this.warm!, (stamp & 1) * warmRegionBytes, warmRegionBytes);
-                // Fase 1 — DetectContacts (uma variante por pool não vazio)
-                for (const shape of SHAPE_POOLS) {
-                    const count = work.poolCounts.get(shape.poolKey) ?? 0;
-                    if (count === 0) continue;
-                    run(
-                        `LCPFlow.narrowphase.${shape.poolKey}`,
-                        bound.compute(shape.pipeline),
-                        subOffset,
-                        bodyCount * count,
-                    );
+                // Pares candidatos com a velocidade deste substep (a mesma da profundidade preditiva da narrowphase).
+                if (boxCount + sphereCount > 0) {
+                    frame.clear(this.pairCounts);
+                    run('LCPFlow.pairs', bound.compute('lcp_bp_pairs'), subOffset, bodyCount);
+                    run('LCPFlow.pairsIndirect', bound.compute('lcp_bp_indirect'), subOffset, 1);
                 }
+                // Fase 1 — DetectContacts: planos contra todos os corpos; caixas e esferas pelos pares candidatos
+                // (despacho indireto); malha não gera contato (P2).
+                const planes = work.poolCounts.get('PlaneCollider') ?? 0;
+                if (planes > 0)
+                    run(
+                        'LCPFlow.narrowphase.PlaneCollider',
+                        bound.compute('lcp_narrowphase_plane'),
+                        subOffset,
+                        bodyCount * planes,
+                    );
+                if (boxCount > 0)
+                    runIndirect(
+                        'LCPFlow.narrowphase.BoxCollider',
+                        bound.compute('lcp_narrowphase_box'),
+                        subOffset,
+                        NarrowphaseDispatchSchema.offsetOf('box_x'),
+                    );
+                if (sphereCount > 0)
+                    runIndirect(
+                        'LCPFlow.narrowphase.SphereCollider',
+                        bound.compute('lcp_narrowphase_sphere'),
+                        subOffset,
+                        NarrowphaseDispatchSchema.offsetOf('sphere_x'),
+                    );
                 // Fase 2 — AssembleA
                 run('LCPFlow.buildLcp', build, subOffset, this.contactsCapacity);
                 // Fase 3 — warm start + K iterações Jacobi (contatos em paralelo, depois corpos em paralelo)
@@ -489,8 +623,10 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         if (this.publishCount > 0)
             run('LCPFlow.publishPose', bound.compute('lcp_publish_pose'), [], this.publishCount);
         // Diagnóstico amostrado: o contador do último substep, a cada OVERFLOW_CHECK_STEPS passos.
-        if (this.overflowCopyPending)
+        if (this.overflowCopyPending) {
             frame.copy(this.counter, this.counterStaging, AtomicAllocCounterSchema.stride);
+            frame.copy(this.pairCounts, this.pairCountsStaging, CandidatePairCountsSchema.stride);
+        }
     }
 
     /** Libera parâmetros, contatos, buffers por corpo, staging e o conjunto de colliders. */
@@ -503,6 +639,11 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         this.core.destroy(this.counter);
         this.core.destroy(this.counterStaging);
         this.core.destroy(this.publishParams);
+        this.grid.destroy();
+        for (const spec of [this.proxies, this.boxPairs, this.spherePairs])
+            if (spec !== null) this.core.destroy(spec);
+        for (const spec of [this.bpParams, this.pairCounts, this.pairCountsStaging, this.npArgs])
+            this.core.destroy(spec);
         for (const buf of this.npParams.values()) this.core.destroy(buf);
         this.npParams.clear();
         this.colliderSet.destroy();
@@ -523,6 +664,9 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             sources[SHAPE_VARIABLE[shape.poolKey]!] = pool.buffer;
             sources[`${shape.pipeline}:body_owners`] = pool.owners;
         }
+        sources.box_owners = this.colliderSet.pool('BoxCollider').owners;
+        sources.sphere_owners = this.colliderSet.pool('SphereCollider').owners;
+        sources.large = this.colliderSet.broadphase().large;
         ctx.bind(sources);
     }
 
@@ -626,7 +770,15 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         this.overflowCopyPending = false;
         this.publishCount = 0;
         if (steps === 0 || bodyCount === 0) {
-            this.work = { steps: 0, bodyCount, totalCol: 0, poolCounts: new Map(), stamps: [] };
+            this.work = {
+                steps: 0,
+                bodyCount,
+                totalCol: 0,
+                poolCounts: new Map(),
+                stamps: [],
+                boxCount: 0,
+                sphereCount: 0,
+            };
             return;
         }
         // Contagens por pool; offsets cumulativos dos pools na linha de contatos do corpo.
@@ -682,13 +834,108 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             }
         }
         this.params.flush(regions);
-        this.work = { steps, bodyCount, totalCol, poolCounts, stamps };
+        const shape = this.colliderSet.broadphase();
+        this.prepareBroadphase(ctx, bodyCount, steps);
+        this.work = {
+            steps,
+            bodyCount,
+            totalCol,
+            poolCounts,
+            stamps,
+            boxCount: shape.boxCount,
+            sphereCount: shape.sphereCount,
+        };
         this.preparePublish(bound);
         this.stepsSinceOverflowCheck += steps;
         if (this.stepsSinceOverflowCheck >= OVERFLOW_CHECK_STEPS && !this.overflowReadInFlight) {
             this.stepsSinceOverflowCheck = 0;
             this.overflowCopyPending = totalCol > 0;
         }
+    }
+
+    /**
+     * Broadphase do quadro: proxies (caixas e esferas) e listas de pares pela capacidade, grade hash para os proxies
+     * (célula = 2 × o maior raio dos pequenos; `steps` gravações) e parâmetros — recriados e religados aqui.
+     */
+    private prepareBroadphase(ctx: Ctx, bodyCount: number, steps: number): void {
+        const shape = this.colliderSet.broadphase();
+        const proxyCount = shape.boxCount + shape.sphereCount;
+        if (this.ensureProxies(proxyCount)) ctx.bind(this.broadphaseSources());
+        if (this.ensurePairs(bodyCount)) ctx.bind(this.broadphaseSources());
+        const cellSize = Math.max(2 * shape.maxSmallRadius, 1e-3);
+        if (this.grid.prepare(this.proxies!, proxyCount, cellSize, steps))
+            ctx.bind(this.gridSources());
+        const values = {
+            box_count: shape.boxCount,
+            sphere_count: shape.sphereCount,
+            large_count: shape.largeCount,
+            pair_capacity: this.pairCapacity,
+            large_radius: Number.isFinite(shape.largeRadius) ? shape.largeRadius : 3.0e38,
+            max_small_radius: shape.maxSmallRadius,
+            margin_scale: BROADPHASE_MARGIN_SCALE,
+            skin: BROADPHASE_SKIN,
+            substeps: this.substeps,
+        };
+        const key = JSON.stringify(values);
+        if (key === this.writtenBroadphase) return;
+        this.core.write(this.bpParams, BroadphaseParamsSchema.pack(values));
+        this.writtenBroadphase = key;
+    }
+
+    /** Buffer de proxies (`vec4f` por collider de caixa e de esfera); devolve se recriou. */
+    private ensureProxies(count: number): boolean {
+        if (this.proxies !== null && this.proxyCapacity >= count) return false;
+        if (this.proxies !== null) this.core.destroy(this.proxies);
+        let capacity = Math.max(64, this.proxyCapacity);
+        while (capacity < count) capacity *= 2;
+        this.proxyCapacity = capacity;
+        this.proxies = this.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: `lcp_proxies_${capacity}`,
+            byteSize: capacity * 16,
+        });
+        return true;
+    }
+
+    /** Listas de pares por forma (`bodyCount × maxPairsPerBody`); devolve se recriou. */
+    private ensurePairs(bodyCount: number): boolean {
+        const capacity = Math.max(64, bodyCount * this.maxPairsPerBody);
+        if (this.boxPairs !== null && this.pairCapacity >= capacity) return false;
+        for (const spec of [this.boxPairs, this.spherePairs])
+            if (spec !== null) this.core.destroy(spec);
+        let c = Math.max(64, this.pairCapacity);
+        while (c < capacity) c *= 2;
+        this.pairCapacity = c;
+        const storage = (name: string): StorageBufferSpec =>
+            this.core.create<StorageBufferSpec>({
+                kind: 'buffer',
+                subkind: 'storage',
+                discriminator: `${name}_${c}`,
+                byteSize: c * CandidatePairSchema.stride,
+            });
+        this.boxPairs = storage('lcp_box_pairs');
+        this.spherePairs = storage('lcp_sphere_pairs');
+        return true;
+    }
+
+    private broadphaseSources(): BindingSources {
+        return {
+            proxies: this.proxies!,
+            box_pairs: this.boxPairs!,
+            sphere_pairs: this.spherePairs!,
+            'lcp_narrowphase_box:pairs': this.boxPairs!,
+            'lcp_narrowphase_sphere:pairs': this.spherePairs!,
+        };
+    }
+
+    private gridSources(): BindingSources {
+        return {
+            grid: this.grid.params,
+            cell_start: this.grid.cellStart,
+            cell_count: this.grid.cellCount,
+            cell_items: this.grid.cellItems,
+        };
     }
 
     /** Início e tamanho da lista de poses (o grupo único do slot `poses`), escritos quando mudam. */
@@ -746,10 +993,13 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         this.overflowReadInFlight = true;
         // Defer ao próximo macrotask: o `submit` do quadro já rodou antes do `mapAsync`.
         setTimeout(() => {
-            this.core
-                .readback(this.counterStaging)
-                .then((counter) => {
+            Promise.all([
+                this.core.readback(this.counterStaging),
+                this.core.readback(this.pairCountsStaging),
+            ])
+                .then(([counter, pairs]) => {
                     this.reportContactOverflow(counter);
+                    this.reportPairOverflow(pairs);
                 })
                 .catch(() => {
                     /* device perdido ou cena descartada: a leitura é descartada */
@@ -758,6 +1008,20 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                     this.overflowReadInFlight = false;
                 });
         }, 0);
+    }
+
+    private pairOverflowWarned = false;
+
+    /** Avisa (uma vez) quando a broadphase encontrou mais pares candidatos que a capacidade das listas. */
+    protected reportPairOverflow(counts: ArrayBuffer): void {
+        const overflow =
+            new Uint32Array(counts)[CandidatePairCountsSchema.offsetOf('overflow') / 4] ?? 0;
+        if (overflow === 0 || this.pairOverflowWarned) return;
+        this.pairOverflowWarned = true;
+        console.warn(
+            `[LCPFlow] ${overflow} pares candidatos acima da capacidade (${this.pairCapacity} por forma) foram `
+                + 'ignorados — aumente LCPFlowOptions.maxPairsPerBody.',
+        );
     }
 
     /** Avisa (uma vez) quando a narrowphase encontrou mais contatos que a capacidade da lista compactada. */
