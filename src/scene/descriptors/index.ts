@@ -22,6 +22,6 @@ export type {
 export { TensorSchema } from './TensorSchema';
 export type { TextureShape } from './TextureShape';
 export type { SamplerShape } from './SamplerShape';
-export type { GPUDescriptor, GPUDescriptorRole } from './GPUDescriptor';
+export type { GPUDescriptor, GPUDescriptorRole, SlotRef, SlotRefTarget } from './GPUDescriptor';
 export type { PipelineDescriptor, PipelineDescriptorRole } from './PipelineDescriptor';
 export type { FlowDescriptor } from './FlowDescriptor';

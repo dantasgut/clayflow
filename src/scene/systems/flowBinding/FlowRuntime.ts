@@ -626,6 +626,7 @@ export class FlowRuntime {
                     return info().gpuOwned;
                 },
                 slotOf: (id) => resources.poolSlotOf(poolKey, id),
+                rangeOf: (id) => resources.poolRangeOf(poolKey, id),
                 ownedByGpu: (slot) => resources.poolSlotOwnedByGpu(poolKey, slot),
                 entityAt: (slot) => resources.poolEntityBySlot(poolKey, slot),
             };

@@ -106,9 +106,10 @@ export interface EntitiesSlot<T extends readonly ResourceType[] = readonly Resou
     /** Grupos de instâncias, mantidos pela C2 (opcional). */
     readonly groups?: EntityGroupsDeclaration;
     /**
-     * Descritores em pool cujo dado passa a ser da GPU para as entidades do conjunto (spec 007): depois do primeiro
+     * Descritores cujo dado passa a ser da GPU para as entidades do conjunto. Em pool (spec 007): depois do primeiro
      * envio a CPU não os envia mais e mutação em `data` é ignorada com aviso — ex.: a física escreve a pose no
-     * `Transform` dos corpos.
+     * `Transform` dos corpos. Individual (spec 008): o conjunto é o escritor declarado de um dado `upload: 'never'`
+     * (ex.: os vértices de uma geometria escrita por um kernel; `hasGpuWriter`).
      */
     readonly owns?: readonly (readonly [ResourceType, string])[];
 }
@@ -181,8 +182,10 @@ export interface BoundPool {
     readonly generation: number;
     /** Slots de posse da GPU (escritos por um estágio, não pela CPU). */
     readonly gpuOwned: number;
-    /** Slot da entidade no pool, ou `undefined`. */
+    /** Slot da entidade no pool (o primeiro da faixa), ou `undefined`. */
     slotOf(entityId: EntityId): number | undefined;
+    /** Faixa da entidade no pool (`count` slots contíguos a partir de `first`, spec 008), ou `undefined`. */
+    rangeOf(entityId: EntityId): { readonly first: number; readonly count: number } | undefined;
     /** O slot é de posse da GPU (escrito por um estágio, não pela CPU)? */
     ownedByGpu(slot: number): boolean;
     /** Entidade que ocupa o slot, ou `undefined`. */

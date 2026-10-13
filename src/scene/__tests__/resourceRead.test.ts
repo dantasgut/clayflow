@@ -3,8 +3,7 @@
  * mesma tarefa saem num lote com uma cópia por faixa contígua; Resource fora da cena (ou removido antes da resposta)
  * resolve `undefined`; sem pedido, nenhuma leitura.
  */
-import { describe, expect, it, vi } from 'vitest';
-import type { AnyBufferSpec, EngineCore, ResourceSpec } from '../../core/contracts/index';
+import { describe, expect, it } from 'vitest';
 import { Entity } from '../contracts/Entity';
 import { ResourceState } from '../contracts/ResourceState';
 import type { Resource } from '../contracts/Resource';
@@ -14,7 +13,7 @@ import { StructSchema } from '../descriptors/StructSchema';
 import { DefaultEventBus } from '../events/DefaultEventBus';
 import { ResourceSystem } from '../systems/ResourceSystem';
 import { World } from '../world/World';
-import { fakeResourceCore } from './helpers/fakeResourceCore';
+import { memoryCore } from './helpers/memoryCore';
 
 const ReadPool = new StructSchema('ReadPool', { a: FieldType.vec4f, n: FieldType.u32 });
 const ReadOwn = new StructSchema('ReadOwn', { m: FieldType.vec4f }, { addressSpace: 'uniform' });
@@ -45,36 +44,6 @@ class Own extends Entity implements Resource {
     getPipelineDescriptors() {
         return [];
     }
-}
-
-/** Core falso com memória: `write` grava, `copy` copia e `readback` devolve o staging. */
-function memoryCore() {
-    const fake = fakeResourceCore();
-    const memory = new Map<ResourceSpec, Uint8Array>();
-    const mem = (spec: ResourceSpec): Uint8Array => {
-        let bytes = memory.get(spec);
-        if (bytes === undefined) {
-            bytes = new Uint8Array((spec as AnyBufferSpec).byteSize);
-            memory.set(spec, bytes);
-        }
-        return bytes;
-    };
-    const copies: { size: number; srcOffset: number }[] = [];
-    const core = fake.core as EngineCore & Record<string, unknown>;
-    vi.mocked(core.write).mockImplementation((spec, data, offset) => {
-        mem(spec).set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), offset ?? 0);
-    });
-    vi.mocked(core.record).mockImplementation((label: unknown, body?: unknown) => {
-        const fn = (typeof label === 'function' ? label : body) as (frame: unknown) => void;
-        fn({
-            copy: (src: ResourceSpec, dst: ResourceSpec, size: number, so = 0, d = 0) => {
-                copies.push({ size, srcOffset: so });
-                mem(dst).set(mem(src).subarray(so, so + size), d);
-            },
-        });
-    });
-    core.readback = vi.fn((spec: ResourceSpec) => Promise.resolve(mem(spec).slice().buffer));
-    return { core, copies };
 }
 
 function setup() {

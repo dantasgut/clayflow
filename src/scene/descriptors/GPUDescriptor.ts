@@ -43,8 +43,9 @@ export interface GPUDescriptor {
      */
     readonly schema?: Schema;
     /**
-     * Número de elementos em buffers de array (e.g. `count: 1024` para
-     * pool de partículas). Default: 1 (single-element).
+     * Número de elementos. Em buffer individual, o tamanho do array (e.g. `count: 1024`). Em pool, os slots
+     * contíguos que o Resource ocupa (spec 008: um corpo de N partículas ocupa N slots); com `count > 1` o dado
+     * `data[id]` é por campo (um array por campo do schema, ver `StructSchema.packRange`). Default: 1.
      */
     readonly count?: number;
     /**
@@ -72,4 +73,27 @@ export interface GPUDescriptor {
      *   - `'never'`: produzido só pela GPU (ex.: saída de um estágio); a CPU nunca escreve.
      */
     readonly upload?: 'always' | 'initial' | 'never';
+    /**
+     * Campos `u32` do schema que guardam slots de pool (spec 008): a C2 resolve o valor no empacotamento, porque o slot
+     * de um Resource é alocado por ela.
+     *   - `'self:<descId>'`: índice local na faixa do descritor `<descId>` deste Resource (número, ou array por campo
+     *     com `count`); vira `first + índice`.
+     *   - `'ref:<descId>'`: `{ body, index }` — índice na faixa do descritor `<descId>` do Resource `body`, que precisa
+     *     estar na cena antes deste.
+     */
+    readonly slotRefs?: Readonly<Record<string, SlotRefTarget>>;
+    /**
+     * Formato dos índices de um descritor `index` (spec 008). Com conteúdo da CPU, derivado do array (`Uint32Array` →
+     * `'uint32'`); obrigatório com `upload: 'never'` (índices escritos pela GPU).
+     */
+    readonly indexFormat?: GPUIndexFormat;
+}
+
+/** Alvo de uma referência de slot (`GPUDescriptor.slotRefs`). */
+export type SlotRefTarget = `self:${string}` | `ref:${string}`;
+
+/** Valor de um campo `'ref:<descId>'`: o Resource referido e o índice na faixa dele. */
+export interface SlotRef {
+    readonly body: object;
+    readonly index: number;
 }

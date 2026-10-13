@@ -27,4 +27,9 @@ export interface ResourceDirectory extends PoolDirectory {
     textureViewOf(resource: Resource, descId: string): TextureViewSpec | undefined;
     /** Sampler alocado para o descritor `sampler`, ou `undefined`. */
     samplerOf(resource: Resource, descId: string): SamplerSpec | undefined;
+    /**
+     * O descritor individual `descId` de `resource` tem um escritor na GPU (um conjunto com `owns`, spec 008)? Serve a
+     * quem consome dado `upload: 'never'` (ex.: o forward avisa quando desenha uma geometria que ninguém escreve).
+     */
+    hasGpuWriter(resource: Resource, descId: string): boolean;
 }

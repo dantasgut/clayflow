@@ -4,6 +4,7 @@ import scanTopSource from './wgsl/scan_top.wgsl?raw';
 import scanCombineSource from './wgsl/scan_combine.wgsl?raw';
 import atomicAllocSource from './wgsl/atomic_alloc.wgsl?raw';
 import fixedPointSource from './wgsl/fixed_point.wgsl?raw';
+import poolLiveSource from './wgsl/pool_live.wgsl?raw';
 import radixHistogramSource from './wgsl/radix_histogram.wgsl?raw';
 import radixScatterSource from './wgsl/radix_scatter.wgsl?raw';
 import compactAtomicSource from './wgsl/compact_atomic.wgsl?raw';
@@ -38,6 +39,12 @@ export const atomicAlloc = wgslModule({
     source: atomicAllocSource,
     structs: [AtomicAllocCounterSchema],
 });
+
+/**
+ * Slot vivo de um pool (spec 008): `pool_live(live[slot >> 5u], slot)` com o bitset de ocupação que a C2 mantém
+ * (consumes `<chave do pool>.live`).
+ */
+export const poolLive = wgslModule({ name: 'pool_live', source: poolLiveSource });
 
 /** Ponto fixo i32 com escala e saturação, para somas atômicas de valores reais. */
 export const fixedPoint = wgslModule({ name: 'fixed_point', source: fixedPointSource });

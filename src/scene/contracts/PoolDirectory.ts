@@ -32,7 +32,8 @@ export interface PoolInfo {
  * `ResourceSystem`.
  *
  * Um recurso que declara vários descritores em pool ocupa o **mesmo slot** em todos eles
- * (ex.: `Transform[i]` e `WorldTransform[i]` são sempre a mesma entidade).
+ * (ex.: `Transform[i]` e `WorldTransform[i]` são sempre a mesma entidade); com `count` no
+ * descritor, uma faixa de slots contíguos (spec 008).
  */
 export interface PoolDirectory {
     /** Buffer do pool, para bind groups de estágios. `undefined` se o pool não existe. */
@@ -43,6 +44,16 @@ export interface PoolDirectory {
     poolCount(poolKey: string): number;
     /** Slot da entidade no pool; igual em todos os pools de um mesmo recurso. */
     poolSlotOf(poolKey: string, entityId: EntityId): number | undefined;
+    /** Faixa da entidade no pool (`count` slots a partir de `first`; spec 008). */
+    poolRangeOf(
+        poolKey: string,
+        entityId: EntityId,
+    ): { readonly first: number; readonly count: number } | undefined;
+    /**
+     * Bitset de slots ocupados do pool na GPU (`array<u32>`, um bit por slot; spec 008), criado no primeiro pedido e
+     * mantido pela C2. `undefined` se o pool não existe.
+     */
+    poolLiveBuffer(poolKey: string): StorageBufferSpec | undefined;
     /** O slot é de posse da GPU (`slot.entities({ owns })`: escrito por um estágio, não pela CPU)? */
     poolSlotOwnedByGpu(poolKey: string, slot: number): boolean;
     /** Pool key do primeiro descritor em pool do recurso, ou `undefined`. */

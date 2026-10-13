@@ -423,6 +423,101 @@ export class StructSchema extends Schema {
     }
 
     /**
+     * Serializa os registros `start..start+count` de um dado por campo (SoA: cada campo primitivo é um array com
+     * `fieldElements(tipo)` números por registro, no layout do buffer — matrizes com o padding das colunas; campos
+     * compostos são arrays com um valor por registro) em AoS, no layout do `array<T>` do WGSL (spec 008, faixas de
+     * pool). Campo ausente fica com zero, como em `pack`.
+     * @throws RangeError se um campo tem menos valores que `start + count` registros.
+     */
+    packRange(soa: Record<string, unknown>, start: number, count: number): Uint8Array {
+        const buffer = new ArrayBuffer(this.stride * count);
+        this.packRangeInto(buffer, 0, soa, start, count);
+        return new Uint8Array(buffer);
+    }
+
+    /** `packRange` em `target` a partir de `byteOffset`, sem alocar o destino. */
+    packRangeInto(
+        target: ArrayBuffer | ArrayBufferView,
+        byteOffset: number,
+        soa: Record<string, unknown>,
+        start: number,
+        count: number,
+    ): void {
+        this.packSteps ??= [...this.layout].map(([name, entry]) => packStep(name, entry));
+        const record: Record<string, unknown> = {};
+        const sources: { step: PackStep; values: ArrayLike<unknown>; slice: number[] }[] = [];
+        for (const step of this.packSteps) {
+            const values = soa[step.name];
+            if (values === undefined) continue;
+            if (!Array.isArray(values) && !ArrayBuffer.isView(values)) {
+                throw new TypeError(
+                    `StructSchema(${this.name}): o campo '${step.name}' de uma faixa deve ser um array (um valor por registro).`,
+                );
+            }
+            const list = values as ArrayLike<unknown>;
+            const per = step.view === undefined ? 1 : step.elements;
+            if (list.length < (start + count) * per) {
+                throw new RangeError(
+                    `StructSchema(${this.name}): o campo '${step.name}' tem ${list.length} valores; a faixa `
+                        + `${start}..${start + count} pede ${(start + count) * per}.`,
+                );
+            }
+            sources.push({ step, values: list, slice: new Array<number>(per) });
+        }
+        for (let i = 0; i < count; i++) {
+            const index = start + i;
+            for (const { step, values, slice } of sources) {
+                if (step.view === undefined) {
+                    record[step.name] = values[index];
+                    continue;
+                }
+                const base = index * slice.length;
+                for (let k = 0; k < slice.length; k++) {
+                    const v = values[base + k];
+                    slice[k] = typeof v === 'number' ? v : 0;
+                }
+                record[step.name] = slice.length === 1 ? slice[0] : slice;
+            }
+            this.packInto(target, byteOffset + i * this.stride, record);
+        }
+    }
+
+    /**
+     * Lê `count` registros de `source` a partir de `byteOffset` como dado por campo (SoA) — o inverso de `packRange`:
+     * campos primitivos viram arrays tipados com `fieldElements(tipo)` números por registro; compostos, arrays com um
+     * valor por registro.
+     */
+    unpackRange(
+        source: ArrayBuffer | ArrayBufferView,
+        count: number,
+        byteOffset = 0,
+    ): Record<string, unknown> {
+        const out: Record<string, unknown> = {};
+        const buffer = source instanceof ArrayBuffer ? source : (source.buffer as ArrayBuffer);
+        const base = (source instanceof ArrayBuffer ? 0 : source.byteOffset) + byteOffset;
+        for (const [name, entry] of this.layout) {
+            const type = entry.type;
+            if (!isPrimitive(type)) {
+                const list: unknown[] = [];
+                for (let i = 0; i < count; i++)
+                    list.push(readField(buffer, base + i * this.stride + entry.offset, type, this));
+                out[name] = list;
+                continue;
+            }
+            const per = fieldElements(type);
+            const Ctor = fieldCtor(type);
+            const values = new Ctor(per * count);
+            for (let i = 0; i < count; i++) {
+                const at = (base + i * this.stride + entry.offset) >>> 2;
+                const view = new Ctor(buffer, at * 4, per);
+                values.set(view, i * per);
+            }
+            out[name] = values;
+        }
+        return out;
+    }
+
+    /**
      * Lê um registro de `source` a partir de `byteOffset` — o inverso de `packInto`: escalares viram números; vetores,
      * matrizes e arrays de tamanho fixo viram arrays de números (matrizes com o padding das colunas, como no buffer);
      * structs aninhados viram objetos. Arrays de tamanho em execução não são lidos.
