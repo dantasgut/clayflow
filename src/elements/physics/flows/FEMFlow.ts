@@ -106,14 +106,14 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
                 role: 'compute',
                 shader: femPredict,
                 entryPoints: ['fem_predict_main'],
-                consumes: [bodyType],
+                consumes: [bodyType, `${bodyType}.live`],
             },
             {
                 id: 'fem_velocity_update',
                 role: 'compute',
                 shader: femVelocityUpdate,
                 entryPoints: ['fem_velocity_update_main'],
-                consumes: [bodyType],
+                consumes: [bodyType, `${bodyType}.live`],
             },
         ];
     }

@@ -45,7 +45,7 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
             bodyType: 'SPHSchema',
         });
         if (withMaterial) s.scene.world.insert(new ParticleMaterial(OPTIONS));
-        s.scene.world.insert(new FluidBody({ algorithm: 'SPH' }));
+        s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
         return s;
     }
 
@@ -103,7 +103,7 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
             bodyType: 'PBFSchema',
         });
         s.scene.world.insert(new ParticleMaterial(OPTIONS));
-        s.scene.world.insert(new FluidBody({ algorithm: 'PBF' }));
+        s.scene.world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
         return s;
     }
 
@@ -142,7 +142,10 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
     }
 
     it('fluido: material_id 2, massa/volume/K do material, grade 2s pelo domínio', async () => {
-        const s = await mpm(() => new FluidBody({ algorithm: 'MPM' }), 'MPMFluidSchema');
+        const s = await mpm(
+            () => new FluidBody({ algorithm: 'MPM', position: [0, 0, 0] }),
+            'MPMFluidSchema',
+        );
         const passes = s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(f32[7]).toBeCloseTo(material.particleMass, 6);
@@ -158,7 +161,10 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
     });
 
     it('sólido: material_id 0 e Lamé do material', async () => {
-        const s = await mpm(() => new SoftBody({ algorithm: 'MPM' }), 'MPMSoftSchema');
+        const s = await mpm(
+            () => new SoftBody({ algorithm: 'MPM', position: [0, 0, 0] }),
+            'MPMSoftSchema',
+        );
         s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(u32[21]).toBe(0);

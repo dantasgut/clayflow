@@ -18,7 +18,10 @@ import {
     type SlotMap,
 } from '../../../scene/flows/slots';
 import { Time } from '../../../scene/time/Time';
-import { NeighborSearchPipeline } from '../../gpu/NeighborSearchPipeline';
+import {
+    NEIGHBOR_SEARCH_MAX_PARTICLES,
+    NeighborSearchPipeline,
+} from '../../gpu/NeighborSearchPipeline';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
@@ -47,8 +50,6 @@ const PBF_XSPH = 0.05;
 const PBF_RELAXATION = 600;
 /** Coeficiente do `s_corr` para espaçamento de 0,05 m; escala com s² (mesma unidade de λ). */
 const PBF_S_CORR_K_AT_5CM = 1e-4;
-/** Capacidade de partículas (igual à da busca de vizinhança). */
-const PBF_MAX_PARTICLES = 65536;
 
 /** Opções do `PBFFlow`. */
 export interface PBFFlowOptions {
@@ -137,7 +138,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             kind: 'buffer',
             subkind: 'storage',
             discriminator: 'pbf_delta',
-            byteSize: PBF_MAX_PARTICLES * 16,
+            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
         });
         const grid = gridOf(ParticleMaterial.defaults);
         this.neighborKey = gridKeyOf(grid);
@@ -147,7 +148,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             pbf_delta: this.delta,
             ...this.neighborSources(),
         };
-        const consumes = [bodyType];
+        const consumes = [bodyType, `${bodyType}.live`];
         const compute = (
             id: string,
             shader: PipelineDescriptor['shader'],
@@ -257,7 +258,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     ): NeighborSearchPipeline {
         const ns = new NeighborSearchPipeline(this.core, {
             discriminator: 'pbf',
-            maxParticles: PBF_MAX_PARTICLES,
+            maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
             maxNeighbors: this.maxNeighbors,
             particleStrideF32: 16,
             cellSize: grid.cellSize,
@@ -292,6 +293,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
      */
     private prepareFrame(ctx: Ctx): void {
         const bound = ctx.bound;
+        NeighborSearchPipeline.requireCapacity('PBFFlow', bound.slots.bodies);
         const time = bound.slots.time.resource as Time;
         const material =
             (bound.slots.material?.resource as ParticleMaterial | undefined)
@@ -306,7 +308,11 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         }
         this.iterations = time.steps * this.substeps;
         if (this.iterations === 0) return;
-        this.neighborSearch.prepare(bound.slots.bodies.buffer, this.iterations);
+        this.neighborSearch.prepare(
+            bound.slots.bodies.buffer,
+            bound.slots.bodies.live,
+            this.iterations,
+        );
         if (this.params.reserve(this.iterations)) ctx.bind({ pbf_params: this.params.source() });
         const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
             .acceleration ?? [0, -9.81, 0, 0];

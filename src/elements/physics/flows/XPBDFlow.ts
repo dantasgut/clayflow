@@ -102,14 +102,14 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                 role: 'compute',
                 shader: xpbdPredict,
                 entryPoints: ['predict_main'],
-                consumes: [bodyType],
+                consumes: [bodyType, `${bodyType}.live`],
             },
             {
                 id: 'xpbd_velocity_update',
                 role: 'compute',
                 shader: xpbdVelocityUpdate,
                 entryPoints: ['velocity_update_main'],
-                consumes: [bodyType],
+                consumes: [bodyType, `${bodyType}.live`],
             },
         ];
         this.distance = {
@@ -117,7 +117,7 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
             role: 'compute',
             shader: xpbdDistanceSolve,
             entryPoints: ['distance_solve_main'],
-            consumes: [bodyType, constraintPoolKey],
+            consumes: [bodyType, `${bodyType}.live`, constraintPoolKey],
         };
         const constraints = {
             to: 'running' as const,
@@ -132,7 +132,8 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
-                poolReallocated: 'ignore',
+                // O bitset de vivos das restrições é recriado com o pool: religado.
+                poolReallocated: constraints,
                 framePrepare: {
                     to: 'running',
                     run: (_e, c) => {
@@ -185,10 +186,15 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         return ((bound.slots.time.resource as Time).steps ?? 0) * this.substeps;
     }
 
-    /** O pipeline de restrições existe enquanto o pool de restrições existe. */
+    /** O pipeline de restrições existe enquanto o pool de restrições existe (com o bitset de vivos dele). */
     private prepareConstraints(ctx: Ctx): void {
-        if (ctx.bound.slots.constraints !== undefined) ctx.prepare(this.distance);
-        else ctx.release(DISTANCE);
+        const constraints = ctx.bound.slots.constraints;
+        if (constraints === undefined) {
+            ctx.release(DISTANCE);
+            return;
+        }
+        ctx.bind({ constraint_live: constraints.live });
+        ctx.prepare(this.distance);
     }
 
     /** Uma região de `SimParams` por iteração do quadro; uma escrita. O buffer cresce aqui, fora da gravação. */

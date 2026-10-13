@@ -6,6 +6,7 @@
 @group(1) @binding(3) var<storage, read>       sorted_particles: array<u32>;
 @group(1) @binding(4) var<storage, read_write> neighbor_list:   array<u32>;
 @group(1) @binding(5) var<storage, read_write> neighbor_count:  array<u32>;
+@group(1) @binding(6) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 
 @compute @workgroup_size(64)
 fn ns_find_main(
@@ -15,7 +16,7 @@ fn ns_find_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= ns_params.particle_count) { return; }
+    if (i >= ns_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 
     let stride    = ns_params.particle_stride;
     let max_nb    = ns_params.max_neighbors;

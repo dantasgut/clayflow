@@ -6,12 +6,21 @@ export type {
     RigidBodyRawOptions,
     RigidBodyShape,
 } from './RigidBody';
+export { ParticleBody } from './ParticleBody';
+export type {
+    ParticleBodyData,
+    ParticleBodyRawOptions,
+    ParticleFields,
+    ParticlePositions,
+} from './ParticleBody';
 export { SoftBody } from './SoftBody';
 export type {
     SoftBodyOptions,
     SoftBodyDomainOptions,
     SoftBodyRawOptions,
     SoftBodyAlgorithm,
+    SoftBodyData,
+    SoftBodyEdges,
 } from './SoftBody';
 export { FluidBody } from './FluidBody';
 export type {
@@ -19,6 +28,7 @@ export type {
     FluidBodyDomainOptions,
     FluidBodyRawOptions,
     FluidAlgorithm,
+    FluidBodyData,
 } from './FluidBody';
 export {
     LCPSchema,

@@ -13,7 +13,6 @@
 import {
     Application,
     createScene,
-    DistanceConstraint,
     FluidBody,
     FEMSchema,
     GravityField,
@@ -221,21 +220,22 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             gravity(app);
+            // Um corpo: 32 nós em corrente (o primeiro fixo) e 31 arestas internas.
             const n = 32;
-            for (let i = 0; i < n; i++) {
-                app.world.insert(
-                    new SoftBody({
-                        algorithm: 'XPBD',
-                        position: [i * 0.1, 2, 0],
-                        mass: i === 0 ? 0 : 0.1,
-                    }),
-                );
-            }
-            for (let i = 0; i + 1 < n; i++) {
-                app.world.insert(
-                    new DistanceConstraint({ i, j: i + 1, restLength: 0.1, compliance: 1e-6 }),
-                );
-            }
+            const links = Array.from({ length: n - 1 }, (_, i) => i);
+            app.world.insert(
+                new SoftBody({
+                    algorithm: 'XPBD',
+                    position: Array.from({ length: n }, (_, i) => [i * 0.1, 2, 0]).flat(),
+                    mass: Array.from({ length: n }, (_, i) => (i === 0 ? 0 : 0.1)),
+                    edges: {
+                        a: links,
+                        b: links.map((i) => i + 1),
+                        restLength: links.map(() => 0.1),
+                        compliance: 1e-6,
+                    },
+                }),
+            );
         },
         // Ponto fixo parado; elos dentro de 5% do repouso (a corrente pendura, não estica).
         check: (v) => {
@@ -261,9 +261,8 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             gravity(app);
-            for (const position of block(64, 0.1, [0, 1, 0], 2)) {
-                app.world.insert(new SoftBody({ algorithm: 'FEM', position, mass: 0.05 }));
-            }
+            const position = block(64, 0.1, [0, 1, 0], 2).flat();
+            app.world.insert(new SoftBody({ algorithm: 'FEM', position, mass: 0.05 }));
         },
         // O FEM só integra gravidade (A5): nós independentes com a mesma dinâmica — o bloco cai sem deformar.
         check: (v) => {
@@ -288,9 +287,8 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of block(512, SPACING, [-3.5 * SPACING, 0.1, -3.5 * SPACING], 3)) {
-                app.world.insert(new SoftBody({ algorithm: 'MPM', position }));
-            }
+            const position = block(512, SPACING, [-3.5 * SPACING, 0.1, -3.5 * SPACING], 3).flat();
+            app.world.insert(new SoftBody({ algorithm: 'MPM', position }));
         },
         // Sólido elástico: assenta inteiro sobre o chão, sem se espalhar além da largura inicial + 50%.
         check: (v) => {
@@ -311,9 +309,7 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of FLUID_BLOCK(4)) {
-                app.world.insert(new FluidBody({ algorithm: 'MPM', position }));
-            }
+            app.world.insert(new FluidBody({ algorithm: 'MPM', position: FLUID_BLOCK(4).flat() }));
         },
         check: fluidChecks,
     },
@@ -323,9 +319,7 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of FLUID_BLOCK(5)) {
-                app.world.insert(new FluidBody({ algorithm: 'SPH', position }));
-            }
+            app.world.insert(new FluidBody({ algorithm: 'SPH', position: FLUID_BLOCK(5).flat() }));
         },
         // Além dos critérios gerais: densidade mediana (pos.w) em ±15% de ρ₀ — a superfície fica abaixo, o miolo perto.
         check: (v) => {
@@ -346,9 +340,7 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of FLUID_BLOCK(6)) {
-                app.world.insert(new FluidBody({ algorithm: 'PBF', position }));
-            }
+            app.world.insert(new FluidBody({ algorithm: 'PBF', position: FLUID_BLOCK(6).flat() }));
         },
         check: fluidChecks,
     },

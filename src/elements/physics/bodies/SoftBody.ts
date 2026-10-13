@@ -1,9 +1,20 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { XPBDSoftSchema } from './schemas/XPBDSoftSchema';
 import { FEMSchema } from './schemas/FEMSchema';
 import { MPM_REST_DEFORMATION, MPMSoftSchema } from './schemas/MPMSoftSchema';
-import { PhysicsBody } from './PhysicsBody';
+import {
+    ParticleBody,
+    particleCount,
+    repeated,
+    requireLength,
+    vec4Of,
+    type ParticleBodyData,
+    type ParticleBodyRawOptions,
+    type ParticleFields,
+    type ParticlePositions,
+} from './ParticleBody';
 
 /** Algoritmo de soft body, em vocabulário de domínio. */
 export type SoftBodyAlgorithm = 'XPBD' | 'FEM' | 'MPM';
@@ -14,86 +25,179 @@ const SOFT_SCHEMAS: Record<SoftBodyAlgorithm, StructSchema> = {
     MPM: MPMSoftSchema,
 };
 
+/** Restrições de distância internas de um corpo XPBD: pares de índices locais de partícula. */
+export interface SoftBodyEdges {
+    /** Primeira partícula de cada aresta (índice local, `< N`). */
+    readonly a: ArrayLike<number>;
+    /** Segunda partícula de cada aresta (índice local, `< N`). */
+    readonly b: ArrayLike<number>;
+    /** Comprimento de repouso de cada aresta (m). Default: a distância inicial entre as duas partículas. */
+    readonly restLength?: ArrayLike<number>;
+    /** Compliance de cada aresta (m/N; 0 = rígida), ou um valor para todas. Default 0. */
+    readonly compliance?: ArrayLike<number> | number;
+}
+
 /**
- * Opções de domínio do SoftBody — uma partícula deformável (um nó do corpo;
- * o corpo completo é composto por N partículas + constraints). O algoritmo
- * seleciona o schema; `pos.w` carrega o inverso da massa.
+ * Opções de domínio do SoftBody — o corpo inteiro: N partículas em arrays e, no XPBD, as restrições de distância
+ * internas. `pos.w` carrega o inverso da massa.
  */
 export interface SoftBodyDomainOptions {
     /**
-     * Seleciona o schema/flow integrador: XPBD, FEM ou MPM (sólido elástico; massa, volume e rigidez vêm do
+     * Seleciona o schema e o estágio que simula: XPBD, FEM ou MPM (sólido elástico; massa, volume e rigidez vêm do
      * `ParticleMaterial` da cena).
      */
     readonly algorithm: SoftBodyAlgorithm;
-    /** Posição inicial da partícula (mundo). Default [0,0,0]. */
-    readonly position?: readonly [number, number, number];
-    /** Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0). Ignorada no MPM (massa do material). */
-    readonly mass?: number;
+    /** Posições iniciais (mundo): `x, y, z` por partícula; o tamanho define N. */
+    readonly position: ParticlePositions;
+    /** Massa de cada partícula (kg), ou uma para todas. 0 ⇒ fixa (inv_mass = 0). Default 0. Ignorada no MPM. */
+    readonly mass?: ArrayLike<number> | number;
+    /** Restrições de distância internas (só XPBD), resolvidas na faixa do próprio corpo. */
+    readonly edges?: SoftBodyEdges;
 }
 
-/** Opções cruas (avançado) — schema + data diretos. Retrocompat. */
-/** Opções cruas do SoftBody: schema do struct de GPU e dado do struct. */
-export interface SoftBodyRawOptions {
-    /** Schema do struct da partícula (layout de GPU) — define o algoritmo pelo nome do pool. */
-    readonly schema: StructSchema;
-    /** Dado cru do struct (campos do schema); ausentes recebem default. */
-    readonly data?: Record<string, unknown>;
-}
+/** Opções cruas do SoftBody: schema, contagem e dado por campo. */
+export type SoftBodyRawOptions = ParticleBodyRawOptions;
 
-/** União pública aceita pelo construtor do SoftBody: vocabulário de domínio ou struct cru. */
+/** União aceita pelo construtor do SoftBody: vocabulário de domínio ou struct cru. */
 export type SoftBodyOptions = SoftBodyDomainOptions | SoftBodyRawOptions;
+
+/** Dado de um `SoftBody`: as partículas e as arestas por campo. */
+export interface SoftBodyData extends ParticleBodyData {
+    /** Arestas no layout de `DistanceConstraint` (`i`/`j` locais, resolvidos pela C2 na faixa do corpo). */
+    edges?: ParticleFields;
+}
 
 function isRaw(o: SoftBodyOptions): o is SoftBodyRawOptions {
     return 'schema' in o;
 }
 
 /**
- * SoftBody — partícula de corpo deformável (cloth, jelly, nó FEM). Data class
- * pura governada pelo `schema`. Pool key = `schema.name` roteia para
- * XPBDFlow/FEMFlow.
+ * SoftBody — um corpo deformável (tecido, gelatina, malha FEM) de N partículas num único Resource (spec 008), na faixa
+ * de N slots do pool do algoritmo (`XPBDSoftSchema`, `FEMSchema`, `MPMSoftSchema`), que roteia para o `XPBDFlow`,
+ * `FEMFlow` ou `MPMFlow`. No XPBD, `edges` são restrições de distância do próprio corpo, numa faixa do pool
+ * `DistanceConstraint` (índices locais; a C2 soma o início da faixa das partículas).
  *
- *  - **Domínio**: `new SoftBody({ algorithm: 'XPBD', position, mass })`.
- *  - **Cru** (avançado): `new SoftBody({ schema, data })`.
+ *  - **Domínio**: `new SoftBody({ algorithm: 'XPBD', position, mass, edges })`.
+ *  - **Cru** (avançado): `new SoftBody({ schema, count, data })`.
  */
-export class SoftBody extends PhysicsBody {
-    private readonly schema: StructSchema;
+export class SoftBody extends ParticleBody<SoftBodyData> {
+    /** Número de arestas (restrições de distância internas). */
+    readonly edgeCount: number;
 
     constructor(options: SoftBodyOptions) {
-        super();
         if (isRaw(options)) {
-            this.schema = options.schema;
-            this.data = this.schema.applyDefaults(options.data ?? {});
+            super('SoftBody', options.schema, options.count);
+            this.edgeCount = 0;
+            this.data = { body: { ...options.data } };
             return;
         }
-        const schema = SOFT_SCHEMAS[options.algorithm];
+        const schema = SOFT_SCHEMAS[options.algorithm] as StructSchema | undefined;
         if (schema === undefined) {
             throw new Error(`SoftBody: algoritmo desconhecido '${options.algorithm}'`);
         }
-        if (options.mass !== undefined && options.mass < 0) {
-            throw new Error('SoftBody: massa deve ser ≥ 0');
+        const count = particleCount('SoftBody', options.position);
+        super('SoftBody', schema, count);
+        const mass = options.mass ?? 0;
+        if (typeof mass !== 'number') requireLength('SoftBody', 'mass', mass, count, 1);
+        const massOf = (i: number): number => (typeof mass === 'number' ? mass : (mass[i] ?? 0));
+        for (let i = 0; i < count; i++) {
+            if (massOf(i) < 0)
+                throw new RangeError(
+                    `SoftBody: massa deve ser ≥ 0 (partícula ${i}: ${massOf(i)}).`,
+                );
         }
-        const [px, py, pz] = options.position ?? [0, 0, 0];
-        const invMass = options.mass !== undefined && options.mass > 0 ? 1 / options.mass : 0;
-        this.schema = schema;
-        this.data = schema.applyDefaults(
+        const body: ParticleFields =
             options.algorithm === 'MPM'
-                ? { pos: [px, py, pz, 0], ...MPM_REST_DEFORMATION }
+                ? {
+                      pos: vec4Of(options.position, count),
+                      ...Object.fromEntries(
+                          Object.entries(MPM_REST_DEFORMATION).map(([f, v]) => [
+                              f,
+                              repeated(v, count),
+                          ]),
+                      ),
+                  }
                 : // Predição inicial = posição: partículas fixas não passam pela predição e as restrições leem `pred`.
-                  { pos: [px, py, pz, invMass], pred: [px, py, pz, 0] },
-        );
+                  {
+                      pos: vec4Of(options.position, count, (i) => {
+                          const m = massOf(i);
+                          return m > 0 ? 1 / m : 0;
+                      }),
+                      pred: vec4Of(options.position, count),
+                  };
+        const edges = options.edges;
+        if (edges !== undefined && options.algorithm !== 'XPBD') {
+            throw new Error(
+                `SoftBody: edges (restrições de distância) são do XPBD; o algoritmo '${options.algorithm}' não as resolve.`,
+            );
+        }
+        this.edgeCount = edges === undefined ? 0 : edges.a.length;
+        this.data =
+            edges === undefined
+                ? { body }
+                : { body, edges: edgeFields(edges, options.position, count) };
     }
 
-    /** Pool storage para coalescer N SoftBodies do mesmo schema em 1 buffer GPU. */
-    getDescriptors(): readonly GPUDescriptor[] {
+    /** Partículas e, com arestas, a faixa de restrições de distância (enviadas só na inserção). */
+    override getDescriptors(): readonly GPUDescriptor[] {
+        const body = this.bodyDescriptor();
+        if (this.edgeCount === 0) return [body];
         return [
+            body,
             {
-                id: 'body',
-                role: 'storage-rw',
-                schema: this.schema,
+                id: 'edges',
+                role: 'storage-ro',
+                schema: DistanceConstraint.schema,
                 storage: 'pool',
-                // A simulação é dona do estado após a inserção: a CPU envia só o spawn.
                 upload: 'initial',
+                count: this.edgeCount,
+                slotRefs: { i: 'self:body', j: 'self:body' },
             },
         ];
     }
+}
+
+/** Arestas por campo no layout de `DistanceConstraint`, validadas contra as `count` partículas. */
+function edgeFields(
+    edges: SoftBodyEdges,
+    position: ParticlePositions,
+    count: number,
+): ParticleFields {
+    const e = edges.a.length;
+    if (e < 1) throw new RangeError('SoftBody: edges sem arestas (a vazio).');
+    requireLength('SoftBody', 'edges.b', edges.b, e, 1);
+    if (edges.restLength !== undefined)
+        requireLength('SoftBody', 'edges.restLength', edges.restLength, e, 1);
+    const compliance = edges.compliance ?? 0;
+    if (typeof compliance !== 'number')
+        requireLength('SoftBody', 'edges.compliance', compliance, e, 1);
+    const i = new Uint32Array(e);
+    const j = new Uint32Array(e);
+    const rest = new Float32Array(e);
+    const comp = new Float32Array(e);
+    for (let k = 0; k < e; k++) {
+        const a = edges.a[k]!;
+        const b = edges.b[k]!;
+        for (const [name, v] of [
+            ['a', a],
+            ['b', b],
+        ] as const) {
+            if (!Number.isInteger(v) || v < 0 || v >= count) {
+                throw new RangeError(
+                    `SoftBody: edges.${name}[${k}] = ${v} fora das ${count} partículas do corpo.`,
+                );
+            }
+        }
+        i[k] = a;
+        j[k] = b;
+        rest[k] =
+            edges.restLength?.[k]
+            ?? Math.hypot(
+                position[b * 3]! - position[a * 3]!,
+                position[b * 3 + 1]! - position[a * 3 + 1]!,
+                position[b * 3 + 2]! - position[a * 3 + 2]!,
+            );
+        comp[k] = typeof compliance === 'number' ? compliance : compliance[k]!;
+    }
+    return { i, j, rest_length: rest, compliance: comp };
 }

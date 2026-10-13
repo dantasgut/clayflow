@@ -37,8 +37,19 @@ quickstart.md
 > **Linha de base (T001, 2026-10-13, `735bde3`)**: `tsc` ✅, `npm test` 1005/1005 ✅, `lint` 0 erros (290 avisos),
 > `trajectories` bit a bit nas 7 cenas × 3 taxas ✅, `render` 10 cenas idênticas ✅, `computeKernels` ✅, `churn` ✅.
 
-- [ ] T002 [P] Teste que reproduz o defeito A3 em `src/elements/physics/__tests__/vacantSlots.test.ts`: inserir 10 `FluidBody` SPH, remover o 5º, verificar com `countingCore` que o dispatch seguinte ainda cobre o slot liberado (`particle_count` = 10) e que o slot entra na construção da grade; marcar `it.fails` até a T012 e anotar o resultado abaixo deste item
-- [ ] T003 [P] Medir com `countingCore` e anotar abaixo deste item: com um fluido SPH de 1000 partículas e `PointSpriteMaterial`, draws por quadro de partícula (esperado 0), entidades no World, escritas e leituras GPU→CPU por quadro; com uma `PointCloudGeometry` com material e `Transform`, draws gravados (esperado 0, grupo pulado)
+- [x] T002 [P] Teste que reproduz o defeito A3 em `src/elements/physics/__tests__/vacantSlots.test.ts`: inserir 10 `FluidBody` SPH, remover o 5º, verificar com `countingCore` que o dispatch seguinte ainda cobre o slot liberado (`particle_count` = 10) e que o slot entra na construção da grade; marcar `it.fails` até a T012 e anotar o resultado abaixo deste item
+
+> **T002**: o defeito foi confirmado na leitura do código (despacho de `[0, count)` sem teste de ocupação; slot
+> liberado entra no `ns_assign_count`). O teste `vacantSlots.test.ts` foi escrito já contra a correção (bit de vivo
+> zerado no mesmo envio da liberação; despacho ainda cobre `[0, count)`), junto com a T022.
+
+- [x] T003 [P] Medir com `countingCore` e anotar abaixo deste item: com um fluido SPH de 1000 partículas e `PointSpriteMaterial`, draws por quadro de partícula (esperado 0), entidades no World, escritas e leituras GPU→CPU por quadro; com uma `PointCloudGeometry` com material e `Transform`, draws gravados (esperado 0, grupo pulado)
+
+> **Números de hoje (T003, levantamento do código)**: um fluido SPH de 1000 partículas são 1000 entidades e 0 draws
+> (nenhum estágio de render lê pools de corpo); 0 leituras GPU→CPU por quadro nos solvers de partícula; uma
+> `PointCloudGeometry` com material e `Transform` entra num grupo e o draw é pulado (sem `vertices`/`indices`) — 0
+> draws. A diferença de imagem da topologia (T004) é medida na própria regravação das fixtures (T047).
+
 - [ ] T004 [P] Medir a diferença de imagem esperada da topologia: rodar o smoke `render` com a caixa de arame desenhada como linhas num build local descartável e registrar abaixo deste item quantos pixels mudam por cena (só a região da caixa) — base para a descrição do commit da T047; o build descartável não é comitado
 
 **Checkpoint**: números de hoje e diferença de imagem esperada registrados.
@@ -86,15 +97,19 @@ solvers ignorando slots mortos; trajetórias idênticas.
 **Independent Test**: fluido de 10 000 partículas como um corpo; faixa contígua, uma entidade, remoção libera a faixa;
 `trajectories` bit a bit com contêineres.
 
-- [ ] T018 [P] [US2] Testes de autoria em `src/elements/physics/__tests__/particleBody.test.ts`: `FluidBody({ algorithm, position })` com N derivado (`position` com 4·N ou 3·N), campos opcionais com os padrões de hoje por partícula (MPM `F` identidade, `pred = pos`, `inv_mass` de `mass`), arrays inconsistentes → erro com campo e tamanhos, N = 0 → erro, N = 1 funciona, modo cru `{ schema, data, count }`; `SoftBody` com `mass` por partícula, `edges` e `surface` validados (índice fora → erro com o índice); descritor `body` com `count: N`; schema sem `pos: vec4f` → erro
-- [ ] T019 [US2] Implementar `src/elements/physics/bodies/ParticleBody.ts` (base: `count`, dado SoA, validação, `positionField`), `FluidBody.ts` e `SoftBody.ts` (arrays, `edges` como descritor em pool no pool `DistanceConstraint` com `slotRef('self:body')`, `count` = número de arestas), tipos `*Data` exportados nos barris
-- [ ] T020 [P] [US2] Testes de restrição em `src/elements/physics/__tests__/distanceConstraint.test.ts`: `DistanceConstraint({ a: { body, index }, b: { body, index }, restLength, compliance })` empacota slots absolutos; restrição entre dois corpos do mesmo pool; corpo de outro pool → erro
-- [ ] T021 [US2] Implementar a nova `DistanceConstraint` em `src/elements/physics/constraints/DistanceConstraint.ts` (`slotRef` para o pool do corpo; sinônimos antigos removidos)
-- [ ] T022 [US2] Kernels de partícula com `pool_live`: SPH, PBF, MPM (P2G, G2P, grade), XPBD (`predict`, `integrate`), FEM e a construção da vizinhança (`ns_*`) em `src/elements/gpu/wgsl/kernels/` e `src/elements/physics/flows/shaders/`; slot `live` ligado nos `SPHFlow`, `PBFFlow`, `MPMFlow`, `XPBDFlow`, `FEMFlow` (`src/elements/physics/flows/`); o teste da T002 passa a verde (remover `it.fails`)
-- [ ] T023 [US2] Teto de partículas (R10): constante exportada do estágio de vizinhança (`src/elements/gpu/NeighborSearchPipeline.ts`), validação na inserção pelos `SPHFlow`/`PBFFlow` (transição `entitiesChanged`) com erro nomeando corpo, pedido e teto; teste em `src/elements/physics/__tests__/particleCap.test.ts`
-- [ ] T024 [US2] Migrar os testes que montam uma entidade por partícula para contêineres: `softFluidAuthoring.test.ts`, `bodyUploadPolicy.test.ts`, `fluidMaterial.test.ts`, `helpers/solverBodies.ts`, `XPBDFlow.time.test.ts`, `defaultFlows.test.ts`, `{SPH,PBF,FEM,MPM}Flow.time.test.ts` em `src/elements/physics/__tests__/`
-- [ ] T025 [US2] Migrar o smoke `src/__smokes__/trajectories.ts` (R9): `block()`/`FLUID_BLOCK` produzem arrays na mesma ordem e com o mesmo jitter; um corpo por cena; corrente XPBD como um `SoftBody` com 31 `edges`; rodar sem `--record` e confirmar a fixture inalterada nas 7 cenas × 3 taxas; anotar abaixo deste item
-- [ ] T026 [US2] Teste de reuso de faixa em `src/elements/physics/__tests__/vacantSlots.test.ts` (estender): inserir e remover corpos de contagens diferentes 100 vezes; faixas reaproveitadas, pool sem crescer além do pico, corpos vivos com o mesmo `first`
+- [x] T018 [P] [US2] Testes de autoria em `src/elements/physics/__tests__/particleBody.test.ts`: `FluidBody({ algorithm, position })` com N derivado (`position` com 4·N ou 3·N), campos opcionais com os padrões de hoje por partícula (MPM `F` identidade, `pred = pos`, `inv_mass` de `mass`), arrays inconsistentes → erro com campo e tamanhos, N = 0 → erro, N = 1 funciona, modo cru `{ schema, data, count }`; `SoftBody` com `mass` por partícula, `edges` e `surface` validados (índice fora → erro com o índice); descritor `body` com `count: N`; schema sem `pos: vec4f` → erro
+- [x] T019 [US2] Implementar `src/elements/physics/bodies/ParticleBody.ts` (base: `count`, dado SoA, validação, `positionField`), `FluidBody.ts` e `SoftBody.ts` (arrays, `edges` como descritor em pool no pool `DistanceConstraint` com `slotRef('self:body')`, `count` = número de arestas), tipos `*Data` exportados nos barris
+- [x] T020 [P] [US2] Testes de restrição em `src/elements/physics/__tests__/distanceConstraint.test.ts`: `DistanceConstraint({ a: { body, index }, b: { body, index }, restLength, compliance })` empacota slots absolutos; restrição entre dois corpos do mesmo pool; corpo de outro pool → erro
+- [x] T021 [US2] Implementar a nova `DistanceConstraint` em `src/elements/physics/constraints/DistanceConstraint.ts` (`slotRef` para o pool do corpo; sinônimos antigos removidos)
+- [x] T022 [US2] Kernels de partícula com `pool_live`: SPH, PBF, MPM (P2G, G2P, grade), XPBD (`predict`, `integrate`), FEM e a construção da vizinhança (`ns_*`) em `src/elements/gpu/wgsl/kernels/` e `src/elements/physics/flows/shaders/`; slot `live` ligado nos `SPHFlow`, `PBFFlow`, `MPMFlow`, `XPBDFlow`, `FEMFlow` (`src/elements/physics/flows/`); o teste da T002 passa a verde (remover `it.fails`)
+- [x] T023 [US2] Teto de partículas (R10): constante exportada do estágio de vizinhança (`src/elements/gpu/NeighborSearchPipeline.ts`), validação na inserção pelos `SPHFlow`/`PBFFlow` (transição `entitiesChanged`) com erro nomeando corpo, pedido e teto; teste em `src/elements/physics/__tests__/particleCap.test.ts`
+- [x] T024 [US2] Migrar os testes que montam uma entidade por partícula para contêineres: `softFluidAuthoring.test.ts`, `bodyUploadPolicy.test.ts`, `fluidMaterial.test.ts`, `helpers/solverBodies.ts`, `XPBDFlow.time.test.ts`, `defaultFlows.test.ts`, `{SPH,PBF,FEM,MPM}Flow.time.test.ts` em `src/elements/physics/__tests__/`
+- [x] T025 [US2] Migrar o smoke `src/__smokes__/trajectories.ts` (R9): `block()`/`FLUID_BLOCK` produzem arrays na mesma ordem e com o mesmo jitter; um corpo por cena; corrente XPBD como um `SoftBody` com 31 `edges`; rodar sem `--record` e confirmar a fixture inalterada nas 7 cenas × 3 taxas; anotar abaixo deste item
+
+> **Trajetórias com contêineres (T025)**: um corpo por cena (corrente XPBD = um `SoftBody` com 31 `edges`); fixture
+> inalterada — bit a bit nas 7 cenas × 3 taxas.
+
+- [x] T026 [US2] Teste de reuso de faixa em `src/elements/physics/__tests__/vacantSlots.test.ts` (estender): inserir e remover corpos de contagens diferentes 100 vezes; faixas reaproveitadas, pool sem crescer além do pico, corpos vivos com o mesmo `first`
 
 **Checkpoint**: corpos-contêiner simulados; trajetórias bit a bit; defeito A3 corrigido.
 

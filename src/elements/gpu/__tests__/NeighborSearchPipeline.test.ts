@@ -19,7 +19,13 @@ function setup(gridDim: [number, number, number]) {
         discriminator: 'particles',
         byteSize: 1024 * 64,
     };
-    return { core, ns, particles };
+    const live: StorageBufferSpec = {
+        kind: 'buffer',
+        subkind: 'storage',
+        discriminator: 'particles:live',
+        byteSize: 128,
+    };
+    return { core, ns, particles, live };
 }
 
 const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
@@ -37,9 +43,9 @@ describe('NeighborSearchPipeline', () => {
     });
 
     it('sequência: contagem, soma de prefixos das células (PrefixSum), espalhamento e busca', () => {
-        const { ns, particles } = setup([64, 64, 64]);
+        const { ns, particles, live } = setup([64, 64, 64]);
         const rec = recordingFrame();
-        ns.prepare(particles);
+        ns.prepare(particles, live);
         ns.rebuild(rec.frame, 100);
         expect(rec.passes.map((p) => [p.label, p.dispatches[0]])).toEqual([
             ['NS.assign_count', [100, 64]],
@@ -56,9 +62,9 @@ describe('NeighborSearchPipeline', () => {
     });
 
     it('zera contagens no fluxo de comandos a cada reconstrução', () => {
-        const { ns, particles } = setup([16, 16, 16]);
+        const { ns, particles, live } = setup([16, 16, 16]);
         const rec = recordingFrame();
-        ns.prepare(particles, 2);
+        ns.prepare(particles, live, 2);
         ns.rebuild(rec.frame, 10);
         ns.rebuild(rec.frame, 10);
         expect(rec.sequence.filter((s) => s.startsWith('clear:'))).toEqual([
@@ -70,19 +76,19 @@ describe('NeighborSearchPipeline', () => {
     });
 
     it('particleCount = 0 não grava nada', () => {
-        const { ns, particles } = setup([16, 16, 16]);
+        const { ns, particles, live } = setup([16, 16, 16]);
         const rec = recordingFrame();
-        ns.prepare(particles);
+        ns.prepare(particles, live);
         ns.rebuild(rec.frame, 0);
         expect(rec.passes).toHaveLength(0);
     });
 
     it('rebuild sem prepare → erro; a gravação não cria objetos de GPU', () => {
-        const { ns, core, particles } = setup([16, 16, 16]);
+        const { ns, core, particles, live } = setup([16, 16, 16]);
         expect(() => {
             ns.rebuild(recordingFrame().frame, 10);
         }).toThrow(/prepare/);
-        ns.prepare(particles, 3);
+        ns.prepare(particles, live, 3);
         const created = vi.mocked(core.create).mock.calls.length;
         const rec = recordingFrame();
         for (let i = 0; i < 3; i++) ns.rebuild(rec.frame, 10);
@@ -90,10 +96,10 @@ describe('NeighborSearchPipeline', () => {
     });
 
     it('prepare com outro buffer de partículas refaz só os kernels que o ligam', () => {
-        const { ns, core, particles } = setup([16, 16, 16]);
-        ns.prepare(particles);
+        const { ns, core, particles, live } = setup([16, 16, 16]);
+        ns.prepare(particles, live);
         const other: StorageBufferSpec = { ...particles, discriminator: 'particles2' };
-        ns.prepare(other);
+        ns.prepare(other, live);
         const destroyed = vi.mocked(core.destroy).mock.calls.map((c) => disc(c[0]));
         expect(destroyed.filter((d) => d.endsWith('_pipeline'))).toEqual([
             'ns_assign:test_pipeline',
@@ -102,8 +108,8 @@ describe('NeighborSearchPipeline', () => {
     });
 
     it('dispose libera os buffers da busca e os da soma de prefixos', () => {
-        const { ns, core, particles } = setup([64, 64, 64]);
-        ns.prepare(particles);
+        const { ns, core, particles, live } = setup([64, 64, 64]);
+        ns.prepare(particles, live);
         ns.rebuild(recordingFrame().frame, 100);
         ns.dispose();
         const destroyed = (

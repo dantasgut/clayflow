@@ -5,4 +5,5 @@ export {
     DistanceConstraint,
     type DistanceConstraintData,
     type DistanceConstraintValues,
+    type ParticleRef,
 } from './DistanceConstraint';

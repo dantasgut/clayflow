@@ -1,4 +1,5 @@
 import type { PoolBufferSpec } from '../../scene/contracts/PoolDirectory';
+import type { BoundPool } from '../../scene/flows/slots';
 import type {
     EngineCore,
     Frame,
@@ -53,7 +54,26 @@ export interface NeighborSearchOptions {
  *
  * Usado por SPHFlow e PBFFlow para acelerar density/forces computation.
  */
+/**
+ * Teto de partículas por pool dos estágios que usam a busca de vizinhança (SPH, PBF): o tamanho das listas da grade
+ * (PENDENCIAS E4; aumentá-lo é da F5).
+ */
+export const NEIGHBOR_SEARCH_MAX_PARTICLES = 65536;
+
 export class NeighborSearchPipeline {
+    /**
+     * Confere que o pool cabe no teto da busca (`NEIGHBOR_SEARCH_MAX_PARTICLES`).
+     * @throws RangeError nomeando o estágio, a entidade do corpo que passou do teto, a contagem e o teto.
+     */
+    static requireCapacity(stage: string, pool: BoundPool): void {
+        if (pool.count <= NEIGHBOR_SEARCH_MAX_PARTICLES) return;
+        const entity = pool.entityAt(NEIGHBOR_SEARCH_MAX_PARTICLES);
+        throw new RangeError(
+            `${stage}: o pool '${pool.poolKey}' chegou a ${pool.count} partículas (corpo da entidade ${entity ?? '?'}); `
+                + `o teto da busca de vizinhança é ${NEIGHBOR_SEARCH_MAX_PARTICLES}.`,
+        );
+    }
+
     private readonly disc: string;
     private readonly gridDim: readonly [number, number, number];
     private readonly cellSize: number;
@@ -81,6 +101,7 @@ export class NeighborSearchPipeline {
     /** Contagem escrita em `NsSimParams` (-1 = ainda não escrito). */
     private uploadedParticleCount = -1;
     private currentParticlesBuffer: PoolBufferSpec | null = null;
+    private currentLiveBuffer: StorageBufferSpec | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -211,6 +232,7 @@ export class NeighborSearchPipeline {
         this.neighborListBuffer = null;
         this.neighborCountBuffer = null;
         this.currentParticlesBuffer = null;
+        this.currentLiveBuffer = null;
         this.uploadedParticleCount = -1;
     }
 
@@ -219,12 +241,20 @@ export class NeighborSearchPipeline {
      * buffers da grade, kernels e a soma de prefixos. Idempotente; fora da gravação (numa transição do Flow — ex.: o
      * pool de partículas cresceu ou o número de passos do quadro mudou).
      */
-    prepare(particlesBuffer: PoolBufferSpec, rebuildsPerFrame = 1): void {
+    prepare(
+        particlesBuffer: PoolBufferSpec,
+        liveBuffer: StorageBufferSpec,
+        rebuildsPerFrame = 1,
+    ): void {
         this.allocate();
         this.scan!.prepare(this.cellStartBuffer!, rebuildsPerFrame);
-        if (this.currentParticlesBuffer !== particlesBuffer) {
+        if (
+            this.currentParticlesBuffer !== particlesBuffer
+            || this.currentLiveBuffer !== liveBuffer
+        ) {
             this.releaseParticleKernels();
             this.currentParticlesBuffer = particlesBuffer;
+            this.currentLiveBuffer = liveBuffer;
         }
         const nsParams = this.paramsBuffer!;
         this.assignKernel ??= createComputeKernel(this.core, {
@@ -234,6 +264,7 @@ export class NeighborSearchPipeline {
             bindings: {
                 ns_params: nsParams,
                 particle_data: particlesBuffer,
+                live: liveBuffer,
                 cell_ids: this.cellIdsBuffer!,
                 cell_count: this.cellCountBuffer!,
             },
@@ -261,6 +292,7 @@ export class NeighborSearchPipeline {
                 sorted_particles: this.sortedParticlesBuffer!,
                 neighbor_list: this.neighborListBuffer!,
                 neighbor_count: this.neighborCountBuffer!,
+                live: liveBuffer,
             },
         });
     }

@@ -182,6 +182,11 @@ export interface BoundPool {
     readonly generation: number;
     /** Slots de posse da GPU (escritos por um estágio, não pela CPU). */
     readonly gpuOwned: number;
+    /**
+     * Bitset de slots ocupados na GPU (`array<u32>`, um bit por slot; spec 008) — o que um kernel que percorre
+     * `[0, count)` testa para ignorar faixas liberadas (`pool_live`). Também em `consumes` como `<poolKey>.live`.
+     */
+    readonly live: StorageBufferSpec;
     /** Slot da entidade no pool (o primeiro da faixa), ou `undefined`. */
     slotOf(entityId: EntityId): number | undefined;
     /** Faixa da entidade no pool (`count` slots contíguos a partir de `first`, spec 008), ou `undefined`. */

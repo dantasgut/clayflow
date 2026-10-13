@@ -1,10 +1,19 @@
-import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { SPHSchema } from './schemas/SPHSchema';
 import { PBFSchema } from './schemas/PBFSchema';
 import { MPMFluidSchema } from './schemas/MPMFluidSchema';
 import { MPM_REST_DEFORMATION } from './schemas/MPMSoftSchema';
-import { PhysicsBody } from './PhysicsBody';
+import {
+    ParticleBody,
+    particleCount,
+    repeated,
+    requireLength,
+    vec4Of,
+    type ParticleBodyData,
+    type ParticleBodyRawOptions,
+    type ParticleFields,
+    type ParticlePositions,
+} from './ParticleBody';
 
 /** Algoritmo de fluido, em vocabulário de domínio. */
 export type FluidAlgorithm = 'SPH' | 'PBF' | 'MPM';
@@ -16,82 +25,63 @@ const FLUID_SCHEMAS: Record<FluidAlgorithm, StructSchema> = {
 };
 
 /**
- * Opções de domínio do FluidBody — uma partícula de fluido (o fluido completo
- * é N partículas no mesmo pool). O algoritmo seleciona o schema. Observação:
- * `pos.w` é específico do algoritmo (densidade no SPH, lambda no PBF) e NÃO é
- * massa — por isso só `pos.xyz` e `vel.xyz` são definidos aqui.
+ * Opções de domínio do FluidBody — o fluido inteiro: N partículas em arrays. O algoritmo seleciona o schema. `pos.w` é
+ * do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticleMaterial` da cena.
  */
 export interface FluidBodyDomainOptions {
-    /** Seleciona o schema/flow integrador (SPH, PBF ou MPM). */
+    /** Seleciona o schema e o estágio que simula (SPH, PBF ou MPM). */
     readonly algorithm: FluidAlgorithm;
-    /** Posição inicial da partícula (mundo). Default [0,0,0]. */
-    readonly position?: readonly [number, number, number];
-    /** Velocidade inicial da partícula. Default [0,0,0]. */
-    readonly velocity?: readonly [number, number, number];
+    /** Posições iniciais (mundo): `x, y, z` por partícula; o tamanho define N. */
+    readonly position: ParticlePositions;
+    /** Velocidades iniciais: `x, y, z` por partícula. Default zero. */
+    readonly velocity?: ArrayLike<number>;
 }
 
-/** Opções cruas (avançado) — schema + data diretos. Retrocompat. */
-/** Opções cruas do FluidBody: schema do struct de GPU e dado do struct. */
-export interface FluidBodyRawOptions {
-    /** Schema do struct da partícula (layout de GPU) — define o algoritmo pelo nome do pool. */
-    readonly schema: StructSchema;
-    /** Dado cru do struct (campos do schema); ausentes recebem default. */
-    readonly data?: Record<string, unknown>;
-}
+/** Opções cruas do FluidBody: schema, contagem e dado por campo. */
+export type FluidBodyRawOptions = ParticleBodyRawOptions;
 
-/** União pública aceita pelo construtor do FluidBody: vocabulário de domínio ou struct cru. */
+/** União aceita pelo construtor do FluidBody: vocabulário de domínio ou struct cru. */
 export type FluidBodyOptions = FluidBodyDomainOptions | FluidBodyRawOptions;
+
+/** Dado de um `FluidBody`: as partículas por campo. */
+export type FluidBodyData = ParticleBodyData;
 
 function isRaw(o: FluidBodyOptions): o is FluidBodyRawOptions {
     return 'schema' in o;
 }
 
 /**
- * FluidBody — partícula de fluido (water, smoke, gel). Data class pura
- * governada pelo `schema`. Pool key = `schema.name` roteia para
- * SPHFlow/PBFFlow/MPMFlow.
+ * FluidBody — um fluido (água, fumaça, gel) de N partículas num único Resource (spec 008), na faixa de N slots do pool
+ * do algoritmo (`SPHSchema`, `PBFSchema`, `MPMFluidSchema`), que roteia para o `SPHFlow`, `PBFFlow` ou `MPMFlow`.
  *
- *  - **Domínio**: `new FluidBody({ algorithm: 'SPH', position, velocity })`.
- *  - **Cru** (avançado): `new FluidBody({ schema, data })`.
+ *  - **Domínio**: `new FluidBody({ algorithm: 'SPH', position, velocity })`, com `position` = `x, y, z` por partícula.
+ *  - **Cru** (avançado): `new FluidBody({ schema, count, data })`, com `data` por campo do schema.
  */
-export class FluidBody extends PhysicsBody {
-    private readonly schema: StructSchema;
-
+export class FluidBody extends ParticleBody {
     constructor(options: FluidBodyOptions) {
-        super();
         if (isRaw(options)) {
-            this.schema = options.schema;
-            this.data = this.schema.applyDefaults(options.data ?? {});
+            super('FluidBody', options.schema, options.count);
+            this.data = { body: { ...options.data } };
             return;
         }
-        const schema = FLUID_SCHEMAS[options.algorithm];
+        const schema = FLUID_SCHEMAS[options.algorithm] as StructSchema | undefined;
         if (schema === undefined) {
             throw new Error(`FluidBody: algoritmo desconhecido '${options.algorithm}'`);
         }
-        const [px, py, pz] = options.position ?? [0, 0, 0];
-        const [vx, vy, vz] = options.velocity ?? [0, 0, 0];
-        this.schema = schema;
-        // pos.w / vel.w são específicos do algoritmo (densidade, pressão, lambda) —
-        // deixados no default (0) para o solver inicializar.
-        this.data = schema.applyDefaults({
-            pos: [px, py, pz, 0],
-            vel: [vx, vy, vz, 0],
-            // MPM: gradiente de deformação em repouso (identidade); massa e volume vêm do `ParticleMaterial`.
-            ...(options.algorithm === 'MPM' ? MPM_REST_DEFORMATION : {}),
-        });
-    }
-
-    /** Pool storage para coalescer N FluidBodies do mesmo schema em 1 buffer GPU. */
-    getDescriptors(): readonly GPUDescriptor[] {
-        return [
-            {
-                id: 'body',
-                role: 'storage-rw',
-                schema: this.schema,
-                storage: 'pool',
-                // A simulação é dona do estado após a inserção: a CPU envia só o spawn.
-                upload: 'initial',
-            },
-        ];
+        const count = particleCount('FluidBody', options.position);
+        super('FluidBody', schema, count);
+        if (options.velocity !== undefined)
+            requireLength('FluidBody', 'velocity', options.velocity, count, 3);
+        // pos.w / vel.w são do algoritmo (densidade, pressão, lambda): zero para o solver inicializar.
+        const body: ParticleFields = {
+            pos: vec4Of(options.position, count),
+            vel: vec4Of(options.velocity, count),
+        };
+        if (options.algorithm === 'MPM') {
+            // Gradiente de deformação em repouso (identidade); massa e volume vêm do `ParticleMaterial`.
+            for (const [field, value] of Object.entries(MPM_REST_DEFORMATION))
+                body[field] = repeated(value, count);
+        }
+        this.data = { body };
     }
 }

@@ -1,6 +1,7 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/sph_density.wgsl.ts
 @group(0) @binding(0) var<uniform>             sph_params:     SPHSimParams;
 @group(1) @binding(0) var<storage, read_write> particles:      array<SPHParticle>;
+@group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
 
@@ -12,7 +13,7 @@ fn sph_density_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= sph_params.particle_count) { return; }
+    if (i >= sph_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 
     let h      = sph_params.h;
     let mass   = sph_params.particle_mass;

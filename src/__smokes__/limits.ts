@@ -165,7 +165,16 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
         gridDim: [dim, dim, dim],
         origin: [0, 0, 0],
     });
-    ns.prepare(particles);
+    // Todas as partículas vivas (bitset de ocupação com os n bits ligados).
+    const liveBits = new Uint32Array(Math.ceil(n / 32)).fill(0xffffffff);
+    const live = app.core.create<StorageBufferSpec>({
+        kind: 'buffer',
+        subkind: 'storage',
+        discriminator: 'limits_live',
+        byteSize: liveBits.byteLength,
+    });
+    app.core.write(live, liveBits);
+    ns.prepare(particles, live);
     app.core.record('limits-ns', (frame) => {
         ns.rebuild(frame, n);
     });

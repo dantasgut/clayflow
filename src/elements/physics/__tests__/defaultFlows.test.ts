@@ -12,9 +12,17 @@ describe('DEFAULT_SOLVER_REGISTRATIONS — XPBD', () => {
         const regs = DEFAULT_SOLVER_REGISTRATIONS.map((r) =>
             scene.flows.register(r.factory, r.options),
         );
-        scene.world.insert(new SoftBody({ algorithm: 'XPBD', position: [0, 1, 0], mass: 0 }));
-        scene.world.insert(new SoftBody({ algorithm: 'XPBD', position: [0.1, 1, 0], mass: 1 }));
-        scene.world.insert(new DistanceConstraint({ i: 0, j: 1, restLength: 0.1 }));
+        const a = new SoftBody({ algorithm: 'XPBD', position: [0, 1, 0], mass: 0 });
+        const b = new SoftBody({ algorithm: 'XPBD', position: [0.1, 1, 0], mass: 1 });
+        scene.world.insert(a);
+        scene.world.insert(b);
+        scene.world.insert(
+            new DistanceConstraint({
+                a: { body: a, index: 0 },
+                b: { body: b, index: 0 },
+                restLength: 0.1,
+            }),
+        );
         const xpbd = regs.find((r) => r.options.type === 'XPBDFlow')!;
         expect(xpbd.flow).toBeInstanceOf(XPBDFlow);
         expect(countPasses(step(), 'XPBDFlow.distance_solve')).toBeGreaterThan(0);

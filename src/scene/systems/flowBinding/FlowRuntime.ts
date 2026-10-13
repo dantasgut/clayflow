@@ -625,6 +625,9 @@ export class FlowRuntime {
                 get gpuOwned() {
                     return info().gpuOwned;
                 },
+                get live() {
+                    return resources.poolLiveBuffer(poolKey)!;
+                },
                 slotOf: (id) => resources.poolSlotOf(poolKey, id),
                 rangeOf: (id) => resources.poolRangeOf(poolKey, id),
                 ownedByGpu: (slot) => resources.poolSlotOwnedByGpu(poolKey, slot),

@@ -4,6 +4,7 @@
 // velocidades deste passe, sem corrida); `pbf_apply_velocity_main` soma depois.
 @group(0) @binding(0) var<uniform>             pbf_params:     PBFSimParams;
 @group(1) @binding(0) var<storage, read_write> particles:      array<PBFParticle>;
+@group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
 @group(3) @binding(0) var<storage, read_write> pbf_delta:      array<vec4f>;
@@ -15,7 +16,7 @@ fn pbf_xsph_main(
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let i = gid3.x + gid3.y * nwg.x * 64u;
-    if (i >= pbf_params.particle_count) { return; }
+    if (i >= pbf_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 
     let h        = pbf_params.h;
     let eps_v    = pbf_params.vorticity_eps;  // vorticity_eps

@@ -1,3 +1,4 @@
+import { poolLive } from '../../gpu/compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { colliderSet, sphKernels } from '../../gpu/shaders/math';
 import sphDensitySource from '../../gpu/wgsl/kernels/sph_density.wgsl?raw';
@@ -14,7 +15,7 @@ import { SPHSimParamsSchema } from '../../physics/schemas/simParams';
 export const sphDensity = wgslModule({
     name: 'sph_density',
     source: sphDensitySource,
-    requires: [sphKernels],
+    requires: [poolLive, sphKernels],
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 
@@ -22,6 +23,7 @@ export const sphDensity = wgslModule({
 export const sphPressure = wgslModule({
     name: 'sph_pressure',
     source: sphPressureSource,
+    requires: [poolLive],
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 
@@ -29,7 +31,7 @@ export const sphPressure = wgslModule({
 export const sphForces = wgslModule({
     name: 'sph_forces',
     source: sphForcesSource,
-    requires: [sphKernels],
+    requires: [poolLive, sphKernels],
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 
@@ -37,6 +39,7 @@ export const sphForces = wgslModule({
 export const sphIntegrate = wgslModule({
     name: 'sph_integrate',
     source: sphIntegrateSource,
+    requires: [poolLive],
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 
@@ -44,6 +47,6 @@ export const sphIntegrate = wgslModule({
 export const sphCollision = wgslModule({
     name: 'sph_collision',
     source: sphCollisionSource,
-    requires: [colliderSet],
+    requires: [poolLive, colliderSet],
     structs: [SPHSimParamsSchema, SPHSchema],
 });

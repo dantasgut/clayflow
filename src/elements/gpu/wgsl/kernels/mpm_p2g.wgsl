@@ -2,6 +2,7 @@
 @group(0) @binding(0) var<uniform>             mpm_params: MPMSimParams;
 @group(1) @binding(0) var<storage, read_write> grid:       array<MPMGridNode>;
 @group(2) @binding(0) var<storage, read_write> particles:  array<MPMParticle>;
+@group(2) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 
 @compute @workgroup_size(64)
 fn mpm_p2g_main(
@@ -11,7 +12,7 @@ fn mpm_p2g_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let p = gid.x;
-    if (p >= mpm_params.particle_count) { return; }
+    if (p >= mpm_params.particle_count || !pool_live(live[p >> 5u], p)) { return; }
 
     let particle = particles[p];
     let pos      = particle.pos.xyz;
