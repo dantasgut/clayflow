@@ -402,6 +402,22 @@ export class StructSchema extends Schema {
     }
 
     /**
+     * Lê um registro de `source` a partir de `byteOffset` — o inverso de `packInto`: escalares viram números; vetores,
+     * matrizes e arrays de tamanho fixo viram arrays de números (matrizes com o padding das colunas, como no buffer);
+     * structs aninhados viram objetos. Arrays de tamanho em execução não são lidos.
+     */
+    unpack(source: ArrayBuffer | ArrayBufferView, byteOffset = 0): Record<string, unknown> {
+        const buffer = source instanceof ArrayBuffer ? source : (source.buffer as ArrayBuffer);
+        const base = (source instanceof ArrayBuffer ? 0 : source.byteOffset) + byteOffset;
+        const out: Record<string, unknown> = {};
+        for (const [name, entry] of this.layout) {
+            const value = readField(buffer, base + entry.offset, entry.type, this);
+            if (value !== undefined) out[name] = value;
+        }
+        return out;
+    }
+
+    /**
      * Emite a definição WGSL `struct <wgslName> { ... }` (só deste struct; os aninhados são emitidos pela montagem a
      * partir de `dependencies`).
      */
@@ -448,6 +464,26 @@ function writeField(
     const n = Math.min(type.length, value.length);
     for (let i = 0; i < n; i++)
         writeField(buffer, offset + i * stride, type.element, value[i], owner);
+}
+
+function readField(
+    buffer: ArrayBuffer,
+    offset: number,
+    type: FieldSpec,
+    owner: StructSchema,
+): unknown {
+    if (isPrimitive(type)) {
+        const elements = fieldElements(type);
+        const view = new (fieldCtor(type))(buffer, offset, elements);
+        return elements === 1 ? view[0] : Array.from(view);
+    }
+    if (type.kind === 'struct') return type.schema.unpack(buffer, offset);
+    if (type.kind === 'runtimeArray') return undefined;
+    const elem = typeLayout(type.element, owner.addressSpace);
+    const stride = alignTo(elem.size, elem.align);
+    return Array.from({ length: type.length }, (_, i) =>
+        readField(buffer, offset + i * stride, type.element, owner),
+    );
 }
 
 function writePrimitive(

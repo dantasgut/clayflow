@@ -54,6 +54,7 @@ export class FlowBinder {
             events.on('resourceReady', (e) => {
                 const resource = e.payload.resource;
                 for (const rt of this.runtimes.values()) {
+                    rt.resourceUploaded(resource);
                     const schema = rt.listenedSchema(resource);
                     if (schema !== undefined)
                         rt.deliverDomain({ type: 'resourceReady', schema, resource });
@@ -61,6 +62,7 @@ export class FlowBinder {
             }),
             events.on('poolWritten', (e) => {
                 for (const rt of this.runtimes.values()) {
+                    rt.poolWritten(e.poolKey, e.ranges);
                     if (rt.listens(e.schema)) {
                         rt.deliverDomain({
                             type: 'poolWritten',

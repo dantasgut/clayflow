@@ -18,6 +18,7 @@ import type { PoolBufferSpec, PoolInfo } from '../contracts/PoolDirectory';
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import type { Schema } from '../descriptors/Schema';
 import { StructSchema } from '../descriptors/StructSchema';
+import { FieldType } from '../descriptors/FieldType';
 import type { EventBus, Unsubscribe } from '../events/EventBus';
 import { ResourceStateHandlerRegistry } from '../lifecycle/ResourceStateHandlerRegistry';
 import type { World } from '../world/World';
@@ -51,6 +52,28 @@ interface PoolEntry {
     generation: number;
     /** Slots com dado da CPU a enviar no próximo envio (bitset de `capacity` bits). */
     dirtyBits: Uint32Array;
+    /** Slots já escritos desde que foram ocupados (o primeiro envio de um slot de posse da GPU ainda sai). */
+    writtenBits: Uint32Array;
+    /** Slots de posse da GPU (`slot.entities({ owns })`): a CPU não os escreve depois do primeiro envio. */
+    ownedBits: Uint32Array;
+    /** Dono (conjunto que declarou `owns`) de cada slot de posse da GPU. */
+    readonly owners: Map<number, object>;
+}
+
+/** Pedido de leitura de um Resource (`ResourceSystem.read`). */
+interface PendingRead {
+    readonly resource: Resource;
+    readonly descId: string | undefined;
+    readonly resolve: (data: Record<string, unknown> | undefined) => void;
+}
+
+/** Leitura localizada: fonte, slot, stride e schema, com o pedido. */
+interface ReadItem {
+    readonly source: AnyBufferSpec;
+    readonly stride: number;
+    readonly slot: number;
+    readonly schema: StructSchema;
+    readonly request: PendingRead;
 }
 
 /** O que a C2 alocou para um descritor individual (não-pool) de um recurso. */
@@ -153,6 +176,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly dirty = new Set<Resource>();
     /** Pools com slots marcados para o próximo envio. */
     private readonly dirtyPools = new Set<PoolEntry>();
+    /** Listas de instâncias (`slot.entities({ groups })`) por chave: campo `u32` e usuários. */
+    private readonly instanceLists = new Map<string, { readonly field: string; users: number }>();
+    /** Leituras pedidas desde o último lote (agrupadas e copiadas numa microtarefa). */
+    private readonly pendingReads: PendingRead[] = [];
+    private readsScheduled = false;
+    private readBatch = 0;
+    /** Resources cuja mutação foi ignorada por posse da GPU (aviso uma vez por Resource). */
+    private readonly warnedOwned = new WeakSet<Resource>();
     /** Buffers de vértice/índice compartilhados por chave de conteúdo: o spec e quantas alocações o usam. */
     private readonly sharedGeometry = new Map<string, { spec: AnyBufferSpec; users: number }>();
     /** Área de empacotamento reutilizada pelas faixas do envio. */
@@ -284,6 +315,238 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (set === undefined || --set.users > 0) return;
         for (const id of [...set.entry.slotByEntity.keys()]) this.removeRecord(set, id);
         this.recordSets.delete(key);
+    }
+
+    /**
+     * Passa a manter a lista de instâncias com o schema dado (`slot.entities({ groups })`): pool com chave
+     * `schema.name`, um `u32` por posição. Conjuntos com o mesmo schema compartilham a lista (contagem de usuários).
+     * @throws Error se o schema não tem exatamente um campo `u32`.
+     */
+    acquireInstanceList(schema: StructSchema): void {
+        const key = schema.name;
+        const existing = this.instanceLists.get(key);
+        if (existing !== undefined) {
+            existing.users++;
+            return;
+        }
+        const fields = [...schema.fields.entries()];
+        if (fields.length !== 1 || fields[0]![1] !== FieldType.u32) {
+            throw new Error(
+                `ResourceSystem: lista de instâncias '${key}' exige um schema com um único campo u32.`,
+            );
+        }
+        this.instanceLists.set(key, { field: fields[0]![0], users: 1 });
+        if (!this.pools.has(key)) {
+            this.createPool(key, { id: key, role: 'storage-ro', storage: 'pool', schema }, schema);
+            for (const created of this.createdPools.splice(0)) {
+                this.events.emit('poolCreated', {
+                    poolKey: created.poolKey,
+                    schema: created.schema,
+                });
+            }
+        }
+    }
+
+    /** Desfaz um `acquireInstanceList`; sem usuários, as posições são liberadas (o pool fica). */
+    releaseInstanceList(schema: StructSchema): void {
+        const list = this.instanceLists.get(schema.name);
+        if (list === undefined || --list.users > 0) return;
+        this.instanceLists.delete(schema.name);
+        const entry = this.pools.get(schema.name);
+        if (entry === undefined) return;
+        for (const slot of [...entry.occupants.keys()]) this.clearInstance(schema.name, slot);
+    }
+
+    /** Escreve `value` na posição `index` da lista de instâncias (enviado em faixas no próximo envio). */
+    setInstance(poolKey: string, index: number, value: number): void {
+        const list = this.instanceLists.get(poolKey);
+        const entry = this.pools.get(poolKey);
+        if (list === undefined || entry === undefined) {
+            throw new Error(`ResourceSystem: lista de instâncias '${poolKey}' não adquirida.`);
+        }
+        while (index >= entry.capacity) this.growPool(entry);
+        entry.count = Math.max(entry.count, index + 1);
+        entry.occupants.set(index, { schema: entry.schema, record: { [list.field]: value } });
+        this.markSlot(entry, index);
+    }
+
+    /** Libera a posição `index` da lista de instâncias. */
+    clearInstance(poolKey: string, index: number): void {
+        const entry = this.pools.get(poolKey);
+        if (entry === undefined) return;
+        entry.occupants.delete(index);
+        this.clearSlot(entry, index);
+        clearBit(entry.writtenBits, index);
+    }
+
+    /**
+     * Passa à GPU a posse do descritor `descId` (em pool) de `resource`, em nome de `owner` (`slot.entities({ owns })`):
+     * depois do primeiro envio a CPU não escreve mais o slot e mutação é ignorada com aviso único por Resource; o
+     * crescimento do pool preserva o dado por cópia na GPU.
+     * @throws Error se outro dono já tem a posse do mesmo slot.
+     */
+    acquireOwnership(owner: object, resource: Resource, descId: string): void {
+        const located = this.poolSlotOfDescriptor(resource, descId);
+        if (located === undefined) return;
+        const { entry, slot } = located;
+        const current = entry.owners.get(slot);
+        if (current !== undefined && current !== owner) {
+            throw new Error(
+                `ResourceSystem: o descritor '${descId}' de '${this.schemaNameOf(resource)}' já tem dono na GPU `
+                    + '(dois conjuntos declaram owns sobre o mesmo dado).',
+            );
+        }
+        entry.owners.set(slot, owner);
+        setBit(entry.ownedBits, slot);
+    }
+
+    /** Devolve à CPU a posse tomada por `owner`; o dado de intenção é reenviado no próximo envio. */
+    releaseOwnership(owner: object, resource: Resource, descId: string): void {
+        const located = this.poolSlotOfDescriptor(resource, descId);
+        if (located === undefined) return;
+        const { entry, slot } = located;
+        if (entry.owners.get(slot) !== owner) return;
+        entry.owners.delete(slot);
+        clearBit(entry.ownedBits, slot);
+        this.markSlot(entry, slot);
+    }
+
+    /** Chave do pool do descritor `descId` de `resource` (com algoritmo, quando declarado), ou `undefined`. */
+    poolKeyOf(resource: Resource, descId: string): string | undefined {
+        const desc = resource
+            .getDescriptors()
+            .find((d) => d.id === descId && d.storage === 'pool' && d.schema !== undefined);
+        return desc?.schema === undefined ? undefined : this.computePoolKey(desc.schema, resource);
+    }
+
+    private poolSlotOfDescriptor(
+        resource: Resource,
+        descId: string,
+    ): { entry: PoolEntry; slot: number } | undefined {
+        const poolKey = this.poolKeyOf(resource, descId);
+        const entry = poolKey === undefined ? undefined : this.pools.get(poolKey);
+        const slot = entry?.slotOfResource.get(resource);
+        return entry === undefined || slot === undefined ? undefined : { entry, slot };
+    }
+
+    /**
+     * Lê da GPU o dado de `resource` (o descritor `descId`, ou o primeiro com schema) e o devolve desempacotado pelo
+     * schema — o caminho para a CPU ver um dado de posse da GPU (ex.: a pose de um corpo). Os pedidos da mesma
+     * tarefa são agrupados: uma cópia por faixa contígua de slots de cada pool, um envio e uma leitura de volta; a
+     * cópia entra depois do trabalho já enviado, então o valor é o do último quadro enviado. Resource fora da cena (ou
+     * removido antes da resposta) resolve `undefined`. Nenhuma leitura acontece sem pedido.
+     */
+    read(resource: Resource, descId?: string): Promise<Record<string, unknown> | undefined> {
+        return new Promise((resolve) => {
+            this.pendingReads.push({ resource, descId, resolve });
+            if (this.readsScheduled) return;
+            this.readsScheduled = true;
+            queueMicrotask(() => {
+                this.flushReads();
+            });
+        });
+    }
+
+    /** `read` de vários Resources, num lote só. */
+    readAll(
+        resources: readonly Resource[],
+        descId?: string,
+    ): Promise<(Record<string, unknown> | undefined)[]> {
+        return Promise.all(resources.map((r) => this.read(r, descId)));
+    }
+
+    /** Copia os pedidos pendentes para um staging (faixas contíguas por fonte), lê de volta e desempacota. */
+    private flushReads(): void {
+        this.readsScheduled = false;
+        const requests = this.pendingReads.splice(0);
+        const bySource = new Map<AnyBufferSpec, { stride: number; items: ReadItem[] }>();
+        for (const request of requests) {
+            const target = this.readTarget(request.resource, request.descId);
+            if (target === undefined) {
+                request.resolve(undefined);
+                continue;
+            }
+            let group = bySource.get(target.source);
+            if (group === undefined) {
+                group = { stride: target.stride, items: [] };
+                bySource.set(target.source, group);
+            }
+            group.items.push({ ...target, request });
+        }
+        if (bySource.size === 0) return;
+        const copies: {
+            source: AnyBufferSpec;
+            srcOffset: number;
+            dstOffset: number;
+            size: number;
+        }[] = [];
+        const placed: { item: ReadItem; dstOffset: number }[] = [];
+        let total = 0;
+        for (const [source, { stride, items }] of bySource) {
+            const slots = [...new Set(items.map((i) => i.slot))].sort((a, b) => a - b);
+            const dstOfSlot = new Map<number, number>();
+            let k = 0;
+            while (k < slots.length) {
+                let end = k;
+                while (end + 1 < slots.length && slots[end + 1] === slots[end]! + 1) end++;
+                const size = (end - k + 1) * stride;
+                copies.push({ source, srcOffset: slots[k]! * stride, dstOffset: total, size });
+                for (let j = k; j <= end; j++) dstOfSlot.set(slots[j]!, total + (j - k) * stride);
+                total += size;
+                k = end + 1;
+            }
+            for (const item of items) placed.push({ item, dstOffset: dstOfSlot.get(item.slot)! });
+        }
+        const staging = this.core.create<StagingBufferSpec>({
+            kind: 'buffer',
+            subkind: 'staging',
+            discriminator: `read:${this.readBatch++}`,
+            byteSize: alignUp(total, 4),
+        });
+        this.core.record('resource_read', (frame) => {
+            for (const c of copies) frame.copy(c.source, staging, c.size, c.srcOffset, c.dstOffset);
+        });
+        this.core.submit();
+        void this.core.readback(staging).then(
+            (bytes) => {
+                this.core.destroy(staging);
+                for (const { item, dstOffset } of placed) {
+                    const alive = this.allocated.has(item.request.resource);
+                    item.request.resolve(alive ? item.schema.unpack(bytes, dstOffset) : undefined);
+                }
+            },
+            () => {
+                this.core.destroy(staging);
+                for (const { item } of placed) item.request.resolve(undefined);
+            },
+        );
+    }
+
+    /** Fonte, slot e schema da leitura: slot do pool, ou o buffer individual inteiro (slot 0). */
+    private readTarget(
+        resource: Resource,
+        descId: string | undefined,
+    ): Omit<ReadItem, 'request'> | undefined {
+        if (!this.allocated.has(resource)) return undefined;
+        const desc = resource
+            .getDescriptors()
+            .find(
+                (d) =>
+                    (descId === undefined || d.id === descId)
+                    && d.schema instanceof StructSchema
+                    && isTypedBufferRole(d),
+            );
+        const schema = desc?.schema;
+        if (desc === undefined || !(schema instanceof StructSchema)) return undefined;
+        if (desc.storage === 'pool') {
+            const entry = this.pools.get(this.computePoolKey(schema, resource));
+            const slot = entry?.slotOfResource.get(resource);
+            if (entry === undefined || slot === undefined) return undefined;
+            return { source: entry.bufferSpec, stride: entry.stride, slot, schema };
+        }
+        const buffer = this.allocations.get(resource)?.get(desc.id)?.buffer;
+        if (buffer === undefined) return undefined;
+        return { source: buffer, stride: alignUp(schema.stride, 4), slot: 0, schema };
     }
 
     hasPool(poolKey: string): boolean {
@@ -460,6 +723,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     w &= w - 1;
                     const slot = (word << 5) | bit;
                     if (!entry.occupants.has(slot)) continue;
+                    // Posse da GPU: só o primeiro envio do slot sai da CPU.
+                    if (hasBit(entry.ownedBits, slot) && hasBit(entry.writtenBits, slot)) continue;
                     if (runStart >= 0 && slot === runEnd + 1) {
                         runEnd = slot;
                         continue;
@@ -511,6 +776,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             new Uint8Array(this.scratch, 0, bytes),
             first * entry.stride,
         );
+        for (let slot = first; slot <= last; slot++) setBit(entry.writtenBits, slot);
         ranges.push([first, count]);
     }
 
@@ -530,6 +796,16 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 onChange();
             },
         });
+    }
+
+    private warnOwnedMutation(resource: Resource, descId: string): void {
+        if (this.warnedOwned.has(resource)) return;
+        this.warnedOwned.add(resource);
+        const id = this.world.entityIdOfResource(resource);
+        console.warn(
+            `[ResourceSystem] Mutação ignorada em '${this.schemaNameOf(resource)}' (descritor '${descId}', entidade `
+                + `${id ?? '?'}): a GPU é dona deste dado (owns). Leia-o com world.read.`,
+        );
     }
 
     private warnIgnoredMutation(resource: Resource): void {
@@ -899,6 +1175,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             freeList: [],
             generation: 0,
             dirtyBits: new Uint32Array(Math.ceil(capacity / 32)),
+            writtenBits: new Uint32Array(Math.ceil(capacity / 32)),
+            ownedBits: new Uint32Array(Math.ceil(capacity / 32)),
+            owners: new Map(),
         };
         this.pools.set(poolKey, entry);
         this.consumers.registerDefault(new PoolResolver(poolKey, schema));
@@ -941,9 +1220,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             });
             this.core.submit();
         }
-        const bits = new Uint32Array(Math.ceil(entry.capacity / 32));
-        bits.set(entry.dirtyBits);
-        entry.dirtyBits = bits;
+        entry.dirtyBits = grownBits(entry.dirtyBits, entry.capacity);
+        entry.writtenBits = grownBits(entry.writtenBits, entry.capacity);
+        entry.ownedBits = grownBits(entry.ownedBits, entry.capacity);
         this.core.destroy(oldSpec);
         this.events.emit('poolReallocated', {
             poolKey: entry.poolKey,
@@ -983,6 +1262,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         entry.occupants.delete(slot);
         entry.freeList.push(slot);
         this.clearSlot(entry, slot);
+        clearBit(entry.writtenBits, slot);
     }
 
     /** Campos do registro: o slot de pool do descritor nomeado do Resource de cada tipo; `undefined` se faltar algum. */
@@ -1033,6 +1313,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             entry.entityBySlot.delete(slot);
             entry.freeList.push(slot);
             this.clearSlot(entry, slot);
+            clearBit(entry.writtenBits, slot);
+            clearBit(entry.ownedBits, slot);
+            entry.owners.delete(slot);
         }
         this.transition(resource, ResourceState.Destroyed);
     }
@@ -1055,7 +1338,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 if (desc.schema === undefined) continue;
                 const entry = this.pools.get(this.computePoolKey(desc.schema, resource));
                 const slot = entry?.slotOfResource.get(resource);
-                if (entry !== undefined && slot !== undefined) this.markSlot(entry, slot);
+                if (entry === undefined || slot === undefined) continue;
+                if (hasBit(entry.ownedBits, slot) && hasBit(entry.writtenBits, slot)) {
+                    this.warnOwnedMutation(resource, desc.id);
+                    continue;
+                }
+                this.markSlot(entry, slot);
                 continue;
             }
             const allocation = own?.get(desc.id);
@@ -1190,6 +1478,27 @@ function padTo4(view: ArrayBufferView): ArrayBufferView {
     const out = new Uint8Array(alignUp(view.byteLength, 4));
     out.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
     return out;
+}
+
+function setBit(bits: Uint32Array, index: number): void {
+    const word = index >>> 5;
+    bits[word] = (bits[word] ?? 0) | (1 << (index & 31));
+}
+
+function clearBit(bits: Uint32Array, index: number): void {
+    const word = index >>> 5;
+    if (word < bits.length) bits[word] = bits[word]! & ~(1 << (index & 31));
+}
+
+function hasBit(bits: Uint32Array, index: number): boolean {
+    return ((bits[index >>> 5] ?? 0) & (1 << (index & 31))) !== 0;
+}
+
+/** Bitset com espaço para `capacity` bits, preservando os bits atuais. */
+function grownBits(bits: Uint32Array, capacity: number): Uint32Array {
+    const grown = new Uint32Array(Math.ceil(capacity / 32));
+    grown.set(bits);
+    return grown;
 }
 
 /** Vista de bytes de um `ArrayBufferView`. */

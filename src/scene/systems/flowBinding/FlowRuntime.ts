@@ -34,6 +34,7 @@ import type { World } from '../../world/World';
 import type { EntityId } from '../../world/EntityId';
 import type { LayoutInferencer, InferredEntry } from '../LayoutInferencer';
 import type { ResourceSystem } from '../ResourceSystem';
+import { EntityGroups } from './EntityGroups';
 import { PipelineState } from './PipelineState';
 import { normalizeSource } from './sources';
 
@@ -64,6 +65,8 @@ export class FlowRuntime {
     private readonly entityViews = new Map<string, BoundEntities>();
     /** Lista das entradas por slot, refeita só quando o conjunto muda. */
     private readonly entityCaches = new Map<string, readonly EntityEntry[]>();
+    /** Grupos de instâncias por slot `entities` com `groups`. */
+    private readonly groupSets = new Map<string, EntityGroups>();
     /** Mudanças de entidades por slot desde o último `entitiesChanged` (entregues por quadro). */
     private readonly pendingChanges = new Map<
         string,
@@ -109,9 +112,16 @@ export class FlowRuntime {
                 host.resources.acquireEntityRecords(decl.all, decl.record);
             const set = new Map<EntityId, EntityEntry>();
             this.entitySets.set(name, set);
+            const groups =
+                decl.groups === undefined
+                    ? undefined
+                    : new EntityGroups(decl.groups, host.resources);
+            if (groups !== undefined) this.groupSets.set(name, groups);
             for (const record of host.world.allRecords()) {
                 const entry = this.entryFor(record.id, decl);
-                if (entry !== undefined) set.set(record.id, entry);
+                if (entry === undefined) continue;
+                set.set(record.id, entry);
+                this.entered(decl, entry, groups);
             }
         }
         const states = this.pipelineStates;
@@ -226,10 +236,12 @@ export class FlowRuntime {
         for (const [name, set] of this.entitySets) {
             const decl = this.flow.slots[name] as EntitiesSlot;
             let changed = false;
+            const groups = this.groupSets.get(name);
             for (const id of ids) {
                 const entry = this.entryFor(id, decl);
                 if (entry === undefined) continue;
                 set.set(id, entry);
+                this.entered(decl, entry, groups);
                 this.changesOf(name).added.add(id);
                 changed = true;
             }
@@ -241,14 +253,61 @@ export class FlowRuntime {
     entitiesRemoved(ids: readonly EntityId[]): void {
         for (const [name, set] of this.entitySets) {
             let changed = false;
+            const groups = this.groupSets.get(name);
             for (const id of ids) {
                 if (!set.delete(id)) continue;
+                groups?.remove(id);
                 const changes = this.changesOf(name);
                 // Entrou e saiu no mesmo quadro: o Flow nunca a viu.
                 if (!changes.added.delete(id)) changes.removed.add(id);
                 changed = true;
             }
             if (changed) this.entityCaches.delete(name);
+        }
+    }
+
+    /** A entrada entrou no conjunto: grupo de instâncias e posse da GPU declarados no slot. */
+    private entered(
+        decl: EntitiesSlot,
+        entry: EntityEntry,
+        groups: EntityGroups | undefined,
+    ): void {
+        for (const [type, descId] of decl.owns ?? []) {
+            this.host.resources.acquireOwnership(decl, entry.get(type), descId);
+        }
+        groups?.add(entry);
+    }
+
+    /**
+     * Faixas de um pool enviadas: reavalia a chave de grupo das entidades dos conjuntos com `groups` cujos slots foram
+     * escritos (ex.: escala de um `Transform` que inverte a face).
+     */
+    poolWritten(poolKey: string, ranges: readonly (readonly [number, number])[]): void {
+        if (this.groupSets.size === 0) return;
+        const resources = this.host.resources;
+        for (const [name, groups] of this.groupSets) {
+            const decl = this.flow.slots[name] as EntitiesSlot;
+            if (poolKey === decl.groups?.schema.name || poolKey === decl.record?.schema.name)
+                continue;
+            const set = this.entitySets.get(name)!;
+            for (const [first, count] of ranges) {
+                for (let slot = first; slot < first + count; slot++) {
+                    const id = resources.poolEntityBySlot(poolKey, slot);
+                    const entry = id === undefined ? undefined : set.get(id);
+                    if (entry !== undefined) groups.rekey(entry);
+                }
+            }
+        }
+    }
+
+    /** Resource com objetos próprios enviado (ex.: geometria com conteúdo novo): reavalia o grupo da entidade. */
+    resourceUploaded(resource: Resource): void {
+        if (this.groupSets.size === 0) return;
+        const id = this.host.world.entityIdOfResource(resource);
+        if (id === undefined) return;
+        for (const [name, groups] of this.groupSets) {
+            const entry = this.entitySets.get(name)!.get(id);
+            if (entry !== undefined) groups.rekey(entry);
         }
     }
 
@@ -302,9 +361,15 @@ export class FlowRuntime {
         }
         for (const state of this.pipelineStates.values()) state.release();
         this.pipelineStates.clear();
-        for (const decl of Object.values(this.flow.slots)) {
-            if (decl.kind === 'entities' && decl.record !== undefined)
-                this.host.resources.releaseEntityRecords(decl.record);
+        for (const groups of this.groupSets.values()) groups.dispose();
+        this.groupSets.clear();
+        for (const [name, decl] of Object.entries(this.flow.slots)) {
+            if (decl.kind !== 'entities') continue;
+            for (const entry of this.entitySets.get(name)?.values() ?? []) {
+                for (const [type, descId] of decl.owns ?? [])
+                    this.host.resources.releaseOwnership(decl, entry.get(type), descId);
+            }
+            if (decl.record !== undefined) this.host.resources.releaseEntityRecords(decl.record);
         }
         setFlowLifecycle(this.flow, 'disposed');
         this.flow.dispose();
@@ -566,12 +631,22 @@ export class FlowRuntime {
         if (view === undefined) {
             const set = this.entitySets.get(name)!;
             const cache = this.entityCaches;
-            const record = (this.flow.slots[name] as EntitiesSlot).record;
+            const decl = this.flow.slots[name] as EntitiesSlot;
+            const record = decl.record;
             const records = (): BoundPool | undefined =>
                 record === undefined ? undefined : this.poolView(record.schema.name);
+            const groups = this.groupSets.get(name);
+            const instances = (): BoundPool | undefined =>
+                decl.groups === undefined ? undefined : this.poolView(decl.groups.schema.name);
             view = {
                 get records() {
                     return records();
+                },
+                get groups() {
+                    return groups?.drawGroups ?? [];
+                },
+                get instances() {
+                    return instances();
                 },
                 get entries() {
                     let list = cache.get(name);
