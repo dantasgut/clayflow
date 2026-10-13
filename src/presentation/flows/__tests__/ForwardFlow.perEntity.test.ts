@@ -9,7 +9,6 @@ import { WireframeMaterial } from '../../../elements/material/WireframeMaterial'
 import { Camera } from '../../../elements/scene/Camera';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
-import { RenderableSchema } from '../../../elements/scene/Renderable';
 import { discOf, registerStages, renderScene } from './helpers/renderHarness';
 
 async function scene() {
@@ -42,17 +41,14 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         s.resetCounts();
         s.add(10_000);
         s.step();
-        // A geometria de cada entidade é dela (VBO/IBO alocados pela C2 a partir dos descritores); o resto — pools
-        // que crescem e os bind groups religados — não escala com o número de entidades.
-        const others = s.creates().filter((c) => {
-            const sub = (c as { subkind?: string }).subkind;
-            return !(c.kind === 'buffer' && (sub === 'vertex' || sub === 'index'));
-        });
-        expect(others.length).toBeLessThan(100);
-        expect(others.filter((c) => /^(forward|shadow)_/.test(discOf(c)))).toEqual([]);
+        // Nada escala com o número de entidades: a geometria é uma cópia por conteúdo (spec 007), e o resto — pools
+        // que crescem e os bind groups religados — é por pool.
+        expect(s.creates().length).toBeLessThan(100);
+        expect(s.creates().filter((c) => /^(forward|shadow)_/.test(discOf(c)))).toEqual([]);
         expect(s.createdWhileRecording()).toBe(0);
-        expect(s.draws('ForwardFlow')).toHaveLength(10_010);
-        expect(s.draws('ShadowFlow')).toHaveLength(10_010);
+        // Um desenho por grupo (mesma caixa, mesmo material, mesma orientação) com as 10 010 instâncias.
+        expect(s.draws('ForwardFlow').map((d) => d.instanceCount)).toEqual([10_010]);
+        expect(s.draws('ShadowFlow').map((d) => d.instanceCount)).toEqual([10_010]);
     });
 
     it('SC-002: a câmera é escrita uma vez no quadro em que muda e nenhuma nos outros', async () => {
@@ -87,7 +83,7 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         ).toEqual([]);
     });
 
-    it('grupos 0, 1 e 3 uma vez por passe; grupo 2 só quando o pipeline muda; firstInstance = slot do Renderable', async () => {
+    it('grupos 0, 1 e 3 uma vez por passe; grupo 2 só quando o pipeline muda; um desenho por grupo de instâncias', async () => {
         const s = await scene();
         s.add(20);
         const ids: number[] = [];
@@ -103,24 +99,25 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         expect(count(0)).toBe(1);
         expect(count(1)).toBe(1);
         expect(count(3)).toBe(1);
-        expect(pass!.draws).toHaveLength(25);
-        // Dois pipelines (standard, wireframe) ⇒ dois binds do material, sem offset dinâmico.
+        // Dois grupos (mesma caixa; shaders standard e wireframe) ⇒ dois desenhos, com 20 e 5 instâncias.
+        expect(pass!.draws.map((d) => d.instanceCount)).toEqual([20, 5]);
+        // Dois pipelines ⇒ dois binds do material, sem offset dinâmico.
         expect(count(2)).toBe(2);
         for (const d of pass!.draws) expect(d.bindGroups.get(2)!.offsets ?? []).toHaveLength(0);
-        // Cada desenho seleciona a entidade só pelo firstInstance: o slot do seu registro Renderable.
-        const rs = s.scene.resourceSystem;
-        const lastFive = pass!.draws.slice(20).map((d) => d.firstInstance);
-        expect(lastFive).toEqual(
-            ids.map((id) => rs.poolSlotOf(RenderableSchema.name, id as never)),
-        );
-        expect(new Set(pass!.draws.map((d) => d.firstInstance)).size).toBe(25);
+        // Os segmentos dos grupos na lista de instâncias não se sobrepõem.
+        const [a, b] = pass!.draws;
+        expect(
+            a!.firstInstance! + 20 <= b!.firstInstance!
+                || b!.firstInstance! + 5 <= a!.firstInstance!,
+        ).toBe(true);
+        expect(ids).toHaveLength(5);
     });
 
     it('SC-010: com 10 mil entidades, os binds do passe dependem só dos pipelines (nenhum por entidade)', async () => {
         const s = await scene();
         s.add(10_000);
         const [pass] = s.step().filter((p) => p.label === 'ForwardFlow');
-        expect(pass!.draws).toHaveLength(10_000);
+        expect(pass!.draws.map((d) => d.instanceCount)).toEqual([10_000]);
         // Grupos 0, 1, 3 uma vez; grupo 2 uma vez por pipeline (um só: StandardMaterial, faces diretas).
         expect(pass!.setBindGroups).toHaveLength(4);
     });

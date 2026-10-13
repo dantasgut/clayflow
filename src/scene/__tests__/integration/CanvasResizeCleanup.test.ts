@@ -101,7 +101,7 @@ describe('Integração — redimensionamento do canvas', () => {
         const passes = s.step();
         expect(s.scene.resourceSystem.poolBufferSpec('WorldTransform')).not.toBe(before);
         expect(s.scene.resourceSystem.textureOf(s.targets, 'color')!.width).toBe(1024);
-        expect(s.draws('ForwardFlow')).toHaveLength(301);
+        expect(s.draws('ForwardFlow').reduce((n, d) => n + d.instanceCount, 0)).toBe(301);
         const destroyed = new Set<unknown>(s.destroys());
         expect(referenced(passes).filter((r) => destroyed.has(r))).toEqual([]);
     });

@@ -76,6 +76,11 @@ export interface EntityGroupsDeclaration {
     readonly key: (entry: EntityEntry) => string;
     /** Valor por instância: o slot do registro do conjunto (`'record'`) ou o slot de pool do descritor nomeado. */
     readonly instance: 'record' | readonly [ResourceType, string];
+    /**
+     * Campos que podem mudar a chave, por schema do pool (ex.: `{ Transform: ['scale'] }`): o envio de um pool listado
+     * só reavalia as chaves quando um desses campos mudou. Pools fora do mapa reavaliam a cada envio.
+     */
+    readonly rekeyOn?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** Grupo de instâncias resolvido: um desenho com `count` instâncias a partir de `first` na lista. */

@@ -105,6 +105,7 @@ describe('ResourceSystem — envio por delta (spec 007)', () => {
                     [2, 3],
                     [7, 1],
                 ],
+                fields: ['value'], // só o campo mudado (posição de vetor também conta como o campo)
             },
         ]);
     });

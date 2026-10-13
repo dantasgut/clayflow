@@ -282,12 +282,25 @@ export class FlowRuntime {
      * Faixas de um pool enviadas: reavalia a chave de grupo das entidades dos conjuntos com `groups` cujos slots foram
      * escritos (ex.: escala de um `Transform` que inverte a face).
      */
-    poolWritten(poolKey: string, ranges: readonly (readonly [number, number])[]): void {
+    poolWritten(
+        poolKey: string,
+        schemaName: string,
+        ranges: readonly (readonly [number, number])[],
+        fields: readonly string[] | undefined,
+    ): void {
         if (this.groupSets.size === 0) return;
         const resources = this.host.resources;
         for (const [name, groups] of this.groupSets) {
             const decl = this.flow.slots[name] as EntitiesSlot;
             if (poolKey === decl.groups?.schema.name || poolKey === decl.record?.schema.name)
+                continue;
+            // Só os campos declarados podem mudar a chave (ex.: a escala do Transform; posição e rotação não).
+            const watched = decl.groups?.rekeyOn?.[schemaName];
+            if (
+                watched !== undefined
+                && fields !== undefined
+                && !fields.some((f) => watched.includes(f))
+            )
                 continue;
             const set = this.entitySets.get(name)!;
             for (const [first, count] of ranges) {

@@ -9,6 +9,7 @@ import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
     type EntitiesSlot,
+    type EntityEntry,
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
@@ -20,7 +21,7 @@ import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { Light } from '../../elements/scene/Light';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
-import { ShadowDepthParamsSchema } from './renderSchemas';
+import { ShadowDepthParamsSchema, ShadowInstanceSchema } from './renderSchemas';
 import { shadowDepth } from './shaders';
 
 /** O `ShadowMap` de uma `DirectionalLight` que projeta sombra (`castShadow = 1`). */
@@ -41,10 +42,16 @@ export interface ShadowSlots extends SlotMap {
     readonly world: PoolSlot<false>;
     /** Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster). */
     readonly shadowMaps: PoolSlot<false>;
-    /** Entidades desenhadas no mapa (geometria + transform). */
+    /** Entidades desenhadas no mapa (geometria + transform), em grupos por (geometria, orientação) mantidos pela C2. */
     readonly casters: EntitiesSlot;
     /** Alvo só de profundidade: a textura `depth` do `ShadowMap` do caster. */
     readonly target: TargetSlot;
+}
+
+/** Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces. */
+export function shadowGroupKey(entry: EntityEntry): string {
+    const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
+    return `${geometry}|${isMirrored(entry.get(Transform)) ? 'cw' : 'ccw'}`;
 }
 
 function slotsOf(world: World): ShadowSlots {
@@ -53,7 +60,15 @@ function slotsOf(world: World): ShadowSlots {
         caster: slot.singleton(ShadowMap.schema, { select }),
         world: slot.pool(Transform.worldSchema.name),
         shadowMaps: slot.pool(ShadowMap.schema.name),
-        casters: slot.entities({ all: [Geometry, Transform] }),
+        casters: slot.entities({
+            all: [Geometry, Transform],
+            groups: {
+                schema: ShadowInstanceSchema,
+                key: shadowGroupKey,
+                instance: [Transform, 'world'],
+                rekeyOn: { [Transform.schema.name]: ['scale'] },
+            },
+        }),
         target: slot.target({
             color: 'none',
             depth: { schema: ShadowMap.schema, descId: 'depth', select },
@@ -77,7 +92,7 @@ function depthPipeline(frontFace: GPUFrontFace, preferAsync: boolean): PipelineD
         role: 'render',
         shader: shadowDepth,
         entryPoints: ['vs_main'],
-        consumes: [Transform.worldSchema.name, ShadowMap.schema.name],
+        consumes: [Transform.worldSchema.name, ShadowMap.schema.name, ShadowInstanceSchema.name],
         topology: 'triangle-list',
         cullMode: 'back',
         frontFace,
@@ -101,7 +116,8 @@ export interface ShadowFlowOptions {
  * transform. A matriz luz-vista-projeção é calculada na CPU quando a luz muda (`poolWritten` do pool de luzes, escuta de
  * `Light`) ou quando o caster aparece, e gravada em `ShadowMap.data.lightViewProj` — o envio reativo da C2 a leva ao
  * pool, que este estágio e o render principal leem pelo slot do mapa. A geometria é a alocada pela C2 (nenhuma cópia
- * por entidade); a posição vem do pool `WorldTransform` pelo slot da entidade (`firstInstance`).
+ * por entidade); um desenho por grupo de instâncias (mesma geometria e orientação), e cada instância acha o seu slot
+ * no pool `WorldTransform` pela lista de instâncias (`ShadowInstance`).
  */
 export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
     readonly type = 'ShadowFlow';
@@ -168,7 +184,7 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         };
     }
 
-    /** Grava a profundidade de cada entidade com geometria e transform. */
+    /** Grava a profundidade: um desenho por grupo de instâncias (geometria, orientação). */
     dispatch(frame: Frame, bound: BoundFlow<ShadowSlots>): void {
         const depth = bound.slots.target.depth;
         if (depth === undefined) return;
@@ -183,19 +199,17 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         };
         const ccw = bound.render('shadow_depth:ccw');
         const cw = bound.render('shadow_depth:cw');
-        const world = bound.slots.world;
-        const entries = bound.slots.casters.entries;
+        const groups = bound.slots.casters.groups;
         frame.render(target, 'ShadowFlow', (pass) => {
-            if (entries.length === 0) return;
-            // Grupos 0 (parâmetros + pool ShadowMap) e 1 (WorldTransform) uma vez por passe.
+            if (groups.length === 0) return;
+            // Grupos 0 (parâmetros + pool ShadowMap) e 1 (WorldTransform + instâncias) uma vez por passe.
             pass.bind
                 .setPipeline(ccw.spec)
                 .setBindGroup(0, ccw.groups[0]!)
                 .setBindGroup(1, ccw.groups[1]!);
             let current: PreparedRender = ccw;
-            for (const entry of entries) {
-                const worldSlot = world.slotOf(entry.entityId);
-                if (worldSlot === undefined) continue; // ainda sem slot ⇒ não desenha
+            for (const group of groups) {
+                const entry = group.representative;
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 const indices = this.resources.bufferOf(geometry, 'indices');
@@ -207,7 +221,7 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                     current = pipeline;
                 }
                 pass.geometry.vertex(0, vertices).index(indices);
-                pass.draw.indexed(indices.count, 1, 0, 0, worldSlot);
+                pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
             }
         });
     }

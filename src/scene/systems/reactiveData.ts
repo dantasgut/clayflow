@@ -20,19 +20,26 @@
  * Proxies aninhados são criados sob demanda e cacheados: `data.position === data.position`.
  *
  * @param data - Objeto de dados do recurso.
- * @param onChange - Chamado após cada mutação (pode ser chamado várias vezes por quadro;
- *   quem consome é responsável por coalescer).
+ * @param onChange - Chamado após cada mutação com o campo de topo afetado (`data.position[0] = 5` → `'position'`;
+ *   pode ser chamado várias vezes por quadro — quem consome coalesce). Um objeto aninhado alcançado por mais de um
+ *   campo reporta o primeiro pelo qual foi alcançado.
  * @returns Proxy com a mesma forma de `data`.
  */
-export function makeReactive<T extends object>(data: T, onChange: () => void): T {
+export function makeReactive<T extends object>(
+    data: T,
+    onChange: (field: string | undefined) => void,
+): T {
     const proxies = new WeakMap<object, object>();
     const raws = new WeakMap<object, object>();
+    /** Campo de topo pelo qual cada objeto aninhado foi alcançado. */
+    const rootOf = new WeakMap<object, string>();
 
     const unwrap = (value: unknown): unknown =>
         typeof value === 'object' && value !== null ? (raws.get(value) ?? value) : value;
 
-    const wrap = (value: unknown): unknown => {
+    const wrap = (value: unknown, root?: string): unknown => {
         if (typeof value !== 'object' || value === null) return value;
+        if (root !== undefined && !rootOf.has(value)) rootOf.set(value, root);
         const cached = proxies.get(value);
         if (cached !== undefined) return cached;
         let proxy: object | undefined;
@@ -47,18 +54,22 @@ export function makeReactive<T extends object>(data: T, onChange: () => void): T
         return proxy;
     };
 
+    /** Campo de topo de uma mutação em `target` (a propriedade, quando `target` é o próprio `data`). */
+    const fieldOf = (target: object, prop: PropertyKey): string | undefined =>
+        target === data ? (typeof prop === 'string' ? prop : undefined) : rootOf.get(target);
+
     const objectHandler: ProxyHandler<object> = {
         get(target, prop, receiver) {
-            return wrap(Reflect.get(target, prop, receiver));
+            return wrap(Reflect.get(target, prop, receiver), fieldOf(target, prop));
         },
         set(target, prop, value) {
             const ok = Reflect.set(target, prop, unwrap(value));
-            onChange();
+            onChange(fieldOf(target, prop));
             return ok;
         },
         deleteProperty(target, prop) {
             const ok = Reflect.deleteProperty(target, prop);
-            onChange();
+            onChange(fieldOf(target, prop));
             return ok;
         },
     };
@@ -66,24 +77,24 @@ export function makeReactive<T extends object>(data: T, onChange: () => void): T
     const arrayHandler: ProxyHandler<object> = {
         get(target, prop) {
             const value: unknown = Reflect.get(target, prop, target);
-            if (typeof value !== 'function') return wrap(value);
+            if (typeof value !== 'function') return wrap(value, rootOf.get(target));
             const fn = value as (...args: unknown[]) => unknown;
             if (!ARRAY_MUTATORS.has(prop)) return fn.bind(target);
             // Mutador executa no alvo e notifica uma vez (evita uma notificação por índice).
             return function mutate(this: unknown, ...args: unknown[]): unknown {
                 const result = fn.apply(target, args.map(unwrap));
-                onChange();
+                onChange(rootOf.get(target));
                 return result === target ? proxies.get(target) : result;
             };
         },
         set(target, prop, value) {
             const ok = Reflect.set(target, prop, unwrap(value), target);
-            onChange();
+            onChange(rootOf.get(target));
             return ok;
         },
         deleteProperty(target, prop) {
             const ok = Reflect.deleteProperty(target, prop);
-            onChange();
+            onChange(rootOf.get(target));
             return ok;
         },
     };

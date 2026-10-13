@@ -8,6 +8,12 @@ export const ShadowDepthParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
+/**
+ * Lista de instâncias do passe de sombra (spec 007): por instância de um grupo (geometria, orientação), o slot da
+ * entidade no pool `WorldTransform`; o shader lê `worlds[instances[instance_index].world]`.
+ */
+export const ShadowInstanceSchema = new StructSchema('ShadowInstance', { world: FieldType.u32 });
+
 /** Parâmetros de um efeito de pós: `p0 = (strength, aux0, aux1, aux2)`. */
 export const EffectParamsSchema = new StructSchema(
     'EffectParams',

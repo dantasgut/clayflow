@@ -49,6 +49,7 @@ export class PointSpriteMaterial extends Material {
                     'Camera',
                     'WorldTransform',
                     'Renderable',
+                    'RenderInstance',
                     { name: PointSpriteMaterial.schema.name, as: 'StandardMaterial' },
                 ],
                 topology: 'point-list',

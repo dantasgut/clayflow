@@ -62,7 +62,7 @@ export class FlowBinder {
             }),
             events.on('poolWritten', (e) => {
                 for (const rt of this.runtimes.values()) {
-                    rt.poolWritten(e.poolKey, e.ranges);
+                    rt.poolWritten(e.poolKey, e.schema.name, e.ranges, e.fields);
                     if (rt.listens(e.schema)) {
                         rt.deliverDomain({
                             type: 'poolWritten',

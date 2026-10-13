@@ -47,6 +47,7 @@ export class WireframeMaterial extends Material {
                     'Camera',
                     'WorldTransform',
                     'Renderable',
+                    'RenderInstance',
                     { name: WireframeMaterial.schema.name, as: 'StandardMaterial' },
                 ],
                 topology: 'line-list',

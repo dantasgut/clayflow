@@ -126,11 +126,22 @@ physics-gpu), quickstart.md
 
 - [x] T022 [P] [US1] Testes em `src/elements/geometry/__tests__/contentKey.test.ts`: chave por parâmetros (`Box`, `Sphere`, `Plane`, `ParametricGeometry`, `ParametricSurfaceGeometry`), por hash de bytes na genérica (colisão de hash com bytes diferentes → chaves diferentes), arrays gerados uma vez por chave e congelados, nenhuma geração no construtor
 - [x] T023 [US1] Implementar `contentKey` e o cache de conteúdo por chave em `src/elements/geometry/Geometry.ts` e nas paramétricas (`BoxGeometry.ts`, `SphereGeometry.ts`, `PlaneGeometry.ts`, `ParametricGeometry.ts`, `ParametricSurfaceGeometry.ts`); `PointCloudGeometry.ts` por hash dos bytes
-- [ ] T024 [P] [US1] Testes em `src/presentation/flows/__tests__/ForwardFlow.groups.test.ts`: 10 mil entidades, mesma geometria e schema → 1 draw com 10 mil instâncias; 2 geometrias × 2 schemas → 4 draws; escala espelhada → variante de face; troca de material de schema muda de grupo; remoção some do draw; com a cena parada nenhuma iteração por entidade no `dispatch` (contagem)
-- [ ] T025 [US1] Migrar `src/presentation/flows/ForwardFlow.ts` para `groups` (`forwardKey`, `instance: 'record'`, draw por grupo) e `src/elements/gpu/wgsl/forward.wgsl` para `renderables[instances[instance_index]]`
-- [ ] T026 [P] [US1] Testes em `src/presentation/flows/__tests__/ShadowFlow.groups.test.ts`: um draw por (geometria, face); instâncias pelo slot do `WorldTransform`
-- [ ] T027 [US1] Migrar `src/presentation/flows/ShadowFlow.ts` e `src/presentation/flows/shadow_depth.wgsl` para `groups` (`shadowKey`, `instance: [Transform, 'world']`)
-- [ ] T028 [US1] Smokes `render`, `churn`, `bigMesh` (fonte) verdes; medir `npm run bench -- --scene instances --engine clayflow` e anotar abaixo deste item draws, CPU e GPU de `10k`, `100k` e `1m`
+- [x] T024 [P] [US1] Testes em `src/presentation/flows/__tests__/ForwardFlow.groups.test.ts`: 10 mil entidades, mesma geometria e schema → 1 draw com 10 mil instâncias; 2 geometrias × 2 schemas → 4 draws; escala espelhada → variante de face; troca de material de schema muda de grupo; remoção some do draw; com a cena parada nenhuma iteração por entidade no `dispatch` (contagem)
+- [x] T025 [US1] Migrar `src/presentation/flows/ForwardFlow.ts` para `groups` (`forwardKey`, `instance: 'record'`, draw por grupo) e `src/elements/gpu/wgsl/forward.wgsl` para `renderables[instances[instance_index]]`
+- [x] T026 [P] [US1] Testes em `src/presentation/flows/__tests__/ShadowFlow.groups.test.ts`: um draw por (geometria, face); instâncias pelo slot do `WorldTransform`
+- [x] T027 [US1] Migrar `src/presentation/flows/ShadowFlow.ts` e `src/presentation/flows/shadow_depth.wgsl` para `groups` (`shadowKey`, `instance: [Transform, 'world']`)
+- [x] T028 [US1] Smokes `render`, `churn`, `bigMesh` (fonte) verdes; medir `npm run bench -- --scene instances --engine clayflow` e anotar abaixo deste item draws, CPU e GPU de `10k`, `100k` e `1m`
+
+> **Medição (T028, 2026-10-13, máquina livre)**: smokes `render` (10 cenas idênticas), `churn`, `bigMesh`,
+> `integration`, `transforms` verdes. `npm run bench -- --scene instances --engine clayflow`:
+> `instances/10k` CPU **14,50 → 0,02 ms**, GPU **0,66 → 0,46 ms** (abaixo do alvo de 0,52 ms do SC-010 da 006), 2314
+> fps, 2 draws; `instances/100k` CPU 0,02 ms, GPU 0,47 ms, 1887 fps, 2 draws; `instances/1m` ainda derruba a aba (US7).
+> `instances/10k-moving`: 31,6 ms com o agrupamento; o perfil mostrou a reavaliação da chave de grupo em todo envio
+> de `Transform` (44%) e o empacotamento lendo pelo proxy (21%). Corrigido na C2: `poolWritten.fields` (campo de topo
+> informado pelo dado reativo) + `groups.rekeyOn` (a chave só é reavaliada quando muda a escala); empacotamento do
+> dado cru com passos compilados por schema; dado só em pool marca o slot na mutação, sem fila nem estado `Dirty`;
+> plano de envio no próprio Resource. Resultado: **199,35 → 4,75 ms** (Three 1,38 ms; meta da SC-004 3 ms — o restante
+> é o proxy reativo por atribuição e o código da cena; revisitar na T063).
 
 **Checkpoint**: instâncias agrupadas; imagem idêntica.
 

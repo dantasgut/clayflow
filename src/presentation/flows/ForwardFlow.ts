@@ -24,6 +24,7 @@ import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
     type EntitiesSlot,
+    type EntityEntry,
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
@@ -38,7 +39,7 @@ import { Camera } from '../../elements/scene/Camera';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
-import { renderableRecord } from '../../elements/scene/Renderable';
+import { renderableRecord, RenderInstanceSchema } from '../../elements/scene/Renderable';
 import { FrameTargets } from '../app/FrameTargets';
 import { castingShadowMap, isMirrored } from './ShadowFlow';
 
@@ -67,7 +68,10 @@ export interface ForwardSlots extends SlotMap {
     readonly camera: SingletonSlot<false>;
     /** Pool `WorldTransform` (grupo 1, matriz de mundo pelo `transformSlot` do registro). */
     readonly world: PoolSlot<false>;
-    /** Entidades desenhadas (geometria + material + transform), com o registro `Renderable` mantido pela C2. */
+    /**
+     * Entidades desenhadas (geometria + material + transform), com o registro `Renderable` e os grupos de instâncias
+     * por (geometria, shader do material, orientação) mantidos pela C2.
+     */
     readonly renderables: EntitiesSlot;
     /** `ShadowMap` da luz que projeta sombra (opcional; sem ele, `shadowEnabled = 0`). */
     readonly caster: SingletonSlot<true>;
@@ -79,6 +83,16 @@ export interface ForwardSlots extends SlotMap {
     readonly target: TargetSlot;
 }
 
+/**
+ * Chave do grupo de desenho de uma entidade: geometria (chave de conteúdo — a mesma cópia na GPU), shader do material
+ * (pipeline) e orientação das faces (escala espelhada). Geometria sem chave de conteúdo é própria da entidade.
+ */
+export function forwardGroupKey(entry: EntityEntry): string {
+    const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
+    const shader = entry.get(Material).getPipelineDescriptors()[0]?.id ?? '';
+    return `${geometry}|${shader}|${isMirrored(entry.get(Transform)) ? 'cw' : 'ccw'}`;
+}
+
 function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
     const select = castingShadowMap(world);
     const depth = { schema: FrameTargets.schema, descId: 'depth' };
@@ -88,6 +102,13 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
         renderables: slot.entities({
             all: [Geometry, Material, Transform],
             record: renderableRecord,
+            groups: {
+                schema: RenderInstanceSchema,
+                key: forwardGroupKey,
+                instance: 'record',
+                // Do Transform, só a escala muda a chave (orientação das faces).
+                rekeyOn: { [Transform.schema.name]: ['scale'] },
+            },
         }),
         caster: slot.singleton(ShadowMap.schema, { optional: true, select }),
         shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
@@ -115,15 +136,18 @@ export interface ForwardFlowOptions {
  *
  * Tudo vem do que a C2 já alocou, sem objeto de GPU por entidade:
  *   - grupo 0: a câmera ativa (`consumes: 'Camera'`), enviada pela C2 quando muda;
- *   - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`) e o pool `Renderable` — o registro de cada
- *     entidade (`transformSlot`, `materialSlot`), mantido pela C2 e indexado pelo `firstInstance` do draw;
+ *   - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`), o pool `Renderable` — o registro de cada
+ *     entidade (`transformSlot`, `materialSlot`), mantido pela C2 — e a lista de instâncias dos grupos
+ *     (`RenderInstance`, slot do registro por instância);
  *   - grupo 2: o pool de storage do material do schema do pipeline, indexado pelo `materialSlot` do registro;
  *   - grupo 3: parâmetros do quadro (direção da luz, sombra ligada, slot do mapa), o mapa de sombra da luz que
  *     projeta (`ShadowMap`: textura e, pelo pool, matriz e viés) e o sampler de comparação;
  *   - vértices e índices: os buffers da `Geometry` alocados pela C2.
  *
- * Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando o pipeline muda. Entre desenhos do
- * mesmo pipeline nenhum bind group muda: a entidade é selecionada só pelo `firstInstance`. Um pipeline
+ * Um desenho por grupo de instâncias (spec 007): entidades com a mesma geometria (mesmo conteúdo), o mesmo shader de
+ * material e a mesma orientação de faces saem numa chamada `draw.indexed(índices, instâncias, 0, 0, início do
+ * grupo)`; os grupos são mantidos pela C2 por eventos, e a gravação não percorre entidades. Os grupos 0, 1 e 3 são
+ * definidos uma vez por passe; pipeline e grupo 2 só quando o pipeline muda. Um pipeline
  * por shader de material e orientação de faces (escala espelhada ⇒ `frontFace: 'cw'`), preparado numa transição
  * quando o material entra na cena. Recursos privados (parâmetros do quadro, sampler, substitutos da sombra) são
  * religados em transições.
@@ -243,7 +267,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         };
     }
 
-    /** Grava o passe principal: grupos compartilhados uma vez; pipeline e grupo do material só quando o pipeline muda. */
+    /**
+     * Grava o passe principal: um desenho por grupo de instâncias; grupos de bind compartilhados uma vez; pipeline e
+     * grupo do material só quando o pipeline muda.
+     */
     dispatch(frame: Frame, bound: BoundFlow<ForwardSlots>): void {
         const target = bound.slots.target;
         const colorView = this.colorView(frame, target);
@@ -263,13 +290,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             },
             ...(tsWrites !== undefined ? { timestampWrites: tsWrites } : {}),
         };
-        const entries = bound.slots.renderables.entries;
+        const groups = bound.slots.renderables.groups;
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
             let shared = false;
             let current: PreparedRender | undefined;
-            for (const entry of entries) {
-                const drawSlot = entry.recordSlot;
-                if (drawSlot === undefined) continue; // sem registro (algum slot ausente) ⇒ não desenha
+            for (const group of groups) {
+                const entry = group.representative;
                 const shader = this.materialShader.get(entry.get(Material));
                 const ids = shader === undefined ? undefined : this.materialPipelines.get(shader);
                 if (ids === undefined) continue;
@@ -277,6 +303,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     isMirrored(entry.get(Transform)) ? ids.cw : ids.ccw,
                 );
                 if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
+                // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 const indices = this.resources.bufferOf(geometry, 'indices');
@@ -284,7 +311,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 if (prepared !== current) {
                     pass.bind.setPipeline(prepared.spec);
                     if (!shared) {
-                        // Câmera, mundo + registros e sombra: os mesmos para todos os pipelines do passe.
+                        // Câmera, mundo + registros + instâncias e sombra: os mesmos para todos os pipelines do passe.
                         pass.bind
                             .setBindGroup(0, prepared.groups[0]!)
                             .setBindGroup(1, prepared.groups[1]!)
@@ -296,7 +323,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     current = prepared;
                 }
                 pass.geometry.vertex(0, vertices).index(indices);
-                pass.draw.indexed(indices.count, 1, 0, 0, drawSlot);
+                pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
             }
         });
     }

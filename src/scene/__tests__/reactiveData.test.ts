@@ -58,6 +58,26 @@ describe('makeReactive', () => {
         expect(onChange).toHaveBeenCalled();
     });
 
+    it('informa o campo de topo afetado (spec 007): campo, componente, mutador, aninhado e delete', () => {
+        const { proxy, onChange } = setup({
+            position: [0, 0, 0, 1],
+            nested: { inner: { x: 1 } },
+            list: [3, 1, 2],
+        });
+        proxy.position = [1, 0, 0, 1];
+        (proxy.position as number[])[2] = 4;
+        (proxy.list as number[]).sort();
+        (proxy.nested as { inner: { x: number } }).inner.x = 9;
+        delete proxy.list;
+        expect(onChange.mock.calls.map((c) => c[0])).toEqual([
+            'position',
+            'position',
+            'list',
+            'nested',
+            'list',
+        ]);
+    });
+
     it('delete notifica', () => {
         const { proxy, onChange } = setup({ a: 1, b: 2 });
         delete proxy.b;

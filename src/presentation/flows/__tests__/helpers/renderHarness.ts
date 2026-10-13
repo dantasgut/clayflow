@@ -30,6 +30,8 @@ export interface DrawCall {
     readonly vertex: ResourceSpec | undefined;
     readonly index: ResourceSpec | undefined;
     readonly indexCount: number;
+    /** Instâncias do desenho (um grupo de instâncias desenha `instanceCount` entidades). */
+    readonly instanceCount: number;
     readonly firstInstance: number | undefined;
 }
 
@@ -124,7 +126,7 @@ export async function renderScene(): Promise<{
                     draw: {
                         indexed: (
                             count: number,
-                            _instances?: number,
+                            instances?: number,
                             _firstIndex?: number,
                             _baseVertex?: number,
                             firstInstance?: number,
@@ -136,6 +138,7 @@ export async function renderScene(): Promise<{
                                 vertex,
                                 index,
                                 indexCount: count,
+                                instanceCount: instances ?? 1,
                                 firstInstance,
                             });
                             return pass.draw;

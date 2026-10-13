@@ -80,7 +80,7 @@ describe('apresentação — tabelas de transição', () => {
             expect(flow.lifecycle, flow.type).toBe('ready');
             expect(flow.state, flow.type).toBe('idle');
         }
-        expect(s.draws('ForwardFlow')).toHaveLength(300);
+        expect(s.draws('ForwardFlow').reduce((n, d) => n + d.instanceCount, 0)).toBe(300);
         expect(s.createdWhileRecording()).toBe(0);
     });
 });

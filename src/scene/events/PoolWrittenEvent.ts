@@ -11,4 +11,9 @@ export interface PoolWrittenEvent {
     readonly schema: Schema;
     /** Faixas escritas: `[primeiro slot, quantidade]`, em ordem crescente e sem sobreposição. */
     readonly ranges: readonly (readonly [number, number])[];
+    /**
+     * Campos de topo do schema mudados pela CPU nesses slots (ex.: `['position', 'rotation']`); ausente quando não se
+     * sabe ou mudou o registro inteiro (alocação, `data` substituído, registros da C2).
+     */
+    readonly fields?: readonly string[];
 }

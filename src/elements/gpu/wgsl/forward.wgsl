@@ -1,9 +1,11 @@
-// Desenho forward. Structs `Camera`, `WorldTransform`, `Renderable`, `StandardMaterial`, `ForwardFrameParams` e
-// `ShadowMap` gerados dos schemas.
+// Desenho forward. Structs `Camera`, `WorldTransform`, `Renderable`, `RenderInstance`, `StandardMaterial`,
+// `ForwardFrameParams` e `ShadowMap` gerados dos schemas.
 @group(0) @binding(0) var<uniform> camera: Camera;
-// Pool WorldTransform e o registro de desenho de cada entidade (`Renderable`, indexado pelo firstInstance do draw).
+// Pool WorldTransform, o registro de desenho de cada entidade (`Renderable`) e a lista de instâncias dos grupos
+// (`RenderInstance`): um desenho por grupo (geometria, pipeline); a instância acha o registro pela lista.
 @group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
 @group(1) @binding(1) var<storage, read> renderables: array<Renderable>;
+@group(1) @binding(2) var<storage, read> instances: array<RenderInstance>;
 // Pool do material do schema do pipeline, indexado pelo `materialSlot` do registro.
 @group(2) @binding(0) var<storage, read> materials: array<StandardMaterial>;
 // Parâmetros do quadro (direção da luz, sombra ligada, slot do mapa de sombra) e o mapa de sombra da luz.
@@ -26,9 +28,9 @@ struct VsOut {
 }
 
 @vertex
-fn vs_main(in: VsIn, @builtin(instance_index) draw: u32) -> VsOut {
+fn vs_main(in: VsIn, @builtin(instance_index) instance: u32) -> VsOut {
     var out: VsOut;
-    let r = renderables[draw];
+    let r = renderables[instances[instance].renderable];
     let w = worlds[r.transformSlot];
     let world = w.world * vec4<f32>(in.position, 1.0);
     out.clip_position = camera.viewProjection * world;
