@@ -12,3 +12,7 @@ export { CanvasRenderTarget, OffscreenRenderTarget } from './RenderTarget';
 export type { RenderTargetOptions } from './RenderTarget';
 export { TransformFlow } from './flows/TransformFlow';
 export type { TransformSlots, TransformState } from './flows/TransformFlow';
+export { CameraFlow } from './flows/CameraFlow';
+export type { CameraSlots } from './flows/CameraFlow';
+export { ShadowMatrixFlow } from './flows/ShadowMatrixFlow';
+export type { ShadowMatrixSlots } from './flows/ShadowMatrixFlow';

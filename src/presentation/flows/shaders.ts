@@ -19,7 +19,7 @@ export const shadowDepth = wgslModule({
     source: shadowDepthSource,
     structs: [
         ShadowDepthParamsSchema,
-        ShadowMap.schema,
+        ShadowMap.matrixSchema,
         Transform.worldSchema,
         ShadowInstanceSchema,
     ],

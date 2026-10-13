@@ -1,5 +1,5 @@
 // Desenho forward. Structs `CameraMatrices`, `WorldTransform`, `Renderable`, `RenderInstance`, `StandardMaterial`,
-// `ForwardFrameParams` e `ShadowMap` gerados dos schemas.
+// `ForwardFrameParams`, `ShadowMap`, `ShadowMatrix` e `Light` gerados dos schemas.
 // Matrizes das câmeras (produzidas na GPU pelo estágio de câmera); a ativa no `cameraSlot` dos parâmetros do quadro.
 @group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
 // Pool WorldTransform, o registro de desenho de cada entidade (`Renderable`) e a lista de instâncias dos grupos
@@ -9,11 +9,17 @@
 @group(1) @binding(2) var<storage, read> instances: array<RenderInstance>;
 // Pool do material do schema do pipeline, indexado pelo `materialSlot` do registro.
 @group(2) @binding(0) var<storage, read> materials: array<StandardMaterial>;
-// Parâmetros do quadro (direção da luz, sombra ligada, slot do mapa de sombra) e o mapa de sombra da luz.
+// Parâmetros do quadro (slots da câmera, da luz e do mapa de sombra; sombra ligada), o mapa de sombra da luz (textura,
+// vieses e a matriz produzida na GPU) e o pool de luzes (a direção da luz que ilumina vem de lá).
 @group(3) @binding(0) var<uniform> forward_frame: ForwardFrameParams;
 @group(3) @binding(1) var shadow_map: texture_depth_2d;
 @group(3) @binding(2) var shadow_sampler: sampler_comparison;
 @group(3) @binding(3) var<storage, read> shadow_maps: array<ShadowMap>;
+@group(3) @binding(4) var<storage, read> shadow_matrices: array<ShadowMatrix>;
+@group(3) @binding(5) var<storage, read> lights: array<Light>;
+
+// Direção da luz sem luz que ilumina (`lightSlot` = 0xFFFFFFFF).
+const DEFAULT_LIGHT_DIR = vec3f(0.4, -1.0, 0.6);
 
 struct VsIn {
     @location(0) position: vec3<f32>,
@@ -45,11 +51,16 @@ fn vs_main(in: VsIn, @builtin(instance_index) instance: u32) -> VsOut {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let material = materials[in.material_slot];
     let n = normalize(in.world_normal);
-    let l = normalize(-forward_frame.lightDir.xyz);
+    var light_dir = DEFAULT_LIGHT_DIR;
+    if (forward_frame.lightSlot != 0xFFFFFFFFu) {
+        light_dir = lights[forward_frame.lightSlot].direction.xyz;
+    }
+    let l = normalize(-light_dir);
     let n_dot_l = lambert_diffuse(n, l);
     let sm = shadow_maps[forward_frame.shadowSlot];
+    let light_view_proj = shadow_matrices[forward_frame.shadowSlot].lightViewProj;
     let shadow_factor = sample_shadow_pcf(
-        shadow_map, shadow_sampler, sm.lightViewProj, in.world_position, sm.bias, forward_frame.shadowEnabled, n_dot_l,
+        shadow_map, shadow_sampler, light_view_proj, in.world_position, sm.bias, forward_frame.shadowEnabled, n_dot_l,
     );
     return vec4<f32>(lambert_lit(material.albedo.rgb, n_dot_l, shadow_factor), material.albedo.a);
 }

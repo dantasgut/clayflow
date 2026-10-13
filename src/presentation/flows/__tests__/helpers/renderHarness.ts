@@ -12,6 +12,7 @@ import { defaultCapabilities } from '../../../../scene/__tests__/helpers/default
 import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';
 import { TransformFlow } from '../../../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
+import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixFlow';
 import { FrameTargets } from '../../../app/FrameTargets';
 import { ForwardFlow, type ForwardOutput } from '../../ForwardFlow';
 import { PostFlow } from '../../PostFlow';
@@ -269,6 +270,12 @@ export function registerStages(
         phase: 'transform',
         priority: -10,
     });
+    if (options.shadow === true)
+        scene.flows.register((ctx) => new ShadowMatrixFlow(ctx), {
+            type: 'shadowMatrix',
+            phase: 'transform',
+            priority: -20,
+        });
     const shadow =
         options.shadow === true
             ? scene.flows.register((ctx) => new ShadowFlow(ctx), {

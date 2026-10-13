@@ -7,6 +7,7 @@ import { UIFlow } from './UIFlow';
 import { DebugFlow } from './DebugFlow';
 import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../elements/scene/flows/CameraFlow';
+import { ShadowMatrixFlow } from '../../elements/scene/flows/ShadowMatrixFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
 
@@ -26,6 +27,8 @@ export interface PresentationDefaults {
     readonly transform: TransformFlow;
     /** Estágio de câmera (fase `transform`, depois da composição): parâmetros + Transform → matrizes da câmera. */
     readonly camera: CameraFlow;
+    /** Estágio da matriz de sombra (fase `transform`, depois da câmera): direção da luz → matriz do `ShadowMap`. */
+    readonly shadowMatrix: ShadowMatrixFlow;
     /** Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e sombra pelos slots). */
     readonly forward: ForwardFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
@@ -51,7 +54,7 @@ interface RegisteredDefaults {
 const DEFAULTS_BY_SCENE = new WeakMap<FlowRegistry, RegisteredDefaults>();
 
 /**
- * Registra por factory os estágios padrão da cena — Transform, Shadow, Forward, Post, Debug e UI, mais os solvers
+ * Registra por factory os estágios padrão da cena — Transform, Camera, ShadowMatrix, Shadow, Forward, Post, Debug e UI, mais os solvers
  * padrão — e insere os alvos do quadro (`FrameTargets`: o render principal desenha neles, o pós-processamento os lê
  * pelo slot). **Uma vez por cena**: chamadas seguintes com o mesmo `FlowRegistry` devolvem os mesmos estágios e
  * contam mais um usuário (várias aplicações na mesma cena não duplicam estágios). Cada chamada deve ser pareada com
@@ -114,6 +117,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
         priority: -10,
     });
+    // Matriz de sombra depois da câmera (mesma fase): lê a direção da luz no pool `Light`.
+    const shadowMatrixRegistration = flows.register((ctx) => new ShadowMatrixFlow(ctx), {
+        type: 'shadowMatrix',
+        phase: 'transform',
+        priority: -20,
+    });
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
@@ -138,6 +147,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
         defaults: {
             transform,
             camera: cameraRegistration.flow!,
+            shadowMatrix: shadowMatrixRegistration.flow!,
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
             post: postRegistration.flow!,
@@ -147,6 +157,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
         registrations: [
             transformRegistration,
             cameraRegistration,
+            shadowMatrixRegistration,
             shadowRegistration,
             forwardRegistration,
             postRegistration,

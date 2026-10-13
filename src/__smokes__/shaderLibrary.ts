@@ -365,6 +365,40 @@ const CASES: readonly ReferenceCase[] = [
         tol: 2e-5,
     },
     {
+        // Spec 007: a matriz luz-vista-projeção do estágio de sombra (a conta que saiu da CPU do ShadowFlow): olho a
+        // 10 m contra a direção da luz mirando a origem, ortográfica ±10 com clip z em [0, 1]; aplicada a um ponto.
+        name: 'camera (look-at e ortográfica de caixa da sombra)',
+        requires: [wgslLib.camera],
+        body: `let view = camera_look_at(-a.xyz * 10.0, vec3f(0.0), vec3f(0.0, 1.0, 0.0));
+            let proj = camera_orthographic_box(-10.0, 10.0, -10.0, 10.0, 0.1, 50.0);
+            return proj * view * vec4f(b.xyz, 1.0);`,
+        input: (r) => [
+            [r() - 0.5, -0.5 - r(), r() - 0.5, 0],
+            [r() * 10 - 5, r() * 10 - 5, r() * 10 - 5, 1],
+        ],
+        cpu: (a, b) => {
+            const e = [-a[0] * 10, -a[1] * 10, -a[2] * 10];
+            const zl = Math.hypot(e[0]!, e[1]!, e[2]!) || 1;
+            const z = [e[0]! / zl, e[1]! / zl, e[2]! / zl];
+            const xv = [z[2]!, 0, -z[0]!]; // (0, 1, 0) × z
+            const xl = Math.hypot(xv[0]!, xv[1]!, xv[2]!) || 1;
+            const x = [xv[0]! / xl, 0, xv[2]! / xl];
+            const y = [
+                z[1]! * x[2]! - z[2]! * x[1]!,
+                z[2]! * x[0]! - z[0]! * x[2]!,
+                z[0]! * x[1]! - z[1]! * x[0]!,
+            ];
+            const d = (u: number[], v: number[]) => u[0]! * v[0]! + u[1]! * v[1]! + u[2]! * v[2]!;
+            const p = [b[0], b[1], b[2]];
+            const vx = d(x, p) - d(x, e);
+            const vy = d(y, p) - d(y, e);
+            const vz = d(z, p) - d(z, e);
+            const [n, f] = [0.1, 50];
+            return [vx / 10, vy / 10, vz / (n - f) + n / (n - f), 1];
+        },
+        tol: 2e-5,
+    },
+    {
         name: 'xpbd e lcp (Δλ, massa generalizada, atrito)',
         requires: [wgslLib.xpbd, wgslLib.lcp],
         body: `return vec4f(xpbd_delta_lambda(a.x, a.y, a.z), rigid_generalized_mass(b.xyz, vec3f(0.0, 1.0, 0.0), 2.0, vec3f(1.0, 2.0, 3.0)),
@@ -534,6 +568,7 @@ const SCHEMAS: readonly StructSchema[] = [
     StandardMaterialSchema,
     ForwardFrameParamsSchema,
     ShadowMap.schema,
+    ShadowMap.matrixSchema,
     ParticleMaterial.schema,
     ...Object.values(Render),
 ];

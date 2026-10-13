@@ -222,9 +222,13 @@ physics-gpu), quickstart.md
 
 **Independent Test**: cena com sombra contra a fixture; nenhuma escrita de luz por quadro pela CPU.
 
-- [ ] T048 [P] [US6] Testes em `src/presentation/flows/__tests__/ForwardFlow.light.test.ts`: `lightSlot` da direcional que projeta (sentinela sem ela); nenhuma escrita de `ForwardFrameParams` por quadro sem mudança
-- [ ] T049 [US6] Forward lê `lights[frame.lightSlot]` em `forward.wgsl`; `ForwardFlow.ts` sem cálculo de direção na CPU
-- [ ] T050 [US6] `ShadowMap` com `params` + `shadowMatrix` (`src/elements/scene/ShadowMap.ts`); `ShadowMatrixFlow.ts` + `shadow_matrix.wgsl` (fase `transform`, depois do `CameraFlow`); `ShadowFlow` sem `listens` nem matriz na CPU; smoke `render` verde
+- [x] T048 [P] [US6] Testes em `src/presentation/flows/__tests__/ForwardFlow.light.test.ts`: `lightSlot` da direcional que projeta (sentinela sem ela); nenhuma escrita de `ForwardFrameParams` por quadro sem mudança
+- [x] T049 [US6] Forward lê `lights[frame.lightSlot]` em `forward.wgsl`; `ForwardFlow.ts` sem cálculo de direção na CPU
+- [x] T050 [US6] `ShadowMap` com `params` + `shadowMatrix` (`src/elements/scene/ShadowMap.ts`); `ShadowMatrixFlow.ts` + `shadow_matrix.wgsl` (fase `transform`, depois do `CameraFlow`); `ShadowFlow` sem `listens` nem matriz na CPU; smoke `render` verde
+  > Medido: com a matriz da sombra em `f32` na GPU (antes `f64` na CPU), 7 das 10 cenas do smoke `render` mudam 1 pixel
+  > em 1/255 (dentro da regra do R10: ≤ 0,1 % dos pixels e desvio ≤ 2/255); fixtures regravadas — **aprovação no PR**.
+  > A câmera na GPU (T039–T047) não mudou nenhum pixel. O forward usa só a direção da luz do pool (como antes); cor e
+  > intensidade no sombreamento ficam para a F4. Nenhuma escrita na CPU quando a luz muda além do pool `Light`.
 
 **Checkpoint**: estado de luz na GPU.
 

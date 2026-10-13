@@ -5,6 +5,7 @@ import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
 import { ForwardFrameParamsSchema } from './forwardSchemas';
+import { Light } from '../scene/Light';
 import { ShadowMap } from '../scene/ShadowMap';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
 
@@ -21,5 +22,7 @@ export const forward = wgslModule({
         StandardMaterialSchema,
         ForwardFrameParamsSchema,
         ShadowMap.schema,
+        ShadowMap.matrixSchema,
+        Light.schema,
     ],
 });

@@ -9,7 +9,6 @@ import type {
     TextureViewSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
-import type { Resource } from '../../scene/contracts/Resource';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type {
@@ -34,17 +33,15 @@ import {
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
-import { ForwardFrameParamsSchema } from '../../elements/material/forwardSchemas';
+import { ForwardFrameParamsSchema, NO_LIGHT_SLOT } from '../../elements/material/forwardSchemas';
 import { Camera } from '../../elements/scene/Camera';
-import { DirectionalLight } from '../../elements/scene/DirectionalLight';
+import { Light } from '../../elements/scene/Light';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
 import { renderableRecord, RenderInstanceSchema } from '../../elements/scene/Renderable';
 import { FrameTargets } from '../app/FrameTargets';
 import { castingShadowMap, isMirrored } from './ShadowFlow';
 
-/** Direção da luz sem luz que projeta sombra (a de antes da 006). */
-const DEFAULT_LIGHT_DIR: readonly number[] = [0.4, -1, 0.6, 0];
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
 
 const VERTEX_LAYOUT = [
@@ -79,8 +76,12 @@ export interface ForwardSlots extends SlotMap {
     readonly caster: SingletonSlot<true>;
     /** Textura de profundidade do caster (opcional). */
     readonly shadowTexture: TextureSlot<true>;
-    /** Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster; opcional). */
+    /** Pool `ShadowMap` (vieses pelo slot do caster; opcional). */
     readonly shadowMaps: PoolSlot<true>;
+    /** Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU; opcional). */
+    readonly shadowMatrices: PoolSlot<true>;
+    /** Pool `Light` (direção da luz que ilumina pelo `lightSlot`; opcional). */
+    readonly lights: PoolSlot<true>;
     /** Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`. */
     readonly target: TargetSlot;
 }
@@ -116,6 +117,8 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
         caster: slot.singleton(ShadowMap.schema, { optional: true, select }),
         shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
         shadowMaps: slot.pool(ShadowMap.schema.name, { optional: true }),
+        shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
+        lights: slot.pool(Light.schema.name, { optional: true }),
         target: slot.target(
             output === 'scene'
                 ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth }
@@ -144,8 +147,10 @@ export interface ForwardFlowOptions {
  *     entidade (`transformSlot`, `materialSlot`), mantido pela C2 — e a lista de instâncias dos grupos
  *     (`RenderInstance`, slot do registro por instância);
  *   - grupo 2: o pool de storage do material do schema do pipeline, indexado pelo `materialSlot` do registro;
- *   - grupo 3: parâmetros do quadro (direção da luz, sombra ligada, slot do mapa), o mapa de sombra da luz que
- *     projeta (`ShadowMap`: textura e, pelo pool, matriz e viés) e o sampler de comparação;
+ *   - grupo 3: parâmetros do quadro (slots da câmera, da luz e do mapa; sombra ligada), o mapa de sombra da luz que
+ *     projeta (`ShadowMap`: textura, vieses pelo pool `ShadowMap` e a matriz pelo pool `ShadowMatrix`, produzida na
+ *     GPU), o sampler de comparação e o pool `Light` — a direção da luz é lida no shader pelo slot dela, sem conta
+ *     na CPU;
  *   - vértices e índices: os buffers da `Geometry` alocados pela C2.
  *
  * Um desenho por grupo de instâncias (spec 007): entidades com a mesma geometria (mesmo conteúdo), o mesmo shader de
@@ -172,6 +177,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly dummyDepth: TextureSpec;
     private readonly dummyDepthView: TextureViewSpec;
     private readonly dummyShadowMaps: StorageBufferSpec;
+    private readonly dummyShadowMatrices: StorageBufferSpec;
+    private readonly dummyLights: StorageBufferSpec;
     /** Conteúdo escrito em `ForwardFrameParams` (comparado para escrever só quando muda). */
     private writtenFrame = '';
     /** Pipelines (por orientação) do shader de cada material, preparados quando o material aparece. */
@@ -224,11 +231,25 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             discriminator: 'forward_shadow_maps_dummy',
             byteSize: ShadowMap.schema.stride,
         });
+        this.dummyShadowMatrices = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'forward_shadow_matrices_dummy',
+            byteSize: ShadowMap.matrixSchema.stride,
+        });
+        this.dummyLights = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'forward_lights_dummy',
+            byteSize: Light.schema.stride,
+        });
         this.bindings = {
             forward_frame: this.frameParams,
             shadow_sampler: this.sampler,
             shadow_map: this.dummyDepthView,
             shadow_maps: this.dummyShadowMaps,
+            shadow_matrices: this.dummyShadowMatrices,
+            lights: this.dummyLights,
         };
         const shadow = {
             to: 'idle' as const,
@@ -340,17 +361,21 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             this.dummyDepthView,
             this.dummyDepth,
             this.dummyShadowMaps,
+            this.dummyShadowMatrices,
+            this.dummyLights,
         ]) {
             this.core.destroy(spec);
         }
     }
 
-    /** Mapa de sombra da luz que projeta (ou os substitutos sem sombra) nos bindings do grupo 3. */
+    /** Mapa de sombra da luz que projeta e o pool de luzes (ou os substitutos) nos bindings do grupo 3. */
     private bindShadow(ctx: Ctx): void {
         const slots = ctx.bound.slots;
         ctx.bind({
             shadow_map: slots.shadowTexture?.view ?? this.dummyDepthView,
             shadow_maps: slots.shadowMaps?.buffer ?? this.dummyShadowMaps,
+            shadow_matrices: slots.shadowMatrices?.buffer ?? this.dummyShadowMatrices,
+            lights: slots.lights?.buffer ?? this.dummyLights,
         });
     }
 
@@ -403,34 +428,36 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     }
 
     /**
-     * Parâmetros do quadro: direção da luz que projeta sombra (ou a padrão), sombra ligada e o slot do mapa dela —
-     * escritos só quando mudam.
+     * Parâmetros do quadro: slot da câmera ativa e, com a luz que projeta sombra, o slot dela no pool `Light` (a
+     * direção é lida no shader; sem ela, a padrão), sombra ligada e o slot do mapa — escritos só quando mudam. Nenhum
+     * dado da luz é lido na CPU.
      */
     private writeFrameParams(ctx: Ctx): void {
         const slots = ctx.bound.slots;
         const caster = slots.caster?.resource;
         const lightId = caster === undefined ? undefined : this.world.entityIdOfResource(caster);
-        const light: Resource | undefined =
-            lightId === undefined
-                ? undefined
-                : this.world.resourcesOf(lightId).find((r) => r instanceof DirectionalLight);
+        const lightSlot = lightId === undefined ? undefined : slots.lights?.slotOf(lightId);
         const shadowSlot = lightId === undefined ? undefined : slots.shadowMaps?.slotOf(lightId);
         const on =
-            light !== undefined && shadowSlot !== undefined && slots.shadowTexture !== undefined;
-        const dir = on
-            ? ((light.data.direction as readonly number[] | undefined) ?? [0, -1, 0, 0])
-            : DEFAULT_LIGHT_DIR;
+            lightSlot !== undefined
+            && shadowSlot !== undefined
+            && slots.shadowMatrices !== undefined
+            && slots.shadowTexture !== undefined;
         const cameraId = this.world.entityIdOfResource(slots.camera.resource);
         const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
-        const values = {
-            lightDir: [dir[0] ?? 0, dir[1] ?? -1, dir[2] ?? 0, 0],
-            shadowEnabled: on ? 1 : 0,
-            shadowSlot: on ? shadowSlot : 0,
-            cameraSlot,
-        };
-        const key = JSON.stringify(values);
+        const light = on ? lightSlot : NO_LIGHT_SLOT;
+        const shadow = on ? shadowSlot : 0;
+        const key = `${cameraSlot}:${light}:${shadow}`;
         if (key === this.writtenFrame) return;
-        this.core.write(this.frameParams, ForwardFrameParamsSchema.pack(values));
+        this.core.write(
+            this.frameParams,
+            ForwardFrameParamsSchema.pack({
+                cameraSlot,
+                lightSlot: light,
+                shadowEnabled: on ? 1 : 0,
+                shadowSlot: shadow,
+            }),
+        );
         this.writtenFrame = key;
     }
 }
