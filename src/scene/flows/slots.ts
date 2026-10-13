@@ -183,6 +183,8 @@ export interface BoundPool {
     readonly gpuOwned: number;
     /** Slot da entidade no pool, ou `undefined`. */
     slotOf(entityId: EntityId): number | undefined;
+    /** O slot é de posse da GPU (escrito por um estágio, não pela CPU)? */
+    ownedByGpu(slot: number): boolean;
     /** Entidade que ocupa o slot, ou `undefined`. */
     entityAt(slot: number): EntityId | undefined;
 }

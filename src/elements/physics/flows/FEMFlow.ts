@@ -18,7 +18,7 @@ import { Time } from '../../../scene/time/Time';
 import { GravityField } from '../forcefields/GravityField';
 import { FEMSimParamsSchema } from '../schemas/simParams';
 import { femPredict, femVelocityUpdate } from '../shaders/fem';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Opções do `FEMFlow`. */
 export interface FEMFlowOptions {

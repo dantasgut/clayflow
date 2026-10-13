@@ -26,7 +26,7 @@ import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { MPMSimParamsSchema } from '../schemas/simParams';
 import { MPMGridNodeSchema } from '../schemas/simState';
 import { mpmClearGrid, mpmG2P, mpmGridUpdate, mpmP2G, mpmParticleCollision } from '../shaders/mpm';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Escala do ponto fixo das somas atômicas da grade. */
 const MPM_FIXED_SCALE = 1e7;

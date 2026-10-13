@@ -26,7 +26,7 @@ import { GravityField } from '../forcefields/GravityField';
 import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
 import { SPHSimParamsSchema } from '../schemas/simParams';
 import { sphCollision, sphDensity, sphForces, sphIntegrate, sphPressure } from '../shaders/sph';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Coeficiente do XSPH (suavização de velocidade). */
 const SPH_XSPH = 0.05;

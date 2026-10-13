@@ -66,6 +66,8 @@ export async function renderScene(): Promise<{
     step(): RenderPassRecord[];
     /** Desenhos do último quadro, de todos os passes (ou do passe `label`). */
     draws(label?: string): DrawCall[];
+    /** Rótulos dos passes de compute do último quadro, em ordem. */
+    computes(): readonly string[];
     /** Specs criados desde o início (ou o último `resetCounts`). */
     creates(): readonly ResourceSpec[];
     /** Specs escritos desde o início (ou o último `resetCounts`). */
@@ -82,6 +84,8 @@ export async function renderScene(): Promise<{
     let recording = false;
     let createdWhileRecording = 0;
     let passes: RenderPassRecord[] = [];
+    /** Rótulos dos passes de compute do último quadro. */
+    let computes: string[] = [];
     const created = <S>(spec: S): S => {
         creates.push(spec as ResourceSpec);
         if (recording) createdWhileRecording++;
@@ -155,7 +159,8 @@ export async function renderScene(): Promise<{
                 body(pass);
                 out.push({ label, target, setBindGroups, draws, fullscreen });
             },
-            compute: (_label: string, body: (pass: unknown) => void) => {
+            compute: (label: string, body: (pass: unknown) => void) => {
+                computes.push(label);
                 const pass = {
                     bind: { setPipeline: () => pass.bind, setBindGroup: () => pass.bind },
                     dispatch: {
@@ -222,11 +227,13 @@ export async function renderScene(): Promise<{
             const dt = 1 / 60;
             scene.time.advance(dt);
             passes = [];
+            computes = [];
             scene.events.emit('frameTick', { dt, realDt: dt, elapsed: scene.time.elapsed, frame });
             return passes;
         },
         draws: (label) =>
             passes.filter((p) => label === undefined || p.label === label).flatMap((p) => p.draws),
+        computes: () => computes,
         creates: () => creates,
         writes: () => writes,
         destroys: () => destroys,

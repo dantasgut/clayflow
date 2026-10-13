@@ -6,7 +6,10 @@
 //       não normalizado;
 //   (2) cada cubo aparece no centro projetado da sua posição (cor esperada em 3×3 pixels — 1 px);
 //   (3) mutar `data.position` (campo inteiro e componente) reflete no quadro seguinte;
-//   (4) corpos rígidos caem e a escala visual do Transform (0.5) é preservada.
+//   (4) hierarquia (spec 007): cadeia pai → filho → neto com `Parent` — matrizes de mundo e de normais contra a
+//       composição de referência em f32 (`world = world[pai] · T·R·S`), mover o pai move os descendentes no quadro
+//       seguinte, remover o pai torna o filho raiz;
+//   (5) corpos rígidos caem e a escala visual do Transform (0.5) é preservada.
 //
 // Para rodar: `cp src/__smokes__/transforms.ts src/main.ts && npm run dev`
 // Resultado: `TRANSFORMS SMOKE PASSED` ou `FAIL: …` no console e no #log.
@@ -18,6 +21,7 @@ import {
     Camera,
     DirectionalLight,
     Transform,
+    Parent,
     GravityField,
     RigidBody,
 } from 'clayflow';
@@ -143,6 +147,33 @@ function project(vp: Mat4, p: Vec3, w: number, h: number): [number, number] {
     const y = vp[1]! * p[0] + vp[5]! * p[1] + vp[9]! * p[2] + vp[13]!;
     const cw = vp[3]! * p[0] + vp[7]! * p[1] + vp[11]! * p[2] + vp[15]!;
     return [Math.round(((x / cw) * 0.5 + 0.5) * w), Math.round((0.5 - (y / cw) * 0.5) * h)];
+}
+
+/** Composição de dois pares (world 16 + normal 12) como o estágio por nível, arredondando a f32 a cada operação. */
+function composeF32(parent: number[], local: number[]): number[] {
+    const f = Math.fround;
+    const world = new Array<number>(16).fill(0);
+    for (let c = 0; c < 4; c++)
+        for (let r = 0; r < 4; r++) {
+            let acc = 0;
+            for (let k = 0; k < 4; k++) acc = f(acc + f(parent[k * 4 + r]! * local[c * 4 + k]!));
+            world[c * 4 + r] = acc;
+        }
+    // mat3x3 com padding: coluna c em [16 + c·4, 16 + c·4 + 3).
+    const normal = new Array<number>(12).fill(0);
+    for (let c = 0; c < 3; c++)
+        for (let r = 0; r < 3; r++) {
+            let acc = 0;
+            for (let k = 0; k < 3; k++)
+                acc = f(acc + f(parent[16 + k * 4 + r]! * local[16 + c * 4 + k]!));
+            normal[c * 4 + r] = acc;
+        }
+    return [...world, ...normal];
+}
+
+/** Oráculo local arredondado a f32. */
+function oracleF32(position: Vec4, rotation: Vec4, scale: Vec4): number[] {
+    return oracle(position, rotation, scale).map((v) => Math.fround(v));
 }
 
 // ── Cena ────────────────────────────────────────────────────────────────────
@@ -313,10 +344,10 @@ async function main(): Promise<void> {
         });
     };
 
-    const compare = (label: string, got: Float32Array, want: number[]): void => {
+    const compare = (label: string, got: Float32Array, want: number[], tol = 1e-5): void => {
         for (let k = 0; k < 28; k++) {
             if (k >= 16 && (k - 16) % 4 === 3) continue; // padding das colunas da mat3x3
-            if (Math.abs(got[k]! - want[k]!) > 1e-5) {
+            if (Math.abs(got[k]! - want[k]!) > tol) {
                 failures.push(`${label}: componente ${k} = ${got[k]} ≠ ${want[k]}`);
                 return;
             }
@@ -354,7 +385,59 @@ async function main(): Promise<void> {
     compare('mutação azul', movedWorlds[1]!, oracle(moved[2], CUBES[2]!.rotation, CUBES[2]!.scale));
     log(`(3) mutação verificada — falhas até aqui: ${failures.length}`);
 
-    // ── (4): corpos rígidos com escala visual preservada ───────────────────
+    // ── (4): hierarquia pai → filho → neto ─────────────────────────────────
+    const chain: { position: Vec4; rotation: Vec4; scale: Vec4 }[] = [
+        { position: [0, 2, -2, 1], rotation: [0, s45, 0, c45], scale: [1.5, 1, 1, 1] },
+        { position: [2, 0, 0, 1], rotation: [s15, 0, 0, c15], scale: [1, 0.5, 1, 1] },
+        { position: [0, 1, 0, 1], rotation: [0, 0, s15, c15], scale: [0.5, 0.5, -0.5, 1] },
+    ];
+    const chainTransforms = chain.map(
+        (c) => new Transform({ position: c.position, rotation: c.rotation, scale: c.scale }),
+    );
+    const chainIds: EntityId[] = [];
+    chain.forEach((_, i) => {
+        const box = new BoxGeometry({ size: [1, 1, 1] })
+            .add(new StandardMaterial({ albedo: [1, 1, 1, 1] }))
+            .add(chainTransforms[i]!);
+        if (i > 0) box.add(new Parent(chainIds[i - 1]!));
+        chainIds.push(app.world.insert(box));
+    });
+    const expectedChain = (): number[][] => {
+        const locals = chain.map((c) => oracleF32(c.position, c.rotation, c.scale));
+        const out = [locals[0]!];
+        for (let i = 1; i < locals.length; i++) out.push(composeF32(out[i - 1]!, locals[i]!));
+        return out;
+    };
+    const checkChain = async (label: string): Promise<void> => {
+        const got = await readWorlds(chainIds);
+        const want = expectedChain();
+        got.forEach((m, i) => {
+            compare(`${label} nível ${i}`, m, want[i]!, 2e-5);
+        });
+    };
+    step();
+    await checkChain('hierarquia');
+    // Mover o pai: filho e neto acompanham no quadro seguinte.
+    chain[0]!.position = [-1, 3, -1, 1];
+    chainTransforms[0]!.data.position = chain[0]!.position;
+    step();
+    await checkChain('hierarquia após mover o pai');
+    // Remover o pai: o filho vira raiz (matriz de mundo = local) e o neto segue o filho.
+    app.world.remove(app.world.rootOf(chainIds[0]!)!);
+    step();
+    const orphaned = await readWorlds(chainIds.slice(1));
+    const childLocal = oracleF32(chain[1]!.position, chain[1]!.rotation, chain[1]!.scale);
+    compare('órfão', orphaned[0]!, childLocal);
+    compare(
+        'neto do órfão',
+        orphaned[1]!,
+        composeF32(childLocal, oracleF32(chain[2]!.position, chain[2]!.rotation, chain[2]!.scale)),
+        2e-5,
+    );
+    for (const id of chainIds.slice(1)) app.world.remove(app.world.rootOf(id)!);
+    log(`(4) hierarquia verificada — falhas até aqui: ${failures.length}`);
+
+    // ── (5): corpos rígidos com escala visual preservada ───────────────────
     for (const id of ids) {
         const root = app.world.rootOf(id);
         if (root !== undefined) app.world.remove(root);
@@ -422,7 +505,7 @@ async function main(): Promise<void> {
         if (y === undefined || Math.abs(y - worldY) > 0.05)
             failures.push(`leitura: pose da esfera ${i} y=${y}, mundo ${worldY}`);
     });
-    log(`(4) física verificada — falhas até aqui: ${failures.length}`);
+    log(`(5) física verificada — falhas até aqui: ${failures.length}`);
 
     if (engineErrors > 0) failures.push(`engineErrors=${engineErrors}`);
     if (failures.length > 0) {

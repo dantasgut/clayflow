@@ -240,9 +240,13 @@ physics-gpu), quickstart.md
 
 **Independent Test**: cadeia pai → filho → neto com matrizes conferidas.
 
-- [ ] T051 [P] [US5] Testes em `src/elements/scene/__tests__/Parent.test.ts`: níveis mantidos por evento; ciclo, pai sem `Transform` e `Parent` em `Transform` de posse da GPU → erro; pai removido → filhos raízes com aviso; sem `Parent`, um despacho só (contagem)
-- [ ] T052 [US5] `src/elements/scene/Parent.ts` e `TransformFlow.ts` com `hierarchy` e listas por nível; `transform_compose.wgsl` com variante por nível (`world = world[pai] · TRS`)
-- [ ] T053 [US5] Smoke `transforms` estendido com a cadeia (matrizes contra referência em `f32`) em `src/__smokes__/transforms.ts`
+- [x] T051 [P] [US5] Testes em `src/elements/scene/__tests__/Parent.test.ts`: níveis mantidos por evento; ciclo, pai sem `Transform` e `Parent` em `Transform` de posse da GPU → erro; pai removido → filhos raízes com aviso; sem `Parent`, um despacho só (contagem)
+- [x] T052 [US5] `src/elements/scene/Parent.ts` e `TransformFlow.ts` com `hierarchy` e listas por nível; `transform_compose.wgsl` com variante por nível (`world = world[pai] · TRS`)
+- [x] T053 [US5] Smoke `transforms` estendido com a cadeia (matrizes contra referência em `f32`) em `src/__smokes__/transforms.ts`
+  > Medido: cadeia de 3 níveis com escala não uniforme e espelhada confere com a referência em f32 (tolerância 2e-5);
+  > mover o pai move os descendentes no quadro seguinte; pai removido → filho raiz com aviso. Sem `Parent`, um despacho
+  > (teste). `PerStepUniforms` saiu da física para `elements/gpu/compute` (níveis com offset dinâmico);
+  > `BoundPool.ownedByGpu(slot)` novo na C2.
 
 **Checkpoint**: hierarquia opcional.
 

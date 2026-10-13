@@ -11,7 +11,8 @@ export interface PerStepUniformsOptions {
 }
 
 /**
- * Parâmetros por iteração dos Flows de física: um buffer uniform com **uma região por iteração** do quadro,
+ * Parâmetros por iteração de um Flow (passos e substeps da física, níveis da hierarquia de `Transform`): um buffer
+ * uniform com **uma região por iteração** do quadro,
  * alinhada a `minUniformBufferOffsetAlignment`, escrito **uma vez por quadro** e ligado por **offset dinâmico**.
  *
  * Por que existe (research A1): `core.write` entra na fila antes do command buffer do quadro — reescrever o mesmo

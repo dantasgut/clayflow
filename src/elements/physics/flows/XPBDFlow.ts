@@ -20,7 +20,7 @@ import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { GravityField } from '../forcefields/GravityField';
 import { SimParamsSchema } from '../schemas/simParams';
 import { xpbdDistanceSolve, xpbdPredict, xpbdVelocityUpdate } from '../shaders/xpbd';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Opções do `XPBDFlow`. */
 export interface XPBDFlowOptions {

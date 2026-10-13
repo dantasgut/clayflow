@@ -2,6 +2,7 @@ export { Scene } from './Scene';
 export { Transform } from './Transform';
 export type { TransformValues } from './Transform';
 export { Camera } from './Camera';
+export { Parent } from './Parent';
 export { Light } from './Light';
 export { DirectionalLight } from './DirectionalLight';
 export { PointLight } from './PointLight';

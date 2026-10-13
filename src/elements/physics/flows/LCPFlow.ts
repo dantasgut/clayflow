@@ -58,7 +58,7 @@ import {
     rbSolveLcp,
 } from '../shaders/lcp';
 import { PosePublishParamsSchema, RigidPoseInstanceSchema, rigidPoseRecord } from '../schemas/pose';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Contatos por par no máximo: manifold de cantos de uma caixa. */
 const RB_MAX_CONTACTS_PER_PAIR = 8;

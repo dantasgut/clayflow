@@ -631,6 +631,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return this.pools.get(poolKey)?.slotByEntity.get(entityId);
     }
 
+    /** O slot do pool é de posse da GPU (`acquireOwnership`)? */
+    poolSlotOwnedByGpu(poolKey: string, slot: number): boolean {
+        const entry = this.pools.get(poolKey);
+        return entry !== undefined && hasBit(entry.ownedBits, slot);
+    }
+
     /** EntityId que ocupa o slot dado dentro do pool. Inverso de `poolSlotOf`. */
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined {
         return this.pools.get(poolKey)?.entityBySlot.get(slot);

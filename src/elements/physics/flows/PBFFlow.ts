@@ -35,7 +35,7 @@ import {
     pbfVorticity,
     pbfXsph,
 } from '../shaders/pbf';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Expoente n do `s_corr`. */
 const PBF_S_CORR_N = 4;

@@ -84,7 +84,11 @@ describe('TransformFlow (slots)', () => {
         scene.events.on('bindGroupReplaced', (e) => replaced.push(e));
         for (let i = 0; i < 20; i++) scene.world.insert(new Transform());
         expect(composes(frame())).toBe(1);
-        expect(replaced.map((e) => e.pipeline)).toEqual(['transform_compose']);
+        // Os dois pipelines do estágio leem os pools: composição e nível da hierarquia.
+        expect(replaced.map((e) => e.pipeline).sort()).toEqual([
+            'transform_compose',
+            'transform_link',
+        ]);
         expect(
             replaced[0]!.newSpec.bindings.map((b) => (b.kind === 'buffer' ? b.buffer : null)),
         ).toContain(scene.resourceSystem.poolBufferSpec('WorldTransform'));
@@ -94,7 +98,13 @@ describe('TransformFlow (slots)', () => {
         const { flow } = setup();
         const [desc] = flow.pipelines;
         const composed = composeWgsl(desc!.shader);
-        expect(composed.modules).toEqual(['quat', 'linalg', 'mat', 'transform_compose']);
+        expect(composed.modules).toEqual([
+            'quat',
+            'linalg',
+            'mat',
+            'transform_local',
+            'transform_compose',
+        ]);
         expect(composed.spec.source).toContain(Transform.schema.toWGSL());
         expect(composed.spec.source).toContain(Transform.worldSchema.toWGSL());
         expect(desc!.consumes).toEqual([Transform.schema.name, Transform.worldSchema.name]);

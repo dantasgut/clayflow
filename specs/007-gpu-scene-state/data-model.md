@@ -83,8 +83,11 @@ Resource singleton, `StructSchema('Input', {})`, sem descritores; API de consult
 
 ## Parent (C3) — novo (R12)
 
-Resource sem descritores, `data: { entity: EntityId }`. Privado do `TransformFlow`: `hierarchy: array<u32>` (slot do pai
-ou `0xFFFFFFFF`) e listas de slots por nível.
+Resource sem descritores, `data: { entity: EntityId }`. Privado do `TransformFlow`: a lista de elos
+`TransformLink { child: u32, parent: u32 }` (slots), ordenada por nível — um trecho contíguo por nível ≥ 1 —, e o trecho
+de cada nível em `TransformLevel { first, count }` (uma região por nível, offset dinâmico). Refeita só quando o conjunto
+de filhos, os pais ou a posse da GPU mudam. (Implementação: a lista de elos substituiu o `hierarchy: array<u32>` por
+slot do desenho inicial — mesma informação, sem buffer do tamanho do pool.)
 
 ## Light e ShadowMap (C3) — alterado (R11)
 
