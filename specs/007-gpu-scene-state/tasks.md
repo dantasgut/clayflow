@@ -297,7 +297,28 @@ physics-gpu), quickstart.md
 - [x] T060 [P] `specs/ROADMAP.md` (status da F2/007; vertex pulling e arena para a F7 com o motivo de R4; broadphase e envio por delta antecipados) e `specs/PENDENCIAS.md` (E2, E3, E5 resolvidos; §0 com o SC-010 da 006)
 - [x] T061 JSDoc em todo export novo; `npm run doc:coverage` sem membro sem documentação; `npm run doc` (API regenerada)
 - [x] T062 Smokes completos no fonte e no dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,contactSet,scale1m,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar em `src/__smokes__/README.md`
-- [ ] T063 Bench contra as metas (SC-001–SC-007) com a máquina livre: `npm run bench -- --scene instances` e `--scene rigid-bodies` (clayflow e three); anotar abaixo deste item a tabela meta × medido
+- [x] T063 Bench contra as metas (SC-001–SC-007) com a máquina livre: `npm run bench -- --scene instances` e `--scene rigid-bodies` (clayflow e three); anotar abaixo deste item a tabela meta × medido
+  > Medido em 2026-10-13 (Chrome, Apple M-series, 1280×720; GPU do clayflow com `profiling: 'frame'` — com um par
+  > de timestamps por passe a própria medição custava 120 fps no `rigid-bodies/10k`, ver commit do profiler):
+  >
+  > | Meta                                                     | Medido (clayflow / Three)                              | Situação                    |
+  > | -------------------------------------------------------- | ------------------------------------------------------ | --------------------------- |
+  > | SC-001 `instances/10k`: 1 grupo de draw, CPU ≤ 1 ms      | 2 draws (como o Three), CPU 0,02 / 0,03 ms             | atendida                    |
+  > | SC-002 `100k`/`1m`: CPU ≤ 1,5× a de `10k`                | 0,02 / 0,02 ms                                         | atendida                    |
+  > | SC-003 `1m` completa 3 repetições; `100k` ≥ 60 fps       | 369 fps (Three 315); `100k` 1728 fps                   | atendida                    |
+  > | SC-004 `10k-moving`: CPU ≤ 3 ms                          | 2,76 / 1,40 ms                                         | atendida                    |
+  > | SC-005 `rigid-bodies/10k`: 0 leituras de pose por quadro | 0 (teste `LCPFlow.pose`)                               | atendida                    |
+  > | SC-005 fps ≥ Three + Rapier                              | 337 / 36 fps (GPU 2,94 / 6,65 ms)                      | atendida                    |
+  > | SC-005 p99 ≤ 1,5× a média                                | p99 5,53 ms, média 2,97 ms (1,86×; sem profiling 1,6×) | **não atendida** — ver nota |
+  > | SC-006 pares ≤ 1% de N·M                                 | 0,087% (smoke `contactSet`)                            | atendida                    |
+  > | SC-007 GPU `instances/10k` ≤ 0,52 ms                     | 0,35 ms (Three 0,09)                                   | atendida                    |
+  >
+  > Nota SC-005 p99: os picos do readback (p99 309 ms) acabaram; o p99 absoluto é 5,5 ms. A razão p99/média vem da
+  > oscilação do laço do navegador com quadros de ~3 ms: um quadro em ~5–10% dura dois intervalos, igual em
+  > `maxFramesInFlight` 2 ou 3 e com ou sem profiling. O Three tem a mesma razão quando roda rápido (`instances/10k`:
+  > p99 0,26 ms, média 0,09 ms = 2,8×); no `rigid-bodies` ele fica em 1,17× por ser limitado pela CPU (27 ms). Decisão do
+  > usuário: manter o critério relativo ou trocá-lo por um limite absoluto. `rigid-bodies/1k`: 386 × 2505 fps — custo
+  > fixo dos passes do solver (GPU 1,86 ms com 1 000 corpos).
 - [ ] T064 `npm run bench:check` com a máquina livre contra o baseline do Chrome 155; se verde, `npm run bench:baseline`; anotar abaixo deste item
 - [ ] T065 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/007-gpu-scene-state/spec.md` com o status e `checklists/requirements.md`
 
