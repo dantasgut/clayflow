@@ -28,14 +28,20 @@ export interface LaunchedBrowser {
     shutdown(ms?: number): Promise<void>;
 }
 
-/** Abre o Chrome instalado na máquina (Playwright não baixa navegadores). */
-export async function launchBrowser(headless: boolean): Promise<LaunchedBrowser> {
+/**
+ * Abre o Chrome instalado na máquina (Playwright não baixa navegadores). `extraArgs` acrescenta argumentos (ex.: os
+ * smokes expõem `gc()` para medir memória retida).
+ */
+export async function launchBrowser(
+    headless: boolean,
+    extraArgs: readonly string[] = [],
+): Promise<LaunchedBrowser> {
     let server: Awaited<ReturnType<typeof chromium.launchServer>>;
     try {
         server = await chromium.launchServer({
             channel: 'chrome',
             headless,
-            args: [...CHROME_ARGS],
+            args: [...CHROME_ARGS, ...extraArgs],
         });
     } catch (e) {
         const message = e instanceof Error ? e.message : String(e);

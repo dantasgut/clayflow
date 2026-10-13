@@ -8,9 +8,9 @@
 
 > `const` **ELEMENT\_CONSUMERS**: readonly `ConsumerResolver`[]
 
-Defined in: [elements/consumers.ts:13](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/consumers.ts#L13)
+Defined in: [elements/consumers.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/consumers.ts#L12)
 
 Resolvers de `consumes` dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
-aplicação): `Camera` (a primeira câmera inserida que continua na cena), `GravityField` e `ParticleMaterial`. Os
-pools (`WorldTransform`, `Transform`, `Light`, `ShadowMap`, materiais, corpos, colliders, restrições) têm o
-`PoolResolver` registrado pela C2 ao serem criados; o `Time` é registrado pela cena.
+aplicação): `GravityField` e `ParticleMaterial`. Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
+`Transform`, `Light`, `ShadowMap`, materiais, corpos, colliders, restrições) têm o `PoolResolver` registrado pela C2
+ao serem criados; o `Time` é registrado pela cena.

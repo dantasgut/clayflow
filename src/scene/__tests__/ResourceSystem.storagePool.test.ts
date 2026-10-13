@@ -16,7 +16,6 @@ const Tint = new StructSchema('PoolTint', { color: FieldType.vec4f, gain: FieldT
 class TintResource extends Entity implements Resource {
     static readonly schema = Tint;
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(gain: number) {
         super();
         this.data = { color: [1, 0, 0, 1], gain };
@@ -34,7 +33,10 @@ function setup() {
     const world = new World(events);
     const fake = fakeResourceCore();
     const system = new ResourceSystem(fake.core, events, world);
-    return { events, world, system, ...fake };
+    const frame = (): void => {
+        events.emit('frameRecording', { elapsed: 0 });
+    };
+    return { events, world, system, frame, ...fake };
 }
 
 describe('ResourceSystem — pool de storage (Emenda 1 da 006)', () => {
@@ -62,23 +64,27 @@ describe('ResourceSystem — pool de storage (Emenda 1 da 006)', () => {
         expect(system.poolInfo('PoolPair')!.stride).toBe(8);
     });
 
-    it('cada recurso no seu slot: escrita no offset slot × stride; slots estáveis na remoção', () => {
-        const { world, system, writes } = setup();
+    it('cada recurso no seu slot: faixa contígua escrita de uma vez no offset slot × stride; slots estáveis na remoção', () => {
+        const { world, system, writes, frame } = setup();
         const a = new TintResource(1);
         const b = new TintResource(2);
         world.insert(a);
         const bId = world.insert(b);
+        frame();
         const pool = system.poolInfo('PoolTint')!;
-        const toB = writes.filter((w) => w.spec === pool.buffer && w.offset === Tint.stride);
-        expect(toB).toHaveLength(1);
-        expect(f32At(toB[0]!, 4)).toBe(2);
+        const toPool = writes.filter((w) => w.spec === pool.buffer);
+        expect(toPool).toHaveLength(1);
+        expect(toPool[0]!.offset).toBe(0);
+        expect(toPool[0]!.bytes.byteLength).toBe(2 * Tint.stride);
+        expect(f32At(toPool[0]!, Tint.stride / 4 + 4)).toBe(2);
         world.remove(a);
         expect(system.poolSlotOf('PoolTint', bId)).toBe(1);
     });
 
-    it('crescimento preserva os dados (reempacota da CPU) e destrói o buffer anterior', () => {
-        const { world, system, writes, core } = setup();
+    it('crescimento preserva os dados por cópia na GPU (sem reempacotar da CPU) e destrói o buffer anterior', () => {
+        const { world, system, writes, core, copies, frame } = setup();
         for (let i = 0; i < 16; i++) world.insert(new TintResource(i));
+        frame();
         const first = system.poolInfo('PoolTint')!.buffer;
         writes.length = 0;
         world.insert(new TintResource(99));
@@ -86,10 +92,13 @@ describe('ResourceSystem — pool de storage (Emenda 1 da 006)', () => {
         expect(grown.buffer).not.toBe(first);
         expect(grown.buffer.byteSize).toBe(Tint.stride * 32);
         expect(grown.generation).toBe(1);
-        const rewritten = writes.filter((w) => w.spec === grown.buffer);
-        expect(rewritten).toHaveLength(17);
-        expect(f32At(rewritten.find((w) => w.offset === 5 * Tint.stride)!, 4)).toBe(5);
+        expect(copies).toEqual([{ src: first, dst: grown.buffer, size: first.byteSize }]);
         expect(core.destroy).toHaveBeenCalledWith(first);
+        frame();
+        // Só o membro novo é escrito da CPU.
+        const rewritten = writes.filter((w) => w.spec === grown.buffer);
+        expect(rewritten).toHaveLength(1);
+        expect(rewritten[0]!.offset).toBe(16 * Tint.stride);
     });
 
     it("descritor 'uniform' em pool é rejeitado com erro claro", () => {

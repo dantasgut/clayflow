@@ -15,6 +15,15 @@ export const RenderableSchema = new StructSchema('Renderable', {
 });
 
 /**
+ * Lista de instâncias do render principal (spec 007): por instância de um grupo (geometria, pipeline), o slot do
+ * registro `Renderable` da entidade. O desenho de um grupo usa `firstInstance` = início do segmento do grupo e o shader
+ * lê `renderables[instances[instance_index].renderable]`.
+ */
+export const RenderInstanceSchema = new StructSchema('RenderInstance', {
+    renderable: FieldType.u32,
+});
+
+/**
  * Declaração do registro `Renderable` para `slot.entities({ all: [Geometry, Material, Transform], record })`: a C2
  * preenche `transformSlot` com o slot do descritor `world` do `Transform` e `materialSlot` com o do descritor
  * `material` do `Material` da entidade.

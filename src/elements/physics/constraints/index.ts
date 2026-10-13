@@ -1,4 +1,8 @@
 export { Constraint } from './Constraint';
-export { SpringConstraint } from './SpringConstraint';
-export { JointConstraint } from './JointConstraint';
-export { DistanceConstraint } from './DistanceConstraint';
+export { SpringConstraint, type SpringConstraintData } from './SpringConstraint';
+export { JointConstraint, type JointConstraintData } from './JointConstraint';
+export {
+    DistanceConstraint,
+    type DistanceConstraintData,
+    type DistanceConstraintValues,
+} from './DistanceConstraint';

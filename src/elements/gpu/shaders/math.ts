@@ -14,6 +14,7 @@ import noiseSource from '../wgsl/math/noise.wgsl?raw';
 import colorSource from '../wgsl/math/color.wgsl?raw';
 import brdfSource from '../wgsl/math/brdf.wgsl?raw';
 import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
+import cameraSource from '../wgsl/math/camera.wgsl?raw';
 import { LCPSchema } from '../../physics/bodies/schemas/LCPSchema';
 import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
@@ -35,6 +36,9 @@ export const linalg = wgslModule({ name: 'linalg', source: linalgSource });
 
 /** Construção de matrizes: de quaternion/colunas, TRS, inversa rígida, decomposição polar. */
 export const mat = wgslModule({ name: 'mat', source: matSource, requires: [quat, linalg] });
+
+/** Câmera: projeções perspectiva e ortográfica e a vista a partir da matriz de mundo (spec 007). */
+export const camera = wgslModule({ name: 'camera', source: cameraSource, requires: [mat] });
 
 /** Funções de distância com sinal (esfera, caixa, plano) e gradientes. */
 export const sdf = wgslModule({ name: 'sdf', source: sdfSource });

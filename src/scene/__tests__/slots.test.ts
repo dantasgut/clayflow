@@ -9,7 +9,6 @@ import type { Resource } from '../contracts/Resource';
 const S = new StructSchema('SlotsTestSchema', { v: FieldType.vec4f });
 class A extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
     getDescriptors() {
         return [];
     }

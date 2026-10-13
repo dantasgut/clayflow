@@ -29,7 +29,7 @@ describe('Transform reativo ponta a ponta', () => {
         const t = new Transform({ position: [0, 0, 0, 1] });
         world.insert(t);
         frame();
-        (t.data.position as number[])[0] = 5;
+        t.data.position[0] = 5;
         const trace = frame();
         const write = trace.indexOf('write:pool:Transform');
         const compute = trace.indexOf('compute:TransformFlow');

@@ -14,6 +14,8 @@ export type {
     SingletonSlot,
     EntitiesSlot,
     EntityRecordDeclaration,
+    EntityGroupsDeclaration,
+    DrawGroup,
     TextureSlot,
     TargetSlot,
     TextureRef,

@@ -225,6 +225,8 @@ export class StructSchema extends Schema {
     /** Schemas dos structs aninhados (transitivos), em ordem de dependência. */
     readonly dependencies: readonly StructSchema[];
     private readonly layout: ReadonlyMap<string, StructFieldLayout>;
+    /** Passos de empacotamento (offset em palavras, componentes, vista), calculados na primeira chamada. */
+    private packSteps: readonly PackStep[] | undefined;
     private compactVertexLayout: VertexLayout | null = null;
 
     constructor(
@@ -395,10 +397,45 @@ export class StructSchema extends Schema {
             throw new RangeError(
                 `StructSchema(${this.name}): byteOffset ${byteOffset} não alinhado a 4`,
             );
-        new Uint8Array(buffer, base, this.stride).fill(0);
-        for (const [name, entry] of this.layout) {
-            writeField(buffer, base + entry.offset, entry.type, data[name], this);
+        const views = viewsOf(buffer);
+        const word = base >>> 2;
+        views.u32.fill(0, word, (base + this.stride) >>> 2);
+        this.packSteps ??= [...this.layout].map(([name, entry]) => packStep(name, entry));
+        for (const step of this.packSteps) {
+            const value = data[step.name];
+            if (value === undefined) continue;
+            if (step.view === undefined) {
+                writeField(views, buffer, base + step.offset, step.type, value, this);
+                continue;
+            }
+            const view = views[step.view];
+            const at = word + (step.offset >>> 2);
+            if (typeof value === 'number') view[at] = value;
+            else if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+                const source = value as ArrayLike<unknown>;
+                const n = source.length < step.elements ? source.length : step.elements;
+                for (let i = 0; i < n; i++) {
+                    const v = source[i];
+                    view[at + i] = typeof v === 'number' ? v : 0;
+                }
+            } else writeField(views, buffer, base + step.offset, step.type, value, this);
         }
+    }
+
+    /**
+     * Lê um registro de `source` a partir de `byteOffset` — o inverso de `packInto`: escalares viram números; vetores,
+     * matrizes e arrays de tamanho fixo viram arrays de números (matrizes com o padding das colunas, como no buffer);
+     * structs aninhados viram objetos. Arrays de tamanho em execução não são lidos.
+     */
+    unpack(source: ArrayBuffer | ArrayBufferView, byteOffset = 0): Record<string, unknown> {
+        const buffer = source instanceof ArrayBuffer ? source : (source.buffer as ArrayBuffer);
+        const base = (source instanceof ArrayBuffer ? 0 : source.byteOffset) + byteOffset;
+        const out: Record<string, unknown> = {};
+        for (const [name, entry] of this.layout) {
+            const value = readField(buffer, base + entry.offset, entry.type, this);
+            if (value !== undefined) out[name] = value;
+        }
+        return out;
     }
 
     /**
@@ -415,7 +452,50 @@ export class StructSchema extends Schema {
     }
 }
 
+/** Passo de empacotamento de um campo: primitivo (vista e componentes) ou composto (`view` ausente → `writeField`). */
+interface PackStep {
+    readonly name: string;
+    readonly offset: number;
+    readonly type: FieldSpec;
+    readonly view: 'f32' | 'i32' | 'u32' | undefined;
+    readonly elements: number;
+}
+
+function packStep(name: string, entry: StructFieldLayout): PackStep {
+    const type = entry.type;
+    if (!isPrimitive(type))
+        return { name, offset: entry.offset, type, view: undefined, elements: 0 };
+    const ctor = fieldCtor(type);
+    const view = ctor === Float32Array ? 'f32' : ctor === Int32Array ? 'i32' : 'u32';
+    return { name, offset: entry.offset, type, view, elements: fieldElements(type) };
+}
+
+/** Vistas de 32 bits de um `ArrayBuffer` inteiro (todos os campos têm componentes de 4 bytes). */
+interface WordViews {
+    readonly f32: Float32Array;
+    readonly i32: Int32Array;
+    readonly u32: Uint32Array;
+}
+
+/** Vistas por buffer, reaproveitadas: empacotar não aloca uma vista por campo. */
+const wordViews = new WeakMap<ArrayBufferLike, WordViews>();
+
+function viewsOf(buffer: ArrayBuffer): WordViews {
+    let views = wordViews.get(buffer);
+    if (views === undefined) {
+        const words = buffer.byteLength >>> 2;
+        views = {
+            f32: new Float32Array(buffer, 0, words),
+            i32: new Int32Array(buffer, 0, words),
+            u32: new Uint32Array(buffer, 0, words),
+        };
+        wordViews.set(buffer, views);
+    }
+    return views;
+}
+
 function writeField(
+    views: WordViews,
     buffer: ArrayBuffer,
     offset: number,
     type: FieldSpec,
@@ -424,7 +504,7 @@ function writeField(
 ): void {
     if (value === undefined) return;
     if (isPrimitive(type)) {
-        writePrimitive(buffer, offset, type, value, owner);
+        writePrimitive(views, offset, type, value, owner);
         return;
     }
     if (type.kind === 'struct') {
@@ -447,27 +527,58 @@ function writeField(
     const stride = alignTo(elem.size, elem.align);
     const n = Math.min(type.length, value.length);
     for (let i = 0; i < n; i++)
-        writeField(buffer, offset + i * stride, type.element, value[i], owner);
+        writeField(views, buffer, offset + i * stride, type.element, value[i], owner);
+}
+
+function readField(
+    buffer: ArrayBuffer,
+    offset: number,
+    type: FieldSpec,
+    owner: StructSchema,
+): unknown {
+    if (isPrimitive(type)) {
+        const elements = fieldElements(type);
+        const view = new (fieldCtor(type))(buffer, offset, elements);
+        return elements === 1 ? view[0] : Array.from(view);
+    }
+    if (type.kind === 'struct') return type.schema.unpack(buffer, offset);
+    if (type.kind === 'runtimeArray') return undefined;
+    const elem = typeLayout(type.element, owner.addressSpace);
+    const stride = alignTo(elem.size, elem.align);
+    return Array.from({ length: type.length }, (_, i) =>
+        readField(buffer, offset + i * stride, type.element, owner),
+    );
 }
 
 function writePrimitive(
-    buffer: ArrayBuffer,
+    views: WordViews,
     offset: number,
     type: FieldType,
     value: unknown,
     owner: StructSchema,
 ): void {
     const elements = fieldElements(type);
-    const view = new (fieldCtor(type))(buffer, offset, elements);
+    const ctor = fieldCtor(type);
+    const view = ctor === Float32Array ? views.f32 : ctor === Int32Array ? views.i32 : views.u32;
+    const at = offset >>> 2;
     if (typeof value === 'number') {
-        view[0] = value;
+        view[at] = value;
+        return;
+    }
+    if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+        const source = value as ArrayLike<unknown>;
+        const n = Math.min(elements, source.length);
+        for (let i = 0; i < n; i++) {
+            const v = source[i];
+            view[at + i] = typeof v === 'number' ? v : 0;
+        }
         return;
     }
     if (value !== null && typeof value === 'object' && Symbol.iterator in value) {
         let i = 0;
         for (const v of value as Iterable<unknown>) {
             if (i >= elements) break;
-            view[i++] = typeof v === 'number' ? v : 0;
+            view[at + i++] = typeof v === 'number' ? v : 0;
         }
         return;
     }

@@ -29,7 +29,6 @@ import {
     Vignette,
     WireframeMaterial,
 } from 'clayflow';
-import { cameraMatrices } from '../../bench/engines/clayflow';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 
 const WIDTH = 256;
@@ -47,22 +46,20 @@ interface RenderScene {
 }
 
 function baseScene(app: Application): void {
-    // O motor ainda não compõe a câmera (F2): as matrizes vêm do mesmo cálculo de usuário que o bench usa.
-    const aspect = WIDTH / HEIGHT;
+    // Câmera pelo modelo da 007: parâmetros + Transform; as matrizes são produzidas na GPU (CameraFlow).
     app.world.insert(
         new Camera({
-            ...cameraMatrices(
-                { position: [0, 3, 6], target: [0, 0, 0], fovDeg: 45 },
-                aspect,
-                0.1,
-                100,
-            ),
-            position: [0, 3, 6, 1],
             fov: Math.PI / 4,
-            aspect,
+            aspect: WIDTH / HEIGHT,
+            aspectMode: 'fixed',
             near: 0.1,
             far: 100,
-        }),
+        }).add(
+            new Transform({
+                position: [0, 3, 6, 1],
+                rotation: Transform.lookRotation([0, 3, 6], [0, 0, 0]),
+            }),
+        ),
     );
     app.world.insert(
         new DirectionalLight({

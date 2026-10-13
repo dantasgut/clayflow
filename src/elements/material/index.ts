@@ -1,4 +1,4 @@
 export { Material } from './Material';
-export { StandardMaterial } from './StandardMaterial';
-export { WireframeMaterial } from './WireframeMaterial';
-export { PointSpriteMaterial } from './PointSpriteMaterial';
+export { StandardMaterial, type StandardMaterialData } from './StandardMaterial';
+export { WireframeMaterial, type WireframeMaterialData } from './WireframeMaterial';
+export { PointSpriteMaterial, type PointSpriteMaterialData } from './PointSpriteMaterial';

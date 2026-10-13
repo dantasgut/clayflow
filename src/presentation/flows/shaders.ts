@@ -9,6 +9,7 @@ import {
     EffectParamsSchema,
     ScreenParamsSchema,
     ShadowDepthParamsSchema,
+    ShadowInstanceSchema,
     UiQuadSchema,
 } from './renderSchemas';
 
@@ -16,7 +17,12 @@ import {
 export const shadowDepth = wgslModule({
     name: 'shadow_depth',
     source: shadowDepthSource,
-    structs: [ShadowDepthParamsSchema, ShadowMap.schema, Transform.worldSchema],
+    structs: [
+        ShadowDepthParamsSchema,
+        ShadowMap.matrixSchema,
+        Transform.worldSchema,
+        ShadowInstanceSchema,
+    ],
 });
 
 /**

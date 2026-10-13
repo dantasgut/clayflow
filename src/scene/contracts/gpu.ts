@@ -4,6 +4,7 @@
  */
 export type {
     EngineCore,
+    FrameProfilingGranularity,
     FrameStats,
     AdapterDescription,
     ClampedLimit,

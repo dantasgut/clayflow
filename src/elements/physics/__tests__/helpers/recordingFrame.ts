@@ -40,6 +40,10 @@ export function recordingFrame(): {
                     dispatches.push(args);
                     return dispatch;
                 },
+                workgroupsIndirect: (_spec: unknown, offset?: number) => {
+                    dispatches.push([-1, offset ?? 0]);
+                    return dispatch;
+                },
             };
             body({ bind, dispatch });
             passes.push({ label, offsets, dispatches });

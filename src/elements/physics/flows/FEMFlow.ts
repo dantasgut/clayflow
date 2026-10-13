@@ -18,7 +18,7 @@ import { Time } from '../../../scene/time/Time';
 import { GravityField } from '../forcefields/GravityField';
 import { FEMSimParamsSchema } from '../schemas/simParams';
 import { femPredict, femVelocityUpdate } from '../shaders/fem';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Opções do `FEMFlow`. */
 export interface FEMFlowOptions {
@@ -154,9 +154,8 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         if (iterations === 0) return;
         if (this.params.reserve(iterations)) ctx.bind({ fem_params: this.params.source() });
         const stepDt = (bound.slots.time.resource as Time).stepDt;
-        const accel = (bound.slots.gravity?.resource.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
+            .acceleration ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         for (let i = 0; i < iterations; i++) {
             this.params.write(i, {

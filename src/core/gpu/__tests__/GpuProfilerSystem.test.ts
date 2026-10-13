@@ -18,6 +18,8 @@ function fakeDevice(timestamps: () => BigInt64Array) {
     const device = {
         features: new Set(['timestamp-query']),
         createQuerySet: vi.fn(() => ({ destroy: vi.fn() })),
+        createShaderModule: vi.fn(() => ({})),
+        createComputePipeline: vi.fn(() => ({ label: 'profiler.marker' })),
         createBuffer: vi.fn(() => {
             const b = created.length % 2 === 0 ? { destroy: vi.fn() } : staging;
             created.push(b);
@@ -123,5 +125,53 @@ describe('GpuProfilerSystem — profiling por quadro', () => {
         frame(p, 0, encoder, ['a']);
         expect(p.passTimestampWrites('a')).toBeUndefined();
         expect(encoder.resolveQuerySet).not.toHaveBeenCalled();
+    });
+});
+
+describe('GpuProfilerSystem — granularidade por quadro total', () => {
+    it('início no primeiro passe, fim nos passes de render; compute seguinte sem timestamp', async () => {
+        const ns = new BigInt64Array(64 + 8);
+        ns[64] = 1_000_000n;
+        ns[65] = 3_500_000n;
+        const { device, encoder, finishMap } = fakeDevice(() => ns);
+        const p = new GpuProfilerSystem();
+        p.configureFrameProfiling(true, 8, 'frame');
+        p.attach(device);
+        p.beginFrame(4);
+        const writes = [
+            p.passTimestampWrites('LCPFlow.step', undefined, 'compute'),
+            p.passTimestampWrites('LCPFlow.solve', undefined, 'compute'),
+            p.passTimestampWrites('ForwardFlow', undefined, 'render'),
+            p.passTimestampWrites('PostFlow', undefined, 'render'),
+        ].map((w) =>
+            w === undefined
+                ? undefined
+                : { begin: w.beginningOfPassWriteIndex, end: w.endOfPassWriteIndex },
+        );
+        expect(writes).toEqual([
+            { begin: 64, end: undefined },
+            undefined,
+            { begin: undefined, end: 65 },
+            { begin: undefined, end: 65 },
+        ]);
+        p.resolveOnto(encoder);
+        p.submitFrame();
+        await finishMap();
+        expect(p.lastFrameReading).toEqual({
+            gpuTimeMs: 2.5,
+            gpuFrame: 4,
+            stagesNs: { frame: 2_500_000 },
+        });
+    });
+
+    it('cada gravação abre o seu par', () => {
+        const { device } = fakeDevice(() => new BigInt64Array(72));
+        const p = new GpuProfilerSystem();
+        p.configureFrameProfiling(true, 8, 'frame');
+        p.attach(device);
+        p.beginFrame(0);
+        expect(p.passTimestampWrites('a')?.beginningOfPassWriteIndex).toBe(64);
+        p.beginFrame(1);
+        expect(p.passTimestampWrites('b')?.beginningOfPassWriteIndex).toBe(64);
     });
 });

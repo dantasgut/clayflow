@@ -16,7 +16,11 @@ const PoolSchema = new StructSchema('ReactivePool', { value: FieldType.vec4f });
 class UniformThing extends Entity implements Resource {
     static readonly schema = UniformSchema;
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { value: [0, 0, 0, 0] };
+    constructor() {
+        super();
+        this.data = { value: [0, 0, 0, 0] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'u', role: 'uniform', schema: UniformSchema }];
     }
@@ -28,7 +32,6 @@ class UniformThing extends Entity implements Resource {
 class PoolThing extends Entity implements Resource {
     static readonly schema = PoolSchema;
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(v = 0) {
         super();
         this.data = { value: [v, 0, 0, 0] };
@@ -134,6 +137,7 @@ describe('ResourceSystem — dado reativo e fila por quadro', () => {
         const b = new PoolThing(2);
         world.insert(a);
         const idB = world.insert(b);
+        frame(); // dado inicial dos dois slots numa faixa
         (b.data.value as number[])[0] = 5;
         frame();
         const last = writes.at(-1)!;

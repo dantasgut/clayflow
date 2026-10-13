@@ -6,7 +6,7 @@
 
 # Interface: SoftBodyDomainOptions
 
-Defined in: [elements/physics/bodies/SoftBody.ts:22](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/bodies/SoftBody.ts#L22)
+Defined in: [elements/physics/bodies/SoftBody.ts:22](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/SoftBody.ts#L22)
 
 Opções de domínio do SoftBody — uma partícula deformável (um nó do corpo;
 o corpo completo é composto por N partículas + constraints). O algoritmo
@@ -18,7 +18,7 @@ seleciona o schema; `pos.w` carrega o inverso da massa.
 
 > `readonly` **algorithm**: [`SoftBodyAlgorithm`](../type-aliases/SoftBodyAlgorithm.md)
 
-Defined in: [elements/physics/bodies/SoftBody.ts:27](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/bodies/SoftBody.ts#L27)
+Defined in: [elements/physics/bodies/SoftBody.ts:27](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/SoftBody.ts#L27)
 
 Seleciona o schema/flow integrador: XPBD, FEM ou MPM (sólido elástico; massa, volume e rigidez vêm do
 `ParticleMaterial` da cena).
@@ -29,7 +29,7 @@ Seleciona o schema/flow integrador: XPBD, FEM ou MPM (sólido elástico; massa, 
 
 > `readonly` `optional` **mass?**: `number`
 
-Defined in: [elements/physics/bodies/SoftBody.ts:31](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/bodies/SoftBody.ts#L31)
+Defined in: [elements/physics/bodies/SoftBody.ts:31](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/SoftBody.ts#L31)
 
 Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0). Ignorada no MPM (massa do material).
 
@@ -39,6 +39,6 @@ Massa da partícula (kg). 0/ausente ⇒ fixa (inv_mass = 0). Ignorada no MPM (ma
 
 > `readonly` `optional` **position?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/bodies/SoftBody.ts:29](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/bodies/SoftBody.ts#L29)
+Defined in: [elements/physics/bodies/SoftBody.ts:29](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/SoftBody.ts#L29)
 
 Posição inicial da partícula (mundo). Default [0,0,0].

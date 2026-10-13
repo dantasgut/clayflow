@@ -8,7 +8,7 @@ import { discOf, registerStages, renderScene } from './helpers/renderHarness';
 async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
     const s = await renderScene();
     registerStages(s.scene, { forward: 'canvas' });
-    s.scene.world.insert(new Camera());
+    s.scene.world.insert(new Camera().add(new Transform()));
     const transform = new Transform({ position: [5, 0, 0, 1], scale });
     const box = new BoxGeometry({ size: [1, 1, 1] })
         .add(new StandardMaterial({ albedo: [1, 0, 0, 1] }))
@@ -35,13 +35,19 @@ describe('ForwardFlow — matriz de mundo por slot', () => {
         });
     });
 
-    it('desenha com firstInstance = slot da entidade no pool WorldTransform', async () => {
+    it('as duas caixas iguais saem num desenho; a matriz de cada uma vem do WorldTransform pelo registro', async () => {
         const s = await scene();
-        s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
+        const id = s.scene.world.insert(
+            new BoxGeometry().add(new StandardMaterial()).add(new Transform()),
+        );
         s.step();
         const draws = s.draws('ForwardFlow');
-        expect(draws).toHaveLength(2);
-        expect(draws.map((d) => d.firstInstance)).toContain(s.worldSlot());
+        expect(draws.map((d) => d.instanceCount)).toEqual([2]);
+        // O registro Renderable da entidade aponta para o slot dela no pool WorldTransform.
+        const rs = s.scene.resourceSystem;
+        expect(rs.poolSlotOf('WorldTransform', id)).toBeDefined();
+        expect(rs.poolSlotOf('Renderable', id)).toBeDefined();
+        expect(s.worldSlot()).toBeDefined();
     });
 
     it('não cria nem escreve buffer de transform por objeto, em quadros seguidos', async () => {

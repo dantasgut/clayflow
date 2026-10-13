@@ -33,7 +33,11 @@ export const ProbeParamsSchema = new StructSchema(
 export class ProbeBody extends Entity implements Resource {
     static readonly schema = ProbeBodySchema;
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { v: [0, 0, 0, 0] };
+    constructor() {
+        super();
+        this.data = { v: [0, 0, 0, 0] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
@@ -53,7 +57,11 @@ export class ProbeBody extends Entity implements Resource {
 export class ProbeCam extends Entity implements Resource {
     static readonly schema = ProbeCamSchema;
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { scale: [1, 1, 1, 1] };
+    constructor() {
+        super();
+        this.data = { scale: [1, 1, 1, 1] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'cam', role: 'uniform', schema: ProbeCamSchema }];
     }

@@ -3,11 +3,23 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Constraint } from './Constraint';
 
+/** Dado de um `SpringConstraint` (layout de `SpringConstraint.schema`). */
+export interface SpringConstraintData {
+    bodyA: number;
+    bodyB: number;
+    stiffness: number;
+    damping: number;
+    restLength: number;
+    color: number;
+    _pad0: number;
+    _pad1: number;
+}
+
 /**
  * Constraint mola entre 2 bodies — F = -k·(|d| - rest)·d̂ - c·v_rel.
  * `color` é populado por graph coloring para safe parallel solve.
  */
-export class SpringConstraint extends Constraint {
+export class SpringConstraint extends Constraint<SpringConstraintData> {
     /** StructSchema do SpringConstraint (bodyA/B, k, c, restLength, color). */
     static readonly schema = new StructSchema('SpringConstraint', {
         bodyA: FieldType.u32,
@@ -20,16 +32,18 @@ export class SpringConstraint extends Constraint {
         _pad1: FieldType.u32,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<Omit<SpringConstraintData, 'color'>> = {}) {
         super();
-        this.data = SpringConstraint.schema.applyDefaults({
+        this.data = {
             bodyA: values.bodyA ?? 0,
             bodyB: values.bodyB ?? 0,
             stiffness: values.stiffness ?? 100.0,
             damping: values.damping ?? 1.0,
             restLength: values.restLength ?? 1.0,
             color: 0,
-        });
+            _pad0: 0,
+            _pad1: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

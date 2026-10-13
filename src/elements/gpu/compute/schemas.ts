@@ -87,3 +87,18 @@ export const ColorRangeSchema = new StructSchema('ColorRange', {
     offset: FieldType.u32,
     count: FieldType.u32,
 });
+
+/**
+ * Parâmetros da grade hash espacial (`SpatialHashGrid`, spec 007): itens, máscara da tabela (tamanho − 1, potência de
+ * 2) e lado da célula.
+ */
+export const HashGridParamsSchema = new StructSchema(
+    'HashGridParams',
+    {
+        count: FieldType.u32,
+        table_mask: FieldType.u32,
+        cell_size: FieldType.f32,
+        _pad0: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);

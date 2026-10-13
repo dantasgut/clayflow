@@ -43,12 +43,17 @@ async function main(): Promise<void> {
     // ─── Cena ─────────────────────────────────────────────────────────────
     app.world.insert(
         new Camera({
-            position: [0, 3, 6, 1],
             fov: Math.PI / 4,
             aspect: canvas.width / canvas.height,
+            aspectMode: 'fixed',
             near: 0.1,
             far: 100,
-        }),
+        }).add(
+            new Transform({
+                position: [0, 3, 6, 1],
+                rotation: Transform.lookRotation([0, 3, 6], [0, 0, 0]),
+            }),
+        ),
     );
     app.world.insert(
         new DirectionalLight({

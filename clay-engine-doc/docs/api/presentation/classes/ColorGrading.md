@@ -6,7 +6,7 @@
 
 # Class: ColorGrading
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:18](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/effects/ColorGrading.ts#L18)
+Defined in: [presentation/flows/effects/ColorGrading.ts:18](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/effects/ColorGrading.ts#L18)
 
 ColorGrading — `graded = clamp((c − lift) × gain)^(1/gamma)`, misturado ao original por `strength`. Com os padrões
 (lift 0, gain 1, gamma 1) o efeito é a identidade.
@@ -21,7 +21,7 @@ ColorGrading — `graded = clamp((c − lift) × gain)^(1/gamma)`, misturado ao 
 
 > **new ColorGrading**(`options?`): `ColorGrading`
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:19](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/effects/ColorGrading.ts#L19)
+Defined in: [presentation/flows/effects/ColorGrading.ts:19](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/effects/ColorGrading.ts#L19)
 
 #### Parameters
 
@@ -39,27 +39,11 @@ Defined in: [presentation/flows/effects/ColorGrading.ts:19](https://github.com/d
 
 ## Properties
 
-### data
-
-> **data**: `Record`\<`string`, `unknown`\> = `{}`
-
-Defined in: [presentation/resources/PostProcessEffect.ts:44](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/resources/PostProcessEffect.ts#L44)
-
-Dados runtime do resource (e.g. Camera position, Material albedo,
-RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
-Mutações devem disparar evento `resourceDirty` para re-upload.
-
-#### Inherited from
-
-[`PostProcessEffect`](PostProcessEffect.md).[`data`](PostProcessEffect.md#data)
-
-***
-
 ### state
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:43](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/resources/PostProcessEffect.ts#L43)
+Defined in: [presentation/resources/PostProcessEffect.ts:50](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L50)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -73,20 +57,59 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Get Signature
 
-> **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)[]
+> **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly [`Entity`](../../elements/classes/Entity.md)[]
+readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
 #### Inherited from
 
 [`PostProcessEffect`](PostProcessEffect.md).[`attached`](PostProcessEffect.md#attached)
+
+***
+
+### data
+
+#### Get Signature
+
+> **get** **data**(): `TData`
+
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
+
+Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
+`data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
+
+##### Returns
+
+`TData`
+
+#### Set Signature
+
+> **set** **data**(`next`): `void`
+
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
+
+Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
+
+##### Parameters
+
+###### next
+
+`TData`
+
+##### Returns
+
+`void`
+
+#### Inherited from
+
+[`PostProcessEffect`](PostProcessEffect.md).[`data`](PostProcessEffect.md#data)
 
 ***
 
@@ -96,7 +119,7 @@ readonly [`Entity`](../../elements/classes/Entity.md)[]
 
 > **get** **fragmentEntry**(): `string`
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:30](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/effects/ColorGrading.ts#L30)
+Defined in: [presentation/flows/effects/ColorGrading.ts:30](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/effects/ColorGrading.ts#L30)
 
 Nome do fragment entry point no WGSL (e.g. 'fs_bloom').
 
@@ -116,7 +139,7 @@ Nome do fragment entry point no WGSL (e.g. 'fs_bloom').
 
 > **get** **isEnabled**(): `boolean`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:73](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/resources/PostProcessEffect.ts#L73)
+Defined in: [presentation/resources/PostProcessEffect.ts:79](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L79)
 
 True se o effect deve participar do chain neste frame. Lê `data.enabled`.
 
@@ -136,7 +159,7 @@ True se o effect deve participar do chain neste frame. Lê `data.enabled`.
 
 > **get** **name**(): `string`
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:27](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/effects/ColorGrading.ts#L27)
+Defined in: [presentation/flows/effects/ColorGrading.ts:27](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/effects/ColorGrading.ts#L27)
 
 Nome único do effect (e.g. 'bloom', 'fxaa'). Usado em discriminator de pipeline/buffer.
 
@@ -148,13 +171,34 @@ Nome único do effect (e.g. 'bloom', 'fxaa'). Usado em discriminator de pipeline
 
 [`PostProcessEffect`](PostProcessEffect.md).[`name`](PostProcessEffect.md#name)
 
+***
+
+### rawData
+
+#### Get Signature
+
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
+
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
+
+O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
+estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
+
+##### Returns
+
+`Readonly`\<`TData`\>
+
+#### Inherited from
+
+[`PostProcessEffect`](PostProcessEffect.md).[`rawData`](PostProcessEffect.md#rawdata)
+
 ## Methods
 
 ### add()
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -163,7 +207,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ##### e
 
-[`Entity`](../../elements/classes/Entity.md)
+[`Entity`](../../elements/classes/Entity.md)\<`object`\>
 
 #### Returns
 
@@ -179,7 +223,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > `optional` **fragmentModule**(): `WgslModule`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:70](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/resources/PostProcessEffect.ts#L70)
+Defined in: [presentation/resources/PostProcessEffect.ts:76](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L76)
 
 Override opcional: módulo WGSL próprio contendo o fragment entry point (`fragmentEntry`). Quando definido, o
 PostFlow monta um shader dedicado para este effect em vez de usar o comum. O módulo declara
@@ -204,7 +248,7 @@ fragmentModule() {
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [presentation/resources/PostProcessEffect.ts:95](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/resources/PostProcessEffect.ts#L95)
+Defined in: [presentation/resources/PostProcessEffect.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L96)
 
 Effects não declaram GPUDescriptors — params buffer é gerenciado pelo PostFlow.
 
@@ -222,7 +266,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [presentation/resources/PostProcessEffect.ts:99](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/resources/PostProcessEffect.ts#L99)
+Defined in: [presentation/resources/PostProcessEffect.ts:100](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L100)
 
 Effects não declaram PipelineDescriptors — PostFlow cria via `paramsBytes` + shader.
 
@@ -240,7 +284,7 @@ readonly `PipelineDescriptor`[]
 
 > **paramsBytes**(): `Uint8Array`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:82](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/resources/PostProcessEffect.ts#L82)
+Defined in: [presentation/resources/PostProcessEffect.ts:88](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L88)
 
 Serializa `strength + aux` em 16 bytes para upload no uniform buffer
 do effect. Override para layouts custom — mas mantenha 16 bytes para

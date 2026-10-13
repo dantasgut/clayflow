@@ -28,7 +28,6 @@ const Mat = new StructSchema(
 
 class Bag extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
     constructor(
         private readonly descs: readonly GPUDescriptor[],
         readonly tag = '',

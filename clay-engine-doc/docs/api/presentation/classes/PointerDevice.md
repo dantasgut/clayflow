@@ -6,19 +6,19 @@
 
 # Class: PointerDevice
 
-Defined in: [presentation/input/PointerDevice.ts:8](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L8)
+Defined in: [presentation/input/PointerDevice.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/PointerDevice.ts#L9)
 
-Device de mouse/touch unificado (Pointer Events API). Popula
-`Input.state.pointerX/Y/Buttons/DeltaX/DeltaY/wheel`. Use deltas para
-camera orbit; absolute coords para UI hit-testing.
+Device de mouse/touch unificado (Pointer Events API). Popula `Input.current.pointerX/Y/Buttons/DeltaX/DeltaY/wheel`
+(deltas para a órbita da câmera; coordenadas absolutas para UI) e emite `pointerDown`/`pointerUp`/`pointerMove`/
+`wheel` no barramento, quando dado.
 
 ## Constructors
 
 ### Constructor
 
-> **new PointerDevice**(`canvas`, `input`): `PointerDevice`
+> **new PointerDevice**(`canvas`, `input`, `events?`): `PointerDevice`
 
-Defined in: [presentation/input/PointerDevice.ts:9](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L9)
+Defined in: [presentation/input/PointerDevice.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/PointerDevice.ts#L10)
 
 #### Parameters
 
@@ -30,6 +30,10 @@ Defined in: [presentation/input/PointerDevice.ts:9](https://github.com/dantasgut
 
 [`Input`](Input.md)
 
+##### events?
+
+`EventBus`
+
 #### Returns
 
 `PointerDevice`
@@ -40,7 +44,7 @@ Defined in: [presentation/input/PointerDevice.ts:9](https://github.com/dantasgut
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/PointerDevice.ts:15](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L15)
+Defined in: [presentation/input/PointerDevice.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/PointerDevice.ts#L17)
 
 Registra listeners no canvas.
 
@@ -54,7 +58,7 @@ Registra listeners no canvas.
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/PointerDevice.ts:23](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/PointerDevice.ts#L23)
+Defined in: [presentation/input/PointerDevice.ts:25](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/PointerDevice.ts#L25)
 
 Remove listeners.
 

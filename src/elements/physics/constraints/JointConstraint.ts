@@ -3,11 +3,22 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Constraint } from './Constraint';
 
+/** Dado de um `JointConstraint` (layout de `JointConstraint.schema`). */
+export interface JointConstraintData {
+    bodyA: number;
+    bodyB: number;
+    kind: number;
+    color: number;
+    anchorA: number[];
+    anchorB: number[];
+    limits: number[];
+}
+
 /**
  * Constraint articulação entre 2 bodies — kind discrimina hinge/ball/slider/etc.
  * limits codifica ângulos/extensões mín/máx específicos do kind.
  */
-export class JointConstraint extends Constraint {
+export class JointConstraint extends Constraint<JointConstraintData> {
     /** StructSchema do JointConstraint (bodyA/B + kind + anchors + limits). */
     static readonly schema = new StructSchema('JointConstraint', {
         bodyA: FieldType.u32,
@@ -19,9 +30,9 @@ export class JointConstraint extends Constraint {
         limits: FieldType.vec4f,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<Omit<JointConstraintData, 'color'>> = {}) {
         super();
-        this.data = JointConstraint.schema.applyDefaults({
+        this.data = {
             bodyA: values.bodyA ?? 0,
             bodyB: values.bodyB ?? 0,
             kind: values.kind ?? 0,
@@ -29,7 +40,7 @@ export class JointConstraint extends Constraint {
             anchorA: values.anchorA ?? [0, 0, 0, 0],
             anchorB: values.anchorB ?? [0, 0, 0, 0],
             limits: values.limits ?? [0, 0, 0, 0],
-        });
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

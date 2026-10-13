@@ -22,6 +22,8 @@ export interface PoolInfo {
     readonly capacity: number;
     /** Incrementa a cada recriação do buffer (crescimento). */
     readonly generation: number;
+    /** Slots de posse da GPU (`slot.entities({ owns })`): escritos por um estágio, não pela CPU. */
+    readonly gpuOwned: number;
 }
 
 /**
@@ -41,6 +43,8 @@ export interface PoolDirectory {
     poolCount(poolKey: string): number;
     /** Slot da entidade no pool; igual em todos os pools de um mesmo recurso. */
     poolSlotOf(poolKey: string, entityId: EntityId): number | undefined;
+    /** O slot é de posse da GPU (`slot.entities({ owns })`: escrito por um estágio, não pela CPU)? */
+    poolSlotOwnedByGpu(poolKey: string, slot: number): boolean;
     /** Pool key do primeiro descritor em pool do recurso, ou `undefined`. */
     poolKeyForResource(resource: Resource): string | undefined;
 }

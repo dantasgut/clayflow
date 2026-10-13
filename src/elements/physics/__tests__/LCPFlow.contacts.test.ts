@@ -64,16 +64,17 @@ describe('LCPFlow — contatos compactados (R19)', () => {
     it('por substep: contador, contatos por corpo, somas do solve e a região de warm start zerados antes da narrowphase; correção zerada antes do commit', async () => {
         const s = await setup(3);
         s.step(1 / 60);
-        const seq = s
-            .sequence()
-            .filter(
-                (e) =>
-                    e.startsWith('clear:')
-                    || e === 'pass:LCPFlow.narrowphase.BoxCollider'
-                    || e === 'pass:LCPFlow.warmStore'
-                    || e === 'pass:LCPFlow.accumulate'
-                    || e === 'pass:LCPFlow.commit',
-            );
+        const seq = s.sequence().filter(
+            (e) =>
+                // A broadphase (spec 007) zera as suas contagens uma vez por passo, antes dos substeps.
+                (e.startsWith('clear:')
+                    && !e.startsWith('clear:lcp_pair_counts')
+                    && !e.startsWith('clear:lcp_broadphase_grid'))
+                || e === 'pass:LCPFlow.narrowphase.BoxCollider'
+                || e === 'pass:LCPFlow.warmStore'
+                || e === 'pass:LCPFlow.accumulate'
+                || e === 'pass:LCPFlow.commit',
+        );
         // Capacidade 128 ⇒ regiões de 256 entradas × 16 B; carimbos 1 e 2 alternam as regiões.
         const substep = (warmOffset: number): unknown[] => [
             'clear:lcp_contact_counter',

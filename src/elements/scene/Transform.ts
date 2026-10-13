@@ -18,6 +18,13 @@ export interface TransformValues {
 
 let legacyModelWarned = false;
 
+/** Dado de um `Transform` (layout de `Transform.schema`; vetores de 4 componentes). */
+export interface TransformData {
+    position: number[];
+    rotation: number[];
+    scale: number[];
+}
+
 /**
  * Transform 3D — a **intenção** de posicionamento de um objeto: posição, rotação
  * (quaternion) e escala. Mutar `data` depois de inserir reposiciona o objeto no
@@ -29,7 +36,7 @@ let legacyModelWarned = false;
  *
  * Mudança incompatível: o antigo campo `model` foi removido — ver o guia de migração.
  */
-export class Transform extends Entity implements Resource {
+export class Transform extends Entity<TransformData> implements Resource {
     /** Intenção do desenvolvedor: posição, rotação e escala (pool `Transform`). */
     static readonly schema = new StructSchema('Transform', {
         position: FieldType.vec4f,
@@ -47,7 +54,6 @@ export class Transform extends Entity implements Resource {
     });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(values: TransformValues = {}) {
         super();
@@ -57,6 +63,15 @@ export class Transform extends Entity implements Resource {
             rotation: [...(values.rotation ?? [0, 0, 0, 1])],
             scale: [...(values.scale ?? [1, 1, 1, 1])],
         };
+    }
+
+    /**
+     * Escala com produto negativo: o objeto é espelhado (inverte a orientação das faces). Lida do dado cru (os estágios a
+     * consultam para a chave de grupo, sem criar proxy por entidade).
+     */
+    get mirrored(): boolean {
+        const scale = this.rawData.scale;
+        return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
     }
 
     /** Intenção (CPU envia a cada mutação) + matriz de mundo (produzida só pela GPU). */
@@ -81,6 +96,55 @@ export class Transform extends Entity implements Resource {
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];
+    }
+
+    /**
+     * Rotação (quaternion `[x, y, z, w]`) de um objeto em `from` que olha para `to` com o "para cima" `up` — a
+     * convenção da câmera: o objeto olha para −Z local. Vocabulário de autoria: o resultado vai em
+     * `Transform.data.rotation`.
+     */
+    static lookRotation(
+        from: readonly number[],
+        to: readonly number[],
+        up: readonly number[] = [0, 1, 0],
+    ): [number, number, number, number] {
+        // Eixos locais em mundo: z = de `to` para `from` (o objeto olha para −z), x = up × z, y = z × x.
+        let zx = (from[0] ?? 0) - (to[0] ?? 0);
+        let zy = (from[1] ?? 0) - (to[1] ?? 0);
+        let zz = (from[2] ?? 0) - (to[2] ?? 0);
+        const zl = Math.hypot(zx, zy, zz) || 1;
+        zx /= zl;
+        zy /= zl;
+        zz /= zl;
+        const ux = up[0] ?? 0;
+        const uy = up[1] ?? 1;
+        const uz = up[2] ?? 0;
+        let xx = uy * zz - uz * zy;
+        let xy = uz * zx - ux * zz;
+        let xz = ux * zy - uy * zx;
+        const xl = Math.hypot(xx, xy, xz) || 1;
+        xx /= xl;
+        xy /= xl;
+        xz /= xl;
+        const yx = zy * xz - zz * xy;
+        const yy = zz * xx - zx * xz;
+        const yz = zx * xy - zy * xx;
+        // Quaternion da matriz de rotação de colunas (x, y, z) — método de Shepperd.
+        const trace = xx + yy + zz;
+        if (trace > 0) {
+            const s = 0.5 / Math.sqrt(trace + 1);
+            return [(yz - zy) * s, (zx - xz) * s, (xy - yx) * s, 0.25 / s];
+        }
+        if (xx > yy && xx > zz) {
+            const s = 2 * Math.sqrt(1 + xx - yy - zz);
+            return [0.25 * s, (yx + xy) / s, (zx + xz) / s, (yz - zy) / s];
+        }
+        if (yy > zz) {
+            const s = 2 * Math.sqrt(1 + yy - xx - zz);
+            return [(yx + xy) / s, 0.25 * s, (zy + yz) / s, (zx - xz) / s];
+        }
+        const s = 2 * Math.sqrt(1 + zz - xx - yy);
+        return [(zx + xz) / s, (zy + yz) / s, 0.25 * s, (xy - yx) / s];
     }
 
     /** Reabilita o aviso de `model` legado (uso em testes). */

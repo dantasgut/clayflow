@@ -4,11 +4,12 @@ import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory'
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { BoundFlow, PreparedRender, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
-import type { FlowEvent, FlowTransitions } from '../../scene/flows/FlowTransitions';
+import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
     type EntitiesSlot,
+    type EntityEntry,
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
@@ -17,10 +18,9 @@ import {
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
-import { Light } from '../../elements/scene/Light';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
-import { ShadowDepthParamsSchema } from './renderSchemas';
+import { ShadowDepthParamsSchema, ShadowInstanceSchema } from './renderSchemas';
 import { shadowDepth } from './shaders';
 
 /** O `ShadowMap` de uma `DirectionalLight` que projeta sombra (`castShadow = 1`). */
@@ -39,12 +39,18 @@ export interface ShadowSlots extends SlotMap {
     readonly caster: SingletonSlot<false>;
     /** Pool `WorldTransform` (matriz de mundo pelo slot da entidade). */
     readonly world: PoolSlot<false>;
-    /** Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster). */
-    readonly shadowMaps: PoolSlot<false>;
-    /** Entidades desenhadas no mapa (geometria + transform). */
+    /** Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU pelo `ShadowMatrixFlow`). */
+    readonly matrices: PoolSlot<false>;
+    /** Entidades desenhadas no mapa (geometria + transform), em grupos por (geometria, orientação) mantidos pela C2. */
     readonly casters: EntitiesSlot;
     /** Alvo só de profundidade: a textura `depth` do `ShadowMap` do caster. */
     readonly target: TargetSlot;
+}
+
+/** Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces. */
+export function shadowGroupKey(entry: EntityEntry): string {
+    const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
+    return `${geometry}|${entry.get(Transform).mirrored ? 'cw' : 'ccw'}`;
 }
 
 function slotsOf(world: World): ShadowSlots {
@@ -52,8 +58,16 @@ function slotsOf(world: World): ShadowSlots {
     return {
         caster: slot.singleton(ShadowMap.schema, { select }),
         world: slot.pool(Transform.worldSchema.name),
-        shadowMaps: slot.pool(ShadowMap.schema.name),
-        casters: slot.entities({ all: [Geometry, Transform] }),
+        matrices: slot.pool(ShadowMap.matrixSchema.name),
+        casters: slot.entities({
+            all: [Geometry, Transform],
+            groups: {
+                schema: ShadowInstanceSchema,
+                key: shadowGroupKey,
+                instance: [Transform, 'world'],
+                rekeyOn: { [Transform.schema.name]: ['scale'] },
+            },
+        }),
         target: slot.target({
             color: 'none',
             depth: { schema: ShadowMap.schema, descId: 'depth', select },
@@ -77,7 +91,11 @@ function depthPipeline(frontFace: GPUFrontFace, preferAsync: boolean): PipelineD
         role: 'render',
         shader: shadowDepth,
         entryPoints: ['vs_main'],
-        consumes: [Transform.worldSchema.name, ShadowMap.schema.name],
+        consumes: [
+            Transform.worldSchema.name,
+            ShadowMap.matrixSchema.name,
+            ShadowInstanceSchema.name,
+        ],
         topology: 'triangle-list',
         cullMode: 'back',
         frontFace,
@@ -97,16 +115,15 @@ export interface ShadowFlowOptions {
  * ShadowFlow — passe só de profundidade do ponto de vista da primeira `DirectionalLight` que projeta sombra, na
  * textura do `ShadowMap` dela (slot `target`).
  *
- * Slots: o `ShadowMap` da luz (caster), os pools `WorldTransform` e `ShadowMap` e as entidades com geometria e
- * transform. A matriz luz-vista-projeção é calculada na CPU quando a luz muda (`resourceReady` da luz, escuta de
- * `Light`) ou quando o caster aparece, e gravada em `ShadowMap.data.lightViewProj` — o envio reativo da C2 a leva ao
- * pool, que este estágio e o render principal leem pelo slot do mapa. A geometria é a alocada pela C2 (nenhuma cópia
- * por entidade); a posição vem do pool `WorldTransform` pelo slot da entidade (`firstInstance`).
+ * Slots: o `ShadowMap` da luz (caster), os pools `WorldTransform` e `ShadowMatrix` e as entidades com geometria e
+ * transform. A matriz luz-vista-projeção é produzida na GPU pelo `ShadowMatrixFlow` (fase `transform`) a partir da
+ * direção da luz; este estágio só escreve o slot do caster nos seus parâmetros quando ele muda — a CPU não acompanha a
+ * luz. A geometria é a alocada pela C2 (nenhuma cópia por entidade); um desenho por grupo de instâncias (mesma geometria e orientação), e cada instância acha o seu slot
+ * no pool `WorldTransform` pela lista de instâncias (`ShadowInstance`).
  */
 export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
     readonly type = 'ShadowFlow';
     readonly slots: ShadowSlots;
-    override readonly listens = [Light.schema];
     override readonly pipelines: readonly PipelineDescriptor[];
     override readonly bindings: {
         /** Parâmetros do passe (`ShadowDepthParams`: slot do caster). */
@@ -152,17 +169,11 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                 poolReallocated: caster,
                 entitiesChanged: 'ignore',
                 canvasReconfigured: 'ignore',
-                resourceReady: {
-                    to: 'idle',
-                    run: (e, c) => {
-                        this.lightChanged(e, c);
-                    },
-                },
             },
         };
     }
 
-    /** Grava a profundidade de cada entidade com geometria e transform. */
+    /** Grava a profundidade: um desenho por grupo de instâncias (geometria, orientação). */
     dispatch(frame: Frame, bound: BoundFlow<ShadowSlots>): void {
         const depth = bound.slots.target.depth;
         if (depth === undefined) return;
@@ -177,31 +188,29 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         };
         const ccw = bound.render('shadow_depth:ccw');
         const cw = bound.render('shadow_depth:cw');
-        const world = bound.slots.world;
-        const entries = bound.slots.casters.entries;
+        const groups = bound.slots.casters.groups;
         frame.render(target, 'ShadowFlow', (pass) => {
-            if (entries.length === 0) return;
-            // Grupos 0 (parâmetros + pool ShadowMap) e 1 (WorldTransform) uma vez por passe.
+            if (groups.length === 0) return;
+            // Grupos 0 (parâmetros + pool ShadowMatrix) e 1 (WorldTransform + instâncias) uma vez por passe.
             pass.bind
                 .setPipeline(ccw.spec)
                 .setBindGroup(0, ccw.groups[0]!)
                 .setBindGroup(1, ccw.groups[1]!);
             let current: PreparedRender = ccw;
-            for (const entry of entries) {
-                const worldSlot = world.slotOf(entry.entityId);
-                if (worldSlot === undefined) continue; // ainda sem slot ⇒ não desenha
+            for (const group of groups) {
+                const entry = group.representative;
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 const indices = this.resources.bufferOf(geometry, 'indices');
                 if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') continue;
-                const pipeline = isMirrored(entry.get(Transform)) ? cw : ccw;
+                const pipeline = entry.get(Transform).mirrored ? cw : ccw;
                 if (!pipeline.ready) continue;
                 if (pipeline !== current) {
                     pass.bind.setPipeline(pipeline.spec);
                     current = pipeline;
                 }
                 pass.geometry.vertex(0, vertices).index(indices);
-                pass.draw.indexed(indices.count, 1, 0, 0, worldSlot);
+                pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
             }
         });
     }
@@ -211,122 +220,12 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         this.core.destroy(this.params);
     }
 
-    /** Slot do caster nos parâmetros do passe e a matriz da luz dele. */
+    /** Slot do caster nos parâmetros do passe (escrito quando muda). */
     private updateCaster(ctx: Ctx): void {
-        const shadowMap = ctx.bound.slots.caster.resource as ShadowMap;
-        const id = this.world.entityIdOfResource(shadowMap);
-        const casterSlot = id === undefined ? undefined : ctx.bound.slots.shadowMaps.slotOf(id);
-        if (casterSlot !== undefined && casterSlot !== this.writtenSlot) {
-            this.core.write(this.params, ShadowDepthParamsSchema.pack({ casterSlot }));
-            this.writtenSlot = casterSlot;
-        }
-        this.writeLightViewProj(shadowMap);
+        const id = this.world.entityIdOfResource(ctx.bound.slots.caster.resource);
+        const casterSlot = id === undefined ? undefined : ctx.bound.slots.matrices.slotOf(id);
+        if (casterSlot === undefined || casterSlot === this.writtenSlot) return;
+        this.core.write(this.params, ShadowDepthParamsSchema.pack({ casterSlot }));
+        this.writtenSlot = casterSlot;
     }
-
-    /** A luz do caster mudou: recalcula a matriz. */
-    private lightChanged(event: FlowEvent, ctx: Ctx): void {
-        if (event.type !== 'resourceReady') return;
-        const resource = event.resource;
-        const shadowMap = ctx.bound.slots.caster.resource as ShadowMap;
-        const id = this.world.entityIdOfResource(shadowMap);
-        if (id === undefined || !this.world.resourcesOf(id).includes(resource)) return;
-        this.writeLightViewProj(shadowMap);
-    }
-
-    /** Matriz luz-vista-projeção (ortográfica ±10, olho a 10 m contra a direção da luz) gravada no `ShadowMap`. */
-    private writeLightViewProj(shadowMap: ShadowMap): void {
-        const id = this.world.entityIdOfResource(shadowMap);
-        const light =
-            id === undefined
-                ? undefined
-                : this.world.resourcesOf(id).find((r) => r instanceof DirectionalLight);
-        if (light === undefined) return;
-        const dir = (light.data.direction as readonly number[] | undefined) ?? [0, -1, 0, 0];
-        const dx = dir[0] ?? 0;
-        const dy = dir[1] ?? -1;
-        const dz = dir[2] ?? 0;
-        const view = lookAt([-dx * 10, -dy * 10, -dz * 10], [0, 0, 0], [0, 1, 0]);
-        const proj = ortho(-10, 10, -10, 10, 0.1, 50);
-        const vp = mul(proj, view);
-        const current = shadowMap.data.lightViewProj as readonly number[];
-        if (current.length === vp.length && current.every((v, i) => v === vp[i])) return;
-        shadowMap.data.lightViewProj = vp;
-    }
-}
-
-/** Escala com produto negativo espelha o objeto (inverte a orientação das faces). */
-export function isMirrored(transform: Transform): boolean {
-    const scale = transform.data.scale as readonly number[];
-    return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
-}
-
-function lookAt(e: number[], t: number[], u: number[]): number[] {
-    let zx = (e[0] ?? 0) - (t[0] ?? 0),
-        zy = (e[1] ?? 0) - (t[1] ?? 0),
-        zz = (e[2] ?? 0) - (t[2] ?? 0);
-    const zl = Math.hypot(zx, zy, zz) || 1;
-    zx /= zl;
-    zy /= zl;
-    zz /= zl;
-    let xx = (u[1] ?? 0) * zz - (u[2] ?? 0) * zy,
-        xy = (u[2] ?? 0) * zx - (u[0] ?? 0) * zz,
-        xz = (u[0] ?? 0) * zy - (u[1] ?? 1) * zx;
-    const xl = Math.hypot(xx, xy, xz) || 1;
-    xx /= xl;
-    xy /= xl;
-    xz /= xl;
-    const yx = zy * xz - zz * xy,
-        yy = zz * xx - zx * xz,
-        yz = zx * xy - zy * xx;
-    return [
-        xx,
-        yx,
-        zx,
-        0,
-        xy,
-        yy,
-        zy,
-        0,
-        xz,
-        yz,
-        zz,
-        0,
-        -(xx * (e[0] ?? 0) + xy * (e[1] ?? 0) + xz * (e[2] ?? 0)),
-        -(yx * (e[0] ?? 0) + yy * (e[1] ?? 0) + yz * (e[2] ?? 0)),
-        -(zx * (e[0] ?? 0) + zy * (e[1] ?? 0) + zz * (e[2] ?? 0)),
-        1,
-    ];
-}
-
-function ortho(l: number, r: number, b: number, t: number, n: number, f: number): number[] {
-    return [
-        2 / (r - l),
-        0,
-        0,
-        0,
-        0,
-        2 / (t - b),
-        0,
-        0,
-        0,
-        0,
-        1 / (n - f),
-        0,
-        (r + l) / (l - r),
-        (t + b) / (b - t),
-        n / (n - f),
-        1,
-    ];
-}
-
-function mul(a: number[], b: number[]): number[] {
-    const o: number[] = new Array<number>(16).fill(0);
-    for (let i = 0; i < 4; i++) {
-        for (let j = 0; j < 4; j++) {
-            let s = 0;
-            for (let k = 0; k < 4; k++) s += (a[k * 4 + j] ?? 0) * (b[i * 4 + k] ?? 0);
-            o[i * 4 + j] = s;
-        }
-    }
-    return o;
 }

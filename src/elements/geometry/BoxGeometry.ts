@@ -1,7 +1,15 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-import { Geometry } from './Geometry';
+import { Geometry, type GeometryData } from './Geometry';
+import { sharedContent } from './geometryContent';
+
+/** Dado de uma `BoxGeometry`. */
+export interface BoxGeometryData extends GeometryData {
+    vertexCount: number;
+    indexCount: number;
+    size: readonly number[];
+}
 
 /**
  * BoxGeometry — paralelepípedo retangular gerado proceduralmente a partir
@@ -10,7 +18,7 @@ import { Geometry } from './Geometry';
  *
  * Default size: [1, 1, 1] (cubo unitário centrado na origem).
  */
-export class BoxGeometry extends Geometry {
+export class BoxGeometry extends Geometry<BoxGeometryData> {
     /** Vertex layout: position (vec3) + normal (vec3) + uv (vec2). */
     static readonly vertexStruct = new StructSchema('BoxVertex', {
         position: FieldType.vec3f,
@@ -26,13 +34,16 @@ export class BoxGeometry extends Geometry {
         const sx = (size[0] ?? 1) / 2,
             sy = (size[1] ?? 1) / 2,
             sz = (size[2] ?? 1) / 2;
-        const verts = generateBox(sx, sy, sz);
-        const indices = boxIndices();
+        // Mesmo tamanho → mesmos arrays (gerados uma vez por chave; a C2 deduplica os buffers pela chave).
+        const { vertices, indices } = sharedContent(`BoxGeometry:${sx},${sy},${sz}`, () => ({
+            vertices: generateBox(sx, sy, sz),
+            indices: boxIndices(),
+        }));
         this.data = {
             size,
-            vertices: verts,
+            vertices,
             indices,
-            vertexCount: verts.length / 8,
+            vertexCount: vertices.length / 8,
             indexCount: indices.length,
         };
     }
@@ -44,19 +55,19 @@ export class BoxGeometry extends Geometry {
                 id: 'vertices',
                 role: 'vertex',
                 schema: BoxGeometry.vertexStruct,
-                count: this.data.vertexCount as number,
+                count: this.data.vertexCount,
             },
-            { id: 'indices', role: 'index', count: this.data.indexCount as number },
+            { id: 'indices', role: 'index', count: this.data.indexCount },
         ];
     }
 
     /** Vertex count (= 24 para box). */
     get vertexCount(): number {
-        return this.data.vertexCount as number;
+        return this.data.vertexCount;
     }
     /** Index count (= 36 para box: 2 triangles × 6 faces × 3 indices). */
     get indexCount(): number {
-        return this.data.indexCount as number;
+        return this.data.indexCount;
     }
 }
 

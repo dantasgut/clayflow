@@ -43,7 +43,7 @@ async function scene() {
     const s = await renderScene();
     const { post, frameTargets } = registerStages(s.scene, { forward: 'scene', post: true });
     post!.addEffect(new Vignette());
-    s.scene.world.insert(new Camera());
+    s.scene.world.insert(new Camera().add(new Transform()));
     s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
     const targets = frameTargets!;
     const resize = (width: number, height: number): void => {
@@ -101,7 +101,7 @@ describe('Integração — redimensionamento do canvas', () => {
         const passes = s.step();
         expect(s.scene.resourceSystem.poolBufferSpec('WorldTransform')).not.toBe(before);
         expect(s.scene.resourceSystem.textureOf(s.targets, 'color')!.width).toBe(1024);
-        expect(s.draws('ForwardFlow')).toHaveLength(301);
+        expect(s.draws('ForwardFlow').reduce((n, d) => n + d.instanceCount, 0)).toBe(301);
         const destroyed = new Set<unknown>(s.destroys());
         expect(referenced(passes).filter((r) => destroyed.has(r))).toEqual([]);
     });

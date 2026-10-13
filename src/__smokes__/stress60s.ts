@@ -50,12 +50,17 @@ async function main(): Promise<void> {
 
     // ─── Cena: camera + luz + cubo ─────────────────────────────────────────
     const camera = new Camera({
-        position: [0, 4, 8, 1],
         fov: Math.PI / 4,
         aspect: 800 / 600,
+        aspectMode: 'fixed',
         near: 0.1,
         far: 100,
-    });
+    }).add(
+        new Transform({
+            position: [0, 4, 8, 1],
+            rotation: Transform.lookRotation([0, 4, 8], [0, 0, 0]),
+        }),
+    );
     app.world.insert(camera);
 
     const light = new DirectionalLight({

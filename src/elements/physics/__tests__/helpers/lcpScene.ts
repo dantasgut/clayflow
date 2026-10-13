@@ -3,16 +3,10 @@ import { LCPFlow, type LCPFlowOptions } from '../../flows/LCPFlow';
 import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 import { solverScene } from './solverScene';
 
-/** Expõe o aviso de excedente e a publicação de pose (protegidos) para teste. */
+/** Expõe o aviso de excedente (protegido) para teste. */
 export class TestLCPFlow extends LCPFlow {
     overflow(count: number, overflow: number): void {
         this.reportContactOverflow(new Uint32Array([count, overflow, 0, 0]).buffer);
-    }
-    publish(
-        ab: ArrayBuffer,
-        entities: Parameters<LCPFlow['applyTransformsFromReadback']>[1],
-    ): void {
-        this.applyTransformsFromReadback(ab, entities);
     }
 }
 

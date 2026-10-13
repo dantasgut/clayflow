@@ -3,11 +3,21 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/** Dado de um `VortexField` (layout de `VortexField.schema`). */
+export interface VortexFieldData {
+    axis: readonly number[];
+    center: readonly number[];
+    magnitude: number;
+    falloff: number;
+    _pad0: number;
+    _pad1: number;
+}
+
 /**
  * Campo de vórtice — torque rotacional ao redor de um eixo (axis) com
  * falloff radial a partir do center. Cria efeitos de tornado, redemoinho.
  */
-export class VortexField extends ForceField {
+export class VortexField extends ForceField<VortexFieldData> {
     /** StructSchema do VortexField (axis+center+magnitude+falloff). */
     static readonly schema = new StructSchema('VortexField', {
         axis: FieldType.vec4f,
@@ -18,14 +28,16 @@ export class VortexField extends ForceField {
         _pad1: FieldType.f32,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<VortexFieldData> = {}) {
         super();
-        this.data = VortexField.schema.applyDefaults({
+        this.data = {
             axis: values.axis ?? [0, 1, 0, 0],
             center: values.center ?? [0, 0, 0, 1],
             magnitude: values.magnitude ?? 1.0,
             falloff: values.falloff ?? 1.0,
-        });
+            _pad0: 0,
+            _pad1: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

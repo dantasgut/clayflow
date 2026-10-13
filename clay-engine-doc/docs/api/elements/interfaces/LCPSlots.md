@@ -6,7 +6,7 @@
 
 # Interface: LCPSlots
 
-Defined in: [elements/physics/flows/LCPFlow.ts:110](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L110)
+Defined in: [elements/physics/flows/LCPFlow.ts:134](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/LCPFlow.ts#L134)
 
 Slots do LCP.
 
@@ -24,7 +24,7 @@ Slots do LCP.
 
 > `readonly` **bodies**: `BodiesSlot`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:112](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L112)
+Defined in: [elements/physics/flows/LCPFlow.ts:136](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/LCPFlow.ts#L136)
 
 Pool de corpos do `bodyType` do registro.
 
@@ -34,7 +34,7 @@ Pool de corpos do `bodyType` do registro.
 
 > `readonly` **colliderPools**: `PoolsSlot`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:118](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L118)
+Defined in: [elements/physics/flows/LCPFlow.ts:142](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/LCPFlow.ts#L142)
 
 Pools de colliders e de corpos rígidos (cada um presente ou não).
 
@@ -44,7 +44,7 @@ Pools de colliders e de corpos rígidos (cada um presente ou não).
 
 > `readonly` **colliders**: `EntitiesSlot`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:120](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L120)
+Defined in: [elements/physics/flows/LCPFlow.ts:144](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/LCPFlow.ts#L144)
 
 Entidades com collider (donos dos registros nos pools de collider).
 
@@ -54,9 +54,20 @@ Entidades com collider (donos dos registros nos pools de collider).
 
 > `readonly` **gravity**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/LCPFlow.ts:116](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L116)
+Defined in: [elements/physics/flows/LCPFlow.ts:140](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/LCPFlow.ts#L140)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
+
+***
+
+### poses
+
+> `readonly` **poses**: `EntitiesSlot`
+
+Defined in: [elements/physics/flows/LCPFlow.ts:149](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/LCPFlow.ts#L149)
+
+Corpos com `Transform`: registro `RigidPose` (slot do corpo e do `Transform`), lista dos vivos e posse da GPU
+sobre o `Transform` — a pose é publicada na GPU (spec 007).
 
 ***
 
@@ -64,6 +75,6 @@ Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 > `readonly` **time**: `SingletonSlot`\<`false`\>
 
-Defined in: [elements/physics/flows/LCPFlow.ts:114](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L114)
+Defined in: [elements/physics/flows/LCPFlow.ts:138](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/LCPFlow.ts#L138)
 
 Relógio da cena (passos fixos do quadro).

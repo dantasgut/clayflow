@@ -59,6 +59,8 @@ export class GpuFrame implements Frame {
         const encoder = this.command.requireEncoder();
         const timestampWrites = this.profiler?.passTimestampWrites(
             label ?? `compute#${this.counters?.passes ?? 0}`,
+            undefined,
+            'compute',
         );
         const desc: GPUComputePassDescriptor = {
             ...(label !== undefined ? { label } : {}),

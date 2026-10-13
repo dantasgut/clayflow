@@ -19,6 +19,7 @@ export const ALL_FLOW_EVENTS: readonly FlowEventName[] = [
     'canvasReconfigured',
     'poolReallocated',
     'resourceReady',
+    'poolWritten',
     'framePrepare',
     'frameRecorded',
 ];
@@ -41,7 +42,7 @@ function required(decl: SlotDeclaration): boolean {
  * Eventos que a C2 pode entregar ao Flow, pelas regras de entrega: sempre `slotsResolved`, `pipelinesCompiled` e
  * `bindGroupReplaced`; `slotLost` com slot obrigatório; `slotChanged` com slot opcional (ou `pools`);
  * `poolReallocated` com slot de pool; `entitiesChanged` com `entities`; `canvasReconfigured` com alvo;
- * `resourceReady` com `listens`. `framePrepare`/`frameRecorded` são opt-in (só quem os declara os recebe).
+ * `resourceReady` e `poolWritten` com `listens` (objetos próprios ou pool do schema escutado). `framePrepare`/`frameRecorded` são opt-in (só quem os declara os recebe).
  */
 export function deliverableEvents(flow: Flow): Set<FlowEventName> {
     const decls = Object.values(flow.slots);
@@ -52,7 +53,10 @@ export function deliverableEvents(flow: Flow): Set<FlowEventName> {
         out.add('poolReallocated');
     if (decls.some((d) => d.kind === 'entities')) out.add('entitiesChanged');
     if (decls.some((d) => d.kind === 'target')) out.add('canvasReconfigured');
-    if (flow.listens.length > 0) out.add('resourceReady');
+    if (flow.listens.length > 0) {
+        out.add('resourceReady');
+        out.add('poolWritten');
+    }
     return out;
 }
 

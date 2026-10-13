@@ -9,6 +9,7 @@ import type { FrameCompleteEvent } from './FrameCompleteEvent';
 import type { FrameRecordingEvent } from './FrameRecordingEvent';
 import type { FrameTickEvent } from './FrameTickEvent';
 import type { PoolReallocatedEvent } from './PoolReallocatedEvent';
+import type { PoolWrittenEvent } from './PoolWrittenEvent';
 import type { ReadyEvent } from './ReadyEvent';
 import type { TimeDroppedEvent } from './TimeDroppedEvent';
 
@@ -182,8 +183,13 @@ export interface MemoryWarningPayload {
 export interface EventMap {
     /** World.insert/remove disparam — added/removed Resources. */
     resourcesChanged: ChangedEvent<Resource>;
-    /** ResourceSystem confirmou alocação + upload inicial de um Resource. */
+    /**
+     * ResourceSystem alocou ou enviou um Resource com objetos próprios (descritores individuais). Dado em pool é
+     * anunciado por `poolWritten`, um por pool.
+     */
     resourceReady: ReadyEvent<ResourceReadyPayload>;
+    /** ResourceSystem enviou faixas de slots de um pool (um evento por pool por rodada de envio). */
+    poolWritten: PoolWrittenEvent;
     /** App marcou Resource como modificado — re-upload pendente. */
     resourceDirty: ReadyEvent<ResourceDirtyPayload>;
     /** A C2 deixou um Flow pronto (slots resolvidos, pipelines compilados) — entra no quadro. */

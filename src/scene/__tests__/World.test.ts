@@ -11,7 +11,11 @@ import { Time } from '../time/Time';
 class TestEntity extends Entity implements Resource {
     static readonly schema = new StructSchema('TestEntity', { value: FieldType.f32 });
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { value: 0 };
+    constructor() {
+        super();
+        this.data = { value: 0 };
+    }
+
     getDescriptors() {
         return [{ id: 't', role: 'uniform' as const, schema: TestEntity.schema }];
     }

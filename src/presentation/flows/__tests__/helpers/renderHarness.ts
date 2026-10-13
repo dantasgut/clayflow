@@ -11,6 +11,8 @@ import { createScene, type SceneContext } from '../../../../scene/SceneContext';
 import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';
 import { TransformFlow } from '../../../../elements/scene/flows/TransformFlow';
+import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
+import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixFlow';
 import { FrameTargets } from '../../../app/FrameTargets';
 import { ForwardFlow, type ForwardOutput } from '../../ForwardFlow';
 import { PostFlow } from '../../PostFlow';
@@ -30,6 +32,8 @@ export interface DrawCall {
     readonly vertex: ResourceSpec | undefined;
     readonly index: ResourceSpec | undefined;
     readonly indexCount: number;
+    /** Instâncias do desenho (um grupo de instâncias desenha `instanceCount` entidades). */
+    readonly instanceCount: number;
     readonly firstInstance: number | undefined;
 }
 
@@ -62,6 +66,8 @@ export async function renderScene(): Promise<{
     step(): RenderPassRecord[];
     /** Desenhos do último quadro, de todos os passes (ou do passe `label`). */
     draws(label?: string): DrawCall[];
+    /** Rótulos dos passes de compute do último quadro, em ordem. */
+    computes(): readonly string[];
     /** Specs criados desde o início (ou o último `resetCounts`). */
     creates(): readonly ResourceSpec[];
     /** Specs escritos desde o início (ou o último `resetCounts`). */
@@ -78,6 +84,8 @@ export async function renderScene(): Promise<{
     let recording = false;
     let createdWhileRecording = 0;
     let passes: RenderPassRecord[] = [];
+    /** Rótulos dos passes de compute do último quadro. */
+    let computes: string[] = [];
     const created = <S>(spec: S): S => {
         creates.push(spec as ResourceSpec);
         if (recording) createdWhileRecording++;
@@ -124,7 +132,7 @@ export async function renderScene(): Promise<{
                     draw: {
                         indexed: (
                             count: number,
-                            _instances?: number,
+                            instances?: number,
                             _firstIndex?: number,
                             _baseVertex?: number,
                             firstInstance?: number,
@@ -136,6 +144,7 @@ export async function renderScene(): Promise<{
                                 vertex,
                                 index,
                                 indexCount: count,
+                                instanceCount: instances ?? 1,
                                 firstInstance,
                             });
                             return pass.draw;
@@ -150,7 +159,8 @@ export async function renderScene(): Promise<{
                 body(pass);
                 out.push({ label, target, setBindGroups, draws, fullscreen });
             },
-            compute: (_label: string, body: (pass: unknown) => void) => {
+            compute: (label: string, body: (pass: unknown) => void) => {
+                computes.push(label);
                 const pass = {
                     bind: { setPipeline: () => pass.bind, setBindGroup: () => pass.bind },
                     dispatch: {
@@ -217,11 +227,13 @@ export async function renderScene(): Promise<{
             const dt = 1 / 60;
             scene.time.advance(dt);
             passes = [];
+            computes = [];
             scene.events.emit('frameTick', { dt, realDt: dt, elapsed: scene.time.elapsed, frame });
             return passes;
         },
         draws: (label) =>
             passes.filter((p) => label === undefined || p.label === label).flatMap((p) => p.draws),
+        computes: () => computes,
         creates: () => creates,
         writes: () => writes,
         destroys: () => destroys,
@@ -260,6 +272,17 @@ export function registerStages(
         type: 'transform',
         phase: 'transform',
     });
+    scene.flows.register((ctx) => new CameraFlow(ctx), {
+        type: 'camera',
+        phase: 'transform',
+        priority: -10,
+    });
+    if (options.shadow === true)
+        scene.flows.register((ctx) => new ShadowMatrixFlow(ctx), {
+            type: 'shadowMatrix',
+            phase: 'transform',
+            priority: -20,
+        });
     const shadow =
         options.shadow === true
             ? scene.flows.register((ctx) => new ShadowFlow(ctx), {

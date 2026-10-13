@@ -25,9 +25,11 @@ export interface Resource {
     /**
      * Dados runtime do resource (e.g. Camera position, Material albedo,
      * RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
-     * Mutações devem disparar evento `resourceDirty` para re-upload.
+     * Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+     * concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+     * schema.
      */
-    data: Record<string, unknown>;
+    data: object;
 
     /**
      * Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
@@ -43,6 +45,13 @@ export interface Resource {
      * Vazio para a maioria (Flows criam pipelines diretamente).
      */
     getPipelineDescriptors(): readonly PipelineDescriptor[];
+
+    /**
+     * Chave de conteúdo dos descritores `vertex`/`index` (spec 007). Resources com a mesma chave compartilham esses
+     * buffers na GPU: a Camada 2 cria e escreve o buffer uma vez por chave e o libera quando o último usuário sai. Sem
+     * chave, cada Resource tem os seus.
+     */
+    readonly contentKey?: string | undefined;
 
     /**
      * Flows associados ao resource. Opcional — usado por Resources que

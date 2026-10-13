@@ -10,6 +10,8 @@ import { UninitializedResourceStateHandler } from './states/UninitializedResourc
 
 export class ResourceStateHandlerRegistry {
     private readonly handlers: ReadonlyMap<ResourceState, ResourceStateHandler>;
+    /** Transições válidas por estado, calculadas uma vez. */
+    private readonly transitions: ReadonlyMap<ResourceState, ReadonlySet<ResourceState>>;
 
     constructor() {
         const map = new Map<ResourceState, ResourceStateHandler>();
@@ -21,6 +23,9 @@ export class ResourceStateHandlerRegistry {
         map.set(ResourceState.Disposed, new DisposedResourceStateHandler());
         map.set(ResourceState.Destroyed, new DestroyedResourceStateHandler());
         this.handlers = map;
+        this.transitions = new Map(
+            [...map].map(([state, handler]) => [state, new Set(handler.validTransitions())]),
+        );
     }
 
     get(state: ResourceState): ResourceStateHandler {
@@ -31,6 +36,6 @@ export class ResourceStateHandlerRegistry {
     }
 
     canTransition(from: ResourceState, to: ResourceState): boolean {
-        return this.get(from).validTransitions().includes(to);
+        return this.transitions.get(from)?.has(to) ?? false;
     }
 }

@@ -18,7 +18,7 @@ Um Flow declara:
 | `slots` | Os dados da cena que o algoritmo lê, tipados, pelos construtores `slot.*`. |
 | `pipelines` | Os pipelines compilados antes de o Flow ficar pronto (`PipelineDescriptor`). |
 | `bindings` | Recursos **privados** pelo nome da variável no WGSL (uniforms por passo, temporários). |
-| `listens` | Schemas cujos `resourceReady` chegam ao Flow como evento. |
+| `listens` | Schemas cujos envios chegam ao Flow como evento: `poolWritten` (dado em pool, faixas de slots) ou `resourceReady` (Resource com objetos próprios). |
 | `initialState` / `transitions` | A máquina de estados do algoritmo: `estado → evento → destino`. |
 | `dispatch(frame, bound)` | A gravação do quadro. **Só grava**: nada é criado nem escrito aqui. |
 | `dispose()` | Libera os recursos privados (chamado no `unregister` ou no descarte da cena). |
@@ -33,7 +33,7 @@ Cada slot é resolvido pela C2 e entregue ao `dispatch` em `bound.slots`, com ti
 | `slot.pool(key, { optional? })` | `BoundPool` (buffer, `count`, `stride`, `slotOf`, `entityAt`) | `WorldTransform`, restrições |
 | `slot.pools(keys)` | mapa chave → `BoundPool \| undefined` | conjunto de colliders |
 | `slot.singleton(schema, { optional?, select? })` | `BoundSingleton` (`resource`, `bufferOf(descId)`…) | câmera, `Time`, `GravityField` |
-| `slot.entities({ all: [A, B, …], record? })` | `BoundEntities` (entidades com um Resource de cada tipo; com `record`, `entry.recordSlot` e `records`) | renderizáveis |
+| `slot.entities({ all: [A, B, …], record?, groups?, owns? })` | `BoundEntities` (entidades com um Resource de cada tipo; com `record`, `entry.recordSlot` e `records`; com `groups`, `groups` e `instances`) | renderizáveis, casters, corpos |
 | `slot.texture(schema, descId, { optional?, select? })` | `BoundTexture` (`texture`, `view`) | cor da cena, mapa de sombra |
 | `slot.target('canvas' \| { color, depth? })` | `BoundTarget` (só em `RenderFlow`) | alvo de render |
 
@@ -42,6 +42,38 @@ campo (`u32`) recebe o slot de pool do descritor nomeado de um Resource da entid
 `{ transformSlot: [Transform, 'world'], materialSlot: [Material, 'material'] }`. O estágio desenha com
 `firstInstance = entry.recordSlot` e o shader lê o registro (`renderables[instance_index]`), sem bind group por
 entidade. Conjuntos com a mesma declaração compartilham o pool; o estágio nunca escreve nele.
+
+### Grupos de instâncias (`groups`)
+
+Com `groups`, a C2 agrupa as entidades do conjunto por uma chave e mantém, num pool com chave `groups.schema.name`
+(um struct com um único campo `u32`), uma **lista de instâncias** em que cada grupo ocupa um trecho contíguo. O
+estágio desenha um grupo com uma chamada só — `draw.indexed(índices, group.count, 0, 0, group.first)` — e o shader
+acha a entidade pela lista (`instances[instance_index]`):
+
+```typescript
+renderables: slot.entities({
+  all: [Geometry, Material, Transform],
+  record: renderableRecord,
+  groups: {
+    schema: RenderInstanceSchema,            // { renderable: u32 }
+    key: (entry) => `${entry.get(Geometry).contentKey}|${entry.get(Transform).mirrored ? 'cw' : 'ccw'}`,
+    instance: 'record',                      // valor da lista: o slot do registro (ou [Tipo, 'descId'])
+    rekeyOn: { [Transform.schema.name]: ['scale'] }, // campos cujo envio reavalia a chave
+  },
+}),
+```
+
+`bound.slots.renderables.groups` é a lista de `DrawGroup` (`key`, `first`, `count`, `representative`), refeita só
+quando a composição muda; `instances` é o pool da lista. A C2 mantém os grupos por eventos (inserção, remoção,
+`rekeyOn`): com a cena parada nada é percorrido. Conjuntos com o mesmo schema de lista compartilham a lista.
+
+### Posse da GPU (`owns`)
+
+`owns: [[Transform, 'transform']]` passa à GPU a posse daquele descritor das entidades do conjunto: depois do
+primeiro envio a CPU não escreve mais o slot (mutação ignorada com aviso único), o crescimento do pool preserva o
+dado por cópia na GPU e o dado é lido sob demanda com `app.resources.read(resource)` / `readAll(resources)`. O
+`BoundPool` informa `gpuOwned` (quantos slots são de posse da GPU) e `ownedByGpu(slot)`. É assim que a física
+publica a pose dos corpos direto no `Transform`.
 
 Slot obrigatório não resolvido mantém o Flow `pending` (fora do quadro). Slots opcionais resolvem como `undefined`
 enquanto o dado não existe; quando aparecem, somem ou trocam de recurso, o Flow recebe `slotChanged`.
@@ -83,10 +115,11 @@ bind groups afetados antes da próxima gravação.
 | `slotChanged` | um slot opcional (ou um slot `pools`) apareceu, sumiu ou trocou de recurso |
 | `pipelinesCompiled` | os pipelines declarados compilaram (entrada em `ready`); com `pipeline`, um preparado em transição |
 | `bindGroupReplaced` | uma fonte foi recriada e o bind group trocado — o `dispatch` lê o novo em `bound.pipelines` |
-| `entitiesChanged` | entidades entraram ou saíram de um slot `entities` |
+| `entitiesChanged` | entidades entraram ou saíram de um slot `entities` — agregado: um evento por slot por quadro (`added`, `removed`), entregue antes de `framePrepare` |
 | `canvasReconfigured` | o canvas mudou de tamanho (só Flows com `target`) |
 | `poolReallocated` | um pool dos slots cresceu |
-| `resourceReady` | um Resource de um schema de `listens` foi alocado ou enviado |
+| `poolWritten` | a C2 enviou faixas de um pool de schema de `listens` (`poolKey`, `ranges`, `fields?`) — um por pool por envio |
+| `resourceReady` | um Resource de `listens` com objetos próprios (não em pool) foi alocado ou enviado |
 | `framePrepare` | **opt-in**: antes da gravação de cada quadro — escrever parâmetros, crescer buffers |
 | `frameRecorded` | **opt-in**: depois do envio do quadro — iniciar leituras |
 
@@ -109,10 +142,10 @@ export const DrifterSchema = new StructSchema('Drifter', {
   velocity: FieldType.vec4f,
 });
 
-export class Drifter extends Entity implements Resource {
+// `data` é o acessor de `Entity`, tipado pelo parâmetro: a subclasse atribui no construtor e não declara o campo.
+export class Drifter extends Entity<{ position: number[]; velocity: number[] }> implements Resource {
   static readonly schema = DrifterSchema;
   state: ResourceState = ResourceState.Uninitialized;
-  data: Record<string, unknown>;
   constructor(values: { position?: number[]; velocity?: number[] } = {}) {
     super();
     this.data = DrifterSchema.applyDefaults(values);

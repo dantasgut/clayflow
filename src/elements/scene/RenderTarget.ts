@@ -26,14 +26,27 @@ export interface RenderTargetOptions {
     sizeFromCanvas?: boolean;
 }
 
+/** Dado de um `OffscreenRenderTarget` (as opções com os defaults aplicados). */
+export interface OffscreenRenderTargetData {
+    width: number;
+    height: number;
+    colorFormat: GPUTextureFormat;
+    depthFormat: GPUTextureFormat;
+    sampleCount: 1 | 4;
+}
+
+/** Dado de um `CanvasRenderTarget` (as opções com os defaults aplicados). */
+export interface CanvasRenderTargetData extends OffscreenRenderTargetData {
+    sizeFromCanvas: boolean;
+}
+
 /**
  * Render target que renderiza diretamente no canvas swapchain. Usado
  * pelo PostFlow no fim do chain (último effect escreve em canvasView).
  * `sizeFromCanvas: true` por default — atualiza automaticamente em resize.
  */
-export class CanvasRenderTarget extends Entity implements Resource {
+export class CanvasRenderTarget extends Entity<CanvasRenderTargetData> implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: RenderTargetOptions = {}) {
         super();
@@ -63,9 +76,8 @@ export class CanvasRenderTarget extends Entity implements Resource {
  * Usado para passes intermediários (shadow maps, refraction texture,
  * mirror reflection) que serão sampled em passes posteriores.
  */
-export class OffscreenRenderTarget extends Entity implements Resource {
+export class OffscreenRenderTarget extends Entity<OffscreenRenderTargetData> implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: RenderTargetOptions) {
         super();

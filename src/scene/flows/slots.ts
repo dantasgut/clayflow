@@ -62,6 +62,39 @@ export interface EntityRecordDeclaration {
     readonly fields: Readonly<Record<string, readonly [ResourceType, string]>>;
 }
 
+/**
+ * Grupos de instâncias de um conjunto `entities` (spec 007): a C2 agrupa as entradas pela chave que o estágio dá (ex.:
+ * geometria + pipeline) e mantém na GPU a lista de instâncias de cada grupo — um segmento contíguo de um pool com chave
+ * `schema.name`, um `u32` por instância. O estágio desenha um grupo com uma chamada (`first`, `count`) e o shader acha a
+ * entidade por `lista[instance_index]`. A composição muda só por eventos (inserção, remoção, envio de um Resource da
+ * entidade); com a cena parada nada é percorrido.
+ */
+export interface EntityGroupsDeclaration {
+    /** Schema da lista de instâncias (um único campo `u32`); o nome é a chave do pool lido pelo shader. */
+    readonly schema: StructSchema;
+    /** Chave do grupo da entrada. Reavaliada na inserção e quando um Resource da entidade é enviado. */
+    readonly key: (entry: EntityEntry) => string;
+    /** Valor por instância: o slot do registro do conjunto (`'record'`) ou o slot de pool do descritor nomeado. */
+    readonly instance: 'record' | readonly [ResourceType, string];
+    /**
+     * Campos que podem mudar a chave, por schema do pool (ex.: `{ Transform: ['scale'] }`): o envio de um pool listado
+     * só reavalia as chaves quando um desses campos mudou. Pools fora do mapa reavaliam a cada envio.
+     */
+    readonly rekeyOn?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** Grupo de instâncias resolvido: um desenho com `count` instâncias a partir de `first` na lista. */
+export interface DrawGroup {
+    /** Chave do grupo (a da declaração). */
+    readonly key: string;
+    /** Primeira posição do grupo na lista de instâncias (o `firstInstance` do desenho). */
+    readonly first: number;
+    /** Instâncias do grupo. */
+    readonly count: number;
+    /** Uma entrada do grupo (para os dados comuns a todas: geometria, pipeline). */
+    readonly representative: EntityEntry;
+}
+
 /** Entidades que têm um Resource de cada tipo de `all`, mantidas pela C2 na inserção e na remoção. */
 export interface EntitiesSlot<T extends readonly ResourceType[] = readonly ResourceType[]> {
     /** Tipo do slot. */
@@ -70,6 +103,14 @@ export interface EntitiesSlot<T extends readonly ResourceType[] = readonly Resou
     readonly all: T;
     /** Registro de GPU por entidade, mantido pela C2 (opcional). */
     readonly record?: EntityRecordDeclaration;
+    /** Grupos de instâncias, mantidos pela C2 (opcional). */
+    readonly groups?: EntityGroupsDeclaration;
+    /**
+     * Descritores em pool cujo dado passa a ser da GPU para as entidades do conjunto (spec 007): depois do primeiro
+     * envio a CPU não os envia mais e mutação em `data` é ignorada com aviso — ex.: a física escreve a pose no
+     * `Transform` dos corpos.
+     */
+    readonly owns?: readonly (readonly [ResourceType, string])[];
 }
 
 /** Textura (e view) alocada pela C2 para o descritor `descId` do primeiro Resource com `schema`. */
@@ -138,8 +179,12 @@ export interface BoundPool {
     readonly capacity: number;
     /** Incrementa a cada recriação do buffer. */
     readonly generation: number;
+    /** Slots de posse da GPU (escritos por um estágio, não pela CPU). */
+    readonly gpuOwned: number;
     /** Slot da entidade no pool, ou `undefined`. */
     slotOf(entityId: EntityId): number | undefined;
+    /** O slot é de posse da GPU (escrito por um estágio, não pela CPU)? */
+    ownedByGpu(slot: number): boolean;
     /** Entidade que ocupa o slot, ou `undefined`. */
     entityAt(slot: number): EntityId | undefined;
 }
@@ -179,6 +224,10 @@ export interface BoundEntities {
     entry(entityId: EntityId): EntityEntry | undefined;
     /** Pool dos registros, quando o slot declara `record` (visão viva, como `slot.pool`). */
     readonly records: BoundPool | undefined;
+    /** Grupos não vazios, em ordem de criação, quando o slot declara `groups`; senão vazio. */
+    readonly groups: readonly DrawGroup[];
+    /** Pool da lista de instâncias, quando o slot declara `groups` (visão viva). */
+    readonly instances: BoundPool | undefined;
 }
 
 /** Textura resolvida. */
@@ -264,16 +313,21 @@ export const slot = {
     },
     /**
      * Entidades com um Resource de cada tipo de `all` (ex.: geometria + material + transform); com `record`, a C2
-     * mantém também um registro de GPU por entidade (ver `EntityRecordDeclaration`).
+     * mantém também um registro de GPU por entidade (ver `EntityRecordDeclaration`); com `groups`, os grupos de
+     * instâncias (ver `EntityGroupsDeclaration`); com `owns`, a posse da GPU sobre descritores das entidades.
      */
     entities<T extends readonly ResourceType[]>(opts: {
         readonly all: T;
         readonly record?: EntityRecordDeclaration;
+        readonly groups?: EntityGroupsDeclaration;
+        readonly owns?: readonly (readonly [ResourceType, string])[];
     }): EntitiesSlot<T> {
         return Object.freeze({
             kind: 'entities',
             all: Object.freeze([...opts.all]) as unknown as T,
             ...(opts.record !== undefined ? { record: opts.record } : {}),
+            ...(opts.groups !== undefined ? { groups: opts.groups } : {}),
+            ...(opts.owns !== undefined ? { owns: Object.freeze([...opts.owns]) } : {}),
         });
     },
     /** Textura alocada para o descritor `descId` do primeiro Resource com `schema`. */

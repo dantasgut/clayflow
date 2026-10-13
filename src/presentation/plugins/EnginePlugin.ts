@@ -7,12 +7,12 @@ import type { Application } from '../app/Application';
  * Uso:
  * ```ts
  * const app = await Application.create({ canvas });
- * app.use(interactionPlugin({ window }));
+ * app.use(myPlugin);
  * app.start();
  * ```
  *
- * Plugins built-in:
- *   - `interactionPlugin(opts)` — instala InteractionSystem.
+ * A entrada (`app.input`) e os controllers de câmera não precisam de plugin: a aplicação liga os dispositivos e tica
+ * os controllers da cena (spec 007).
  *
  * Os solvers de física não precisam de plugin: são registrados por factory pela aplicação e instanciados pela C2 no
  * primeiro corpo de cada tipo (`DEFAULT_SOLVER_REGISTRATIONS`).

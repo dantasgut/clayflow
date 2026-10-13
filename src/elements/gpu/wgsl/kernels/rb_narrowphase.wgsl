@@ -9,8 +9,8 @@
 // R19); o par é identificado por `slot = rb_i * total_col + pool_base + col_j` (id do par) e o contato por
 // (par, feature): caixa gera um contato por canto (manifold), esfera um só.
 //
-// Dispatch: workgroup_size=64, threads = body_count * pool_count.
-// LCPFlow dispatcha por pool quando count > 0.
+// Dispatch: planos — threads = body_count * pool_count (exaustivo; poucos planos); caixas e esferas — um thread por par
+// candidato da broadphase (spec 007), despacho indireto pela contagem de pares. LCPFlow despacha por pool não vazio.
 
 @group(0) @binding(0) var<uniform>             rb_params:   RBSimParams;
 @group(0) @binding(1) var<storage, read_write> bodies:      array<RigidBody>;
@@ -21,6 +21,9 @@
 @group(0) @binding(10) var<storage, read_write> warm_table:      array<RBWarmEntry>;
 // Contatos por corpo neste substep (divisão de massa do solve Jacobi) — zerado antes da narrowphase.
 @group(0) @binding(11) var<storage, read_write> body_split:      array<atomic<u32>>;
+// Pares candidatos da forma (caixas ou esferas) e as contagens de pares (0 = caixas, 1 = esferas), da broadphase.
+@group(0) @binding(12) var<storage, read>       pairs:           array<CandidatePair>;
+@group(0) @binding(13) var<storage, read>       pair_counts:     array<u32>;
 
 // Binding 5: pool específico da variante — declarado por kernel via concat WGSL no TS.
 
@@ -341,8 +344,10 @@ fn narrowphase_body_vs_sphere(ctx: TestContext, sphere_center_world: vec3f, sphe
 @group(0) @binding(8) var<storage, read> meshes:  array<MeshCollider>;
 
 fn make_ctx(idx: u32) -> TestContext {
-    let rb_i  = idx / np_params.pool_count;
-    let col_j = idx % np_params.pool_count;
+    return make_ctx_pair(idx / np_params.pool_count, idx % np_params.pool_count);
+}
+
+fn make_ctx_pair(rb_i: u32, col_j: u32) -> TestContext {
     // Layout do contacts: por body, linhas contíguas de tamanho total_col_count.
     // Cada pool ocupa uma faixa [pool_base, pool_base + pool_count) da linha.
     let slot  = rb_i * np_params.total_col_count + np_params.pool_base + col_j;
@@ -375,13 +380,12 @@ fn rb_narrowphase_box_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
-    let idx = gid.x;
-    if (idx >= rb_params.body_count * np_params.pool_count) { return; }
-    let ctx = make_ctx(idx);
+    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    if (idx >= min(pair_counts[0], arrayLength(&pairs))) { return; }
+    let pair = pairs[idx];
+    let ctx = make_ctx_pair(pair.body, pair.slot);
     if (!precheck_pair(ctx, 1u)) { return; }
-    let col_j = idx % np_params.pool_count;
-    let box = boxes[col_j];
+    let box = boxes[pair.slot];
     var frame: ColliderFrame;
     if (ctx.is_dynamic_col) {
         frame = collider_frame_dynamic(ctx.owner_rb, box.center.xyz);
@@ -397,13 +401,12 @@ fn rb_narrowphase_sphere_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
-    let idx = gid.x;
-    if (idx >= rb_params.body_count * np_params.pool_count) { return; }
-    let ctx = make_ctx(idx);
+    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    if (idx >= min(pair_counts[1], arrayLength(&pairs))) { return; }
+    let pair = pairs[idx];
+    let ctx = make_ctx_pair(pair.body, pair.slot);
     if (!precheck_pair(ctx, 0u)) { return; }
-    let col_j = idx % np_params.pool_count;
-    let sph = spheres[col_j];
+    let sph = spheres[pair.slot];
     var center_world: vec3f;
     if (ctx.is_dynamic_col) {
         center_world = bodies[ctx.owner_rb].pos_pred.xyz

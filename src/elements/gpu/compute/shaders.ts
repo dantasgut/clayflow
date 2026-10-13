@@ -14,6 +14,9 @@ import graphColorSource from './wgsl/graph_color.wgsl?raw';
 import gcInitSource from './wgsl/gc_init.wgsl?raw';
 import gcRoundSource from './wgsl/gc_round.wgsl?raw';
 import gcGroupSource from './wgsl/gc_group.wgsl?raw';
+import spatialHashSource from './wgsl/spatial_hash.wgsl?raw';
+import shCountSource from './wgsl/sh_count.wgsl?raw';
+import shScatterSource from './wgsl/sh_scatter.wgsl?raw';
 import { noise } from '../shaders/math';
 import {
     AtomicAllocCounterSchema,
@@ -21,6 +24,7 @@ import {
     CompactParamsSchema,
     GraphColorParamsSchema,
     GraphColorStatusSchema,
+    HashGridParamsSchema,
     RadixParamsSchema,
     ReduceLevelSchema,
     ScanLevelSchema,
@@ -210,4 +214,25 @@ export const gcGroup = wgslModule({
     name: 'gc_group',
     source: gcGroupSource,
     structs: [GraphColorParamsSchema, GraphColorStatusSchema, ColorRangeSchema],
+});
+
+/** Grade hash espacial: célula de um ponto e o seu balde (`sh_cell`, `sh_hash`) e os parâmetros da grade. */
+export const spatialHash = wgslModule({
+    name: 'spatial_hash',
+    source: spatialHashSource,
+    structs: [HashGridParamsSchema],
+});
+
+/** Grade hash: contagem dos itens por balde. */
+export const shCount = wgslModule({
+    name: 'sh_count',
+    source: shCountSource,
+    requires: [spatialHash],
+});
+
+/** Grade hash: espalhamento dos índices nos baldes. */
+export const shScatter = wgslModule({
+    name: 'sh_scatter',
+    source: shScatterSource,
+    requires: [spatialHash],
 });

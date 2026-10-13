@@ -1,5 +1,6 @@
 import {
     brdf,
+    camera,
     color,
     fem,
     linalg,
@@ -22,6 +23,7 @@ export const wgslLib = Object.freeze({
     quat,
     linalg,
     mat,
+    camera,
     sdf,
     sphKernels,
     mpmWeights,

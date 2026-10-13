@@ -6,15 +6,25 @@
 
 # Class: Camera
 
-Defined in: [elements/scene/Camera.ts:14](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Camera.ts#L14)
+Defined in: [elements/scene/Camera.ts:60](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L60)
 
-Camera perspectiva — view + projection + viewProjection matrices
-cacheadas + parâmetros (fov/near/far/aspect). Atualizada por
-`OrbitCameraController` ou pelo app diretamente.
+Câmera — os **parâmetros** de projeção (spec 007). Posição e orientação vêm do `Transform` da mesma entidade
+(obrigatório: a câmera olha para −Z local; `Transform.lookRotation` mira um ponto); os controllers mutam esse
+`Transform`. View, projection e viewProjection são produzidas na GPU pelo `CameraFlow`, num segundo descritor do
+mesmo recurso (pool `CameraMatrices`, mesmo slot), que o render principal lê.
+
+```ts
+const camera = new Camera({ fov: Math.PI / 4 });
+camera.add(new Transform({ position: [0, 3, 6, 1], rotation: Transform.lookRotation([0, 3, 6], [0, 0, 0]) }));
+app.world.insert(camera);
+```
+
+Mudança incompatível: as matrizes (`view`, `projection`, `viewProjection`, `position`) não são mais dado da câmera
+— ver o guia de migração.
 
 ## Extends
 
-- [`Entity`](Entity.md)
+- [`Entity`](Entity.md)\<[`CameraData`](../interfaces/CameraData.md)\>
 
 ## Implements
 
@@ -26,13 +36,13 @@ cacheadas + parâmetros (fov/near/far/aspect). Atualizada por
 
 > **new Camera**(`values?`): `Camera`
 
-Defined in: [elements/scene/Camera.ts:30](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Camera.ts#L30)
+Defined in: [elements/scene/Camera.ts:83](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L83)
 
 #### Parameters
 
 ##### values?
 
-`Record`\<`string`, `unknown`\> = `{}`
+[`CameraValues`](../interfaces/CameraValues.md) = `{}`
 
 #### Returns
 
@@ -44,27 +54,11 @@ Defined in: [elements/scene/Camera.ts:30](https://github.com/dantasgut/clayflow/
 
 ## Properties
 
-### data
-
-> **data**: `Record`\<`string`, `unknown`\> = `{}`
-
-Defined in: [elements/scene/Camera.ts:28](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Camera.ts#L28)
-
-Dados runtime do resource (e.g. Camera position, Material albedo,
-RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
-Mutações devem disparar evento `resourceDirty` para re-upload.
-
-#### Implementation of
-
-`Resource.data`
-
-***
-
 ### state
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/Camera.ts:27](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Camera.ts#L27)
+Defined in: [elements/scene/Camera.ts:81](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L81)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -74,13 +68,23 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 ***
 
+### matricesSchema
+
+> `readonly` `static` **matricesSchema**: `StructSchema`
+
+Defined in: [elements/scene/Camera.ts:74](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L74)
+
+Produto do `CameraFlow`, só na GPU (pool `CameraMatrices`, mesmo slot da câmera).
+
+***
+
 ### schema
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/scene/Camera.ts:16](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Camera.ts#L16)
+Defined in: [elements/scene/Camera.ts:62](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L62)
 
-StructSchema do Camera (view + projection + viewProj + pos + params).
+Parâmetros de projeção (pool `Camera`). `projection`: 0 perspectiva, 1 ortográfica; `aspectMode`: 0 canvas, 1 fixo.
 
 ## Accessors
 
@@ -88,20 +92,84 @@ StructSchema do Camera (view + projection + viewProj + pos + params).
 
 #### Get Signature
 
-> **get** **attached**(): readonly [`Entity`](Entity.md)[]
+> **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly [`Entity`](Entity.md)[]
+readonly [`Entity`](Entity.md)\<`object`\>[]
 
 #### Inherited from
 
 [`Entity`](Entity.md).[`attached`](Entity.md#attached)
+
+***
+
+### data
+
+#### Get Signature
+
+> **get** **data**(): `TData`
+
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
+
+Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
+`data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
+
+##### Returns
+
+`TData`
+
+#### Set Signature
+
+> **set** **data**(`next`): `void`
+
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
+
+Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
+
+##### Parameters
+
+###### next
+
+`TData`
+
+##### Returns
+
+`void`
+
+#### Implementation of
+
+`Resource.data`
+
+#### Inherited from
+
+[`Entity`](Entity.md).[`data`](Entity.md#data)
+
+***
+
+### rawData
+
+#### Get Signature
+
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
+
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
+
+O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
+estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
+
+##### Returns
+
+`Readonly`\<`TData`\>
+
+#### Inherited from
+
+[`Entity`](Entity.md).[`rawData`](Entity.md#rawdata)
 
 ## Methods
 
@@ -109,7 +177,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -118,7 +186,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ##### e
 
-[`Entity`](Entity.md)
+[`Entity`](Entity.md)\<`object`\>
 
 #### Returns
 
@@ -134,12 +202,9 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/Camera.ts:44](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Camera.ts#L44)
+Defined in: [elements/scene/Camera.ts:98](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L98)
 
-Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
-que este resource expõe ao `ResourceSystem`. Cada descriptor define
-`id`, `role`, `schema` (StructSchema) e opcionalmente `storage`
-(`'pool'` para coalescer N members do mesmo schema em 1 buffer).
+Parâmetros (CPU envia a cada mutação) + matrizes (produzidas só pela GPU).
 
 #### Returns
 
@@ -155,7 +220,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/Camera.ts:48](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Camera.ts#L48)
+Defined in: [elements/scene/Camera.ts:111](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L111)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

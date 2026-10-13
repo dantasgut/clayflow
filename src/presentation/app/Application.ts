@@ -10,6 +10,7 @@ import type {
     World,
 } from '../../scene/index';
 import type { ConsumerResolverRegistry } from '../../scene/consumers/ConsumerResolverRegistry';
+import type { FrameProfilingGranularity } from '../../scene/contracts/gpu';
 import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
 import type { LayoutInferencer } from '../../scene/systems/LayoutInferencer';
 import type { ExecutionSystem } from '../../scene/systems/ExecutionSystem';
@@ -21,6 +22,9 @@ import {
     type PresentationDefaults,
 } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
+import type { Input } from '../input/Input';
+import type { InteractionSystem } from '../input/InteractionSystem';
+import { acquireSceneInteraction, releaseSceneInteraction } from './sceneInteraction';
 import { ELEMENT_CONSUMERS } from '../../elements/consumers';
 
 /**
@@ -62,11 +66,12 @@ export interface ApplicationOptions {
      */
     scene?: SceneContext;
     /**
-     * Liga o profiling de GPU por quadro: todo passe recebe timestamps automaticamente e
-     * `frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3 quadros).
-     * Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
+     * Liga o profiling de GPU por quadro: `frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3
+     * quadros). `true` ou `'passes'`: todo passe recebe timestamps e `stagesNs` traz o tempo de cada um; `'frame'`:
+     * só o total da gravação (dois timestamps por quadro, sem o custo de amostrar cada passe — o modo para medir
+     * desempenho). Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
      */
-    profiling?: boolean;
+    profiling?: boolean | FrameProfilingGranularity;
     /** Capacidade de timestamps por quadro (pares = passes medidos). Default: 256 (128 passes). */
     profilingCapacity?: number;
     /**
@@ -117,6 +122,13 @@ export class Application {
     readonly defaults: PresentationDefaults;
     /** Canvas HTML attachado. Mesmo objeto passado em `create({canvas})`. */
     readonly canvas: HTMLCanvasElement;
+    /**
+     * Entrada da cena (spec 007): Resource singleton no World — consulta (`isKeyDown`, `pointerDelta`, …) e eventos no
+     * barramento (`keyDown`, `pointerMove`, `wheel`, …). Compartilhado pelas aplicações da mesma cena.
+     */
+    readonly input: Input;
+    /** Liga os dispositivos ao `input` e tica os controllers da cena (componentes da entidade da câmera). */
+    readonly interaction: InteractionSystem;
     private readonly scene: SceneContext;
     private readonly ownsScene: boolean;
     private readonly loop: GameLoop;
@@ -143,6 +155,9 @@ export class Application {
         this.flows = scene.flows;
         this.time = scene.time;
         this.defaults = defaults;
+        const interaction = acquireSceneInteraction(scene, options.canvas);
+        this.input = interaction.input;
+        this.interaction = interaction.system;
         this.maxFramesInFlight = options.maxFramesInFlight ?? 2;
         this.loop = new GameLoop(scene.events, this.time, () => this.readyForFrame());
         this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
@@ -204,8 +219,9 @@ export class Application {
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;
         }
-        if (options.profiling === true) {
-            scene.core.setFrameProfiling(true, options.profilingCapacity);
+        if (options.profiling !== undefined && options.profiling !== false) {
+            const granularity = options.profiling === true ? 'passes' : options.profiling;
+            scene.core.setFrameProfiling(true, options.profilingCapacity, granularity);
         }
         return new Application(options, defaults, scene, ownsScene);
     }
@@ -336,6 +352,7 @@ export class Application {
             this.memoryUnsubscribe();
             this.memoryUnsubscribe = null;
         }
+        releaseSceneInteraction(this.scene);
         // Estágios padrão: registrados uma vez por cena; a última aplicação da cena os desregistra.
         const lastUser = releasePresentationDefaults(this.scene.flows);
         // Cena passada em `options.scene` é descartada com a última aplicação que a usa; o singleton default

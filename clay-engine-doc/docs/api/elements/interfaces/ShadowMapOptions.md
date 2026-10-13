@@ -6,7 +6,7 @@
 
 # Interface: ShadowMapOptions
 
-Defined in: [elements/scene/ShadowMap.ts:10](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/ShadowMap.ts#L10)
+Defined in: [elements/scene/ShadowMap.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L10)
 
 Opções de `ShadowMap`.
 
@@ -16,19 +16,9 @@ Opções de `ShadowMap`.
 
 > `readonly` `optional` **bias?**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:14](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/ShadowMap.ts#L14)
+Defined in: [elements/scene/ShadowMap.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L12)
 
 Viés de profundidade da comparação (contra acne). Padrão 0,005.
-
-***
-
-### lightViewProj?
-
-> `readonly` `optional` **lightViewProj?**: readonly `number`[]
-
-Defined in: [elements/scene/ShadowMap.ts:12](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/ShadowMap.ts#L12)
-
-Matriz luz-vista-projeção inicial (o estágio de sombra a recalcula pela luz). Padrão: identidade.
 
 ***
 
@@ -36,7 +26,7 @@ Matriz luz-vista-projeção inicial (o estágio de sombra a recalcula pela luz).
 
 > `readonly` `optional` **normalBias?**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:16](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/ShadowMap.ts#L16)
+Defined in: [elements/scene/ShadowMap.ts:14](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L14)
 
 Viés ao longo da normal. Padrão 0,001.
 
@@ -46,6 +36,6 @@ Viés ao longo da normal. Padrão 0,001.
 
 > `readonly` `optional` **size?**: readonly \[`number`, `number`\]
 
-Defined in: [elements/scene/ShadowMap.ts:18](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/ShadowMap.ts#L18)
+Defined in: [elements/scene/ShadowMap.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L16)
 
 Resolução do mapa em texels `[largura, altura]`. Padrão `[1024, 1024]`.

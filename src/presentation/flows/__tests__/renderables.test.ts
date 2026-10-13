@@ -38,13 +38,16 @@ async function stage(kind: 'forward' | 'shadow', insertFirst?: Geometry) {
             geometry.add(new StandardMaterial({ albedo: [1, 1, 1, 1] })).add(new Transform()),
         );
     s.scene.world.insert(
-        kind === 'forward' ? new Camera() : new DirectionalLight({ castShadow: true }),
+        kind === 'forward'
+            ? new Camera().add(new Transform())
+            : new DirectionalLight({ castShadow: true }),
     );
     if (insertFirst !== undefined) add(insertFirst);
     registerStages(s.scene, kind === 'forward' ? { forward: 'canvas' } : { shadow: true });
+    /** Entidades desenhadas no quadro: a soma das instâncias dos desenhos (um por grupo). */
     const drawCount = (): number => {
         s.step();
-        return s.draws(label).length;
+        return s.draws(label).reduce((n, d) => n + d.instanceCount, 0);
     };
     return { ...s, add, drawCount };
 }

@@ -6,7 +6,7 @@
 
 # Interface: InteractionSystemOptions
 
-Defined in: [presentation/input/InteractionSystem.ts:13](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/InteractionSystem.ts#L13)
+Defined in: [presentation/input/InteractionSystem.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/InteractionSystem.ts#L16)
 
 Configuração do InteractionSystem. `window` permite injeção em tests
 (jsdom) ou para múltiplos canvases compartilharem o mesmo Window.
@@ -17,7 +17,7 @@ Configuração do InteractionSystem. `window` permite injeção em tests
 
 > `readonly` **canvas**: `HTMLCanvasElement`
 
-Defined in: [presentation/input/InteractionSystem.ts:15](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/InteractionSystem.ts#L15)
+Defined in: [presentation/input/InteractionSystem.ts:18](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/InteractionSystem.ts#L18)
 
 Canvas onde pointer/touch events são capturados.
 
@@ -27,6 +27,6 @@ Canvas onde pointer/touch events são capturados.
 
 > `readonly` **window**: `Window` \| `null`
 
-Defined in: [presentation/input/InteractionSystem.ts:17](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/InteractionSystem.ts#L17)
+Defined in: [presentation/input/InteractionSystem.ts:20](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/InteractionSystem.ts#L20)
 
 Window onde keyboard events são capturados. Null = fallback para canvas.

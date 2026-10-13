@@ -3,12 +3,26 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/** Dado de um `GravityField` (layout de `GravityField.schema`). */
+export interface GravityFieldData {
+    sourceMode: number;
+    _pad0: number;
+    _pad1: number;
+    _pad2: number;
+    acceleration: readonly number[];
+    sourcePosition: readonly number[];
+    sourceMass: number;
+    gravitationalConstant: number;
+    _pad3: number;
+    _pad4: number;
+}
+
 /**
  * Campo gravitacional — uniforme (acceleration constante) ou point-source
  * (Newton: F = G·m·M/r²) conforme `sourceMode`. Aplicado a todos os physics
  * bodies pelo flow.
  */
-export class GravityField extends ForceField {
+export class GravityField extends ForceField<GravityFieldData> {
     /** StructSchema do GravityField (uniform de 64 bytes). */
     static readonly schema = new StructSchema('GravityField', {
         sourceMode: FieldType.u32,
@@ -23,15 +37,20 @@ export class GravityField extends ForceField {
         _pad4: FieldType.f32,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<GravityFieldData> = {}) {
         super();
-        this.data = GravityField.schema.applyDefaults({
+        this.data = {
             sourceMode: values.sourceMode ?? 0,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
             acceleration: values.acceleration ?? [0, -9.81, 0, 0],
             sourcePosition: values.sourcePosition ?? [0, 0, 0, 1],
             sourceMass: values.sourceMass ?? 0,
             gravitationalConstant: values.gravitationalConstant ?? 6.674e-11,
-        });
+            _pad3: 0,
+            _pad4: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

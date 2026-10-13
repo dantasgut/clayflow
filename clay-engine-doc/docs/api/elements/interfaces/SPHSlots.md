@@ -6,7 +6,7 @@
 
 # Interface: SPHSlots
 
-Defined in: [elements/physics/flows/SPHFlow.ts:43](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/SPHFlow.ts#L43)
+Defined in: [elements/physics/flows/SPHFlow.ts:43](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/SPHFlow.ts#L43)
 
 Slots do SPH.
 
@@ -24,7 +24,7 @@ Slots do SPH.
 
 > `readonly` **bodies**: `BodiesSlot`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:45](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/SPHFlow.ts#L45)
+Defined in: [elements/physics/flows/SPHFlow.ts:45](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/SPHFlow.ts#L45)
 
 Pool de corpos do `bodyType` do registro.
 
@@ -34,7 +34,7 @@ Pool de corpos do `bodyType` do registro.
 
 > `readonly` **colliderPools**: `PoolsSlot`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:53](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/SPHFlow.ts#L53)
+Defined in: [elements/physics/flows/SPHFlow.ts:53](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/SPHFlow.ts#L53)
 
 Pools de colliders e de corpos rígidos (cada um presente ou não).
 
@@ -44,7 +44,7 @@ Pools de colliders e de corpos rígidos (cada um presente ou não).
 
 > `readonly` **colliders**: `EntitiesSlot`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:55](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/SPHFlow.ts#L55)
+Defined in: [elements/physics/flows/SPHFlow.ts:55](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/SPHFlow.ts#L55)
 
 Entidades com collider (donos dos registros nos pools de collider).
 
@@ -54,7 +54,7 @@ Entidades com collider (donos dos registros nos pools de collider).
 
 > `readonly` **gravity**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/SPHFlow.ts:49](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/SPHFlow.ts#L49)
+Defined in: [elements/physics/flows/SPHFlow.ts:49](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/SPHFlow.ts#L49)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
@@ -64,7 +64,7 @@ Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 > `readonly` **material**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/SPHFlow.ts:51](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/SPHFlow.ts#L51)
+Defined in: [elements/physics/flows/SPHFlow.ts:51](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/SPHFlow.ts#L51)
 
 Material das partículas (opcional; padrões do solver).
 
@@ -74,6 +74,6 @@ Material das partículas (opcional; padrões do solver).
 
 > `readonly` **time**: `SingletonSlot`\<`false`\>
 
-Defined in: [elements/physics/flows/SPHFlow.ts:47](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/SPHFlow.ts#L47)
+Defined in: [elements/physics/flows/SPHFlow.ts:47](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/SPHFlow.ts#L47)
 
 Relógio da cena (passos fixos do quadro).

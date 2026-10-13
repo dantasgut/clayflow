@@ -29,8 +29,8 @@ describe('material reativo', () => {
         const material = new StandardMaterial({ albedo: [0.2, 0.2, 0.2, 1] });
         world.insert(material);
         trace.length = 0;
-        (material.data.albedo as number[])[0] = 1;
-        (material.data.albedo as number[])[1] = 0.5;
+        material.data.albedo[0] = 1;
+        material.data.albedo[1] = 0.5;
         expect(trace).toHaveLength(0);
         events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(trace.filter((c) => c.startsWith('write:'))).toHaveLength(1);
@@ -54,7 +54,7 @@ describe('material em pool de storage', () => {
     it('trocar o material da entidade por outro schema a move de pool e muda o pipeline do desenho', async () => {
         const s = await renderScene();
         registerStages(s.scene, { forward: 'canvas' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         const standard = new BoxGeometry().add(new StandardMaterial()).add(new Transform());
         const id = s.scene.world.insert(standard);
         s.step();

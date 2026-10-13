@@ -3,20 +3,26 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Collider } from './Collider';
 
+/** Dado de um `BoxCollider` (layout de `BoxCollider.schema`). */
+export interface BoxColliderData {
+    halfExtents: number[];
+    center: number[];
+}
+
 /** Collider AABB — half-extents em XYZ + center offset. */
-export class BoxCollider extends Collider {
+export class BoxCollider extends Collider<BoxColliderData> {
     /** StructSchema do BoxCollider (halfExtents + center, 32 bytes). */
     static readonly schema = new StructSchema('BoxCollider', {
         halfExtents: FieldType.vec4f,
         center: FieldType.vec4f,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<BoxColliderData> = {}) {
         super();
-        this.data = BoxCollider.schema.applyDefaults({
+        this.data = {
             halfExtents: values.halfExtents ?? [0.5, 0.5, 0.5, 0],
             center: values.center ?? [0, 0, 0, 1],
-        });
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

@@ -6,8 +6,8 @@ import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
 import { registerStages, renderScene } from './helpers/renderHarness';
 
-function entity() {
-    return new BoxGeometry()
+function entity(size: readonly number[] = [1, 1, 1]) {
+    return new BoxGeometry({ size })
         .add(new StandardMaterial({ albedo: [1, 1, 1, 1] }))
         .add(new Transform());
 }
@@ -16,10 +16,11 @@ describe('liberação de GPU na remoção de entidade (R14)', () => {
     it('os estágios não têm objeto por entidade: a C2 libera VBO e IBO da geometria removida, e só ela', async () => {
         const s = await renderScene();
         registerStages(s.scene, { shadow: true, forward: 'canvas' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         s.scene.world.insert(new DirectionalLight({ castShadow: true }));
-        const a = entity();
-        const b = entity();
+        // Tamanhos diferentes: conteúdos diferentes, buffers próprios (o mesmo conteúdo seria compartilhado).
+        const a = entity([1, 1, 1]);
+        const b = entity([2, 2, 2]);
         s.scene.world.insert(a);
         s.scene.world.insert(b);
         s.step();
@@ -44,7 +45,7 @@ describe('liberação de GPU na remoção de entidade (R14)', () => {
     it('entidade removida antes do primeiro quadro não é desenhada', async () => {
         const s = await renderScene();
         registerStages(s.scene, { forward: 'canvas' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         const box = entity();
         s.scene.world.insert(box);
         s.scene.world.remove(box);

@@ -14,11 +14,11 @@ import { fakeResourceCore } from './helpers/fakeResourceCore';
 const Body = new StructSchema('TransBody', { pos: FieldType.vec4f });
 
 class Probe extends Entity implements Resource {
-    data: Record<string, unknown> = { pos: [0, 0, 0, 1] };
     readonly history: ResourceState[] = [];
     private current: ResourceState = ResourceState.Uninitialized;
     constructor(private readonly descs: readonly GPUDescriptor[]) {
         super();
+        this.data = { pos: [0, 0, 0, 1] };
     }
     get state(): ResourceState {
         return this.current;
@@ -94,8 +94,13 @@ describe('ResourceSystem — ciclo de vida validado (R10)', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         world.insert(p);
         expect(p.state).toBe(ResourceState.GpuManaged);
-        const before = writes.length;
         p.data.pos = [9, 9, 9, 1];
+        events.emit('frameRecording', { elapsed: 0 });
+        // Só o dado do momento da inserção é enviado (uma vez); a mutação depois dela é ignorada com aviso.
+        expect(writes).toHaveLength(1);
+        expect(new Float32Array(writes[0]!.bytes.slice().buffer)[0]).not.toBe(9);
+        const before = writes.length;
+        p.data.pos = [8, 8, 8, 1];
         events.emit('frameRecording', { elapsed: 0 });
         expect(writes.length).toBe(before);
         expect(warn).toHaveBeenCalledOnce();

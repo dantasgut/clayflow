@@ -26,6 +26,13 @@ export interface PostProcessOptions {
     aux?: readonly [number, number, number];
 }
 
+/** Dado de um `PostProcessEffect`. */
+export interface PostProcessData {
+    enabled: boolean;
+    strength: number;
+    aux: readonly [number, number, number];
+}
+
 /**
  * PostProcessEffect é a base de todos os post-process passes do PostFlow.
  * Cada effect contribui com 1 fragment entry point + 16 bytes de uniform
@@ -39,9 +46,8 @@ export interface PostProcessOptions {
  * Subclasses devem implementar `name` (identificador) e `fragmentEntry`
  * (nome do fragment fn no WGSL).
  */
-export abstract class PostProcessEffect extends Entity implements Resource {
+export abstract class PostProcessEffect extends Entity<PostProcessData> implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: PostProcessOptions = {}) {
         super();
@@ -71,7 +77,7 @@ export abstract class PostProcessEffect extends Entity implements Resource {
 
     /** True se o effect deve participar do chain neste frame. Lê `data.enabled`. */
     get isEnabled(): boolean {
-        return this.data.enabled === true;
+        return this.data.enabled;
     }
 
     /**
@@ -80,14 +86,9 @@ export abstract class PostProcessEffect extends Entity implements Resource {
      * compatibilidade com o pipeline padrão.
      */
     paramsBytes(): Uint8Array {
-        const aux = (this.data.aux as readonly number[] | undefined) ?? [0, 0, 0];
+        const aux = this.data.aux;
         return EffectParamsSchema.pack({
-            p0: [
-                (this.data.strength as number | undefined) ?? 1.0,
-                aux[0] ?? 0,
-                aux[1] ?? 0,
-                aux[2] ?? 0,
-            ],
+            p0: [this.data.strength, aux[0], aux[1], aux[2]],
         });
     }
 

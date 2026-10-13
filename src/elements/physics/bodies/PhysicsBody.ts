@@ -10,10 +10,13 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
  * integrador vive no Flow (importa o WGSL kernel); o body apenas declara
  * descriptors de buffer/pool. Roteamento body→flow é por `schema.name`
  * (pool key) que casa com `Flow.bodyType` registrado no FlowRegistry.
+ * `TData` tipa o `data` (ver `Entity`).
  */
-export abstract class PhysicsBody extends Entity implements Resource {
+export abstract class PhysicsBody<TData extends object = Record<string, unknown>>
+    extends Entity<TData>
+    implements Resource
+{
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     abstract getDescriptors(): readonly GPUDescriptor[];
 

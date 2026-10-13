@@ -53,10 +53,9 @@ fn rigid_mat4_inverse(m: mat4x4f) -> mat4x4f {
     let r0 = vec3f(m[0].x, m[1].x, m[2].x);  // linha 0 de R
     let r1 = vec3f(m[0].y, m[1].y, m[2].y);  // linha 1 de R
     let r2 = vec3f(m[0].z, m[1].z, m[2].z);  // linha 2 de R
-    let tx = m[3].x; let ty = m[3].y; let tz = m[3].z;
-    let t  = vec3f(tx, ty, tz);
-    // -Rᵀ · t
-    let it = vec3f(-dot(r0, t), -dot(r1, t), -dot(r2, t));
+    let t  = m[3].xyz;
+    // −Rᵀ · t: a componente i é −(coluna i de R) · t (spec 007 corrigiu o uso das linhas, que dava −R · t).
+    let it = vec3f(-dot(m[0].xyz, t), -dot(m[1].xyz, t), -dot(m[2].xyz, t));
     return mat4x4f(
         vec4f(r0, 0.0),
         vec4f(r1, 0.0),

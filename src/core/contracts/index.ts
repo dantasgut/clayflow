@@ -15,6 +15,7 @@ export type {
 } from './DeviceOptions';
 export type {
     EngineCore,
+    FrameProfilingGranularity,
     CanvasOptions,
     DeviceLostInfo,
     DeviceLostHandler,

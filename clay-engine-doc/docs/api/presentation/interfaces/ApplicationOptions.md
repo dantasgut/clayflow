@@ -6,7 +6,7 @@
 
 # Interface: ApplicationOptions
 
-Defined in: [presentation/app/Application.ts:31](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L31)
+Defined in: [presentation/app/Application.ts:35](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L35)
 
 Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
 defaults sensíveis para o resto. Use `scene` para multi-Application,
@@ -18,7 +18,7 @@ defaults sensíveis para o resto. Use `scene` para multi-Application,
 
 > `optional` **autoResize?**: `boolean`
 
-Defined in: [presentation/app/Application.ts:42](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L42)
+Defined in: [presentation/app/Application.ts:46](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L46)
 
 Auto-attach window.resize listener (default true em ambiente browser).
 
@@ -28,7 +28,7 @@ Auto-attach window.resize listener (default true em ambiente browser).
 
 > **canvas**: `HTMLCanvasElement`
 
-Defined in: [presentation/app/Application.ts:33](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L33)
+Defined in: [presentation/app/Application.ts:37](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L37)
 
 HTMLCanvasElement onde a engine renderiza. Deve estar attachado ao DOM.
 
@@ -38,7 +38,7 @@ HTMLCanvasElement onde a engine renderiza. Deve estar attachado ao DOM.
 
 > `optional` **canvasOptions?**: `CanvasOptions`
 
-Defined in: [presentation/app/Application.ts:35](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L35)
+Defined in: [presentation/app/Application.ts:39](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L39)
 
 Configuração do swapchain (alphaMode, colorSpace). Default: opaque/srgb.
 
@@ -48,7 +48,7 @@ Configuração do swapchain (alphaMode, colorSpace). Default: opaque/srgb.
 
 > `optional` **captureErrors?**: `boolean`
 
-Defined in: [presentation/app/Application.ts:51](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L51)
+Defined in: [presentation/app/Application.ts:55](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L55)
 
 Quando true, cada frame abre um WebGPU error scope `validation`. Erros viram
 eventos `engineError` (stage='frame') em vez de exceptions — o GameLoop
@@ -61,7 +61,7 @@ surfacing erros sem crash. Default: false (custo de push/pop por frame).
 
 > `optional` **consumers?**: (`registry`) => `void`
 
-Defined in: [presentation/app/Application.ts:81](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L81)
+Defined in: [presentation/app/Application.ts:86](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L86)
 
 Registra resolvers de `consumes` próprios da aplicação (ex.: `r.register(new SingletonResolver(Wind.schema,
 'wind'))`). Roda depois dos padrão do motor; `register` de um nome existente o substitui.
@@ -82,7 +82,7 @@ Registra resolvers de `consumes` próprios da aplicação (ex.: `r.register(new 
 
 > `optional` **device?**: `DeviceOptions`
 
-Defined in: [presentation/app/Application.ts:40](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L40)
+Defined in: [presentation/app/Application.ts:44](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L44)
 
 Preferências do device GPU: potência, features exigidas/desejadas e limites. Reaplicadas em
 `requestNewDevice()`. O que foi obtido aparece em `app.capabilities`.
@@ -93,7 +93,7 @@ Preferências do device GPU: potência, features exigidas/desejadas e limites. R
 
 > `optional` **maxFramesInFlight?**: `number`
 
-Defined in: [presentation/app/Application.ts:76](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L76)
+Defined in: [presentation/app/Application.ts:81](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L81)
 
 Máximo de quadros em execução na GPU antes de o laço gravar outro (inteiro ≥ 1, default 2). Evita acumular
 trabalho na GPU sem limite quando ela é mais lenta que a CPU; `step()` não espera.
@@ -104,7 +104,7 @@ trabalho na GPU sem limite quando ela é mais lenta que a CPU; `step()` não esp
 
 > `optional` **memoryBudgetMB?**: `number`
 
-Defined in: [presentation/app/Application.ts:57](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L57)
+Defined in: [presentation/app/Application.ts:61](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L61)
 
 Threshold (MiB) de GPU memory acima do qual `memoryWarning` é emitido
 (uma vez por transição abaixo→acima). Default: undefined (sem warning).
@@ -114,13 +114,14 @@ Threshold (MiB) de GPU memory acima do qual `memoryWarning` é emitido
 
 ### profiling?
 
-> `optional` **profiling?**: `boolean`
+> `optional` **profiling?**: `boolean` \| `FrameProfilingGranularity`
 
-Defined in: [presentation/app/Application.ts:69](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L69)
+Defined in: [presentation/app/Application.ts:74](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L74)
 
-Liga o profiling de GPU por quadro: todo passe recebe timestamps automaticamente e
-`frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3 quadros).
-Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
+Liga o profiling de GPU por quadro: `frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3
+quadros). `true` ou `'passes'`: todo passe recebe timestamps e `stagesNs` traz o tempo de cada um; `'frame'`:
+só o total da gravação (dois timestamps por quadro, sem o custo de amostrar cada passe — o modo para medir
+desempenho). Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
 
 ***
 
@@ -128,7 +129,7 @@ Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default
 
 > `optional` **profilingCapacity?**: `number`
 
-Defined in: [presentation/app/Application.ts:71](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L71)
+Defined in: [presentation/app/Application.ts:76](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L76)
 
 Capacidade de timestamps por quadro (pares = passes medidos). Default: 256 (128 passes).
 
@@ -138,7 +139,7 @@ Capacidade de timestamps por quadro (pares = passes medidos). Default: 256 (128 
 
 > `optional` **resizeDebounceMs?**: `number`
 
-Defined in: [presentation/app/Application.ts:44](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L44)
+Defined in: [presentation/app/Application.ts:48](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L48)
 
 Debounce em ms para o handler de resize (default 100).
 
@@ -148,7 +149,7 @@ Debounce em ms para o handler de resize (default 100).
 
 > `optional` **scene?**: `SceneContext`
 
-Defined in: [presentation/app/Application.ts:63](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/app/Application.ts#L63)
+Defined in: [presentation/app/Application.ts:67](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/app/Application.ts#L67)
 
 SceneContext customizado. Quando omitido, usa o singleton default
 (compatibilidade). Forneça via `createScene()` para múltiplas

@@ -2,17 +2,20 @@ import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
 /**
- * Parâmetros do quadro do desenho forward (uniform privado do estágio, escrito quando mudam): direção da luz que
- * ilumina, sombra ligada e o slot do mapa de sombra dela no pool `ShadowMap` (matriz e viés vêm de lá).
+ * Parâmetros do quadro do desenho forward (uniform privado do estágio, escrito quando mudam): o slot da câmera ativa no
+ * pool `CameraMatrices`, o slot da luz que ilumina no pool `Light` (a direção vem de lá; `0xFFFFFFFF` = direção padrão),
+ * sombra ligada e o slot do mapa de sombra dela nos pools `ShadowMap` (vieses) e `ShadowMatrix` (matriz) — spec 007.
  */
 export const ForwardFrameParamsSchema = new StructSchema(
     'ForwardFrameParams',
     {
-        lightDir: FieldType.vec4f,
+        cameraSlot: FieldType.u32,
+        lightSlot: FieldType.u32,
         shadowEnabled: FieldType.f32,
         shadowSlot: FieldType.u32,
-        _pad0: FieldType.f32,
-        _pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
+
+/** `lightSlot` sem luz que ilumina: o forward usa a direção padrão. */
+export const NO_LIGHT_SLOT = 0xffffffff;

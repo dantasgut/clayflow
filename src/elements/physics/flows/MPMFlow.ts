@@ -26,7 +26,7 @@ import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { MPMSimParamsSchema } from '../schemas/simParams';
 import { MPMGridNodeSchema } from '../schemas/simState';
 import { mpmClearGrid, mpmG2P, mpmGridUpdate, mpmP2G, mpmParticleCollision } from '../shaders/mpm';
-import { PerStepUniforms } from './PerStepUniforms';
+import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Escala do ponto fixo das somas atômicas da grade. */
 const MPM_FIXED_SCALE = 1e7;
@@ -280,9 +280,8 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         this.iterations = time.steps * substeps;
         if (this.iterations === 0) return;
         if (this.params.reserve(this.iterations)) ctx.bind({ mpm_params: this.params.source() });
-        const accel = (bound.slots.gravity?.resource.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
+            .acceleration ?? [0, -9.81, 0, 0];
         const { mu, lambda } = material.lame;
         const count = bound.slots.bodies.count;
         for (let i = 0; i < this.iterations; i++) {

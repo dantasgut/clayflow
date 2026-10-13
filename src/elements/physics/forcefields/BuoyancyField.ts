@@ -3,12 +3,20 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/** Dado de um `BuoyancyField` (layout de `BuoyancyField.schema`). */
+export interface BuoyancyFieldData {
+    fluidDensity: number;
+    fluidLevel: number;
+    gravity: number;
+    _pad: number;
+}
+
 /**
  * Campo de empuxo — Princípio de Arquimedes. Aplica força vertical
  * proporcional ao volume submerso × fluidDensity × gravity. Bodies
  * acima do fluidLevel não recebem empuxo.
  */
-export class BuoyancyField extends ForceField {
+export class BuoyancyField extends ForceField<BuoyancyFieldData> {
     /** StructSchema do BuoyancyField (fluidDensity + fluidLevel + gravity). */
     static readonly schema = new StructSchema('BuoyancyField', {
         fluidDensity: FieldType.f32,
@@ -17,13 +25,14 @@ export class BuoyancyField extends ForceField {
         _pad: FieldType.f32,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<BuoyancyFieldData> = {}) {
         super();
-        this.data = BuoyancyField.schema.applyDefaults({
+        this.data = {
             fluidDensity: values.fluidDensity ?? 1000.0,
             fluidLevel: values.fluidLevel ?? 0.0,
             gravity: values.gravity ?? 9.81,
-        });
+            _pad: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
