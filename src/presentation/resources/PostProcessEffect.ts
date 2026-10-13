@@ -41,7 +41,6 @@ export interface PostProcessOptions {
  */
 export abstract class PostProcessEffect extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: PostProcessOptions = {}) {
         super();

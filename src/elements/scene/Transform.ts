@@ -47,7 +47,6 @@ export class Transform extends Entity implements Resource {
     });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(values: TransformValues = {}) {
         super();
@@ -57,6 +56,15 @@ export class Transform extends Entity implements Resource {
             rotation: [...(values.rotation ?? [0, 0, 0, 1])],
             scale: [...(values.scale ?? [1, 1, 1, 1])],
         };
+    }
+
+    /**
+     * Escala com produto negativo: o objeto é espelhado (inverte a orientação das faces). Lida do dado cru (os estágios a
+     * consultam para a chave de grupo, sem criar proxy por entidade).
+     */
+    get mirrored(): boolean {
+        const scale = this.rawData.scale as readonly number[];
+        return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
     }
 
     /** Intenção (CPU envia a cada mutação) + matriz de mundo (produzida só pela GPU). */

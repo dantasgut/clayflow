@@ -24,7 +24,6 @@ export class NeighborSearchGrid extends Entity implements Resource {
     });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(values: Record<string, unknown> = {}) {
         super();

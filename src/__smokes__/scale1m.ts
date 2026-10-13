@@ -2,7 +2,7 @@
 //
 // Monta 1 000 000 de caixas idênticas, cada uma com material e `Transform` próprios (a cena `instances/1m` do
 // benchmark), renderiza alguns quadros e mede: tempo de montagem, tempo até o primeiro quadro concluído na GPU, heap
-// JS (`performance.memory`, quando o navegador expõe) e memória de GPU (`core.memoryUsage`). Critérios ao fim da 007:
+// JS retido (`performance.memory` depois de `gc()`, quando o navegador expõe) e memória de GPU (`core.memoryUsage`). Critérios ao fim da 007:
 // completa sem travar; heap ≤ 1,5 GB; memória de GPU = pools do estado de cena + uma cópia da geometria (sem objeto de
 // GPU por entidade).
 //
@@ -17,7 +17,8 @@ import {
     type StagingBufferSpec,
 } from 'clayflow';
 
-const COUNT = 1_000_000;
+/** Entidades (`--query count=N` para diagnóstico em escala menor; o critério vale para 1 milhão). */
+const COUNT = Number(new URLSearchParams(location.search).get('count') ?? 1_000_000);
 const HEAP_LIMIT_BYTES = 1.5 * 1024 ** 3;
 /** Teto da memória de GPU além dos pools: 1 cópia da geometria, alvos de render e buffers dos estágios. */
 const GPU_OVERHEAD_LIMIT_BYTES = 64 * 1024 ** 2;
@@ -30,7 +31,11 @@ function log(msg: string): void {
 
 const mib = (bytes: number): string => `${(bytes / 1048576).toFixed(1)} MiB`;
 
+/** Heap JS retido: coleta o lixo antes (`gc()`, exposto pelo runner dos smokes) e lê o heap usado. */
 function heapBytes(): number | undefined {
+    const gc = (globalThis as { gc?: () => void }).gc;
+    gc?.();
+    gc?.();
     return (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
         ?.usedJSHeapSize;
 }
@@ -74,6 +79,8 @@ async function main(): Promise<void> {
     }
     const assembled = performance.now() - t0;
     log(`montagem de ${COUNT} entidades: ${(assembled / 1000).toFixed(1)} s`);
+    const assembledHeap = heapBytes();
+    if (assembledHeap !== undefined) log(`heap JS após a montagem: ${mib(assembledHeap)}`);
     const t1 = performance.now();
     app.step(1 / 60);
     await settle(app);

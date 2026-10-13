@@ -15,7 +15,6 @@ const MAX_UINT16_VERTICES = 65_535;
  */
 export abstract class Geometry extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     abstract getDescriptors(): readonly GPUDescriptor[];
 

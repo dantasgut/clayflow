@@ -26,7 +26,6 @@ const InstanceSchema = new StructSchema('GroupInstance', { slot: FieldType.u32 }
 class Shape extends Entity implements Resource {
     static readonly schema = ShapeSchema;
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(kind: number) {
         super();
         this.data = { kind: [kind, 0, 0, 0] };

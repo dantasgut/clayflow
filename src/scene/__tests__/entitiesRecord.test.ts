@@ -26,7 +26,6 @@ const RecordSchema = new StructSchema('TestRecord', { aSlot: FieldType.u32, bSlo
 
 abstract class Base extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
     abstract getDescriptors(): readonly GPUDescriptor[];
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];

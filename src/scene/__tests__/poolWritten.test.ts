@@ -24,7 +24,11 @@ const OtherSchema = new StructSchema('OtherPool', { v: FieldType.vec4f });
 class Heard extends Entity implements Resource {
     static readonly schema = HeardSchema;
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { v: [0, 0, 0, 0] };
+    constructor() {
+        super();
+        this.data = { v: [0, 0, 0, 0] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'h', role: 'storage-ro', storage: 'pool', schema: HeardSchema }];
     }

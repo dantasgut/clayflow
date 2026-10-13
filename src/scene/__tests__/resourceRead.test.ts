@@ -21,7 +21,6 @@ const ReadOwn = new StructSchema('ReadOwn', { m: FieldType.vec4f }, { addressSpa
 
 class Item extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(v: number) {
         super();
         this.data = { a: [v, v + 1, v + 2, v + 3], n: v };
@@ -35,7 +34,11 @@ class Item extends Entity implements Resource {
 }
 class Own extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { m: [7, 8, 9, 10] };
+    constructor() {
+        super();
+        this.data = { m: [7, 8, 9, 10] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'u', role: 'uniform', schema: ReadOwn }];
     }

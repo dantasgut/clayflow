@@ -39,7 +39,6 @@ export class ShadowMap extends Entity implements Resource {
     });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: ShadowMapOptions = {}) {
         super();

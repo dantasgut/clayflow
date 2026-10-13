@@ -67,7 +67,6 @@ export class Camera extends Entity implements Resource {
     });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(values: CameraValues = {}) {
         super();

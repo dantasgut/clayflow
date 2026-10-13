@@ -6,7 +6,6 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 
 export abstract class Material extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     abstract getDescriptors(): readonly GPUDescriptor[];
     abstract getPipelineDescriptors(): readonly PipelineDescriptor[];

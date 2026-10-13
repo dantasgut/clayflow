@@ -70,7 +70,8 @@ async function main(): Promise<number> {
     let launched;
     try {
         server = await startServer(PORT, { dist: args.dist });
-        launched = await launchBrowser(args.headless);
+        // `gc()` exposto: smokes de memória medem o heap retido, não o lixo ainda não coletado.
+        launched = await launchBrowser(args.headless, ['--js-flags=--expose-gc']);
     } catch (e) {
         await server?.close();
         if (e instanceof EnvironmentError) {

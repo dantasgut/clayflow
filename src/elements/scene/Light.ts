@@ -26,7 +26,6 @@ export abstract class Light extends Entity implements Resource {
     });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     /** Pool storage read-only — fragment shaders iteram sobre o array de lights. */
     getDescriptors(): readonly GPUDescriptor[] {

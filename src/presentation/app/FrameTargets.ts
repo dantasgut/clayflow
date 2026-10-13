@@ -16,7 +16,6 @@ export class FrameTargets extends Entity implements Resource {
     static readonly schema = new StructSchema('FrameTargets', { _unused: FieldType.u32 });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     getDescriptors(): readonly GPUDescriptor[] {
         return [

@@ -25,7 +25,6 @@ const BodySchema = new StructSchema('OwnerBody', { m: FieldType.vec4f });
 class Pose extends Entity implements Resource {
     static readonly schema = PoseSchema;
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(x = 0) {
         super();
         this.data = { p: [x, 0, 0, 1] };
@@ -40,7 +39,11 @@ class Pose extends Entity implements Resource {
 class Body extends Entity implements Resource {
     static readonly schema = BodySchema;
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { m: [1, 0, 0, 0] };
+    constructor() {
+        super();
+        this.data = { m: [1, 0, 0, 0] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'body', role: 'storage-rw', storage: 'pool', schema: BodySchema }];
     }

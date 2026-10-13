@@ -18,7 +18,6 @@ import type { Input } from './Input';
  */
 export abstract class InputDrivenController extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     /** Lê o `input` e muta `transform` (posição/rotação); `dt` em segundos. */
     abstract tick(input: Input, dt: number, transform: Transform): void;

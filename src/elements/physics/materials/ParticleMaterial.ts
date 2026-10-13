@@ -93,7 +93,6 @@ export class ParticleMaterial extends Entity implements Resource {
     }
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
 
     constructor(options: ParticleMaterialOptions = {}) {
         super();

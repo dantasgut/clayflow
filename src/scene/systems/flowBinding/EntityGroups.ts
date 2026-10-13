@@ -13,12 +13,23 @@ export interface InstanceListHost {
     poolSlotOf(poolKey: string, entityId: EntityId): number | undefined;
 }
 
+/**
+ * Entrada de conjunto com a sua posição no grupo guardada nela mesma (sem tabela por entidade — spec 007, US7). Cada
+ * entrada pertence a um conjunto só, e cada conjunto tem no máximo um `EntityGroups`.
+ */
+export interface GroupMember extends EntityEntry {
+    /** Grupo atual (interno do `EntityGroups`); `undefined` fora de grupo. */
+    groupOf: object | undefined;
+    /** Posição no grupo. */
+    groupIndex: number;
+}
+
 /** Grupo de instâncias: segmento contíguo da lista, com capacidade em potência de 2. */
 interface Group {
     readonly key: string;
     base: number;
     capacity: number;
-    readonly members: EntityEntry[];
+    readonly members: GroupMember[];
     /** Valor gravado na lista por membro (mesma ordem de `members`). */
     readonly values: number[];
 }
@@ -35,7 +46,6 @@ const INITIAL_SEGMENT = 4;
  */
 export class EntityGroups {
     private readonly groups = new Map<string, Group>();
-    private readonly position = new Map<EntityId, { group: Group; index: number }>();
     private readonly freeSegments = new Map<number, number[]>();
     private end = 0;
     private list: readonly DrawGroup[] | null = null;
@@ -63,25 +73,26 @@ export class EntityGroups {
     }
 
     /** Põe a entrada no grupo da sua chave (sem valor de instância ainda — ex.: registro incompleto —, fica de fora). */
-    add(entry: EntityEntry): void {
-        if (this.position.has(entry.entityId)) return;
+    add(entry: GroupMember): void {
+        if (entry.groupOf !== undefined) return;
         const value = this.valueOf(entry);
         if (value === undefined) return;
         this.insert(entry, this.declaration.key(entry), value);
     }
 
-    /** Tira a entidade do seu grupo. */
-    remove(entityId: EntityId): void {
-        const at = this.position.get(entityId);
-        if (at === undefined) return;
-        this.position.delete(entityId);
-        const { group, index } = at;
+    /** Tira a entrada do seu grupo. */
+    remove(entry: GroupMember): void {
+        const group = entry.groupOf as Group | undefined;
+        if (group === undefined) return;
+        const index = entry.groupIndex;
+        entry.groupOf = undefined;
+        entry.groupIndex = -1;
         const last = group.members.length - 1;
         if (index !== last) {
             const moved = group.members[last]!;
             group.members[index] = moved;
             group.values[index] = group.values[last]!;
-            this.position.set(moved.entityId, { group, index });
+            moved.groupIndex = index;
             this.resources.setInstance(this.poolKey, group.base + index, group.values[index]);
         }
         group.members.pop();
@@ -95,28 +106,33 @@ export class EntityGroups {
     }
 
     /** Reavalia a chave (e o valor) da entrada: muda de grupo se a chave mudou; entra se ainda não estava. */
-    rekey(entry: EntityEntry): void {
-        const at = this.position.get(entry.entityId);
-        if (at === undefined) {
+    rekey(entry: GroupMember): void {
+        const group = entry.groupOf as Group | undefined;
+        if (group === undefined) {
             this.add(entry);
             return;
         }
         const key = this.declaration.key(entry);
         const value = this.valueOf(entry);
-        if (key === at.group.key && value === at.group.values[at.index]) return;
-        this.remove(entry.entityId);
+        if (key === group.key && value === group.values[entry.groupIndex]) return;
+        this.remove(entry);
         if (value !== undefined) this.insert(entry, key, value);
     }
 
     /** Libera a lista de instâncias. */
     dispose(): void {
+        for (const group of this.groups.values()) {
+            for (const member of group.members) {
+                member.groupOf = undefined;
+                member.groupIndex = -1;
+            }
+        }
         this.groups.clear();
-        this.position.clear();
         this.list = null;
         this.resources.releaseInstanceList(this.declaration.schema);
     }
 
-    private insert(entry: EntityEntry, key: string, value: number): void {
+    private insert(entry: GroupMember, key: string, value: number): void {
         let group = this.groups.get(key);
         if (group === undefined) {
             group = {
@@ -133,7 +149,8 @@ export class EntityGroups {
         const index = group.members.length;
         group.members.push(entry);
         group.values.push(value);
-        this.position.set(entry.entityId, { group, index });
+        entry.groupOf = group;
+        entry.groupIndex = index;
         this.resources.setInstance(this.poolKey, group.base + index, value);
         this.list = null;
     }

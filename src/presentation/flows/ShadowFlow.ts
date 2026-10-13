@@ -50,7 +50,7 @@ export interface ShadowSlots extends SlotMap {
 /** Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces. */
 export function shadowGroupKey(entry: EntityEntry): string {
     const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
-    return `${geometry}|${isMirrored(entry.get(Transform)) ? 'cw' : 'ccw'}`;
+    return `${geometry}|${entry.get(Transform).mirrored ? 'cw' : 'ccw'}`;
 }
 
 function slotsOf(world: World): ShadowSlots {
@@ -203,7 +203,7 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 const indices = this.resources.bufferOf(geometry, 'indices');
                 if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') continue;
-                const pipeline = isMirrored(entry.get(Transform)) ? cw : ccw;
+                const pipeline = entry.get(Transform).mirrored ? cw : ccw;
                 if (!pipeline.ready) continue;
                 if (pipeline !== current) {
                     pass.bind.setPipeline(pipeline.spec);
@@ -228,10 +228,4 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         this.core.write(this.params, ShadowDepthParamsSchema.pack({ casterSlot }));
         this.writtenSlot = casterSlot;
     }
-}
-
-/** Escala com produto negativo espelha o objeto (inverte a orientação das faces). */
-export function isMirrored(transform: Transform): boolean {
-    const scale = transform.data.scale as readonly number[];
-    return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
 }

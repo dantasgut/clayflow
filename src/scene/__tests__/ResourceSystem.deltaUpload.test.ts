@@ -21,7 +21,6 @@ const UniformSchema = new StructSchema('DeltaUniform', { value: FieldType.vec4f 
 class Item extends Entity implements Resource {
     static readonly schema = DeltaSchema;
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(v = 0) {
         super();
         this.data = { value: [v, 0, 0, 0] };
@@ -36,7 +35,11 @@ class Item extends Entity implements Resource {
 
 class Own extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { value: [0, 0, 0, 0] };
+    constructor() {
+        super();
+        this.data = { value: [0, 0, 0, 0] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'u', role: 'uniform', schema: UniformSchema }];
     }

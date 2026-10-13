@@ -33,7 +33,6 @@ export interface RenderTargetOptions {
  */
 export class CanvasRenderTarget extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: RenderTargetOptions = {}) {
         super();
@@ -65,7 +64,6 @@ export class CanvasRenderTarget extends Entity implements Resource {
  */
 export class OffscreenRenderTarget extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: RenderTargetOptions) {
         super();

@@ -17,7 +17,11 @@ const B = new StructSchema('SlotB', { m: FieldType.mat4x4f });
 
 class Paired extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { v: [1, 2, 3, 4] };
+    constructor() {
+        super();
+        this.data = { v: [1, 2, 3, 4] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             { id: 'a', role: 'storage-ro', storage: 'pool', schema: A },
@@ -31,7 +35,11 @@ class Paired extends Entity implements Resource {
 
 class OnlyA extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { v: [0, 0, 0, 0] };
+    constructor() {
+        super();
+        this.data = { v: [0, 0, 0, 0] };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'a', role: 'storage-ro', storage: 'pool', schema: A }];
     }

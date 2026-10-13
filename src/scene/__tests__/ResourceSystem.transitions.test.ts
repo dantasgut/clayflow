@@ -14,11 +14,11 @@ import { fakeResourceCore } from './helpers/fakeResourceCore';
 const Body = new StructSchema('TransBody', { pos: FieldType.vec4f });
 
 class Probe extends Entity implements Resource {
-    data: Record<string, unknown> = { pos: [0, 0, 0, 1] };
     readonly history: ResourceState[] = [];
     private current: ResourceState = ResourceState.Uninitialized;
     constructor(private readonly descs: readonly GPUDescriptor[]) {
         super();
+        this.data = { pos: [0, 0, 0, 1] };
     }
     get state(): ResourceState {
         return this.current;

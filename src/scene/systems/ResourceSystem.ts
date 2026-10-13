@@ -11,6 +11,7 @@ import type {
     UniformBufferSpec,
     VertexBufferSpec,
 } from '../../core/contracts/index';
+import { DATA_HOOK, Entity, type DataHook } from '../contracts/Entity';
 import { ResourceState } from '../contracts/ResourceState';
 import type { Resource } from '../contracts/Resource';
 import type { ResourceDirectory } from '../contracts/ResourceDirectory';
@@ -22,8 +23,8 @@ import { FieldType } from '../descriptors/FieldType';
 import type { EventBus, Unsubscribe } from '../events/EventBus';
 import { ResourceStateHandlerRegistry } from '../lifecycle/ResourceStateHandlerRegistry';
 import type { World } from '../world/World';
-import type { EntityId } from '../world/EntityId';
-import { makeReactive } from './reactiveData';
+import { asEntityId, type EntityId } from '../world/EntityId';
+import { ReactiveRoot } from './reactiveData';
 import { ConsumerResolverRegistry } from '../consumers/ConsumerResolverRegistry';
 import { PoolResolver } from '../consumers/strategies/PoolResolver';
 import type { Flow } from '../flows/Flow';
@@ -43,11 +44,19 @@ interface PoolEntry {
     capacity: number;
     count: number;
     readonly slotByEntity: Map<EntityId, number>;
-    readonly entityBySlot: Map<number, EntityId>;
-    /** Slot → quem o ocupa (dado empacotado no envio). */
-    readonly occupants: Map<number, Occupant>;
-    /** Resource → slot: localização O(1) no envio e na liberação. */
-    readonly slotOfResource: Map<Resource, number>;
+    /** Slot → entidade (`-1` = livre); cresce com o pool. */
+    entityBySlot: Int32Array;
+    /** Slot → quem o ocupa (dado empacotado no envio); array denso, `undefined` = livre. */
+    readonly occupants: (Occupant | undefined)[];
+    /**
+     * Dado de `upload: 'initial'` empacotado na alocação, à espera do envio: o que vale é o dado do momento da inserção
+     * (mutações depois dela são ignoradas, a GPU é dona).
+     */
+    readonly initial: Map<number, Uint8Array>;
+    /** Campo `u32` das listas de instâncias (o ocupante é o valor); `undefined` nos demais pools. */
+    listField: string | undefined;
+    /** Valores dos registros de entidade (pools de `slot.entities({ record })`); `undefined` nos demais pools. */
+    records: RecordStore | undefined;
     readonly freeList: number[];
     generation: number;
     /** Slots com dado da CPU a enviar no próximo envio (bitset de `capacity` bits). */
@@ -65,43 +74,71 @@ interface PoolEntry {
 }
 
 /**
- * Plano de envio de um Resource alocado, calculado na alocação: os slots dos seus descritores `'always'` em pool e se ele
- * tem descritores próprios — o envio por quadro não relê os descritores nem recalcula chaves de pool. Guardado no
- * próprio Resource sob um símbolo privado da C2 (um Resource está em uma cena por vez).
+ * Estado da C2 por Resource na cena, num único campo privado do Resource (um símbolo; um Resource está em uma cena por
+ * vez): o dado cru (o empacotamento lê dele), o proxy reativo de `data`, o plano de envio calculado na alocação (os
+ * slots dos descritores `'always'` em pool e se há descritores próprios — o envio por quadro não relê descritores nem
+ * recalcula chaves de pool) e se está alocado. É também a raiz (e o handler) do proxy reativo: nenhuma closure nem
+ * tabela por Resource (spec 007, US7 — um milhão de entidades).
  */
-const UPLOAD_PLAN = Symbol('clayflow.uploadPlan');
-
-function planOf(resource: Resource): UploadPlan | undefined {
-    return (resource as { [UPLOAD_PLAN]?: UploadPlan })[UPLOAD_PLAN];
-}
-
-function setPlan(resource: Resource, plan: UploadPlan | undefined): void {
-    (resource as { [UPLOAD_PLAN]?: UploadPlan | undefined })[UPLOAD_PLAN] = plan;
-}
-
-/** Dado cru (sem o proxy reativo) do Resource, sob um símbolo privado da C2: o empacotamento lê dele. */
-const RAW_DATA = Symbol('clayflow.rawData');
-
-function rawDataOf(resource: Resource): Record<string, unknown> | undefined {
-    return (resource as { [RAW_DATA]?: Record<string, unknown> })[RAW_DATA];
-}
-
-function setRawData(resource: Resource, data: Record<string, unknown>): void {
-    (resource as { [RAW_DATA]?: Record<string, unknown> })[RAW_DATA] = data;
-}
-
-/** Plano de envio de um Resource (ver `UPLOAD_PLAN`). */
-interface UploadPlan {
-    /** Pools dos descritores `'always'` em pool (o slot é o do Resource em cada um). */
-    readonly pools: readonly {
-        readonly entry: PoolEntry;
-        readonly descId: string;
-        /** Slot do Resource no pool (estável enquanto alocado; um Resource ocupa o mesmo slot em todos). */
-        readonly slot: number;
-    }[];
+class Tracked extends ReactiveRoot implements DataHook {
+    allocated = false;
+    /** Slot do Resource nos seus pools (o mesmo em todos); `-1` sem pool. */
+    slot = -1;
+    /** Pools dos descritores `'always'` em pool (lista compartilhada pelos Resources com os mesmos pools). */
+    pools: readonly PoolRef[] = NO_POOLS;
     /** Tem descritores próprios (enviados inteiros). */
-    readonly own: boolean;
+    own = false;
+
+    constructor(
+        readonly owner: DataChangeSink,
+        readonly resource: Resource,
+        data: Record<string, unknown>,
+    ) {
+        super(data);
+    }
+
+    dataChanged(field: string | undefined): void {
+        this.owner.dataChanged(this.resource, field);
+    }
 }
+
+/** Quem recebe as mutações de `data` dos Resources de uma cena (o `ResourceSystem`). */
+interface DataChangeSink {
+    dataChanged(resource: Resource, field: string | undefined): void;
+}
+
+/** O `Tracked` fica no gancho de `data` (campo de `Entity`; propriedade acrescentada nos demais Resources). */
+type TrackedResource = Resource & { [DATA_HOOK]?: DataHook };
+
+function trackedOf(resource: Resource): Tracked | undefined {
+    return (resource as TrackedResource)[DATA_HOOK] as Tracked | undefined;
+}
+
+/** Pool de um descritor `'always'` de um Resource: o envio por quadro marca o slot do Resource nele. */
+interface PoolRef {
+    readonly entry: PoolEntry;
+    readonly descId: string;
+}
+
+const NO_POOLS: readonly PoolRef[] = [];
+
+/**
+ * Acessor de `data` dos Resources que não herdam de `Entity` (ou que declaram o próprio campo `data`), posto na
+ * instância — as mesmas duas funções para todos (o estado fica no `Tracked`). Funciona igual ao acessor de `Entity`,
+ * mas a redefinição põe o objeto em modo dicionário no V8 (mais memória por Resource).
+ */
+const REACTIVE_DATA: PropertyDescriptor = {
+    configurable: true,
+    enumerable: true,
+    get(this: TrackedResource): Record<string, unknown> {
+        return this[DATA_HOOK]!.proxied;
+    },
+    set(this: TrackedResource, next: Record<string, unknown>): void {
+        const hook = this[DATA_HOOK]!;
+        hook.replace(next);
+        hook.dataChanged(undefined);
+    },
+};
 
 /** Pedido de leitura de um Resource (`ResourceSystem.read`). */
 interface PendingRead {
@@ -119,19 +156,26 @@ interface ReadItem {
     readonly request: PendingRead;
 }
 
-/** O que a C2 alocou para um descritor individual (não-pool) de um recurso. */
-/** Ocupante de um slot de pool: um Resource (dado em `resource.data`) ou um registro de entidade da C2. */
-interface Occupant {
-    readonly schema: Schema;
-    readonly resource?: Resource;
-    readonly record?: Readonly<Record<string, number>>;
-    /**
-     * Dado de `upload: 'initial'` empacotado na alocação, à espera do envio: o que vale é o dado do momento da inserção
-     * (mutações depois dela são ignoradas, a GPU é dona).
-     */
-    initial?: Uint8Array;
+/**
+ * Registros de entidade de um pool (`slot.entities({ record })`): os campos `u32` de cada slot num array tipado (sem
+ * objeto por entidade), e o objeto reutilizado no empacotamento.
+ */
+interface RecordStore {
+    readonly fields: readonly string[];
+    data: Uint32Array;
+    readonly scratch: Record<string, number>;
 }
 
+/** Marca de slot ocupado por um registro de entidade (os valores estão no `RecordStore` do pool). */
+const RECORD_OCCUPANT = Symbol('clayflow.record');
+
+/**
+ * Ocupante de um slot de pool: o Resource (dado em `resource.data`), um registro de entidade da C2 ou, nas listas de
+ * instâncias, o próprio valor.
+ */
+type Occupant = Resource | typeof RECORD_OCCUPANT | number;
+
+/** O que a C2 alocou para um descritor individual (não-pool) de um recurso. */
 /** Conjunto de registros de entidade (`slot.entities({ record })`), compartilhado pelos Flows que o declaram. */
 interface RecordSet {
     readonly declaration: EntityRecordDeclaration;
@@ -214,8 +258,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
     private readonly pools = new Map<string, PoolEntry>();
     private readonly allocations = new Map<Resource, Map<string, Allocation>>();
-    private readonly allocated = new WeakSet<Resource>();
-    private readonly reactive = new WeakSet<Resource>();
+    /** Ouvinte das mutações de `data` dos Resources desta cena (um para todos). */
+    private readonly dataSink: DataChangeSink = {
+        dataChanged: (resource, field) => {
+            this.markDirty(resource, field);
+        },
+    };
     private dirty = new Set<Resource>();
     /** Pools com slots marcados para o próximo envio. */
     private readonly dirtyPools = new Set<PoolEntry>();
@@ -228,7 +276,20 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     /** Resources cuja mutação foi ignorada por posse da GPU (aviso uma vez por Resource). */
     private readonly warnedOwned = new WeakSet<Resource>();
     /** Buffers de vértice/índice compartilhados por chave de conteúdo: o spec e quantas alocações o usam. */
-    private readonly sharedGeometry = new Map<string, { spec: AnyBufferSpec; users: number }>();
+    private readonly sharedGeometry = new Map<
+        string,
+        { readonly key: string; spec: AnyBufferSpec; users: number }
+    >();
+    /**
+     * Alocações próprias idênticas (todas de geometria compartilhada por conteúdo) usadas por vários Resources: um mapa
+     * por combinação de chaves, compartilhado (cópia na escrita quando o conteúdo de um Resource muda).
+     */
+    private readonly sharedOwn = new Map<string, Map<string, Allocation>>();
+    private readonly sharedOwnMaps = new WeakSet<Map<string, Allocation>>();
+    /** Listas de pools por combinação (Resources com os mesmos pools compartilham a lista). */
+    private readonly poolRefLists = new Map<string, readonly PoolRef[]>();
+    /** Objeto reutilizado para empacotar o valor de uma lista de instâncias. */
+    private readonly listValue: Record<string, number> = {};
     /** Área de empacotamento reutilizada pelas faixas do envio. */
     private scratch = new ArrayBuffer(0);
     private readonly warnedGpuManaged = new Set<string>();
@@ -343,6 +404,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 { id: key, role: 'storage-ro', storage: 'pool', schema: declaration.schema },
                 declaration.schema,
             );
+        const fields = Object.keys(declaration.fields);
+        entry.records ??= {
+            fields,
+            data: new Uint32Array(entry.capacity * fields.length),
+            scratch: {},
+        };
         const set: RecordSet = { declaration, all, entry, users: 1 };
         this.recordSets.set(key, set);
         for (const record of this.world.allRecords()) this.addRecord(set, record.id);
@@ -381,6 +448,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         this.instanceLists.set(key, { field: fields[0]![0], users: 1 });
         if (!this.pools.has(key)) {
             this.createPool(key, { id: key, role: 'storage-ro', storage: 'pool', schema }, schema);
+            this.pools.get(key)!.listField = fields[0]![0];
             for (const created of this.createdPools.splice(0)) {
                 this.events.emit('poolCreated', {
                     poolKey: created.poolKey,
@@ -397,7 +465,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         this.instanceLists.delete(schema.name);
         const entry = this.pools.get(schema.name);
         if (entry === undefined) return;
-        for (const slot of [...entry.occupants.keys()]) this.clearInstance(schema.name, slot);
+        entry.occupants.forEach((occupant, slot) => {
+            if (occupant !== undefined) this.clearInstance(schema.name, slot);
+        });
     }
 
     /** Escreve `value` na posição `index` da lista de instâncias (enviado em faixas no próximo envio). */
@@ -409,7 +479,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
         while (index >= entry.capacity) this.growPool(entry);
         entry.count = Math.max(entry.count, index + 1);
-        entry.occupants.set(index, { schema: entry.schema, record: { [list.field]: value } });
+        occupy(entry, index, value);
         this.markSlot(entry, index);
     }
 
@@ -417,7 +487,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     clearInstance(poolKey: string, index: number): void {
         const entry = this.pools.get(poolKey);
         if (entry === undefined) return;
-        entry.occupants.delete(index);
+        entry.occupants[index] = undefined;
         this.clearSlot(entry, index);
         clearBit(entry.writtenBits, index);
     }
@@ -468,8 +538,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     ): { entry: PoolEntry; slot: number } | undefined {
         const poolKey = this.poolKeyOf(resource, descId);
         const entry = poolKey === undefined ? undefined : this.pools.get(poolKey);
-        const slot = entry?.slotOfResource.get(resource);
-        return entry === undefined || slot === undefined ? undefined : { entry, slot };
+        const slot = trackedOf(resource)?.slot ?? -1;
+        return entry?.occupants[slot] !== resource ? undefined : { entry, slot };
     }
 
     /**
@@ -554,7 +624,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             (bytes) => {
                 this.core.destroy(staging);
                 for (const { item, dstOffset } of placed) {
-                    const alive = this.allocated.has(item.request.resource);
+                    const alive = trackedOf(item.request.resource)?.allocated === true;
                     item.request.resolve(alive ? item.schema.unpack(bytes, dstOffset) : undefined);
                 }
             },
@@ -570,7 +640,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         resource: Resource,
         descId: string | undefined,
     ): Omit<ReadItem, 'request'> | undefined {
-        if (!this.allocated.has(resource)) return undefined;
+        if (trackedOf(resource)?.allocated !== true) return undefined;
         const desc = resource
             .getDescriptors()
             .find(
@@ -583,8 +653,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (desc === undefined || !(schema instanceof StructSchema)) return undefined;
         if (desc.storage === 'pool') {
             const entry = this.pools.get(this.computePoolKey(schema, resource));
-            const slot = entry?.slotOfResource.get(resource);
-            if (entry === undefined || slot === undefined) return undefined;
+            const slot = trackedOf(resource)?.slot ?? -1;
+            if (entry?.occupants[slot] !== resource) return undefined;
             return { source: entry.bufferSpec, stride: entry.stride, slot, schema };
         }
         const buffer = this.allocations.get(resource)?.get(desc.id)?.buffer;
@@ -639,7 +709,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     /** EntityId que ocupa o slot dado dentro do pool. Inverso de `poolSlotOf`. */
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined {
-        return this.pools.get(poolKey)?.entityBySlot.get(slot);
+        const id = this.pools.get(poolKey)?.entityBySlot[slot];
+        return id === undefined || id < 0 ? undefined : asEntityId(id);
     }
 
     /** Buffer do pool (storage, ou uniform para pools de uniforms). */
@@ -708,9 +779,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
      * campo (o envio é por faixas, no `frameRecording`); objetos próprios entram na fila de envio inteiro.
      */
     private markDirty(resource: Resource, field?: string): void {
-        // O plano existe enquanto o Resource está alocado (campo no próprio objeto: sem consulta a mapa por mutação).
-        const plan = planOf(resource);
-        if (plan === undefined) return;
+        // O estado da C2 fica no próprio Resource (sem consulta a mapa por mutação).
+        const tracked = trackedOf(resource);
+        if (tracked?.allocated !== true) return;
         const state = resource.state;
         if (state !== ResourceState.Ready && state !== ResourceState.Dirty) {
             const handler = this.stateRegistry.get(state);
@@ -720,11 +791,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }
         }
         // Só objetos próprios passam pela fila (e pelo estado Dirty); dado em pool vai pelo slot marcado abaixo.
-        if (plan.own && state !== ResourceState.Dirty) {
+        if (tracked.own && state !== ResourceState.Dirty) {
             this.transition(resource, ResourceState.Dirty);
             this.dirty.add(resource);
         }
-        for (const { entry, descId, slot } of plan.pools) {
+        const slot = tracked.slot;
+        for (const { entry, descId } of tracked.pools) {
             if (hasBit(entry.ownedBits, slot) && hasBit(entry.writtenBits, slot)) {
                 this.warnOwnedMutation(resource, descId);
                 continue;
@@ -755,7 +827,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             const batch = this.dirty;
             this.dirty = new Set();
             for (const resource of batch) {
-                if (!this.allocated.has(resource)) continue;
+                if (trackedOf(resource)?.allocated !== true) continue;
                 // Os slots de pool já foram marcados na mutação; aqui só os objetos próprios.
                 if (!this.stateRegistry.get(resource.state).suppressCpuUpload())
                     this.uploadOwn(resource);
@@ -767,10 +839,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     /** Dado do ocupante para empacotar: o dado cru do Resource (sem o proxy reativo) ou o registro da C2. */
-    private occupantData(occupant: Occupant): Record<string, unknown> {
-        const resource = occupant.resource;
-        if (resource === undefined) return occupant.record ?? {};
-        return rawDataOf(resource) ?? resource.data;
+    private occupantData(
+        entry: PoolEntry,
+        slot: number,
+        occupant: Occupant,
+    ): Record<string, unknown> {
+        if (typeof occupant === 'number') {
+            this.listValue[entry.listField!] = occupant;
+            return this.listValue;
+        }
+        if (occupant === RECORD_OCCUPANT) {
+            const store = entry.records!;
+            const base = slot * store.fields.length;
+            store.fields.forEach((field, i) => {
+                store.scratch[field] = store.data[base + i]!;
+            });
+            return store.scratch;
+        }
+        return trackedOf(occupant)?.raw ?? occupant.data;
     }
 
     /**
@@ -814,7 +900,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     const bit = 31 - Math.clz32(w & -w);
                     w &= w - 1;
                     const slot = (word << 5) | bit;
-                    if (!entry.occupants.has(slot)) continue;
+                    if (entry.occupants[slot] === undefined) continue;
                     // Posse da GPU: só o primeiro envio do slot sai da CPU.
                     if (hasBit(entry.ownedBits, slot) && hasBit(entry.writtenBits, slot)) continue;
                     if (runStart >= 0 && slot === runEnd + 1) {
@@ -851,16 +937,17 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (this.scratch.byteLength < bytes)
             this.scratch = new ArrayBuffer(Math.max(bytes, this.scratch.byteLength * 2));
         for (let slot = first; slot <= last; slot++) {
-            const occupant = entry.occupants.get(slot)!;
+            const occupant = entry.occupants[slot]!;
             const offset = (slot - first) * entry.stride;
-            const schema = occupant.schema;
-            if (occupant.initial !== undefined) {
-                new Uint8Array(this.scratch, offset, entry.stride).set(occupant.initial);
-                delete occupant.initial;
+            const schema = entry.schema;
+            const initial = entry.initial.size > 0 ? entry.initial.get(slot) : undefined;
+            if (initial !== undefined) {
+                new Uint8Array(this.scratch, offset, entry.stride).set(initial);
+                entry.initial.delete(slot);
             } else if (schema instanceof StructSchema) {
-                schema.packInto(this.scratch, offset, this.occupantData(occupant));
+                schema.packInto(this.scratch, offset, this.occupantData(entry, slot, occupant));
             } else {
-                const packed = schema.pack(this.occupantData(occupant));
+                const packed = schema.pack(this.occupantData(entry, slot, occupant));
                 new Uint8Array(this.scratch, offset, entry.stride).set(
                     new Uint8Array(packed.buffer, packed.byteOffset, packed.byteLength),
                 );
@@ -876,23 +963,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     private installReactiveData(resource: Resource): void {
-        if (this.reactive.has(resource)) return;
-        this.reactive.add(resource);
-        const onChange = (field: string | undefined): void => {
-            this.markDirty(resource, field);
-        };
-        setRawData(resource, resource.data);
-        let proxied = makeReactive(resource.data, onChange);
-        Object.defineProperty(resource, 'data', {
-            configurable: true,
-            enumerable: true,
-            get: () => proxied,
-            set: (next: Record<string, unknown>) => {
-                setRawData(resource, next);
-                proxied = makeReactive(next, onChange);
-                onChange(undefined);
-            },
-        });
+        const previous = trackedOf(resource);
+        if (previous?.owner === this.dataSink) return;
+        // Vindo de outra cena: o dado cru continua o mesmo; o proxy passa a notificar esta.
+        const data = previous?.raw ?? resource.data;
+        (resource as TrackedResource)[DATA_HOOK] = new Tracked(this.dataSink, resource, data);
+        // `Entity` já tem o acessor no protótipo; os demais recebem um na instância.
+        if (!(resource instanceof Entity) || Object.prototype.hasOwnProperty.call(resource, 'data'))
+            Object.defineProperty(resource, 'data', REACTIVE_DATA);
     }
 
     private warnOwnedMutation(resource: Resource, descId: string): void {
@@ -933,17 +1011,40 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             if (desc.storage === 'pool') continue;
             own.set(desc.id, this.allocateDescriptor(resource, desc));
         }
-        if (own.size > 0) this.allocations.set(resource, own);
-        setPlan(resource, {
-            pools: planOf(resource)?.pools ?? [],
-            own: own.size > 0,
-        });
-
-        this.allocated.add(resource);
+        if (own.size > 0) this.allocations.set(resource, this.shareOwn(own));
+        const tracked = trackedOf(resource)!;
+        tracked.own = own.size > 0;
+        tracked.allocated = true;
         this.transition(resource, ResourceState.Ready);
         if (this.isGpuOwned(descs)) this.transition(resource, ResourceState.GpuManaged);
         // Dado em pool é anunciado no envio (`poolWritten`); `resourceReady` é dos objetos próprios.
         if (own.size > 0) this.events.emit('resourceReady', { payload: { resource } });
+    }
+
+    /**
+     * Alocações só de geometria compartilhada: devolve o mapa já usado por outro Resource com as mesmas chaves (a
+     * contagem de usuários de cada chave já inclui este Resource) — nenhum objeto de alocação por entidade.
+     */
+    private shareOwn(own: Map<string, Allocation>): Map<string, Allocation> {
+        let signature = '';
+        for (const [id, allocation] of own) {
+            if (allocation.sharedKey === undefined) return own;
+            signature += `${id}=${allocation.sharedKey}|`;
+        }
+        const existing = this.sharedOwn.get(signature);
+        if (existing !== undefined) return existing;
+        this.sharedOwn.set(signature, own);
+        this.sharedOwnMaps.add(own);
+        return own;
+    }
+
+    /** Alocações próprias do Resource para mudar: um mapa compartilhado vira cópia própria antes. */
+    private ownForWrite(resource: Resource): Map<string, Allocation> | undefined {
+        const own = this.allocations.get(resource);
+        if (own === undefined || !this.sharedOwnMaps.has(own)) return own;
+        const copy = new Map([...own].map(([id, allocation]) => [id, { ...allocation }]));
+        this.allocations.set(resource, copy);
+        return copy;
     }
 
     /** Recurso cujos descritores materializados são todos 'initial'/'never'. */
@@ -1068,26 +1169,31 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 undefined,
                 `shared:${key}`,
             );
-            shared = { spec, users: 0 };
+            shared = { key, spec, users: 0 };
             this.sharedGeometry.set(key, shared);
             allocation.buffer = spec;
             this.writeBufferContent(resource, allocation);
         }
         shared.users++;
         allocation.buffer = shared.spec;
-        allocation.sharedKey = key;
+        // A chave da entrada (uma string por conteúdo, não uma por Resource).
+        allocation.sharedKey = shared.key;
     }
 
-    /** Solta o buffer compartilhado da alocação; o último usuário o destrói. */
-    private releaseSharedGeometry(allocation: Allocation): void {
-        const key = allocation.sharedKey;
-        if (key === undefined) return;
-        delete allocation.sharedKey;
+    /**
+     * Solta um uso do buffer compartilhado da chave; o último usuário o destrói (e os mapas de alocação compartilhados
+     * que o citam saem do cache).
+     */
+    private releaseSharedGeometry(key: string): void {
         const shared = this.sharedGeometry.get(key);
         if (shared === undefined) return;
         if (--shared.users > 0) return;
         this.sharedGeometry.delete(key);
         this.core.destroy(shared.spec);
+        for (const [signature, own] of this.sharedOwn) {
+            if (![...own.values()].some((a) => a.sharedKey === key)) continue;
+            this.sharedOwn.delete(signature);
+        }
     }
 
     /** Buffer de vértice, índice ou indireto com a forma do conteúdo atual de `data[desc.id]`. */
@@ -1208,12 +1314,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             entries.push({ desc, schema, entry });
         }
         const slot = this.chooseSlot(entries.map((e) => e.entry));
-        setPlan(resource, {
-            pools: entries
-                .filter(({ desc }) => policyOf(desc) === 'always')
-                .map(({ desc, entry }) => ({ entry, descId: desc.id, slot })),
-            own: planOf(resource)?.own ?? false,
-        });
+        const tracked = trackedOf(resource)!;
+        tracked.slot = slot;
+        tracked.pools = this.poolRefsOf(entries);
         const entityId = this.world.entityIdOfResource(resource);
         for (const { desc, schema, entry } of entries) {
             const freeIdx = entry.freeList.indexOf(slot);
@@ -1221,36 +1324,47 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             while (slot >= entry.capacity) this.growPool(entry);
             // Slots pulados (ocupados em outro pool do grupo) ficam livres neste pool.
             for (let s = entry.count; s < slot; s++) {
-                if (!entry.occupants.has(s) && !entry.freeList.includes(s)) entry.freeList.push(s);
+                if (entry.occupants[s] === undefined && !entry.freeList.includes(s))
+                    entry.freeList.push(s);
             }
             entry.count = Math.max(entry.count, slot + 1);
-            entry.occupants.set(slot, {
-                resource,
-                schema,
-                ...(policyOf(desc) === 'initial'
-                    ? { initial: bytesOf(schema.pack(resource.data)) }
-                    : {}),
-            });
-            entry.slotOfResource.set(resource, slot);
+            occupy(entry, slot, resource);
+            if (policyOf(desc) === 'initial')
+                entry.initial.set(slot, bytesOf(schema.pack(resource.data)));
             if (entityId !== undefined) {
                 entry.slotByEntity.set(entityId, slot);
-                entry.entityBySlot.set(slot, entityId);
+                entry.entityBySlot[slot] = entityId;
             }
             // O dado inicial vai no próximo envio, junto com os vizinhos (faixas contíguas).
             if (policyOf(desc) !== 'never') this.markSlot(entry, slot);
         }
     }
 
+    /** Lista de pools `'always'` dos descritores, compartilhada pelos Resources com a mesma combinação. */
+    private poolRefsOf(
+        entries: readonly { desc: GPUDescriptor; entry: PoolEntry }[],
+    ): readonly PoolRef[] {
+        const always = entries.filter(({ desc }) => policyOf(desc) === 'always');
+        if (always.length === 0) return NO_POOLS;
+        const key = always.map(({ desc, entry }) => `${entry.poolKey}/${desc.id}`).join('|');
+        let refs = this.poolRefLists.get(key);
+        if (refs === undefined) {
+            refs = always.map(({ desc, entry }) => ({ entry, descId: desc.id }));
+            this.poolRefLists.set(key, refs);
+        }
+        return refs;
+    }
+
     /** Menor slot livre em todos os pools do grupo (free-list do primeiro, depois o fim). */
     private chooseSlot(entries: readonly PoolEntry[]): number {
         const [first, ...rest] = entries;
         const isFreeEverywhere = (slot: number): boolean =>
-            rest.every((e) => !e.occupants.has(slot));
+            rest.every((e) => e.occupants[slot] === undefined);
         for (const candidate of first?.freeList ?? []) {
             if (isFreeEverywhere(candidate)) return candidate;
         }
         let slot = Math.max(...entries.map((e) => e.count));
-        while (!entries.every((e) => !e.occupants.has(slot))) slot++;
+        while (!entries.every((e) => e.occupants[slot] === undefined)) slot++;
         return slot;
     }
 
@@ -1273,9 +1387,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             capacity,
             count: 0,
             slotByEntity: new Map(),
-            entityBySlot: new Map(),
-            occupants: new Map(),
-            slotOfResource: new Map(),
+            entityBySlot: new Int32Array(capacity).fill(-1),
+            occupants: [],
+            initial: new Map(),
+            listField: undefined,
+            records: undefined,
             freeList: [],
             generation: 0,
             dirtyBits: new Uint32Array(Math.ceil(capacity / 32)),
@@ -1329,6 +1445,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         entry.dirtyBits = grownBits(entry.dirtyBits, entry.capacity);
         entry.writtenBits = grownBits(entry.writtenBits, entry.capacity);
         entry.ownedBits = grownBits(entry.ownedBits, entry.capacity);
+        const entities = new Int32Array(entry.capacity).fill(-1);
+        entities.set(entry.entityBySlot);
+        entry.entityBySlot = entities;
+        if (entry.records !== undefined) {
+            const data = new Uint32Array(entry.capacity * entry.records.fields.length);
+            data.set(entry.records.data);
+            entry.records.data = data;
+        }
         this.core.destroy(oldSpec);
         this.events.emit('poolReallocated', {
             poolKey: entry.poolKey,
@@ -1350,12 +1474,17 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (freeIdx >= 0) entry.freeList.splice(freeIdx, 1);
         while (slot >= entry.capacity) this.growPool(entry);
         for (let s = entry.count; s < slot; s++) {
-            if (!entry.occupants.has(s) && !entry.freeList.includes(s)) entry.freeList.push(s);
+            if (entry.occupants[s] === undefined && !entry.freeList.includes(s))
+                entry.freeList.push(s);
         }
         entry.count = Math.max(entry.count, slot + 1);
-        entry.occupants.set(slot, { schema: entry.schema, record: values });
+        const store = entry.records!;
+        store.fields.forEach((field, i) => {
+            store.data[slot * store.fields.length + i] = values[field]!;
+        });
+        occupy(entry, slot, RECORD_OCCUPANT);
         entry.slotByEntity.set(id, slot);
-        entry.entityBySlot.set(slot, id);
+        entry.entityBySlot[slot] = id;
         this.markSlot(entry, slot);
     }
 
@@ -1364,8 +1493,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const slot = entry.slotByEntity.get(id);
         if (slot === undefined) return;
         entry.slotByEntity.delete(id);
-        entry.entityBySlot.delete(slot);
-        entry.occupants.delete(slot);
+        entry.entityBySlot[slot] = -1;
+        entry.occupants[slot] = undefined;
         entry.freeList.push(slot);
         this.clearSlot(entry, slot);
         clearBit(entry.writtenBits, slot);
@@ -1395,13 +1524,17 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     private release(resource: Resource): void {
         this.transition(resource, ResourceState.Disposed);
-        this.allocated.delete(resource);
+        const tracked = trackedOf(resource);
+        if (tracked !== undefined) tracked.allocated = false;
         this.dirty.delete(resource);
         const own = this.allocations.get(resource);
         if (own !== undefined) {
             for (const allocation of own.values()) {
-                if (allocation.sharedKey !== undefined) this.releaseSharedGeometry(allocation);
-                else if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
+                if (allocation.sharedKey !== undefined) {
+                    this.releaseSharedGeometry(allocation.sharedKey);
+                    continue;
+                }
+                if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
                 this.releaseTexture(allocation);
                 if (allocation.sampler !== undefined) this.core.destroy(allocation.sampler);
             }
@@ -1410,20 +1543,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         for (const desc of resource.getDescriptors()) {
             if (desc.storage !== 'pool' || desc.schema === undefined) continue;
             const entry = this.pools.get(this.computePoolKey(desc.schema, resource));
-            const slot = entry?.slotOfResource.get(resource);
-            if (entry === undefined || slot === undefined) continue;
-            entry.slotOfResource.delete(resource);
-            entry.occupants.delete(slot);
-            const eid = entry.entityBySlot.get(slot);
-            if (eid !== undefined) entry.slotByEntity.delete(eid);
-            entry.entityBySlot.delete(slot);
+            const slot = tracked?.slot ?? -1;
+            if (entry?.occupants[slot] !== resource) continue;
+            entry.occupants[slot] = undefined;
+            entry.initial.delete(slot);
+            const eid = entry.entityBySlot[slot]!;
+            if (eid >= 0) entry.slotByEntity.delete(asEntityId(eid));
+            entry.entityBySlot[slot] = -1;
             entry.freeList.push(slot);
             this.clearSlot(entry, slot);
             clearBit(entry.writtenBits, slot);
             clearBit(entry.ownedBits, slot);
             entry.owners.delete(slot);
         }
-        setPlan(resource, undefined);
+        if (tracked !== undefined) {
+            tracked.slot = -1;
+            tracked.pools = NO_POOLS;
+            tracked.own = false;
+        }
         this.transition(resource, ResourceState.Destroyed);
     }
 
@@ -1438,9 +1575,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     /** Envia inteiros os descritores próprios `'always'` do recurso (os de pool são marcados na mutação). */
     private uploadOwn(resource: Resource): void {
-        const plan = planOf(resource);
-        if (plan?.own !== true) return;
-        const own = this.allocations.get(resource);
+        if (trackedOf(resource)?.own !== true) return;
+        const own = this.ownForWrite(resource);
         for (const desc of resource.getDescriptors()) {
             if (policyOf(desc) !== 'always' || desc.storage === 'pool') continue;
             const allocation = own?.get(desc.id);
@@ -1462,8 +1598,10 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const key = this.sharedGeometryKey(resource, allocation.desc);
         if (allocation.sharedKey !== undefined || key !== undefined) {
             if (key === allocation.sharedKey) return;
-            if (allocation.sharedKey !== undefined) this.releaseSharedGeometry(allocation);
-            else if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
+            if (allocation.sharedKey !== undefined) {
+                this.releaseSharedGeometry(allocation.sharedKey);
+                delete allocation.sharedKey;
+            } else if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
             if (key !== undefined) {
                 this.acquireSharedGeometry(resource, allocation, key);
                 return;
@@ -1575,6 +1713,13 @@ function padTo4(view: ArrayBufferView): ArrayBufferView {
     const out = new Uint8Array(alignUp(view.byteLength, 4));
     out.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
     return out;
+}
+
+/** Põe o ocupante no slot mantendo o array denso (lacunas viram `undefined` explícito, sem elementos esparsos). */
+function occupy(entry: PoolEntry, slot: number, occupant: Occupant): void {
+    const list = entry.occupants;
+    while (list.length < slot) list.push(undefined);
+    list[slot] = occupant;
 }
 
 function setBit(bits: Uint32Array, index: number): void {

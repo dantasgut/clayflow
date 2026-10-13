@@ -16,9 +16,9 @@ const BodySchema = new StructSchema('PolicyBody', { pos: FieldType.vec4f });
 
 class Policy extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { value: [0, 0, 0, 0], pos: [0, 0, 0, 0] };
     constructor(private readonly descs: readonly GPUDescriptor[]) {
         super();
+        this.data = { value: [0, 0, 0, 0], pos: [0, 0, 0, 0] };
     }
     getDescriptors(): readonly GPUDescriptor[] {
         return this.descs;

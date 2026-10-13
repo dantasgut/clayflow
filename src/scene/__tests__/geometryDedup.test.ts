@@ -20,7 +20,6 @@ const Vertex = new StructSchema('DedupVertex', { position: FieldType.vec3f, pad:
 
 class Shape extends Entity implements Resource {
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(
         readonly key: string | undefined,
         vertices = new Float32Array(12),

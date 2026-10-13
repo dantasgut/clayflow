@@ -10,7 +10,11 @@ import { ReuseError, World } from '../world/World';
 class Part extends Entity implements Resource {
     static readonly schema = new StructSchema('ReusePart', { v: FieldType.f32 });
     state = ResourceState.Uninitialized;
-    data: Record<string, unknown> = { v: 0 };
+    constructor() {
+        super();
+        this.data = { v: 0 };
+    }
+
     getDescriptors() {
         return [];
     }

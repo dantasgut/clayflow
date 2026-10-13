@@ -28,7 +28,6 @@ export interface ParticleEmitterOptions {
  */
 export abstract class ParticleEmitter extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     constructor(options: ParticleEmitterOptions = {}) {
         super();

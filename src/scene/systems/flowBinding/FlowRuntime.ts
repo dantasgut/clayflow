@@ -1,6 +1,7 @@
 import type { EngineCore, BindGroupSpec } from '../../../core/contracts/index';
 import type { ResolvedSource } from '../../consumers/ConsumerResolver';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
+import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
 import { consumesName, type PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
@@ -34,7 +35,7 @@ import type { World } from '../../world/World';
 import type { EntityId } from '../../world/EntityId';
 import type { LayoutInferencer, InferredEntry } from '../LayoutInferencer';
 import type { ResourceSystem } from '../ResourceSystem';
-import { EntityGroups } from './EntityGroups';
+import { EntityGroups, type GroupMember } from './EntityGroups';
 import { PipelineState } from './PipelineState';
 import { normalizeSource } from './sources';
 
@@ -60,7 +61,7 @@ export class FlowRuntime {
     private readonly slotValues: Record<string, unknown> = {};
     private readonly privates = new Map<string, BindingSource>();
     private readonly pipelineStates = new Map<string, PipelineState>();
-    private readonly entitySets = new Map<string, Map<EntityId, EntityEntry>>();
+    private readonly entitySets = new Map<string, Map<EntityId, SetEntry>>();
     private readonly poolViews = new Map<string, BoundPool>();
     private readonly entityViews = new Map<string, BoundEntities>();
     /** Lista das entradas por slot, refeita só quando o conjunto muda. */
@@ -110,7 +111,7 @@ export class FlowRuntime {
             if (decl.kind !== 'entities') continue;
             if (decl.record !== undefined)
                 host.resources.acquireEntityRecords(decl.all, decl.record);
-            const set = new Map<EntityId, EntityEntry>();
+            const set = new Map<EntityId, SetEntry>();
             this.entitySets.set(name, set);
             const groups =
                 decl.groups === undefined
@@ -238,6 +239,8 @@ export class FlowRuntime {
             let changed = false;
             const groups = this.groupSets.get(name);
             for (const id of ids) {
+                // Já no conjunto (ex.: visto na criação do runtime, no mesmo quadro da inserção): uma entrada só.
+                if (set.has(id)) continue;
                 const entry = this.entryFor(id, decl);
                 if (entry === undefined) continue;
                 set.set(id, entry);
@@ -255,8 +258,10 @@ export class FlowRuntime {
             let changed = false;
             const groups = this.groupSets.get(name);
             for (const id of ids) {
-                if (!set.delete(id)) continue;
-                groups?.remove(id);
+                const entry = set.get(id);
+                if (entry === undefined) continue;
+                set.delete(id);
+                if (groups !== undefined) groups.remove(entry);
                 const changes = this.changesOf(name);
                 // Entrou e saiu no mesmo quadro: o Flow nunca a viu.
                 if (!changes.added.delete(id)) changes.removed.add(id);
@@ -267,11 +272,7 @@ export class FlowRuntime {
     }
 
     /** A entrada entrou no conjunto: grupo de instâncias e posse da GPU declarados no slot. */
-    private entered(
-        decl: EntitiesSlot,
-        entry: EntityEntry,
-        groups: EntityGroups | undefined,
-    ): void {
+    private entered(decl: EntitiesSlot, entry: SetEntry, groups: EntityGroups | undefined): void {
         for (const [type, descId] of decl.owns ?? []) {
             this.host.resources.acquireOwnership(decl, entry.get(type), descId);
         }
@@ -726,31 +727,40 @@ export class FlowRuntime {
         return undefined;
     }
 
-    private entryFor(id: EntityId, decl: EntitiesSlot): EntityEntry | undefined {
+    private entryFor(id: EntityId, decl: EntitiesSlot): SetEntry | undefined {
         const resources = this.host.world.resourcesOf(id);
-        const found: Resource[] = [];
-        for (const type of decl.all) {
-            const r = resources.find((x) => x instanceof type);
-            if (r === undefined) return undefined;
-            found.push(r);
-        }
-        const all = decl.all;
-        const recordKey = decl.record?.schema.name;
-        const directory = this.host.resources;
-        return {
-            entityId: id,
-            resources,
-            get recordSlot() {
-                return recordKey === undefined ? undefined : directory.poolSlotOf(recordKey, id);
-            },
-            get<T extends Resource>(type: ResourceType<T>): T {
-                const index = all.indexOf(type);
-                const r = index >= 0 ? found[index] : resources.find((x) => x instanceof type);
-                if (r === undefined)
-                    throw new Error(`EntityEntry: a entidade ${id} não tem o tipo pedido.`);
-                return r as T;
-            },
-        };
+        for (const type of decl.all)
+            if (!resources.some((x) => x instanceof type)) return undefined;
+        return new SetEntry(id, resources, decl, this.host.resources);
+    }
+}
+
+/**
+ * Entrada de um conjunto `entities`: métodos no protótipo, sem closures por entrada — há uma por entidade e por
+ * conjunto (spec 007, US7: um milhão de entidades).
+ */
+class SetEntry implements GroupMember {
+    groupOf: object | undefined = undefined;
+    groupIndex = -1;
+
+    constructor(
+        readonly entityId: EntityId,
+        readonly resources: readonly Resource[],
+        private readonly decl: EntitiesSlot,
+        private readonly directory: PoolDirectory,
+    ) {}
+
+    get recordSlot(): number | undefined {
+        const key = this.decl.record?.schema.name;
+        return key === undefined ? undefined : this.directory.poolSlotOf(key, this.entityId);
+    }
+
+    /** Recurso do tipo na entidade (poucos por entidade: busca linear, sem cópia por entrada). */
+    get<T extends Resource>(type: ResourceType<T>): T {
+        const r = this.resources.find((x) => x instanceof type);
+        if (r === undefined)
+            throw new Error(`EntityEntry: a entidade ${this.entityId} não tem o tipo pedido.`);
+        return r as T;
     }
 }
 

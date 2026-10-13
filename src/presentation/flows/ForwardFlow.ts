@@ -40,7 +40,7 @@ import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
 import { renderableRecord, RenderInstanceSchema } from '../../elements/scene/Renderable';
 import { FrameTargets } from '../app/FrameTargets';
-import { castingShadowMap, isMirrored } from './ShadowFlow';
+import { castingShadowMap } from './ShadowFlow';
 
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
 
@@ -93,7 +93,7 @@ export interface ForwardSlots extends SlotMap {
 export function forwardGroupKey(entry: EntityEntry): string {
     const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
     const shader = entry.get(Material).getPipelineDescriptors()[0]?.id ?? '';
-    return `${geometry}|${shader}|${isMirrored(entry.get(Transform)) ? 'cw' : 'ccw'}`;
+    return `${geometry}|${shader}|${entry.get(Transform).mirrored ? 'cw' : 'ccw'}`;
 }
 
 function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
@@ -325,7 +325,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 const ids = shader === undefined ? undefined : this.materialPipelines.get(shader);
                 if (ids === undefined) continue;
                 const prepared = bound.pipelines.get(
-                    isMirrored(entry.get(Transform)) ? ids.cw : ids.ccw,
+                    entry.get(Transform).mirrored ? ids.cw : ids.ccw,
                 );
                 if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
                 // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).

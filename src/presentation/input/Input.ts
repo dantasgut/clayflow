@@ -49,7 +49,6 @@ export class Input extends Entity implements Resource {
     static readonly schema = new StructSchema('Input', {});
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     /** Estado atual compartilhado — dispositivos escrevem, controllers leem (`state` é o do ciclo de vida). */
     readonly current: InputState = {

@@ -28,7 +28,6 @@ const Item = new StructSchema('AllocItem', { value: FieldType.vec4f });
 
 class BagResource extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(
         private readonly descs: readonly GPUDescriptor[],
         data: Record<string, unknown> = {},

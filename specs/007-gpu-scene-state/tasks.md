@@ -258,8 +258,21 @@ physics-gpu), quickstart.md
 
 **Independent Test**: smoke `scale1m` e `npm run bench -- --scene instances --variant 1m`.
 
-- [ ] T054 [US7] Rodar `npm run smoke -- scale1m` e anotar heap JS, memória de GPU e tempo até o primeiro quadro abaixo deste item; se o heap passar de 1,5 GB, passar as entradas dos conjuntos (`EntityEntry`) para índices em arrays tipados em `src/scene/systems/flowBinding/FlowRuntime.ts` e medir de novo
-- [ ] T055 [US7] `npm run bench -- --scene instances --variant 1m` completa as 3 repetições; anotar CPU, GPU e memória
+- [x] T054 [US7] Rodar `npm run smoke -- scale1m` e anotar heap JS, memória de GPU e tempo até o primeiro quadro abaixo deste item; se o heap passar de 1,5 GB, passar as entradas dos conjuntos (`EntityEntry`) para índices em arrays tipados em `src/scene/systems/flowBinding/FlowRuntime.ts` e medir de novo
+  > Medido (Chrome, heap retido após `gc()`): antes, a aba caía na montagem (~6,8 KB por entidade). Cortes por
+  > entidade, sem objeto de GPU por entidade em nenhum ponto: reativo com traps de protótipo e a raiz do proxy como
+  > estado único da C2 (`Tracked`, sem closures, `WeakSet`s nem tabela proxy→cru); acessor `data` no protótipo de
+  > `Entity` (decisão do usuário: os Resources não entram mais em modo dicionário no V8 — mudança incompatível:
+  > subclasses não declaram o campo `data`); pools com ocupantes em array denso, `entityBySlot` em `Int32Array`, sem
+  > `slotOfResource`, registros de entidade em array tipado; listas de pools e alocações de geometria compartilhadas
+  > entre Resources iguais; entradas de conjunto sem cópia de recursos e com a posição no grupo nelas mesmas; `World`
+  > com registros de tamanho exato, tags sob demanda e o dono do recurso em campos de `Entity`. Resultado com
+  > 1 000 000 de caixas: montagem 6,8 s, primeiro quadro 2,3 s, quadros seguintes 2,7–22 ms, **heap JS retido
+  > 1,18 GB após a montagem e 1,31 GB após os quadros** (meta ≤ 1,5 GB), GPU 216,9 MiB = pools (200 MiB) + 16,9 MiB.
+  > Efeito colateral: `instances/10k-moving` caiu de 4,75 para **2,80 ms** de CPU (SC-004 ≤ 3 ms atendido).
+- [x] T055 [US7] `npm run bench -- --scene instances --variant 1m` completa as 3 repetições; anotar CPU, GPU e memória
+  > Medido: 3 repetições completas — CPU 0,02 ms, GPU 2,35 ms, 408 fps, p99 4,8 ms, 2 draws, 230 MB de GPU.
+  > `instances/100k`: CPU 0,02 ms, GPU 0,50 ms, 1755 fps (SC-003 ≥ 60 fps).
 
 **Checkpoint**: escala de 1 milhão.
 

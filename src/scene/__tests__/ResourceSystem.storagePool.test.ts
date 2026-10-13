@@ -16,7 +16,6 @@ const Tint = new StructSchema('PoolTint', { color: FieldType.vec4f, gain: FieldT
 class TintResource extends Entity implements Resource {
     static readonly schema = Tint;
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
     constructor(gain: number) {
         super();
         this.data = { color: [1, 0, 0, 1], gain };

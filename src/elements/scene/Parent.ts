@@ -24,7 +24,6 @@ import type { EntityId } from '../../scene/world/EntityId';
  */
 export class Parent extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
 
     constructor(entity: EntityId) {
         super();

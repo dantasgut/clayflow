@@ -51,7 +51,6 @@ export class Time extends Entity implements Resource {
     });
 
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown>;
 
     /** Estado do relógio (exposto pelos getters/setters abaixo). */
     private readonly clock = {

@@ -6,7 +6,6 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
 
 export abstract class ForceField extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
-    data: Record<string, unknown> = {};
 
     abstract getDescriptors(): readonly GPUDescriptor[];
 
