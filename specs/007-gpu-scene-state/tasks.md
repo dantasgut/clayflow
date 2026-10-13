@@ -319,7 +319,12 @@ physics-gpu), quickstart.md
   > p99 0,26 ms, média 0,09 ms = 2,8×); no `rigid-bodies` ele fica em 1,17× por ser limitado pela CPU (27 ms). Decisão do
   > usuário: manter o critério relativo ou trocá-lo por um limite absoluto. `rigid-bodies/1k`: 386 × 2505 fps — custo
   > fixo dos passes do solver (GPU 1,86 ms com 1 000 corpos).
-- [ ] T064 `npm run bench:check` com a máquina livre contra o baseline do Chrome 155; se verde, `npm run bench:baseline`; anotar abaixo deste item
+- [x] T064 `npm run bench:check` com a máquina livre contra o baseline do Chrome 155; se verde, `npm run bench:baseline`; anotar abaixo deste item
+  > Medido: `bench:check` contra o baseline do `b17d5d6` (Chrome 155, tolerância 10%) apontou um único item —
+  > GPU de `unique-objects/1k` 0,68 → 0,75 ms — causado pela troca do método de medição (`profiling: 'frame'` conta o
+  > quadro inteiro, inclusive os intervalos entre passes; pela soma por passe a mesma cena dá 0,67 ms, fps igual 764 ×
+  > 760). Melhorias: `instances/10k` CPU 90,9 → 0,02 ms, `10k-moving` CPU 288 → 2,8 ms, `rigid-bodies/10k` GPU 30,1 →
+  > 2,9 ms e p99 348 → 5,6 ms; `instances/100k` e `1m` passam de timeout a ok. Baseline regravado com o método novo.
 - [ ] T065 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/007-gpu-scene-state/spec.md` com o status e `checklists/requirements.md`
 
 ---
