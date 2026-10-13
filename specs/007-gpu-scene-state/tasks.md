@@ -106,9 +106,13 @@ physics-gpu), quickstart.md
 **Independent Test**: contagem de escritas e de notificações com 10 mil `Transform` mudados; CPU de
 `instances/10k-moving` no bench.
 
-- [ ] T019 [US2] Teste de integração em `src/scene/__tests__/integration/movingTransforms.test.ts`: 10 mil `Transform` mudados por quadro → escritas = faixas sujas, uma notificação por pool e estágio interessado, `TransformFlow` despacha uma vez
+- [x] T019 [US2] Teste de integração em `src/scene/__tests__/integration/movingTransforms.test.ts`: 10 mil `Transform` mudados por quadro → escritas = faixas sujas, uma notificação por pool e estágio interessado, `TransformFlow` despacha uma vez
 - [x] T020 [US2] Migrar os ouvintes de `resourceReady` de dado de pool para `poolWritten`: `src/elements/scene/flows/TransformFlow.ts`, `src/presentation/flows/ShadowFlow.ts` (luz), demais `listens` em `src/elements/**` e `src/presentation/**`
-- [ ] T021 [US2] Medir `npm run bench -- --scene instances --variant 10k-moving --engine clayflow` e anotar abaixo deste item a CPU por quadro (meta SC-004 ≤ 3 ms ao fim da spec; aqui o efeito do envio)
+- [x] T021 [US2] Medir `npm run bench -- --scene instances --variant 10k-moving --engine clayflow` e anotar abaixo deste item a CPU por quadro (meta SC-004 ≤ 3 ms ao fim da spec; aqui o efeito do envio)
+
+> **Medição (T021, 2026-10-13, máquina livre)**: `instances/10k-moving` clayflow — CPU **199,35 → 31,60 ms** por quadro
+> (−84%), GPU 0,65 ms, 26 fps, p99 43,6 ms, 10 001 draws. O restante é a gravação de um draw por entidade (US1) e as
+> 10 mil mutações por proxy da cena.
 
 **Checkpoint**: envio por delta em uso; trajetórias e imagem verdes.
 
