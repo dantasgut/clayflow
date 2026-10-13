@@ -40,7 +40,8 @@ type Ctx = TransitionContext<TransformSlots>;
  * Slots: os pools `Transform` e `WorldTransform` (ligados por `consumes`) e as entidades com `Transform`. Reativo
  * pela tabela de transições: fica `stale` com `poolWritten` do pool `Transform`, entidades inseridas ou removidas,
  * pool realocado ou bind group substituído; em `stale`, `framePrepare` escreve a contagem (uma vez por quadro) e o
- * quadro grava a composição; `frameRecorded` volta a `clean` — numa cena parada não faz nada.
+ * quadro grava a composição; `frameRecorded` volta a `clean` — numa cena parada não faz nada. Se o pool tem slots de
+ * posse da GPU (a física publica a pose direto no `Transform`, spec 007), a composição roda todo quadro.
  *
  * Substituível: é o estágio padrão da fase `transform`. Registrar outro Flow nessa fase permite outras regras de
  * transformação — a base para a hierarquia opcional, para a função `transform` do usuário e para cadeias não
@@ -105,14 +106,24 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
                 },
                 frameRecorded: { to: 'clean' },
             },
-            clean: { framePrepare: 'ignore', frameRecorded: 'ignore' },
+            // Com slots de posse da GPU (pose escrita pela física), a composição roda todo quadro.
+            clean: {
+                framePrepare: {
+                    to: 'clean',
+                    run: (_e, c) => {
+                        if (c.bound.slots.transforms.gpuOwned > 0) this.writeCount(c);
+                    },
+                },
+                frameRecorded: 'ignore',
+            },
         };
     }
 
     /** Grava a composição quando há intenção pendente (`stale`). */
     dispatch(frame: Frame, bound: BoundFlow<TransformSlots>): void {
-        if (this.state !== 'stale') return;
-        const count = bound.slots.transforms.count;
+        const transforms = bound.slots.transforms;
+        if (this.state !== 'stale' && transforms.gpuOwned === 0) return;
+        const count = transforms.count;
         if (count === 0) return;
         const p = bound.compute('transform_compose');
         frame.compute('TransformFlow', (pass) => {

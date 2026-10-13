@@ -179,6 +179,8 @@ export interface BoundPool {
     readonly capacity: number;
     /** Incrementa a cada recriação do buffer. */
     readonly generation: number;
+    /** Slots de posse da GPU (escritos por um estágio, não pela CPU). */
+    readonly gpuOwned: number;
     /** Slot da entidade no pool, ou `undefined`. */
     slotOf(entityId: EntityId): number | undefined;
     /** Entidade que ocupa o slot, ou `undefined`. */

@@ -62,14 +62,26 @@ describe('LCPFlow — avanço governado pelo Time (slots)', () => {
             ['LCPFlow.accumulate', 768],
             ['LCPFlow.commit', 768],
         ] as const;
-        const inner = new Set(['LCPFlow.buildLcp', 'LCPFlow.solveContacts', 'LCPFlow.applyDelta']);
+        // A publicação da pose (spec 007) roda uma vez no fim do quadro, sem região de parâmetros por passo.
+        expect(sim.at(-1)!.label).toBe('LCPFlow.publishPose');
+        const inner = new Set([
+            'LCPFlow.buildLcp',
+            'LCPFlow.solveContacts',
+            'LCPFlow.applyDelta',
+            'LCPFlow.publishPose',
+        ]);
         const seen = sim
             .filter((p) => !inner.has(p.label) && !p.label.includes('narrowphase'))
             .map((p) => [p.label, offsetOf(p)]);
         expect(seen).toEqual(expected);
         // Passes internos do substep ligam a região do substep, nunca a do passo.
         const substepOffsets = new Set([256, 512, 1024, 1280]);
-        for (const p of sim.filter((x) => inner.has(x.label) || x.label.includes('narrowphase'))) {
+        const substepPasses = sim.filter(
+            (x) =>
+                (inner.has(x.label) && x.label !== 'LCPFlow.publishPose')
+                || x.label.includes('narrowphase'),
+        );
+        for (const p of substepPasses) {
             expect(substepOffsets.has(offsetOf(p))).toBe(true);
         }
         const paramWrites = writes.filter((w) =>

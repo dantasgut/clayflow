@@ -7,6 +7,9 @@ import rbBuildLcpSource from '../../gpu/wgsl/kernels/rb_build_lcp.wgsl?raw';
 import rbSolveLcpSource from '../../gpu/wgsl/kernels/rb_solve_lcp.wgsl?raw';
 import rbContactAccumulateSource from '../../gpu/wgsl/kernels/rb_contact_accumulate.wgsl?raw';
 import rbLcpCommitSource from '../../gpu/wgsl/kernels/rb_lcp_commit.wgsl?raw';
+import rbPublishPoseSource from '../../gpu/wgsl/kernels/rb_publish_pose.wgsl?raw';
+import { Transform } from '../../scene/Transform';
+import { PosePublishParamsSchema, RigidPoseInstanceSchema, RigidPoseSchema } from '../schemas/pose';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
 import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { SphereCollider } from '../../physics/colliders/SphereCollider';
@@ -72,4 +75,17 @@ export const rbLcpCommit = wgslModule({
     source: rbLcpCommitSource,
     requires: [quat, lcp, xpbd, lcpState, fixedPoint],
     structs: [LCPSchema, RBSimParamsSchema, RBContactSchema],
+});
+
+/** Publicação da pose de cada corpo no seu `Transform` (spec 007, fim do readback). */
+export const rbPublishPose = wgslModule({
+    name: 'rb_publish_pose',
+    source: rbPublishPoseSource,
+    structs: [
+        LCPSchema,
+        RigidPoseSchema,
+        RigidPoseInstanceSchema,
+        Transform.schema,
+        PosePublishParamsSchema,
+    ],
 });

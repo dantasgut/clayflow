@@ -369,6 +369,7 @@ async function main(): Promise<void> {
     app.world.insert(ground);
 
     const ballIds: EntityId[] = [];
+    const ballTransforms: Transform[] = [];
     for (let i = 0; i < 5; i++) {
         const ball = new RigidBody({
             shape: 'sphere',
@@ -378,6 +379,7 @@ async function main(): Promise<void> {
         });
         const t = ball.attached.find((p) => p instanceof Transform)!;
         t.data.scale = [0.5, 0.5, 0.5, 1]; // esfera de raio 1 vista com raio 0.5
+        ballTransforms.push(t);
         ball.add(new SphereGeometry({ radius: 1 }));
         ball.add(new StandardMaterial({ albedo: [0.9, 0.5, 0.1, 1] }));
         ballIds.push(app.world.insert(ball));
@@ -395,7 +397,7 @@ async function main(): Promise<void> {
         step();
         await yieldTask();
     }
-    // A pose chega à CPU por readback assíncrono da física; espera ela refletir a queda.
+    // A pose é publicada na GPU no mesmo quadro (spec 007); o pool de mundo já reflete a queda.
     const deadline = performance.now() + 20_000;
     let ballWorlds = await readWorlds(ballIds);
     while (ballWorlds.some((m) => !(m[13]! < 4)) && performance.now() < deadline) {
@@ -409,6 +411,14 @@ async function main(): Promise<void> {
         if (!(y < 4)) failures.push(`física: esfera ${i} não caiu (y=${y})`);
         if (Math.abs(colLen - 0.5) > 1e-4)
             failures.push(`física: escala da esfera ${i} = ${colLen}, esperada 0.5`);
+    });
+    // Leitura sob demanda (spec 007): o Transform de posse da GPU lido por `resources.read` é a pose do mundo.
+    const poses = await app.resources.readAll(ballTransforms);
+    poses.forEach((pose, i) => {
+        const y = (pose?.position as number[] | undefined)?.[1];
+        const worldY = ballWorlds[i]![13]!;
+        if (y === undefined || Math.abs(y - worldY) > 0.05)
+            failures.push(`leitura: pose da esfera ${i} y=${y}, mundo ${worldY}`);
     });
     log(`(4) física verificada — falhas até aqui: ${failures.length}`);
 

@@ -1,6 +1,17 @@
+import type { StructSchema } from '../../descriptors/StructSchema';
+import type { Resource } from '../../contracts/Resource';
 import type { DrawGroup, EntityEntry, EntityGroupsDeclaration } from '../../flows/slots';
 import type { EntityId } from '../../world/EntityId';
-import type { ResourceSystem } from '../ResourceSystem';
+
+/** O que os grupos usam da C2: a lista de instâncias (pool) e a localização de slots (implementado pelo `ResourceSystem`). */
+export interface InstanceListHost {
+    acquireInstanceList(schema: StructSchema): void;
+    releaseInstanceList(schema: StructSchema): void;
+    setInstance(poolKey: string, index: number, value: number): void;
+    clearInstance(poolKey: string, index: number): void;
+    poolKeyOf(resource: Resource, descId: string): string | undefined;
+    poolSlotOf(poolKey: string, entityId: EntityId): number | undefined;
+}
 
 /** Grupo de instâncias: segmento contíguo da lista, com capacidade em potência de 2. */
 interface Group {
@@ -32,7 +43,7 @@ export class EntityGroups {
 
     constructor(
         private readonly declaration: EntityGroupsDeclaration,
-        private readonly resources: ResourceSystem,
+        private readonly resources: InstanceListHost,
     ) {
         this.poolKey = declaration.schema.name;
         resources.acquireInstanceList(declaration.schema);

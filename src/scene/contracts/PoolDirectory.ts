@@ -22,6 +22,8 @@ export interface PoolInfo {
     readonly capacity: number;
     /** Incrementa a cada recriação do buffer (crescimento). */
     readonly generation: number;
+    /** Slots de posse da GPU (`slot.entities({ owns })`): escritos por um estágio, não pela CPU. */
+    readonly gpuOwned: number;
 }
 
 /**

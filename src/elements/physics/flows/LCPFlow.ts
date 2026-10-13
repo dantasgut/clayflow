@@ -25,9 +25,9 @@ import {
 } from '../../../scene/flows/slots';
 import { Time } from '../../../scene/time/Time';
 import type { World } from '../../../scene/world/World';
-import type { EntityId } from '../../../scene/world/EntityId';
 import { AtomicAllocCounterSchema } from '../../gpu/compute/schemas';
 import { Transform } from '../../scene/Transform';
+import { RigidBody } from '../bodies/RigidBody';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
@@ -45,14 +45,18 @@ import {
     rbLcpCommit,
     rbNarrowphase,
     rbPredict,
+    rbPublishPose,
     rbSolveLcp,
 } from '../shaders/lcp';
+import { PosePublishParamsSchema, RigidPoseInstanceSchema, rigidPoseRecord } from '../schemas/pose';
 import { PerStepUniforms } from './PerStepUniforms';
 
 /** Contatos por par no máximo: manifold de cantos de uma caixa. */
 const RB_MAX_CONTACTS_PER_PAIR = 8;
 /** Contatos por corpo na capacidade padrão da lista compactada (research R19). */
 const DEFAULT_MAX_CONTACTS_PER_BODY = 32;
+/** Passos de física entre duas leituras do contador de excedente de contatos (diagnóstico, sem bloquear). */
+const OVERFLOW_CHECK_STEPS = 60;
 
 interface ShapePool {
     readonly poolKey: string;
@@ -118,6 +122,11 @@ export interface LCPSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider (donos dos registros nos pools de collider). */
     readonly colliders: EntitiesSlot;
+    /**
+     * Corpos com `Transform`: registro `RigidPose` (slot do corpo e do `Transform`), lista dos vivos e posse da GPU
+     * sobre o `Transform` — a pose é publicada na GPU (spec 007).
+     */
+    readonly poses: EntitiesSlot;
 }
 
 function slotsOf(bodiesPoolKey: string): LCPSlots {
@@ -127,17 +136,19 @@ function slotsOf(bodiesPoolKey: string): LCPSlots {
         gravity: slot.singleton(GravityField.schema, { optional: true }),
         colliderPools: slot.pools([...COLLIDER_POOLS.map((s) => s.name), bodiesPoolKey]),
         colliders: slot.entities({ all: [Collider] }),
+        poses: POSES_SLOT,
     };
 }
 
-type Ctx = TransitionContext<LCPSlots>;
+/** O mesmo conjunto (e dono) em todas as instâncias: registro, lista e posse são da cena, não da instância. */
+const POSES_SLOT = slot.entities({
+    all: [RigidBody, Transform],
+    record: rigidPoseRecord,
+    groups: { schema: RigidPoseInstanceSchema, key: () => 'poses', instance: 'record' },
+    owns: [[Transform, 'transform']],
+});
 
-/** Leitura de volta pedida num quadro: staging, contagem e a entidade de cada slot no momento da cópia (A6). */
-interface Readback {
-    readonly staging: StagingBufferSpec;
-    readonly byteSize: number;
-    readonly entities: readonly (EntityId | undefined)[];
-}
+type Ctx = TransitionContext<LCPSlots>;
 
 /** Contagens do quadro decididas em `framePrepare`. */
 interface FrameWork {
@@ -166,10 +177,11 @@ interface FrameWork {
  * buffers por corpo, parâmetros de narrowphase por forma e o `ColliderSet` — são recriados e religados em transições
  * (`framePrepare`, pools realocados, colliders), nunca no `dispatch`.
  *
- * Ao fim do quadro, lê de volta o pool de corpos e publica a pose (posição e rotação) no `Transform` de cada
- * entidade; o mapa slot → entidade é capturado quando a cópia é gravada, então uma remoção entre a cópia e a leitura
- * não aplica a pose à entidade errada. A escala do `Transform` é do desenvolvedor e não é tocada. (O readback some na
- * F2, quando a física escrever a pose direto na GPU.)
+ * Ao fim do quadro, `rb_publish_pose` copia na GPU a pose (posição e rotação normalizada) de cada corpo para o
+ * `Transform` da entidade (registro `RigidPose` mantido pela C2; o `Transform` é de posse da GPU), e o estágio de
+ * transformação compõe a matriz no mesmo quadro — nenhuma leitura de volta (spec 007). A escala do `Transform` é do
+ * desenvolvedor e não é tocada. Quem precisa da pose na CPU usa a leitura sob demanda da C2. O contador de excedente
+ * de contatos é lido a cada `OVERFLOW_CHECK_STEPS` passos, sem bloquear.
  */
 export class LCPFlow extends Flow<LCPSlots, 'running'> {
     readonly type = 'LCPFlow';
@@ -209,13 +221,18 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     private contactStamp = 0;
     private work: FrameWork | null = null;
 
-    private bodiesStaging: StagingBufferSpec | null = null;
-    private bodiesStagingByteSize = 0;
     private readonly counterStaging: StagingBufferSpec;
-    /** Leitura pedida para o quadro corrente (cópia gravada no `dispatch`). */
-    private pendingReadback: Readback | null = null;
-    private readbackInFlight = false;
+    /** Parâmetros da publicação da pose (início e tamanho da lista de registros vivos). */
+    private readonly publishParams: UniformBufferSpec;
+    /** Registros vivos a publicar neste quadro (0 = nada). */
+    private publishCount = 0;
+    /** Passos desde a última leitura do contador; a cópia do contador é gravada no quadro em que vence. */
+    private stepsSinceOverflowCheck = 0;
+    private overflowCopyPending = false;
+    private overflowReadInFlight = false;
     private overflowWarned = false;
+    /** Último `first:count` escrito nos parâmetros da publicação. */
+    private writtenPublish = '';
 
     constructor(ctx: FlowContext, options: LCPFlowOptions = {}) {
         super();
@@ -250,10 +267,20 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             discriminator: 'lcp_contact_counter_staging',
             byteSize: AtomicAllocCounterSchema.stride,
         });
+        this.publishParams = ctx.core.create<UniformBufferSpec>({
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'lcp_publish_params',
+            byteSize: PosePublishParamsSchema.stride,
+        });
         const privates: Record<
             string,
             StorageBufferSpec | UniformBufferSpec | ReturnType<PerStepUniforms['source']>
-        > = { rb_params: this.params.source(), contact_counter: this.counter };
+        > = {
+            rb_params: this.params.source(),
+            contact_counter: this.counter,
+            publish: this.publishParams,
+        };
         for (const shape of SHAPE_POOLS) {
             const np = ctx.core.create<UniformBufferSpec>({
                 kind: 'buffer',
@@ -290,6 +317,18 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             compute('lcp_warm_store', rbSolveLcp, 'rb_warm_store_main'),
             compute('lcp_accumulate', rbContactAccumulate, 'rb_contact_accumulate_main'),
             compute('lcp_commit', rbLcpCommit, 'rb_lcp_commit_main'),
+            {
+                id: 'lcp_publish_pose',
+                role: 'compute',
+                shader: rbPublishPose,
+                entryPoints: ['rb_publish_pose_main'],
+                consumes: [
+                    this.bodiesPoolKey,
+                    rigidPoseRecord.schema.name,
+                    RigidPoseInstanceSchema.name,
+                    Transform.schema.name,
+                ],
+            },
         ];
         const colliders = {
             to: 'running' as const,
@@ -327,7 +366,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                 frameRecorded: {
                     to: 'running',
                     run: () => {
-                        this.startReadback();
+                        this.readOverflowCounter();
                     },
                 },
             },
@@ -446,28 +485,24 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             // Commit 1× por passo: pos += vel·stepDt + correção posicional.
             run('LCPFlow.commit', commit, stepOffset, bodyCount);
         }
-        const readback = this.pendingReadback;
-        if (readback !== null) {
-            frame.copy(bound.slots.bodies.buffer, readback.staging, readback.byteSize);
-            // Contador da lista compactada do último substep: excedente de contatos vira aviso.
+        // Pose de cada corpo vivo no seu Transform, na GPU (a composição da matriz vem depois, na fase transform).
+        if (this.publishCount > 0)
+            run('LCPFlow.publishPose', bound.compute('lcp_publish_pose'), [], this.publishCount);
+        // Diagnóstico amostrado: o contador do último substep, a cada OVERFLOW_CHECK_STEPS passos.
+        if (this.overflowCopyPending)
             frame.copy(this.counter, this.counterStaging, AtomicAllocCounterSchema.stride);
-        }
     }
 
     /** Libera parâmetros, contatos, buffers por corpo, staging e o conjunto de colliders. */
     override dispose(): void {
         this.params.dispose();
         this.releaseContacts();
-        for (const spec of [
-            this.bodyCorrection,
-            this.bodyDelta,
-            this.bodySplit,
-            this.bodiesStaging,
-        ]) {
+        for (const spec of [this.bodyCorrection, this.bodyDelta, this.bodySplit]) {
             if (spec !== null) this.core.destroy(spec);
         }
         this.core.destroy(this.counter);
         this.core.destroy(this.counterStaging);
+        this.core.destroy(this.publishParams);
         for (const buf of this.npParams.values()) this.core.destroy(buf);
         this.npParams.clear();
         this.colliderSet.destroy();
@@ -580,15 +615,16 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
 
     /**
      * Antes da gravação: contagens dos pools, parâmetros de narrowphase, capacidades (contatos, warm start, buffers
-     * por corpo — recriados e religados aqui), regiões de `RBSimParams` com os carimbos dos substeps, e o pedido de
-     * leitura de volta com o mapa slot → entidade deste instante.
+     * por corpo — recriados e religados aqui), regiões de `RBSimParams` com os carimbos dos substeps, a lista de
+     * poses a publicar e, a cada `OVERFLOW_CHECK_STEPS` passos, a cópia do contador de excedente.
      */
     private prepareFrame(ctx: Ctx): void {
         const bound = ctx.bound;
         const time = bound.slots.time.resource as Time;
         const steps = time.steps;
         const bodyCount = bound.slots.bodies.count;
-        this.pendingReadback = null;
+        this.overflowCopyPending = false;
+        this.publishCount = 0;
         if (steps === 0 || bodyCount === 0) {
             this.work = { steps: 0, bodyCount, totalCol: 0, poolCounts: new Map(), stamps: [] };
             return;
@@ -647,7 +683,26 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         }
         this.params.flush(regions);
         this.work = { steps, bodyCount, totalCol, poolCounts, stamps };
-        this.requestReadback(bound, bodyCount);
+        this.preparePublish(bound);
+        this.stepsSinceOverflowCheck += steps;
+        if (this.stepsSinceOverflowCheck >= OVERFLOW_CHECK_STEPS && !this.overflowReadInFlight) {
+            this.stepsSinceOverflowCheck = 0;
+            this.overflowCopyPending = totalCol > 0;
+        }
+    }
+
+    /** Início e tamanho da lista de poses (o grupo único do slot `poses`), escritos quando mudam. */
+    private preparePublish(bound: BoundFlow<LCPSlots>): void {
+        const list = bound.slots.poses.groups[0];
+        this.publishCount = list?.count ?? 0;
+        if (list === undefined) return;
+        const key = `${list.first}:${list.count}`;
+        if (key === this.writtenPublish) return;
+        this.core.write(
+            this.publishParams,
+            PosePublishParamsSchema.pack({ first: list.first, count: list.count }),
+        );
+        this.writtenPublish = key;
     }
 
     /**
@@ -684,47 +739,23 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         });
     }
 
-    /** Pede a leitura de volta do quadro (uma por vez) e captura a entidade de cada slot neste instante (A6). */
-    private requestReadback(bound: BoundFlow<LCPSlots>, bodyCount: number): void {
-        if (this.readbackInFlight) return;
-        const byteSize = bodyCount * LCPSchema.stride;
-        if (this.bodiesStaging === null || this.bodiesStagingByteSize < byteSize) {
-            // Sem leitura em voo (guarda acima): o staging anterior pode ser liberado.
-            if (this.bodiesStaging !== null) this.core.destroy(this.bodiesStaging);
-            this.bodiesStaging = this.core.create<StagingBufferSpec>({
-                kind: 'buffer',
-                subkind: 'staging',
-                discriminator: `lcp_bodies_staging_${byteSize}`,
-                byteSize,
-            });
-            this.bodiesStagingByteSize = byteSize;
-        }
-        const bodies = bound.slots.bodies;
-        const entities = Array.from({ length: bodyCount }, (_, slotIndex) =>
-            bodies.entityAt(slotIndex),
-        );
-        this.pendingReadback = { staging: this.bodiesStaging, byteSize, entities };
-    }
-
-    /** Quadro enviado: lê de volta a cópia gravada e publica a pose pelo mapa capturado. */
-    private startReadback(): void {
-        const readback = this.pendingReadback;
-        this.pendingReadback = null;
-        if (readback === null) return;
-        this.readbackInFlight = true;
+    /** Quadro enviado: se a cópia do contador foi gravada, lê-o de volta (sem bloquear o quadro). */
+    private readOverflowCounter(): void {
+        if (!this.overflowCopyPending) return;
+        this.overflowCopyPending = false;
+        this.overflowReadInFlight = true;
         // Defer ao próximo macrotask: o `submit` do quadro já rodou antes do `mapAsync`.
         setTimeout(() => {
             this.core
-                .readback(readback.staging)
-                .then(async (ab) => {
-                    this.applyTransformsFromReadback(ab, readback.entities);
-                    this.reportContactOverflow(await this.core.readback(this.counterStaging));
+                .readback(this.counterStaging)
+                .then((counter) => {
+                    this.reportContactOverflow(counter);
                 })
                 .catch(() => {
                     /* device perdido ou cena descartada: a leitura é descartada */
                 })
                 .finally(() => {
-                    this.readbackInFlight = false;
+                    this.overflowReadInFlight = false;
                 });
         }, 0);
     }
@@ -740,41 +771,5 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             `[LCPFlow] ${overflow} contatos acima da capacidade (${this.contactsCapacity}; ${count} encontrados no `
                 + 'último substep) foram ignorados — aumente LCPFlowOptions.maxContactsPerBody.',
         );
-    }
-
-    /**
-     * Publica a pose lida da GPU no `Transform` de cada corpo, pelo mapa slot → entidade capturado na cópia: só
-     * posição e rotação (normalizada; nula ⇒ identidade). Entidade removida desde a cópia é ignorada; a escala não é
-     * tocada.
-     */
-    protected applyTransformsFromReadback(
-        ab: ArrayBuffer,
-        entities: readonly (EntityId | undefined)[],
-    ): void {
-        const view = new Float32Array(ab);
-        const stride = LCPSchema.stride / 4;
-        const pos = LCPSchema.offsetOf('pos') / 4;
-        const rot = LCPSchema.offsetOf('rot') / 4;
-        for (let slotIndex = 0; slotIndex < entities.length; slotIndex++) {
-            const eid = entities[slotIndex];
-            if (eid === undefined) continue;
-            const base = slotIndex * stride;
-            if (base + stride > view.length) continue;
-            const transform = this.world.resourcesOf(eid).find((r) => r instanceof Transform);
-            if (transform === undefined) continue;
-            const rx = view[base + rot] ?? 0;
-            const ry = view[base + rot + 1] ?? 0;
-            const rz = view[base + rot + 2] ?? 0;
-            const rw = view[base + rot + 3] ?? 1;
-            const len = Math.hypot(rx, ry, rz, rw);
-            transform.data.position = [
-                view[base + pos] ?? 0,
-                view[base + pos + 1] ?? 0,
-                view[base + pos + 2] ?? 0,
-                1,
-            ];
-            transform.data.rotation =
-                len > 1e-6 ? [rx / len, ry / len, rz / len, rw / len] : [0, 0, 0, 1];
-        }
     }
 }

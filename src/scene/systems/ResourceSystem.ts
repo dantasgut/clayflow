@@ -652,6 +652,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             count: entry.count,
             capacity: entry.capacity,
             generation: entry.generation,
+            gpuOwned: entry.owners.size,
         };
     }
 
@@ -686,6 +687,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     private onResourcesChanged(added: readonly Resource[], removed: readonly Resource[]): void {
         for (const r of added) this.allocate(r);
+        // Pools novos são anunciados depois de a inserção inteira estar alocada: um Flow instanciado pelo
+        // `poolCreated` (ex.: o solver do corpo) já encontra os pools dos outros Resources da mesma entidade.
+        for (const entry of this.createdPools.splice(0)) {
+            this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
+        }
         for (const r of removed) this.release(r);
     }
 
@@ -932,9 +938,6 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (this.isGpuOwned(descs)) this.transition(resource, ResourceState.GpuManaged);
         // Dado em pool é anunciado no envio (`poolWritten`); `resourceReady` é dos objetos próprios.
         if (own.size > 0) this.events.emit('resourceReady', { payload: { resource } });
-        for (const entry of this.createdPools.splice(0)) {
-            this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
-        }
     }
 
     /** Recurso cujos descritores materializados são todos 'initial'/'never'. */

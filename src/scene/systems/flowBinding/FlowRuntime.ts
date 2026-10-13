@@ -621,6 +621,9 @@ export class FlowRuntime {
                 get generation() {
                     return info().generation;
                 },
+                get gpuOwned() {
+                    return info().gpuOwned;
+                },
                 slotOf: (id) => resources.poolSlotOf(poolKey, id),
                 entityAt: (slot) => resources.poolEntityBySlot(poolKey, slot),
             };
