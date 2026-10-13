@@ -280,7 +280,12 @@ physics-gpu), quickstart.md
 
 ## Phase 10: User Story 8 - Causa do residual de GPU explicada (Priority: P3)
 
-- [ ] T056 [US8] Medir a GPU de `instances/10k` com o render agrupado; se > 0,52 ms, rodar os experimentos de R14 (a)–(d) isolados (timestamps por passe) e anotar abaixo deste item a causa e os números
+- [x] T056 [US8] Medir a GPU de `instances/10k` com o render agrupado; se > 0,52 ms, rodar os experimentos de R14 (a)–(d) isolados (timestamps por passe) e anotar abaixo deste item a causa e os números
+  > Medido: GPU de `instances/10k` **0,46 ms** no bench (≤ 0,52 ms: SC-007 atendido; era 0,66 ms com 10 001 draws).
+  > Timestamps por passe (1280×720, 592 quadros, sem luz como na cena do bench): `ForwardFlow` 0,286 ms,
+  > `PostFlow.passthrough` 0,202 ms, `CameraFlow` 0,017 ms, `TransformFlow` 0 (cena parada). A diferença restante para
+  > o Three (0,09 ms) é sobretudo o passthrough: sem efeitos de pós, o quadro ainda copia a cor dos `FrameTargets` para
+  > o canvas num passe de tela cheia, enquanto o Three desenha direto no canvas — registrado no PENDENCIAS.
 
 ---
 
