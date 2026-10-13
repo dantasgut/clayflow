@@ -31,11 +31,40 @@ physics-gpu), quickstart.md
 
 **Purpose**: fixar números e referências antes de mexer (plano, fase 1).
 
-- [ ] T001 Registrar a linha de base verde da branch: `npx tsc --noEmit`, `npm test`, `npm run lint`, `npm run smoke -- trajectories,render,rigidContacts,churn,bigMesh`; anotar abaixo deste item em `specs/007-gpu-scene-state/tasks.md`
-- [ ] T002 [P] Medir com `countingCore` e anotar abaixo deste item: com 1000 caixas idênticas (material próprio, `Transform`), buffers de geometria criados, draws por passe no forward e na sombra, escritas por quadro com 1000 `Transform` mudados, e eventos `resourceReady` entregues; com 1000 corpos rígidos, leituras GPU→CPU por quadro e invocações da narrowphase por substep
-- [ ] T003 [P] Teste de referência do conjunto de contatos: smoke `src/__smokes__/contactSet.ts` que roda as cenas de 1k e 10k corpos do `rigidContacts` por 60 passos e grava, por substep, o conjunto de contatos (par, feature) ordenado da narrowphase exaustiva atual como fixture `src/__smokes__/fixtures/contacts-<perfil>.bin`; documentar em `src/__smokes__/README.md`
-- [ ] T004 [P] Smoke `src/__smokes__/scale1m.ts`: monta 1 milhão de caixas idênticas com material e `Transform` próprios, mede heap JS (`performance.memory` quando houver), memória de GPU (`core.memoryUsage`) e tempo até o primeiro quadro; registra o estado atual (esperado: falha ou trava — anotar) em `src/__smokes__/README.md`
-- [ ] T005 [P] Medir a imagem com matrizes de câmera e de sombra calculadas em `f32` (R10): no smoke `render`, opção de diagnóstico que empacota as matrizes de referência arredondadas por um cálculo `Math.fround` passo a passo equivalente ao kernel; anotar abaixo deste item a contagem de pixels diferentes e o maior desvio por cena (decide se a tolerância de R10 será necessária)
+- [x] T001 Registrar a linha de base verde da branch: `npx tsc --noEmit`, `npm test`, `npm run lint`, `npm run smoke -- trajectories,render,rigidContacts,churn,bigMesh`; anotar abaixo deste item em `specs/007-gpu-scene-state/tasks.md`
+
+> **Linha de base (T001, 2026-10-13, `31085cd`)**: `tsc` ✅, `npm test` 925/925 ✅, `lint` 0 erros (233 avisos),
+> `trajectories` bit a bit nas 7 cenas × 3 taxas ✅, `render` 10 cenas idênticas ✅, `rigidContacts` 1k 9,5 ms/quadro
+> (100% em repouso) e 10k 231,3 ms/quadro (99,87%) ✅, `churn` variação 0,000% ✅, `bigMesh` ✅.
+
+- [x] T002 [P] Medir com `countingCore` e anotar abaixo deste item: com 1000 caixas idênticas (material próprio, `Transform`), buffers de geometria criados, draws por passe no forward e na sombra, escritas por quadro com 1000 `Transform` mudados, e eventos `resourceReady` entregues; com 1000 corpos rígidos, leituras GPU→CPU por quadro e invocações da narrowphase por substep
+
+> **Números de hoje (T002, `renderScene`/`lcpScene` com core falso)**: 1000 caixas idênticas com material e `Transform`
+> próprios → **2000 buffers de geometria** (1 de vértice + 1 de índice por entidade) e **2000 draws** por quadro (1000
+> no forward + 1000 na sombra). Mudando os 1000 `Transform` num quadro: **1001 escritas** e **1001 `resourceReady`**
+> (1 por `Transform` + o `Time`). Física com 1000 esferas + chão: **1 leitura de volta por quadro** (pool de corpos +
+> contador, `core.readback` a cada `frameRecorded`) e narrowphase com **1 001 000 invocações** no pool de esferas e 1001
+> no de caixas, **por substep**.
+
+- [x] T003 [P] Teste de referência do conjunto de contatos: smoke `src/__smokes__/contactSet.ts` que roda as cenas de 1k e 10k corpos do `rigidContacts` por 60 passos e grava, por substep, o conjunto de contatos (par, feature) ordenado da narrowphase exaustiva atual como fixture `src/__smokes__/fixtures/contacts-<perfil>.bin`; documentar em `src/__smokes__/README.md`
+
+> **Referência (T003, 2026-10-13)**: smoke `contactSet` gravado com a narrowphase exaustiva
+> (`fixtures/contacts-apple-metal-3.json`): 1k — 69 500 contatos somados nos 60 passos; 10k — 292 832. Rodado de novo
+> sem `--record`: conjunto igual nos 60 passos (determinístico). O `LCPFlow` expõe `contactBuffers()` (diagnóstico); a
+> pilha do `rigidContacts` foi para `support/rigidPile.ts` (o `rigidContacts` segue verde, 1k 9,5 ms e 10k 227,2 ms).
+
+- [x] T004 [P] Smoke `src/__smokes__/scale1m.ts`: monta 1 milhão de caixas idênticas com material e `Transform` próprios, mede heap JS (`performance.memory` quando houver), memória de GPU (`core.memoryUsage`) e tempo até o primeiro quadro; registra o estado atual (esperado: falha ou trava — anotar) em `src/__smokes__/README.md`
+
+> **Estado atual (T004)**: `npm run smoke -- scale1m --timeout 600` — a página para de responder na montagem (o runner
+> não consegue mais ler o `#log` e o navegador não fecha). Critérios do smoke: completa, heap ≤ 1,5 GB, GPU além dos
+> pools ≤ 64 MiB.
+
+- [x] T005 [P] Medir a imagem com matrizes de câmera e de sombra calculadas em `f32` (R10): no smoke `render`, opção de diagnóstico que empacota as matrizes de referência arredondadas por um cálculo `Math.fround` passo a passo equivalente ao kernel; anotar abaixo deste item a contagem de pixels diferentes e o maior desvio por cena (decide se a tolerância de R10 será necessária)
+
+> **Medição (T005)**: `npm run smoke -- render --query f32=1` (runner ganhou `--query`): com as matrizes da câmera
+> arredondadas a `f32` em cada operação, 5 dos 16 elementos de `viewProjection` diferem do cálculo em `f64` e as 10
+> cenas continuam **idênticas** à fixture. A tolerância de R10 não é necessária para a câmera; a sombra é verificada
+> quando a matriz dela passar à GPU (T050).
 
 ---
 

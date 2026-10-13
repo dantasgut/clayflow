@@ -7,12 +7,12 @@ import { startServer } from './server';
 /**
  * Executa smokes de navegador pelo servidor do bench:
  *
- *   npm run smoke -- <nome>[,<nome>…] [--dist] [--headless] [--timeout <s>] [--record]
+ *   npm run smoke -- <nome>[,<nome>…] [--dist] [--headless] [--timeout <s>] [--record] [--query <k=v&…>]
  *
  * Para cada smoke abre `smoke.html?name=<nome>` numa página nova do Chrome (WebGPU) e espera `SMOKE PASSED` ou
  * `FAIL:` no `#log`. `--dist` resolve `clayflow` para o build minificado (`dist/index.js`, gere antes com
  * `npm run build:lib`). `--record` abre a página com `?record=1`: smokes com fixture gravam o resultado em vez de
- * comparar. A página lê e grava fixtures (`src/__smokes__/fixtures/<nome>`) pelas funções expostas
+ * comparar. `--query` acrescenta parâmetros de diagnóstico à URL da página (ex.: `--query f32=1`). A página lê e grava fixtures (`src/__smokes__/fixtures/<nome>`) pelas funções expostas
  * `__smokeFixtureRead`/`__smokeFixtureWrite` (base64). Saída: 0 se todos passaram, 1 se algum falhou, 3 em erro de
  * ambiente.
  */
@@ -23,6 +23,8 @@ interface SmokeArgs {
     readonly headless: boolean;
     readonly timeoutMs: number;
     readonly record: boolean;
+    /** Parâmetros extras da URL da página (`--query`), sem `?`. */
+    readonly query: string;
 }
 
 const PORT = 5181;
@@ -41,12 +43,16 @@ function parse(argv: readonly string[]): SmokeArgs {
     let headless = false;
     let timeoutMs = 120_000;
     let record = false;
+    let query = '';
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i] ?? '';
         if (a === '--dist') dist = true;
         else if (a === '--headless') headless = true;
         else if (a === '--record') record = true;
-        else if (a === '--timeout') {
+        else if (a === '--query') {
+            query = argv[++i] ?? '';
+            if (!/^[A-Za-z0-9_=&.-]+$/.test(query)) throw new Error('--query espera k=v&k2=v2');
+        } else if (a === '--timeout') {
             const v = Number(argv[++i]);
             if (!Number.isFinite(v) || v <= 0) throw new Error('--timeout espera segundos > 0');
             timeoutMs = v * 1000;
@@ -55,7 +61,7 @@ function parse(argv: readonly string[]): SmokeArgs {
     }
     if (names.length === 0)
         throw new Error('informe ao menos um smoke (ex.: npm run smoke -- time)');
-    return { names, dist, headless, timeoutMs, record };
+    return { names, dist, headless, timeoutMs, record, query };
 }
 
 async function main(): Promise<number> {
@@ -105,7 +111,7 @@ async function main(): Promise<number> {
                 `▶ ${name}${args.dist ? ' (dist)' : ''}${args.record ? ' (gravação)' : ''}`,
             );
             await page.goto(
-                `${server.url}smoke.html?name=${name}${args.record ? '&record=1' : ''}`,
+                `${server.url}smoke.html?name=${name}${args.record ? '&record=1' : ''}${args.query === '' ? '' : `&${args.query}`}`,
             );
             let text = '';
             let outcome: 'passed' | 'failed' | 'timeout' = 'timeout';

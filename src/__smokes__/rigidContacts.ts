@@ -9,14 +9,11 @@
 // Registra o tempo de GPU por quadro (quadro sincronizado por leitura de volta).
 //
 // Para rodar: `npm run smoke -- rigidContacts` (servidor do bench). Resultado: `RIGIDCONTACTS SMOKE PASSED` ou `FAIL`.
-import { Application, createScene, GravityField, RigidBody } from 'clayflow';
+import { Application, createScene } from 'clayflow';
 import type { StagingBufferSpec } from 'clayflow';
+import { buildRigidPile, GROUND_HALF } from './support/rigidPile';
 
 const BODY_STRIDE_F32 = 40; // RigidBody: pos(0) vel(4) ...
-const RADIUS = 0.25;
-const BOX_HALF = 0.2;
-const GROUND_HALF = 20;
-const WALL_HEIGHT = 4;
 const SLOP = 0.005;
 const SIM_SECONDS = 12;
 const REST_SPEED = 0.05;
@@ -28,18 +25,6 @@ function log(msg: string): void {
     console.log(`[rigidContacts] ${msg}`);
     const el = document.getElementById('log');
     if (el !== null) el.textContent += `${msg}\n`;
-}
-
-/** Gerador determinístico (mulberry32) — mesmo arranjo a cada execução. */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
 }
 
 /** Ponto mais baixo do corpo: esfera pelo raio; caixa pelo canto mais baixo (rotação no quatérnio em f32 12..15). */
@@ -97,62 +82,7 @@ async function scenario(count: number, failures: string[]): Promise<void> {
         engineErrors++;
         if (engineErrors <= 3) log(`!! engineError: ${e.message}`);
     });
-    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-    app.world.insert(
-        new RigidBody({
-            shape: 'box',
-            mass: 0,
-            halfExtents: [GROUND_HALF, 0.5, GROUND_HALF],
-            position: [0, -0.5, 0],
-        }),
-    );
-    for (const [x, z, hx, hz] of [
-        [GROUND_HALF + 0.5, 0, 0.5, GROUND_HALF + 1],
-        [-GROUND_HALF - 0.5, 0, 0.5, GROUND_HALF + 1],
-        [0, GROUND_HALF + 0.5, GROUND_HALF + 1, 0.5],
-        [0, -GROUND_HALF - 0.5, GROUND_HALF + 1, 0.5],
-    ] as const) {
-        app.world.insert(
-            new RigidBody({
-                shape: 'box',
-                mass: 0,
-                halfExtents: [hx, WALL_HEIGHT / 2, hz],
-                position: [x, WALL_HEIGHT / 2, z],
-            }),
-        );
-    }
-    // Pilhas: colunas numa grade com espaçamento maior que um diâmetro e camadas sucessivas (sem sobreposição inicial),
-    // com ruído pequeno para quebrar a simetria.
-    const random = rng(1337);
-    const spacing = 0.6;
-    const perRow = Math.floor((GROUND_HALF * 1.5) / spacing);
-    const perLayer = perRow * perRow;
-    for (let i = 0; i < count; i++) {
-        const layer = Math.floor(i / perLayer);
-        const cell = i % perLayer;
-        const jitter = (): number => (random() * 2 - 1) * 0.05;
-        const position = [
-            ((cell % perRow) - (perRow - 1) / 2) * spacing + jitter(),
-            0.5 + layer * spacing,
-            (Math.floor(cell / perRow) - (perRow - 1) / 2) * spacing + jitter(),
-        ] as const;
-        app.world.insert(
-            i % 2 === 0
-                ? new RigidBody({
-                      shape: 'sphere',
-                      radius: RADIUS,
-                      mass: 1,
-                      rollingFriction: 0.01,
-                      position,
-                  })
-                : new RigidBody({
-                      shape: 'box',
-                      halfExtents: [BOX_HALF, BOX_HALF, BOX_HALF],
-                      mass: 1,
-                      position,
-                  }),
-        );
-    }
+    buildRigidPile(app, count);
 
     // Tempo de GPU por quadro: 4 quadros sincronizados por leitura de volta.
     app.step(1 / 60, 2);

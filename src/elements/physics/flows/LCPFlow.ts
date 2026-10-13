@@ -335,6 +335,26 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     }
 
     /**
+     * Lista compactada de contatos do último substep gravado e o seu contador `{ count, overflow }` (diagnóstico:
+     * smokes leem o conjunto de contatos para compará-lo entre versões da narrowphase). `contacts` é `null` até o
+     * primeiro quadro com corpos.
+     */
+    contactBuffers(): {
+        readonly contacts: StorageBufferSpec | null;
+        readonly counter: StorageBufferSpec;
+        readonly capacity: number;
+        /** Bytes por contato (stride do struct `RBContact`). */
+        readonly recordBytes: number;
+    } {
+        return {
+            contacts: this.contacts,
+            counter: this.counter,
+            capacity: this.contactsCapacity,
+            recordBytes: RBContactSchema.stride,
+        };
+    }
+
+    /**
      * Capacidade da lista compactada de contatos (research R19): no máximo 8 contatos por par (cantos),
      * `maxContactsPerBody` por corpo e o que cabe num binding de storage do device.
      */
