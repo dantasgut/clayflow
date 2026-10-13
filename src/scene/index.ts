@@ -169,6 +169,7 @@ export type {
     ChangedEvent,
     ReadyEvent,
     PoolReallocatedEvent,
+    PoolWrittenEvent,
     BindGroupReplacedEvent,
     FrameTickEvent,
     TimeDroppedEvent,

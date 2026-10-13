@@ -43,10 +43,14 @@ interface PoolEntry {
     count: number;
     readonly slotByEntity: Map<EntityId, number>;
     readonly entityBySlot: Map<number, EntityId>;
-    /** Slot → quem o ocupa (reempacotamento no crescimento). */
+    /** Slot → quem o ocupa (dado empacotado no envio). */
     readonly occupants: Map<number, Occupant>;
+    /** Resource → slot: localização O(1) no envio e na liberação. */
+    readonly slotOfResource: Map<Resource, number>;
     readonly freeList: number[];
     generation: number;
+    /** Slots com dado da CPU a enviar no próximo envio (bitset de `capacity` bits). */
+    dirtyBits: Uint32Array;
 }
 
 /** O que a C2 alocou para um descritor individual (não-pool) de um recurso. */
@@ -55,6 +59,11 @@ interface Occupant {
     readonly schema: Schema;
     readonly resource?: Resource;
     readonly record?: Readonly<Record<string, number>>;
+    /**
+     * Dado de `upload: 'initial'` empacotado na alocação, à espera do envio: o que vale é o dado do momento da inserção
+     * (mutações depois dela são ignoradas, a GPU é dona).
+     */
+    initial?: Uint8Array;
 }
 
 /** Conjunto de registros de entidade (`slot.entities({ record })`), compartilhado pelos Flows que o declaram. */
@@ -63,13 +72,13 @@ interface RecordSet {
     readonly all: readonly ResourceType[];
     readonly entry: PoolEntry;
     users: number;
-    /** Slots a escrever no próximo `frameRecording`. */
-    readonly pending: Set<number>;
 }
 
 interface Allocation {
     readonly desc: GPUDescriptor;
     buffer?: AnyBufferSpec;
+    /** Chave do buffer de geometria compartilhado por conteúdo (spec 007, R1), quando a alocação é compartilhada. */
+    sharedKey?: string;
     texture?: TextureSpec;
     view?: TextureViewSpec;
     sampler?: SamplerSpec;
@@ -96,8 +105,8 @@ const INDIRECT_RECORD_BYTES = 20;
  * alocação, envio, crescimento de pools e descarte. Reage a:
  *   - `resourcesChanged` (insert/remove do World) → aloca/descarta;
  *   - `resourceDirty` (automático via dado reativo, ou manual) → enfileira;
- *   - `frameRecording` (antes da gravação do quadro) → envia a fila de sujos, uma vez
- *     por recurso, e emite `resourceReady`;
+ *   - `frameRecording` (antes da gravação do quadro) → envia a fila de sujos: objetos próprios inteiros (com
+ *     `resourceReady`) e dados em pool por faixas contíguas de slots (com um `poolWritten` por pool);
  *   - `canvasReconfigured` → recria texturas declaradas com `sizeFromCanvas`.
  *
  * **Bag inteira** (research R9): todo descritor de um recurso inserido é alocado, um registro por descritor —
@@ -127,7 +136,10 @@ const INDIRECT_RECORD_BYTES = 20;
  * **Storage**:
  *   - `individual`: objetos próprios por descritor (Camera, ShadowParams, geometrias).
  *   - `pool`: 1 GPUBuffer de storage compartilhado por N members do mesmo schema, lido como `array<T>` (stride do
- *     struct). Cresce 2× quando a capacidade estoura (destrói o buffer anterior) e emite `poolReallocated`.
+ *     struct). Cresce 2× quando a capacidade estoura — o conteúdo vai para o buffer novo por cópia na GPU, sem
+ *     reempacotar na CPU — e emite `poolReallocated`. **Envio por delta** (spec 007, R5): alocação e mutação só
+ *     marcam o slot (bitset do pool, slot achado em O(1)); no envio, cada faixa contígua de slots marcados é
+ *     empacotada numa área reutilizável e escrita com um `core.write`.
  *     Um recurso com vários descritores em pool ocupa o **mesmo slot** em todos eles. `role: 'uniform'` em pool
  *     não é aceito (um registro por desenho viria de offset dinâmico e rebind por draw — ver `slot.entities`
  *     com `record`).
@@ -139,6 +151,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly allocated = new WeakSet<Resource>();
     private readonly reactive = new WeakSet<Resource>();
     private readonly dirty = new Set<Resource>();
+    /** Pools com slots marcados para o próximo envio. */
+    private readonly dirtyPools = new Set<PoolEntry>();
+    /** Buffers de vértice/índice compartilhados por chave de conteúdo: o spec e quantas alocações o usam. */
+    private readonly sharedGeometry = new Map<string, { spec: AnyBufferSpec; users: number }>();
+    /** Área de empacotamento reutilizada pelas faixas do envio. */
+    private scratch = new ArrayBuffer(0);
     private readonly warnedGpuManaged = new Set<string>();
     private readonly subscriptions: Unsubscribe[];
     private readonly binder: FlowBinder;
@@ -176,7 +194,6 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     for (const id of e.entityIds) this.removeRecord(set, id);
             }),
             this.events.on('frameRecording', () => {
-                this.flushRecords();
                 this.flushDirty();
                 this.binder.prepareFrame();
                 // Escritas de `framePrepare` em recursos da cena (ex.: matriz da luz no ShadowMap) entram no quadro.
@@ -252,7 +269,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 { id: key, role: 'storage-ro', storage: 'pool', schema: declaration.schema },
                 declaration.schema,
             );
-        const set: RecordSet = { declaration, all, entry, users: 1, pending: new Set() };
+        const set: RecordSet = { declaration, all, entry, users: 1 };
         this.recordSets.set(key, set);
         for (const record of this.world.allRecords()) this.addRecord(set, record.id);
         for (const created of this.createdPools.splice(0)) {
@@ -380,16 +397,22 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     /**
-     * Envia os recursos sujos e emite `resourceReady` para cada um, **até a fila esvaziar**: uma reação a
-     * `resourceReady` que suja outro recurso (ex.: a matriz da luz gravada no `ShadowMap`) entra no mesmo quadro.
+     * Envia os recursos sujos **até a fila esvaziar**: objetos próprios inteiros (com `resourceReady`) e os slots
+     * marcados dos pools por faixas contíguas (com um `poolWritten` por pool). Uma reação a um desses eventos que suje
+     * outro recurso (ex.: a matriz da luz gravada no `ShadowMap`) entra no mesmo quadro.
      */
     private flushDirty(): void {
         let rounds = 0;
-        while (this.dirty.size > 0) {
+        while (this.dirty.size > 0 || this.dirtyPools.size > 0) {
             if (++rounds > MAX_FLUSH_ROUNDS) {
                 throw new Error(
-                    `ResourceSystem: a fila de sujos não esvaziou em ${MAX_FLUSH_ROUNDS} rodadas (ciclo de reações a resourceReady).`,
+                    `ResourceSystem: a fila de sujos não esvaziou em ${MAX_FLUSH_ROUNDS} rodadas (ciclo de reações a resourceReady/poolWritten).`,
                 );
+            }
+            if (this.dirty.size === 0) {
+                // Recursos drenados: os pools vão de uma vez, com o que as reações sujaram na mesma faixa.
+                this.flushPools();
+                continue;
             }
             const batch = [...this.dirty];
             this.dirty.clear();
@@ -398,9 +421,97 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 if (!this.stateRegistry.get(resource.state).suppressCpuUpload())
                     this.upload(resource);
                 this.transition(resource, ResourceState.Ready);
-                this.events.emit('resourceReady', { payload: { resource } });
+                if (this.allocations.has(resource))
+                    this.events.emit('resourceReady', { payload: { resource } });
             }
         }
+    }
+
+    /** Marca o slot para o próximo envio. */
+    private markSlot(entry: PoolEntry, slot: number): void {
+        const word = slot >>> 5;
+        entry.dirtyBits[word] = (entry.dirtyBits[word] ?? 0) | (1 << (slot & 31));
+        this.dirtyPools.add(entry);
+    }
+
+    private clearSlot(entry: PoolEntry, slot: number): void {
+        const word = slot >>> 5;
+        entry.dirtyBits[word] = (entry.dirtyBits[word] ?? 0) & ~(1 << (slot & 31));
+    }
+
+    /**
+     * Envia os slots marcados de cada pool: percorre o bitset em ordem, junta faixas contíguas, empacota os ocupantes
+     * de cada faixa na área reutilizável e faz uma escrita por faixa; depois emite `poolWritten` com as faixas.
+     */
+    private flushPools(): void {
+        const pools = [...this.dirtyPools];
+        this.dirtyPools.clear();
+        for (const entry of pools) {
+            const ranges: [number, number][] = [];
+            const bits = entry.dirtyBits;
+            let runStart = -1;
+            let runEnd = -1;
+            for (let word = 0; word < bits.length; word++) {
+                let w = bits[word]!;
+                if (w === 0) continue;
+                bits[word] = 0;
+                while (w !== 0) {
+                    const bit = 31 - Math.clz32(w & -w);
+                    w &= w - 1;
+                    const slot = (word << 5) | bit;
+                    if (!entry.occupants.has(slot)) continue;
+                    if (runStart >= 0 && slot === runEnd + 1) {
+                        runEnd = slot;
+                        continue;
+                    }
+                    if (runStart >= 0) this.writeRun(entry, runStart, runEnd, ranges);
+                    runStart = runEnd = slot;
+                }
+            }
+            if (runStart >= 0) this.writeRun(entry, runStart, runEnd, ranges);
+            if (ranges.length > 0) {
+                this.events.emit('poolWritten', {
+                    poolKey: entry.poolKey,
+                    schema: entry.schema,
+                    ranges,
+                });
+            }
+        }
+    }
+
+    /** Empacota os ocupantes de `first..last` e os escreve com um `core.write`. */
+    private writeRun(
+        entry: PoolEntry,
+        first: number,
+        last: number,
+        ranges: [number, number][],
+    ): void {
+        const count = last - first + 1;
+        const bytes = count * entry.stride;
+        if (this.scratch.byteLength < bytes)
+            this.scratch = new ArrayBuffer(Math.max(bytes, this.scratch.byteLength * 2));
+        for (let slot = first; slot <= last; slot++) {
+            const occupant = entry.occupants.get(slot)!;
+            const offset = (slot - first) * entry.stride;
+            const schema = occupant.schema;
+            if (occupant.initial !== undefined) {
+                new Uint8Array(this.scratch, offset, entry.stride).set(occupant.initial);
+                delete occupant.initial;
+            } else if (schema instanceof StructSchema) {
+                schema.packInto(this.scratch, offset, occupantData(occupant));
+            } else {
+                const packed = schema.pack(occupantData(occupant));
+                new Uint8Array(this.scratch, offset, entry.stride).set(
+                    new Uint8Array(packed.buffer, packed.byteOffset, packed.byteLength),
+                );
+            }
+        }
+        this.core.write(
+            entry.bufferSpec,
+            new Uint8Array(this.scratch, 0, bytes),
+            first * entry.stride,
+        );
+        ranges.push([first, count]);
     }
 
     private installReactiveData(resource: Resource): void {
@@ -454,7 +565,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         this.allocated.add(resource);
         this.transition(resource, ResourceState.Ready);
         if (this.isGpuOwned(descs)) this.transition(resource, ResourceState.GpuManaged);
-        this.events.emit('resourceReady', { payload: { resource } });
+        // Dado em pool é anunciado no envio (`poolWritten`); `resourceReady` é dos objetos próprios.
+        if (own.size > 0) this.events.emit('resourceReady', { payload: { resource } });
         for (const entry of this.createdPools.splice(0)) {
             this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
         }
@@ -495,10 +607,16 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }
             case 'vertex':
             case 'index':
-            case 'indirect':
+            case 'indirect': {
+                const key = this.sharedGeometryKey(resource, desc);
+                if (key !== undefined) {
+                    this.acquireSharedGeometry(resource, allocation, key);
+                    break;
+                }
                 allocation.buffer = this.createGeometryBuffer(resource, desc);
                 if (policyOf(desc) !== 'never') this.writeBufferContent(resource, allocation);
                 break;
+            }
             case 'staging': {
                 const stride = desc.schema?.stride ?? 4;
                 allocation.buffer = this.core.create<StagingBufferSpec>({
@@ -554,13 +672,58 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         };
     }
 
+    /**
+     * Chave do buffer compartilhado de um descritor de vértice/índice com conteúdo da CPU: `${id}:${schema}:${contentKey}`;
+     * `undefined` sem `contentKey`, para outros papéis ou para dado produzido na GPU (`'never'`).
+     */
+    private sharedGeometryKey(resource: Resource, desc: GPUDescriptor): string | undefined {
+        if (desc.role !== 'vertex' && desc.role !== 'index') return undefined;
+        if (policyOf(desc) === 'never') return undefined;
+        const contentKey = resource.contentKey;
+        if (contentKey === undefined) return undefined;
+        return `${desc.id}:${desc.schema?.name ?? desc.role}:${contentKey}`;
+    }
+
+    /** Usa o buffer da chave (criado e escrito só pelo primeiro usuário). */
+    private acquireSharedGeometry(resource: Resource, allocation: Allocation, key: string): void {
+        let shared = this.sharedGeometry.get(key);
+        if (shared === undefined) {
+            const spec = this.createGeometryBuffer(
+                resource,
+                allocation.desc,
+                undefined,
+                `shared:${key}`,
+            );
+            shared = { spec, users: 0 };
+            this.sharedGeometry.set(key, shared);
+            allocation.buffer = spec;
+            this.writeBufferContent(resource, allocation);
+        }
+        shared.users++;
+        allocation.buffer = shared.spec;
+        allocation.sharedKey = key;
+    }
+
+    /** Solta o buffer compartilhado da alocação; o último usuário o destrói. */
+    private releaseSharedGeometry(allocation: Allocation): void {
+        const key = allocation.sharedKey;
+        if (key === undefined) return;
+        delete allocation.sharedKey;
+        const shared = this.sharedGeometry.get(key);
+        if (shared === undefined) return;
+        if (--shared.users > 0) return;
+        this.sharedGeometry.delete(key);
+        this.core.destroy(shared.spec);
+    }
+
     /** Buffer de vértice, índice ou indireto com a forma do conteúdo atual de `data[desc.id]`. */
     private createGeometryBuffer(
         resource: Resource,
         desc: GPUDescriptor,
         shape: GeometryShape = this.geometryShape(resource, desc),
+        discriminator?: string,
     ): AnyBufferSpec {
-        const disc = `${desc.id}:${this.identityOf(resource)}`;
+        const disc = discriminator ?? `${desc.id}:${this.identityOf(resource)}`;
         if (desc.role === 'vertex') {
             return this.core.create<VertexBufferSpec>({
                 kind: 'buffer',
@@ -681,14 +844,20 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 if (!entry.occupants.has(s) && !entry.freeList.includes(s)) entry.freeList.push(s);
             }
             entry.count = Math.max(entry.count, slot + 1);
-            entry.occupants.set(slot, { resource, schema });
+            entry.occupants.set(slot, {
+                resource,
+                schema,
+                ...(policyOf(desc) === 'initial'
+                    ? { initial: bytesOf(schema.pack(resource.data)) }
+                    : {}),
+            });
+            entry.slotOfResource.set(resource, slot);
             if (entityId !== undefined) {
                 entry.slotByEntity.set(entityId, slot);
                 entry.entityBySlot.set(slot, entityId);
             }
-            if (policyOf(desc) !== 'never') {
-                this.core.write(entry.bufferSpec, schema.pack(resource.data), slot * entry.stride);
-            }
+            // O dado inicial vai no próximo envio, junto com os vizinhos (faixas contíguas).
+            if (policyOf(desc) !== 'never') this.markSlot(entry, slot);
         }
     }
 
@@ -726,8 +895,10 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             slotByEntity: new Map(),
             entityBySlot: new Map(),
             occupants: new Map(),
+            slotOfResource: new Map(),
             freeList: [],
             generation: 0,
+            dirtyBits: new Uint32Array(Math.ceil(capacity / 32)),
         };
         this.pools.set(poolKey, entry);
         this.consumers.registerDefault(new PoolResolver(poolKey, schema));
@@ -759,28 +930,20 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             entry.stride * entry.capacity,
             ++entry.generation,
         );
-        // Preserva o conteúdo conforme quem é dono do dado:
-        //   - 'initial': a GPU é dona (ex.: simulação) — copia o buffer antigo na GPU;
-        //     reempacotar da CPU reverteria o estado simulado ao valor inicial.
-        //   - 'always': reempacota da CPU (fonte de verdade).
-        //   - 'never': não há dado na CPU; o produtor recalcula ao receber `poolReallocated`.
-        // A cópia grava um comando próprio: crescer durante a gravação de um quadro não é
-        // suportado (alocações ocorrem em `resourcesChanged`, fora da gravação).
-        if (entry.upload === 'initial') {
+        // O conteúdo vai para o buffer novo por cópia na GPU — o que a GPU produziu (simulação, posse da GPU) e o que a
+        // CPU já enviou; slots ainda marcados são escritos no buffer novo no próximo envio. Pools 'never' só
+        // realocam: o produtor recalcula ao receber `poolReallocated`. A cópia grava um comando próprio: crescer
+        // durante a gravação de um quadro não é suportado (alocações ocorrem fora da gravação).
+        if (entry.upload !== 'never') {
             const target = entry.bufferSpec;
             this.core.record(`pool_grow:${entry.poolKey}`, (frame) => {
                 frame.copy(oldSpec, target, oldByteSize);
             });
             this.core.submit();
-        } else if (entry.upload === 'always') {
-            for (const [slot, occupant] of entry.occupants) {
-                this.core.write(
-                    entry.bufferSpec,
-                    occupant.schema.pack(occupantData(occupant)),
-                    slot * entry.stride,
-                );
-            }
         }
+        const bits = new Uint32Array(Math.ceil(entry.capacity / 32));
+        bits.set(entry.dirtyBits);
+        entry.dirtyBits = bits;
         this.core.destroy(oldSpec);
         this.events.emit('poolReallocated', {
             poolKey: entry.poolKey,
@@ -808,7 +971,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         entry.occupants.set(slot, { schema: entry.schema, record: values });
         entry.slotByEntity.set(id, slot);
         entry.entityBySlot.set(slot, id);
-        set.pending.add(slot);
+        this.markSlot(entry, slot);
     }
 
     private removeRecord(set: RecordSet, id: EntityId): void {
@@ -819,7 +982,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         entry.entityBySlot.delete(slot);
         entry.occupants.delete(slot);
         entry.freeList.push(slot);
-        set.pending.delete(slot);
+        this.clearSlot(entry, slot);
     }
 
     /** Campos do registro: o slot de pool do descritor nomeado do Resource de cada tipo; `undefined` se faltar algum. */
@@ -842,34 +1005,6 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return values;
     }
 
-    /** Escreve os registros pendentes, uma escrita por sequência de slots contíguos. */
-    private flushRecords(): void {
-        for (const set of this.recordSets.values()) {
-            if (set.pending.size === 0) continue;
-            const entry = set.entry;
-            const slots = [...set.pending].sort((a, b) => a - b);
-            set.pending.clear();
-            let start = 0;
-            while (start < slots.length) {
-                let end = start;
-                while (end + 1 < slots.length && slots[end + 1] === slots[end]! + 1) end++;
-                const first = slots[start]!;
-                const bytes = new Uint8Array((end - start + 1) * entry.stride);
-                for (let i = start; i <= end; i++) {
-                    const occupant = entry.occupants.get(slots[i]!);
-                    if (occupant === undefined) continue;
-                    set.declaration.schema.packInto(
-                        bytes,
-                        (slots[i]! - first) * entry.stride,
-                        occupantData(occupant),
-                    );
-                }
-                this.core.write(entry.bufferSpec, bytes, first * entry.stride);
-                start = end + 1;
-            }
-        }
-    }
-
     // ── Descarte ─────────────────────────────────────────────────────────────
 
     private release(resource: Resource): void {
@@ -879,7 +1014,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const own = this.allocations.get(resource);
         if (own !== undefined) {
             for (const allocation of own.values()) {
-                if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
+                if (allocation.sharedKey !== undefined) this.releaseSharedGeometry(allocation);
+                else if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
                 this.releaseTexture(allocation);
                 if (allocation.sampler !== undefined) this.core.destroy(allocation.sampler);
             }
@@ -888,16 +1024,15 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         for (const desc of resource.getDescriptors()) {
             if (desc.storage !== 'pool' || desc.schema === undefined) continue;
             const entry = this.pools.get(this.computePoolKey(desc.schema, resource));
-            if (entry === undefined) continue;
-            for (const [slot, occupant] of entry.occupants) {
-                if (occupant.resource !== resource) continue;
-                entry.occupants.delete(slot);
-                const eid = entry.entityBySlot.get(slot);
-                if (eid !== undefined) entry.slotByEntity.delete(eid);
-                entry.entityBySlot.delete(slot);
-                entry.freeList.push(slot);
-                break;
-            }
+            const slot = entry?.slotOfResource.get(resource);
+            if (entry === undefined || slot === undefined) continue;
+            entry.slotOfResource.delete(resource);
+            entry.occupants.delete(slot);
+            const eid = entry.entityBySlot.get(slot);
+            if (eid !== undefined) entry.slotByEntity.delete(eid);
+            entry.entityBySlot.delete(slot);
+            entry.freeList.push(slot);
+            this.clearSlot(entry, slot);
         }
         this.transition(resource, ResourceState.Destroyed);
     }
@@ -911,7 +1046,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     // ── Envio ────────────────────────────────────────────────────────────────
 
-    /** Envia os descritores 'always' do recurso (individuais inteiros / pool no slot). */
+    /** Envia os descritores 'always' do recurso: individuais inteiros agora; em pool, marca o slot para o envio. */
     private upload(resource: Resource): void {
         const own = this.allocations.get(resource);
         for (const desc of resource.getDescriptors()) {
@@ -919,16 +1054,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             if (desc.storage === 'pool') {
                 if (desc.schema === undefined) continue;
                 const entry = this.pools.get(this.computePoolKey(desc.schema, resource));
-                if (entry === undefined) continue;
-                for (const [slot, occupant] of entry.occupants) {
-                    if (occupant.resource !== resource) continue;
-                    this.core.write(
-                        entry.bufferSpec,
-                        desc.schema.pack(resource.data),
-                        slot * entry.stride,
-                    );
-                    break;
-                }
+                const slot = entry?.slotOfResource.get(resource);
+                if (entry !== undefined && slot !== undefined) this.markSlot(entry, slot);
                 continue;
             }
             const allocation = own?.get(desc.id);
@@ -941,8 +1068,25 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
     }
 
-    /** Reenvia vértices/índices/argumentos; conteúdo de outra forma (tamanho, formato) recria o buffer. */
+    /**
+     * Reenvia vértices/índices/argumentos; conteúdo de outra forma (tamanho, formato) recria o buffer. Geometria
+     * compartilhada: mesma chave = mesmo conteúdo (nada a enviar); chave nova solta o buffer antigo e passa ao da chave
+     * nova (cópia na escrita).
+     */
     private refreshGeometryBuffer(resource: Resource, allocation: Allocation): void {
+        const key = this.sharedGeometryKey(resource, allocation.desc);
+        if (allocation.sharedKey !== undefined || key !== undefined) {
+            if (key === allocation.sharedKey) return;
+            if (allocation.sharedKey !== undefined) this.releaseSharedGeometry(allocation);
+            else if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
+            if (key !== undefined) {
+                this.acquireSharedGeometry(resource, allocation, key);
+                return;
+            }
+            allocation.buffer = this.createGeometryBuffer(resource, allocation.desc);
+            this.writeBufferContent(resource, allocation);
+            return;
+        }
         const current = allocation.buffer;
         if (current === undefined) return;
         const shape = this.geometryShape(resource, allocation.desc);
@@ -1046,6 +1190,11 @@ function padTo4(view: ArrayBufferView): ArrayBufferView {
     const out = new Uint8Array(alignUp(view.byteLength, 4));
     out.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
     return out;
+}
+
+/** Vista de bytes de um `ArrayBufferView`. */
+function bytesOf(view: ArrayBufferView): Uint8Array {
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
 }
 
 function occupantData(occupant: Occupant): Record<string, unknown> {

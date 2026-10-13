@@ -38,7 +38,7 @@ type Ctx = TransitionContext<TransformSlots>;
  * `WorldTransform` (mesmo slot do `Transform`), que os estágios de sombra e desenho leem por índice de instância.
  *
  * Slots: os pools `Transform` e `WorldTransform` (ligados por `consumes`) e as entidades com `Transform`. Reativo
- * pela tabela de transições: fica `stale` com `resourceReady` de um `Transform`, entidades inseridas ou removidas,
+ * pela tabela de transições: fica `stale` com `poolWritten` do pool `Transform`, entidades inseridas ou removidas,
  * pool realocado ou bind group substituído; em `stale`, `framePrepare` escreve a contagem (uma vez por quadro) e o
  * quadro grava a composição; `frameRecorded` volta a `clean` — numa cena parada não faz nada.
  *
@@ -91,6 +91,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
                 slotLost: stale,
                 pipelinesCompiled: stale,
                 resourceReady: stale,
+                poolWritten: stale,
                 entitiesChanged: stale,
                 poolReallocated: stale,
                 bindGroupReplaced: stale,

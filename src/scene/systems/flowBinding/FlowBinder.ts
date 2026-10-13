@@ -4,8 +4,9 @@ import type { Unsubscribe } from '../../events/EventBus';
 import { FlowRuntime, type FlowRuntimeHost } from './FlowRuntime';
 
 /**
- * Os Flows alocados pela C2 e a sua reação a eventos da cena: entidades (slots `entities`), pools recriados,
- * canvas redimensionado, `resourceReady` dos schemas escutados e mudanças de recursos (slots e fontes). A
+ * Os Flows alocados pela C2 e a sua reação a eventos da cena: entidades (slots `entities`, entregues agregadas por
+ * quadro), pools recriados, canvas redimensionado, `resourceReady`/`poolWritten` dos schemas escutados e mudanças de
+ * recursos (slots e fontes). A
  * reconciliação (slots → pipelines → bind groups → ciclo de vida) roda na alocação, no redimensionamento e antes de
  * cada gravação de quadro, só para os Flows com mudanças.
  */
@@ -58,6 +59,18 @@ export class FlowBinder {
                         rt.deliverDomain({ type: 'resourceReady', schema, resource });
                 }
             }),
+            events.on('poolWritten', (e) => {
+                for (const rt of this.runtimes.values()) {
+                    if (rt.listens(e.schema)) {
+                        rt.deliverDomain({
+                            type: 'poolWritten',
+                            poolKey: e.poolKey,
+                            schema: e.schema,
+                            ranges: e.ranges,
+                        });
+                    }
+                }
+            }),
         ];
     }
 
@@ -83,10 +96,12 @@ export class FlowBinder {
     }
 
     /**
-     * Antes da gravação do quadro: reconcilia e entrega `framePrepare` (escritas por quadro). Uma escrita que mude
+     * Antes da gravação do quadro: entrega as mudanças de entidades acumuladas (um `entitiesChanged` por slot),
+     * reconcilia e entrega `framePrepare` (escritas por quadro). Uma escrita que mude
      * fontes (ex.: `ctx.bind`) entra na reconciliação seguinte, ainda antes da gravação.
      */
     prepareFrame(): void {
+        for (const rt of [...this.runtimes.values()]) rt.deliverEntityChanges();
         this.reconcile();
         for (const rt of [...this.runtimes.values()]) rt.framePrepare();
         this.reconcile();

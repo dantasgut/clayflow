@@ -6,8 +6,8 @@ import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
 import { registerStages, renderScene } from './helpers/renderHarness';
 
-function entity() {
-    return new BoxGeometry()
+function entity(size: readonly number[] = [1, 1, 1]) {
+    return new BoxGeometry({ size })
         .add(new StandardMaterial({ albedo: [1, 1, 1, 1] }))
         .add(new Transform());
 }
@@ -18,8 +18,9 @@ describe('liberação de GPU na remoção de entidade (R14)', () => {
         registerStages(s.scene, { shadow: true, forward: 'canvas' });
         s.scene.world.insert(new Camera());
         s.scene.world.insert(new DirectionalLight({ castShadow: true }));
-        const a = entity();
-        const b = entity();
+        // Tamanhos diferentes: conteúdos diferentes, buffers próprios (o mesmo conteúdo seria compartilhado).
+        const a = entity([1, 1, 1]);
+        const b = entity([2, 2, 2]);
         s.scene.world.insert(a);
         s.scene.world.insert(b);
         s.step();

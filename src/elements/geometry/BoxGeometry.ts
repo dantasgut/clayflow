@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Geometry } from './Geometry';
+import { sharedContent } from './geometryContent';
 
 /**
  * BoxGeometry — paralelepípedo retangular gerado proceduralmente a partir
@@ -26,13 +27,16 @@ export class BoxGeometry extends Geometry {
         const sx = (size[0] ?? 1) / 2,
             sy = (size[1] ?? 1) / 2,
             sz = (size[2] ?? 1) / 2;
-        const verts = generateBox(sx, sy, sz);
-        const indices = boxIndices();
+        // Mesmo tamanho → mesmos arrays (gerados uma vez por chave; a C2 deduplica os buffers pela chave).
+        const { vertices, indices } = sharedContent(`BoxGeometry:${sx},${sy},${sz}`, () => ({
+            vertices: generateBox(sx, sy, sz),
+            indices: boxIndices(),
+        }));
         this.data = {
             size,
-            vertices: verts,
+            vertices,
             indices,
-            vertexCount: verts.length / 8,
+            vertexCount: vertices.length / 8,
             indexCount: indices.length,
         };
     }

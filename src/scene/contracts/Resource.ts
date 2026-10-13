@@ -45,6 +45,13 @@ export interface Resource {
     getPipelineDescriptors(): readonly PipelineDescriptor[];
 
     /**
+     * Chave de conteúdo dos descritores `vertex`/`index` (spec 007). Resources com a mesma chave compartilham esses
+     * buffers na GPU: a Camada 2 cria e escreve o buffer uma vez por chave e o libera quando o último usuário sai. Sem
+     * chave, cada Resource tem os seus.
+     */
+    readonly contentKey?: string | undefined;
+
+    /**
      * Flows associados ao resource. Opcional — usado por Resources que
      * preferem encapsular sua lógica de execução (e.g. SoftBody declarando
      * seu próprio XPBDFlow). Quando ausente, o app/plugin registra flows

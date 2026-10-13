@@ -64,6 +64,11 @@ export class FlowRuntime {
     private readonly entityViews = new Map<string, BoundEntities>();
     /** Lista das entradas por slot, refeita só quando o conjunto muda. */
     private readonly entityCaches = new Map<string, readonly EntityEntry[]>();
+    /** Mudanças de entidades por slot desde o último `entitiesChanged` (entregues por quadro). */
+    private readonly pendingChanges = new Map<
+        string,
+        { readonly added: Set<EntityId>; readonly removed: Set<EntityId> }
+    >();
     private readonly compiledQueue: string[] = [];
     /** Identidade dos slots opcionais na última resolução. */
     private readonly slotIdentity = new Map<string, unknown>();
@@ -216,31 +221,65 @@ export class FlowRuntime {
             this.deliver({ type: 'frameRecorded' });
     }
 
-    /** Entidades inseridas: atualiza os slots `entities` e entrega `entitiesChanged`. */
+    /** Entidades inseridas: atualiza os slots `entities` agora; o `entitiesChanged` sai agregado no quadro. */
     entitiesInserted(ids: readonly EntityId[]): void {
         for (const [name, set] of this.entitySets) {
             const decl = this.flow.slots[name] as EntitiesSlot;
-            const added: EntityId[] = [];
+            let changed = false;
             for (const id of ids) {
                 const entry = this.entryFor(id, decl);
                 if (entry === undefined) continue;
                 set.set(id, entry);
-                added.push(id);
+                this.changesOf(name).added.add(id);
+                changed = true;
             }
-            if (added.length > 0) this.entityCaches.delete(name);
-            if (added.length > 0)
-                this.deliverDomain({ type: 'entitiesChanged', slot: name, added, removed: [] });
+            if (changed) this.entityCaches.delete(name);
         }
     }
 
-    /** Entidades removidas: atualiza os slots `entities` e entrega `entitiesChanged`. */
+    /** Entidades removidas: atualiza os slots `entities` agora; o `entitiesChanged` sai agregado no quadro. */
     entitiesRemoved(ids: readonly EntityId[]): void {
         for (const [name, set] of this.entitySets) {
-            const removed = ids.filter((id) => set.delete(id));
-            if (removed.length > 0) this.entityCaches.delete(name);
-            if (removed.length > 0)
-                this.deliverDomain({ type: 'entitiesChanged', slot: name, added: [], removed });
+            let changed = false;
+            for (const id of ids) {
+                if (!set.delete(id)) continue;
+                const changes = this.changesOf(name);
+                // Entrou e saiu no mesmo quadro: o Flow nunca a viu.
+                if (!changes.added.delete(id)) changes.removed.add(id);
+                changed = true;
+            }
+            if (changed) this.entityCaches.delete(name);
         }
+    }
+
+    /** Entrega um `entitiesChanged` por slot com as mudanças acumuladas (antes de `framePrepare`). */
+    deliverEntityChanges(): void {
+        if (this.pendingChanges.size === 0) return;
+        const pending = [...this.pendingChanges];
+        this.pendingChanges.clear();
+        for (const [slot, { added, removed }] of pending) {
+            if (added.size === 0 && removed.size === 0) continue;
+            this.deliverDomain({
+                type: 'entitiesChanged',
+                slot,
+                added: [...added],
+                removed: [...removed],
+            });
+        }
+    }
+
+    private changesOf(name: string): { added: Set<EntityId>; removed: Set<EntityId> } {
+        let changes = this.pendingChanges.get(name);
+        if (changes === undefined) {
+            changes = { added: new Set(), removed: new Set() };
+            this.pendingChanges.set(name, changes);
+        }
+        return changes;
+    }
+
+    /** O Flow declara `schema` em `listens`? */
+    listens(schema: Schema): boolean {
+        return this.flow.listens.includes(schema);
     }
 
     /** O Flow escuta `resource` (algum descritor com schema de `listens`)? Devolve o schema, ou `undefined`. */

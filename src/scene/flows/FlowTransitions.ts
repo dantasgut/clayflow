@@ -13,10 +13,12 @@ import type { EntityId } from '../world/EntityId';
  * - `slotChanged`: um slot opcional (ou um pool de `slot.pools`) apareceu, sumiu ou trocou de recurso.
  * - `pipelinesCompiled`: os pipelines declarados (ou um preparado em transição, `pipeline`) compilaram.
  * - `bindGroupReplaced`: a C2 recriou um bind group de um pipeline do Flow (fonte recriada).
- * - `entitiesChanged`: entraram ou saíram entidades de um slot `entities`.
+ * - `entitiesChanged`: entraram ou saíram entidades de um slot `entities` — um evento por slot por quadro, com as
+ *   mudanças acumuladas desde o anterior, entregue antes de `framePrepare`.
  * - `canvasReconfigured`: o canvas mudou de tamanho (Flows com slot `target`).
  * - `poolReallocated`: um pool de um slot do Flow foi recriado (crescimento).
- * - `resourceReady`: um Resource de um schema de `listens` foi alocado ou enviado.
+ * - `resourceReady`: um Resource com objetos próprios, de um schema de `listens`, foi alocado ou enviado.
+ * - `poolWritten`: a C2 enviou faixas de um pool cujo schema está em `listens` (um evento por pool por envio).
  * - `framePrepare`: o quadro vai ser gravado (dados enviados, slots e bind groups reconciliados) — momento das
  *   escritas por quadro de uniforms privados (parâmetros por passo, contagens). Entregue só a quem o declara.
  * - `frameRecorded`: o quadro em que o Flow gravou foi enviado — entregue só aos Flows cuja tabela declara o evento
@@ -88,6 +90,16 @@ export type FlowEvent =
           readonly schema: Schema;
           /** O Resource alocado ou enviado. */
           readonly resource: Resource;
+      }
+    | {
+          /** Faixas de um pool de um schema de `listens` enviadas pela CPU. */
+          readonly type: 'poolWritten';
+          /** Chave do pool. */
+          readonly poolKey: string;
+          /** Schema (de `listens`) do pool. */
+          readonly schema: Schema;
+          /** Faixas escritas: `[primeiro slot, quantidade]`. */
+          readonly ranges: readonly (readonly [number, number])[];
       }
     | {
           /** Quadro prestes a ser gravado (opt-in). */

@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Geometry } from './Geometry';
+import { functionId, sharedContent } from './geometryContent';
 
 /**
  * Função paramétrica que mapeia coordenadas (u, v) ∈ [0,1]² → posição 3D.
@@ -38,9 +39,15 @@ export class ParametricGeometry extends Geometry {
         const fn = (values.fn ?? defaultFn) as ParametricFunction;
         const uSteps = (values.uSteps ?? 32) as number;
         const vSteps = (values.vSteps ?? 32) as number;
-        const sampled = sample(fn, uSteps, vSteps);
-        const vertices = sampled.vertices;
-        const indices = Geometry.indexArray(sampled.indices, vertices.length / 8);
+        // Mesma função (identidade) e mesma subdivisão → mesmos arrays.
+        const key = `ParametricGeometry:fn${functionId(fn)}:${uSteps}x${vSteps}`;
+        const { vertices, indices } = sharedContent(key, () => {
+            const sampled = sample(fn, uSteps, vSteps);
+            return {
+                vertices: sampled.vertices,
+                indices: Geometry.indexArray(sampled.indices, sampled.vertices.length / 8),
+            };
+        });
         this.data = {
             uSteps,
             vSteps,

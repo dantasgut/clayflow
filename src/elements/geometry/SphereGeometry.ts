@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Geometry } from './Geometry';
+import { sharedContent } from './geometryContent';
 
 /**
  * SphereGeometry — esfera gerada via lat/lon tessellation. Default 16
@@ -23,9 +24,16 @@ export class SphereGeometry extends Geometry {
         const radius = (values.radius ?? 1) as number;
         const lat = (values.latSegments ?? 16) as number;
         const lon = (values.lonSegments ?? 32) as number;
-        const generated = generateSphere(radius, lat, lon);
-        const vertices = generated.vertices;
-        const indices = Geometry.indexArray(generated.indices, vertices.length / 8);
+        const { vertices, indices } = sharedContent(
+            `SphereGeometry:${radius},${lat},${lon}`,
+            () => {
+                const generated = generateSphere(radius, lat, lon);
+                return {
+                    vertices: generated.vertices,
+                    indices: Geometry.indexArray(generated.indices, generated.vertices.length / 8),
+                };
+            },
+        );
         this.data = {
             radius,
             latSegments: lat,

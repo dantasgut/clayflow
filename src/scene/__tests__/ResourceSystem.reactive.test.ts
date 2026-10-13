@@ -134,6 +134,7 @@ describe('ResourceSystem — dado reativo e fila por quadro', () => {
         const b = new PoolThing(2);
         world.insert(a);
         const idB = world.insert(b);
+        frame(); // dado inicial dos dois slots numa faixa
         (b.data.value as number[])[0] = 5;
         frame();
         const last = writes.at(-1)!;

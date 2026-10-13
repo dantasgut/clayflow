@@ -4,7 +4,7 @@ import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory'
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { BoundFlow, PreparedRender, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
-import type { FlowEvent, FlowTransitions } from '../../scene/flows/FlowTransitions';
+import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
@@ -98,7 +98,7 @@ export interface ShadowFlowOptions {
  * textura do `ShadowMap` dela (slot `target`).
  *
  * Slots: o `ShadowMap` da luz (caster), os pools `WorldTransform` e `ShadowMap` e as entidades com geometria e
- * transform. A matriz luz-vista-projeção é calculada na CPU quando a luz muda (`resourceReady` da luz, escuta de
+ * transform. A matriz luz-vista-projeção é calculada na CPU quando a luz muda (`poolWritten` do pool de luzes, escuta de
  * `Light`) ou quando o caster aparece, e gravada em `ShadowMap.data.lightViewProj` — o envio reativo da C2 a leva ao
  * pool, que este estágio e o render principal leem pelo slot do mapa. A geometria é a alocada pela C2 (nenhuma cópia
  * por entidade); a posição vem do pool `WorldTransform` pelo slot da entidade (`firstInstance`).
@@ -154,8 +154,14 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                 canvasReconfigured: 'ignore',
                 resourceReady: {
                     to: 'idle',
-                    run: (e, c) => {
-                        this.lightChanged(e, c);
+                    run: (_e, c) => {
+                        this.lightChanged(c);
+                    },
+                },
+                poolWritten: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        this.lightChanged(c);
                     },
                 },
             },
@@ -223,14 +229,9 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         this.writeLightViewProj(shadowMap);
     }
 
-    /** A luz do caster mudou: recalcula a matriz. */
-    private lightChanged(event: FlowEvent, ctx: Ctx): void {
-        if (event.type !== 'resourceReady') return;
-        const resource = event.resource;
-        const shadowMap = ctx.bound.slots.caster.resource as ShadowMap;
-        const id = this.world.entityIdOfResource(shadowMap);
-        if (id === undefined || !this.world.resourcesOf(id).includes(resource)) return;
-        this.writeLightViewProj(shadowMap);
+    /** Uma luz foi enviada: recalcula a matriz do caster (só grava se mudou). */
+    private lightChanged(ctx: Ctx): void {
+        this.writeLightViewProj(ctx.bound.slots.caster.resource as ShadowMap);
     }
 
     /** Matriz luz-vista-projeção (ortográfica ±10, olho a 10 m contra a direção da luz) gravada no `ShadowMap`. */
