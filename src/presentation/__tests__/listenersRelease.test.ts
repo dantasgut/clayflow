@@ -4,6 +4,9 @@ import { InteractionSystem } from '../input/InteractionSystem';
 import { FpsController } from '../input/controllers/FpsController';
 import { Application } from '../app/Application';
 import { Camera } from '../../elements/scene/Camera';
+import { Transform } from '../../elements/scene/Transform';
+import { Input } from '../input/Input';
+import { World } from '../../scene/world/World';
 import { DefaultEventBus } from '../../scene/events/DefaultEventBus';
 import { createScene } from '../../scene/SceneContext';
 import { fakeSceneCore } from '../../scene/__tests__/helpers/fakeSceneCore';
@@ -33,18 +36,21 @@ describe('liberação de ouvintes (R14)', () => {
         debug.dispose();
     });
 
-    it('InteractionSystem.detach remove frameTick; dispose também descarta os controllers', () => {
+    it('InteractionSystem.detach remove frameTick; dispose também descarta os controllers da cena', () => {
         const events = new DefaultEventBus();
+        const world = new World(events);
         const canvas = document.createElement('canvas');
-        const system = new InteractionSystem({ canvas, window }, events);
+        const input = new Input();
+        world.insert(input);
+        const system = new InteractionSystem({ canvas, window }, events, world, input);
         system.attach();
         expect(events.listenerCount('frameTick')).toBe(1);
         system.detach();
         expect(events.listenerCount('frameTick')).toBe(0);
         system.attach();
-        const controller = new FpsController(new Camera(), { canvas });
+        const controller = new FpsController({ canvas });
         const disposeController = vi.spyOn(controller, 'dispose');
-        system.addController(controller);
+        world.insert(new Camera().add(new Transform()).add(controller));
         system.dispose();
         expect(events.listenerCount('frameTick')).toBe(0);
         expect(disposeController).toHaveBeenCalledOnce();
@@ -54,7 +60,7 @@ describe('liberação de ouvintes (R14)', () => {
         const canvas = document.createElement('canvas');
         const add = vi.spyOn(canvas, 'addEventListener');
         const remove = vi.spyOn(canvas, 'removeEventListener');
-        const controller = new FpsController(new Camera(), { canvas });
+        const controller = new FpsController({ canvas });
         const click = add.mock.calls.find((c) => c[0] === 'click')?.[1];
         expect(click).toBeDefined();
         controller.dispose();

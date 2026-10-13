@@ -11,6 +11,7 @@ import { createScene, type SceneContext } from '../../../../scene/SceneContext';
 import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';
 import { TransformFlow } from '../../../../elements/scene/flows/TransformFlow';
+import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
 import { FrameTargets } from '../../../app/FrameTargets';
 import { ForwardFlow, type ForwardOutput } from '../../ForwardFlow';
 import { PostFlow } from '../../PostFlow';
@@ -262,6 +263,11 @@ export function registerStages(
     scene.flows.register((ctx) => new TransformFlow(ctx), {
         type: 'transform',
         phase: 'transform',
+    });
+    scene.flows.register((ctx) => new CameraFlow(ctx), {
+        type: 'camera',
+        phase: 'transform',
+        priority: -10,
     });
     const shadow =
         options.shadow === true

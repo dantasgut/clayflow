@@ -14,7 +14,7 @@ export const forward = wgslModule({
     source: forwardSource,
     requires: [brdf],
     structs: [
-        Camera.schema,
+        Camera.matricesSchema,
         Transform.worldSchema,
         RenderableSchema,
         RenderInstanceSchema,

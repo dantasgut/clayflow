@@ -54,7 +54,7 @@ describe('material em pool de storage', () => {
     it('trocar o material da entidade por outro schema a move de pool e muda o pipeline do desenho', async () => {
         const s = await renderScene();
         registerStages(s.scene, { forward: 'canvas' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         const standard = new BoxGeometry().add(new StandardMaterial()).add(new Transform());
         const id = s.scene.world.insert(standard);
         s.step();

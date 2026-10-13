@@ -52,7 +52,14 @@ async function main(): Promise<void> {
     canvas.height = 180;
     document.body.appendChild(canvas);
     const app = await Application.create({ canvas, scene: createScene(), autoResize: false });
-    app.world.insert(new Camera({}));
+    app.world.insert(
+        new Camera({ far: 1000 }).add(
+            new Transform({
+                position: [-20, 150, 250, 1],
+                rotation: Transform.lookRotation([-20, 150, 250], [50, 50, 50]),
+            }),
+        ),
+    );
     const side = Math.ceil(Math.cbrt(COUNT));
     const t0 = performance.now();
     for (let i = 0; i < COUNT; i++) {

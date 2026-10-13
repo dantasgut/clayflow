@@ -40,7 +40,7 @@ async function main(): Promise<void> {
         engineErrors++;
         if (engineErrors <= 3) log(`!! engineError: ${e.stage}/${e.filter}: ${e.message}`);
     });
-    app.world.insert(new Camera());
+    app.world.insert(new Camera().add(new Transform()));
     app.world.insert(new DirectionalLight({ direction: [-0.3, -1, -0.5, 0], castShadow: true }));
 
     const cycle = (c: number): void => {

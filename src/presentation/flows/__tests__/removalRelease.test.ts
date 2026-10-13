@@ -16,7 +16,7 @@ describe('liberação de GPU na remoção de entidade (R14)', () => {
     it('os estágios não têm objeto por entidade: a C2 libera VBO e IBO da geometria removida, e só ela', async () => {
         const s = await renderScene();
         registerStages(s.scene, { shadow: true, forward: 'canvas' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         s.scene.world.insert(new DirectionalLight({ castShadow: true }));
         // Tamanhos diferentes: conteúdos diferentes, buffers próprios (o mesmo conteúdo seria compartilhado).
         const a = entity([1, 1, 1]);
@@ -45,7 +45,7 @@ describe('liberação de GPU na remoção de entidade (R14)', () => {
     it('entidade removida antes do primeiro quadro não é desenhada', async () => {
         const s = await renderScene();
         registerStages(s.scene, { forward: 'canvas' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         const box = entity();
         s.scene.world.insert(box);
         s.scene.world.remove(box);

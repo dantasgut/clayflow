@@ -14,7 +14,7 @@ import { discOf, registerStages, renderScene } from './helpers/renderHarness';
 async function scene() {
     const s = await renderScene();
     registerStages(s.scene, { shadow: true, forward: 'scene' });
-    const camera = new Camera();
+    const camera = new Camera().add(new Transform({ position: [0, 0, 5, 1] }));
     s.scene.world.insert(camera);
     s.scene.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true }));
     const add = (n: number): void => {
@@ -51,18 +51,19 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         expect(s.draws('ShadowFlow').map((d) => d.instanceCount)).toEqual([10_010]);
     });
 
-    it('SC-002: a câmera é escrita uma vez no quadro em que muda e nenhuma nos outros', async () => {
+    it('SC-002: nenhuma matriz de câmera vem da CPU; parâmetros escritos só quando mudam (spec 007)', async () => {
         const s = await scene();
         s.add(100);
         s.step();
-        const cameraBuffer = s.scene.resourceSystem.bufferOf(s.camera, 'camera');
-        expect(cameraBuffer).toBeDefined();
+        const pool = (key: string) => s.scene.resourceSystem.poolBufferSpec(key);
         s.resetCounts();
         s.step();
-        expect(s.writes().filter((w) => w === cameraBuffer)).toHaveLength(0);
-        (s.camera.data.position as number[])[0] = 3;
+        expect(s.writes().filter((w) => w === pool('Camera'))).toHaveLength(0);
+        expect(s.writes().filter((w) => w === pool('CameraMatrices'))).toHaveLength(0);
+        s.camera.data.fov = Math.PI / 3;
         s.step();
-        expect(s.writes().filter((w) => w === cameraBuffer)).toHaveLength(1);
+        expect(s.writes().filter((w) => w === pool('Camera'))).toHaveLength(1);
+        expect(s.writes().filter((w) => w === pool('CameraMatrices'))).toHaveLength(0);
     });
 
     it('nenhuma criação nem escrita em quadros estáveis além do relógio', async () => {
@@ -127,7 +128,7 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         registerStages(s.scene, { forward: 'scene' });
         s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
         expect(s.step().filter((p) => p.label === 'ForwardFlow')).toEqual([]);
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         expect(s.step().filter((p) => p.label === 'ForwardFlow')).toHaveLength(1);
     });
 
@@ -135,7 +136,7 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const s = await renderScene();
         registerStages(s.scene, { forward: 'scene' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         s.scene.world.insert(new BoxGeometry().add(new Transform()));
         for (let i = 0; i < 5; i++) s.step();
         expect(s.draws('ForwardFlow')).toEqual([]);

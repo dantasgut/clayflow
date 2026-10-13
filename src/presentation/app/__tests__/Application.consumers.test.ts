@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createScene } from '../../../scene/SceneContext';
 import { fakeSceneCore } from '../../../scene/__tests__/helpers/fakeSceneCore';
+import { PoolResolver } from '../../../scene/consumers/strategies/PoolResolver';
 import { SingletonResolver } from '../../../scene/consumers/strategies/SingletonResolver';
 import type { ConsumerResolver } from '../../../scene/consumers/ConsumerResolver';
 import type { ConsumerResolverRegistry } from '../../../scene/consumers/ConsumerResolverRegistry';
 import { Camera } from '../../../elements/scene/Camera';
+import { Transform } from '../../../elements/scene/Transform';
 import { GravityField } from '../../../elements/physics/forcefields/GravityField';
 import { Application } from '../Application';
 
@@ -25,20 +27,21 @@ async function app(consumers?: (r: ConsumerResolverRegistry) => void) {
 }
 
 describe('Application — resolvers de consumes', () => {
-    it('registra os resolvers padrão da C3 (Camera, GravityField, ParticleMaterial)', async () => {
+    it('registra os resolvers padrão da C3 (GravityField, ParticleMaterial); a câmera é pool (spec 007)', async () => {
         const { scene } = await app();
-        for (const name of ['Camera', 'GravityField', 'ParticleMaterial']) {
+        for (const name of ['GravityField', 'ParticleMaterial']) {
             expect(scene.consumers.get(name)).toBeInstanceOf(SingletonResolver);
         }
-        scene.world.insert(new Camera());
-        expect(
-            scene.consumers.resolve('Camera', {
-                world: scene.world,
-                resources: scene.resourceSystem,
-            }),
-        ).toMatchObject({
-            kind: 'buffer',
-        });
+        scene.world.insert(new Camera().add(new Transform()));
+        for (const name of ['Camera', 'CameraMatrices']) {
+            expect(scene.consumers.get(name)).toBeInstanceOf(PoolResolver);
+            expect(
+                scene.consumers.resolve(name, {
+                    world: scene.world,
+                    resources: scene.resourceSystem,
+                }),
+            ).toMatchObject({ kind: 'buffer' });
+        }
     });
 
     it('options.consumers registra resolvers da aplicação, inclusive substituindo um padrão', async () => {

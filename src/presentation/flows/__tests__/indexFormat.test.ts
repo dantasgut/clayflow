@@ -41,7 +41,7 @@ async function drawnIndexBuffer(
     const s = await renderScene();
     if (stage === 'ForwardFlow') {
         registerStages(s.scene, { forward: 'canvas' });
-        s.scene.world.insert(new Camera());
+        s.scene.world.insert(new Camera().add(new Transform()));
         s.scene.world.insert(geometry.add(new StandardMaterial()).add(new Transform()));
     } else {
         registerStages(s.scene, { shadow: true });

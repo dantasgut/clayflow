@@ -17,7 +17,7 @@ import { registerStages, renderScene, type DrawCall } from './helpers/renderHarn
 async function scene() {
     const s = await renderScene();
     registerStages(s.scene, { shadow: true, forward: 'scene' });
-    s.scene.world.insert(new Camera());
+    s.scene.world.insert(new Camera().add(new Transform()));
     s.scene.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true }));
     return s;
 }

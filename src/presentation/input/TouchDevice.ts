@@ -1,7 +1,7 @@
 import type { Input } from './Input';
 
 /**
- * Touch input → reflexo no Input.state. Suporta:
+ * Touch input → reflexo no `Input.current`. Suporta:
  *   - 1 dedo: atualiza pointerX/Y (paridade com mouse).
  *   - 2 dedos: pinch — incrementa state.pinchDelta com a variação da distância
  *     entre os 2 dedos (positivo = afastando = zoom-out).
@@ -33,15 +33,15 @@ export class TouchDevice {
     private readonly onTouch = (e: TouchEvent): void => {
         const t0 = e.touches[0];
         if (t0 !== undefined) {
-            this.input.state.pointerX = t0.clientX;
-            this.input.state.pointerY = t0.clientY;
+            this.input.current.pointerX = t0.clientX;
+            this.input.current.pointerY = t0.clientY;
         }
         if (e.touches.length >= 2) {
             const a = e.touches[0]!;
             const b = e.touches[1]!;
             const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
             if (this.lastPinchDist !== null) {
-                this.input.state.pinchDelta += dist - this.lastPinchDist;
+                this.input.current.pinchDelta += dist - this.lastPinchDist;
             }
             this.lastPinchDist = dist;
         } else {

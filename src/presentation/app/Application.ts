@@ -21,6 +21,9 @@ import {
     type PresentationDefaults,
 } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
+import type { Input } from '../input/Input';
+import type { InteractionSystem } from '../input/InteractionSystem';
+import { acquireSceneInteraction, releaseSceneInteraction } from './sceneInteraction';
 import { ELEMENT_CONSUMERS } from '../../elements/consumers';
 
 /**
@@ -117,6 +120,13 @@ export class Application {
     readonly defaults: PresentationDefaults;
     /** Canvas HTML attachado. Mesmo objeto passado em `create({canvas})`. */
     readonly canvas: HTMLCanvasElement;
+    /**
+     * Entrada da cena (spec 007): Resource singleton no World — consulta (`isKeyDown`, `pointerDelta`, …) e eventos no
+     * barramento (`keyDown`, `pointerMove`, `wheel`, …). Compartilhado pelas aplicações da mesma cena.
+     */
+    readonly input: Input;
+    /** Liga os dispositivos ao `input` e tica os controllers da cena (componentes da entidade da câmera). */
+    readonly interaction: InteractionSystem;
     private readonly scene: SceneContext;
     private readonly ownsScene: boolean;
     private readonly loop: GameLoop;
@@ -143,6 +153,9 @@ export class Application {
         this.flows = scene.flows;
         this.time = scene.time;
         this.defaults = defaults;
+        const interaction = acquireSceneInteraction(scene, options.canvas);
+        this.input = interaction.input;
+        this.interaction = interaction.system;
         this.maxFramesInFlight = options.maxFramesInFlight ?? 2;
         this.loop = new GameLoop(scene.events, this.time, () => this.readyForFrame());
         this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
@@ -336,6 +349,7 @@ export class Application {
             this.memoryUnsubscribe();
             this.memoryUnsubscribe = null;
         }
+        releaseSceneInteraction(this.scene);
         // Estágios padrão: registrados uma vez por cena; a última aplicação da cena os desregistra.
         const lastUser = releasePresentationDefaults(this.scene.flows);
         // Cena passada em `options.scene` é descartada com a última aplicação que a usa; o singleton default

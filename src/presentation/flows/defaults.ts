@@ -6,6 +6,7 @@ import { PostFlow } from './PostFlow';
 import { UIFlow } from './UIFlow';
 import { DebugFlow } from './DebugFlow';
 import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
+import { CameraFlow } from '../../elements/scene/flows/CameraFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
 
@@ -23,6 +24,8 @@ export interface PresentationDefaultsOptions {
 export interface PresentationDefaults {
     /** Estágio de transformação (fase `transform`): intenção dos Transform → matrizes de mundo. */
     readonly transform: TransformFlow;
+    /** Estágio de câmera (fase `transform`, depois da composição): parâmetros + Transform → matrizes da câmera. */
+    readonly camera: CameraFlow;
     /** Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e sombra pelos slots). */
     readonly forward: ForwardFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
@@ -105,6 +108,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
     });
     const transform = transformRegistration.flow!;
+    // Câmera depois da composição dos Transform (mesma fase, prioridade menor): lê a matriz de mundo da câmera.
+    const cameraRegistration = flows.register((ctx) => new CameraFlow(ctx), {
+        type: 'camera',
+        phase: 'transform',
+        priority: -10,
+    });
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
@@ -128,6 +137,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
     return {
         defaults: {
             transform,
+            camera: cameraRegistration.flow!,
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
             post: postRegistration.flow!,
@@ -136,6 +146,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
         },
         registrations: [
             transformRegistration,
+            cameraRegistration,
             shadowRegistration,
             forwardRegistration,
             postRegistration,

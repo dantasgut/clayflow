@@ -188,15 +188,29 @@ physics-gpu), quickstart.md
 
 **Independent Test**: matrizes contra a referência; `aspect` no resize; orbit girando a imagem como hoje.
 
-- [ ] T039 [P] [US4] Funções `perspective`, `orthographic` e `inverse_rigid` em `wgslLib.camera` (`src/elements/gpu/wgsl/lib/`) com teste de composição em `src/elements/gpu/__tests__/wgslLib.camera.test.ts`
-- [ ] T040 [P] [US4] Testes em `src/elements/scene/__tests__/Camera.test.ts`: descritores `camera` (params, `'always'`) e `matrices` (`'never'`) no mesmo slot; câmera sem `Transform` → erro com a entidade; `aspectMode: 'canvas'` atualizado em `canvasReconfigured`
-- [ ] T041 [US4] Reescrever `src/elements/scene/Camera.ts` (params + matrices, vocabulário de domínio) e criar `src/elements/scene/flows/CameraFlow.ts` + `src/elements/gpu/wgsl/kernels/camera_compose.wgsl` (fase `transform`, abaixo do `TransformFlow`, registro `CameraRecord`)
-- [ ] T042 [US4] Forward lê `cameras[frame.cameraSlot]`: `ForwardFrameParams` com `cameraSlot`, escrito quando a câmera ativa muda; resolver da câmera ativa em `src/elements/consumers.ts`; `forward.wgsl` e `shadow_depth.wgsl` se usarem câmera
-- [ ] T043 [P] [US4] Testes em `src/scene/__tests__/Input.test.ts`: `Input` singleton no World, API de consulta, eventos, `consumes: ['Input']`
-- [ ] T044 [US4] Mover `Input` para `src/scene/input/Input.ts` como Resource; devices da C4 (`src/presentation/input/*Device.ts`) escrevem nele; `Application.create` o insere; `SingletonResolver('Input')` em `src/scene/SceneContext.ts`
-- [ ] T045 [P] [US4] Testes em `src/presentation/input/__tests__/controllers.test.ts`: orbit, fly e fps mutam só `transform.data.position/rotation` a partir de `Input` e `dt`; nenhuma matriz calculada (verificação no gate: nenhum controller importa `mat4.perspective/lookAt`)
-- [ ] T046 [US4] Reescrever `OrbitController.ts`, `FlyController.ts`, `FpsController.ts` como Resources com `tick(input, dt, transform)` e `InteractionSystem.ts` percorrendo os controllers do World; `Application.ts` reage a `canvasReconfigured` com o `aspect`
-- [ ] T047 [US4] Câmera pelo modelo novo no bench (`bench/engines/clayflow.ts`, sem `cameraMatrices`), nos smokes (`src/__smokes__/render.ts` e demais) e nos exemplos; imagem do smoke `render` contra a fixture (tolerância de R10 só se T005 a exigir, registrada e submetida ao PR)
+- [x] T039 [P] [US4] Funções `perspective`, `orthographic` e `inverse_rigid` em `wgslLib.camera` (`src/elements/gpu/wgsl/lib/`) com teste de composição em `src/elements/gpu/__tests__/wgslLib.camera.test.ts`
+- [x] T040 [P] [US4] Testes em `src/elements/scene/__tests__/Camera.test.ts`: descritores `camera` (params, `'always'`) e `matrices` (`'never'`) no mesmo slot; câmera sem `Transform` → erro com a entidade; `aspectMode: 'canvas'` atualizado em `canvasReconfigured`
+- [x] T041 [US4] Reescrever `src/elements/scene/Camera.ts` (params + matrices, vocabulário de domínio) e criar `src/elements/scene/flows/CameraFlow.ts` + `src/elements/gpu/wgsl/kernels/camera_compose.wgsl` (fase `transform`, abaixo do `TransformFlow`, registro `CameraRecord`)
+- [x] T042 [US4] Forward lê `cameras[frame.cameraSlot]`: `ForwardFrameParams` com `cameraSlot`, escrito quando a câmera ativa muda; resolver da câmera ativa em `src/elements/consumers.ts`; `forward.wgsl` e `shadow_depth.wgsl` se usarem câmera
+- [x] T043 [P] [US4] Testes em `src/scene/__tests__/Input.test.ts`: `Input` singleton no World, API de consulta, eventos, `consumes: ['Input']`
+- [x] T044 [US4] Mover `Input` para `src/scene/input/Input.ts` como Resource; devices da C4 (`src/presentation/input/*Device.ts`) escrevem nele; `Application.create` o insere; `SingletonResolver('Input')` em `src/scene/SceneContext.ts`
+- [x] T045 [P] [US4] Testes em `src/presentation/input/__tests__/controllers.test.ts`: orbit, fly e fps mutam só `transform.data.position/rotation` a partir de `Input` e `dt`; nenhuma matriz calculada (verificação no gate: nenhum controller importa `mat4.perspective/lookAt`)
+- [x] T046 [US4] Reescrever `OrbitController.ts`, `FlyController.ts`, `FpsController.ts` como Resources com `tick(input, dt, transform)` e `InteractionSystem.ts` percorrendo os controllers do World; `Application.ts` reage a `canvasReconfigured` com o `aspect`
+- [x] T047 [US4] Câmera pelo modelo novo no bench (`bench/engines/clayflow.ts`, sem `cameraMatrices`), nos smokes (`src/__smokes__/render.ts` e demais) e nos exemplos; imagem do smoke `render` contra a fixture (tolerância de R10 só se T005 a exigir, registrada e submetida ao PR)
+
+> **Câmera na GPU (T039–T047, 2026-10-13)**: `Camera` com parâmetros (`projection`, `fov`, `orthoHeight`, `near`,
+> `far`, `aspect`, `aspectMode`) e matrizes no mesmo slot (`CameraMatrices`, `'never'`); `CameraFlow` (fase
+> `transform`, prioridade −10) calcula view/projection/viewProjection/posição na GPU, com a razão do canvas por uniform;
+> `wgslLib.camera` (`camera_perspective`, `camera_orthographic`, `camera_view`); `Transform.lookRotation` na autoria;
+> forward lê `cameras[forward_frame.cameraSlot]`. **Defeito encontrado e corrigido**: `rigid_mat4_inverse` (spec 005)
+> calculava −R·t no lugar de −Rᵀ·t na translação (sem uso até aqui) — caso novo no smoke `shaderLibrary`. Imagem do
+> smoke `render` **idêntica** nas 10 cenas (a tolerância de R10 não foi necessária). `Input` virou Resource marcador da
+> **Camada 4** (o documento de arquitetura o põe em `presentation/input`, não na C2 como o plano dizia), inserido por
+> cena pela `Application` (`app.input`, `app.interaction`), com consulta e eventos no barramento (`EventMap` estendido
+> pela C4); sem dado de GPU, é acessado por `slot.singleton(Input.schema)` (não há buffer para `consumes`). Controllers
+> são componentes da entidade da câmera (`tick(input, dt, transform)`), mantidos pelo `InteractionSystem` por eventos;
+> o `interactionPlugin` saiu. Projeção na convenção de clip z [−1, 1] (a de antes; a de [0, 1] do WebGPU fica para a
+> F4, PENDENCIAS).
 
 **Checkpoint**: câmera na GPU; nenhuma matriz de câmera na CPU.
 

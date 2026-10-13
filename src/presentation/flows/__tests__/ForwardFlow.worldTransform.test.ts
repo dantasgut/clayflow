@@ -8,7 +8,7 @@ import { discOf, registerStages, renderScene } from './helpers/renderHarness';
 async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
     const s = await renderScene();
     registerStages(s.scene, { forward: 'canvas' });
-    s.scene.world.insert(new Camera());
+    s.scene.world.insert(new Camera().add(new Transform()));
     const transform = new Transform({ position: [5, 0, 0, 1], scale });
     const box = new BoxGeometry({ size: [1, 1, 1] })
         .add(new StandardMaterial({ albedo: [1, 0, 0, 1] }))

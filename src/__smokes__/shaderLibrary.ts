@@ -318,6 +318,53 @@ const CASES: readonly ReferenceCase[] = [
         tol: 2e-5,
     },
     {
+        // Spec 007: projeções do estágio de câmera (convenção de clip z em [−1, 1]).
+        name: 'camera (perspectiva e ortográfica)',
+        requires: [wgslLib.camera],
+        body: `let p = camera_perspective(a.x, a.y, a.z, a.w);
+            let o = camera_orthographic(b.x, b.y, b.z, b.w);
+            return vec4f(p[0].x, p[2].z, p[3].z, o[2].z + o[3].z);`,
+        input: (r) => [
+            [0.3 + r(), 0.5 + r(), 0.05 + r() * 0.1, 50 + r() * 100],
+            [1 + r() * 10, 0.5 + r(), 0.05 + r() * 0.1, 50 + r() * 100],
+        ],
+        cpu: (a, b) => {
+            const f = 1 / Math.tan(a[0] / 2);
+            const nf = 1 / (a[2] - a[3]);
+            const onf = 1 / (b[2] - b[3]);
+            return [
+                f / a[1],
+                (a[3] + a[2]) * nf,
+                2 * a[3] * a[2] * nf,
+                2 * onf + (b[3] + b[2]) * onf,
+            ];
+        },
+        tol: 2e-4,
+    },
+    {
+        // Spec 007: a vista da câmera é a inversa rígida da matriz de mundo; −Rᵀ·t na translação.
+        name: 'mat (inversa rígida: translação −Rᵀ·t)',
+        requires: [wgslLib.mat],
+        body: `let m = quat_to_mat4(normalize(a), b.xyz);
+            let inv = rigid_mat4_inverse(m);
+            return inv[3];`,
+        input: (r) => [
+            [r() - 0.5, r() - 0.5, r() - 0.5, r() + 0.1],
+            [r() * 10 - 5, r() * 10 - 5, r() * 10 - 5, 0],
+        ],
+        cpu: (a, b) => {
+            const l = Math.hypot(a[0], a[1], a[2], a[3]);
+            const [x, y, z, w] = [a[0] / l, a[1] / l, a[2] / l, a[3] / l];
+            // Colunas de R (quat_to_mat4); translação da inversa = −(coluna i · t).
+            const c0 = [1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)];
+            const c1 = [2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)];
+            const c2 = [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)];
+            const dot = (c: number[]) => c[0]! * b[0] + c[1]! * b[1] + c[2]! * b[2];
+            return [-dot(c0), -dot(c1), -dot(c2), 1];
+        },
+        tol: 2e-5,
+    },
+    {
         name: 'xpbd e lcp (Δλ, massa generalizada, atrito)',
         requires: [wgslLib.xpbd, wgslLib.lcp],
         body: `return vec4f(xpbd_delta_lambda(a.x, a.y, a.z), rigid_generalized_mass(b.xyz, vec3f(0.0, 1.0, 0.0), 2.0, vec3f(1.0, 2.0, 3.0)),

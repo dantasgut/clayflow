@@ -85,15 +85,17 @@ async function main(): Promise<void> {
     const vp = mul(projection, view);
     app.world.insert(
         new Camera({
-            view,
-            projection,
-            viewProjection: vp,
-            position: [...eye, 1],
             fov: Math.PI / 3,
             aspect: W / H,
+            aspectMode: 'fixed',
             near: 0.1,
             far: 100,
-        }),
+        }).add(
+            new Transform({
+                position: [...eye, 1],
+                rotation: Transform.lookRotation([...eye], [0, 0, 0]),
+            }),
+        ),
     );
     app.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], intensity: 1 }));
     const surface = new ParametricGeometry({

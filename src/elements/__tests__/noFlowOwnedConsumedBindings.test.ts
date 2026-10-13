@@ -52,7 +52,7 @@ describe('nenhum layout nem bind group criado por estágio (SC-004)', () => {
             Object.assign(new UiPanel(), { bounds: { x: 0, y: 0, width: 50, height: 20 } }),
         );
         const w = s.scene.world;
-        w.insert(new Camera());
+        w.insert(new Camera().add(new Transform()));
         w.insert(new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true }));
         insertGravity(w);
         for (let i = 0; i < 4; i++) {

@@ -1,5 +1,5 @@
-import { Application, Camera, type FrameCompleteEvent } from 'clayflow';
-import type { CameraSpec, EngineAdapter, FrameSample, SceneImplementation } from '../core/types';
+import { Application, Camera, Transform, type FrameCompleteEvent } from 'clayflow';
+import type { EngineAdapter, FrameSample, SceneImplementation } from '../core/types';
 
 /** Handle do clayflow entregue às cenas. */
 export interface ClayflowHandle {
@@ -7,85 +7,6 @@ export interface ClayflowHandle {
     readonly camera: Camera;
     /** Último `frameComplete` observado (preenchido de forma síncrona pelo `frameTick`). */
     last: FrameCompleteEvent | null;
-}
-
-/**
- * Matrizes da câmera no mesmo padrão dos controllers do motor (o motor ainda não calcula a
- * câmera — kernel de câmera é da F2). Código de usuário, não do motor.
- */
-export function cameraMatrices(
-    spec: CameraSpec,
-    aspect: number,
-    near = 0.1,
-    far = 1000,
-): { view: number[]; projection: number[]; viewProjection: number[] } {
-    const [ex, ey, ez] = spec.position;
-    const [tx, ty, tz] = spec.target;
-    let zx = ex - tx;
-    let zy = ey - ty;
-    let zz = ez - tz;
-    const zl = Math.hypot(zx, zy, zz) || 1;
-    zx /= zl;
-    zy /= zl;
-    zz /= zl;
-    // up = Y
-    let xx = zz;
-    let xy = 0;
-    let xz = -zx;
-    const xl = Math.hypot(xx, xy, xz) || 1;
-    xx /= xl;
-    xy /= xl;
-    xz /= xl;
-    const yx = zy * xz - zz * xy;
-    const yy = zz * xx - zx * xz;
-    const yz = zx * xy - zy * xx;
-    const view = [
-        xx,
-        yx,
-        zx,
-        0,
-        xy,
-        yy,
-        zy,
-        0,
-        xz,
-        yz,
-        zz,
-        0,
-        -(xx * ex + xy * ey + xz * ez),
-        -(yx * ex + yy * ey + yz * ez),
-        -(zx * ex + zy * ey + zz * ez),
-        1,
-    ];
-    const f = 1 / Math.tan((spec.fovDeg * Math.PI) / 360);
-    const nf = 1 / (near - far);
-    const projection = [
-        f / aspect,
-        0,
-        0,
-        0,
-        0,
-        f,
-        0,
-        0,
-        0,
-        0,
-        (far + near) * nf,
-        -1,
-        0,
-        0,
-        2 * far * near * nf,
-        0,
-    ];
-    const viewProjection = new Array<number>(16).fill(0);
-    for (let i = 0; i < 4; i++) {
-        for (let j = 0; j < 4; j++) {
-            let s = 0;
-            for (let k = 0; k < 4; k++) s += (projection[k * 4 + j] ?? 0) * (view[i * 4 + k] ?? 0);
-            viewProjection[i * 4 + j] = s;
-        }
-    }
-    return { view, projection, viewProjection };
 }
 
 /** Tempo simulado por quadro do protocolo — o mesmo `timestep` do Rapier no adaptador Three. */
@@ -114,15 +35,20 @@ export function createClayflowAdapter(options: {
                 profiling: options.profiling,
             });
             const aspect = resolution.width / resolution.height;
-            const fov = (cameraSpec.fovDeg * Math.PI) / 180;
+            // Câmera pelo modelo da 007: parâmetros + Transform; as matrizes são do estágio de câmera, na GPU.
             const camera = new Camera({
-                ...cameraMatrices(cameraSpec, aspect),
-                position: [...cameraSpec.position, 1],
-                fov,
+                fov: (cameraSpec.fovDeg * Math.PI) / 180,
                 aspect,
+                aspectMode: 'fixed',
                 near: 0.1,
                 far: 1000,
             });
+            camera.add(
+                new Transform({
+                    position: [...cameraSpec.position, 1],
+                    rotation: Transform.lookRotation(cameraSpec.position, cameraSpec.target),
+                }),
+            );
             app.world.insert(camera);
             const handle: ClayflowHandle = { app, camera, last: null };
             app.events.on('frameComplete', (e) => {

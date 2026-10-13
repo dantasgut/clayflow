@@ -44,7 +44,7 @@ export class WireframeMaterial extends Material {
                 shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
                 consumes: [
-                    'Camera',
+                    'CameraMatrices',
                     'WorldTransform',
                     'Renderable',
                     'RenderInstance',

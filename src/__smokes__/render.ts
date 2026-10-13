@@ -29,7 +29,6 @@ import {
     Vignette,
     WireframeMaterial,
 } from 'clayflow';
-import { cameraMatrices } from '../../bench/engines/clayflow';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 
 const WIDTH = 256;
@@ -46,84 +45,21 @@ interface RenderScene {
     readonly build: (app: Application) => void;
 }
 
-/**
- * Diagnóstico da spec 007 (T005, research R10): `?f32=1` calcula as matrizes da câmera arredondando cada operação a
- * `f32` (`Math.fround`), como um kernel em WGSL faria, em vez de `f64` com um arredondamento só no envio. Mede a
- * sensibilidade da imagem à troca de precisão antes de a câmera passar para a GPU.
- */
-const F32_CAMERA = new URLSearchParams(location.search).get('f32') === '1';
-
-/** `cameraMatrices` do bench com cada operação arredondada a `f32`. */
-function cameraMatricesF32(
-    eye: readonly [number, number, number],
-    target: readonly [number, number, number],
-    fovDeg: number,
-    aspect: number,
-    near: number,
-    far: number,
-): { view: number[]; projection: number[]; viewProjection: number[] } {
-    const F = Math.fround;
-    const len = (x: number, y: number, z: number): number =>
-        F(Math.sqrt(F(F(F(x * x) + F(y * y)) + F(z * z))));
-    const [ex, ey, ez] = eye.map(F) as [number, number, number];
-    let zx = F(ex - F(target[0]));
-    let zy = F(ey - F(target[1]));
-    let zz = F(ez - F(target[2]));
-    const zl = len(zx, zy, zz);
-    zx = F(zx / zl);
-    zy = F(zy / zl);
-    zz = F(zz / zl);
-    let xx = zz;
-    let xy = 0;
-    let xz = F(-zx);
-    const xl = len(xx, xy, xz);
-    xx = F(xx / xl);
-    xy = F(xy / xl);
-    xz = F(xz / xl);
-    const yx = F(F(zy * xz) - F(zz * xy));
-    const yy = F(F(zz * xx) - F(zx * xz));
-    const yz = F(F(zx * xy) - F(zy * xx));
-    const dot = (a: number, b: number, c: number): number =>
-        F(F(F(a * ex) + F(b * ey)) + F(c * ez));
-    // prettier-ignore
-    const view = [xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0,
-        F(-dot(xx, xy, xz)), F(-dot(yx, yy, yz)), F(-dot(zx, zy, zz)), 1];
-    const f = F(1 / F(Math.tan(F(F(F(fovDeg) * F(Math.PI)) / 360))));
-    const nf = F(1 / F(F(near) - F(far)));
-    // prettier-ignore
-    const projection = [F(f / F(aspect)), 0, 0, 0, 0, f, 0, 0, 0, 0, F(F(F(far) + F(near)) * nf), -1,
-        0, 0, F(F(F(F(2 * F(far)) * F(near))) * nf), 0];
-    const viewProjection = new Array<number>(16).fill(0);
-    for (let i = 0; i < 4; i++) {
-        for (let j = 0; j < 4; j++) {
-            let acc = 0;
-            for (let k = 0; k < 4; k++)
-                acc = F(acc + F((projection[k * 4 + j] ?? 0) * (view[i * 4 + k] ?? 0)));
-            viewProjection[i * 4 + j] = acc;
-        }
-    }
-    return { view, projection, viewProjection };
-}
-
 function baseScene(app: Application): void {
-    // O motor ainda não compõe a câmera (F2): as matrizes vêm do mesmo cálculo de usuário que o bench usa.
-    const aspect = WIDTH / HEIGHT;
+    // Câmera pelo modelo da 007: parâmetros + Transform; as matrizes são produzidas na GPU (CameraFlow).
     app.world.insert(
         new Camera({
-            ...(F32_CAMERA
-                ? cameraMatricesF32([0, 3, 6], [0, 0, 0], 45, aspect, 0.1, 100)
-                : cameraMatrices(
-                      { position: [0, 3, 6], target: [0, 0, 0], fovDeg: 45 },
-                      aspect,
-                      0.1,
-                      100,
-                  )),
-            position: [0, 3, 6, 1],
             fov: Math.PI / 4,
-            aspect,
+            aspect: WIDTH / HEIGHT,
+            aspectMode: 'fixed',
             near: 0.1,
             far: 100,
-        }),
+        }).add(
+            new Transform({
+                position: [0, 3, 6, 1],
+                rotation: Transform.lookRotation([0, 3, 6], [0, 0, 0]),
+            }),
+        ),
     );
     app.world.insert(
         new DirectionalLight({

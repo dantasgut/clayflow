@@ -50,12 +50,17 @@ async function main(): Promise<void> {
     app1.world.insert(box);
     app1.world.insert(
         new Camera({
-            position: [0, 3, 6, 1],
             fov: Math.PI / 4,
             aspect: c1.width / c1.height,
+            aspectMode: 'fixed',
             near: 0.1,
             far: 100,
-        }),
+        }).add(
+            new Transform({
+                position: [0, 3, 6, 1],
+                rotation: Transform.lookRotation([0, 3, 6], [0, 0, 0]),
+            }),
+        ),
     );
     app1.world.insert(
         new DirectionalLight({
@@ -72,12 +77,17 @@ async function main(): Promise<void> {
     app2.world.insert(sphere);
     app2.world.insert(
         new Camera({
-            position: [0, 2, 5, 1],
             fov: Math.PI / 4,
             aspect: c2.width / c2.height,
+            aspectMode: 'fixed',
             near: 0.1,
             far: 100,
-        }),
+        }).add(
+            new Transform({
+                position: [0, 2, 5, 1],
+                rotation: Transform.lookRotation([0, 2, 5], [0, 0, 0]),
+            }),
+        ),
     );
     app2.world.insert(
         new DirectionalLight({

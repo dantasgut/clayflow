@@ -26,7 +26,7 @@ async function presentationScene() {
         Object.assign(new UiPanel(), { bounds: { x: 0, y: 0, width: 50, height: 20 } }),
     );
     const light = new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true });
-    s.scene.world.insert(new Camera());
+    s.scene.world.insert(new Camera().add(new Transform()));
     s.scene.world.insert(light);
     const boxes = Array.from({ length: 5 }, () =>
         new BoxGeometry().add(new StandardMaterial()).add(new Transform()),

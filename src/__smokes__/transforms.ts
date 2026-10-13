@@ -226,15 +226,17 @@ async function main(): Promise<void> {
     const vp = mul(projection, view);
     app.world.insert(
         new Camera({
-            view,
-            projection,
-            viewProjection: vp,
-            position: [...eye, 1],
             fov: Math.PI / 4,
             aspect: W / H,
+            aspectMode: 'fixed',
             near: 0.1,
             far: 100,
-        }),
+        }).add(
+            new Transform({
+                position: [...eye, 1],
+                rotation: Transform.lookRotation([...eye], [0, 0, 0]),
+            }),
+        ),
     );
     app.world.insert(
         new DirectionalLight({ direction: [-0.3, -1, -0.5, 0], castShadow: true, intensity: 1 }),

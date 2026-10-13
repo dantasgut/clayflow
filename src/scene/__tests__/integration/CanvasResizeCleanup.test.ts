@@ -43,7 +43,7 @@ async function scene() {
     const s = await renderScene();
     const { post, frameTargets } = registerStages(s.scene, { forward: 'scene', post: true });
     post!.addEffect(new Vignette());
-    s.scene.world.insert(new Camera());
+    s.scene.world.insert(new Camera().add(new Transform()));
     s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
     const targets = frameTargets!;
     const resize = (width: number, height: number): void => {

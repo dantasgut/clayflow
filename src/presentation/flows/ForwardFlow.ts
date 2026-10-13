@@ -64,8 +64,10 @@ export type ForwardOutput = 'scene' | 'canvas';
 
 /** Slots do render principal. */
 export interface ForwardSlots extends SlotMap {
-    /** Câmera ativa (grupo 0, enviada pela C2 quando muda). */
+    /** Câmera ativa: o seu slot em `cameras` vai nos parâmetros do quadro. */
     readonly camera: SingletonSlot<false>;
+    /** Pool `CameraMatrices` (grupo 0), produzido na GPU pelo estágio de câmera. */
+    readonly cameras: PoolSlot<false>;
     /** Pool `WorldTransform` (grupo 1, matriz de mundo pelo `transformSlot` do registro). */
     readonly world: PoolSlot<false>;
     /**
@@ -98,6 +100,7 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
     const depth = { schema: FrameTargets.schema, descId: 'depth' };
     return {
         camera: slot.singleton(Camera.schema),
+        cameras: slot.pool(Camera.matricesSchema.name),
         world: slot.pool(Transform.worldSchema.name),
         renderables: slot.entities({
             all: [Geometry, Material, Transform],
@@ -135,7 +138,8 @@ export interface ForwardFlowOptions {
  * ForwardFlow — o render principal: desenha as entidades com geometria, material e transform.
  *
  * Tudo vem do que a C2 já alocou, sem objeto de GPU por entidade:
- *   - grupo 0: a câmera ativa (`consumes: 'Camera'`), enviada pela C2 quando muda;
+ *   - grupo 0: o pool `CameraMatrices` (matrizes produzidas na GPU pelo `CameraFlow`); a câmera ativa é escolhida pelo
+ *     `cameraSlot` dos parâmetros do quadro;
  *   - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`), o pool `Renderable` — o registro de cada
  *     entidade (`transformSlot`, `materialSlot`), mantido pela C2 — e a lista de instâncias dos grupos
  *     (`RenderInstance`, slot do registro por instância);
@@ -416,10 +420,13 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const dir = on
             ? ((light.data.direction as readonly number[] | undefined) ?? [0, -1, 0, 0])
             : DEFAULT_LIGHT_DIR;
+        const cameraId = this.world.entityIdOfResource(slots.camera.resource);
+        const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
         const values = {
             lightDir: [dir[0] ?? 0, dir[1] ?? -1, dir[2] ?? 0, 0],
             shadowEnabled: on ? 1 : 0,
             shadowSlot: on ? shadowSlot : 0,
+            cameraSlot,
         };
         const key = JSON.stringify(values);
         if (key === this.writtenFrame) return;

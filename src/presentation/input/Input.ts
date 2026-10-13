@@ -1,11 +1,15 @@
+import { Entity } from '../../scene/contracts/Entity';
+import { ResourceState } from '../../scene/contracts/ResourceState';
+import type { Resource } from '../../scene/contracts/Resource';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import './InputEvents';
+
 /**
- * State agregado de input — keyboard + pointer + wheel + pinch — atualizado
- * pelos input devices (KeyboardDevice, PointerDevice, TouchDevice) e
- * consumido por controllers (FlyController, OrbitController, FpsController).
- *
- * Deltas (`pointerDeltaX/Y`, `wheel`, `pinchDelta`) acumulam entre frames
- * e são zerados via `consumeFrameDeltas()` (chamado pelo InteractionSystem
- * no fim de cada tick após controllers terem lido).
+ * Estado agregado de entrada — teclado, ponteiro, roda e pinça — escrito pelos dispositivos
+ * (`KeyboardDevice`, `PointerDevice`, `TouchDevice`) e lido pelos controllers. Deltas (`pointerDeltaX/Y`, `wheel`,
+ * `pinchDelta`) acumulam entre quadros e são zerados por `consumeFrameDeltas()` no fim de cada tick.
  */
 export interface InputState {
     /** Conjunto de codes (KeyboardEvent.code) atualmente pressionadas. */
@@ -18,22 +22,37 @@ export interface InputState {
     pointerDeltaX: number;
     /** Delta Y acumulado. */
     pointerDeltaY: number;
-    /** Bitmask de botões pressionados (1=left, 2=right, 4=middle). */
+    /** Bitmask de botões pressionados (1=left, 2=middle, 4=right — bit `1 << PointerEvent.button`). */
     pointerButtons: number;
-    /** Wheel delta acumulado (positive = scroll up). */
+    /** Wheel delta acumulado (positivo = rolar para baixo). */
     wheel: number;
     /** Variação de pinch (distance delta entre 2 dedos) consumida por frame. */
     pinchDelta: number;
 }
 
+/** Botão do ponteiro pela posição (`PointerEvent.button`). */
+const BUTTONS = { left: 0, middle: 1, right: 2 } as const;
+
 /**
- * Input centraliza o estado dos input devices em uma struct compartilhada.
- * Devices escrevem em `state` quando handlers de DOM eventos disparam;
- * controllers lêem em cada tick.
+ * Input — Resource singleton da cena (spec 007; uma instância por cena, inserida pela `Application`) que normaliza os
+ * eventos do DOM e os expõe por duas APIs:
+ *
+ * - **consulta** — estado a qualquer momento: `isKeyDown('KeyW')`, `isButtonDown('left')`, `pointerPosition()`,
+ *   `pointerDelta()`, `wheelDelta()`, `gamepadAxis(pad, eixo)`, `gamepadButton(pad, botão)`;
+ * - **push** — eventos no barramento da cena: `keyDown`/`keyUp`, `pointerDown`/`pointerUp`/`pointerMove`, `wheel`.
+ *
+ * Não vai para a GPU (sem descritores); estágios o recebem por `slot.singleton(Input.schema)`. Os controllers de
+ * câmera, componentes da entidade da câmera, o leem a cada quadro e mutam o `Transform`.
  */
-export class Input {
-    /** Estado compartilhado mutável — devices escrevem, controllers lêem. */
-    readonly state: InputState = {
+export class Input extends Entity implements Resource {
+    /** Marcador do Resource (não vai para a GPU). */
+    static readonly schema = new StructSchema('Input', {});
+
+    state: ResourceState = ResourceState.Uninitialized;
+    data: Record<string, unknown> = {};
+
+    /** Estado atual compartilhado — dispositivos escrevem, controllers leem (`state` é o do ciclo de vida). */
+    readonly current: InputState = {
         keys: new Set(),
         pointerX: 0,
         pointerY: 0,
@@ -44,20 +63,65 @@ export class Input {
         pinchDelta: 0,
     };
 
-    /** Convenience: testa se uma key está pressionada agora. */
+    /** Tecla pressionada agora (`KeyboardEvent.code`). */
     isKeyDown(code: string): boolean {
-        return this.state.keys.has(code);
+        return this.current.keys.has(code);
     }
 
-    /**
-     * Zera todos os deltas (pointer, wheel, pinch). Chamado pelo
-     * InteractionSystem ao fim de cada tick para evitar acúmulo entre
-     * frames — controllers devem ter lido os deltas antes.
-     */
-    consumeFrameDeltas(): void {
-        this.state.pointerDeltaX = 0;
-        this.state.pointerDeltaY = 0;
-        this.state.wheel = 0;
-        this.state.pinchDelta = 0;
+    /** Botão do ponteiro pressionado agora. */
+    isButtonDown(button: keyof typeof BUTTONS): boolean {
+        return (this.current.pointerButtons & (1 << BUTTONS[button])) !== 0;
     }
+
+    /** Última posição do ponteiro em coordenadas do canvas. */
+    pointerPosition(): { readonly x: number; readonly y: number } {
+        return { x: this.current.pointerX, y: this.current.pointerY };
+    }
+
+    /** Deslocamento do ponteiro desde o último quadro. */
+    pointerDelta(): { readonly dx: number; readonly dy: number } {
+        return { dx: this.current.pointerDeltaX, dy: this.current.pointerDeltaY };
+    }
+
+    /** Roda acumulada desde o último quadro. */
+    wheelDelta(): number {
+        return this.current.wheel;
+    }
+
+    /** Variação da pinça (dois dedos) desde o último quadro. */
+    pinchDelta(): number {
+        return this.current.pinchDelta;
+    }
+
+    /** Eixo de um gamepad (−1..1), ou 0 sem gamepad. */
+    gamepadAxis(pad: number, axis: number): number {
+        return connectedGamepad(pad)?.axes[axis] ?? 0;
+    }
+
+    /** Botão de um gamepad pressionado. */
+    gamepadButton(pad: number, button: number): boolean {
+        return connectedGamepad(pad)?.buttons[button]?.pressed ?? false;
+    }
+
+    /** Zera os deltas do quadro (chamado pelo `InteractionSystem` depois dos controllers). */
+    consumeFrameDeltas(): void {
+        this.current.pointerDeltaX = 0;
+        this.current.pointerDeltaY = 0;
+        this.current.wheel = 0;
+        this.current.pinchDelta = 0;
+    }
+
+    getDescriptors(): readonly GPUDescriptor[] {
+        return [];
+    }
+
+    getPipelineDescriptors(): readonly PipelineDescriptor[] {
+        return [];
+    }
+}
+
+function connectedGamepad(pad: number): Gamepad | null {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function')
+        return null;
+    return navigator.getGamepads()[pad] ?? null;
 }
