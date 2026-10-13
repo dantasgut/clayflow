@@ -325,7 +325,9 @@ physics-gpu), quickstart.md
   > quadro inteiro, inclusive os intervalos entre passes; pela soma por passe a mesma cena dá 0,67 ms, fps igual 764 ×
   > 760). Melhorias: `instances/10k` CPU 90,9 → 0,02 ms, `10k-moving` CPU 288 → 2,8 ms, `rigid-bodies/10k` GPU 30,1 →
   > 2,9 ms e p99 348 → 5,6 ms; `instances/100k` e `1m` passam de timeout a ok. Baseline regravado com o método novo.
-- [ ] T065 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/007-gpu-scene-state/spec.md` com o status e `checklists/requirements.md`
+- [x] T065 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/007-gpu-scene-state/spec.md` com o status e `checklists/requirements.md`
+  > Gate (2026-10-13): `format:check` ok, `lint` 0 erros, `tsc` ok, `test:coverage` 1005 testes (87,2% de linhas),
+  > `build:lib` ok; checklist `requirements.md` completa.
 
 ---
 
