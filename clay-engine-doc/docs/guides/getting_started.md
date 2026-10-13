@@ -37,10 +37,10 @@ Pré-requisito: navegador com WebGPU habilitado (Chrome 113+, Edge 113+, Safari 
 
 ```typescript
 import {
-    Application, OrbitController, InteractionSystem,
+    Application, OrbitController,
 } from 'webgpu-engine';
 import {
-    BoxGeometry, Camera, DirectionalLight, PlaneGeometry,
+    BoxGeometry, Camera, DirectionalLight, Parent, PlaneGeometry,
     StandardMaterial, Transform,
 } from 'webgpu-engine';
 
@@ -51,17 +51,17 @@ canvas.height = Math.floor(canvas.clientHeight * dpr);
 
 const app = await Application.create({ canvas });
 
-// Camera + controller
-const camera = new Camera({ aspect: canvas.width / canvas.height });
-app.world.insert(camera);
-
-const interaction = new InteractionSystem({ canvas, window }, app.events);
-interaction.attach();
-interaction.addController(new OrbitController(camera, {
-    target: [0, 0.5, 0], distance: 6,
-    autoRotate: true, autoRotateSpeed: 0.4,
-    damping: 0.85,
-}));
+// Câmera = parâmetros (Camera) + posição/orientação (Transform); o controller é componente da mesma entidade
+// e muta o Transform a cada quadro com o `app.input` da cena. As matrizes são calculadas na GPU.
+app.world.insert(
+    new Camera({ fov: Math.PI / 4 }) // aspectMode 'canvas': acompanha o canvas
+        .add(new Transform({ position: [0, 3, 6, 1], rotation: Transform.lookRotation([0, 3, 6], [0, 0.5, 0]) }))
+        .add(new OrbitController({
+            target: [0, 0.5, 0], distance: 6,
+            autoRotate: true, autoRotateSpeed: 0.4,
+            damping: 0.85,
+        })),
+);
 
 // Iluminação direcional com sombra
 app.world.insert(new DirectionalLight({
@@ -87,6 +87,37 @@ app.start();
 ```
 
 Pronto: você tem um cubo com sombra, OrbitController com damping, luz direcional, e o `GameLoop` pulsando frames a 60 Hz.
+
+## Câmera, entrada e controllers
+
+- **Câmera** = `Camera` (projeção: `fov`, `orthoHeight`, `near`, `far`, `projection: 'perspective' | 'orthographic'`)
+  mais um `Transform` na mesma entidade (obrigatório; a câmera olha para −Z local; `Transform.lookRotation(olho, alvo)`
+  mira um ponto). Com `aspectMode: 'canvas'` (padrão) a razão acompanha o canvas; com `'fixed'` vale `aspect`. View,
+  projection e viewProjection saem do `CameraFlow` (fase `transform`, na GPU) — nenhuma matriz de câmera na CPU.
+- **Entrada** = `app.input` (`Input`, um Resource da cena): consulta (`isKeyDown('KeyW')`, `isButtonDown('left')`,
+  `pointerPosition()`, `pointerDelta()`, `wheelDelta()`, `gamepadAxis(…)`; estado cru em `input.current`) e eventos no
+  barramento (`keyDown`, `keyUp`, `pointerDown`, `pointerUp`, `pointerMove`, `wheel`).
+- **Controllers** — `OrbitController`, `FlyController`, `FpsController` (todos estendem `InputDrivenController`):
+  componentes da entidade da câmera; o `app.interaction` chama `tick(input, dt, transform)` a cada quadro e eles só
+  mutam `position`/`rotation` do `Transform`. Um controller próprio estende `InputDrivenController` e implementa `tick`.
+
+## Hierarquia (`Parent`)
+
+Um objeto segue outro com `Parent(idDoPai)`: a matriz de mundo do filho é a do pai (já composta no mesmo quadro)
+composta com a local dele, por níveis, na GPU. Sem nenhum `Parent`, a composição é um passe só.
+
+```typescript
+const arm = app.world.insert(
+    new BoxGeometry().add(new StandardMaterial()).add(new Transform({ position: [0, 1, 0, 1] })),
+);
+app.world.insert(
+    new BoxGeometry().add(new StandardMaterial()).add(new Transform({ position: [1, 0, 0, 1] })).add(new Parent(arm)),
+);
+```
+
+Regras: pai sem `Transform`, ciclo ou `Parent` num corpo rígido dinâmico (pose escrita pela física) são erro com as
+entidades nomeadas; pai removido torna o filho raiz (matriz de mundo = local) com aviso; para trocar de pai, remova e
+reinsira a entidade com outro `Parent`.
 
 ## Mover e animar objetos
 

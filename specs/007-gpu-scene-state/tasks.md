@@ -291,12 +291,12 @@ physics-gpu), quickstart.md
 
 ## Phase 11: Polish & Cross-Cutting
 
-- [ ] T057 [P] Bench: limitações resolvidas fora de `bench/scenes/*/scene.ts` (instancing, readback, envio por objeto, narrowphase O(N·M)); `bench/README.md` e guia `benchmark.md` atualizados
-- [ ] T058 [P] Documento de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: pools (câmera, `shadowMatrix`), grupos de instâncias, posse por conjunto, envio por delta, `poolWritten`, leitura sob demanda, `Input` na C2, controllers, `Parent`, broadphase; marcas "alvo da F2/007" atendidas viram estado atual
-- [ ] T059 [P] Guias: `flows.md` (`groups`, `owns`), câmera/input, física (broadphase, `world.read`), guia de migração (câmera, controllers, `Input`, `resourceReady` de pool → `poolWritten`, pose por `world.read`)
-- [ ] T060 [P] `specs/ROADMAP.md` (status da F2/007; vertex pulling e arena para a F7 com o motivo de R4; broadphase e envio por delta antecipados) e `specs/PENDENCIAS.md` (E2, E3, E5 resolvidos; §0 com o SC-010 da 006)
-- [ ] T061 JSDoc em todo export novo; `npm run doc:coverage` sem membro sem documentação; `npm run doc` (API regenerada)
-- [ ] T062 Smokes completos no fonte e no dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,contactSet,scale1m,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar em `src/__smokes__/README.md`
+- [x] T057 [P] Bench: limitações resolvidas fora de `bench/scenes/*/scene.ts` (instancing, readback, envio por objeto, narrowphase O(N·M)); `bench/README.md` e guia `benchmark.md` atualizados
+- [x] T058 [P] Documento de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: pools (câmera, `shadowMatrix`), grupos de instâncias, posse por conjunto, envio por delta, `poolWritten`, leitura sob demanda, `Input` na C2, controllers, `Parent`, broadphase; marcas "alvo da F2/007" atendidas viram estado atual
+- [x] T059 [P] Guias: `flows.md` (`groups`, `owns`), câmera/input, física (broadphase, `world.read`), guia de migração (câmera, controllers, `Input`, `resourceReady` de pool → `poolWritten`, pose por `world.read`)
+- [x] T060 [P] `specs/ROADMAP.md` (status da F2/007; vertex pulling e arena para a F7 com o motivo de R4; broadphase e envio por delta antecipados) e `specs/PENDENCIAS.md` (E2, E3, E5 resolvidos; §0 com o SC-010 da 006)
+- [x] T061 JSDoc em todo export novo; `npm run doc:coverage` sem membro sem documentação; `npm run doc` (API regenerada)
+- [x] T062 Smokes completos no fonte e no dist: `npm run build:lib && npm run smoke -- time,transforms,integration,multiApp,limits,churn,bigMesh,rigidContacts,contactSet,scale1m,stress60s,trajectories,render,shaderLibrary,computeKernels` e o mesmo com `--dist`; registrar em `src/__smokes__/README.md`
 - [ ] T063 Bench contra as metas (SC-001–SC-007) com a máquina livre: `npm run bench -- --scene instances` e `--scene rigid-bodies` (clayflow e three); anotar abaixo deste item a tabela meta × medido
 - [ ] T064 `npm run bench:check` com a máquina livre contra o baseline do Chrome 155; se verde, `npm run bench:baseline`; anotar abaixo deste item
 - [ ] T065 Gate completo: `npm run format:check`, `npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`, `npm run build:lib`; marcar `specs/007-gpu-scene-state/spec.md` com o status e `checklists/requirements.md`

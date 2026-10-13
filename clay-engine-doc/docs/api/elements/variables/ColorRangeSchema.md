@@ -8,6 +8,6 @@
 
 > `const` **ColorRangeSchema**: `StructSchema`
 
-Defined in: [elements/gpu/compute/schemas.ts:86](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/schemas.ts#L86)
+Defined in: [elements/gpu/compute/schemas.ts:86](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/schemas.ts#L86)
 
 Intervalo das arestas de uma cor em `edgesByColor`.

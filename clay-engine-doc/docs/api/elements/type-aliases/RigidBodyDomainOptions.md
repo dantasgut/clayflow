@@ -8,7 +8,7 @@
 
 > **RigidBodyDomainOptions** = [`RigidBodyShape`](RigidBodyShape.md) & `object`
 
-Defined in: [elements/physics/bodies/RigidBody.ts:33](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/bodies/RigidBody.ts#L33)
+Defined in: [elements/physics/bodies/RigidBody.ts:33](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/bodies/RigidBody.ts#L33)
 
 Opções de domínio do RigidBody dinâmico — vocabulário de física (massa,
 atrito, restituição, damping, forma). O layout do struct GPU (`pos.w` =

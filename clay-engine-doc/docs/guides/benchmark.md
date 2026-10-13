@@ -76,8 +76,9 @@ engine simular mais passos que a outra (o `Time` do clayflow compensaria até 4 
 intervalo de quadro medido é o tempo entre quadros efetivamente gravados (cenas limitadas pela GPU mostram o custo real
 de GPU, em vez de enfileirar trabalho além da janela de medição).
 
-No clayflow, a pose dos corpos rígidos volta da GPU por readback assíncrono e é publicada fora do quadro
-síncrono; esse trabalho aparece só no intervalo de quadro (até a F2).
+No clayflow, a pose dos corpos rígidos é publicada na GPU direto no `Transform` e composta no mesmo quadro — nada
+volta para a CPU por quadro (spec 007); os contadores de diagnóstico do solver são lidos a cada 60 passos. A câmera é
+`Camera` + `Transform`, com as matrizes calculadas na GPU pelo estágio de câmera (o adaptador não calcula matriz).
 
 ## Baseline e gate local
 

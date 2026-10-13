@@ -97,17 +97,16 @@ quando o primeiro corpo do tipo entra na cena.
 ## Controllers
 
 **Antes:** orbit/fps/fly hardcoded no engine.
-**Depois:** opt-in via `InteractionSystem.addController`:
+**Depois (spec 007):** componente da entidade da câmera, que muta o `Transform` dela com o `app.input` da cena:
 
 ```typescript
-import { InteractionSystem, OrbitController } from 'webgpu-engine';
+import { Camera, OrbitController, Transform } from 'webgpu-engine';
 
-const interaction = new InteractionSystem({ canvas, window }, app.events);
-interaction.attach();
-interaction.addController(new OrbitController(camera, {
-    target: [0, 0, 0], distance: 5,
-    autoRotate: true, damping: 0.85,
-}));
+app.world.insert(
+    new Camera()
+        .add(new Transform({ position: [0, 0, 5, 1] }))
+        .add(new OrbitController({ target: [0, 0, 0], distance: 5, autoRotate: true, damping: 0.85 })),
+);
 ```
 
 ## Pós-processamento
@@ -246,6 +245,35 @@ evento `frameRetired`, `FlowTransitions`, `TransitionContext`, `BoundFlow`, `Flo
 **Mudança de comportamento:** sem luz que projeta sombra (`castShadow`), o forward desliga a sombra
 (`shadowEnabled = 0`). Antes ele amostrava um mapa substituto e escurecia a região perto da origem. Cenas com uma
 `DirectionalLight` que projeta sombra renderizam igual (verificado pixel a pixel no smoke `render`).
+
+## Mudanças incompatíveis da spec 007 (estado de cena na GPU)
+
+O estado de cena (Transform, câmera, luz, material, registros) vive em pools na GPU; o render desenha um grupo de
+instâncias por (geometria, pipeline, orientação); a física publica a pose no `Transform` sem leitura de volta.
+
+| Antes | Agora |
+| --- | --- |
+| `class X extends Entity { data: Record<string, unknown> = {}; … }` | sem declarar `data` (o acessor é de `Entity`; declarar é erro TS2610): `constructor() { super(); this.data = … }`. Classes que só implementam `Resource` (sem `Entity`) seguem como antes |
+| `camera.data.view` / `projection` / `viewProjection` / `position` (matrizes na CPU) | `Camera` só com parâmetros (`fov`, `near`, `far`, `aspect`, `aspectMode`, `projection`, `orthoHeight`); matrizes na GPU pelo `CameraFlow` no pool `CameraMatrices` (`Camera.matricesSchema`, mesmo slot) |
+| `new Camera({ … })` sozinha | `new Camera({ … }).add(new Transform({ position, rotation: Transform.lookRotation(olho, alvo) }))` — câmera sem `Transform` é erro |
+| `aspect` atualizado à mão no redimensionamento | `aspectMode: 'canvas'` (padrão) acompanha o canvas; `'fixed'` usa `aspect` |
+| `interactionPlugin`, `InteractionSystem.addController(new OrbitController(camera, opts))` | `camera.add(new OrbitController(opts))` (idem `Fly`/`Fps`); `app.input` (`Input`, Resource da cena) e `app.interaction`; controllers próprios estendem `InputDrivenController` e implementam `tick(input, dt, transform)` |
+| `resourceReady` para dado em pool | `poolWritten` (`poolKey`, `ranges`, `fields?`) para Flows com `listens`; `resourceReady` só para Resources com objetos próprios |
+| `entitiesChanged` por inserção | agregado: um por slot por quadro, antes de `framePrepare` |
+| Pose dos corpos lida de volta para a CPU a cada quadro | pose publicada na GPU no `Transform` (posse da GPU; mutação ignorada com aviso); leitura sob demanda com `await app.resources.read(transform)` / `readAll` |
+| `ShadowMap.data.lightViewProj` e `ShadowMapOptions.lightViewProj` | removidos: a matriz é produzida na GPU pelo `ShadowMatrixFlow` no pool `ShadowMatrix` (`ShadowMap.matrixSchema`, mesmo slot); `ShadowMap` guarda só `bias`, `normalBias`, `size` |
+| `ShadowFlow` com `listens` e matriz calculada na CPU | sem `listens`; lê o pool `ShadowMatrix` |
+| `ForwardFrameParams { lightDir, shadowEnabled, shadowSlot, cameraSlot }` | `{ cameraSlot, lightSlot, shadowEnabled, shadowSlot }` — a direção vem de `lights[lightSlot]` (`0xFFFFFFFF` = direção padrão) |
+| `import { PerStepUniforms } from '…/elements/physics/flows/PerStepUniforms'` | `…/elements/gpu/compute/PerStepUniforms` |
+| um draw por entidade; geometria copiada por entidade | um draw por grupo de instâncias (`slot.entities({ groups })`); buffers de geometria deduplicados por `contentKey` |
+
+Novos: `Parent` (hierarquia opcional), `CameraFlow`, `ShadowMatrixFlow`, `Transform.lookRotation`, `Transform.mirrored`,
+`slot.entities({ groups, owns })`, `BoundPool.gpuOwned`/`ownedByGpu(slot)`, `app.resources.read`/`readAll`,
+`LCPFlowOptions.maxPairsPerBody`, eventos de entrada (`keyDown`, `keyUp`, `pointerDown`, `pointerUp`, `pointerMove`,
+`wheel`).
+
+**Imagem:** a matriz da sombra calculada em `f32` na GPU (antes `f64` na CPU) muda 1 pixel em 1/255 em 7 das 10 cenas
+do smoke `render` (tolerância declarada no plano: ≤ 0,1 % dos pixels e desvio ≤ 2/255).
 
 ## Convivência durante a transição
 

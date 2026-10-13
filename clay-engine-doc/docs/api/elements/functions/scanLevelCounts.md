@@ -8,7 +8,7 @@
 
 > **scanLevelCounts**(`count`): `number`[]
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:18](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/PrefixSum.ts#L18)
+Defined in: [elements/gpu/compute/PrefixSum.ts:18](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/PrefixSum.ts#L18)
 
 Contagens de cada nível da soma de prefixos para `count` elementos: `n_0 = count`, `n_{l+1} = ⌈n_l / 256⌉`, até um
 nível com ≤ 256 elementos (o topo, escaneado num grupo único). Sempre há ao menos um nível abaixo do topo.

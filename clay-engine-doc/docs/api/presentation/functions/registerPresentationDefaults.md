@@ -8,9 +8,9 @@
 
 > **registerPresentationDefaults**(`flows`, `options`): [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/flows/defaults.ts:62](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L62)
+Defined in: [presentation/flows/defaults.ts:68](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/defaults.ts#L68)
 
-Registra por factory os estágios padrão da cena — Transform, Shadow, Forward, Post, Debug e UI, mais os solvers
+Registra por factory os estágios padrão da cena — Transform, Camera, ShadowMatrix, Shadow, Forward, Post, Debug e UI, mais os solvers
 padrão — e insere os alvos do quadro (`FrameTargets`: o render principal desenha neles, o pós-processamento os lê
 pelo slot). **Uma vez por cena**: chamadas seguintes com o mesmo `FlowRegistry` devolvem os mesmos estágios e
 contam mais um usuário (várias aplicações na mesma cena não duplicam estágios). Cada chamada deve ser pareada com

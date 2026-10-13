@@ -24,6 +24,7 @@ pelo `Flow.bodyType` registrado.
 - [BoxGeometry](classes/BoxGeometry.md)
 - [BuoyancyField](classes/BuoyancyField.md)
 - [Camera](classes/Camera.md)
+- [CameraFlow](classes/CameraFlow.md)
 - [CanvasRenderTarget](classes/CanvasRenderTarget.md)
 - [Collider](classes/Collider.md)
 - [ColliderSet](classes/ColliderSet.md)
@@ -53,6 +54,7 @@ pelo `Flow.bodyType` registrado.
 - [OffscreenRenderTarget](classes/OffscreenRenderTarget.md)
 - [ParametricGeometry](classes/ParametricGeometry.md)
 - [ParametricSurfaceGeometry](classes/ParametricSurfaceGeometry.md)
+- [Parent](classes/Parent.md)
 - [ParticleEmitter](classes/ParticleEmitter.md)
 - [ParticleMaterial](classes/ParticleMaterial.md)
 - [PBFFlow](classes/PBFFlow.md)
@@ -70,6 +72,7 @@ pelo `Flow.bodyType` registrado.
 - [Scene](classes/Scene.md)
 - [ScriptedParticleEmitter](classes/ScriptedParticleEmitter.md)
 - [ShadowMap](classes/ShadowMap.md)
+- [ShadowMatrixFlow](classes/ShadowMatrixFlow.md)
 - [SoftBody](classes/SoftBody.md)
 - [SphereCollider](classes/SphereCollider.md)
 - [SphereEmitterShape](classes/SphereEmitterShape.md)
@@ -86,6 +89,7 @@ pelo `Flow.bodyType` registrado.
 
 ## Interfaces
 
+- [CameraSlots](interfaces/CameraSlots.md)
 - [ColliderPoolView](interfaces/ColliderPoolView.md)
 - [ColliderSetOptions](interfaces/ColliderSetOptions.md)
 - [ColorRangeCpu](interfaces/ColorRangeCpu.md)
@@ -120,6 +124,7 @@ pelo `Flow.bodyType` registrado.
 - [RenderTargetOptions](interfaces/RenderTargetOptions.md)
 - [RigidBodyRawOptions](interfaces/RigidBodyRawOptions.md)
 - [ShadowMapOptions](interfaces/ShadowMapOptions.md)
+- [ShadowMatrixSlots](interfaces/ShadowMatrixSlots.md)
 - [SoftBodyDomainOptions](interfaces/SoftBodyDomainOptions.md)
 - [SoftBodyRawOptions](interfaces/SoftBodyRawOptions.md)
 - [SpawnSample](interfaces/SpawnSample.md)

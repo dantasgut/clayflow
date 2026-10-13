@@ -90,6 +90,7 @@ export abstract class Entity {
         return hook === undefined ? this.#data : hook.proxied;
     }
 
+    /** Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio. */
     set data(next: Record<string, unknown>) {
         const hook = this[DATA_HOOK];
         if (hook === undefined) {

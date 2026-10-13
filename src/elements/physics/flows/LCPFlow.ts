@@ -458,8 +458,11 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
      * primeiro quadro com corpos.
      */
     contactBuffers(): {
+        /** Contatos do último substep (`RBContact`), ou `null` antes da primeira alocação. */
         readonly contacts: StorageBufferSpec | null;
+        /** Contador de contatos reservados (`AtomicAllocCounter`). */
         readonly counter: StorageBufferSpec;
+        /** Contatos que cabem no buffer. */
         readonly capacity: number;
         /** Bytes por contato (stride do struct `RBContact`). */
         readonly recordBytes: number;

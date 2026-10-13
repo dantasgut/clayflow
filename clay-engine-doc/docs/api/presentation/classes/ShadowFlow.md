@@ -6,16 +6,16 @@
 
 # Class: ShadowFlow
 
-Defined in: [presentation/flows/ShadowFlow.ts:106](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L106)
+Defined in: [presentation/flows/ShadowFlow.ts:124](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L124)
 
 ShadowFlow — passe só de profundidade do ponto de vista da primeira `DirectionalLight` que projeta sombra, na
 textura do `ShadowMap` dela (slot `target`).
 
-Slots: o `ShadowMap` da luz (caster), os pools `WorldTransform` e `ShadowMap` e as entidades com geometria e
-transform. A matriz luz-vista-projeção é calculada na CPU quando a luz muda (`resourceReady` da luz, escuta de
-`Light`) ou quando o caster aparece, e gravada em `ShadowMap.data.lightViewProj` — o envio reativo da C2 a leva ao
-pool, que este estágio e o render principal leem pelo slot do mapa. A geometria é a alocada pela C2 (nenhuma cópia
-por entidade); a posição vem do pool `WorldTransform` pelo slot da entidade (`firstInstance`).
+Slots: o `ShadowMap` da luz (caster), os pools `WorldTransform` e `ShadowMatrix` e as entidades com geometria e
+transform. A matriz luz-vista-projeção é produzida na GPU pelo `ShadowMatrixFlow` (fase `transform`) a partir da
+direção da luz; este estágio só escreve o slot do caster nos seus parâmetros quando ele muda — a CPU não acompanha a
+luz. A geometria é a alocada pela C2 (nenhuma cópia por entidade); um desenho por grupo de instâncias (mesma geometria e orientação), e cada instância acha o seu slot
+no pool `WorldTransform` pela lista de instâncias (`ShadowInstance`).
 
 ## Extends
 
@@ -27,7 +27,7 @@ por entidade); a posição vem do pool `WorldTransform` pelo slot da entidade (`
 
 > **new ShadowFlow**(`ctx`, `options?`): `ShadowFlow`
 
-Defined in: [presentation/flows/ShadowFlow.ts:125](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L125)
+Defined in: [presentation/flows/ShadowFlow.ts:142](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L142)
 
 #### Parameters
 
@@ -53,7 +53,7 @@ Defined in: [presentation/flows/ShadowFlow.ts:125](https://github.com/dantasgut/
 
 > `readonly` **bindings**: `object`
 
-Defined in: [presentation/flows/ShadowFlow.ts:111](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L111)
+Defined in: [presentation/flows/ShadowFlow.ts:128](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L128)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -73,7 +73,7 @@ Parâmetros do passe (`ShadowDepthParams`: slot do caster).
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/ShadowFlow.ts:115](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L115)
+Defined in: [presentation/flows/ShadowFlow.ts:132](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L132)
 
 Estado inicial do algoritmo.
 
@@ -85,13 +85,13 @@ Estado inicial do algoritmo.
 
 ### listens
 
-> `readonly` **listens**: `StructSchema`[]
+> `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [presentation/flows/ShadowFlow.ts:109](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L109)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
-#### Overrides
+#### Inherited from
 
 `RenderFlow.listens`
 
@@ -101,7 +101,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [presentation/flows/ShadowFlow.ts:110](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L110)
+Defined in: [presentation/flows/ShadowFlow.ts:127](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L127)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -115,7 +115,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`ShadowSlots`](../interfaces/ShadowSlots.md)
 
-Defined in: [presentation/flows/ShadowFlow.ts:108](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L108)
+Defined in: [presentation/flows/ShadowFlow.ts:126](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L126)
 
 Slots consumidos, por nome.
 
@@ -129,7 +129,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`ShadowSlots`](../interfaces/ShadowSlots.md)\>\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:116](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L116)
+Defined in: [presentation/flows/ShadowFlow.ts:133](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L133)
 
 Tabela de transições (estado × evento).
 
@@ -143,7 +143,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"ShadowFlow"` = `'ShadowFlow'`
 
-Defined in: [presentation/flows/ShadowFlow.ts:107](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L107)
+Defined in: [presentation/flows/ShadowFlow.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L125)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -159,7 +159,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -179,7 +179,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -197,7 +197,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/RenderFlow.ts#L20)
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/flows/RenderFlow.ts#L20)
 
 View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
@@ -225,9 +225,9 @@ View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `u
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [presentation/flows/ShadowFlow.ts:166](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L166)
+Defined in: [presentation/flows/ShadowFlow.ts:177](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L177)
 
-Grava a profundidade de cada entidade com geometria e transform.
+Grava a profundidade: um desenho por grupo de instâncias (geometria, orientação).
 
 #### Parameters
 
@@ -253,7 +253,7 @@ Grava a profundidade de cada entidade com geometria e transform.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/ShadowFlow.ts:210](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L210)
+Defined in: [presentation/flows/ShadowFlow.ts:219](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/flows/ShadowFlow.ts#L219)
 
 Libera o uniform de parâmetros.
 

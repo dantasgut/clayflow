@@ -11,17 +11,13 @@ let t = 0;
 
 /**
  * N entidades Box + StandardMaterial + Transform (só `position`/`rotation`/`scale`; a matriz de
- * mundo é do `TransformFlow`, spec 003). Recurso compartilhado entre entidades não é suportado.
- * Em movimento, `update` muta `transform.data` — envio reativo no início do quadro.
+ * mundo é do `TransformFlow`, spec 003). Cada entidade tem as suas instâncias (reuso de instância
+ * entre entidades não é suportado); a C2 deduplica a geometria por conteúdo e o forward desenha um
+ * grupo de instâncias por (geometria, pipeline) — spec 007. Em movimento, `update` muta
+ * `transform.data`: os slots sujos vão em faixas contíguas no início do quadro.
  */
 const impl: SceneImplementation<ClayflowHandle> = {
-    get limitations() {
-        const base = [
-            'sem instancing no render: 1 draw por objeto (até F2)',
-            'render LDR 8 bits, sem MSAA (até F4)',
-        ];
-        return moving ? [...base, 'um envio por objeto alterado, sem agrupamento (até F2)'] : base;
-    },
+    limitations: ['render LDR 8 bits, sem MSAA (até F4)'],
     setup({ engine, variant, rng }) {
         moving = isMoving(variant.params);
         placements = gridScatter(rng, countOf(variant.params), INSTANCES_EXTENT);

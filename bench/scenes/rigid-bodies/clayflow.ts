@@ -11,15 +11,12 @@ import type { ClayflowHandle } from '../../engines/clayflow';
 import { BALL_RADIUS, ballPositions, GROUND_HALF } from './scene';
 
 /**
- * `RigidBody` pela fachada de domínio (spec 001). A pose chega à tela pelo `Transform`:
- * readback → `position`/`rotation` → `TransformFlow` (spec 003).
+ * `RigidBody` pela fachada de domínio (spec 001). A pose é publicada na GPU direto no `Transform` do corpo e composta
+ * pelo `TransformFlow` no mesmo quadro, sem leitura de volta para a CPU; broadphase em grade hash e um draw por grupo
+ * de instâncias (spec 007).
  */
 const impl: SceneImplementation<ClayflowHandle> = {
-    limitations: [
-        'readback de todos os corpos para a CPU por quadro, pose publicada fora do quadro e com 1 quadro de atraso (até F2)',
-        'narrowphase O(N·M), sem broadphase (até F5)',
-        'sem instancing no render (até F2)',
-    ],
+    limitations: ['render LDR 8 bits, sem MSAA (até F4)'],
     setup({ engine, variant, rng }) {
         const world = engine.app.world;
         world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));

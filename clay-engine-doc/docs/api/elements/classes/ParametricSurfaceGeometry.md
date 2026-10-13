@@ -6,7 +6,7 @@
 
 # Class: ParametricSurfaceGeometry
 
-Defined in: [elements/geometry/ParametricSurfaceGeometry.ts:4](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/ParametricSurfaceGeometry.ts#L4)
+Defined in: [elements/geometry/ParametricSurfaceGeometry.ts:4](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/ParametricSurfaceGeometry.ts#L4)
 
 ParametricGeometry gera uma malha tessellated a partir de uma função
 paramétrica `f(u, v) → [x, y, z]`. Útil para superfícies matemáticas
@@ -26,7 +26,7 @@ shading correto devem post-processar com derivada cross-product.
 
 > **new ParametricSurfaceGeometry**(`fn`, `values?`): `ParametricSurfaceGeometry`
 
-Defined in: [elements/geometry/ParametricSurfaceGeometry.ts:5](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/ParametricSurfaceGeometry.ts#L5)
+Defined in: [elements/geometry/ParametricSurfaceGeometry.ts:5](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/ParametricSurfaceGeometry.ts#L5)
 
 #### Parameters
 
@@ -48,27 +48,11 @@ Defined in: [elements/geometry/ParametricSurfaceGeometry.ts:5](https://github.co
 
 ## Properties
 
-### data
-
-> **data**: `Record`\<`string`, `unknown`\> = `{}`
-
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/Geometry.ts#L17)
-
-Dados runtime do resource (e.g. Camera position, Material albedo,
-RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
-Mutações devem disparar evento `resourceDirty` para re-upload.
-
-#### Inherited from
-
-[`ParametricGeometry`](ParametricGeometry.md).[`data`](ParametricGeometry.md#data)
-
-***
-
 ### state
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/Geometry.ts#L16)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/Geometry.ts#L17)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -82,7 +66,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema` = `ParametricGeometry.vertexStruct`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:34](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/ParametricGeometry.ts#L34)
+Defined in: [elements/geometry/ParametricGeometry.ts:35](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/ParametricGeometry.ts#L35)
 
 Alias para vertexStruct — Schema interface comum.
 
@@ -96,7 +80,7 @@ Alias para vertexStruct — Schema interface comum.
 
 > `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:28](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/ParametricGeometry.ts#L28)
+Defined in: [elements/geometry/ParametricGeometry.ts:29](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/ParametricGeometry.ts#L29)
 
 Vertex layout: position (vec3) + normal (vec3) + uv (vec2).
 
@@ -112,7 +96,7 @@ Vertex layout: position (vec3) + normal (vec3) + uv (vec2).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -127,13 +111,74 @@ readonly [`Entity`](Entity.md)[]
 
 ***
 
+### contentKey
+
+#### Get Signature
+
+> **get** **contentKey**(): `string` \| `undefined`
+
+Defined in: [elements/geometry/Geometry.ts:30](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/Geometry.ts#L30)
+
+Chave de conteúdo (spec 007): geometrias com a mesma chave compartilham os buffers de vértice e índice na GPU (a
+Camada 2 deduplica). Paramétricas: a dos parâmetros; arrays próprios: a do hash dos bytes. `undefined` sem
+vértices e índices em `data` (ex.: nuvem de pontos produzida na GPU, que é sempre própria).
+
+##### Returns
+
+`string` \| `undefined`
+
+#### Inherited from
+
+[`ParametricGeometry`](ParametricGeometry.md).[`contentKey`](ParametricGeometry.md#contentkey)
+
+***
+
+### data
+
+#### Get Signature
+
+> **get** **data**(): `Record`\<`string`, `unknown`\>
+
+Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+
+Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
+`data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
+
+##### Returns
+
+`Record`\<`string`, `unknown`\>
+
+#### Set Signature
+
+> **set** **data**(`next`): `void`
+
+Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+
+Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
+
+##### Parameters
+
+###### next
+
+`Record`\<`string`, `unknown`\>
+
+##### Returns
+
+`void`
+
+#### Inherited from
+
+[`ParametricGeometry`](ParametricGeometry.md).[`data`](ParametricGeometry.md#data)
+
+***
+
 ### indexCount
 
 #### Get Signature
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:72](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/ParametricGeometry.ts#L72)
+Defined in: [elements/geometry/ParametricGeometry.ts:79](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/ParametricGeometry.ts#L79)
 
 Número total de índices (= uSteps × vSteps × 6, 2 triangles por quad).
 
@@ -153,7 +198,7 @@ Número total de índices (= uSteps × vSteps × 6, 2 triangles por quad).
 
 > **get** **indexFormat**(): `GPUIndexFormat`
 
-Defined in: [elements/geometry/Geometry.ts:31](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/Geometry.ts#L31)
+Defined in: [elements/geometry/Geometry.ts:44](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/Geometry.ts#L44)
 
 Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint32'`).
 
@@ -167,13 +212,34 @@ Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint
 
 ***
 
+### rawData
+
+#### Get Signature
+
+> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+
+O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
+estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
+
+##### Returns
+
+`Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+#### Inherited from
+
+[`ParametricGeometry`](ParametricGeometry.md).[`rawData`](ParametricGeometry.md#rawdata)
+
+***
+
 ### vertexCount
 
 #### Get Signature
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricGeometry.ts:68](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/ParametricGeometry.ts#L68)
+Defined in: [elements/geometry/ParametricGeometry.ts:75](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/ParametricGeometry.ts#L75)
 
 Número total de vértices (= (uSteps+1) × (vSteps+1)).
 
@@ -191,7 +257,7 @@ Número total de vértices (= (uSteps+1) × (vSteps+1)).
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -216,7 +282,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/ParametricGeometry.ts:55](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/ParametricGeometry.ts#L55)
+Defined in: [elements/geometry/ParametricGeometry.ts:62](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/ParametricGeometry.ts#L62)
 
 Declara VBO (vertex buffer) + IBO (index buffer) para o ResourceSystem.
 
@@ -234,7 +300,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:21](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/Geometry.ts#L21)
+Defined in: [elements/geometry/Geometry.ts:21](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/Geometry.ts#L21)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -254,7 +320,7 @@ readonly `PipelineDescriptor`[]
 
 > `protected` `static` **indexArray**(`indices`, `vertexCount`): `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:39](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/geometry/Geometry.ts#L39)
+Defined in: [elements/geometry/Geometry.ts:52](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/geometry/Geometry.ts#L52)
 
 Array de índices no menor formato que endereça `vertexCount` vértices: `Uint16Array` até 65 535 vértices,
 `Uint32Array` acima.

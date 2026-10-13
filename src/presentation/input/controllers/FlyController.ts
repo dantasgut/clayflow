@@ -5,11 +5,17 @@ import { forwardOf, rightOf } from './lookAngles';
 
 /** Teclas de cada direção do FlyController (`KeyboardEvent.code`). */
 export interface FlyControllerKeymap {
+    /** Teclas (`KeyboardEvent.code`) para frente. */
     readonly forward?: readonly string[];
+    /** Teclas para trás. */
     readonly back?: readonly string[];
+    /** Teclas para a esquerda. */
     readonly left?: readonly string[];
+    /** Teclas para a direita. */
     readonly right?: readonly string[];
+    /** Teclas para subir. */
     readonly up?: readonly string[];
+    /** Teclas para descer. */
     readonly down?: readonly string[];
 }
 

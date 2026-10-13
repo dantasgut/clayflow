@@ -6,7 +6,7 @@
 
 # Class: LCPFlow
 
-Defined in: [elements/physics/flows/LCPFlow.ts:174](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L174)
+Defined in: [elements/physics/flows/LCPFlow.ts:209](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L209)
 
 LCPFlow — solver de RigidBody via LCP (Linear Complementarity Problem) com 4 fases canônicas: DetectContacts →
 AssembleA → SolvePGS×K → Apply. O quadro executa `time.steps` passos de `time.stepDt`; cada passo faz predict,
@@ -25,10 +25,11 @@ collider. Recursos privados — parâmetros por iteração, lista de contatos e 
 buffers por corpo, parâmetros de narrowphase por forma e o `ColliderSet` — são recriados e religados em transições
 (`framePrepare`, pools realocados, colliders), nunca no `dispatch`.
 
-Ao fim do quadro, lê de volta o pool de corpos e publica a pose (posição e rotação) no `Transform` de cada
-entidade; o mapa slot → entidade é capturado quando a cópia é gravada, então uma remoção entre a cópia e a leitura
-não aplica a pose à entidade errada. A escala do `Transform` é do desenvolvedor e não é tocada. (O readback some na
-F2, quando a física escrever a pose direto na GPU.)
+Ao fim do quadro, `rb_publish_pose` copia na GPU a pose (posição e rotação normalizada) de cada corpo para o
+`Transform` da entidade (registro `RigidPose` mantido pela C2; o `Transform` é de posse da GPU), e o estágio de
+transformação compõe a matriz no mesmo quadro — nenhuma leitura de volta (spec 007). A escala do `Transform` é do
+desenvolvedor e não é tocada. Quem precisa da pose na CPU usa a leitura sob demanda da C2. O contador de excedente
+de contatos é lido a cada `OVERFLOW_CHECK_STEPS` passos, sem bloquear.
 
 ## Extends
 
@@ -40,7 +41,7 @@ F2, quando a física escrever a pose direto na GPU.)
 
 > **new LCPFlow**(`ctx`, `options?`): `LCPFlow`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:220](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L220)
+Defined in: [elements/physics/flows/LCPFlow.ts:273](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L273)
 
 #### Parameters
 
@@ -66,7 +67,7 @@ Defined in: [elements/physics/flows/LCPFlow.ts:220](https://github.com/dantasgut
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:178](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L178)
+Defined in: [elements/physics/flows/LCPFlow.ts:213](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L213)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -80,7 +81,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"running"`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:179](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L179)
+Defined in: [elements/physics/flows/LCPFlow.ts:214](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L214)
 
 Estado inicial do algoritmo.
 
@@ -94,7 +95,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -108,7 +109,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/LCPFlow.ts:177](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L177)
+Defined in: [elements/physics/flows/LCPFlow.ts:212](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L212)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -122,7 +123,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`LCPSlots`](../interfaces/LCPSlots.md)
 
-Defined in: [elements/physics/flows/LCPFlow.ts:176](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L176)
+Defined in: [elements/physics/flows/LCPFlow.ts:211](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L211)
 
 Slots consumidos, por nome.
 
@@ -136,7 +137,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"running"`, `TransitionContext`\<[`LCPSlots`](../interfaces/LCPSlots.md)\>\>
 
-Defined in: [elements/physics/flows/LCPFlow.ts:180](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L180)
+Defined in: [elements/physics/flows/LCPFlow.ts:215](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L215)
 
 Tabela de transições (estado × evento).
 
@@ -150,7 +151,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"LCPFlow"` = `'LCPFlow'`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:175](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L175)
+Defined in: [elements/physics/flows/LCPFlow.ts:210](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L210)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -166,7 +167,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -186,7 +187,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -200,29 +201,48 @@ Estado próprio do algoritmo (só transições o mudam).
 
 ## Methods
 
-### applyTransformsFromReadback()
+### contactBuffers()
 
-> `protected` **applyTransformsFromReadback**(`ab`, `entities`): `void`
+> **contactBuffers**(): `object`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:730](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L730)
+Defined in: [elements/physics/flows/LCPFlow.ts:460](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L460)
 
-Publica a pose lida da GPU no `Transform` de cada corpo, pelo mapa slot → entidade capturado na cópia: só
-posição e rotação (normalizada; nula ⇒ identidade). Entidade removida desde a cópia é ignorada; a escala não é
-tocada.
-
-#### Parameters
-
-##### ab
-
-`ArrayBuffer`
-
-##### entities
-
-readonly (`EntityId` \| `undefined`)[]
+Lista compactada de contatos do último substep gravado, o seu contador `{ count, overflow }` e as contagens de
+pares candidatos da broadphase (diagnóstico: smokes comparam o conjunto de contatos entre versões da narrowphase
+e medem os pares testados). `contacts` é `null` até o
+primeiro quadro com corpos.
 
 #### Returns
 
-`void`
+##### capacity
+
+> `readonly` **capacity**: `number`
+
+Contatos que cabem no buffer.
+
+##### contacts
+
+> `readonly` **contacts**: `StorageBufferSpec` \| `null`
+
+Contatos do último substep (`RBContact`), ou `null` antes da primeira alocação.
+
+##### counter
+
+> `readonly` **counter**: `StorageBufferSpec`
+
+Contador de contatos reservados (`AtomicAllocCounter`).
+
+##### pairCounts
+
+> `readonly` **pairCounts**: `StorageBufferSpec`
+
+Contagens de pares candidatos do último substep (`CandidatePairCounts`: caixas, esferas, excedente).
+
+##### recordBytes
+
+> `readonly` **recordBytes**: `number`
+
+Bytes por contato (stride do struct `RBContact`).
 
 ***
 
@@ -230,7 +250,7 @@ readonly (`EntityId` \| `undefined`)[]
 
 > **contactCapacity**(`bodyCount`, `totalCol`): `number`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:341](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L341)
+Defined in: [elements/physics/flows/LCPFlow.ts:485](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L485)
 
 Capacidade da lista compactada de contatos (research R19): no máximo 8 contatos por par (cantos),
 `maxContactsPerBody` por corpo e o que cabe num binding de storage do device.
@@ -255,7 +275,7 @@ Capacidade da lista compactada de contatos (research R19): no máximo 8 contatos
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:355](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L355)
+Defined in: [elements/physics/flows/LCPFlow.ts:499](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L499)
 
 Grava os passos do quadro (contagens, carimbos e capacidades decididos em `framePrepare`).
 
@@ -283,7 +303,7 @@ Grava os passos do quadro (contagens, carimbos e capacidades decididos em `frame
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:438](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L438)
+Defined in: [elements/physics/flows/LCPFlow.ts:636](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L636)
 
 Libera parâmetros, contatos, buffers por corpo, staging e o conjunto de colliders.
 
@@ -301,13 +321,33 @@ Libera parâmetros, contatos, buffers por corpo, staging e o conjunto de collide
 
 > `protected` **reportContactOverflow**(`counter`): `void`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:713](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L713)
+Defined in: [elements/physics/flows/LCPFlow.ts:1031](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L1031)
 
 Avisa (uma vez) quando a narrowphase encontrou mais contatos que a capacidade da lista compactada.
 
 #### Parameters
 
 ##### counter
+
+`ArrayBuffer`
+
+#### Returns
+
+`void`
+
+***
+
+### reportPairOverflow()
+
+> `protected` **reportPairOverflow**(`counts`): `void`
+
+Defined in: [elements/physics/flows/LCPFlow.ts:1019](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/flows/LCPFlow.ts#L1019)
+
+Avisa (uma vez) quando a broadphase encontrou mais pares candidatos que a capacidade das listas.
+
+#### Parameters
+
+##### counts
 
 `ArrayBuffer`
 

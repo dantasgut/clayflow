@@ -5,20 +5,27 @@
 
 /** Tecla pressionada ou solta (`KeyboardEvent.code`). */
 export interface KeyEvent {
+    /** Código físico da tecla (`KeyboardEvent.code`, ex.: `'KeyW'`). */
     readonly code: string;
 }
 
 /** Ponteiro: posição em coordenadas do canvas, deslocamento desde o último movimento e botão (`PointerEvent.button`). */
 export interface PointerInputEvent {
+    /** Posição horizontal no canvas, em pixels. */
     readonly x: number;
+    /** Posição vertical no canvas, em pixels (para baixo). */
     readonly y: number;
+    /** Deslocamento horizontal desde o último movimento. */
     readonly dx: number;
+    /** Deslocamento vertical desde o último movimento. */
     readonly dy: number;
+    /** Botão (`PointerEvent.button`: 0 esquerdo, 1 meio, 2 direito). */
     readonly button: number;
 }
 
 /** Roda do mouse (positivo = rolar para baixo, como `WheelEvent.deltaY`). */
 export interface WheelInputEvent {
+    /** Rolagem vertical (`WheelEvent.deltaY`). */
     readonly delta: number;
 }
 

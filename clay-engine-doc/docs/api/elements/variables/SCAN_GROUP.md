@@ -8,6 +8,6 @@
 
 > `const` **SCAN\_GROUP**: `256` = `256`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:12](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/PrefixSum.ts#L12)
+Defined in: [elements/gpu/compute/PrefixSum.ts:12](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/PrefixSum.ts#L12)
 
 Elementos por grupo da soma de prefixos (tamanho do workgroup dos kernels de scan).

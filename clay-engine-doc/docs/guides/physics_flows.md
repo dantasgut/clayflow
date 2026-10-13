@@ -63,11 +63,13 @@ Os nomes de campo de cada schema (`pos`, `vel`, `F_col0…`) estão na definiç�
 
 ```typescript
 import {
-    Application, Camera, GravityField, SoftBody, DistanceConstraint, XPBDFlow, XPBDSoftSchema,
+    Application, Camera, GravityField, SoftBody, DistanceConstraint, Transform, XPBDFlow, XPBDSoftSchema,
 } from 'webgpu-engine';
 
 const app = await Application.create({ canvas });
-app.world.insert(new Camera({ aspect: canvas.width / canvas.height }));
+app.world.insert(
+    new Camera().add(new Transform({ position: [0, 1, 5, 1], rotation: Transform.lookRotation([0, 1, 5], [0, 1, 0]) })),
+);
 app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
 
 // Substitui o XPBDFlow padrão apenas para tunar solverIters/substeps (sem isto, o padrão
@@ -130,6 +132,22 @@ for (let i = 0; i < 200; i++) {
 app.start();
 ```
 
+## Corpos rígidos: broadphase e pose na GPU
+
+- **Broadphase**: o `LCPFlow` testa só pares candidatos — uma grade hash espacial em GPU (proxies uma vez por passo,
+  pares por substep com a velocidade do substep) alimenta a narrowphase de caixa/esfera por despacho indireto; planos
+  seguem exaustivos. `new LCPFlow(ctx, { maxPairsPerBody })` (padrão 64) limita a lista de pares por corpo e forma;
+  excedente é contado e avisado, nunca perdido em silêncio. O conjunto de contatos é o mesmo da varredura exaustiva.
+- **Pose na GPU**: o LCP publica posição e rotação de cada corpo direto no pool `Transform` (o conjunto declara
+  `owns`) — nenhuma leitura de volta por quadro. Mutar o `Transform` de um corpo dinâmico é ignorado com aviso; para
+  ver a pose na CPU, leia sob demanda:
+
+```typescript
+const pose = await app.resources.read(ball.attached.find((p) => p instanceof Transform)!);
+console.log(pose?.position); // a do último quadro enviado
+const poses = await app.resources.readAll(transforms); // um lote: uma cópia por faixa contígua e uma leitura
+```
+
 ## Convenções dos Flows
 
 - **Slots, não consultas**: cada solver declara os seus slots (`slot.bodies()`, `slot.singleton(Time.schema)`, pools
@@ -139,8 +157,10 @@ app.start();
   Quando um pool dobra de capacidade, a C2 recria os grupos afetados (`bindGroupReplaced`) antes da próxima gravação;
   o solver só religa os seus recursos privados que dependem do tamanho (numa transição, com `ctx.bind`).
 - **Parâmetros fora da gravação**: uniforms por passo são escritos em `framePrepare`; o `dispatch` só grava.
-- **Remoção**: a C2 libera os slots dos pools e entrega `slotChanged`/`poolReallocated` quando aplicável; leituras de
-  volta à CPU (LCP) capturam o mapa slot → entidade no quadro em que a cópia foi gravada.
+- **Remoção**: a C2 libera os slots dos pools e entrega `slotChanged`/`poolReallocated` quando aplicável; a posse da
+  GPU do slot é devolvida.
+- **Uniforms por iteração**: `PerStepUniforms` (`elements/gpu/compute`) dá uma região por passo/substep com offset
+  dinâmico.
 - **Substituição**: `app.flows.override(bodyType, factory, opções)` troca o solver de um tipo de corpo.
 
 ---

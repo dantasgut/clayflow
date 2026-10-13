@@ -73,12 +73,22 @@ export class Input extends Entity implements Resource {
     }
 
     /** Última posição do ponteiro em coordenadas do canvas. */
-    pointerPosition(): { readonly x: number; readonly y: number } {
+    pointerPosition(): {
+        /** Horizontal, em pixels do canvas. */
+        readonly x: number;
+        /** Vertical, em pixels do canvas (para baixo). */
+        readonly y: number;
+    } {
         return { x: this.current.pointerX, y: this.current.pointerY };
     }
 
     /** Deslocamento do ponteiro desde o último quadro. */
-    pointerDelta(): { readonly dx: number; readonly dy: number } {
+    pointerDelta(): {
+        /** Deslocamento horizontal acumulado no quadro, em pixels. */
+        readonly dx: number;
+        /** Deslocamento vertical acumulado no quadro, em pixels. */
+        readonly dy: number;
+    } {
         return { dx: this.current.pointerDeltaX, dy: this.current.pointerDeltaY };
     }
 

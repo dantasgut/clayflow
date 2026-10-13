@@ -1741,7 +1741,6 @@ class StandardMaterial extends Entity implements Resource {
         metallic:  FieldType.f32,
     });
 
-    data: Record<string, unknown> = {};
     state: ResourceState = ResourceState.Uninitialized;
 
     constructor(values: Record<string, unknown> = {}) {
@@ -1845,7 +1844,7 @@ stateDiagram-v2
     Uninitialized --> Loading     : ResourceSystem inicia alocação
     Loading       --> Ready       : core.create() concluiu + core.write() upload OK
 
-    Ready         --> Dirty       : mutação do data reativo (proxy marca sujo)
+    Ready         --> Dirty       : mutação do data reativo de recurso com objetos próprios
     Dirty         --> Ready       : ResourceSystem reempacotou no quadro (schema.pack → core.write)
 
     Ready         --> GpuManaged  : na alocação, quando nenhum descritor envia sempre (upload 'initial'/'never')
@@ -1858,7 +1857,8 @@ stateDiagram-v2
     Destroyed     --> Uninitialized : reinserção da mesma instância após remove
 ```
 
-`GpuManaged → Ready` é válida na tabela, mas nenhum caminho atual a usa (não há `enterGpuManagedMode`/`exitGpuManagedMode`): um recurso entra em `GpuManaged` só na alocação e sai dele só pela remoção.
+Dado em pool não passa por `Dirty` (spec 007): a mutação marca o slot no bitset do pool e o recurso continua `Ready`;
+`Dirty` e a fila de envio são só de recursos com objetos próprios. `GpuManaged → Ready` é válida na tabela, mas nenhum caminho atual a usa (não há `enterGpuManagedMode`/`exitGpuManagedMode`): um recurso entra em `GpuManaged` só na alocação e sai dele só pela remoção.
 
 **Implementação:** 7 classes concretas `{Uninitialized/Loading/Ready/Dirty/GpuManaged/Disposed/Destroyed}ResourceStateHandler` — cada uma stateless, instância única via `ResourceStateHandlerRegistry.get(state)`. As transições são dirigidas pelos eventos que o `ResourceSystem` recebe (`resourcesChanged`, `resourceDirty`, `frameRecording`) e **toda mudança de estado passa por `ResourceSystem.transition(resource, to)`**, que consulta as transições válidas do handler atual e **lança** em transição inválida (com estado atual, destino e schema). As regras de comportamento vêm do handler, nunca de comparação de estado: `suppressCpuUpload()` bloqueia o envio, `ignoreDirtyMark()` ignora a marcação de sujo e `reportsIgnoredMutation()` decide se a mutação ignorada merece aviso (só `GpuManaged` — `Dirty` também ignora, mas porque já está na fila).
 
@@ -1908,7 +1908,6 @@ await Application.create(canvas, {
 // Material custom declara consumo:
 class EnvironmentMaterial extends Entity implements Resource {
   static readonly schema = new StructSchema('EnvironmentMaterial', {});
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   getDescriptors() { return []; }
@@ -2011,23 +2010,28 @@ O `ResourceSystem` aloca **todos** os descritores de um recurso inserido, um reg
 
 Reatribuir `data[id]` reenvia no próximo `frameRecording`; conteúdo de outro tamanho/formato recria o buffer. O
 crescimento de pool destrói buffer e bind group anteriores. O que foi alocado é localizado pelo contrato
-`ResourceDirectory` (C2, estende `PoolDirectory`): `bufferOf`, `textureOf`, `textureViewOf`, `samplerOf`. O consumo
-desses objetos pelos estágios de desenho e sombra é a spec 006 — até lá a geometria fica duplicada na GPU (cópia da C2
-e dos estágios).
+`ResourceDirectory` (C2, estende `PoolDirectory`): `bufferOf`, `textureOf`, `textureViewOf`, `samplerOf`. Os estágios
+de desenho e sombra consomem esses objetos direto (spec 006), sem cópia. Geometrias com o mesmo conteúdo compartilham
+os buffers de vértice e índice (spec 007): a chave é `Resource.contentKey` (paramétricas: a dos parâmetros; arrays
+próprios: hash dos bytes); o primeiro usuário cria e escreve o buffer, os demais só contam uso, e o último a sair o
+destrói. Resources cujas alocações próprias são todas de geometria compartilhada usam **o mesmo mapa de alocações**
+(nenhum objeto de alocação por entidade); se o conteúdo de um deles muda, ele ganha cópia própria antes (cópia na
+escrita).
 
 ### Pools canônicos — `storage: 'pool'` esperados
 
-Abaixo os pools padrão para Resources com `storage: 'pool'` no GPUDescriptor, com o **status** de cada um. Tipos que aparecem em N cópias e exigem coalescing usam o pool; Camera continua individual (uma por câmera).
+Abaixo os pools padrão para Resources com `storage: 'pool'` no GPUDescriptor, com o **status** de cada um. Todo o estado de cena vive em pools na GPU (spec 007): um recurso com vários descritores em pool ocupa o mesmo slot em todos, e um descritor `upload: 'never'` é o lugar onde um estágio publica o que produziu (matrizes de mundo, de câmera e de sombra).
 
 A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescriptor com algoritmo, `${schema.name}:${algorithm}` (nenhum corpo do motor declara hoje — cada algoritmo tem o seu schema: `LCPSchema`, `XPBDSoftSchema`, …).
 
 | Pool key | Membro | Consumido por | Status |
 |---|---|---|---|
 | `Transform` / `WorldTransform` | intenção (posição, rotação, escala) e matriz de mundo | `TransformFlow` → forward, sombra, física | atual |
-| `Camera` | — (individual: uma por câmera) | forward, sombra | atual (individual) |
+| `Camera` / `CameraMatrices` | parâmetros de projeção (`'always'`) e, no mesmo slot, `view`/`projection`/`viewProjection`/`position` (`'never'`, produzidas pelo `CameraFlow` a partir do `Transform` da câmera) | `CameraFlow` → forward (câmera ativa pelo `cameraSlot`) | atual (007) |
 | `StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial` | material por schema — pool de storage (`array<T>`, stride do struct), indexado pelo `materialSlot` do `Renderable` | forward | atual |
-| `ShadowMap` | matriz luz-vista-projeção, vieses e tamanho de cada luz que projeta sombra (`array<ShadowMap>` no shader); a textura `depth` é individual | sombra (desenha na `depth`), forward (lê pelo slot do caster) | atual |
-| `Renderable` | `{ transformSlot, materialSlot }` para cada entidade com Geometry + Material + Transform, mantido pela C2 a partir de `slot.entities({ all, record })` | forward: `firstInstance` = slot do registro; o shader lê a matriz e o material por ele — nenhum bind group muda entre draws do mesmo pipeline | atual (006, Emenda 1); desenho agrupado por (geometria, pipeline) com instâncias/indireto sobre ele: **alvo da F2** |
+| `ShadowMap` / `ShadowMatrix` | vieses e tamanho (`'always'`) e, no mesmo slot, a matriz luz-vista-projeção (`'never'`, produzida pelo `ShadowMatrixFlow` a partir da direção da luz); a textura `depth` é individual | sombra (desenha na `depth` com a matriz), forward (vieses e matriz pelo slot do caster) | atual (007) |
+| `Renderable` | `{ transformSlot, materialSlot }` para cada entidade com Geometry + Material + Transform, mantido pela C2 a partir de `slot.entities({ all, record })` | forward: um draw por grupo de instâncias (geometria, pipeline, face); a lista `RenderInstance` dá o slot do registro de cada instância, e o shader lê matriz e material por ele | atual (006, Emenda 1; agrupado na 007) |
+| `RenderInstance` / `ShadowInstance` / `RigidPoseInstance` / … | listas de instâncias dos grupos (`slot.entities({ groups })`): um `u32` por posição, segmento contíguo por grupo | forward (`instances[instance_index].renderable`), sombra (`.world`), publicação da pose, câmera, matriz de sombra | atual (007) |
 | `LCPSchema` | corpo rígido — LCP | `LCPFlow` | atual |
 | `XPBDSoftSchema` | partícula de corpo mole (XPBD) | `XPBDFlow` | atual |
 | `XPBDRigidSchema` | corpo rígido XPBD | — (solver posicional rígido: alvo da F5) | schema sem Flow |
@@ -2039,14 +2043,65 @@ A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescript
 | `SpringConstraint`, `JointConstraint` | mola, junta | — | schemas sem Flow (F5) |
 | `PlaneCollider`, `BoxCollider`, `SphereCollider`, `MeshCollider` | colliders tipados | `ColliderSet` (LCP e fluidos) | atual |
 | `ParticleMaterial` | material das partículas (um por World) | fluidos | atual |
-| `Light` | luz unificada (kind discriminado) | render (fragment) | atual |
-| `ShadowMap` | shadow map (1 layer/luz) | render (fragment) | atual (o schema ainda não é lido por shader — 006) |
+| `Light` | luz unificada (kind discriminado) | forward (`lights[lightSlot]`: direção da luz que ilumina), `ShadowMatrixFlow` | atual (cor e intensidade no sombreamento: F4) |
 
 **Políticas comuns:**
 - Stride do buffer global é fixo (ditado pelo WGSL struct) — engine usa `schema.pack(resource.data)` para produzir bytes conforme o layout.
 - Capacidade inicial dobra quando atinge limite (growth factor 2×) → emite `poolReallocated { poolKey, oldByteSize, newByteSize }` no EventBus; ResourceSystem recria os `BindGroupSpec` que referenciam o buffer trocado e emite `bindGroupReplaced` para Flows interessados.
+- Crescimento copia o conteúdo **na GPU** (`core.record` + `submit`) para todo pool que não é `'never'`: o que a GPU produziu e o que a CPU já enviou sobrevivem; slots ainda marcados são escritos no buffer novo no próximo envio.
 - Remoção é "compactação lazy" — slot vazio marcado, reaproveitado em próxima inserção; compactação total em checkpoint.
-- Indexação: `entityId → slotIndex` via `Map<EntityId, number>` no PoolEntry; ResourceSystem oferece `world.poolSlotOf(poolKey, entityId)` para Flows que precisam (constraints traduzem EntityId → slot na inserção).
+- Indexação: `entityId → slot` (`Map` no PoolEntry), `slot → entidade` (`Int32Array`) e `slot → ocupante` (array denso: o Resource, um registro ou o valor de uma lista de instâncias); `PoolDirectory.poolSlotOf(poolKey, entityId)` e `poolEntityBySlot` para os Flows (constraints traduzem EntityId → slot na inserção).
+
+### Estado de cena na GPU (spec 007)
+
+**Envio por delta.** A mutação do `data` reativo marca **na hora** o slot do recurso em cada pool `'always'` dele
+(`markSlot`: um bit num bitset por pool, com o campo de topo mudado) — sem fila de recursos nem estado `Dirty` para dado
+em pool. No `frameRecording`, `flushPools` percorre o bitset em ordem, junta faixas contíguas e faz **uma escrita por
+faixa** (`writeRun` empacota os ocupantes da faixa numa área reutilizável) e emite um evento por pool:
+
+```ts
+poolWritten { poolKey, schema, ranges: [first, count][], fields?: string[] }   // fields: campos de topo mudados
+```
+
+`resourceReady` fica para Resources com objetos próprios (geometria, texturas, buffers individuais), enviados inteiros.
+O dado `'initial'` é empacotado na alocação e sai no primeiro envio, junto com os vizinhos. O plano de envio de cada
+recurso (slot, pools `'always'`, se tem objetos próprios) é calculado na alocação; Resources com os mesmos pools
+compartilham a lista.
+
+**Conjuntos de entidades** (`slot.entities`, C2 → Flows):
+
+```ts
+slot.entities({
+    all: [Geometry, Material, Transform],          // tipos exigidos na entidade (instanceof)
+    record: renderableRecord,                      // registro por entidade num pool (slots dos descritores nomeados)
+    groups: {                                      // grupos de instâncias mantidos pela C2
+        schema: RenderInstanceSchema,              // lista: um u32 por posição
+        key: forwardGroupKey,                      // chave do grupo (ex.: geometria | shader | face)
+        instance: 'record',                        // valor gravado: o slot do registro, ou [Tipo, descId]
+        rekeyOn: { Transform: ['scale'] },         // campos que podem mudar a chave (poolWritten com fields)
+    },
+    owns: [[Transform, 'transform']],              // posse da GPU sobre esse descritor (física publica a pose)
+});
+```
+
+- **Registros** (`record`): a C2 mantém, por evento, um registro por entidade num pool próprio (ex.: `Renderable
+  { transformSlot, materialSlot }`), com os valores num array tipado do pool (nenhum objeto por entidade).
+- **Grupos** (`EntityGroups`): cada chave ocupa um segmento contíguo da lista de instâncias, com capacidade em potência de
+  2; remoção troca o último para a posição liberada (uma escrita), grupo cheio muda para um segmento com o dobro,
+  segmentos livres são reaproveitados. A posição de cada entidade fica na própria entrada do conjunto. O Flow recebe
+  `BoundEntities.groups` (`{ key, first, count, representative }`) e desenha `draw.indexed(indexCount, count, 0, 0,
+  first)` por grupo — a gravação não percorre entidades. A chave é reavaliada só quando um campo de `rekeyOn` muda.
+- **Posse da GPU** (`owns`): depois do primeiro envio, a CPU não escreve mais o slot (mutação ignorada com aviso único);
+  o crescimento preserva o dado por cópia na GPU. `BoundPool.gpuOwned` (quantos) e `BoundPool.ownedByGpu(slot)`.
+- **Leitura sob demanda**: `ResourceSystem.read(resource, descId?)` / `readAll` (e `app.resources.read`) copiam os slots
+  pedidos para um staging — uma cópia por faixa contígua por pool, num lote por microtarefa — e desempacotam pelo
+  schema. É o caminho para a CPU ver um dado de posse da GPU (ex.: a pose de um corpo); nenhuma leitura acontece sem
+  pedido.
+- `entitiesChanged` é agregado por quadro e entregue em `prepareFrame`, antes de `framePrepare`.
+
+**Escala.** O custo por entidade é só o dos dados de estado de cena: nenhum objeto de GPU por entidade, nada percorrido
+por entidade com a cena parada. Com 1 000 000 de caixas (Geometry + Material + Transform), o heap JS retido fica em
+~1,3 KB por entidade (incluindo os objetos do usuário) e a memória de GPU é a dos pools mais uma cópia da geometria.
 
 ### Correções aplicadas — tabela C2 original → C2 refatorada
 
@@ -2294,11 +2349,29 @@ O padrão é idêntico para física, geometria, material, luz e câmera:
 
 O `Transform` guarda só a **intenção** (posição, rotação, escala). Quem converte intenção em matriz é o
 `TransformFlow`, estágio padrão da fase `transform` (entre `physics` e `shadow`): um compute que lê o pool
-`Transform` e escreve o pool `WorldTransform` (`world = T·R·S`, `normal = R·S⁻¹`), só quando algum `Transform` foi
-enviado ou os pools foram realocados. Os estágios de sombra e desenho leem `worlds[instance_index]`, com o slot da
-entidade como `firstInstance` do draw — nenhum dado de transformação é enviado por objeto. A física publica apenas a
-pose no `Transform`. Registrar outro Flow na fase `transform` troca a regra de transformação (base para hierarquia
-opcional, função de transformação do usuário e cadeias não euclidianas do roadmap).
+`Transform` e escreve o pool `WorldTransform` (`world = T·R·S`, `normal = R·S⁻¹`), quando algum `Transform` foi
+enviado (`poolWritten`), entidades entraram ou saíram, ou os pools foram realocados — e todo quadro enquanto o pool tem
+slots de posse da GPU. Os estágios de sombra e desenho leem a matriz pelo slot da entidade, via lista de instâncias do
+grupo — nenhum dado de transformação é enviado por objeto. Registrar outro Flow na fase `transform` troca a regra de
+transformação (base para a função de transformação do usuário e cadeias não euclidianas do roadmap).
+
+**Hierarquia opcional (`Parent`, spec 007).** `Parent` é um Resource sem dado de GPU (`{ entity: EntityId }`) na
+entidade filha. O `TransformFlow` mantém, por eventos (conjunto `[Transform, Parent]`, saída de pais, mudança da posse
+da GPU), a lista de elos `TransformLink { child, parent }` ordenada por nível, com o trecho de cada nível em
+`TransformLevel { first, count }` — uma região por nível num uniform com offset dinâmico (`PerStepUniforms`). O quadro
+compõe todos os slots (nível 0) e depois um passe por nível ≥ 1 (`transform_link`: `world = world[pai] · T·R·S`,
+`normal = normal[pai] · normal local`); cada nível lê o anterior já composto. Sem nenhum `Parent`, um despacho só, como
+antes. Ciclo (nomeia as entidades), pai sem `Transform` e `Parent` em `Transform` de posse da GPU (corpo rígido
+dinâmico: a pose é de mundo) são erro; pai removido torna o filho raiz com aviso. O pai é fixo enquanto a entidade está
+na cena (reinsira para trocá-lo).
+
+**Pose da física na GPU (spec 007).** O LCP publica a pose dos corpos direto no pool `Transform` (`rb_publish_pose`
+sobre a lista `RigidPoseInstance`; o conjunto declara `owns` do descritor `transform`): nenhuma leitura de volta por
+quadro — os contadores de diagnóstico (contatos, pares) são lidos a cada 60 passos, e quem precisa da pose na CPU usa
+`app.resources.read`. A broadphase roda na GPU sobre a grade hash espacial (`SpatialHashGrid`: contagem por balde,
+soma de prefixos, espalhamento): proxies uma vez por passo, pares candidatos por substep, e a narrowphase de caixas e
+esferas é despachada indiretamente (`workgroupsIndirect`) só sobre os pares; planos são testados contra todos. O
+solve não depende da ordem dos contatos, então as trajetórias seguem bit a bit.
 
 ### Composição ECS — um EntityId, múltiplos Resources
 
@@ -2311,7 +2384,7 @@ Fluido:     Transform + FluidBody + PointCloudGeometry({ source }) + PointSprite
 Vento:      Transform + WindField   ← entidade ambiental sem body
 ```
 
-> **Ponte pool de partículas → geometria (alvo da F2).** Uma geometria declara um pool de origem
+> **Ponte pool de partículas → geometria (alvo da F2/008).** Uma geometria declara um pool de origem
 > (`PointCloudGeometry({ source })`); o estágio de vértice lê as posições direto do slot do pool por `instance_index`
 > (buffer polivalente storage/vertex), sem cópia; um kernel de sincronização só existe quando o layout difere. Emissores
 > e corpos de partículas seguem a mesma regra. **Estado atual:** `PointCloudGeometry` e os emissores são isolados —
@@ -2366,7 +2439,7 @@ classDiagram
         }
     }
     note for Entity "Base abstrata só de composição: `add` (mutador) + `attached` (acessor read-only).\nClasses data-bearing herdam Entity AND implementam Resource.\nClasses de coleção (Scene) herdam Entity SEM implementar Resource."
-    note for Resource "Cada classe data-bearing declara `static readonly schema = new StructSchema('Name', {...})`.\nDado vive em `data: Record<string, unknown>` governado pelo schema (sem redeclarar fields).\nResourceSystem usa `schema.pack(data)` diretamente. `state` muta via reação a eventos do ResourceSystem."
+    note for Resource "Cada classe data-bearing declara `static readonly schema = new StructSchema('Name', {...})`.\nDado vive em `data` (acessor herdado de Entity, atribuído no construtor) governado pelo schema (sem redeclarar fields).\nResourceSystem usa `schema.pack(data)` diretamente. `state` muta via reação a eventos do ResourceSystem."
 
     %% ── RECURSOS DE CENA ─────────────────────────────────────────────────────
     %% Toda classe abaixo: extends Entity AND implements Resource
@@ -2439,7 +2512,7 @@ classDiagram
             <<schema 'PlaneGeometry' — size: vec2f, divisions: vec2u>>
         }
         class PointCloudGeometry {
-            <<schema + pool de origem (source) — lê posições do pool de partículas: alvo F2>>
+            <<schema + pool de origem (source) — lê posições do pool de partículas: alvo F2/008>>
         }
         class ParametricSurfaceGeometry {
             <<schema 'ParametricSurfaceGeometry' — uSteps: u32, vSteps: u32 + compute>>
@@ -2773,7 +2846,7 @@ src/elements/
 │     ├── BoxGeometry.ts                schema 'BoxGeometry' { size, ... }
 │     ├── SphereGeometry.ts             schema 'SphereGeometry' { radius, segments }
 │     ├── PlaneGeometry.ts              schema 'PlaneGeometry' { size, divisions }
-│     ├── PointCloudGeometry.ts         nuvem de pontos; ponte com pools de partículas (source): alvo F2
+│     ├── PointCloudGeometry.ts         nuvem de pontos; ponte com pools de partículas (source): alvo F2/008
 │     └── ParametricSurfaceGeometry.ts  compute shader avalia f(u,v) → pos, normal
 │
 ├── material/                         ← shading e aparência
@@ -2922,34 +2995,37 @@ scene.add(cube);
 O schema é declarado uma vez na classe. O `getDescriptors()` constrói o `GPUDescriptor` embutindo o schema. ResourceSystem chama `schema.pack(data)` para serializar no stride exato.
 
 ```typescript
-// Camada 3 — Camera.ts
+// Camada 3 — Camera.ts (spec 007: parâmetros; posição e orientação vêm do Transform da entidade)
 class Camera extends Entity implements Resource {
-  // Schema com nome — o tag de tipo. Engine não redeclara fields aqui.
+  // Schema com nome — o tag de tipo. Engine não redeclara fields aqui (nem `data`: acessor herdado de Entity).
   static readonly schema = new StructSchema('Camera', {
-    view:       FieldType.mat4x4f,
-    projection: FieldType.mat4x4f,
-    near:       FieldType.f32,
-    far:        FieldType.f32,
+    projection: FieldType.u32,  aspectMode: FieldType.u32,   // 0 perspectiva / 1 ortográfica; 0 canvas / 1 fixo
+    fov: FieldType.f32, orthoHeight: FieldType.f32, near: FieldType.f32, far: FieldType.f32,
+    aspect: FieldType.f32, _pad0: FieldType.f32,
+  });
+  // Produto do CameraFlow, só na GPU (mesmo slot dos parâmetros).
+  static readonly matricesSchema = new StructSchema('CameraMatrices', {
+    view: FieldType.mat4x4f, projection: FieldType.mat4x4f, viewProjection: FieldType.mat4x4f, position: FieldType.vec4f,
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
-  // Construtor recebe valores; schema aplica defaults; nada é redeclarado como field.
-  constructor(values: Record<string, unknown> = {}) {
+  constructor(values: CameraValues = {}) {
     super();
-    this.data = Camera.schema.applyDefaults(values);
+    this.data = { projection: 0, aspectMode: 0, fov: values.fov ?? Math.PI / 4, /* … */ };
   }
 
   getDescriptors(): GPUDescriptor[] {
-    return [{ id: 'camera', role: 'uniform', schema: Camera.schema }];
+    return [
+      { id: 'camera',   role: 'storage-ro', storage: 'pool', schema: Camera.schema },
+      { id: 'matrices', role: 'storage-rw', storage: 'pool', schema: Camera.matricesSchema, upload: 'never' },
+    ];
   }
 
   getPipelineDescriptors(): PipelineDescriptor[] {
-    return []; // Camera não possui shader próprio — é consumida por Materials
+    return []; // as matrizes são produzidas pelo CameraFlow; o forward as lê pelo slot da câmera ativa
   }
-
-  }
+}
 ```
 ---
 
@@ -2973,7 +3049,6 @@ class BoxGeometry extends Entity implements Resource {
     uv:       FieldType.vec2f,
   });
 
-  data: Record<string, unknown> = {};         // armazena cfg da box (size, etc.) + vertex buffer gerado
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -2998,7 +3073,7 @@ class BoxGeometry extends Entity implements Resource {
 
 }
 ```
-Geometria com computação GPU: `getPipelineDescriptors()` retorna um compute shader. `data` fica vazio — o dado nasce e vive no `StorageBuffer`, sem trânsito CPU → GPU. (Exemplo de contrato; a ponte com pools de partículas — `PointCloudGeometry({ source })`, leitura por `instance_index` sem cópia — é alvo da F2.)
+Geometria com computação GPU: `getPipelineDescriptors()` retorna um compute shader. `data` fica vazio — o dado nasce e vive no `StorageBuffer`, sem trânsito CPU → GPU. (Exemplo de contrato; a ponte com pools de partículas — `PointCloudGeometry({ source })`, leitura por `instance_index` sem cópia — é alvo da F2/008.)
 
 ```typescript
 // Camada 3 — PointCloudGeometry.ts (geometria procedural — gerada em GPU)
@@ -3011,7 +3086,6 @@ class PointCloudGeometry extends Entity implements Resource {
     normal:   FieldType.vec3f,
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -3061,7 +3135,6 @@ class ParametricSurfaceGeometry extends Entity implements Resource {
     vSteps: FieldType.u32,
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -3129,7 +3202,6 @@ class StandardMaterial extends Entity implements Resource {
     metallic:  FieldType.f32,
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -3171,20 +3243,20 @@ ResourceSystem.onAdded(resource)
     se desc.storage === 'pool' (e desc.schema presente):
       poolKey = `${desc.schema.name}` ou `${desc.schema.name}:${algorithm}`  // FlowDescriptor opcional
       pool    = getOrCreatePool(poolKey, desc.schema, capacityInicial)
-      realloc = pool.insert(resource)              // free-list: reusa slot livre antes de crescer
-      se realloc: reallocatePool(pool) → emit 'poolReallocated' { poolKey, oldByteSize, newByteSize }
-      senão:      writeSlot(pool, resource) → emit 'resourceReady'
+      slot    = mesmo slot em todos os pools do recurso   // free-list: reusa slot livre antes de crescer
+      se slot ≥ capacidade: growPool(pool) → cópia na GPU → emit 'poolReallocated' { poolKey, oldByteSize, newByteSize }
+      markSlot(pool, slot)                         // o dado sai no próximo envio, em faixa com os vizinhos ('poolWritten')
     senão (storage === 'individual' ou ausente):
       spec = inferencer.specFor(desc, resource)    // bag + WGSL → ResourceSpec
       core.create(spec)                             // engine hasheia internamente — idempotente
-      trackBuffer(resource, desc.id, spec)
-      upload(resource) → emit 'resourceReady'
+      trackBuffer(resource, desc.id, spec)          // geometria com contentKey: buffer compartilhado por conteúdo
+      upload(resource) → emit 'resourceReady'       // só objetos próprios emitem resourceReady
 
   // Estados: transition(resource, Loading) antes de alocar; transition(resource, Ready) depois do envio
   // (e GpuManaged se nenhum descritor envia sempre). 'resourceReady' é emitido depois da transição.
 ```
 
-Quando há descriptor com `storage: 'pool'`, o fluxo é distinto: o buffer global é alocado **uma vez** com stride fixo × capacidade inicial; inserção de novo Resource faz `core.write(bufferSpec, schema.pack(resource.data), slotOffset)` — sem recriação de buffer até atingir capacidade (quando então realoca 2× e emite `poolReallocated` + `bindGroupReplaced`).
+Quando há descriptor com `storage: 'pool'`, o fluxo é distinto: o buffer global é alocado **uma vez** com stride fixo × capacidade inicial; inserir um Resource só marca o seu slot, e o envio do quadro escreve as faixas contíguas marcadas (`writeRun`: uma `core.write` por faixa, não por recurso) — sem recriação de buffer até atingir capacidade (quando então realoca 2×, copia o conteúdo na GPU e emite `poolReallocated` + `bindGroupReplaced`).
 
 ---
 
@@ -3193,16 +3265,18 @@ Quando há descriptor com `storage: 'pool'`, o fluxo é distinto: o buffer globa
 Com os handles existindo na GPU, `ResourceSystem` carrega os dados serializados:
 
 ```
-para cada descriptor in resource.getDescriptors():
-  bytes = descriptor.schema.pack(resource.data)  // schema produz TypedArray
-
-para cada (nome, bytes):
-  handle = handles.get(handleKey(resource, nome))
-  se spec é BufferSpec:  core.write(spec, data)
-  se spec é TextureSpec: core.writeTexture(spec, data, layout, size)
-
+// Objetos próprios (buffers individuais, geometria, texturas): enviados inteiros
+para cada descriptor próprio 'always' in resource.getDescriptors():
+  bytes = descriptor.schema.pack(dadoCru(resource))  // o dado cru, sem o proxy reativo
+  se spec é BufferSpec:  core.write(spec, bytes)
+  se spec é TextureSpec: core.writeTexture(spec, bytes, layout, size)
 ResourceSystem.transition(resource, Ready)        // valida Loading → Ready; lança se inválida
 → EventBus.emit('resourceReady', { resource })    // emitido depois da transição — não a causa
+
+// Pools: por envio de quadro, faixas contíguas de slots marcados (spec 007)
+para cada pool com bits marcados:
+  para cada faixa [first, last]: packInto(área, ocupantes da faixa) → core.write(pool.buffer, área, first × stride)
+  → EventBus.emit('poolWritten', { poolKey, schema, ranges, fields? })
 ```
 
 `core.write` e `core.writeTexture` usam a fila do `GPUQueue` diretamente — sem encoder — adequado para uploads de startup e atualizações de uniform.
@@ -3372,184 +3446,61 @@ class World {
 `ResourceSystem` é reativo. Escuta `resourcesChanged`/`resourceDirty` do `World`/`EventBus`, delega inferência ao `LayoutInferencer` e chama `core.create/write/writeTexture/destroy` diretamente. Ciclo de vida de 7 estados: o ResourceSystem reage aos acontecimentos e muda estado só por `transition()` (valida e lança); não há `transitionTo` público. Coalescing usa `Map<poolKey, PoolEntry>` interno indexado por `(schema.name, algorithm?)`; pool **não** é classe pública — `PoolEntry` é só uma struct interna do ResourceSystem.
 
 ```typescript
-// Struct interna — não exportada de @scene
+// Ilustrativo (o código real está em `scene/systems/ResourceSystem.ts`). Structs internas — não exportadas de @scene.
 type PoolEntry = {
-  readonly poolKey:        string;                          // ex. 'RigidBody:XPBD'
-  readonly stride:         number;                          // bytes por slot
-  bufferSpec:              StorageBufferSpec;               // recriado em realloc
-  bindGroupSpec:           BindGroupSpec;                   // resolvido pelo PoolResolver
-  capacity:                number;                          // slots alocados
-  count:                   number;                          // slots ocupados
-  readonly slotByEntity:   Map<EntityId, number>;
-  readonly freeList:       number[];
-  generation:              number;                          // incrementa em cada realloc
+  readonly poolKey:      string;                       // ex. 'Transform', 'LCPSchema'
+  readonly stride:       number;                       // bytes por slot (stride do struct WGSL)
+  bufferSpec:            StorageBufferSpec;            // recriado no crescimento (conteúdo copiado na GPU)
+  capacity:              number;
+  count:                 number;                       // maior slot já usado + 1
+  readonly slotByEntity: Map<EntityId, number>;
+  entityBySlot:          Int32Array;                   // -1 = livre
+  readonly occupants:    (Resource | RecordMark | number | undefined)[];  // Resource, registro ou valor de lista
+  records?:              { fields: string[]; data: Uint32Array };        // registros de entidade (slot.entities record)
+  dirtyBits:             Uint32Array;                  // slots marcados para o próximo envio
+  ownedBits:             Uint32Array;                  // slots de posse da GPU (owns)
+  readonly freeList:     number[];
+  generation:            number;
 };
 
-class ResourceSystem {
-
-  // Índices internos.
-  // Spec-as-identity: o engine hasheia o conteúdo do spec; o ResourceSystem só guarda
-  // a referência que passou a core.create para reusar em write/destroy.
-  private readonly bufferByResource  = new Map<Resource, Map<string, AnyBufferSpec>>();
-  private readonly textureByResource = new Map<Resource, Map<string, TextureSpec>>();
-  private readonly pools             = new Map<string, PoolEntry>();
-  private readonly flowsByPoolKey    = new Map<string, Flow>();
-
-  constructor(
-    private readonly events:     EventBus,
-    private readonly core:       EngineCore,
-    private readonly inferencer: LayoutInferencer,
-    private readonly world:      World,
-    private readonly flows:      FlowRegistry,
-    private readonly consumers:  ConsumerResolverRegistry,
-  ) {
-    this.events.on('resourcesChanged', ({ added, removed }) => {
-      for (const resource of added)   this.onAdded(resource);
-      for (const resource of removed) this.onRemoved(resource);
-    });
-    this.events.on('resourceDirty', ({ resource }) => this.onDirty(resource));
-  }
-
-  // Leitura dos pools sem expor PoolEntry (ResourceDirectory). Os Flows não chamam isto: recebem o pool pelo
-  // slot (`bound.slots.x`: buffer, count, stride, slotOf) e os bind groups prontos da ligação de Flows da C2.
-  poolBufferSpec(poolKey: string): PoolBufferSpec | undefined { return this.pools.get(poolKey)?.buffer; }
-  poolCount(poolKey: string):      number                     { return this.pools.get(poolKey)?.count ?? 0; }
-  poolSlotOf(poolKey: string, entityId: EntityId): number | undefined {
-    return this.pools.get(poolKey)?.slotByEntity.get(entityId);
-  }
-
-  // Entrada principal: roteia por descriptor.storage ('individual' vs 'pool')
-  private onAdded(resource: Resource): void {
-    for (const desc of resource.getDescriptors()) {
-      if (desc.storage === 'pool' && desc.schema) this.allocateInPool(resource, desc);
-      else                                        this.allocateIndividual(resource, desc);
-    }
-    this.upload(resource);
-    // Se Resource declara getFlowDescriptors, garante que Flow correspondente exista
-    for (const fd of resource.getFlowDescriptors?.() ?? []) {
-      this.ensureFlowAllocated(fd.bodyType, fd.algorithm);
-    }
-    this.events.emit('resourceReady', { resource });
-  }
-
-  // 'individual' → buffer GPU próprio, alocado via core.create(spec)
-  private allocateIndividual(resource: Resource, desc: GPUDescriptor): void {
-    const spec = this.inferencer.specFor(desc, resource);   // bag + WGSL → ResourceSpec
-    this.core.create(spec);                                  // engine hasheia internamente
-    this.trackBuffer(resource, desc.id, spec as AnyBufferSpec);
-  }
-
-  // 'pool' → coalescing em PoolEntry interno, key = (schema.name, algorithm?)
-  private allocateInPool(resource: Resource, desc: GPUDescriptor): void {
-    const poolKey = poolKeyOf(desc, resource);
-    let pool = this.pools.get(poolKey);
-    if (!pool) pool = this.createPool(poolKey, desc.schema!);
-
-    const slot = pool.freeList.length > 0 ? pool.freeList.pop()! : pool.count;
-    pool.slotByEntity.set(this.world.entityIdOf(resource)!, slot);
-    pool.count = Math.max(pool.count, slot + 1);
-
-    if (pool.count > pool.capacity) this.reallocatePool(pool);
-  }
-
-  private createPool(poolKey: string, schema: StructSchema): PoolEntry {
-    const bufferSpec: StorageBufferSpec = {
-      kind: 'buffer', subkind: 'storage',
-      byteSize: schema.stride * INITIAL_CAPACITY,
-      discriminator: `pool_${poolKey}_g0`,
-    };
-    this.core.create(bufferSpec);
-    const bindGroupSpec = this.inferencer.bindGroupForPool(poolKey, bufferSpec);
-    this.core.create(bindGroupSpec);
-    const pool: PoolEntry = {
-      poolKey, stride: schema.stride, bufferSpec, bindGroupSpec,
-      capacity: INITIAL_CAPACITY, count: 0,
-      slotByEntity: new Map(), freeList: [],
-      generation: 0,
-    };
-    this.pools.set(poolKey, pool);
-    return pool;
-  }
-
-  // Pool excedeu capacity — realoca 2× e emite eventos para refazer bind groups dependentes.
-  private reallocatePool(pool: PoolEntry): void {
-    const oldBuffer       = pool.bufferSpec;
-    const oldBindGroup    = pool.bindGroupSpec;
-    pool.generation      += 1;
-    pool.capacity        *= 2;
-    pool.bufferSpec       = {
-      kind: 'buffer', subkind: 'storage',
-      byteSize: pool.stride * pool.capacity,
-      discriminator: `pool_${pool.poolKey}_g${pool.generation}`,
-    };
-    this.core.create(pool.bufferSpec);
-    pool.bindGroupSpec    = this.inferencer.bindGroupForPool(pool.poolKey, pool.bufferSpec);
-    this.core.create(pool.bindGroupSpec);
-    this.repackPool(pool, oldBuffer);
-    this.core.destroy(oldBuffer);
-    this.events.emit('poolReallocated', {
-      poolKey:     pool.poolKey,
-      oldByteSize: oldBuffer.byteSize,
-      newByteSize: pool.bufferSpec.byteSize,
-    });
-    this.events.emit('bindGroupReplaced', { oldSpec: oldBindGroup, newSpec: pool.bindGroupSpec });
-  }
-
-  // Upload — itera descriptors, schema.pack(data) → core.write
-  private upload(resource: Resource): void {
-    const entityId = this.world.entityIdOf(resource);
-    for (const desc of resource.getDescriptors()) {
-      if (!desc.schema) continue;
-      const bytes = desc.schema.pack(resource.data);
-      if (desc.storage === 'pool') {
-        const poolKey = poolKeyOf(desc, resource);
-        const pool    = this.pools.get(poolKey);
-        if (!pool || entityId === undefined) continue;
-        const slot    = pool.slotByEntity.get(entityId);
-        if (slot === undefined) continue;
-        this.core.write(pool.bufferSpec, bytes, slot * pool.stride);
-      } else {
-        const spec = this.bufferByResource.get(resource)?.get(desc.id);
-        if (spec) this.core.write(spec, bytes);
-      }
-    }
-  }
-
-  // Resource virou Dirty — repack + write
-  private onDirty(resource: Resource): void {
-    this.upload(resource);
-    this.events.emit('resourceReady', { resource });
-  }
-
-  // Remoção: slot vai para free-list; individual libera buffers
-  private onRemoved(resource: Resource): void {
-    const entityId = this.world.entityIdOf(resource);
-    if (entityId !== undefined) {
-      for (const pool of this.pools.values()) {
-        const slot = pool.slotByEntity.get(entityId);
-        if (slot !== undefined) {
-          pool.slotByEntity.delete(entityId);
-          pool.freeList.push(slot);
-        }
-      }
-    }
-    const buffers = this.bufferByResource.get(resource);
-    if (buffers) {
-      for (const spec of buffers.values()) this.core.destroy(spec);
-      this.bufferByResource.delete(resource);
-    }
-    this.events.emit('resourceDisposed', { resource });
-  }
-
-  // Quando o primeiro corpo de um schema cria o pool, emite `poolCreated { poolKey }`. O FlowRegistry instancia
-  // a factory vencedora de `resolve(poolKey)` (registrada com `bodyType`; os solvers padrão vêm de
-  // DEFAULT_SOLVER_REGISTRATIONS), e a ligação de Flows a aloca (`ensureFlowAllocated`) até emitir `flowReady`.
+// Estado da C2 por Resource: raiz (e handler) do proxy reativo e plano de envio — guardado no gancho de `data` da
+// Entity (DATA_HOOK), sem tabela nem closure por recurso.
+class Tracked extends ReactiveRoot implements DataHook {
+  allocated = false;
+  slot = -1;                                 // o mesmo em todos os pools do recurso
+  pools: readonly PoolRef[] = [];            // pools 'always' (lista compartilhada por recursos iguais)
+  own = false;                               // tem objetos próprios (enviados inteiros)
+  dataChanged(field?: string): void { /* → markDirty(resource, field) */ }
 }
 
-function poolKeyOf(desc: GPUDescriptor, resource: Resource): string {
-  const schemaName = desc.schema!.name;
-  const algorithm  = resource.getFlowDescriptors?.()[0]?.algorithm;
-  return algorithm ? `${schemaName}:${algorithm}` : schemaName;
+class ResourceSystem {
+  private readonly pools       = new Map<string, PoolEntry>();
+  private readonly allocations = new Map<Resource, Map<string, Allocation>>();   // objetos próprios
+  private readonly dirty       = new Set<Resource>();                            // só recursos com objetos próprios
+  private readonly dirtyPools  = new Set<PoolEntry>();
+
+  // Inserção: instala o reativo (Entity já tem o acessor `data` no protótipo), aloca os pools (um slot comum) e os
+  // objetos próprios (geometria por contentKey compartilhada); marca os slots para o próximo envio.
+  private allocate(resource: Resource): void { /* transition Loading → … → Ready (ou GpuManaged) */ }
+
+  // Mutação de `data` (proxy): marca o slot em cada pool 'always' (com o campo de topo); objetos próprios vão à fila.
+  private markDirty(resource: Resource, field?: string): void { /* markSlot(entry, tracked.slot, field) */ }
+
+  // frameRecording: envia objetos próprios inteiros (resourceReady) e, por pool, as faixas contíguas marcadas —
+  // uma core.write por faixa e um 'poolWritten { poolKey, schema, ranges, fields? }' por pool.
+  private flushDirty(): void {}
+
+  // Leitura sob demanda (posse da GPU): cópia por faixa para um staging, readback e unpack pelo schema.
+  read(resource: Resource, descId?: string): Promise<Record<string, unknown> | undefined> { /* … */ }
+
+  // Conjuntos de entidades dos Flows: registros, listas de instâncias e posse.
+  acquireEntityRecords(all: ResourceType[], decl: EntityRecordDeclaration): void {}
+  acquireInstanceList(schema: StructSchema): void {}
+  setInstance(poolKey: string, index: number, value: number): void {}
+  acquireOwnership(owner: object, resource: Resource, descId: string): void {}
+
+  // Remoção: slots voltam à free-list; geometria compartilhada solta um uso (o último destrói o buffer).
+  private release(resource: Resource): void {}
 }
 ```
 
@@ -3561,6 +3512,7 @@ function poolKeyOf(desc: GPUDescriptor, resource: Resource): string {
 - `resource.transitionTo(state)` (imperativo) → `ResourceSystem.transition(resource, to)` interno, que valida e lança; eventos (`resourceReady`, `poolReallocated`) emitidos depois da transição
 - `ResourceSet<T>` público → `storage: 'pool'` declarativo + `Map<poolKey, PoolEntry>` interno; Flow recebe `BindGroupSpec` via `consumes` + ConsumerResolver, e `count` via `resourceSystem.poolCount(poolKey)`
 - `bufferReallocated` → `poolReallocated` + `bindGroupReplaced` (eventos pareados)
+- (spec 007) envio por recurso → envio por faixa de slots marcados; `resourceReady` de dado em pool → `poolWritten`; buffers de geometria por conteúdo; leitura sob demanda (`read`) no lugar de leitura de volta por quadro
 
 ---
 
@@ -3591,7 +3543,6 @@ class RigidBody extends Entity implements Resource {
   });
   static readonly defaultAlgorithm: 'LCP' | 'XPBD' = 'LCP';
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
   readonly algorithm: 'LCP' | 'XPBD';
 
@@ -3673,7 +3624,6 @@ class GravityField extends Entity implements Resource {
     maxDistance:  FieldType.f32,       // corte de influência
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -3735,7 +3685,6 @@ class EulerianGrid extends Entity implements Resource {
     elementType: FieldType.f32,
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -3899,11 +3848,13 @@ flows.register((ctx) => new XPBDFlow(ctx), { type: 'XPBDFlow', phase: 'physics',
 
 Eventos que a C2 entrega: `slotsResolved`, `slotLost`, `slotChanged` (slot opcional ou pools mudaram),
 `pipelinesCompiled`, `bindGroupReplaced` (fonte recriada; o `dispatch` lê o grupo novo de `bound.pipelines`),
-`entitiesChanged` (slots `entities`), `canvasReconfigured` (só Flows com alvo), `poolReallocated` (pools dos slots) e
-`resourceReady` (schemas de `listens`). `framePrepare` (antes da gravação: escrever parâmetros, crescer buffers) e
-`frameRecorded` (depois do envio: iniciar leituras) são **opt-in** — só chegam a quem os declara na tabela. Exemplo
-com dois estados: o `TransformFlow` fica `stale` quando um `Transform` muda (`resourceReady`) e passa a `clean` em
-`frameRecorded`; em `clean` o `dispatch` não grava nada.
+`entitiesChanged` (slots `entities`, agregado por quadro e entregue antes de `framePrepare`), `canvasReconfigured` (só
+Flows com alvo), `poolReallocated` (pools dos slots), `poolWritten` (faixas enviadas dos pools dos schemas de
+`listens`) e `resourceReady` (objetos próprios dos schemas de `listens`). `framePrepare` (antes da gravação: escrever
+parâmetros, crescer buffers) e `frameRecorded` (depois do envio: iniciar leituras) são **opt-in** — só chegam a quem os
+declara na tabela. Exemplo com dois estados: o `TransformFlow` fica `stale` quando um `Transform` é enviado
+(`poolWritten`) e passa a `clean` em `frameRecorded`; em `clean` o `dispatch` não grava nada (exceto com slots de posse
+da GPU, que mudam todo quadro).
 
 O `dispatch` **só grava**: nenhuma criação de objeto de GPU, nenhuma escrita (verificado no gate com todos os Flows
 padrão ativos).
@@ -3963,6 +3914,10 @@ Não há `SceneSpec`, `SceneHandle`, `EntityHandle`, `Presets.*`, `EcsBundle`, `
 ```typescript
 abstract class Entity {
   private parts: Entity[] = [];
+  #data: Record<string, unknown> = {};          // dado cru fora da cena
+  [DATA_HOOK]: DataHook | undefined;            // estado reativo plugado pela C2 na inserção (interno)
+  [WORLD_OWNER]: object | undefined;            // World onde está e EntityId da raiz (internos, mantidos pelo World)
+  [WORLD_ENTITY]: number;
 
   add(e: Entity): this {
     this.parts.push(e);
@@ -3972,10 +3927,19 @@ abstract class Entity {
   // Read-only — Scene/World percorrem para co-localizar parts no mesmo EntityId.
   // Mutação exclusiva via add.
   get attached(): readonly Entity[] { return this.parts; }
+
+  // Dado do Resource: fora da cena, o cru; na cena, o proxy reativo (reatribuir marca o recurso inteiro).
+  get data(): Record<string, unknown>;
+  set data(next: Record<string, unknown>);
+  protected get rawData(): Readonly<Record<string, unknown>>;   // leitura sem proxy, para a própria subclasse
 }
 ```
 
-Apenas dois membros: `add` (mutador) e `attached` (acessor read-only). Sem `type`, sem `state`, sem `getDescriptors` — Entity é puro mecanismo de "add things to me".
+Membros públicos: `add` (mutador), `attached` (acessor read-only) e `data` — o acessor do dado do Resource (spec 007).
+Sem `type`, sem `state`, sem `getDescriptors`. Os campos internos (gancho de `data`, dono no World) existem em toda
+instância desde a construção, então inserir na cena não muda a forma do objeto: um milhão de entidades não vira um
+milhão de objetos em modo dicionário, e o World não precisa de tabela recurso → entidade para os Resources que herdam
+de `Entity`. Subclasses **não declaram** o campo `data` — atribuem `this.data` no construtor.
 
 ### `Resource` — contrato GPU
 
@@ -3991,7 +3955,7 @@ State Pattern com `ResourceStateHandler` (capabilities `canRender`, `needsAlloca
 
 ### Classes data-bearing — schema descreve, `data` armazena
 
-Cada Resource concreta declara `static readonly schema = new StructSchema('Name', {...})`. **Nenhum field do schema é redeclarado** na classe — valores vivem em `data: Record<string, unknown>` governado pelo schema:
+Cada Resource concreta declara `static readonly schema = new StructSchema('Name', {...})`. **Nenhum field do schema é redeclarado** na classe — valores vivem em `data` (`Record<string, unknown>`, acessor herdado de `Entity`; a classe só o atribui no construtor) governado pelo schema:
 
 ```typescript
 class StandardMaterial extends Entity implements Resource {
@@ -4001,7 +3965,6 @@ class StandardMaterial extends Entity implements Resource {
     metallic:  FieldType.f32,
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -4144,7 +4107,7 @@ scene.add(
 
 ### Mutação pós-spawn
 
-Como cada Resource é uma instância normal, mutações são feitas direto no objeto. Setters do Resource emitem `resourceDirty` para o `ResourceSystem` reempacotar:
+Como cada Resource é uma instância normal, mutações são feitas direto no objeto — `data` é reativo na cena e marca o recurso para o `ResourceSystem` enviar:
 
 ```typescript
 const sphere = new SphereGeometry({ radius: 1 }).add(/* ... */);
@@ -4155,13 +4118,21 @@ sphere.data.radius = 2;              // mutação direta — marca o recurso com
 scene.remove(sphere);                 // remove do World; ResourceSystem libera GPU
 ```
 
-**Implementação (spec 003):** ao alocar, o `ResourceSystem` troca `resource.data` por um proxy reativo
-(`scene/systems/reactiveData.ts`). Atribuição de campo, escrita indexada em `Array`, métodos mutadores e a
-substituição do `data` inteiro marcam o recurso; o recurso entra numa fila e é enviado **uma vez por quadro**, no
-evento `frameRecording` que o `ExecutionSystem` emite antes de gravar os passes (ordem: `frameTick` →
+**Implementação (specs 003 e 007):** o acessor `data` está no protótipo de `Entity`: fora da cena guarda o dado cru;
+na inserção, o `ResourceSystem` pluga no gancho da Entity (`DATA_HOOK`) o seu estado do recurso (`Tracked`, que é a
+raiz e o handler do proxy reativo de `scene/systems/reactiveData.ts`), e o acessor passa a devolver o proxy — sem
+redefinir propriedades na instância (o objeto mantém a forma da classe no V8) e sem closures nem tabelas por recurso
+(as traps são métodos de protótipo; proxies aninhados são criados sob demanda e cacheados). Por isso subclasses
+atribuem `this.data = …` no construtor e **não declaram** o campo `data` (declará-lo sombrearia o acessor; o
+TypeScript recusa com TS2610). Resources que não herdam de `Entity` recebem o acessor na própria instância: funcionam
+igual, mas o V8 os põe em modo dicionário (mais memória por recurso). Atribuição de campo, escrita indexada em
+`Array`, métodos mutadores e a substituição do `data` inteiro marcam o recurso: dado em pool marca o slot na hora (com
+o campo de topo) e sai em faixas contíguas; objetos próprios entram numa fila e são enviados inteiros — tudo **uma vez
+por quadro**, no evento `frameRecording` que o `ExecutionSystem` emite antes de gravar os passes (ordem: `frameTick` →
 `frameRecording` → estágios por fase → `submit` → `frameComplete`). `TypedArray`/`ArrayBuffer` são devolvidos crus
 (as APIs nativas não aceitam Proxy): mutações no lugar deles não são rastreadas — reatribua o campo.
-`emit('resourceDirty')` manual continua aceito e entra na mesma fila.
+`emit('resourceDirty')` manual continua aceito e entra na mesma fila. Para leituras que não devem criar proxies (ex.:
+`Transform.mirrored`, consultado pelos estágios para a chave de grupo), a subclasse usa `this.rawData`.
 
 Para mutações que afetam múltiplos componentes (ex.: trocar `radius` deve atualizar geometry + collider), o dev escreve uma função/método auxiliar que toca cada Resource — engine não prescreve essa coordenação.
 
@@ -4572,11 +4543,20 @@ Cada estágio de render é uma subclasse de `RenderFlow` (que estende `Flow`): o
 do quadro são um Resource da C4, **`FrameTargets`** (cor no formato do canvas e profundidade `depth24plus`, ambas
 `sizeFromCanvas`), inserido uma vez por cena: o forward desenha neles e o pós lê a cor.
 
-Nenhum estágio cria objeto de GPU por entidade: geometria, materiais e matrizes vêm do que a C2 alocou (os pools
-`WorldTransform`, `StandardMaterial`…, os buffers da `Geometry`). O forward desenha uma entidade por draw com
-`firstInstance` = slot do registro `Renderable` (mantido pela C2: `slot.entities({ all, record })`), e o shader lê por
-ele a matriz de mundo e o material — sem bind group por desenho. A sombra desenha com `firstInstance` = slot no
-`WorldTransform`. Desenho agrupado por instâncias/indireto sobre o `Renderable` é da **F2/007**.
+Nenhum estágio cria objeto de GPU por entidade nem percorre entidades na gravação: geometria, materiais e matrizes vêm
+do que a C2 alocou (os pools `WorldTransform`, `CameraMatrices`, `StandardMaterial`…, os buffers da `Geometry`,
+compartilhados por conteúdo), e o desenho é **um draw por grupo de instâncias** (spec 007): a C2 mantém, por evento,
+os grupos de `slot.entities({ groups })` — entidades com a mesma chave ocupam um segmento contíguo de uma lista de
+instâncias — e o estágio grava `draw.indexed(indexCount, group.count, 0, 0, group.first)`; o shader acha a sua entidade
+por `instances[instance_index]`. Com 10 mil caixas iguais, são 2 draws.
+
+**Estágios de estado na fase `transform`** (C3, antes da sombra e do forward): `TransformFlow` (prioridade 0: matrizes
+de mundo e níveis do `Parent`), `CameraFlow` (−10: `camera_compose` produz view/projection/viewProjection/posição de
+cada câmera viva a partir dos parâmetros `Camera` e da matriz de mundo do seu `Transform`, no pool `CameraMatrices`; a
+razão `aspectMode: 'canvas'` vem de um uniform escrito quando o canvas muda; `Camera` sem `Transform` é erro) e
+`ShadowMatrixFlow` (−20: `shadow_matrix` produz a matriz luz-vista-projeção de cada `DirectionalLight` que projeta —
+ortográfica ±10, olho a 10 m contra a direção lida em `lights[lightSlot]` — no pool `ShadowMatrix`). Nenhuma matriz de
+câmera ou de sombra é calculada na CPU.
 
 **`ShadowFlow`** — passe só de profundidade do ponto de vista da primeira `DirectionalLight` que projeta sombra, na
 textura `depth` do `ShadowMap` dela:
@@ -4586,35 +4566,33 @@ textura `depth` do `ShadowMap` dela:
 function slotsOf(world: World) {
   const select = castingShadowMap(world);                         // o ShadowMap de uma luz com castShadow
   return {
-    caster:     slot.singleton(ShadowMap.schema, { select }),
-    world:      slot.pool(Transform.worldSchema.name),            // WorldTransform
-    shadowMaps: slot.pool(ShadowMap.schema.name),                 // matriz da luz e vieses (array<ShadowMap>)
-    casters:    slot.entities({ all: [Geometry, Transform] }),
-    target:     slot.target({ color: 'none', depth: { schema: ShadowMap.schema, descId: 'depth', select } }),
+    caster:   slot.singleton(ShadowMap.schema, { select }),
+    world:    slot.pool(Transform.worldSchema.name),              // WorldTransform
+    matrices: slot.pool(ShadowMap.matrixSchema.name),             // ShadowMatrix (produzida na GPU)
+    casters:  slot.entities({
+      all: [Geometry, Transform],
+      groups: { schema: ShadowInstanceSchema, key: shadowGroupKey,     // contentKey | face
+                instance: [Transform, 'world'], rekeyOn: { Transform: ['scale'] } },
+    }),
+    target:   slot.target({ color: 'none', depth: { schema: ShadowMap.schema, descId: 'depth', select } }),
   };
 }
 
 class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
   readonly type = 'ShadowFlow';
-  override readonly listens = [Light.schema];                     // resourceReady da luz → recalcula a matriz
-  // pipelines: 'shadow_depth:ccw' e 'shadow_depth:cw' (escala espelhada), consumes WorldTransform + ShadowMap;
-  // privado `shadow` (ShadowDepthParams { casterSlot }).
-  // Transições: slotsResolved / slotChanged gravam a matriz luz-vista-projeção em ShadowMap.data — o envio
-  // reativo da C2 a leva ao pool, que este estágio e o forward leem pelo slot do caster.
+  // pipelines 'shadow_depth:ccw' e 'shadow_depth:cw' (escala espelhada); privado `shadow` (ShadowDepthParams
+  // { casterSlot }), escrito só quando o slot do caster muda. Sem `listens`: a CPU não acompanha a luz.
 
   dispatch(frame: Frame, bound: BoundFlow<ShadowSlots>): void {
     const depth = bound.slots.target.depth;
     if (depth === undefined) return;
-    const ccw = bound.render('shadow_depth:ccw');
-    frame.render({ colorAttachments: [], depthStencilAttachment: { view: depth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' } },
-      'ShadowFlow', (pass) => {
-        pass.bind.setPipeline(ccw.spec).setBindGroup(0, ccw.groups[0]!).setBindGroup(1, ccw.groups[1]!);
-        for (const entry of bound.slots.casters.entries) {
-          const slotIndex = bound.slots.world.slotOf(entry.entityId);
-          // … VBO/IBO da Geometry (resources.bufferOf), troca para 'shadow_depth:cw' se espelhada,
-          // pass.draw.indexed(indices.count, 1, 0, 0, slotIndex)
-        }
-      });
+    frame.render(/* só profundidade, na `depth` do caster */, 'ShadowFlow', (pass) => {
+      // grupos 0 (parâmetros + ShadowMatrix) e 1 (WorldTransform + ShadowInstance) uma vez por passe
+      for (const group of bound.slots.casters.groups) {
+        // VBO/IBO da geometria do representante (resources.bufferOf); 'shadow_depth:cw' se espelhada
+        pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
+      }
+    });
   }
 }
 ```
@@ -4627,29 +4605,40 @@ function slotsOf(world: World, output: 'scene' | 'canvas') {
   const select = castingShadowMap(world);
   const depth = { schema: FrameTargets.schema, descId: 'depth' };
   return {
-    camera:        slot.singleton(Camera.schema),                               // câmera ativa
-    world:         slot.pool(Transform.worldSchema.name),
-    renderables:   slot.entities({ all: [Geometry, Material, Transform], record: renderableRecord }),
-    caster:        slot.singleton(ShadowMap.schema, { optional: true, select }),
-    shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
-    shadowMaps:    slot.pool(ShadowMap.schema.name, { optional: true }),
-    target:        slot.target(output === 'scene'
-                     ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth }
-                     : { color: 'canvas', depth }),
+    camera:         slot.singleton(Camera.schema),                              // câmera ativa (o seu slot)
+    cameras:        slot.pool(Camera.matricesSchema.name),                      // CameraMatrices (GPU)
+    world:          slot.pool(Transform.worldSchema.name),
+    renderables:    slot.entities({
+      all: [Geometry, Material, Transform],
+      record: renderableRecord,                                                  // { transformSlot, materialSlot }
+      groups: { schema: RenderInstanceSchema, key: forwardGroupKey,              // contentKey | shader | face
+                instance: 'record', rekeyOn: { Transform: ['scale'] } },
+    }),
+    caster:         slot.singleton(ShadowMap.schema, { optional: true, select }),
+    shadowTexture:  slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
+    shadowMaps:     slot.pool(ShadowMap.schema.name, { optional: true }),        // vieses
+    shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),  // matriz da luz (GPU)
+    lights:         slot.pool(Light.schema.name, { optional: true }),            // direção da luz
+    target:         slot.target(output === 'scene'
+                      ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth }
+                      : { color: 'canvas', depth }),
   };
 }
 ```
 
-- Grupo 0: a câmera (`consumes: 'Camera'`), enviada pela C2 quando muda — uma escrita por quadro em que muda.
-- Grupo 1: o pool `WorldTransform` e o pool `Renderable` — o registro `{ transformSlot, materialSlot }` de cada
-  entidade, mantido pela C2 e indexado pelo `firstInstance` do desenho (`recordSlot` da entrada).
+- Grupo 0: o pool `CameraMatrices`; a câmera ativa é `cameras[cameraSlot]`.
+- Grupo 1: o pool `WorldTransform`, o pool `Renderable` (registro de cada entidade, mantido pela C2) e a lista
+  `RenderInstance` (slot do registro por instância).
 - Grupo 2: o pool de storage do material do schema do pipeline (`array<StandardMaterial>`), lido por `materialSlot` —
-  ligado uma vez por pipeline; nenhum bind group muda entre desenhos do mesmo pipeline.
-- Grupo 3: `ForwardFrameParams` privado (direção da luz, sombra ligada, slot do mapa — escrito em `framePrepare` só
-  quando muda), a textura `depth` do `ShadowMap` e `array<ShadowMap>` (o shader lê `shadow_maps[shadowSlot]`) e o
-  sampler de comparação. Sem luz que projeta sombra, `shadowEnabled = 0`.
-- Os grupos 0, 1 e 3 são definidos uma vez por passe. Um pipeline por shader de material e orientação de faces
-  (`forward:<material>:ccw|cw`), preparado numa transição (`entitiesChanged`) quando o material entra na cena.
+  ligado uma vez por pipeline.
+- Grupo 3: `ForwardFrameParams` privado `{ cameraSlot, lightSlot, shadowEnabled, shadowSlot }` (escrito em
+  `framePrepare` só quando muda; nenhum dado da luz é lido na CPU), a textura `depth` do `ShadowMap`, os pools
+  `ShadowMap` (vieses) e `ShadowMatrix` (matriz), o pool `Light` (o shader lê a direção em `lights[lightSlot]`;
+  `0xFFFFFFFF` = direção padrão) e o sampler de comparação. Pools ausentes têm substitutos privados; sem luz que projeta
+  sombra, `shadowEnabled = 0`.
+- Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando o pipeline muda. Um pipeline por
+  shader de material e orientação de faces (`forward:<material>:ccw|cw`), preparado numa transição (`entitiesChanged`)
+  quando o material entra na cena.
 
 **`PostFlow`** — lê a cor da cena e aplica os efeitos em pingue-pongue até o canvas:
 
@@ -4682,7 +4671,7 @@ habilitado.
 | Substituição | `override(bodyType, factory, options)` — vence a prioridade dos demais para o tipo de corpo |
 | Descarte | `unregister(registration)` — descarta a instância (objetos de GPU, inscrições, compilação em curso) e, para `bodyType`, instancia o próximo vencedor |
 | Erros | `FlowRegistrationError`: `type` repetido na fase, `bodyType` vazio, registro sem cena |
-| Defaults | `registerPresentationDefaults` (chamado por `Application.create`) registra Transform, Shadow, Forward (`output: 'scene'`), Post, Debug, UI e os solvers (`DEFAULT_SOLVER_REGISTRATIONS`), e insere os `FrameTargets` — uma vez por cena |
+| Defaults | `registerPresentationDefaults` (chamado por `Application.create`) registra Transform, Camera, ShadowMatrix, Shadow, Forward (`output: 'scene'`), Post, Debug, UI e os solvers (`DEFAULT_SOLVER_REGISTRATIONS`), e insere os `FrameTargets` — uma vez por cena |
 
 **Ordem**: fases fixas `physics → transform → shadow → forward → post → ui`; dentro da fase, `priority` decrescente,
 empate pela ordem de registro — sem `before`/`after`/`at`. `resolve(bodyType)` devolve o `override`, se houver;
@@ -4700,109 +4689,71 @@ app.flows.register((ctx) => new MyOutlineFlow(ctx), { type: 'outline', phase: 'f
 
 ### Input — eventos de teclado, mouse, gamepad e touch
 
-`Input` é um Resource singleton (uma instância por aplicação) que normaliza eventos do DOM e os expõe via duas APIs complementares:
+`Input` (spec 007) é um Resource singleton **da cena** — inserido no World pela primeira `Application` da cena e
+compartilhado pelas seguintes — que normaliza eventos do DOM e os expõe por duas APIs complementares:
 
-- **Query** — estado consultável a qualquer momento (`isKeyDown('KeyW')`, `pointerPosition()`).
-- **Push** — eventos via EventBus (`'keyDown'`, `'pointerMove'`, `'wheel'`, `'gamepadButton'`).
+- **Consulta** — estado a qualquer momento (`isKeyDown('KeyW')`, `isButtonDown('left')`, `pointerPosition()`,
+  `pointerDelta()`, `wheelDelta()`, `pinchDelta()`, `gamepadAxis`, `gamepadButton`); o estado bruto fica em
+  `input.current` (`InputState`), escrito pelos dispositivos.
+- **Push** — eventos no barramento da cena: `keyDown`/`keyUp` `{ code }`, `pointerDown`/`pointerUp`/`pointerMove`
+  `{ x, y, dx, dy, button }`, `wheel` `{ delta }`. A C4 estende o `EventMap` (`input/InputEvents.ts`, *declaration
+  merging*): a C2 só transporta, sem conhecer o vocabulário de entrada.
 
 ```typescript
-// Camada 4 — input/Input.ts
-type KeyCode    = 'KeyW' | 'KeyA' | 'Space' | 'Escape' | /* ... */;
-type ButtonCode = 'left' | 'middle' | 'right';
-
+// Camada 4 — input/Input.ts (resumo)
 class Input extends Entity implements Resource {
-  static readonly schema = new StructSchema('Input', {});  // marker — não vai pra GPU
-  data: Record<string, unknown> = {};
+  static readonly schema = new StructSchema('Input', {});  // marcador — não vai pra GPU
   state: ResourceState = ResourceState.Uninitialized;
+  readonly current: InputState;                            // escrito pelos dispositivos, lido pelos controllers
 
-  // Query API — estado atual
-  isKeyDown(code: KeyCode): boolean;
-  isButtonDown(button: ButtonCode): boolean;
+  isKeyDown(code: string): boolean;
+  isButtonDown(button: 'left' | 'middle' | 'right'): boolean;
   pointerPosition(): { x: number; y: number };
-  pointerDelta():    { dx: number; dy: number };           // movimento desde o último frame
-  wheelDelta():      number;
+  pointerDelta():    { dx: number; dy: number };           // acumulado no quadro
+  wheelDelta(): number;
+  pinchDelta(): number;
   gamepadAxis(pad: number, axis: number): number;
   gamepadButton(pad: number, button: number): boolean;
+  consumeFrameDeltas(): void;                              // fim do tick: zera os deltas
 
-  // Push API — eventos via EventBus
-  // 'keyDown' { code, modifiers }
-  // 'keyUp'   { code }
-  // 'pointerDown' / 'pointerUp' / 'pointerMove' { x, y, button }
-  // 'wheel' { delta }
-  // 'gamepadConnected' { index } / 'gamepadDisconnected' / 'gamepadButton' / 'gamepadAxis'
-
-  getDescriptors(): GPUDescriptor[] { return []; }         // Input não vai pra GPU
+  getDescriptors(): GPUDescriptor[] { return []; }
   getPipelineDescriptors(): PipelineDescriptor[] { return []; }
 }
 ```
-**Adapters por dispositivo** — registrados internamente em `Application.create`:
+
+**Dispositivos e `InteractionSystem`** — por cena (`app/sceneInteraction.ts`): a primeira aplicação cria o `Input`, o
+insere no World e cria o `InteractionSystem`, que liga `KeyboardDevice` (no `window`), `PointerDevice`,
+`TouchDevice` e `GamepadDevice` (polling em `frameTick`) ao canvas dela; o último usuário os descarta e tira o
+`Input` do World. `app.input` e `app.interaction` expõem os dois. Estágios que precisem do `Input` o recebem por
+`slot.singleton(Input.schema)`.
+
+**Controllers** — componentes da entidade da câmera que estendem `InputDrivenController` (Entity + Resource sem dado
+de GPU) e implementam `tick(input, dt, transform)`. O `InteractionSystem` mantém, por eventos do World
+(`entitiesInserted`/`entitiesRemoved`), a lista de controllers com o `Transform` da mesma entidade, e a cada
+`frameTick` chama `tick` e depois `input.consumeFrameDeltas()` — o quadro não percorre a cena. O controller **só muta a
+intenção do `Transform`** (posição e rotação); as matrizes são do `CameraFlow`, na GPU. Controller sem `Transform` na
+entidade é erro que nomeia a entidade; o que sai da cena é descartado (`dispose`: ouvintes de DOM).
 
 ```typescript
-class KeyboardDevice {
-  attach(canvas: HTMLCanvasElement, input: Input, eventBus: EventBus): void;
-  detach(): void;
-}
-class PointerDevice  { /* idem — pointerdown/move/up + pointerlock opcional */ }
-class GamepadDevice  { /* polling em frameTick — Web Gamepad API */ }
-class TouchDevice    { /* normaliza touchstart/move/end → eventos de pointer */ }
-```
-
-**Bootstrap** — `Application.create` instancia o `Input` e ata os devices ao canvas:
-
-```typescript
-const input = new Input();
-scene.add(input);                                           // World.insert atômico via Scene
-new KeyboardDevice().attach(canvas, input, eventBus);
-new PointerDevice().attach(canvas,  input, eventBus);
-new GamepadDevice().attach(canvas,  input, eventBus);
-new TouchDevice().attach(canvas,    input, eventBus);
-// Application expõe getter:
-get input(): Input { return this._input; }
-```
-
-**Uso típico — dev consome via spec ou diretamente:**
-
-```typescript
-// Controller custom: classe extends Entity, implements Resource — composição em chain.
-// Dev escreve a tick e adiciona como componente da entidade da câmera.
-class KeyboardCameraController extends Entity implements Resource {
-  static readonly schema = new StructSchema('KeyboardCameraController', {
-    speed: FieldType.f32,
-  });
-  data: Record<string, unknown> = {};
-  state = ResourceState.Uninitialized;
-
-  constructor(values: Record<string, unknown> = {}) {
-    super();
-    this.data = KeyboardCameraController.schema.applyDefaults(values);
-  }
-  getDescriptors() { return []; }
-  getPipelineDescriptors() { return []; }
-  // tick é chamado pelo InteractionSystem em frameTick
+// Controller custom
+class KeyboardCameraController extends InputDrivenController {
+  constructor(private readonly speed = 5) { super(); }
   tick(input: Input, dt: number, transform: Transform): void {
-    const speed = (this.data.speed as number) * dt;
-    if (input.isKeyDown('KeyW')) transform.data.position = moveForward(transform.data.position, speed);
-    if (input.isKeyDown('KeyS')) transform.data.position = moveForward(transform.data.position, -speed);
-    // ...
+    const p = transform.data.position as number[];
+    if (input.isKeyDown('KeyW')) transform.data.position = [p[0]!, p[1]!, p[2]! - this.speed * dt, 1];
+    if (input.isKeyDown('KeyS')) transform.data.position = [p[0]!, p[1]!, p[2]! + this.speed * dt, 1];
   }
 }
 
-// Compõe na entidade da câmera:
-scene.add(
-  new Camera({ fov: 60 })
-    .add(new Transform({ position: [0, 5, 15] }))
-    .add(new KeyboardCameraController({ speed: 5 }))
+app.world.insert(
+  new Camera({ fov: Math.PI / 3 })
+    .add(new Transform({ position: [0, 5, 15, 1], rotation: Transform.lookRotation([0, 5, 15], [0, 0, 0]) }))
+    .add(new KeyboardCameraController(5)),
 );
 
-// Dev consumindo input direto via app.input no app.ts:
-app.input.on('keyDown', ({ code }) => {
-  if (code === 'Escape') app.stop();
-});
+// Push direto:
+app.events.on('keyDown', ({ code }) => { if (code === 'Escape') app.stop(); });
 ```
-
-`InputDrivenController` é um Resource interno que `ExecutionSystem` (ou um sistema dedicado `InteractionSystem`) tica a cada `frameTick`, consultando `Input` e mutando o handle alvo.
-
-**Resolver `'Input'` em `consumes`:** registrado por default como `SingletonResolver('Input')` — qualquer Material/spec pode declarar `consumes: ['Input']` se precisar (ex.: shader que reage a posição do mouse). Edge case raro; mais comum é `consumes` ler `Input` indiretamente via Transforms já mutados pelos controllers.
 
 ### Time — controle de tempo de simulação e render
 
@@ -4855,103 +4806,30 @@ app.step(1 / 60, 300);        // 5 s simulados sem laço
 
 ### Camera controllers — `OrbitController`, `FpsController`, `FlyController`
 
-Controllers são classes que **estendem Entity** e implementam Resource trivial — vivem como componentes da entidade da câmera. Cada controller declara seu schema (parâmetros) e implementa `tick(input, dt, transform)` consumido pelo `InteractionSystem` em frameTick.
+Os três controllers prontos estendem `InputDrivenController` (seção acima) e guardam o seu estado de controle nos
+próprios campos (o orbit: alvo, distância, ângulos e velocidades com amortecimento). A cada quadro calculam posição e
+rotação e as escrevem no `Transform` da câmera (`Transform.lookRotation` mira um ponto); a câmera olha para −Z local.
+Nenhum controller produz matriz de vista ou de projeção — isso é do `CameraFlow`, na GPU.
 
-```typescript
-// Camada 4 — input/controllers/OrbitController.ts
-class OrbitController extends Entity implements Resource {
-  static readonly schema = new StructSchema('OrbitController', {
-    distance:    FieldType.f32,
-    sensitivity: FieldType.f32,
-    zoomMin:     FieldType.f32,
-    zoomMax:     FieldType.f32,
-  });
-  data: Record<string, unknown> = {};
-  state = ResourceState.Uninitialized;
-
-  constructor(values: Record<string, unknown> = {}) {
-    super();
-    this.data = OrbitController.schema.applyDefaults(values);
-  }
-  getDescriptors() { return []; }
-  getPipelineDescriptors() { return []; }
-  tick(input: Input, dt: number, transform: Transform, target: Transform): void {
-    if (input.isButtonDown('left')) {
-      const { dx, dy } = input.pointerDelta();
-      transform.data.position = orbitAround(
-        transform.data.position, target.data.position,
-        dx * (this.data.sensitivity as number) * dt,
-        dy * (this.data.sensitivity as number) * dt,
-      );
-    }
-    const wheel = input.wheelDelta();
-    if (wheel) {
-      const dist = clamp(currentDistance() + wheel * 0.01,
-                         this.data.zoomMin as number, this.data.zoomMax as number);
-      transform.data.position = positionAtDistance(target.data.position, dist);
-    }
-  }
-}
-```
-
-```typescript
-// Camada 4 — input/controllers/FpsController.ts
-class FpsController extends Entity implements Resource {
-  static readonly schema = new StructSchema('FpsController', {
-    moveSpeed:   FieldType.f32,
-    lookSpeed:   FieldType.f32,
-    pointerLock: FieldType.u32,                                    // bool → u32
-  });
-  data: Record<string, unknown> = {};
-  state = ResourceState.Uninitialized;
-
-  constructor(values: Record<string, unknown> = {}) {
-    super();
-    this.data = FpsController.schema.applyDefaults(values);
-  }
-  getDescriptors() { return []; }
-  getPipelineDescriptors() { return []; }
-  tick(input: Input, dt: number, transform: Transform): void {
-    const move = (this.data.moveSpeed as number) * dt;
-    if (input.isKeyDown('KeyW')) transform.data.position = moveForward(transform.data.position, transform.data.rotation, +move);
-    if (input.isKeyDown('KeyS')) transform.data.position = moveForward(transform.data.position, transform.data.rotation, -move);
-    if (input.isKeyDown('KeyA')) transform.data.position = strafe(transform.data.position, transform.data.rotation, -move);
-    if (input.isKeyDown('KeyD')) transform.data.position = strafe(transform.data.position, transform.data.rotation, +move);
-    const { dx, dy } = input.pointerDelta();
-    transform.data.rotation = applyMouseLook(transform.data.rotation, dx, dy, this.data.lookSpeed as number);
-  }
-}
-```
-
-```typescript
-// Camada 4 — input/controllers/FlyController.ts
-// Como FPS mas sem gravidade/pé no chão; suporta WASD + Espaço/Shift para subir/descer.
-class FlyController extends Entity implements Resource {
-  static readonly schema = new StructSchema('FlyController', { /* ... */ });
-  // ... implementação análoga
-}
-```
+| Controller | Opções principais | Comportamento |
+|---|---|---|
+| `OrbitController` | `target`, `distance`, `autoRotate`, `autoRotateSpeed`, `damping`, `pinchSensitivity` | arrasto gira em torno do alvo, roda/pinça aproximam; inércia por canal (ângulos, distância) |
+| `FpsController` | `position`, `speed`, `mouseSensitivity`, `canvas` (pointer lock) | WASD no plano + olhar pelo ponteiro (yaw/pitch) |
+| `FlyController` | `position`, `speed`, `mouseSensitivity`, `keymap` | como FPS, livre no espaço (E/Espaço sobem, Q/Shift descem; teclas configuráveis) |
 
 **Uso típico — controller é componente da câmera:**
 
 ```typescript
-scene.add(
-  new Camera({ fov: 60 })
-    .add(new Transform({ position: [0, 5, 15] }))
-    .add(new OrbitController({ distance: 10, sensitivity: 1, zoomMin: 1, zoomMax: 100 }))
+app.world.insert(
+  new Camera({ fov: Math.PI / 3 })
+    .add(new Transform())
+    .add(new OrbitController({ target: [0, 0, 0], distance: 10 })),
 );
 
-// Trocar para FPS — composição é imutável após insert; recriar a entidade da câmera:
-const oldCam = scene.query(Camera.schema)[0];
-scene.remove(oldCam);                                                // World.remove via Scene
-scene.add(
-  new Camera({ fov: 60 })
-    .add(new Transform({ position: [0, 5, 15] }))
-    .add(new FpsController({ moveSpeed: 8 }))
-);
+// Trocar de controller — a composição é fixa após a inserção: recriar a entidade da câmera.
+app.world.remove(orbitCamera);
+app.world.insert(new Camera().add(new Transform()).add(new FpsController({ position: [0, 2, 8] })));
 ```
-
-**Decisão:** controller é Resource trivial (sem dado GPU, schema só carrega params). `InteractionSystem` percorre `world.queryBySchema(OrbitController.schema)` (e equivalentes) em cada frameTick e chama `tick(input, dt, transform, ...)` no controller, mutando o `Transform` colocalizado.
 
 ### Multi-camera / render-to-texture
 
@@ -4980,7 +4858,7 @@ world.addTag(mirrorCam, 'offscreen-camera');                       // tag explí
 ```typescript
 import { flows } from '@scene';
 
-// Ilustrativo: a opção `targetTag` não existe no ForwardFlow de hoje (câmeras offscreen são da F2/007).
+// Ilustrativo: a opção `targetTag` não existe no ForwardFlow de hoje (câmeras offscreen, multi-câmera e render-to-texture são da F4/014).
 flows.register((ctx) => new ForwardFlow(ctx, { targetTag: 'offscreen-camera' }), { type: 'forward:offscreen', phase: 'forward', priority: 1 });
 flows.register((ctx) => new ForwardFlow(ctx, { targetTag: 'canvas' }),           { type: 'forward', phase: 'forward', priority: 0 });
 ```
@@ -5092,7 +4970,6 @@ class BloomEffect extends Entity implements Resource {
     radius:    FieldType.f32,
   });
 
-  data: Record<string, unknown> = {};
   state: ResourceState = ResourceState.Uninitialized;
 
   constructor(values: Record<string, unknown> = {}) {
@@ -5209,7 +5086,6 @@ class UiSlider extends UiElement {
 ```typescript
 class UiTree extends Entity implements Resource {
   static readonly schema = new StructSchema('UiTree', {});           // sem dado GPU próprio
-  data: Record<string, unknown> = {};
   state = ResourceState.Uninitialized;
   elements: UiElement[];
 
@@ -5442,7 +5318,7 @@ Camada 3 — Composição via Entity + Resource em chain
       .add(new Transform({...}))                 // camada de localização
   );
   static schema = new StructSchema('Name', {...})    ← carrega o tag de tipo
-  data: Record<string, unknown>                       ← bag governado pelo schema
+  data (acessor de Entity)                            ← bag governado pelo schema (atribuído no construtor)
   getDescriptors()        → GPUDescriptor[]        role + schema + storage ('individual'|'pool')
   getPipelineDescriptors() → PipelineDescriptor[]   role + shader (WgslModule) + consumes + fixed-function
   getFlowDescriptors?()    → FlowDescriptor[]       (opcional) algoritmo + bodyType
@@ -5462,7 +5338,7 @@ Camada 2 — coordena via eventos; ninguém preenche group/binding/usage
                     infere os layouts (LayoutInferencer.infer), liga os bind groups (privados e consumes)
                     e entrega os eventos; dispatch(frame, bound) só grava
                     FlowRegistry: register(factory, { type, phase, bodyType?, priority? }); resolve por bodyType
-  EventBus        → frameTick, resourcesChanged, resourceReady, poolReallocated, bindGroupReplaced, ...
+  EventBus        → frameTick, resourcesChanged, poolWritten, resourceReady, entitiesChanged, poolReallocated, bindGroupReplaced, ...
         ↓
 Camada 1 — executa contra o hardware via facade callback-based
   EngineCore.create(spec)         → device.createBuffer / createTexture / createPipeline / ...

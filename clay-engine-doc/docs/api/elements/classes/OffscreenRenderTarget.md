@@ -6,7 +6,7 @@
 
 # Class: OffscreenRenderTarget
 
-Defined in: [elements/scene/RenderTarget.ts:66](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/RenderTarget.ts#L66)
+Defined in: [elements/scene/RenderTarget.ts:65](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/RenderTarget.ts#L65)
 
 Render target offscreen — texture independente do canvas swapchain.
 Usado para passes intermediários (shadow maps, refraction texture,
@@ -26,7 +26,7 @@ mirror reflection) que serão sampled em passes posteriores.
 
 > **new OffscreenRenderTarget**(`options`): `OffscreenRenderTarget`
 
-Defined in: [elements/scene/RenderTarget.ts:70](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/RenderTarget.ts#L70)
+Defined in: [elements/scene/RenderTarget.ts:68](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/RenderTarget.ts#L68)
 
 #### Parameters
 
@@ -44,27 +44,11 @@ Defined in: [elements/scene/RenderTarget.ts:70](https://github.com/dantasgut/cla
 
 ## Properties
 
-### data
-
-> **data**: `Record`\<`string`, `unknown`\> = `{}`
-
-Defined in: [elements/scene/RenderTarget.ts:68](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/RenderTarget.ts#L68)
-
-Dados runtime do resource (e.g. Camera position, Material albedo,
-RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
-Mutações devem disparar evento `resourceDirty` para re-upload.
-
-#### Implementation of
-
-`Resource.data`
-
-***
-
 ### state
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/RenderTarget.ts:67](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/RenderTarget.ts#L67)
+Defined in: [elements/scene/RenderTarget.ts:66](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/RenderTarget.ts#L66)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -80,7 +64,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -93,13 +77,77 @@ readonly [`Entity`](Entity.md)[]
 
 [`Entity`](Entity.md).[`attached`](Entity.md#attached)
 
+***
+
+### data
+
+#### Get Signature
+
+> **get** **data**(): `Record`\<`string`, `unknown`\>
+
+Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+
+Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
+`data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
+
+##### Returns
+
+`Record`\<`string`, `unknown`\>
+
+#### Set Signature
+
+> **set** **data**(`next`): `void`
+
+Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+
+Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
+
+##### Parameters
+
+###### next
+
+`Record`\<`string`, `unknown`\>
+
+##### Returns
+
+`void`
+
+#### Implementation of
+
+`Resource.data`
+
+#### Inherited from
+
+[`Entity`](Entity.md).[`data`](Entity.md#data)
+
+***
+
+### rawData
+
+#### Get Signature
+
+> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+
+O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
+estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
+
+##### Returns
+
+`Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+#### Inherited from
+
+[`Entity`](Entity.md).[`rawData`](Entity.md#rawdata)
+
 ## Methods
 
 ### add()
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -124,7 +172,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/RenderTarget.ts:82](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/RenderTarget.ts#L82)
+Defined in: [elements/scene/RenderTarget.ts:80](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/RenderTarget.ts#L80)
 
 Render target não declara descriptors GPU — gerenciado pelo flow consumidor.
 
@@ -142,7 +190,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/RenderTarget.ts:87](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/RenderTarget.ts#L87)
+Defined in: [elements/scene/RenderTarget.ts:85](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/RenderTarget.ts#L85)
 
 Sem pipelines próprios.
 

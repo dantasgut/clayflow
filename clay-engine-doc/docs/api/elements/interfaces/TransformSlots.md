@@ -6,7 +6,7 @@
 
 # Interface: TransformSlots
 
-Defined in: [elements/scene/flows/TransformFlow.ts:15](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/flows/TransformFlow.ts#L15)
+Defined in: [elements/scene/flows/TransformFlow.ts:34](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L34)
 
 Slots do estágio de transformação.
 
@@ -20,11 +20,21 @@ Slots do estágio de transformação.
 
 ## Properties
 
+### children
+
+> `readonly` **children**: `EntitiesSlot`
+
+Defined in: [elements/scene/flows/TransformFlow.ts:42](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L42)
+
+Entidades com `Transform` e `Parent` (a hierarquia opcional).
+
+***
+
 ### entities
 
 > `readonly` **entities**: `EntitiesSlot`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:21](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/flows/TransformFlow.ts#L21)
+Defined in: [elements/scene/flows/TransformFlow.ts:40](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L40)
 
 Entidades com `Transform` (remoções recompõem).
 
@@ -34,7 +44,7 @@ Entidades com `Transform` (remoções recompõem).
 
 > `readonly` **transforms**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/TransformFlow.ts:17](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/flows/TransformFlow.ts#L17)
+Defined in: [elements/scene/flows/TransformFlow.ts:36](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L36)
 
 Pool das intenções `Transform` (entrada da composição).
 
@@ -44,6 +54,6 @@ Pool das intenções `Transform` (entrada da composição).
 
 > `readonly` **worlds**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/TransformFlow.ts:19](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/flows/TransformFlow.ts#L19)
+Defined in: [elements/scene/flows/TransformFlow.ts:38](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L38)
 
 Pool das matrizes de mundo `WorldTransform` (saída).

@@ -6,12 +6,10 @@
 
 # Class: FpsController
 
-Defined in: [presentation/input/controllers/FpsController.ts:13](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/controllers/FpsController.ts#L13)
+Defined in: [presentation/input/controllers/FpsController.ts:23](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/controllers/FpsController.ts#L23)
 
-Base abstrata de controllers (OrbitController, FpsController, FlyController).
-Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
-em cada tick. Lê `ctx.input` e modifica resources do World (Camera,
-Transform) conforme input.
+Primeira pessoa: WASD anda no plano horizontal (altura dos olhos fixa); o olhar segue o ponteiro com o botão
+esquerdo ou, com `canvas`, em pointer lock. Componente da entidade da câmera — muta só o `Transform`.
 
 ## Extends
 
@@ -21,19 +19,15 @@ Transform) conforme input.
 
 ### Constructor
 
-> **new FpsController**(`camera`, `options?`): `FpsController`
+> **new FpsController**(`options?`): `FpsController`
 
-Defined in: [presentation/input/controllers/FpsController.ts:22](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/controllers/FpsController.ts#L22)
+Defined in: [presentation/input/controllers/FpsController.ts:32](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/controllers/FpsController.ts#L32)
 
 #### Parameters
 
-##### camera
-
-[`Camera`](../../elements/classes/Camera.md)
-
 ##### options?
 
-`FpsControllerOptions` = `{}`
+[`FpsControllerOptions`](../interfaces/FpsControllerOptions.md) = `{}`
 
 #### Returns
 
@@ -43,13 +37,133 @@ Defined in: [presentation/input/controllers/FpsController.ts:22](https://github.
 
 [`InputDrivenController`](InputDrivenController.md).[`constructor`](InputDrivenController.md#constructor)
 
+## Properties
+
+### state
+
+> **state**: `ResourceState` = `ResourceState.Uninitialized`
+
+Defined in: [presentation/input/InputDrivenController.ts:20](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/InputDrivenController.ts#L20)
+
+Estado atual do lifecycle (gerenciado por ResourceSystem).
+
+#### Inherited from
+
+[`InputDrivenController`](InputDrivenController.md).[`state`](InputDrivenController.md#state)
+
+## Accessors
+
+### attached
+
+#### Get Signature
+
+> **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)[]
+
+Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
+
+Lista somente-leitura dos filhos diretos. World.insert traverse essa
+árvore recursivamente para coletar todos os Resources de um root.
+
+##### Returns
+
+readonly [`Entity`](../../elements/classes/Entity.md)[]
+
+#### Inherited from
+
+[`InputDrivenController`](InputDrivenController.md).[`attached`](InputDrivenController.md#attached)
+
+***
+
+### data
+
+#### Get Signature
+
+> **get** **data**(): `Record`\<`string`, `unknown`\>
+
+Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+
+Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
+`data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
+
+##### Returns
+
+`Record`\<`string`, `unknown`\>
+
+#### Set Signature
+
+> **set** **data**(`next`): `void`
+
+Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+
+Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
+
+##### Parameters
+
+###### next
+
+`Record`\<`string`, `unknown`\>
+
+##### Returns
+
+`void`
+
+#### Inherited from
+
+[`InputDrivenController`](InputDrivenController.md).[`data`](InputDrivenController.md#data)
+
+***
+
+### rawData
+
+#### Get Signature
+
+> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+
+O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
+estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
+
+##### Returns
+
+`Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+#### Inherited from
+
+[`InputDrivenController`](InputDrivenController.md).[`rawData`](InputDrivenController.md#rawdata)
+
 ## Methods
+
+### add()
+
+> **add**(`e`): `this`
+
+Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
+
+Anexa uma Entity-filha. Retorna `this` para chaining fluente.
+Não valida ciclos nem múltiplos pais — responsabilidade do caller.
+
+#### Parameters
+
+##### e
+
+[`Entity`](../../elements/classes/Entity.md)
+
+#### Returns
+
+`this`
+
+#### Inherited from
+
+[`InputDrivenController`](InputDrivenController.md).[`add`](InputDrivenController.md#add)
+
+***
 
 ### dispose()
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/controllers/FpsController.ts:36](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/controllers/FpsController.ts#L36)
+Defined in: [presentation/input/controllers/FpsController.ts:43](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/controllers/FpsController.ts#L43)
 
 Remove o ouvinte de clique (pointer lock) do canvas.
 
@@ -63,19 +177,68 @@ Remove o ouvinte de clique (pointer lock) do canvas.
 
 ***
 
-### update()
+### getDescriptors()
 
-> **update**(`ctx`): `void`
+> **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [presentation/input/controllers/FpsController.ts:59](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/controllers/FpsController.ts#L59)
+Defined in: [presentation/input/InputDrivenController.ts:30](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/InputDrivenController.ts#L30)
 
-Hook chamado a cada frameTick — leia input, atualize state externo.
+Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
+que este resource expõe ao `ResourceSystem`. Cada descriptor define
+`id`, `role`, `schema` (StructSchema) e opcionalmente `storage`
+(`'pool'` para coalescer N members do mesmo schema em 1 buffer).
+
+#### Returns
+
+readonly `GPUDescriptor`[]
+
+#### Inherited from
+
+[`InputDrivenController`](InputDrivenController.md).[`getDescriptors`](InputDrivenController.md#getdescriptors)
+
+***
+
+### getPipelineDescriptors()
+
+> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
+
+Defined in: [presentation/input/InputDrivenController.ts:34](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/InputDrivenController.ts#L34)
+
+Pipelines GPU declaradas pelo resource (shader source + entry points
++ consumes). Útil para Materials que carregam shaders próprios.
+Vazio para a maioria (Flows criam pipelines diretamente).
+
+#### Returns
+
+readonly `PipelineDescriptor`[]
+
+#### Inherited from
+
+[`InputDrivenController`](InputDrivenController.md).[`getPipelineDescriptors`](InputDrivenController.md#getpipelinedescriptors)
+
+***
+
+### tick()
+
+> **tick**(`input`, `dt`, `transform`): `void`
+
+Defined in: [presentation/input/controllers/FpsController.ts:51](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/controllers/FpsController.ts#L51)
+
+Olha pelo ponteiro, anda pelas teclas e escreve posição e rotação no `Transform`.
 
 #### Parameters
 
-##### ctx
+##### input
 
-[`ControllerContext`](../interfaces/ControllerContext.md)
+[`Input`](Input.md)
+
+##### dt
+
+`number`
+
+##### transform
+
+[`Transform`](../../elements/classes/Transform.md)
 
 #### Returns
 
@@ -83,4 +246,4 @@ Hook chamado a cada frameTick — leia input, atualize state externo.
 
 #### Overrides
 
-[`InputDrivenController`](InputDrivenController.md).[`update`](InputDrivenController.md#update)
+[`InputDrivenController`](InputDrivenController.md).[`tick`](InputDrivenController.md#tick)
