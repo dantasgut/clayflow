@@ -1,55 +1,45 @@
 import { describe, expect, it } from 'vitest';
 import { PBFFlow } from '../flows/PBFFlow';
 import { FluidBody } from '../bodies/FluidBody';
-import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
-import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
-import { World } from '../../../scene/world/World';
-import { Time } from '../../../scene/time/Time';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
-import { countPasses, recordingFrame } from './helpers/recordingFrame';
+import { countPasses } from './helpers/recordingFrame';
+import { solverScene } from './helpers/solverScene';
 
-function setup(substeps: number) {
-    const events = new DefaultEventBus();
-    const world = new World(events);
-    const { core, writes } = fakeResourceCore();
-    const resources = new ResourceSystem(core, events, world);
-    const time = new Time(events);
-    world.insert(time);
-    world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
-    const flow = new PBFFlow(core, world, resources, { substeps, solverIters: 3 });
-    return { time, flow, writes };
+async function setup(substeps: number) {
+    const s = await solverScene();
+    s.scene.flows.register((ctx) => new PBFFlow(ctx, { substeps, solverIters: 3 }), {
+        type: 'PBFFlow',
+        phase: 'physics',
+        bodyType: 'PBFSchema',
+    });
+    s.scene.world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
+    return s;
 }
 
-describe('PBFFlow — avanço governado pelo Time', () => {
-    it('simula já no primeiro quadro (vizinhança alocada antes dos kernels)', () => {
-        const { time, flow } = setup(1);
-        time.advance(1 / 60);
-        const rec = recordingFrame();
-        flow.dispatch(rec.frame);
-        expect(countPasses(rec.passes, 'PBFFlow.predict')).toBe(1);
+describe('PBFFlow — avanço governado pelo Time (slots)', () => {
+    it('simula já no primeiro quadro (vizinhança preparada em framePrepare)', async () => {
+        const { step } = await setup(1);
+        expect(countPasses(step(1 / 60), 'PBFFlow.predict')).toBe(1);
     });
 
-    it('steps × substeps iterações, vizinhança reconstruída antes de cada predict', () => {
-        const { time, flow } = setup(2);
-        time.advance(2 / 60);
-        const rec = recordingFrame();
-        flow.dispatch(rec.frame);
-        expect(countPasses(rec.passes, 'PBFFlow.predict')).toBe(4);
-        expect(countPasses(rec.passes, 'PBFFlow.density_lambda')).toBe(12);
-        const order = rec.passes
+    it('steps × substeps iterações, vizinhança reconstruída antes de cada predict', async () => {
+        const { step } = await setup(2);
+        const passes = step(2 / 60);
+        expect(countPasses(passes, 'PBFFlow.predict')).toBe(4);
+        expect(countPasses(passes, 'PBFFlow.density_lambda')).toBe(12);
+        const order = passes
             .map((p) => p.label)
             .filter((l) => l === 'NS.find' || l === 'PBFFlow.predict');
         expect(order).toEqual(
             Array.from({ length: 4 }, () => ['NS.find', 'PBFFlow.predict']).flat(),
         );
-        const xsph = rec.passes.filter((p) => p.label === 'PBFFlow.xsph');
+        const xsph = passes.filter((p) => p.label === 'PBFFlow.xsph');
         expect(xsph.map((p) => p.offsets[0]?.[0])).toEqual([0, 256, 512, 768]);
     });
 
-    it('dt e dt_frame por região, uma escrita de parâmetros por quadro', () => {
-        const { time, flow, writes } = setup(2);
-        time.advance(1 / 60);
-        flow.dispatch(recordingFrame().frame);
+    it('dt e dt_frame por região, uma escrita de parâmetros por quadro', async () => {
+        const { step, writes } = await setup(2);
+        writes.length = 0;
+        step(1 / 60);
         const w = writes.filter((x) =>
             (x.spec as { discriminator: string }).discriminator.includes('pbf_params:per_step'),
         );
@@ -63,12 +53,12 @@ describe('PBFFlow — avanço governado pelo Time', () => {
         expect(f32[64 + 11]).toBeCloseTo(1 / 60, 7);
     });
 
-    it('steps = 0 não grava passes', () => {
-        const { time, flow } = setup(1);
-        time.pausePhysics();
-        time.advance(1 / 60);
-        const rec = recordingFrame();
-        flow.dispatch(rec.frame);
-        expect(rec.passes).toHaveLength(0);
+    it('steps = 0 não grava passes; nada criado na gravação', async () => {
+        const s = await setup(1);
+        s.scene.time.pausePhysics();
+        expect(s.step(1 / 60)).toHaveLength(0);
+        s.scene.time.resumePhysics();
+        expect(countPasses(s.step(3 / 60), 'PBFFlow.predict')).toBe(3);
+        expect(s.createdWhileRecording()).toBe(0);
     });
 });

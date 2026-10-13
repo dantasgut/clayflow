@@ -3,6 +3,7 @@ import shadowDepthSource from './shadow_depth.wgsl?raw';
 import effectsSource from './effects/effects.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
 import { Transform } from '../../elements/scene/Transform';
+import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { color } from '../../elements/gpu/shaders/math';
 import {
     EffectParamsSchema,
@@ -15,7 +16,7 @@ import {
 export const shadowDepth = wgslModule({
     name: 'shadow_depth',
     source: shadowDepthSource,
-    structs: [ShadowDepthParamsSchema, Transform.worldSchema],
+    structs: [ShadowDepthParamsSchema, ShadowMap.schema, Transform.worldSchema],
 });
 
 /**

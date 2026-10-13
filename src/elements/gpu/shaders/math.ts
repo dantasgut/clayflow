@@ -17,6 +17,7 @@ import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
 import { LCPSchema } from '../../physics/bodies/schemas/LCPSchema';
 import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
+import { MeshCollider } from '../../physics/colliders/MeshCollider';
 import { SphereCollider } from '../../physics/colliders/SphereCollider';
 import { ColliderSetCountsSchema } from '../../physics/colliders/ColliderSet';
 import { RBSimParamsSchema } from '../../physics/schemas/simParams';
@@ -65,7 +66,7 @@ export const lcpState = wgslModule({
 /** Tipos de material do MPM (`material_id`). */
 export const mpmMaterial = wgslModule({ name: 'mpm_material', source: mpmMaterialSource });
 
-/** Conjunto de colliders (grupo 2): pose pelo corpo dono, SDF, push-out de partículas, restrição de nós. */
+/** Conjunto de colliders (grupo 2, com a malha): pose pelo corpo dono, SDF, push-out de partículas, restrição de nós. */
 export const colliderSet = wgslModule({
     name: 'collider_set',
     source: colliderSetSource,
@@ -75,6 +76,7 @@ export const colliderSet = wgslModule({
         PlaneCollider.schema,
         BoxCollider.schema,
         SphereCollider.schema,
+        MeshCollider.schema,
         LCPSchema,
     ],
 });

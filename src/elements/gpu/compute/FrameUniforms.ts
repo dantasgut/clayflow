@@ -1,9 +1,5 @@
-import type {
-    ComputeKernelBinding,
-    EngineCore,
-    Frame,
-    UniformBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, UniformBufferSpec } from '../../../scene/contracts/gpu';
+import type { ResolvedSource } from '../../../scene/consumers/ConsumerResolver';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /** Opções de `FrameUniforms`. */
@@ -12,33 +8,30 @@ interface FrameUniformsOptions {
     readonly discriminator: string;
     /** Schema dos parâmetros (`addressSpace: 'uniform'`). */
     readonly schema: StructSchema;
-    /** Regiões iniciais (cresce em potências de 2). Padrão 16. */
-    readonly initialRegions?: number;
 }
 
 /**
  * Parâmetros por chamada de um kernel genérico gravado várias vezes no mesmo quadro (`count`, modo…): cada chamada
  * recebe a sua região de um uniform, ligada por offset dinâmico.
  *
- * Por que existe (research A1): `core.write` entra na fila antes do quadro inteiro — reescrever o mesmo uniform entre
- * duas gravações faz as duas lerem o último valor. Um quadro é um `core.record` (um envio): as regiões valem até o
- * fim dele e a primeira chamada de um quadro novo recomeça da região 0.
+ * Por que existe (research A1 da 005): `core.write` entra na fila antes do quadro inteiro — reescrever o mesmo uniform
+ * entre duas gravações faz as duas lerem o último valor. Um quadro é um `core.record` (um envio): as regiões valem até
+ * o fim dele e a primeira chamada de um quadro novo recomeça da região 0.
  *
- * Crescimento no meio do quadro cria um buffer maior com as regiões já gravadas no quadro (cópia em CPU) e incrementa
- * `generation` (quem liga `binding(...)` refaz os bind groups); o buffer anterior ainda está ligado a passes já
- * gravados, então só é destruído no quadro seguinte.
+ * Duas fases (spec 006): `reserve(n)` dimensiona o buffer **fora da gravação** (na preparação do kernel, numa
+ * transição do Flow) e devolve se o buffer foi recriado — quem o liga refaz os kernels; `allocate` só grava a região
+ * da chamada e nunca cria objetos: passar das regiões reservadas é erro.
  */
 export class FrameUniforms {
     private readonly schema: StructSchema;
     private readonly discriminator: string;
     private cachedRegionSize = 0;
     private spec: UniformBufferSpec | null = null;
-    private regionCount: number;
+    private regionCount = 0;
     private cursor = 0;
     private frame: Frame | null = null;
     private bufferGeneration = 0;
-    private retired: UniformBufferSpec[] = [];
-    /** Cópia em CPU das regiões gravadas (regravadas no buffer novo ao crescer). */
+    /** Cópia em CPU das regiões gravadas. */
     private staging = new ArrayBuffer(0);
 
     constructor(
@@ -52,7 +45,6 @@ export class FrameUniforms {
         }
         this.schema = options.schema;
         this.discriminator = options.discriminator;
-        this.regionCount = Math.max(1, options.initialRegions ?? 16);
     }
 
     /** Bytes por região: o struct arredondado a `minUniformBufferOffsetAlignment` (lido no primeiro uso). */
@@ -65,81 +57,93 @@ export class FrameUniforms {
         return this.cachedRegionSize;
     }
 
-    /** Incrementa a cada (re)criação do buffer — bind groups com `binding(...)` precisam ser refeitos. */
+    /** Regiões disponíveis por quadro. */
+    get capacity(): number {
+        return this.regionCount;
+    }
+
+    /** Incrementa a cada (re)criação do buffer — quem liga `source()` refaz os kernels. */
     get generation(): number {
         return this.bufferGeneration;
     }
 
-    /** Buffer atual (criado no primeiro uso). */
-    get buffer(): UniformBufferSpec {
-        if (this.spec === null) this.createBuffer();
-        return this.spec!;
-    }
-
     /**
-     * Reserva a próxima região do quadro `frame`, grava `data` pelo schema e devolve o offset para
-     * `setBindGroup(g, bg, [offset])`. Pode crescer o buffer (ver `generation`).
+     * Garante `regions` regiões por quadro (capacidade em potências de 2). Chamado fora da gravação: o buffer anterior
+     * é destruído na hora. Devolve `true` se o buffer foi (re)criado.
      */
-    allocate(frame: Frame, data: Record<string, unknown>): number {
-        if (frame !== this.frame) {
-            this.frame = frame;
-            this.cursor = 0;
-            for (const old of this.retired) this.core.destroy(old);
-            this.retired = [];
-        }
-        if (this.spec === null) this.createBuffer();
-        if (this.cursor === this.regionCount) {
-            this.retired.push(this.spec!);
-            this.regionCount *= 2;
-            this.createBuffer();
-            // Regiões anteriores do quadro: as chamadas que ainda vão ligar o buffer novo podem usá-las.
-            this.core.write(
-                this.spec!,
-                new Uint8Array(this.staging, 0, this.cursor * this.regionSize),
+    reserve(regions: number): boolean {
+        if (!Number.isInteger(regions) || regions < 1) {
+            throw new RangeError(
+                `FrameUniforms(${this.discriminator}): reserve(${regions}) — inteiro ≥ 1.`,
             );
         }
-        const offset = this.cursor * this.regionSize;
-        this.cursor++;
-        this.schema.packInto(this.staging, offset, data);
-        this.core.write(
-            this.spec!,
-            new Uint8Array(this.staging, offset, this.schema.stride),
-            offset,
-        );
-        return offset;
-    }
-
-    /** Entrada de bind group com offset dinâmico para o buffer atual no slot `binding`. */
-    binding(binding: number): ComputeKernelBinding {
-        return {
-            binding,
-            type: 'uniform',
-            buffer: this.buffer,
-            hasDynamicOffset: true,
-            size: this.schema.stride,
-        };
-    }
-
-    /** Destrói o buffer atual e os aposentados. */
-    destroy(): void {
-        for (const old of this.retired) this.core.destroy(old);
-        this.retired = [];
+        if (this.spec !== null && regions <= this.regionCount) return false;
+        let capacity = Math.max(1, this.regionCount);
+        while (capacity < regions) capacity *= 2;
         if (this.spec !== null) this.core.destroy(this.spec);
-        this.spec = null;
-        this.frame = null;
-        this.cursor = 0;
-    }
-
-    private createBuffer(): void {
-        const staging = new ArrayBuffer(this.regionCount * this.regionSize);
-        new Uint8Array(staging).set(new Uint8Array(this.staging));
-        this.staging = staging;
+        this.regionCount = capacity;
+        this.staging = new ArrayBuffer(capacity * this.regionSize);
         this.bufferGeneration++;
         this.spec = this.core.create<UniformBufferSpec>({
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: `${this.discriminator}:frame_uniforms:${this.bufferGeneration}`,
-            byteSize: this.regionCount * this.regionSize,
+            byteSize: capacity * this.regionSize,
         });
+        this.frame = null;
+        this.cursor = 0;
+        return true;
+    }
+
+    /**
+     * Fonte de binding do buffer: uma região de `schema.stride` bytes, escolhida por offset dinâmico.
+     * @throws Error antes do primeiro `reserve`.
+     */
+    source(): ResolvedSource {
+        return {
+            kind: 'buffer',
+            buffer: this.buffer,
+            size: this.schema.stride,
+            dynamic: { stride: this.regionSize },
+        };
+    }
+
+    /**
+     * Reserva a próxima região do quadro `frame`, grava `data` pelo schema e devolve o offset para
+     * `setBindGroup(g, bg, [offset])`.
+     * @throws RangeError se o quadro já usou todas as regiões reservadas.
+     */
+    allocate(frame: Frame, data: Record<string, unknown>): number {
+        if (frame !== this.frame) {
+            this.frame = frame;
+            this.cursor = 0;
+        }
+        const spec = this.buffer;
+        if (this.cursor === this.regionCount) {
+            throw new RangeError(
+                `FrameUniforms(${this.discriminator}): mais de ${this.regionCount} chamadas no quadro — reserve antes de gravar.`,
+            );
+        }
+        const offset = this.cursor * this.regionSize;
+        this.cursor++;
+        this.schema.packInto(this.staging, offset, data);
+        this.core.write(spec, new Uint8Array(this.staging, offset, this.schema.stride), offset);
+        return offset;
+    }
+
+    /** Destrói o buffer. */
+    destroy(): void {
+        if (this.spec !== null) this.core.destroy(this.spec);
+        this.spec = null;
+        this.regionCount = 0;
+        this.frame = null;
+        this.cursor = 0;
+    }
+
+    private get buffer(): UniformBufferSpec {
+        if (this.spec === null) {
+            throw new Error(`FrameUniforms(${this.discriminator}): reserve antes do uso.`);
+        }
+        return this.spec;
     }
 }

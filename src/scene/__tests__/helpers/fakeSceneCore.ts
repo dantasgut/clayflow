@@ -43,6 +43,7 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
     const core = {
         create: vi.fn(<S>(spec: S) => spec),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(spec)),
+        writeTexture: vi.fn(),
         write: vi.fn((spec: ResourceSpec) => {
             trace.push(`write:${disc(spec)}`);
         }),
@@ -65,6 +66,7 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
         capabilities: vi.fn(defaultCapabilities),
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),
+        onFrameRetired: vi.fn(() => () => undefined),
     } as unknown as EngineCore;
     return { core, trace };
 }

@@ -19,13 +19,11 @@ async function setup(maxFramesInFlight?: number) {
     let inFlight = 0;
     vi.mocked(core.framesInFlight).mockImplementation(() => inFlight);
     let raf: FrameRequestCallback | null = null;
-    vi.stubGlobal(
-        'requestAnimationFrame',
-        vi.fn((cb: FrameRequestCallback) => {
-            raf = cb;
-            return 1;
-        }),
-    );
+    const requestFrame = vi.fn((cb: FrameRequestCallback) => {
+        raf = cb;
+        return 1;
+    });
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
     const now = vi.spyOn(performance, 'now').mockReturnValue(0);
     const app = await Application.create({
@@ -39,6 +37,7 @@ async function setup(maxFramesInFlight?: number) {
     return {
         app,
         ticks,
+        requestFrame,
         setInFlight: (n: number) => {
             inFlight = n;
         },
@@ -50,18 +49,57 @@ async function setup(maxFramesInFlight?: number) {
 }
 
 describe('Application — ritmo de quadros (R18)', () => {
-    it('com a GPU no limite o tick não avança; com espaço avança incluindo a espera no realDt', async () => {
+    it('com a GPU no limite o tick não avança nem pede RAF; frameRetired com espaço retoma, com a espera no realDt', async () => {
         const s = await setup(2);
         s.app.start();
+        expect(s.requestFrame).toHaveBeenCalledTimes(1);
         s.setInFlight(2);
         s.tickAt(16);
-        s.tickAt(32);
         expect(s.ticks).toHaveLength(0);
+        expect(s.requestFrame).toHaveBeenCalledTimes(1); // nenhum RAF vazio
+        // Uma conclusão que ainda deixa a GPU no limite não retoma.
+        s.app.events.emit('frameRetired', { framesInFlight: 2 });
+        expect(s.requestFrame).toHaveBeenCalledTimes(1);
         s.setInFlight(1);
+        s.app.events.emit('frameRetired', { framesInFlight: 1 });
+        expect(s.requestFrame).toHaveBeenCalledTimes(2);
+        // Conclusões repetidas enquanto o RAF está pendente não pedem outro.
+        s.app.events.emit('frameRetired', { framesInFlight: 0 });
+        expect(s.requestFrame).toHaveBeenCalledTimes(2);
         s.tickAt(48);
         expect(s.ticks).toHaveLength(1);
         expect(s.ticks[0]!.realDt).toBeCloseTo(0.048, 9);
+        expect(s.requestFrame).toHaveBeenCalledTimes(3);
         s.app.stop();
+    });
+
+    it('stop durante a espera pela GPU: frameRetired não retoma e isRunning é false', async () => {
+        const s = await setup(1);
+        s.app.start();
+        s.setInFlight(1);
+        s.tickAt(16);
+        expect(s.app.isRunning()).toBe(true);
+        s.app.stop();
+        expect(s.app.isRunning()).toBe(false);
+        s.setInFlight(0);
+        s.app.events.emit('frameRetired', { framesInFlight: 0 });
+        expect(s.requestFrame).toHaveBeenCalledTimes(1);
+        expect(s.ticks).toHaveLength(0);
+    });
+
+    it('a cena repassa onFrameRetired do core como evento frameRetired', () => {
+        const { core } = fakeSceneCore();
+        let retire: ((n: number) => void) | undefined;
+        vi.mocked(core.onFrameRetired).mockImplementation((handler) => {
+            retire = handler;
+            return () => undefined;
+        });
+        const scene = createScene({ core });
+        const seen: number[] = [];
+        scene.events.on('frameRetired', (e) => seen.push(e.framesInFlight));
+        retire!(1);
+        expect(seen).toEqual([1]);
+        scene.dispose();
     });
 
     it('readyForFrame reflete o limite (padrão 2)', async () => {

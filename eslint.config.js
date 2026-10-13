@@ -175,6 +175,26 @@ export default tseslint.config(
         },
     },
 
+    // Fronteira de importação (decisão D4): as Camadas 3 e 4 importam contratos de GPU só por `scene/`
+    // (`scene/contracts/gpu`), nunca de `core/`.
+    {
+        files: ['src/elements/**/*.ts', 'src/presentation/**/*.ts'],
+        rules: {
+            '@typescript-eslint/no-restricted-imports': [
+                'error',
+                {
+                    patterns: [
+                        {
+                            group: ['**/core', '**/core/**'],
+                            message:
+                                'C3/C4 não importam a Camada 1: use `scene/contracts/gpu` (decisão D4).',
+                        },
+                    ],
+                },
+            ],
+        },
+    },
+
     // Harness de benchmark (fora da lib): projeto TS próprio e só o barrel público.
     {
         files: ['bench/**/*.ts'],

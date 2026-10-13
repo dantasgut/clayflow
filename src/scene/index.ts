@@ -29,10 +29,20 @@ export type { SceneContext, CreateSceneOptions } from './SceneContext';
 export const engine = defaultScene.core;
 
 export { Entity, ResourceState } from './contracts/index';
-export type { Resource, PoolDirectory, ResourceDirectory } from './contracts/index';
+export type {
+    Resource,
+    PoolDirectory,
+    PoolBufferSpec,
+    PoolInfo,
+    ResourceDirectory,
+} from './contracts/index';
 
 export type { GPUDescriptor, GPUDescriptorRole } from './descriptors/GPUDescriptor';
-export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';
+export type {
+    PipelineDescriptor,
+    PipelineDescriptorRole,
+    ConsumesEntry,
+} from './descriptors/PipelineDescriptor';
 export type { FlowDescriptor } from './descriptors/FlowDescriptor';
 export type { TextureShape } from './descriptors/TextureShape';
 export type {
@@ -67,9 +77,62 @@ export { Time } from './time/Time';
 export { asEntityId } from './world/EntityId';
 export type { EntityId } from './world/EntityId';
 
-export { Flow, RenderFlow, FlowRegistry } from './flows/index';
+export {
+    Flow,
+    RenderFlow,
+    FlowRegistry,
+    FlowRegistrationError,
+    FlowTransitionError,
+    FlowBindingError,
+    PHASE_ORDER,
+    slot,
+} from './flows/index';
 export { createComputeKernel, destroyComputeKernel } from './flows/index';
-export type { ComputeKernelOptions } from './flows/index';
+export type {
+    ComputeKernel,
+    ComputeKernelOptions,
+    FlowLifecycle,
+    RenderSlotMap,
+    RegisterOptions,
+    FlowContext,
+    FlowFactory,
+    FlowRegistration,
+    FlowAllocator,
+    FlowRegistryHost,
+    FlowBindingErrorDetails,
+    SlotDeclaration,
+    SlotMap,
+    PoolSlot,
+    BodiesSlot,
+    PoolsSlot,
+    SingletonSlot,
+    EntitiesSlot,
+    EntityRecordDeclaration,
+    TextureSlot,
+    TargetSlot,
+    TextureRef,
+    ResourceType,
+    BoundSlot,
+    BoundSlots,
+    BoundPool,
+    BoundSingleton,
+    BoundEntities,
+    EntityEntry,
+    BoundTexture,
+    BoundTarget,
+    FlowEvent,
+    FlowEventName,
+    FlowEventOf,
+    FlowTransition,
+    FlowTransitions,
+    BindingSource,
+    BindingSources,
+    BoundFlow,
+    PreparedPipeline,
+    PreparedCompute,
+    PreparedRender,
+    TransitionContext,
+} from './flows/index';
 export { wgslModule, composeWgsl, WgslCompositionError } from './shaders/index';
 export type {
     WgslModule,
@@ -83,16 +146,17 @@ export type { Phase } from './flows/index';
 
 export {
     ConsumerResolverRegistry,
+    ConsumerResolutionError,
     SingletonResolver,
-    PerEntityResolver,
     PoolResolver,
+    TextureResolver,
 } from './consumers/index';
 export type {
     ConsumerResolver,
     ResolveContext,
-    SingletonBindingFactory,
-    PerEntityBindingFactory,
-    PoolBindingFactory,
+    ResolvedSource,
+    BindableBufferSpec,
+    SingletonResolverOptions,
 } from './consumers/index';
 
 export { DefaultEventBus } from './events/DefaultEventBus';
@@ -111,6 +175,8 @@ export type {
     FrameCompleteEvent,
     FrameRecordingEvent,
     FlowReadyPayload,
+    FlowSuspendedPayload,
+    PoolCreatedPayload,
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
@@ -119,6 +185,7 @@ export type {
     ProfilerStatsPayload,
     EngineErrorPayload,
     DeviceLostPayload,
+    FrameRetiredPayload,
     DeviceRecoveredPayload,
     MemoryWarningPayload,
 } from './events/index';
@@ -183,5 +250,13 @@ export type {
 } from './contracts/index';
 
 export type { ResourceStateHandler } from './lifecycle/index';
-export type { WgslBinding, WgslBindingInfo } from './systems/index';
+export type {
+    WgslBinding,
+    WgslBindingInfo,
+    WgslStage,
+    InferredLayout,
+    InferredGroup,
+    InferredEntry,
+    InferredResource,
+} from './systems/index';
 export { LayoutInferencer, ResourceSystem, ExecutionSystem } from './systems/index';

@@ -1,10 +1,8 @@
 import type {
     AnyBufferSpec,
-    BindGroupSpec,
     EngineCore,
     IndexBufferSpec,
     IndirectBufferSpec,
-    LayoutSpec,
     SamplerSpec,
     StagingBufferSpec,
     StorageBufferSpec,
@@ -16,6 +14,7 @@ import type {
 import { ResourceState } from '../contracts/ResourceState';
 import type { Resource } from '../contracts/Resource';
 import type { ResourceDirectory } from '../contracts/ResourceDirectory';
+import type { PoolBufferSpec, PoolInfo } from '../contracts/PoolDirectory';
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import type { Schema } from '../descriptors/Schema';
 import { StructSchema } from '../descriptors/StructSchema';
@@ -24,6 +23,13 @@ import { ResourceStateHandlerRegistry } from '../lifecycle/ResourceStateHandlerR
 import type { World } from '../world/World';
 import type { EntityId } from '../world/EntityId';
 import { makeReactive } from './reactiveData';
+import { ConsumerResolverRegistry } from '../consumers/ConsumerResolverRegistry';
+import { PoolResolver } from '../consumers/strategies/PoolResolver';
+import type { Flow } from '../flows/Flow';
+import type { EntityRecordDeclaration, ResourceType } from '../flows/slots';
+import type { FlowAllocator, RegisterOptions } from '../flows/FlowRegistry';
+import { FlowBinder } from './flowBinding/FlowBinder';
+import { LayoutInferencer } from './LayoutInferencer';
 
 type UploadPolicy = NonNullable<GPUDescriptor['upload']>;
 
@@ -32,20 +38,35 @@ interface PoolEntry {
     readonly stride: number;
     readonly schema: Schema;
     readonly upload: UploadPolicy;
-    bufferSpec: StorageBufferSpec;
-    layoutSpec: LayoutSpec;
-    bindGroupSpec: BindGroupSpec;
+    bufferSpec: PoolBufferSpec;
     capacity: number;
     count: number;
     readonly slotByEntity: Map<EntityId, number>;
     readonly entityBySlot: Map<number, EntityId>;
-    /** Slot → recurso e descritor que o ocupam (reempacotamento no crescimento). */
-    readonly occupants: Map<number, { resource: Resource; schema: Schema }>;
+    /** Slot → quem o ocupa (reempacotamento no crescimento). */
+    readonly occupants: Map<number, Occupant>;
     readonly freeList: number[];
     generation: number;
 }
 
 /** O que a C2 alocou para um descritor individual (não-pool) de um recurso. */
+/** Ocupante de um slot de pool: um Resource (dado em `resource.data`) ou um registro de entidade da C2. */
+interface Occupant {
+    readonly schema: Schema;
+    readonly resource?: Resource;
+    readonly record?: Readonly<Record<string, number>>;
+}
+
+/** Conjunto de registros de entidade (`slot.entities({ record })`), compartilhado pelos Flows que o declaram. */
+interface RecordSet {
+    readonly declaration: EntityRecordDeclaration;
+    readonly all: readonly ResourceType[];
+    readonly entry: PoolEntry;
+    users: number;
+    /** Slots a escrever no próximo `frameRecording`. */
+    readonly pending: Set<number>;
+}
+
 interface Allocation {
     readonly desc: GPUDescriptor;
     buffer?: AnyBufferSpec;
@@ -65,6 +86,8 @@ interface GeometryShape {
 }
 
 const INITIAL_POOL_CAPACITY = 16;
+/** Rodadas máximas de envio por quadro (reações encadeadas a `resourceReady`). */
+const MAX_FLUSH_ROUNDS = 16;
 /** Bytes por registro de draw indireto indexado (5 × u32) — também cobre os 3 × u32 de dispatch. */
 const INDIRECT_RECORD_BYTES = 20;
 
@@ -103,11 +126,13 @@ const INDIRECT_RECORD_BYTES = 20;
  *
  * **Storage**:
  *   - `individual`: objetos próprios por descritor (Camera, ShadowParams, geometrias).
- *   - `pool`: 1 GPUBuffer compartilhado por N members do mesmo schema. Cresce 2× quando
- *     a capacidade estoura (destrói buffer e bind group anteriores) e emite `poolReallocated`.
- *     Um recurso com vários descritores em pool ocupa o **mesmo slot** em todos eles.
+ *   - `pool`: 1 GPUBuffer de storage compartilhado por N members do mesmo schema, lido como `array<T>` (stride do
+ *     struct). Cresce 2× quando a capacidade estoura (destrói o buffer anterior) e emite `poolReallocated`.
+ *     Um recurso com vários descritores em pool ocupa o **mesmo slot** em todos eles. `role: 'uniform'` em pool
+ *     não é aceito (um registro por desenho viria de offset dinâmico e rebind por draw — ver `slot.entities`
+ *     com `record`).
  */
-export class ResourceSystem implements ResourceDirectory {
+export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
     private readonly pools = new Map<string, PoolEntry>();
     private readonly allocations = new Map<Resource, Map<string, Allocation>>();
@@ -116,12 +141,24 @@ export class ResourceSystem implements ResourceDirectory {
     private readonly dirty = new Set<Resource>();
     private readonly warnedGpuManaged = new Set<string>();
     private readonly subscriptions: Unsubscribe[];
+    private readonly binder: FlowBinder;
+    /** Pools criados na alocação em curso; `poolCreated` sai depois que o recurso ocupa o seu slot. */
+    private readonly createdPools: PoolEntry[] = [];
+    /** Conjuntos de registros de entidade, pela chave do pool (`schema.name` do registro). */
+    private readonly recordSets = new Map<string, RecordSet>();
     private anonCounter = 0;
 
+    /**
+     * @param consumers Registro de `consumes` da cena: cada pool criado registra o seu `PoolResolver` (sem substituir
+     *   um resolver já registrado com o nome do pool).
+     * @param inferencer Inferência de layout usada na preparação dos pipelines dos Flows.
+     */
     constructor(
         private readonly core: EngineCore,
         private readonly events: EventBus,
         private readonly world: World,
+        readonly consumers: ConsumerResolverRegistry = new ConsumerResolverRegistry(),
+        inferencer: LayoutInferencer = new LayoutInferencer(),
     ) {
         this.subscriptions = [
             this.events.on('resourcesChanged', (e) => {
@@ -130,17 +167,115 @@ export class ResourceSystem implements ResourceDirectory {
             this.events.on('resourceDirty', (e) => {
                 this.markDirty(e.payload.resource);
             }),
+            this.events.on('entitiesInserted', (e) => {
+                for (const set of this.recordSets.values())
+                    for (const id of e.entityIds) this.addRecord(set, id);
+            }),
+            this.events.on('entitiesRemoved', (e) => {
+                for (const set of this.recordSets.values())
+                    for (const id of e.entityIds) this.removeRecord(set, id);
+            }),
             this.events.on('frameRecording', () => {
+                this.flushRecords();
+                this.flushDirty();
+                this.binder.prepareFrame();
+                // Escritas de `framePrepare` em recursos da cena (ex.: matriz da luz no ShadowMap) entram no quadro.
                 this.flushDirty();
             }),
             this.events.on('canvasReconfigured', (e) => {
                 this.resizeCanvasTextures(e.width, e.height);
             }),
         ];
+        // Depois das inscrições acima: no redimensionamento, as texturas já estão recriadas quando os Flows reagem.
+        this.binder = new FlowBinder({
+            core,
+            world,
+            resources: this,
+            consumers,
+            events,
+            inferencer,
+        });
     }
 
-    /** Desfaz as inscrições no EventBus (descarte da cena). Os objetos de GPU morrem com o core. */
+    // ── Flows (FlowAllocator) ────────────────────────────────────────────────
+
+    /**
+     * Aloca um Flow: resolve os slots, prepara os pipelines declarados (layout inferido do WGSL, fontes privadas ou
+     * de `consumes`), cria layouts e bind groups e emite `flowReady` quando o Flow fica pronto. A partir daí a C2 o
+     * mantém: recria bind groups de fontes recriadas (`bindGroupReplaced`) e entrega os eventos às transições dele.
+     */
+    ensureFlowAllocated(flow: Flow, options: RegisterOptions): void {
+        this.binder.ensure(flow, options);
+    }
+
+    /** Libera os pipelines e bind groups do Flow, emite `flowSuspended` se estava pronto e o descarta. */
+    releaseFlow(flow: Flow): void {
+        this.binder.release(flow);
+    }
+
+    /**
+     * Passa a manter os registros de `declaration` para as entidades com um Resource de cada tipo de `all` (o
+     * `record` de um slot `entities`): pool com chave `declaration.schema.name`, um registro por entidade cujos campos
+     * são os slots de pool dos descritores nomeados, escrito em lote no `frameRecording`. Conjuntos com a mesma
+     * declaração compartilham o pool (contagem de usuários).
+     * @throws Error se a chave já é usada por outra declaração, se um campo não está no schema ou se o tipo de um
+     *   campo não está em `all`.
+     */
+    acquireEntityRecords(all: readonly ResourceType[], declaration: EntityRecordDeclaration): void {
+        const key = declaration.schema.name;
+        const existing = this.recordSets.get(key);
+        if (existing !== undefined) {
+            if (!sameRecordDeclaration(existing, all, declaration)) {
+                throw new Error(
+                    `ResourceSystem: registro '${key}' já declarado com outros campos ou outro conjunto de tipos.`,
+                );
+            }
+            existing.users++;
+            return;
+        }
+        for (const [field, [type]] of Object.entries(declaration.fields)) {
+            if (!declaration.schema.fields.has(field)) {
+                throw new Error(
+                    `ResourceSystem: registro '${key}': campo '${field}' fora do schema.`,
+                );
+            }
+            if (!all.includes(type)) {
+                throw new Error(
+                    `ResourceSystem: registro '${key}': o tipo do campo '${field}' não está no conjunto (all).`,
+                );
+            }
+        }
+        const entry =
+            this.pools.get(key)
+            ?? this.createPool(
+                key,
+                { id: key, role: 'storage-ro', storage: 'pool', schema: declaration.schema },
+                declaration.schema,
+            );
+        const set: RecordSet = { declaration, all, entry, users: 1, pending: new Set() };
+        this.recordSets.set(key, set);
+        for (const record of this.world.allRecords()) this.addRecord(set, record.id);
+        for (const created of this.createdPools.splice(0)) {
+            this.events.emit('poolCreated', { poolKey: created.poolKey, schema: created.schema });
+        }
+    }
+
+    /** Desfaz um `acquireEntityRecords`; sem usuários, os registros são liberados (o pool fica). */
+    releaseEntityRecords(declaration: EntityRecordDeclaration): void {
+        const key = declaration.schema.name;
+        const set = this.recordSets.get(key);
+        if (set === undefined || --set.users > 0) return;
+        for (const id of [...set.entry.slotByEntity.keys()]) this.removeRecord(set, id);
+        this.recordSets.delete(key);
+    }
+
+    hasPool(poolKey: string): boolean {
+        return this.pools.has(poolKey);
+    }
+
+    /** Desfaz as inscrições no EventBus e descarta os Flows alocados (descarte da cena). */
     dispose(): void {
+        this.binder.dispose();
         for (const off of this.subscriptions) off();
         this.subscriptions.length = 0;
     }
@@ -163,11 +298,6 @@ export class ResourceSystem implements ResourceDirectory {
         return this.allocations.get(resource)?.get(descId)?.sampler;
     }
 
-    /** BindGroupSpec do pool — input para flows que consomem o pool inteiro. */
-    poolBindGroup(poolKey: string): BindGroupSpec | undefined {
-        return this.pools.get(poolKey)?.bindGroupSpec;
-    }
-
     /** Número de slots ocupáveis no pool (maior slot já usado + 1). 0 se o pool não existe. */
     poolCount(poolKey: string): number {
         return this.pools.get(poolKey)?.count ?? 0;
@@ -183,9 +313,23 @@ export class ResourceSystem implements ResourceDirectory {
         return this.pools.get(poolKey)?.entityBySlot.get(slot);
     }
 
-    /** StorageBufferSpec do pool — uso direto em pipelines custom. */
-    poolBufferSpec(poolKey: string): StorageBufferSpec | undefined {
+    /** Buffer do pool (storage, ou uniform para pools de uniforms). */
+    poolBufferSpec(poolKey: string): PoolBufferSpec | undefined {
         return this.pools.get(poolKey)?.bufferSpec;
+    }
+
+    poolInfo(poolKey: string): PoolInfo | undefined {
+        const entry = this.pools.get(poolKey);
+        if (entry === undefined) return undefined;
+        return {
+            poolKey,
+            schema: entry.schema,
+            buffer: entry.bufferSpec,
+            stride: entry.stride,
+            count: entry.count,
+            capacity: entry.capacity,
+            generation: entry.generation,
+        };
     }
 
     /**
@@ -235,15 +379,27 @@ export class ResourceSystem implements ResourceDirectory {
         this.dirty.add(resource);
     }
 
+    /**
+     * Envia os recursos sujos e emite `resourceReady` para cada um, **até a fila esvaziar**: uma reação a
+     * `resourceReady` que suja outro recurso (ex.: a matriz da luz gravada no `ShadowMap`) entra no mesmo quadro.
+     */
     private flushDirty(): void {
-        if (this.dirty.size === 0) return;
-        const batch = [...this.dirty];
-        this.dirty.clear();
-        for (const resource of batch) {
-            if (!this.allocated.has(resource)) continue;
-            if (!this.stateRegistry.get(resource.state).suppressCpuUpload()) this.upload(resource);
-            this.transition(resource, ResourceState.Ready);
-            this.events.emit('resourceReady', { payload: { resource } });
+        let rounds = 0;
+        while (this.dirty.size > 0) {
+            if (++rounds > MAX_FLUSH_ROUNDS) {
+                throw new Error(
+                    `ResourceSystem: a fila de sujos não esvaziou em ${MAX_FLUSH_ROUNDS} rodadas (ciclo de reações a resourceReady).`,
+                );
+            }
+            const batch = [...this.dirty];
+            this.dirty.clear();
+            for (const resource of batch) {
+                if (!this.allocated.has(resource)) continue;
+                if (!this.stateRegistry.get(resource.state).suppressCpuUpload())
+                    this.upload(resource);
+                this.transition(resource, ResourceState.Ready);
+                this.events.emit('resourceReady', { payload: { resource } });
+            }
         }
     }
 
@@ -299,6 +455,9 @@ export class ResourceSystem implements ResourceDirectory {
         this.transition(resource, ResourceState.Ready);
         if (this.isGpuOwned(descs)) this.transition(resource, ResourceState.GpuManaged);
         this.events.emit('resourceReady', { payload: { resource } });
+        for (const entry of this.createdPools.splice(0)) {
+            this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
+        }
     }
 
     /** Recurso cujos descritores materializados são todos 'initial'/'never'. */
@@ -452,18 +611,14 @@ export class ResourceSystem implements ResourceDirectory {
                 `ResourceSystem: textura '${desc.id}' sem tamanho (width/height ou sizeFromCanvas com canvas).`,
             );
         }
-        const U = GPUTextureUsage;
-        const usage =
-            desc.role === 'storage-texture'
-                ? U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST
-                : U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT;
+        const format = shape.format === 'canvas' ? this.core.canvasFormat : shape.format;
         const texture = this.core.create<TextureSpec>({
             kind: 'texture',
             discriminator: `${disc}:${size.width}x${size.height}`,
             width: size.width,
             height: size.height,
-            format: shape.format,
-            usage,
+            format,
+            usage: textureUsage(desc.role, format),
             ...(shape.dimension !== undefined ? { dimension: shape.dimension } : {}),
             ...(shape.depthOrArrayLayers !== undefined
                 ? { depthOrArrayLayers: shape.depthOrArrayLayers }
@@ -476,6 +631,7 @@ export class ResourceSystem implements ResourceDirectory {
             kind: 'textureview',
             discriminator: `${disc}:view:${size.width}x${size.height}`,
             source: texture,
+            format,
             ...(shape.viewDimension !== undefined ? { dimension: shape.viewDimension } : {}),
         });
     }
@@ -550,40 +706,21 @@ export class ResourceSystem implements ResourceDirectory {
     }
 
     private createPool(poolKey: string, desc: GPUDescriptor, schema: Schema): PoolEntry {
-        const stride = alignUp(schema.stride, 16);
+        if (desc.role === 'uniform') {
+            throw new Error(
+                `ResourceSystem: descritor '${desc.id}' (${schema.name}) é 'uniform' em pool — pools são de storage, `
+                    + "lidos como array<T>: use role 'storage-ro'.",
+            );
+        }
+        // O stride do `array<T>` do WGSL, que é o do struct gerado do schema.
+        const stride = schema.stride;
         const capacity = INITIAL_POOL_CAPACITY;
-        const bufferSpec = this.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `pool:${poolKey}`,
-            byteSize: stride * capacity,
-        });
-        const layoutSpec = this.core.create<LayoutSpec>({
-            kind: 'layout',
-            discriminator: `pool_layout:${poolKey}`,
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    kind: 'buffer',
-                    type: 'storage',
-                },
-            ],
-        });
-        const bindGroupSpec = this.core.create<BindGroupSpec>({
-            kind: 'bindgroup',
-            discriminator: `pool_bg:${poolKey}:0`,
-            layout: layoutSpec,
-            bindings: [{ binding: 0, kind: 'buffer', buffer: bufferSpec }],
-        });
         const entry: PoolEntry = {
             poolKey,
             stride,
             schema,
             upload: policyOf(desc),
-            bufferSpec,
-            layoutSpec,
-            bindGroupSpec,
+            bufferSpec: this.createPoolBuffer(poolKey, stride * capacity, 0),
             capacity,
             count: 0,
             slotByEntity: new Map(),
@@ -593,26 +730,35 @@ export class ResourceSystem implements ResourceDirectory {
             generation: 0,
         };
         this.pools.set(poolKey, entry);
+        this.consumers.registerDefault(new PoolResolver(poolKey, schema));
+        this.createdPools.push(entry);
         return entry;
+    }
+
+    private createPoolBuffer(
+        poolKey: string,
+        byteSize: number,
+        generation: number,
+    ): PoolBufferSpec {
+        const discriminator =
+            generation === 0 ? `pool:${poolKey}` : `pool:${poolKey}:gen${generation}`;
+        return this.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator,
+            byteSize,
+        });
     }
 
     private growPool(entry: PoolEntry): void {
         const oldByteSize = entry.bufferSpec.byteSize;
         const oldSpec = entry.bufferSpec;
-        const oldBindGroup = entry.bindGroupSpec;
         entry.capacity *= 2;
-        entry.bufferSpec = this.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `pool:${entry.poolKey}:gen${++entry.generation}`,
-            byteSize: entry.stride * entry.capacity,
-        });
-        entry.bindGroupSpec = this.core.create<BindGroupSpec>({
-            kind: 'bindgroup',
-            discriminator: `pool_bg:${entry.poolKey}:${entry.generation}`,
-            layout: entry.layoutSpec,
-            bindings: [{ binding: 0, kind: 'buffer', buffer: entry.bufferSpec }],
-        });
+        entry.bufferSpec = this.createPoolBuffer(
+            entry.poolKey,
+            entry.stride * entry.capacity,
+            ++entry.generation,
+        );
         // Preserva o conteúdo conforme quem é dono do dado:
         //   - 'initial': a GPU é dona (ex.: simulação) — copia o buffer antigo na GPU;
         //     reempacotar da CPU reverteria o estado simulado ao valor inicial.
@@ -627,17 +773,101 @@ export class ResourceSystem implements ResourceDirectory {
             });
             this.core.submit();
         } else if (entry.upload === 'always') {
-            for (const [slot, { resource, schema }] of entry.occupants) {
-                this.core.write(entry.bufferSpec, schema.pack(resource.data), slot * entry.stride);
+            for (const [slot, occupant] of entry.occupants) {
+                this.core.write(
+                    entry.bufferSpec,
+                    occupant.schema.pack(occupantData(occupant)),
+                    slot * entry.stride,
+                );
             }
         }
-        this.core.destroy(oldBindGroup);
         this.core.destroy(oldSpec);
         this.events.emit('poolReallocated', {
             poolKey: entry.poolKey,
             oldByteSize,
             newByteSize: entry.bufferSpec.byteSize,
         });
+    }
+
+    // ── Registros de entidade ────────────────────────────────────────────────
+
+    /** Dá um registro à entidade se ela tem os tipos do conjunto e todos os slots referidos existem. */
+    private addRecord(set: RecordSet, id: EntityId): void {
+        const entry = set.entry;
+        if (entry.slotByEntity.has(id)) return;
+        const values = this.recordValues(set, id);
+        if (values === undefined) return;
+        const slot = this.chooseSlot([entry]);
+        const freeIdx = entry.freeList.indexOf(slot);
+        if (freeIdx >= 0) entry.freeList.splice(freeIdx, 1);
+        while (slot >= entry.capacity) this.growPool(entry);
+        for (let s = entry.count; s < slot; s++) {
+            if (!entry.occupants.has(s) && !entry.freeList.includes(s)) entry.freeList.push(s);
+        }
+        entry.count = Math.max(entry.count, slot + 1);
+        entry.occupants.set(slot, { schema: entry.schema, record: values });
+        entry.slotByEntity.set(id, slot);
+        entry.entityBySlot.set(slot, id);
+        set.pending.add(slot);
+    }
+
+    private removeRecord(set: RecordSet, id: EntityId): void {
+        const entry = set.entry;
+        const slot = entry.slotByEntity.get(id);
+        if (slot === undefined) return;
+        entry.slotByEntity.delete(id);
+        entry.entityBySlot.delete(slot);
+        entry.occupants.delete(slot);
+        entry.freeList.push(slot);
+        set.pending.delete(slot);
+    }
+
+    /** Campos do registro: o slot de pool do descritor nomeado do Resource de cada tipo; `undefined` se faltar algum. */
+    private recordValues(set: RecordSet, id: EntityId): Record<string, number> | undefined {
+        const resources = this.world.resourcesOf(id);
+        if (!set.all.every((type) => resources.some((r) => r instanceof type))) return undefined;
+        const values: Record<string, number> = {};
+        for (const [field, [type, descId]] of Object.entries(set.declaration.fields)) {
+            const resource = resources.find((r) => r instanceof type);
+            const desc = resource
+                ?.getDescriptors()
+                .find((d) => d.id === descId && d.storage === 'pool' && d.schema !== undefined);
+            if (resource === undefined || desc?.schema === undefined) return undefined;
+            const slot = this.pools
+                .get(this.computePoolKey(desc.schema, resource))
+                ?.slotByEntity.get(id);
+            if (slot === undefined) return undefined;
+            values[field] = slot;
+        }
+        return values;
+    }
+
+    /** Escreve os registros pendentes, uma escrita por sequência de slots contíguos. */
+    private flushRecords(): void {
+        for (const set of this.recordSets.values()) {
+            if (set.pending.size === 0) continue;
+            const entry = set.entry;
+            const slots = [...set.pending].sort((a, b) => a - b);
+            set.pending.clear();
+            let start = 0;
+            while (start < slots.length) {
+                let end = start;
+                while (end + 1 < slots.length && slots[end + 1] === slots[end]! + 1) end++;
+                const first = slots[start]!;
+                const bytes = new Uint8Array((end - start + 1) * entry.stride);
+                for (let i = start; i <= end; i++) {
+                    const occupant = entry.occupants.get(slots[i]!);
+                    if (occupant === undefined) continue;
+                    set.declaration.schema.packInto(
+                        bytes,
+                        (slots[i]! - first) * entry.stride,
+                        occupantData(occupant),
+                    );
+                }
+                this.core.write(entry.bufferSpec, bytes, first * entry.stride);
+                start = end + 1;
+            }
+        }
     }
 
     // ── Descarte ─────────────────────────────────────────────────────────────
@@ -756,6 +986,23 @@ function isTypedBufferRole(desc: GPUDescriptor): boolean {
     return desc.role === 'uniform' || desc.role === 'storage-ro' || desc.role === 'storage-rw';
 }
 
+/**
+ * Uso de uma textura alocada, derivado do papel e do formato: storage-texture é ligável como storage e amostrável;
+ * textura de profundidade/stencil é anexo de render e amostrável (sem cópia — formatos de profundidade não são
+ * copiáveis em todos os aspectos); textura de cor é anexo, amostrável e copiável nos dois sentidos.
+ */
+function textureUsage(role: GPUDescriptor['role'], format: GPUTextureFormat): number {
+    const U = GPUTextureUsage;
+    if (role === 'storage-texture')
+        return U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST;
+    if (isDepthOrStencil(format)) return U.RENDER_ATTACHMENT | U.TEXTURE_BINDING;
+    return U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT;
+}
+
+function isDepthOrStencil(format: GPUTextureFormat): boolean {
+    return format.startsWith('depth') || format === 'stencil8';
+}
+
 function alignUp(value: number, alignment: number): number {
     return Math.ceil(value / alignment) * alignment;
 }
@@ -799,4 +1046,25 @@ function padTo4(view: ArrayBufferView): ArrayBufferView {
     const out = new Uint8Array(alignUp(view.byteLength, 4));
     out.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
     return out;
+}
+
+function occupantData(occupant: Occupant): Record<string, unknown> {
+    return occupant.resource?.data ?? occupant.record ?? {};
+}
+
+function sameRecordDeclaration(
+    set: RecordSet,
+    all: readonly ResourceType[],
+    declaration: EntityRecordDeclaration,
+): boolean {
+    if (set.declaration === declaration) return true;
+    const a = Object.entries(set.declaration.fields);
+    const b = declaration.fields;
+    return (
+        set.declaration.schema === declaration.schema
+        && set.all.length === all.length
+        && set.all.every((t) => all.includes(t))
+        && a.length === Object.keys(b).length
+        && a.every(([k, [t, d]]) => b[k]?.[0] === t && b[k][1] === d)
+    );
 }

@@ -3,250 +3,254 @@ import { createComputeKernel, destroyComputeKernel } from '../flows/createComput
 import { fakeResourceCore } from './helpers/fakeResourceCore';
 import { wgslModule } from '../shaders/WgslModule';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
-import type {
-    BindGroupSpec,
-    ComputePipelineSpec,
-    EngineCore,
-    LayoutSpec,
-    ShaderModuleSpec,
-    StorageBufferSpec,
-    UniformBufferSpec,
-} from '../../core/contracts/index';
+import type { EngineCore, StorageBufferSpec, UniformBufferSpec } from '../../core/contracts/index';
 
 function recordingCore(): {
     core: EngineCore;
-    creates: { kind: string; subkind?: string; discriminator?: string }[];
+    creates: { kind: string; discriminator?: string }[];
     asyncCreates: { kind: string; discriminator?: string }[];
 } {
-    const creates: { kind: string; subkind?: string; discriminator?: string }[] = [];
+    const creates: { kind: string; discriminator?: string }[] = [];
     const asyncCreates: { kind: string; discriminator?: string }[] = [];
+    const entry = (spec: unknown) => {
+        const s = spec as { kind: string; discriminator?: string };
+        return s.discriminator !== undefined
+            ? { kind: s.kind, discriminator: s.discriminator }
+            : { kind: s.kind };
+    };
     const core = {
         create: vi.fn(<S>(spec: S) => {
-            const s = spec as unknown as { kind: string; subkind?: string; discriminator?: string };
-            const entry: { kind: string; subkind?: string; discriminator?: string } = {
-                kind: s.kind,
-            };
-            if (s.subkind !== undefined) entry.subkind = s.subkind;
-            if (s.discriminator !== undefined) entry.discriminator = s.discriminator;
-            creates.push(entry);
+            creates.push(entry(spec));
             return spec;
         }),
         createAsync: vi.fn(<S>(spec: S) => {
-            const s = spec as unknown as { kind: string; discriminator?: string };
-            const entry: { kind: string; discriminator?: string } = { kind: s.kind };
-            if (s.discriminator !== undefined) entry.discriminator = s.discriminator;
-            asyncCreates.push(entry);
+            asyncCreates.push(entry(spec));
             return Promise.resolve(spec);
         }),
-        setFrameProfiling: vi.fn(),
-        lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
     } as unknown as EngineCore;
     return { core, creates, asyncCreates };
 }
 
-const TRIVIAL_SHADER = wgslModule({
-    name: 'trivial',
+const ubo: UniformBufferSpec = {
+    kind: 'buffer',
+    subkind: 'uniform',
+    discriminator: 'u',
+    byteSize: 16,
+};
+const sbo: StorageBufferSpec = {
+    kind: 'buffer',
+    subkind: 'storage',
+    discriminator: 's',
+    byteSize: 64,
+};
+
+const KERNEL = wgslModule({
+    name: 'kernel',
     source: `
-@compute @workgroup_size(1)
-fn main() {}
+struct P { n: u32, a: u32, b: u32, c: u32 }
+@group(0) @binding(0) var<uniform> params: P;
+@group(0) @binding(1) var<storage, read_write> data: array<f32>;
+@group(1) @binding(0) var<storage, read> table: array<f32>;
+fn get(i: u32) -> f32 { return table[i]; }
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) {
+    if (id.x >= params.n) { return; }
+    data[id.x] = get(id.x);
+}
+@compute @workgroup_size(64) fn other(@builtin(global_invocation_id) id: vec3u) { data[id.x] = 0.0; }
 `,
 });
 
-describe('createComputeKernel', () => {
-    it('cria layout + shader + pipeline + bindgroup em 1 chamada (sync)', () => {
+describe('createComputeKernel — bindings por nome, layout inferido (T025)', () => {
+    it('cria layouts, shader, pipeline e bind groups numa chamada; grupos e tipos vêm do WGSL', () => {
         const { core, creates, asyncCreates } = recordingCore();
-        const ubo: UniformBufferSpec = {
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'test_ubo',
-            byteSize: 16,
-        };
         const k = createComputeKernel(core, {
             discriminator: 'k1',
-            shader: TRIVIAL_SHADER,
+            shader: KERNEL,
             entryPoint: 'main',
-            bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
+            bindings: { params: ubo, data: sbo, table: sbo },
         });
-        expect(k.pipeline.kind).toBe('pipeline');
-        expect(k.pipeline.subkind).toBe('compute');
-        expect(k.layout.kind).toBe('layout');
-        expect(k.bindGroup.kind).toBe('bindgroup');
+        expect(k.pipeline).toMatchObject({
+            kind: 'pipeline',
+            subkind: 'compute',
+            entryPoint: 'main',
+        });
+        expect(k.layouts).toHaveLength(2);
+        expect(k.layouts[0]!.entries).toEqual([
+            { binding: 0, visibility: 4, kind: 'buffer', type: 'uniform' },
+            { binding: 1, visibility: 4, kind: 'buffer', type: 'storage' },
+        ]);
+        expect(k.layouts[1]!.entries).toEqual([
+            { binding: 0, visibility: 4, kind: 'buffer', type: 'read-only-storage' },
+        ]);
+        expect(k.bindGroups[0]!.bindings).toEqual([
+            { binding: 0, kind: 'buffer', buffer: ubo },
+            { binding: 1, kind: 'buffer', buffer: sbo },
+        ]);
         expect(creates.map((c) => c.kind).sort()).toEqual([
             'bindgroup',
+            'bindgroup',
+            'layout',
             'layout',
             'pipeline',
             'shader',
         ]);
         expect(asyncCreates).toHaveLength(0);
+        expect(k.dynamic).toEqual([false, false]);
+    });
+
+    it('só os bindings que a entrada alcança entram; fonte para variável não usada é erro', () => {
+        const { core } = recordingCore();
+        const k = createComputeKernel(core, {
+            discriminator: 'kOther',
+            shader: KERNEL,
+            entryPoint: 'other',
+            bindings: { data: sbo },
+        });
+        expect(k.layouts.map((l) => l.entries.length)).toEqual([1]);
+        expect(() =>
+            createComputeKernel(core, {
+                discriminator: 'kExtra',
+                shader: KERNEL,
+                entryPoint: 'other',
+                bindings: { data: sbo, params: ubo },
+            }),
+        ).toThrow(/fonte para 'params', que a entrada 'other' não usa/);
+    });
+
+    it('binding usado sem fonte → erro nomeando binding e grupo', () => {
+        const { core } = recordingCore();
+        expect(() =>
+            createComputeKernel(core, {
+                discriminator: 'kMissing',
+                shader: KERNEL,
+                entryPoint: 'main',
+                bindings: { params: ubo, data: sbo },
+            }),
+        ).toThrow(/binding 'table' \(@group\(1\) @binding\(0\)\) sem fonte/);
+    });
+
+    it('fonte incompatível (storage num uniform) → erro', () => {
+        const { core } = recordingCore();
+        expect(() =>
+            createComputeKernel(core, {
+                discriminator: 'kWrong',
+                shader: KERNEL,
+                entryPoint: 'main',
+                bindings: { params: sbo, data: sbo, table: sbo },
+            }),
+        ).toThrow(/'params' incompatível/);
+    });
+
+    it('fonte dinâmica → hasDynamicOffset e grupo marcado', () => {
+        const { core } = recordingCore();
+        const k = createComputeKernel(core, {
+            discriminator: 'kDyn',
+            shader: KERNEL,
+            entryPoint: 'main',
+            bindings: {
+                params: { kind: 'buffer', buffer: ubo, size: 16, dynamic: { stride: 256 } },
+                data: sbo,
+                table: sbo,
+            },
+        });
+        expect(k.layouts[0]!.entries[0]).toMatchObject({ hasDynamicOffset: true });
+        expect(k.bindGroups[0]!.bindings[0]).toMatchObject({ size: 16 });
+        expect(k.dynamic).toEqual([true, false]);
     });
 
     it('preferAsync=true usa createAsync para o pipeline', () => {
         const { core, creates, asyncCreates } = recordingCore();
-        const sbo: StorageBufferSpec = {
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'test_sbo',
-            byteSize: 64,
-        };
         createComputeKernel(core, {
             discriminator: 'k_async',
-            shader: TRIVIAL_SHADER,
-            entryPoint: 'main',
-            bindings: [{ binding: 0, type: 'storage', buffer: sbo }],
+            shader: KERNEL,
+            entryPoint: 'other',
+            bindings: { data: sbo },
             preferAsync: true,
         });
-        // Pipeline foi via createAsync, não via create.
         expect(creates.find((c) => c.kind === 'pipeline')).toBeUndefined();
-        expect(asyncCreates).toHaveLength(1);
-        expect(asyncCreates[0]?.kind).toBe('pipeline');
+        expect(asyncCreates.map((c) => c.kind)).toEqual(['pipeline']);
     });
 
-    it('discriminadores compostos prefixados pelo opts.discriminator', () => {
+    it('discriminadores prefixados pelo opts.discriminator (grupo único sem sufixo)', () => {
         const { core, creates } = recordingCore();
-        const ubo: UniformBufferSpec = {
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'u',
-            byteSize: 16,
-        };
         createComputeKernel(core, {
-            discriminator: 'kPrefix',
-            shader: TRIVIAL_SHADER,
-            entryPoint: 'main',
-            bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
+            discriminator: 'kP',
+            shader: KERNEL,
+            entryPoint: 'other',
+            bindings: { data: sbo },
         });
-        const layoutDisc = creates.find((c) => c.kind === 'layout')?.discriminator;
-        const shaderDisc = creates.find((c) => c.kind === 'shader')?.discriminator;
-        const pipelineDisc = creates.find((c) => c.kind === 'pipeline')?.discriminator;
-        const bgDisc = creates.find((c) => c.kind === 'bindgroup')?.discriminator;
-        expect(layoutDisc).toBe('kPrefix_layout');
-        expect(shaderDisc).toBe('wgsl:trivial'); // identidade do shader = módulo montado
-        expect(pipelineDisc).toBe('kPrefix_pipeline');
-        expect(bgDisc).toBe('kPrefix_bg');
+        expect(
+            creates
+                .filter((c) => c.discriminator !== undefined)
+                .map((c) => c.discriminator)
+                .sort(),
+        ).toEqual(['kP_bg', 'kP_layout', 'kP_pipeline', 'wgsl:kernel']);
     });
+});
 
-    it('shader inválido (call a fn ausente) lança no helper antes de chegar no core', () => {
-        const { core } = recordingCore();
-        const ubo: UniformBufferSpec = {
+describe('createComputeKernel — buffers de vértice, índice e indireto (FR-015)', () => {
+    it.each([
+        {
             kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'u',
-            byteSize: 16,
-        };
-        const badShader = wgslModule({
+            subkind: 'vertex',
+            discriminator: 'vbo',
+            byteSize: 64,
+            stride: 16,
+            count: 4,
+        },
+        {
+            kind: 'buffer',
+            subkind: 'index',
+            discriminator: 'ibo',
+            byteSize: 12,
+            count: 6,
+            format: 'uint16',
+        },
+        { kind: 'buffer', subkind: 'indirect', discriminator: 'args', byteSize: 20 },
+    ] as const)('$subkind entra como binding de storage do kernel', (buffer) => {
+        const { core } = recordingCore();
+        const k = createComputeKernel(core, {
+            discriminator: `k_${buffer.subkind}`,
+            shader: KERNEL,
+            entryPoint: 'other',
+            bindings: { data: buffer },
+        });
+        expect(k.bindGroup.bindings[0]).toEqual({ binding: 1, kind: 'buffer', buffer });
+        expect(k.layout.entries[0]).toMatchObject({ kind: 'buffer', type: 'storage' });
+    });
+});
+
+describe('createComputeKernel — montagem e posse', () => {
+    it('shader inválido (chamada a função ausente) lança antes de chegar ao core', () => {
+        const { core } = recordingCore();
+        const bad = wgslModule({
             name: 'bad',
-            source: `
-            fn driver() {
-                missing_helper(0.0);
-            }
-        `,
+            source: '@compute @workgroup_size(1) fn driver() { missing_helper(0.0); }',
         });
         expect(() =>
             createComputeKernel(core, {
                 discriminator: 'kBad',
-                shader: badShader,
+                shader: bad,
                 entryPoint: 'driver',
-                bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
+                bindings: {},
             }),
         ).toThrowError(/missing_helper/);
     });
 
-    it('múltiplas bindings → entradas no layout e bindgroup correspondentes', () => {
-        const { core, creates } = recordingCore();
-        const ubo: UniformBufferSpec = {
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'u',
-            byteSize: 16,
-        };
-        const sbo: StorageBufferSpec = {
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 's',
-            byteSize: 64,
-        };
-        const k = createComputeKernel(core, {
-            discriminator: 'kMulti',
-            shader: TRIVIAL_SHADER,
-            entryPoint: 'main',
-            bindings: [
-                { binding: 0, type: 'uniform', buffer: ubo },
-                { binding: 1, type: 'storage', buffer: sbo },
-                { binding: 2, type: 'read-only-storage', buffer: sbo },
-            ],
-        });
-        expect(k.layout.entries).toHaveLength(3);
-        expect(k.bindGroup.bindings).toHaveLength(3);
-        // dummy refs to avoid unused-var warnings
-        void creates;
-    });
-});
-
-// avoid unused import warning when noUnusedLocals is on (it's not, but be safe)
-void ({} as ComputePipelineSpec);
-void ({} as LayoutSpec);
-void ({} as ShaderModuleSpec);
-void ({} as BindGroupSpec);
-
-describe('destroyComputeKernel', () => {
-    it('libera bind groups, pipeline, shader e layouts do kernel', () => {
-        const { core } = fakeResourceCore();
-        const buffer = {
-            kind: 'buffer' as const,
-            subkind: 'storage' as const,
-            discriminator: 'b',
-            byteSize: 16,
-        };
-        const kernel = createComputeKernel(core, {
-            discriminator: 'k',
-            shader: wgslModule({
-                name: 'two_groups',
-                source: '@compute @workgroup_size(1) fn main() {}',
-            }),
-            entryPoint: 'main',
-            bindGroups: [
-                { bindings: [{ binding: 0, type: 'storage', buffer }] },
-                { bindings: [{ binding: 0, type: 'storage', buffer }] },
-            ],
-        });
-        destroyComputeKernel(core, kernel);
-        const destroyed = vi.mocked(core.destroy).mock.calls.map((c) => c[0]);
-        expect(destroyed).toEqual([
-            kernel.bindGroups[0],
-            kernel.bindGroups[1],
-            kernel.pipeline,
-            kernel.pipeline.shader,
-            kernel.layouts[0],
-            kernel.layouts[1],
-        ]);
-    });
-
     it('entry point que não é função do módulo de entrada → erro legível', () => {
         const { core } = recordingCore();
-        const ubo: UniformBufferSpec = {
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'u',
-            byteSize: 16,
-        };
         expect(() =>
             createComputeKernel(core, {
                 discriminator: 'kEntry',
-                shader: TRIVIAL_SHADER,
+                shader: KERNEL,
                 entryPoint: 'nao_existe',
-                bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
+                bindings: {},
             }),
-        ).toThrowError(/entry point 'nao_existe'.*'trivial'/);
+        ).toThrowError(/entry point 'nao_existe'.*'kernel'/);
     });
 
     it('erro de montagem propagado com o motivo', () => {
         const { core } = recordingCore();
-        const ubo: UniformBufferSpec = {
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'u',
-            byteSize: 16,
-        };
         const a = wgslModule({ name: 'dup', source: 'fn x() {}' });
         const b = wgslModule({ name: 'dup', source: 'fn y() {}' });
         const entry = wgslModule({
@@ -259,7 +263,7 @@ describe('destroyComputeKernel', () => {
                 discriminator: 'kDup',
                 shader: entry,
                 entryPoint: 'main',
-                bindings: [{ binding: 0, type: 'uniform', buffer: ubo }],
+                bindings: {},
             });
             expect.unreachable();
         } catch (e) {
@@ -270,20 +274,29 @@ describe('destroyComputeKernel', () => {
 
     it('cada kernel recebe a sua cópia da spec montada (posse independente), com o mesmo texto', () => {
         const { core } = recordingCore();
-        const ubo: UniformBufferSpec = {
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'u',
-            byteSize: 16,
-        };
-        const opts = {
-            shader: TRIVIAL_SHADER,
-            entryPoint: 'main',
-            bindings: [{ binding: 0, type: 'uniform' as const, buffer: ubo }],
-        };
+        const opts = { shader: KERNEL, entryPoint: 'other', bindings: { data: sbo } };
         const k1 = createComputeKernel(core, { discriminator: 'kA', ...opts });
         const k2 = createComputeKernel(core, { discriminator: 'kB', ...opts });
         expect(k1.pipeline.shader).not.toBe(k2.pipeline.shader);
         expect(k1.pipeline.shader).toEqual(k2.pipeline.shader);
+    });
+
+    it('destroyComputeKernel libera bind groups, pipeline, shader e layouts', () => {
+        const { core } = fakeResourceCore();
+        const kernel = createComputeKernel(core, {
+            discriminator: 'k',
+            shader: KERNEL,
+            entryPoint: 'main',
+            bindings: { params: ubo, data: sbo, table: sbo },
+        });
+        destroyComputeKernel(core, kernel);
+        expect(vi.mocked(core.destroy).mock.calls.map((c) => c[0])).toEqual([
+            kernel.bindGroups[0],
+            kernel.bindGroups[1],
+            kernel.pipeline,
+            kernel.pipeline.shader,
+            kernel.layouts[0],
+            kernel.layouts[1],
+        ]);
     });
 });

@@ -6,7 +6,7 @@
 
 # Interface: CompactionOptions
 
-Defined in: [elements/gpu/compute/Compaction.ts:19](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Compaction.ts#L19)
+Defined in: [elements/gpu/compute/Compaction.ts:15](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/Compaction.ts#L15)
 
 Opções de `Compaction`.
 
@@ -14,11 +14,11 @@ Opções de `Compaction`.
 
 ### bindings?
 
-> `readonly` `optional` **bindings?**: readonly `ComputeKernelBinding`[]
+> `readonly` `optional` **bindings?**: `Readonly`\<`Record`\<`string`, `BindingSource`\>\>
 
-Defined in: [elements/gpu/compute/Compaction.ts:34](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Compaction.ts#L34)
+Defined in: [elements/gpu/compute/Compaction.ts:30](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/Compaction.ts#L30)
 
-Buffers lidos pelo predicado, no `@group(1)`.
+Fontes dos buffers lidos pelo predicado, pelo nome da variável WGSL.
 
 ***
 
@@ -26,7 +26,7 @@ Buffers lidos pelo predicado, no `@group(1)`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/Compaction.ts:28](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Compaction.ts#L28)
+Defined in: [elements/gpu/compute/Compaction.ts:24](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/Compaction.ts#L24)
 
 Tamanho máximo da saída (elementos u32).
 
@@ -36,7 +36,7 @@ Tamanho máximo da saída (elementos u32).
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/Compaction.ts:21](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Compaction.ts#L21)
+Defined in: [elements/gpu/compute/Compaction.ts:17](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/Compaction.ts#L17)
 
 Prefixo único dos recursos da instância.
 
@@ -46,7 +46,7 @@ Prefixo único dos recursos da instância.
 
 > `readonly` `optional` **inputCapacity?**: `number`
 
-Defined in: [elements/gpu/compute/Compaction.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Compaction.ts#L32)
+Defined in: [elements/gpu/compute/Compaction.ts:28](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/Compaction.ts#L28)
 
 Maior `count` de entrada — obrigatório com `stable` (dimensiona as flags e a soma de prefixos).
 
@@ -56,10 +56,10 @@ Maior `count` de entrada — obrigatório com `stable` (dimensiona as flags e a 
 
 > `readonly` **predicate**: `WgslModule`
 
-Defined in: [elements/gpu/compute/Compaction.ts:26](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Compaction.ts#L26)
+Defined in: [elements/gpu/compute/Compaction.ts:22](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/Compaction.ts#L22)
 
 Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32`, e
-declara no `@group(1)` os buffers que lê (ligados por `bindings`).
+declara no `@group(1)` os buffers que lê (fontes em `bindings`, pelo nome da variável).
 
 ***
 
@@ -67,6 +67,6 @@ declara no `@group(1)` os buffers que lê (ligados por `bindings`).
 
 > `readonly` `optional` **stable?**: `boolean`
 
-Defined in: [elements/gpu/compute/Compaction.ts:30](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/gpu/compute/Compaction.ts#L30)
+Defined in: [elements/gpu/compute/Compaction.ts:26](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/gpu/compute/Compaction.ts#L26)
 
 Preserva a ordem da entrada (flags + `PrefixSum` + espalhamento). Padrão `false` (`atomic_alloc`).

@@ -1,0 +1,51 @@
+[**webgpu-engine**](../../README.md)
+
+***
+
+[webgpu-engine](../../modules.md) / [elements](../README.md) / FEMFlowOptions
+
+# Interface: FEMFlowOptions
+
+Defined in: [elements/physics/flows/FEMFlow.ts:24](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/FEMFlow.ts#L24)
+
+Opções do `FEMFlow`.
+
+## Properties
+
+### damping?
+
+> `readonly` `optional` **damping?**: `number`
+
+Defined in: [elements/physics/flows/FEMFlow.ts:32](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/FEMFlow.ts#L32)
+
+Amortecimento da velocidade por passo, em [0, 1]. Padrão 0,05.
+
+***
+
+### lambda?
+
+> `readonly` `optional` **lambda?**: `number`
+
+Defined in: [elements/physics/flows/FEMFlow.ts:30](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/FEMFlow.ts#L30)
+
+Segundo parâmetro de Lamé λ (resistência à variação de volume, Pa). Padrão 5e3.
+
+***
+
+### mu?
+
+> `readonly` `optional` **mu?**: `number`
+
+Defined in: [elements/physics/flows/FEMFlow.ts:28](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/FEMFlow.ts#L28)
+
+Primeiro parâmetro de Lamé μ (rigidez ao cisalhamento, Pa). Padrão 5e3.
+
+***
+
+### substeps?
+
+> `readonly` `optional` **substeps?**: `number`
+
+Defined in: [elements/physics/flows/FEMFlow.ts:26](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/FEMFlow.ts#L26)
+
+Substeps por passo de física (padrão 1). O passo vem do `Time` da cena.

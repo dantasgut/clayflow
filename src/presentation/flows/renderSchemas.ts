@@ -1,10 +1,10 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
-/** Passe de profundidade da sombra: matriz luz-vista-projeção. */
+/** Passe de profundidade da sombra: slot, no pool `ShadowMap`, do mapa da luz que projeta. */
 export const ShadowDepthParamsSchema = new StructSchema(
     'ShadowDepthParams',
-    { lightViewProj: FieldType.mat4x4f },
+    { casterSlot: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
     { addressSpace: 'uniform' },
 );
 

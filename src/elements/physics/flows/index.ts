@@ -1,7 +1,12 @@
 export { LCPFlow } from './LCPFlow';
-export type { LCPFlowOptions } from './LCPFlow';
+export type { LCPFlowOptions, LCPSlots } from './LCPFlow';
 export { XPBDFlow } from './XPBDFlow';
+export type { XPBDFlowOptions, XPBDSlots } from './XPBDFlow';
 export { FEMFlow } from './FEMFlow';
+export type { FEMFlowOptions, FEMSlots } from './FEMFlow';
 export { MPMFlow } from './MPMFlow';
+export type { MPMFlowOptions, MPMSlots } from './MPMFlow';
 export { PBFFlow } from './PBFFlow';
+export type { PBFFlowOptions, PBFSlots } from './PBFFlow';
 export { SPHFlow } from './SPHFlow';
+export type { SPHFlowOptions, SPHSlots } from './SPHFlow';

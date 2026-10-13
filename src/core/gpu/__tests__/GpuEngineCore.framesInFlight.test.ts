@@ -90,4 +90,49 @@ describe('GpuEngineCore.framesInFlight', () => {
         core.shutdown();
         expect(core.framesInFlight()).toBe(0);
     });
+
+    it('onFrameRetired avisa cada conclusão com a contagem nova; unsubscribe para de avisar', async () => {
+        const { device, pending } = fakeDevice();
+        const core = new TestCore();
+        core.attachFake(device);
+        const seen: number[] = [];
+        const off = core.onFrameRetired((n) => seen.push(n));
+        frame(core);
+        frame(core);
+        pending[0]!();
+        await flush();
+        expect(seen).toEqual([1]);
+        off();
+        pending[1]!();
+        await flush();
+        expect(seen).toEqual([1]);
+        expect(core.framesInFlight()).toBe(0);
+    });
+
+    it('device perdido com quadros em voo avisa 0 uma vez; conclusões antigas não avisam', async () => {
+        const { device, pending } = fakeDevice();
+        const core = new TestCore();
+        core.attachFake(device);
+        const seen: number[] = [];
+        core.onFrameRetired((n) => seen.push(n));
+        frame(core);
+        frame(core);
+        core.lose(device);
+        expect(seen).toEqual([0]);
+        pending.forEach((resolve) => {
+            resolve();
+        });
+        await flush();
+        expect(seen).toEqual([0]);
+    });
+
+    it('shutdown sem quadros em voo não avisa', () => {
+        const { device } = fakeDevice();
+        const core = new TestCore();
+        core.attachFake(device);
+        const handler = vi.fn();
+        core.onFrameRetired(handler);
+        core.shutdown();
+        expect(handler).not.toHaveBeenCalled();
+    });
 });

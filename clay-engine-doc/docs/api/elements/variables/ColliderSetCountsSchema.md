@@ -8,6 +8,6 @@
 
 > `const` **ColliderSetCountsSchema**: `StructSchema`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:29](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/colliders/ColliderSet.ts#L29)
+Defined in: [elements/physics/colliders/ColliderSet.ts:30](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/colliders/ColliderSet.ts#L30)
 
 Contagens dos pools ligados no grupo de colliders (`ColliderSetCounts` no WGSL).

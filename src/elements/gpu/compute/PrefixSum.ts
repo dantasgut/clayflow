@@ -1,10 +1,5 @@
-import type {
-    ComputeKernel,
-    ComputeKernelBinding,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -40,7 +35,7 @@ export interface PrefixSumOptions {
 export interface PrefixSumRecordArgs {
     /** Entrada `u32[count]`. Não é alterada quando difere de `dst`. */
     readonly src: StorageBufferSpec;
-    /** Saída `u32[count]`; pode ser o próprio `src` (no lugar). */
+    /** Saída `u32[count]`, preparada antes (`prepare`); pode ser o próprio `src` (no lugar). */
     readonly dst: StorageBufferSpec;
     /** Elementos (≤ `capacity`). `0` não grava nada. */
     readonly count: number;
@@ -48,7 +43,7 @@ export interface PrefixSumRecordArgs {
     readonly mode?: 'exclusive' | 'inclusive';
 }
 
-/** Kernels de um nível: subida, descida e topo, criados sob demanda. */
+/** Kernels de um nível: subida, descida e topo. */
 interface LevelKernels {
     local?: ComputeKernel;
     combine?: ComputeKernel;
@@ -56,13 +51,17 @@ interface LevelKernels {
 }
 
 /**
- * Soma de prefixos u32 em vários níveis (research R8): por grupo de 256 (Hillis–Steele em memória de workgroup), com
- * os totais dos grupos subindo nível a nível até caber num grupo, e a descida somando o prefixo de cada grupo. Sem
- * teto de elementos além de `maxStorageBufferBindingSize`; o despacho linear da 004 cobre mais de 65 535 grupos.
+ * Soma de prefixos u32 em vários níveis (research R8 da 005): por grupo de 256 (Hillis–Steele em memória de
+ * workgroup), com os totais dos grupos subindo nível a nível até caber num grupo, e a descida somando o prefixo de
+ * cada grupo. Sem teto de elementos além de `maxStorageBufferBindingSize`; o despacho linear da 004 cobre mais de
+ * 65 535 grupos.
  *
  * O nível 0 roda no lugar em `dst` (com `src ≠ dst`, `src` é copiado antes no fluxo de comandos); os níveis acima
  * vivem em buffers internos dimensionados pela capacidade. `count` e modo de cada chamada vão numa região própria de
  * uniform (`FrameUniforms`), então a mesma instância pode ser gravada várias vezes no quadro com contagens diferentes.
+ *
+ * Duas fases (spec 006): `prepare(dst, gravaçõesPorQuadro)` cria buffers, kernels e regiões de uniform — fora da
+ * gravação, numa transição do Flow; `record` só grava.
  */
 export class PrefixSum {
     private readonly disc: string;
@@ -75,8 +74,6 @@ export class PrefixSum {
     private readonly base = new Map<StorageBufferSpec, LevelKernels>();
     /** Kernels dos níveis k ≥ 1 (`upperKernels[k - 1]`). */
     private upperKernels: LevelKernels[] = [];
-    /** Geração do uniform com que os kernels foram ligados. */
-    private kernelGeneration = -1;
 
     constructor(
         private readonly core: EngineCore,
@@ -96,7 +93,41 @@ export class PrefixSum {
         });
     }
 
-    /** Grava a soma de prefixos de `src[0, count)` em `dst`. */
+    /** Regiões de uniform que uma gravação usa no máximo (uma por nível). */
+    get regionsPerRecord(): number {
+        return this.levelCapacity.length;
+    }
+
+    /**
+     * Prepara a soma com saída em `dst` para até `recordsPerFrame` gravações por quadro: buffers dos níveis, kernels de
+     * todos os níveis possíveis e regiões de uniform. Idempotente; chamado fora da gravação.
+     */
+    prepare(dst: StorageBufferSpec, recordsPerFrame = 1): void {
+        if (this.params.reserve(this.regionsPerRecord * recordsPerFrame)) this.releaseKernels();
+        if (this.upper.length === 0) this.allocateLevels();
+        const top = this.levelCapacity.length - 1;
+        for (let k = 0; k <= top; k++) {
+            const kernels = this.kernelsOf(k, dst);
+            // O topo de uma gravação nunca é o nível 0 (sempre há um nível abaixo dele).
+            if (k > 0) kernels.top ??= this.levelKernel('scan_top', this.values(k, dst));
+            if (k === top) continue;
+            kernels.local ??= this.levelKernel(
+                'scan_local',
+                this.values(k, dst),
+                this.values(k + 1, dst),
+            );
+            kernels.combine ??= this.levelKernel(
+                'scan_combine',
+                this.values(k, dst),
+                this.values(k + 1, dst),
+            );
+        }
+    }
+
+    /**
+     * Grava a soma de prefixos de `src[0, count)` em `dst`.
+     * @throws Error se `dst` não foi preparado; RangeError para `count` inválido ou acima das regiões reservadas.
+     */
     record(frame: Frame, args: PrefixSumRecordArgs): void {
         const { src, dst, count } = args;
         if (!Number.isInteger(count) || count < 0) {
@@ -110,56 +141,47 @@ export class PrefixSum {
             );
         }
         if (count === 0) return;
+        const base = this.base.get(dst);
+        if (base === undefined) {
+            throw new Error(`PrefixSum(${this.disc}): prepare(dst) antes de gravar.`);
+        }
         const inclusive = args.mode === 'inclusive';
         const counts = scanLevelCounts(count);
         const top = counts.length - 1;
-
-        if (this.upper.length === 0) this.allocateLevels();
         const offsets = counts.map((n, k) =>
             this.params.allocate(frame, { count: n, inclusive: inclusive && k === 0 ? 1 : 0 }),
         );
-        if (this.kernelGeneration !== this.params.generation) this.releaseKernels();
-        this.kernelGeneration = this.params.generation;
-
         if (src !== dst) frame.copy(src, dst, count * 4);
-        const values = (k: number): StorageBufferSpec => (k === 0 ? dst : this.upper[k - 1]!);
-        const kernels = (k: number): LevelKernels => {
-            if (k > 0) return (this.upperKernels[k - 1] ??= {});
-            let entry = this.base.get(dst);
-            if (entry === undefined) {
-                entry = {};
-                this.base.set(dst, entry);
-            }
-            return entry;
-        };
-
+        const kernels = (k: number): LevelKernels => (k === 0 ? base : this.upperKernels[k - 1]!);
         for (let k = 0; k < top; k++) {
-            const kernel = (kernels(k).local ??= this.levelKernel(
-                'scan_local',
-                values(k),
-                values(k + 1),
-            ));
-            this.run(frame, 'PrefixSum.scan_local', kernel, offsets[k]!, counts[k]!);
+            this.run(frame, 'PrefixSum.scan_local', kernels(k).local!, offsets[k]!, counts[k]!);
         }
-        const topKernel = (kernels(top).top ??= this.levelKernel('scan_top', values(top)));
-        this.run(frame, 'PrefixSum.scan_top', topKernel, offsets[top]!, null);
+        this.run(frame, 'PrefixSum.scan_top', kernels(top).top!, offsets[top]!, null);
         for (let k = top - 1; k >= 0; k--) {
-            const kernel = (kernels(k).combine ??= this.levelKernel(
-                'scan_combine',
-                values(k),
-                values(k + 1),
-            ));
-            this.run(frame, 'PrefixSum.scan_combine', kernel, offsets[k]!, counts[k]!);
+            this.run(frame, 'PrefixSum.scan_combine', kernels(k).combine!, offsets[k]!, counts[k]!);
         }
     }
 
-    /** Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no próximo `record`. */
+    /** Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no próximo `prepare`. */
     destroy(): void {
         this.releaseKernels();
         for (const b of this.upper) this.core.destroy(b);
         this.upper = [];
         this.params.destroy();
-        this.kernelGeneration = -1;
+    }
+
+    private values(k: number, dst: StorageBufferSpec): StorageBufferSpec {
+        return k === 0 ? dst : this.upper[k - 1]!;
+    }
+
+    private kernelsOf(k: number, dst: StorageBufferSpec): LevelKernels {
+        if (k > 0) return (this.upperKernels[k - 1] ??= {});
+        let entry = this.base.get(dst);
+        if (entry === undefined) {
+            entry = {};
+            this.base.set(dst, entry);
+        }
+        return entry;
     }
 
     private allocateLevels(): void {
@@ -180,16 +202,18 @@ export class PrefixSum {
     ): ComputeKernel {
         const shader =
             kind === 'scan_local' ? scanLocal : kind === 'scan_top' ? scanTop : scanCombine;
-        const data: ComputeKernelBinding[] = [{ binding: 0, type: 'storage', buffer: values }];
-        if (above !== undefined) {
-            const type = kind === 'scan_combine' ? 'read-only-storage' : 'storage';
-            data.push({ binding: 1, type, buffer: above });
-        }
+        const level = this.params.source();
+        const bindings =
+            kind === 'scan_top'
+                ? { level, values }
+                : kind === 'scan_local'
+                  ? { level, values, group_sums: above! }
+                  : { level, values, group_prefix: above! };
         return createComputeKernel(this.core, {
             discriminator: `${this.disc}:${kind}`,
             shader,
             entryPoint: `${kind}_main`,
-            bindGroups: [{ bindings: [this.params.binding(0)] }, { bindings: data }],
+            bindings,
         });
     }
 

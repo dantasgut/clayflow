@@ -1,12 +1,13 @@
+import type { PoolBufferSpec } from '../../../scene/contracts/PoolDirectory';
 import type {
-    ComputeKernelBinding,
     EngineCore,
     StorageBufferSpec,
     UniformBufferSpec,
-} from '../../../core/contracts/index';
+} from '../../../scene/contracts/gpu';
+import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
+import type { BindingSources } from '../../../scene/flows/FlowBinding';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
-import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
 import type { World } from '../../../scene/world/World';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { BoxCollider } from './BoxCollider';
@@ -36,7 +37,7 @@ export const ColliderSetCountsSchema = new StructSchema('ColliderSetCounts', {
 /** Visão de um pool de collider: buffer do pool, mapa de dono e contagem. */
 export interface ColliderPoolView {
     /** Pool tipado (ou buffer mínimo se o pool não existe). */
-    readonly buffer: StorageBufferSpec;
+    readonly buffer: PoolBufferSpec;
     /** `owners[slot]` = slot do corpo dono no pool de corpos, ou `NO_OWNER`. */
     readonly owners: StorageBufferSpec;
     /** Colliders no pool. */
@@ -58,21 +59,23 @@ interface OwnerBuffer {
 
 /**
  * Conjunto de colliders compartilhado pelos estágios que colidem contra os pools tipados (narrowphase do LCP,
- * colisão dos fluidos). Mantém, por pool, o mapa collider → corpo dono (a pose de um collider dinâmico vem do corpo)
- * e buffers mínimos para pools ausentes, de modo que os bindings sejam sempre válidos.
+ * colisão dos fluidos) — peça dos slots do Flow (`slot.pools` dos colliders): mantém, por pool, o mapa collider →
+ * corpo dono (a pose de um collider dinâmico vem do corpo) e buffers mínimos para pools ausentes, de modo que os
+ * bindings sejam sempre válidos.
  *
- * Os mapas são reconstruídos só quando marcados como sujos (pool realocado, entidades inseridas ou removidas);
- * `generation` muda quando algum buffer ligado muda — o consumidor recria seus bind groups.
+ * Os mapas são recursos privados do Flow dono, reconstruídos numa **transição** (entidades de collider inseridas ou
+ * removidas, pool realocado — `markDirty` + `refresh`), nunca no `dispatch`; `refresh()` devolve se alguma fonte
+ * mudou e o Flow religa `sources()` (`ctx.bind`).
  *
- * Grupo de colliders (`bindings()`, grupo 2 nos kernels de colisão): `b0` contagens, `b1–b3` pools de plano, caixa
- * e esfera, `b4–b6` mapas de dono, `b7` pool de corpos.
+ * Fontes do grupo de colliders (`sources()`, nomes do `collider_set.wgsl`): contagens, pools de plano, caixa, esfera e
+ * malha, mapas de dono de cada um e o pool de corpos.
  */
 export class ColliderSet {
     private readonly bodiesPoolKey: string;
     private readonly owners = new Map<string, OwnerBuffer>();
     private readonly empties = new Map<string, StorageBufferSpec>();
     private readonly counts = new Map<string, number>();
-    private readonly boundPools = new Map<string, StorageBufferSpec>();
+    private readonly boundPools = new Map<string, PoolBufferSpec>();
     private countsBuffer: UniformBufferSpec | null = null;
     private dirty = true;
     private gen = 0;
@@ -80,7 +83,7 @@ export class ColliderSet {
     constructor(
         private readonly core: EngineCore,
         private readonly world: World,
-        private readonly resources: ResourceSystem,
+        private readonly resources: ResourceDirectory,
         private readonly options: ColliderSetOptions,
     ) {
         this.bodiesPoolKey = options.bodiesPoolKey ?? LCPSchema.name;
@@ -103,20 +106,47 @@ export class ColliderSet {
         this.dirty = true;
     }
 
-    /** Reação do estágio dono a `onPoolReallocated`: só pools de collider e de corpos afetam o conjunto. */
+    /** Reação do estágio dono ao evento `poolReallocated`: só pools de collider e de corpos afetam o conjunto. */
     onPoolReallocated(poolKey: string): void {
         if (poolKey === this.bodiesPoolKey || COLLIDER_POOLS.some((s) => s.name === poolKey)) {
             this.dirty = true;
         }
     }
 
-    /** Reconstrói os mapas de dono e as contagens se sujos; garante buffers válidos para todos os pools. */
-    refresh(): void {
+    /**
+     * Reconstrói os mapas de dono e as contagens se sujos; garante buffers válidos para todos os pools. Chamado numa
+     * transição do Flow dono. Devolve `true` se alguma fonte de `sources()`/`pool()` mudou (religar).
+     */
+    refresh(): boolean {
+        const before = this.gen;
         for (const schema of COLLIDER_POOLS) this.trackPoolBuffer(schema);
-        if (!this.dirty && this.countsBuffer !== null) return;
+        if (!this.dirty && this.countsBuffer !== null) return this.gen !== before;
         for (const schema of COLLIDER_POOLS) this.rebuildOwners(schema.name);
         this.writeCounts();
         this.dirty = false;
+        return this.gen !== before;
+    }
+
+    /** Fontes do grupo de colliders pelos nomes do `collider_set.wgsl` (válidas depois de `refresh()`). */
+    sources(): BindingSources {
+        if (this.countsBuffer === null)
+            throw new Error('ColliderSet: refresh() antes de sources()');
+        const plane = this.pool(PlaneCollider.schema.name);
+        const box = this.pool(BoxCollider.schema.name);
+        const sphere = this.pool(SphereCollider.schema.name);
+        const mesh = this.pool(MeshCollider.schema.name);
+        return {
+            collider_counts: this.countsBuffer,
+            collider_planes: plane.buffer,
+            collider_boxes: box.buffer,
+            collider_spheres: sphere.buffer,
+            collider_meshes: mesh.buffer,
+            collider_plane_owners: plane.owners,
+            collider_box_owners: box.owners,
+            collider_sphere_owners: sphere.owners,
+            collider_mesh_owners: mesh.owners,
+            collider_bodies: this.bodiesBuffer(),
+        };
     }
 
     /** Visão de um pool de collider (válida depois de `refresh()`). */
@@ -132,30 +162,11 @@ export class ColliderSet {
     }
 
     /** Pool de corpos donos (ou buffer mínimo). */
-    bodiesBuffer(): StorageBufferSpec {
+    bodiesBuffer(): PoolBufferSpec {
         return (
             this.resources.poolBufferSpec(this.bodiesPoolKey)
             ?? this.empty(this.bodiesPoolKey, LCPSchema.stride)
         );
-    }
-
-    /** Bindings do grupo de colliders (plano, caixa e esfera) — ver a documentação da classe. */
-    bindings(): ComputeKernelBinding[] {
-        if (this.countsBuffer === null)
-            throw new Error('ColliderSet: refresh() antes de bindings()');
-        const plane = this.pool(PlaneCollider.schema.name);
-        const box = this.pool(BoxCollider.schema.name);
-        const sphere = this.pool(SphereCollider.schema.name);
-        return [
-            { binding: 0, type: 'uniform', buffer: this.countsBuffer },
-            { binding: 1, type: 'read-only-storage', buffer: plane.buffer },
-            { binding: 2, type: 'read-only-storage', buffer: box.buffer },
-            { binding: 3, type: 'read-only-storage', buffer: sphere.buffer },
-            { binding: 4, type: 'read-only-storage', buffer: plane.owners },
-            { binding: 5, type: 'read-only-storage', buffer: box.owners },
-            { binding: 6, type: 'read-only-storage', buffer: sphere.owners },
-            { binding: 7, type: 'read-only-storage', buffer: this.bodiesBuffer() },
-        ];
     }
 
     /** Libera os buffers próprios (mapas de dono, buffers mínimos, contagens). */
@@ -171,7 +182,7 @@ export class ColliderSet {
         this.dirty = true;
     }
 
-    private poolBuffer(poolKey: string): StorageBufferSpec {
+    private poolBuffer(poolKey: string): PoolBufferSpec {
         const schema = COLLIDER_POOLS.find((s) => s.name === poolKey);
         if (schema === undefined)
             throw new Error(`ColliderSet: pool de collider desconhecido '${poolKey}'`);

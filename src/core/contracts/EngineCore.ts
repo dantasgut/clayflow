@@ -2,14 +2,9 @@ import type { DeviceCapabilities, DeviceOptions } from './DeviceOptions';
 import type { Frame } from './Frame';
 import type { FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
-import type { BindGroupSpec } from './specs/BindGroupSpec';
-import type { ComputePipelineSpec } from './specs/ComputePipelineSpec';
-import type { LayoutSpec } from './specs/LayoutSpec';
 import type { AnyBufferSpec, ResourceSpec } from './specs/ResourceSpec';
 import type { StagingBufferSpec } from './specs/StagingBufferSpec';
-import type { StorageBufferSpec } from './specs/StorageBufferSpec';
 import type { TextureSpec } from './specs/TextureSpec';
-import type { UniformBufferSpec } from './specs/UniformBufferSpec';
 
 /**
  * Entry no relatório de memória GPU. Cada entry corresponde a um spec
@@ -41,68 +36,6 @@ export interface MemoryUsageReport {
     readonly totalBytes: number;
     /** Top-N maiores allocations para diagnóstico (default N=5). */
     readonly top: readonly MemoryUsageEntry[];
-}
-
-/**
- * Tipo de binding GPU para compute kernels. Mapeia direto para
- * `GPUBindGroupLayoutEntry.buffer.type` no WebGPU.
- *   - `uniform`: UBO read-only no shader (`var<uniform>`).
- *   - `storage`: SSBO read-write (`var<storage, read_write>`).
- *   - `read-only-storage`: SSBO read-only (`var<storage, read>`).
- */
-export type ComputeKernelBindingType = 'uniform' | 'storage' | 'read-only-storage';
-
-/**
- * Configuração de um único binding dentro de um bindgroup. Cada binding
- * corresponde a `@binding(N)` no shader WGSL.
- */
-export interface ComputeKernelBinding {
-    /** Slot do binding dentro do bindgroup (`@binding(N)` no WGSL). */
-    readonly binding: number;
-    /** Tipo do binding — controla layout e visibilidade no shader. */
-    readonly type: ComputeKernelBindingType;
-    /** Buffer concreto que ocupa este slot. */
-    readonly buffer: UniformBufferSpec | StorageBufferSpec;
-    /**
-     * Binding com offset dinâmico: o offset é informado a cada `setBindGroup(i, bg, [offset])` (ex.: uma região
-     * de parâmetros por iteração). Exige `size`. Default false.
-     */
-    readonly hasDynamicOffset?: boolean;
-    /** Bytes visíveis pelo shader a partir do offset. Default: o buffer inteiro. */
-    readonly size?: number;
-}
-
-/**
- * Bindgroup config para multi-set kernels. Cada `ComputeKernelBindGroup` vira
- * um GPU bindgroup separado no slot correspondente do pipeline (group 0, 1, ...).
- */
-export interface ComputeKernelBindGroup {
-    /** Bindings dentro deste bindgroup (slots `@binding(0)`, `@binding(1)`...). */
-    readonly bindings: readonly ComputeKernelBinding[];
-}
-
-/**
- * Bag de specs retornado por `createComputeKernel()` (C2).
- * Inclui o pipeline + bindgroups + layouts. Use durante dispatch:
- * ```ts
- * frame.compute('MyFlow.kernel', pass => {
- *     pass.bind.setPipeline(kernel.pipeline);
- *     kernel.bindGroups.forEach((bg, i) => pass.bind.setBindGroup(i, bg));
- *     pass.dispatch.workgroups(N);
- * });
- * ```
- */
-export interface ComputeKernel {
-    /** Pipeline de compute (montado do módulo de entrada) — passe a `pass.bind.setPipeline`. */
-    readonly pipeline: ComputePipelineSpec;
-    /** Primeiro bindgroup. Atalho para casos single-set; equivale a `bindGroups[0]`. */
-    readonly bindGroup: BindGroupSpec;
-    /** Primeiro layout. Atalho equivalente a `layouts[0]`. */
-    readonly layout: LayoutSpec;
-    /** Todos os bindgroups (ordem = slot do pipeline). */
-    readonly bindGroups: readonly BindGroupSpec[];
-    /** Todos os layouts (ordem = slot do pipeline). */
-    readonly layouts: readonly LayoutSpec[];
 }
 
 /**
@@ -285,6 +218,12 @@ export interface EngineCore {
      * zeram a contagem.
      */
     framesInFlight(): number;
+    /**
+     * Registra handler chamado quando a contagem de `framesInFlight()` cai: um quadro submetido terminou na GPU, ou
+     * a contagem foi zerada (device perdido, `shutdown`). Recebe a contagem nova. Quem espera espaço na GPU reage a
+     * isto em vez de consultar a contagem a cada quadro. Retorna função de unsubscribe.
+     */
+    onFrameRetired(handler: (framesInFlight: number) => void): () => void;
 
     /**
      * Wrap um body em error scope GPU. Erros (validation/oom/internal) viram

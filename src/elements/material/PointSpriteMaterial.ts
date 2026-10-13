@@ -28,7 +28,14 @@ export class PointSpriteMaterial extends Material {
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'material', role: 'uniform', schema: PointSpriteMaterial.schema }];
+        return [
+            {
+                id: 'material',
+                role: 'storage-ro',
+                schema: PointSpriteMaterial.schema,
+                storage: 'pool',
+            },
+        ];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
@@ -38,7 +45,12 @@ export class PointSpriteMaterial extends Material {
                 role: 'render',
                 shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: ['Camera', 'Transform'],
+                consumes: [
+                    'Camera',
+                    'WorldTransform',
+                    'Renderable',
+                    { name: PointSpriteMaterial.schema.name, as: 'StandardMaterial' },
+                ],
                 topology: 'point-list',
             },
         ];

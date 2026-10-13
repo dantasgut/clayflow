@@ -1,10 +1,6 @@
-import type {
-    ComputeKernel,
-    ComputeKernelBinding,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -21,7 +17,7 @@ export interface CompactionOptions {
     readonly discriminator: string;
     /**
      * Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32`, e
-     * declara no `@group(1)` os buffers que lê (ligados por `bindings`).
+     * declara no `@group(1)` os buffers que lê (fontes em `bindings`, pelo nome da variável).
      */
     readonly predicate: WgslModule;
     /** Tamanho máximo da saída (elementos u32). */
@@ -30,15 +26,15 @@ export interface CompactionOptions {
     readonly stable?: boolean;
     /** Maior `count` de entrada — obrigatório com `stable` (dimensiona as flags e a soma de prefixos). */
     readonly inputCapacity?: number;
-    /** Buffers lidos pelo predicado, no `@group(1)`. */
-    readonly bindings?: readonly ComputeKernelBinding[];
+    /** Fontes dos buffers lidos pelo predicado, pelo nome da variável WGSL. */
+    readonly bindings?: Readonly<Record<string, BindingSource>>;
 }
 
 /** Argumentos de `Compaction.record`. */
 export interface CompactionRecordArgs {
     /** Elementos de entrada avaliados pelo predicado (`i ∈ [0, count)`). `0` só zera o contador. */
     readonly count: number;
-    /** Saída `u32[capacity]`. */
+    /** Saída `u32[capacity]`, preparada antes (`prepare`). */
     readonly out: StorageBufferSpec;
     /** Contador `AtomicAllocCounter`: aceitos (`count`, inclui os recusados) e excedente (`overflow`). */
     readonly counter: StorageBufferSpec;
@@ -53,23 +49,24 @@ interface BoundKernels {
 }
 
 /**
- * Compactação de índices ou valores por predicado (research R10): os elementos `i` com `compact_keep(i)` viram
+ * Compactação de índices ou valores por predicado (research R10 da 005): os elementos `i` com `compact_keep(i)` viram
  * `compact_value(i)` numa lista densa. Modo padrão: um passe com `atomic_alloc` (ordem não garantida). Modo
  * `stable`: flags, soma de prefixos exclusiva e espalhamento — ordem da entrada preservada, resultado determinístico.
  * Nos dois modos o excedente acima de `capacity` é contado (`overflow`) e nada é escrito fora da saída.
+ *
+ * Duas fases (spec 006): `prepare(out, counter, gravaçõesPorQuadro)` fora da gravação; `record` só grava.
  */
 export class Compaction {
     private readonly disc: string;
     private readonly capacity: number;
     private readonly stable: boolean;
     private readonly inputCapacity: number;
-    private readonly bindings: readonly ComputeKernelBinding[];
+    private readonly bindings: Readonly<Record<string, BindingSource>>;
     private readonly modules: ReturnType<typeof compactionModules>;
     private readonly params: FrameUniforms;
     private readonly scan: PrefixSum | null;
     private flagsBuffer: StorageBufferSpec | null = null;
     private readonly bound = new Map<StorageBufferSpec, BoundKernels>();
-    private kernelGeneration = -1;
 
     constructor(
         private readonly core: EngineCore,
@@ -90,7 +87,7 @@ export class Compaction {
         this.disc = options.discriminator;
         this.capacity = options.capacity;
         this.inputCapacity = inputCapacity;
-        this.bindings = options.bindings ?? [];
+        this.bindings = options.bindings ?? {};
         this.modules = compactionModules(options.predicate);
         this.params = new FrameUniforms(core, {
             discriminator: `${this.disc}:compact`,
@@ -104,7 +101,31 @@ export class Compaction {
             : null;
     }
 
-    /** Grava a compactação de `[0, count)` em `out`; o contador é zerado no fluxo de comandos antes. */
+    /**
+     * Prepara a compactação para a saída `out` e o contador `counter`, para até `recordsPerFrame` gravações por
+     * quadro. Idempotente; chamado fora da gravação.
+     */
+    prepare(out: StorageBufferSpec, counter: StorageBufferSpec, recordsPerFrame = 1): void {
+        if (this.params.reserve(recordsPerFrame)) this.releaseKernels();
+        if (this.stable) {
+            this.flagsBuffer ??= this.core.create<StorageBufferSpec>({
+                kind: 'buffer',
+                subkind: 'storage',
+                discriminator: `${this.disc}:compact_flags`,
+                byteSize: Math.max(16, this.inputCapacity * 4),
+            });
+            this.scan!.prepare(this.flagsBuffer, recordsPerFrame);
+        }
+        const cached = this.bound.get(out);
+        if (cached?.counter === counter) return;
+        if (cached !== undefined) this.destroyBound(cached);
+        this.bound.set(out, this.createKernels(out, counter));
+    }
+
+    /**
+     * Grava a compactação de `[0, count)` em `out`; o contador é zerado no fluxo de comandos antes.
+     * @throws Error se (`out`, `counter`) não foi preparado.
+     */
     record(frame: Frame, args: CompactionRecordArgs): void {
         const { count, out, counter } = args;
         if (!Number.isInteger(count) || count < 0) {
@@ -117,14 +138,13 @@ export class Compaction {
                 `Compaction(${this.disc}): count ${count} acima de inputCapacity ${this.inputCapacity}.`,
             );
         }
+        const kernels = this.bound.get(out);
+        if (kernels?.counter !== counter) {
+            throw new Error(`Compaction(${this.disc}): prepare(out, counter) antes de gravar.`);
+        }
         frame.clear(counter);
         if (count === 0) return;
-
         const offset = this.params.allocate(frame, { count, capacity: this.capacity });
-        if (this.kernelGeneration !== this.params.generation) this.releaseKernels();
-        this.kernelGeneration = this.params.generation;
-        const kernels = this.kernelsFor(out, counter);
-
         if (!this.stable) {
             this.run(frame, 'Compaction.atomic', kernels.atomic!, offset, count);
             return;
@@ -141,66 +161,48 @@ export class Compaction {
         this.flagsBuffer = null;
         this.scan?.destroy();
         this.params.destroy();
-        this.kernelGeneration = -1;
     }
 
-    private kernelsFor(out: StorageBufferSpec, counter: StorageBufferSpec): BoundKernels {
-        const cached = this.bound.get(out);
-        if (cached?.counter === counter) return cached;
-        if (cached !== undefined) this.destroyBound(cached);
-        const uniform = this.params.binding(0);
-        const groups = (main: readonly ComputeKernelBinding[]) =>
-            this.bindings.length === 0
-                ? [{ bindings: main }]
-                : [{ bindings: main }, { bindings: this.bindings }];
-        let entry: BoundKernels;
+    private createKernels(out: StorageBufferSpec, counter: StorageBufferSpec): BoundKernels {
+        const compact = this.params.source();
         if (!this.stable) {
-            entry = {
+            return {
                 counter,
                 atomic: createComputeKernel(this.core, {
                     discriminator: `${this.disc}:compact_atomic`,
                     shader: this.modules.atomic,
                     entryPoint: 'compact_atomic_main',
-                    bindGroups: groups([
-                        uniform,
-                        { binding: 1, type: 'storage', buffer: out },
-                        { binding: 2, type: 'storage', buffer: counter },
-                    ]),
-                }),
-            };
-        } else {
-            this.flagsBuffer ??= this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${this.disc}:compact_flags`,
-                byteSize: Math.max(16, this.inputCapacity * 4),
-            });
-            entry = {
-                counter,
-                flags: createComputeKernel(this.core, {
-                    discriminator: `${this.disc}:compact_flags`,
-                    shader: this.modules.flags,
-                    entryPoint: 'compact_flags_main',
-                    bindGroups: groups([
-                        uniform,
-                        { binding: 1, type: 'storage', buffer: this.flagsBuffer },
-                    ]),
-                }),
-                scatter: createComputeKernel(this.core, {
-                    discriminator: `${this.disc}:compact_scatter`,
-                    shader: this.modules.scatter,
-                    entryPoint: 'compact_scatter_main',
-                    bindGroups: groups([
-                        uniform,
-                        { binding: 1, type: 'storage', buffer: out },
-                        { binding: 2, type: 'storage', buffer: counter },
-                        { binding: 3, type: 'read-only-storage', buffer: this.flagsBuffer },
-                    ]),
+                    bindings: {
+                        ...this.bindings,
+                        compact,
+                        compact_out: out,
+                        compact_counter: counter,
+                    },
                 }),
             };
         }
-        this.bound.set(out, entry);
-        return entry;
+        const flags = this.flagsBuffer!;
+        return {
+            counter,
+            flags: createComputeKernel(this.core, {
+                discriminator: `${this.disc}:compact_flags`,
+                shader: this.modules.flags,
+                entryPoint: 'compact_flags_main',
+                bindings: { ...this.bindings, compact, compact_flags: flags },
+            }),
+            scatter: createComputeKernel(this.core, {
+                discriminator: `${this.disc}:compact_scatter`,
+                shader: this.modules.scatter,
+                entryPoint: 'compact_scatter_main',
+                bindings: {
+                    ...this.bindings,
+                    compact,
+                    compact_out: out,
+                    compact_counter: counter,
+                    compact_positions: flags,
+                },
+            }),
+        };
     }
 
     private run(

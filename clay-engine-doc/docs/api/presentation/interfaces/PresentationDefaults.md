@@ -6,7 +6,7 @@
 
 # Interface: PresentationDefaults
 
-Defined in: [presentation/flows/defaults.ts:35](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L35)
+Defined in: [presentation/flows/defaults.ts:23](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L23)
 
 Bag dos Flows default registrados pelo Application. Permite o app
 customizar diretamente (e.g. `defaults.post.addEffect(new Bloom(...))`,
@@ -18,7 +18,7 @@ customizar diretamente (e.g. `defaults.post.addEffect(new Bloom(...))`,
 
 > `readonly` **debug**: [`DebugFlow`](../classes/DebugFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:47](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L47)
+Defined in: [presentation/flows/defaults.ts:35](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L35)
 
 Debug overlay — emite profilerStats event quando habilitado.
 
@@ -28,9 +28,9 @@ Debug overlay — emite profilerStats event quando habilitado.
 
 > `readonly` **forward**: [`ForwardFlow`](../classes/ForwardFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:39](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L39)
+Defined in: [presentation/flows/defaults.ts:27](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L27)
 
-Forward render pass principal (bind-shadows + per-entity pipelines).
+Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e sombra pelos slots).
 
 ***
 
@@ -38,7 +38,7 @@ Forward render pass principal (bind-shadows + per-entity pipelines).
 
 > `readonly` **post**: [`PostFlow`](../classes/PostFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:43](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L43)
+Defined in: [presentation/flows/defaults.ts:31](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L31)
 
 Post-processing chain (Bloom/Fxaa/etc. em ping-pong).
 
@@ -48,9 +48,9 @@ Post-processing chain (Bloom/Fxaa/etc. em ping-pong).
 
 > `readonly` **shadow**: [`ShadowFlow`](../classes/ShadowFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:41](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L41)
+Defined in: [presentation/flows/defaults.ts:29](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L29)
 
-Shadow map pass (depth-only, light POV).
+Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela.
 
 ***
 
@@ -58,7 +58,7 @@ Shadow map pass (depth-only, light POV).
 
 > `readonly` **transform**: [`TransformFlow`](../../elements/classes/TransformFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:37](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L37)
+Defined in: [presentation/flows/defaults.ts:25](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L25)
 
 Estágio de transformação (fase `transform`): intenção dos Transform → matrizes de mundo.
 
@@ -68,6 +68,6 @@ Estágio de transformação (fase `transform`): intenção dos Transform → mat
 
 > `readonly` **ui**: [`UIFlow`](../classes/UIFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:45](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/defaults.ts#L45)
+Defined in: [presentation/flows/defaults.ts:33](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/defaults.ts#L33)
 
 UI pass (quads + glyphs sobre o canvas).

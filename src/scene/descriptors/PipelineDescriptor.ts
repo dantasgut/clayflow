@@ -6,6 +6,21 @@ import type {
 } from '../../core/contracts/index';
 import type { WgslModule } from '../shaders/WgslModule';
 
+/** Entrada de `consumes`: o nome do resolver, ou o nome e o struct WGSL com que o shader lê o dado. */
+export type ConsumesEntry =
+    | string
+    | {
+          /** Nome do resolver (nome do schema ou chave do pool). */
+          readonly name: string;
+          /** Tipo WGSL que a fonte preenche no shader, quando difere do do resolver. */
+          readonly as: string;
+      };
+
+/** Nome do resolver de uma entrada de `consumes`. */
+export function consumesName(entry: ConsumesEntry): string {
+    return typeof entry === 'string' ? entry : entry.name;
+}
+
 /**
  * Tipo de pipeline declarado por um Resource. `compute` para kernels GPGPU,
  * `render` para vertex+fragment passes.
@@ -13,14 +28,12 @@ import type { WgslModule } from '../shaders/WgslModule';
 export type PipelineDescriptorRole = 'compute' | 'render';
 
 /**
- * PipelineDescriptor declara um pipeline GPU que um Resource fornece.
- * Diferentemente de `ComputePipelineSpec`/`RenderPipelineSpec` (Camada 1
- * — diretamente materializável), o PipelineDescriptor é declarativo:
- * o `LayoutInferencer` parsa o WGSL e resolve `consumes` para gerar as
- * layouts/bindgroups antes de virar Spec.
+ * Pipeline declarado por um Flow (ou pelo material que um Flow desenha). Diferente de `ComputePipelineSpec` /
+ * `RenderPipelineSpec` (Camada 1, materializáveis), é declarativo: a Camada 2 monta o WGSL (`composeWgsl`), infere
+ * grupos, bindings e visibilidades (`LayoutInferencer.infer`), resolve cada binding — privado do Flow pelo nome da
+ * variável, ou pelo tipo do struct entre os nomes de `consumes` — e cria layouts, pipeline e bind groups.
  *
- * Usado tipicamente por Materials (StandardMaterial declara seu shader)
- * e Flows que querem expor pipelines ao sistema.
+ * Compute: uma entrada (`entryPoints[0]`). Render: a entrada `@vertex` e, opcional, a `@fragment`.
  */
 export interface PipelineDescriptor {
     /** Identificador único do pipeline (e.g. 'pipeline_standard', 'pipeline_lcp_predict'). */
@@ -32,11 +45,13 @@ export interface PipelineDescriptor {
     /** Nomes das funções `@compute`/`@vertex`/`@fragment` no source. */
     readonly entryPoints: readonly string[];
     /**
-     * Schema names que este pipeline consome via `@group`/`@binding` no WGSL.
-     * O LayoutInferencer resolve esses nomes contra o World+ResourceSystem
-     * para gerar as bindings concretas (e.g. `consumes: ['Camera', 'Transform']`).
+     * Nomes (de schema ou chave de pool) dos dados que o pipeline lê da cena, resolvidos pelo
+     * `ConsumerResolverRegistry`: um binding cujo tipo WGSL é o `typeName` do resolver recebe a fonte dele
+     * (ex.: `consumes: ['Camera', 'WorldTransform']`). A forma `{ name, as }` declara que o dado de `name` é lido
+     * pelo shader como o struct `as` — layouts iguais com outro nome (ex.: o pool `WireframeMaterial` lido como
+     * `StandardMaterial` pelo `forward.wgsl`).
      */
-    readonly consumes: readonly string[];
+    readonly consumes: readonly ConsumesEntry[];
     /** Topologia da primitive (apenas render pipelines). Default: triangle-list. */
     readonly topology?: GPUPrimitiveTopology;
     /** Cull mode (apenas render). Default: 'none'. */
@@ -53,4 +68,17 @@ export interface PipelineDescriptor {
     readonly vertexBuffers?: readonly VertexBufferLayout[];
     /** Quando true, usa `core.createAsync` (compilação não-bloqueante). */
     readonly preferAsync?: boolean;
+    /**
+     * Ajustes explícitos por variável WGSL; vencem a inferência (FR-013). Ex.: `{ params: { visibility:
+     * GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT } }`.
+     */
+    readonly bindings?: Readonly<
+        Record<
+            string,
+            {
+                /** Estágios que veem o binding (`GPUShaderStage`), no lugar dos inferidos. */
+                readonly visibility?: number;
+            }
+        >
+    >;
 }

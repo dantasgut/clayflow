@@ -1,6 +1,7 @@
 import { GpuEngineCore } from '../core/gpu/GpuEngineCore';
 import type { CanvasOptions, DeviceOptions, EngineCore } from '../core/contracts/index';
 import { ConsumerResolverRegistry } from './consumers/ConsumerResolverRegistry';
+import { SingletonResolver } from './consumers/strategies/SingletonResolver';
 import type { EventBus } from './events/EventBus';
 import { DefaultEventBus } from './events/DefaultEventBus';
 import type { FlowRegistry as FlowRegistryType } from './flows/FlowRegistry';
@@ -31,9 +32,9 @@ export interface SceneContext {
     readonly resourceSystem: ResourceSystem;
     /** ExecutionSystem — orquestra dispatch de Flows por frame. */
     readonly executionSystem: ExecutionSystem;
-    /** LayoutInferencer — deriva bindings GPU de WGSL parsed AST. */
+    /** Inferência de layout a partir do WGSL montado (usada na preparação dos pipelines dos Flows). */
     readonly layoutInferencer: LayoutInferencer;
-    /** ConsumerResolverRegistry — resolve `consumes:[]` em PipelineDescriptors. */
+    /** Resolvers de `consumes` da cena (fontes de binding por nome). */
     readonly consumers: ConsumerResolverRegistry;
     /**
      * Relógio da cena — um por World. Inserido no World em `initialize()` (o uniform precisa do device); os
@@ -74,16 +75,23 @@ export interface CreateSceneOptions {
 export function createScene(options: CreateSceneOptions = {}): SceneContext {
     const core = options.core ?? new GpuEngineCore();
     const events = new DefaultEventBus();
-    const flows = new FlowRegistry();
     const layoutInferencer = new LayoutInferencer();
     const consumers = new ConsumerResolverRegistry();
     const world = new World(events);
-    const resourceSystem = new ResourceSystem(core, events, world);
+    const resourceSystem = new ResourceSystem(core, events, world, consumers, layoutInferencer);
+    const flows = new FlowRegistry({
+        context: { core, world, resources: resourceSystem, events },
+        allocator: resourceSystem,
+    });
     const executionSystem = new ExecutionSystem(core, events, flows);
     const time = new Time(events);
+    consumers.register(new SingletonResolver(Time.schema, 'time'));
 
     const unsubscribeDeviceLost = core.onDeviceLost((info) => {
         events.emit('deviceLost', { reason: info.reason, message: info.message });
+    });
+    const unsubscribeFrameRetired = core.onFrameRetired((framesInFlight) => {
+        events.emit('frameRetired', { framesInFlight });
     });
 
     let disposed = false;
@@ -104,10 +112,11 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
         dispose() {
             if (disposed) return;
             disposed = true;
-            for (const flow of [...flows.allFlows()]) flows.unregister(flow);
+            flows.dispose();
             executionSystem.dispose();
             resourceSystem.dispose();
             unsubscribeDeviceLost();
+            unsubscribeFrameRetired();
             core.shutdown();
         },
     };

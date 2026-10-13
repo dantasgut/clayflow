@@ -1,22 +1,22 @@
 <!--
 Sync Impact Report
-- Version change: (template, unfilled) → 1.0.0
-- Bump rationale: primeira ratificação — template preenchido com princípios concretos.
-- Principles defined (6):
-    I.   Arquitetura em Camadas e Regra de Importação
-    II.  Vocabulário de Domínio na Borda, Data-Oriented no Núcleo
-    III. Resource como Contrato Único de Dado GPU
-    IV.  ECS Data-Oriented e Flows
-    V.   Disciplina de Testes e Verificação
-    VI.  Documentação como Fonte Única e Coesa
-- Added sections: "Restrições Técnicas e de Release"; "Fluxo de Desenvolvimento e Quality Gates"; "Governança".
-- Removed sections: nenhuma (template tinha placeholders SECTION_2/SECTION_3 genéricos, agora nomeados).
+- Version change: 1.0.0 → 1.1.0
+- Bump rationale: MINOR — o Princípio I passa a exigir a fronteira de importação da decisão D4 (spec 006): C3/C4
+  deixam de importar `core/contracts`/`core/interfaces` e recebem os tipos da C1 pelos reexports da C2
+  (`scene/contracts/gpu`); a regra passa a ser verificada no lint. Expansão material da orientação, sem remover
+  princípio.
+- Modified principles:
+    I. Arquitetura em Camadas e Regra de Importação — lista de imports permitidos a C3/C4 trocada; verificação no
+       lint (`@typescript-eslint/no-restricted-imports` em `src/elements/**` e `src/presentation/**`).
+- Added sections: nenhuma. Removed sections: nenhuma.
 - Templates status:
-    ✅ .specify/templates/constitution-template.md (origem — inalterado)
-    ⚠ .specify/templates/plan-template.md — revisar "Constitution Check" para citar Princípios I–VI
-    ⚠ .specify/templates/spec-template.md — alinhado em espírito; sem mudança obrigatória
-    ⚠ .specify/templates/tasks-template.md — considerar categoria de tarefa "testes CPU-side / verificação"
+    ✅ .specify/templates/plan-template.md — "Constitution Check" já cita os Princípios I–VI; sem mudança
+    ✅ .specify/templates/spec-template.md — sem mudança
+    ✅ .specify/templates/tasks-template.md — sem mudança
+    ✅ CLAUDE.md — menção de versão atualizada para 1.1.0
+    ✅ eslint.config.js — regra da fronteira (T059 da spec 006)
 - Deferred / needs ratification:
+    RATIFICATION(1.1.0): esta emenda é ratificada pelo mantenedor no PR da spec 006.
     TODO(TESTING_C3_C4): nível de obrigatoriedade dos testes para C3/C4 (ver Princípio V).
     TODO(VERSIONING): política de versionamento/release e changelog (ver Restrições Técnicas e de Release).
     TODO(RATIFICATION_DATE): confirmar 2026-06-09 como data de adoção.
@@ -40,12 +40,17 @@ As quatro camadas têm fronteiras estritas e direção de dependência única (d
   (`Schema`/`GPUDescriptor`/`PipelineDescriptor`), `EventBus`.
 - **C3 Elementos** (`src/elements`) e **C4 Apresentação** (`src/presentation`).
 
-Regra MUST: C3 e C4 importam **apenas** os contratos públicos (`core/contracts`, `core/interfaces`,
-`scene/contracts`, `scene/descriptors`, `scene/world`, `scene/events`). É PROIBIDO importar a implementação
-WebGPU (`core/gpu`) fora de C1. Dependências circulares são proibidas (validadas em CI por `madge`).
+Regra MUST: C3 e C4 importam **apenas** a C2 — os contratos públicos (`scene/contracts`, `scene/descriptors`,
+`scene/world`, `scene/events`, `scene/flows`, `scene/shaders`, `scene/consumers`, `scene/time`) e, para os tipos de
+GPU da C1, os reexports de tipos de `scene/contracts/gpu` (nenhum valor da C1 atravessa). É PROIBIDO importar
+`core/` (contratos, interfaces ou a implementação WebGPU) fora de C1 e C2; a regra é verificada no lint
+(`no-restricted-imports` em `src/elements/**` e `src/presentation/**`, testes inclusive). O bootstrap da C4
+(`Application`) compõe a cena pelo `SceneContext` e pelos tipos dos sistemas da C2. Dependências circulares são
+proibidas (validadas em CI por `madge`).
 
 **Rationale**: a fronteira tipada mantém o backend WebGPU substituível e impede o vazamento de hardware
-para o domínio. Sem ela, "clean architecture" vira decoração.
+para o domínio. Com a C2 como única porta, uma troca na C1 se resolve nos reexports da C2 sem tocar C3/C4. Sem
+ela, "clean architecture" vira decoração.
 
 ### II. Vocabulário de Domínio na Borda, Data-Oriented no Núcleo
 
@@ -138,4 +143,4 @@ Toda revisão de PR DEVE verificar conformidade com os Princípios I–VI; compl
 justificada. Itens marcados `TODO(...)` exigem ratificação explícita do mantenedor antes de virarem regra
 plenamente exigível.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-09 | **Last Amended**: 2026-06-09
+**Version**: 1.1.0 | **Ratified**: 2026-06-09 | **Last Amended**: 2026-10-12

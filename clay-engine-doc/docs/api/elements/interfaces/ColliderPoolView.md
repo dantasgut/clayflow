@@ -6,7 +6,7 @@
 
 # Interface: ColliderPoolView
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:37](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/colliders/ColliderSet.ts#L37)
+Defined in: [elements/physics/colliders/ColliderSet.ts:38](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/colliders/ColliderSet.ts#L38)
 
 Visão de um pool de collider: buffer do pool, mapa de dono e contagem.
 
@@ -16,7 +16,7 @@ Visão de um pool de collider: buffer do pool, mapa de dono e contagem.
 
 > `readonly` **buffer**: `StorageBufferSpec`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:39](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/colliders/ColliderSet.ts#L39)
+Defined in: [elements/physics/colliders/ColliderSet.ts:40](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/colliders/ColliderSet.ts#L40)
 
 Pool tipado (ou buffer mínimo se o pool não existe).
 
@@ -26,7 +26,7 @@ Pool tipado (ou buffer mínimo se o pool não existe).
 
 > `readonly` **count**: `number`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:43](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/colliders/ColliderSet.ts#L43)
+Defined in: [elements/physics/colliders/ColliderSet.ts:44](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/colliders/ColliderSet.ts#L44)
 
 Colliders no pool.
 
@@ -36,6 +36,6 @@ Colliders no pool.
 
 > `readonly` **owners**: `StorageBufferSpec`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:41](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/colliders/ColliderSet.ts#L41)
+Defined in: [elements/physics/colliders/ColliderSet.ts:42](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/colliders/ColliderSet.ts#L42)
 
 `owners[slot]` = slot do corpo dono no pool de corpos, ou `NO_OWNER`.

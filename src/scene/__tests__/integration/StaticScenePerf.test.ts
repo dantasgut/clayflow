@@ -3,24 +3,16 @@
  * transformação por objeto e nenhum dispatch do estágio de transformação.
  */
 import { describe, expect, it } from 'vitest';
-import { DefaultEventBus } from '../../events/DefaultEventBus';
-import { FlowRegistry } from '../../flows/FlowRegistry';
-import { ExecutionSystem } from '../../systems/ExecutionSystem';
-import { ResourceSystem } from '../../systems/ResourceSystem';
-import { World } from '../../world/World';
+import { createScene } from '../../SceneContext';
 import { Transform } from '../../../elements/scene/Transform';
 import { TransformFlow } from '../../../elements/scene/flows/TransformFlow';
 import { fakeSceneCore } from '../helpers/fakeSceneCore';
 
 describe('cena estática de 10 000 objetos', () => {
     it('após o primeiro quadro, quadros parados não enviam transformações nem despacham o estágio', () => {
-        const events = new DefaultEventBus();
-        const world = new World(events);
         const { core, trace } = fakeSceneCore();
-        const resources = new ResourceSystem(core, events, world);
-        const flows = new FlowRegistry();
-        new ExecutionSystem(core, events, flows);
-        flows.register(new TransformFlow(core, resources, events));
+        const { world, events, flows, resourceSystem: resources } = createScene({ core });
+        flows.register((ctx) => new TransformFlow(ctx), { type: 'transform', phase: 'transform' });
         for (let i = 0; i < 10_000; i++) {
             world.insert(new Transform({ position: [i, 0, 0, 1] }));
         }

@@ -104,10 +104,7 @@ export function createClayflowAdapter(options: {
     return {
         id: 'clayflow',
         version: 'clayflow',
-        limitations: [
-            'forward fora da arquitetura de Flows: aloca buffers e bind groups por entidade e regrava a câmera em cada uma a cada quadro, em vez de consumir pelos slots o que a C2 já aloca (até F1, spec 006)',
-            'geometria duplicada na GPU — cópia da C2 e dos estágios de desenho/sombra (até F1, spec 006)',
-        ],
+        limitations: [],
         async init(canvas, resolution, cameraSpec) {
             canvas.width = resolution.width;
             canvas.height = resolution.height;
@@ -157,6 +154,17 @@ export function createClayflowAdapter(options: {
                 gpuTiming: handle.last?.stats.gpuTimeMs !== undefined,
                 memory: 'exact',
             };
+        },
+        readyForFrame(handle) {
+            const app = handle.app;
+            if (app.readyForFrame()) return Promise.resolve();
+            return new Promise((resolve) => {
+                const off = app.events.on('frameRetired', () => {
+                    if (!app.readyForFrame()) return;
+                    off();
+                    resolve();
+                });
+            });
         },
         frame(handle, scene: SceneImplementation<ClayflowHandle>, dtSeconds): FrameSample | null {
             // Mesmo ritmo do laço: com a GPU sem espaço para mais um quadro, espera o próximo tick.

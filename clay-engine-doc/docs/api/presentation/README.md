@@ -66,7 +66,10 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [ApplicationOptions](interfaces/ApplicationOptions.md)
 - [ColorGradingOptions](interfaces/ColorGradingOptions.md)
 - [ControllerContext](interfaces/ControllerContext.md)
+- [DebugFlowOptions](interfaces/DebugFlowOptions.md)
 - [EnginePlugin](interfaces/EnginePlugin.md)
+- [ForwardFlowOptions](interfaces/ForwardFlowOptions.md)
+- [ForwardSlots](interfaces/ForwardSlots.md)
 - [GltfAnimation](interfaces/GltfAnimation.md)
 - [GltfAnimationChannel](interfaces/GltfAnimationChannel.md)
 - [GltfAnimationSampler](interfaces/GltfAnimationSampler.md)
@@ -84,14 +87,19 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [LoadedFont](interfaces/LoadedFont.md)
 - [LoadedTexture](interfaces/LoadedTexture.md)
 - [OrbitControllerOptions](interfaces/OrbitControllerOptions.md)
-- [PhysicsPluginOptions](interfaces/PhysicsPluginOptions.md)
 - [PostProcessOptions](interfaces/PostProcessOptions.md)
+- [PostSlots](interfaces/PostSlots.md)
 - [PresentationDefaults](interfaces/PresentationDefaults.md)
 - [PresentationDefaultsOptions](interfaces/PresentationDefaultsOptions.md)
+- [ShadowFlowOptions](interfaces/ShadowFlowOptions.md)
+- [ShadowSlots](interfaces/ShadowSlots.md)
 - [UiBounds](interfaces/UiBounds.md)
+- [UISlots](interfaces/UISlots.md)
 
 ## Type Aliases
 
+- [DebugSlots](type-aliases/DebugSlots.md)
+- [ForwardOutput](type-aliases/ForwardOutput.md)
 - [GltfAnimationPath](type-aliases/GltfAnimationPath.md)
 - [GltfInterpolation](type-aliases/GltfInterpolation.md)
 
@@ -102,6 +110,5 @@ Para implementar Resources/Flows customizados, importe diretamente de
 ## Functions
 
 - [interactionPlugin](functions/interactionPlugin.md)
-- [physicsPlugin](functions/physicsPlugin.md)
 - [registerPresentationDefaults](functions/registerPresentationDefaults.md)
 - [releasePresentationDefaults](functions/releasePresentationDefaults.md)

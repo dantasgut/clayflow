@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PerStepUniforms } from '../flows/PerStepUniforms';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
-import type { UniformBufferSpec } from '../../../core/contracts/index';
+import type { UniformBufferSpec } from '../../../scene/contracts/gpu';
 import { StructSchema, fieldArray } from '../../../scene/descriptors/StructSchema';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 
@@ -67,16 +67,24 @@ describe('PerStepUniforms — uma região de parâmetros por iteração', () => 
         expect(writes).toHaveLength(0);
     });
 
-    it('binding com offset dinâmico e tamanho do struct', () => {
+    it('source(): fonte com offset dinâmico de passo regionSize e tamanho do struct', () => {
         const { params } = setup(80);
         params.reserve(1);
-        expect(params.binding(0)).toEqual({
-            binding: 0,
-            type: 'uniform',
+        expect(params.source()).toEqual({
+            kind: 'buffer',
             buffer: params.buffer,
-            hasDynamicOffset: true,
             size: 80,
+            dynamic: { stride: 256 },
         });
+    });
+
+    it('source() acompanha o buffer recriado pelo reserve', () => {
+        const { params } = setup(80);
+        params.reserve(1);
+        const first = params.source();
+        params.reserve(5);
+        expect(params.source()).not.toEqual(first);
+        expect(params.source()).toMatchObject({ buffer: params.buffer });
     });
 
     it('crescimento recria o buffer, destrói o anterior e incrementa a geração', () => {

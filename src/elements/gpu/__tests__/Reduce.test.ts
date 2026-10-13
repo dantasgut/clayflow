@@ -1,17 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Reduce, reduceLevelCounts } from '../compute/Reduce';
 import { reduceKernel, reduceOp } from '../compute/shaders';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
-const buffer = (discriminator: string): StorageBufferSpec => ({
-    kind: 'buffer',
-    subkind: 'storage',
-    discriminator,
-    byteSize: 1 << 16,
-});
+/** Buffers de teste por nome — o mesmo objeto a cada chamada (a preparação reconhece o buffer pela identidade). */
+const buffers = new Map<string, StorageBufferSpec>();
+const buffer = (discriminator: string): StorageBufferSpec => {
+    let b = buffers.get(discriminator);
+    if (b === undefined) {
+        b = { kind: 'buffer', subkind: 'storage', discriminator, byteSize: 1 << 16 };
+        buffers.set(discriminator, b);
+    }
+    return b;
+};
 
 describe('reduceOp', () => {
     it('memorizado por (operação, tipo)', () => {
@@ -56,6 +60,8 @@ describe('Reduce', () => {
             op: 'sum',
             type: 'u32',
         });
+        reduce.prepare(buffer('src'), buffer('out'));
+        const created = vi.mocked(core.create).mock.calls.length;
         const rec = recordingFrame();
         reduce.record(rec.frame, {
             src: buffer('src'),
@@ -63,6 +69,7 @@ describe('Reduce', () => {
             out: buffer('out'),
             outOffset: 3,
         });
+        expect(vi.mocked(core.create).mock.calls.length).toBe(created);
         expect(rec.passes.map((p) => p.dispatches[0])).toEqual([
             [70_000, 256],
             [274, 256],
@@ -100,5 +107,22 @@ describe('Reduce', () => {
         }).toThrow(RangeError);
         reduce.record(rec.frame, { src: buffer('s'), count: 0, out: buffer('o') });
         expect(rec.passes).toHaveLength(0);
+        expect(() => {
+            reduce.record(rec.frame, { src: buffer('s'), count: 1, out: buffer('o') });
+        }).toThrow(/prepare/);
+    });
+
+    it('contagens com menos passes que a capacidade usam o kernel que escreve direto na saída', () => {
+        const { core } = fakeResourceCore();
+        const reduce = new Reduce(core, {
+            discriminator: 'rd',
+            capacity: 70_000,
+            op: 'max',
+            type: 'u32',
+        });
+        reduce.prepare(buffer('src'), buffer('out'));
+        const rec = recordingFrame();
+        reduce.record(rec.frame, { src: buffer('src'), count: 100, out: buffer('out') });
+        expect(rec.passes.map((p) => p.dispatches[0])).toEqual([[100, 256]]);
     });
 });

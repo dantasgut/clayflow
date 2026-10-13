@@ -1,8 +1,5 @@
-import type {
-    ComputeKernelBinding,
-    EngineCore,
-    UniformBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, UniformBufferSpec } from '../../../scene/contracts/gpu';
+import type { ResolvedSource } from '../../../scene/consumers/ConsumerResolver';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /** Opções de `PerStepUniforms`. */
@@ -22,8 +19,9 @@ export interface PerStepUniformsOptions {
  * cada iteração precisa da sua região: o Flow grava cada região por campo (`write(i, dados)`, pelo schema), envia
  * tudo com `flush`, e liga a iteração `i` com `setBindGroup(g, bg, [offset(i)])`.
  *
- * Crescimento (`reserve` acima da capacidade) recria o buffer, destrói o anterior e incrementa `generation`: o
- * Flow refaz os bind groups que usam `binding(...)`.
+ * Crescimento (`reserve` acima da capacidade) recria o buffer, destrói o anterior e incrementa `generation`. No modelo
+ * de slots (spec 006) o Flow chama `reserve` numa **transição** (ex.: `resourceReady` do `Time`, quando o número de
+ * passos do quadro muda) e, se o buffer foi recriado, religa `source()` (`ctx.bind`) — a C2 recria os bind groups.
  */
 export class PerStepUniforms {
     private readonly schema: StructSchema;
@@ -123,14 +121,13 @@ export class PerStepUniforms {
         this.core.write(this.buffer, new Uint8Array(this.staging, 0, count * this.regionSize));
     }
 
-    /** Entrada de bind group com offset dinâmico para este buffer no slot `binding`. */
-    binding(binding: number): ComputeKernelBinding {
+    /** Fonte de binding do buffer: uma região de `schema.stride` bytes, escolhida por offset dinâmico. */
+    source(): ResolvedSource {
         return {
-            binding,
-            type: 'uniform',
+            kind: 'buffer',
             buffer: this.buffer,
-            hasDynamicOffset: true,
             size: this.schema.stride,
+            dynamic: { stride: this.regionSize },
         };
     }
 

@@ -1,145 +1,198 @@
 /**
- * Integration tests — Flow lifecycle dentro do ExecutionSystem.
+ * Integração — ciclo de vida dos Flows no quadro (`ExecutionSystem`).
  *
  * Cobertura:
- *   - Flow.isReady=false faz ExecutionSystem skipar dispatch
- *   - Flows na mesma phase são ordenados por priority
- *   - frameComplete é emitido mesmo quando todos os flows estão ready=false
- *   - Flow registrado durante dispatch não é executado no mesmo frame
+ *   - Flow com slot obrigatório sem recurso fica `pending` e não grava; grava a partir do quadro em que o recurso
+ *     existe
+ *   - Flows na mesma fase são ordenados por prioridade (empate: ordem de registro)
+ *   - `frameComplete` é emitido mesmo sem nenhum Flow pronto
+ *   - fases executam em ordem fixa
  */
-import { describe, expect, it, vi } from 'vitest';
-import { DefaultEventBus } from '../../events/DefaultEventBus';
-import { Flow, type Phase } from '../../flows/Flow';
-import { FlowRegistry } from '../../flows/FlowRegistry';
-import { ExecutionSystem } from '../../systems/ExecutionSystem';
+import { describe, expect, it } from 'vitest';
 import type { Frame } from '../../../core/contracts/Frame';
-import type { EngineCore } from '../../../core/contracts/EngineCore';
-import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
+import { Flow } from '../../flows/Flow';
+import type { TransitionContext } from '../../flows/FlowBinding';
+import type { FlowTransitions } from '../../flows/FlowTransitions';
+import type { Phase } from '../../flows/Phase';
+import { slot } from '../../flows/slots';
+import { FlowBindingError } from '../../flows/FlowBindingError';
+import { createScene } from '../../SceneContext';
+import { countingCore } from '../helpers/countingCore';
+import {
+    ProbeBody,
+    ProbeCam,
+    ProbeCamSchema,
+    ProbeFlow,
+    probeParams,
+    probePipeline,
+    probeScene,
+} from '../helpers/probeFlow';
 
-class TestFlow extends Flow {
-    readonly bodyType = '';
-    dispatches: number[] = []; // ordered by call sequence
+const freeSlots = {};
+const camSlots = { cam: slot.singleton(ProbeCamSchema) };
+
+/** Flow de teste sem pipelines: anota a gravação numa sequência compartilhada. */
+class TestFlow<TSlots extends typeof freeSlots | typeof camSlots> extends Flow<TSlots, 'idle'> {
+    protected readonly initialState = 'idle' as const;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<TSlots>> = {
+        '*': {
+            slotsResolved: 'ignore',
+            slotLost: 'ignore',
+            pipelinesCompiled: 'ignore',
+            bindGroupReplaced: 'ignore',
+        },
+    };
 
     constructor(
         readonly type: string,
-        readonly phase: Phase,
-        priority = 0,
-        public ready = true,
+        readonly slots: TSlots,
+        private readonly sequence: string[],
     ) {
         super();
-        this.priority = priority;
     }
 
-    getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [];
-    }
-    override isReady(): boolean {
-        return this.ready;
-    }
     dispatch(_frame: Frame): void {
-        this.dispatches.push(performance.now());
+        this.sequence.push(this.type);
     }
 }
 
-function fakeCore(): EngineCore {
-    return {
-        record: vi.fn((labelOrBody: unknown, body?: unknown) => {
-            const fn = typeof labelOrBody === 'function' ? labelOrBody : body;
-            (fn as (frame: Frame) => void)({} as Frame);
-        }),
-        submit: vi.fn(),
-        setFrameProfiling: vi.fn(),
-        lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
-    } as unknown as EngineCore;
+async function scene() {
+    const s = await probeScene();
+    const sequence: string[] = [];
+    const add = (type: string, phase: Phase, priority = 0, needsCam = false) =>
+        s.scene.flows.register(
+            () =>
+                needsCam
+                    ? new TestFlow(type, camSlots, sequence)
+                    : new TestFlow(type, freeSlots, sequence),
+            { type, phase, priority },
+        ).flow!;
+    const frame = (): string[] => {
+        sequence.length = 0;
+        s.frame();
+        return [...sequence];
+    };
+    return { ...s, add, frame };
 }
 
-describe('Integration — Flow lifecycle', () => {
-    it('flows com isReady=false são skipados; isReady=true são despachados', () => {
-        const events = new DefaultEventBus();
-        const flows = new FlowRegistry();
-        const ready = new TestFlow('Ready', 'forward', 0, true);
-        const notReady = new TestFlow('NotReady', 'forward', 0, false);
-        flows.register(ready);
-        flows.register(notReady);
-        new ExecutionSystem(fakeCore(), events, flows);
-
-        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
-        expect(ready.dispatches).toHaveLength(1);
-        expect(notReady.dispatches).toHaveLength(0);
+describe('Integração — ciclo de vida dos Flows', () => {
+    it('slot obrigatório sem recurso: pending e sem gravação; grava no quadro em que o recurso existe', async () => {
+        const s = await scene();
+        s.add('Free', 'forward');
+        const waiting = s.add('NeedsCam', 'forward', 0, true);
+        expect(s.frame()).toEqual(['Free']);
+        expect(waiting.lifecycle).toBe('pending');
+        s.scene.world.insert(new ProbeCam());
+        expect(s.frame()).toEqual(['Free', 'NeedsCam']);
+        expect(waiting.lifecycle).toBe('ready');
     });
 
-    it('flows são ordenados por priority dentro da mesma phase', () => {
-        const events = new DefaultEventBus();
-        const flows = new FlowRegistry();
-        const a = new TestFlow('A', 'forward', 10);
-        const b = new TestFlow('B', 'forward', 0);
-        const c = new TestFlow('C', 'forward', 5);
-        flows.register(a);
-        flows.register(b);
-        flows.register(c);
-        new ExecutionSystem(fakeCore(), events, flows);
-
-        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
-        // FlowRegistry sort é descending: `b.priority - a.priority`
-        // (priority maior roda primeiro).
-        const active = flows.activeFlowsInPhase('forward').map((f) => f.type);
-        expect(active).toEqual(['A', 'C', 'B']); // priority 10 → 5 → 0
+    it('na mesma fase, prioridade decrescente; empate pela ordem de registro', async () => {
+        const s = await scene();
+        s.add('B', 'forward', 0);
+        s.add('A', 'forward', 10);
+        s.add('C', 'forward', 5);
+        s.add('D', 'forward', 0);
+        expect(s.frame()).toEqual(['A', 'C', 'B', 'D']);
+        expect(s.scene.flows.flowsInPhase('forward').map((f) => f.type)).toEqual([
+            'A',
+            'C',
+            'B',
+            'D',
+        ]);
     });
 
-    it('frameComplete emitido mesmo quando todos os flows estão not-ready', () => {
-        const events = new DefaultEventBus();
-        const flows = new FlowRegistry();
-        const flow = new TestFlow('Skipped', 'forward', 0, false);
-        flows.register(flow);
-        new ExecutionSystem(fakeCore(), events, flows);
-
-        let frameCompleteCount = 0;
-        events.on('frameComplete', () => {
-            frameCompleteCount++;
+    it('frameComplete emitido mesmo sem nenhum Flow pronto', async () => {
+        const s = await scene();
+        s.add('Waiting', 'forward', 0, true);
+        let completed = 0;
+        s.scene.events.on('frameComplete', () => {
+            completed++;
         });
-        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
-        expect(flow.dispatches).toHaveLength(0);
-        expect(frameCompleteCount).toBe(1);
+        expect(s.frame()).toEqual([]);
+        expect(completed).toBe(1);
     });
 
-    it('phases executam em ordem fixa (physics → shadow → forward → post → ui)', () => {
-        const events = new DefaultEventBus();
-        const flows = new FlowRegistry();
-        // Registra fora de ordem para validar que phasesInOrder ordena.
-        const ui = new TestFlow('UI', 'ui');
-        const physics = new TestFlow('Phys', 'physics');
-        const post = new TestFlow('Post', 'post');
-        const shadow = new TestFlow('Shdw', 'shadow');
-        const forward = new TestFlow('Fwd', 'forward');
-        flows.register(ui);
-        flows.register(physics);
-        flows.register(post);
-        flows.register(shadow);
-        flows.register(forward);
-        new ExecutionSystem(fakeCore(), events, flows);
+    it('fases em ordem fixa (physics → transform → shadow → forward → post → ui)', async () => {
+        const s = await scene();
+        s.add('UI', 'ui');
+        s.add('Phys', 'physics');
+        s.add('Post', 'post');
+        s.add('Shdw', 'shadow');
+        s.add('Xf', 'transform');
+        s.add('Fwd', 'forward');
+        expect(s.frame()).toEqual(['Phys', 'Xf', 'Shdw', 'Fwd', 'Post', 'UI']);
+    });
+});
 
-        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
-        // Asserts via dispatch ordering — physics.dispatches[0] < shadow.dispatches[0] < etc.
-        const t = (f: TestFlow) => f.dispatches[0];
-        expect(t(physics)).toBeDefined();
-        expect(t(physics)!).toBeLessThanOrEqual(t(shadow)!);
-        expect(t(shadow)!).toBeLessThanOrEqual(t(forward)!);
-        expect(t(forward)!).toBeLessThanOrEqual(t(post)!);
-        expect(t(post)!).toBeLessThanOrEqual(t(ui)!);
+describe('Integração — eventos da C2 com o Flow pronto', () => {
+    async function probeReady(options: ConstructorParameters<typeof ProbeFlow>[1] = {}) {
+        const s = await probeScene();
+        const reg = s.scene.flows.register(() => new ProbeFlow(probeParams, options), {
+            type: 'probe',
+            phase: 'physics',
+            bodyType: 'ProbeBody',
+        });
+        s.scene.world.insert(new ProbeCam());
+        s.scene.world.insert(new ProbeBody());
+        s.frame();
+        return { ...s, probe: reg.flow! };
+    }
+
+    it('slots não resolvidos: o Flow não está ativo no ExecutionSystem', async () => {
+        const s = await scene();
+        const waiting = s.add('NeedsCam', 'forward', 0, true);
+        s.frame();
+        expect(s.scene.executionSystem.isActive(waiting)).toBe(false);
+        s.scene.world.insert(new ProbeCam());
+        s.frame();
+        expect(s.scene.executionSystem.isActive(waiting)).toBe(true);
     });
 
-    it('flow.ready=true durante dispatch torna flow ativo no próximo frame', () => {
-        const events = new DefaultEventBus();
-        const flows = new FlowRegistry();
-        const flow = new TestFlow('Toggle', 'forward', 0, false);
-        flows.register(flow);
-        new ExecutionSystem(fakeCore(), events, flows);
+    it('bindGroupReplaced em ready: o Flow segue pronto (sem preparing) e grava com o grupo novo', async () => {
+        const s = await probeReady();
+        const before = s.probe.events.length;
+        const lifecycles: string[] = [];
+        s.scene.events.on('flowSuspended', () => lifecycles.push('suspended'));
+        for (let i = 0; i < 500; i++) s.scene.world.insert(new ProbeBody());
+        s.frame();
+        const replaced = s.probe.events.slice(before).filter((e) => e.type === 'bindGroupReplaced');
+        expect(replaced.length).toBeGreaterThan(0);
+        expect(lifecycles).toEqual([]);
+        expect(s.probe.lifecycle).toBe('ready');
+        expect(s.probe.dispatched.at(-1)).toBe(501);
+        const last = replaced.at(-1)!;
+        expect(last.type === 'bindGroupReplaced' && last.newSpec).not.toBe(
+            last.type === 'bindGroupReplaced' && last.oldSpec,
+        );
+    });
 
-        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 0, frame: 1 });
-        expect(flow.dispatches).toHaveLength(0);
+    it('consumes sem resolver: falha na primeira tentativa de preparação, sem ligar binding vazio', async () => {
+        const counting = countingCore();
+        const s = createScene({ core: counting.core });
+        await s.initialize();
+        s.flows.register(() => new ProbeFlow(probeParams), {
+            type: 'probe',
+            phase: 'physics',
+            bodyType: 'ProbeBody',
+        });
+        s.world.insert(new ProbeCam());
+        expect(() => {
+            s.world.insert(new ProbeBody());
+            s.events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 1 / 60, frame: 1 });
+        }).toThrow(FlowBindingError);
+        expect(counting.stats().creates.get('bindgroup') ?? 0).toBe(0);
+    });
 
-        flow.ready = true;
-        events.emit('frameTick', { dt: 0.016, realDt: 0.016, elapsed: 1, frame: 1 });
-        expect(flow.dispatches).toHaveLength(1);
+    it('pipeline assíncrono: o Flow só entra no quadro depois de compilado', async () => {
+        const s = await probeReady({ pipelines: [probePipeline({ preferAsync: true })] });
+        expect(s.probe.dispatched).toEqual([]);
+        expect(s.probe.lifecycle).not.toBe('ready');
+        await Promise.resolve();
+        await Promise.resolve();
+        s.frame();
+        expect(s.probe.lifecycle).toBe('ready');
+        expect(s.probe.dispatched).toEqual([1]);
+        expect(s.probe.events.map((e) => e.type)).toContain('pipelinesCompiled');
     });
 });

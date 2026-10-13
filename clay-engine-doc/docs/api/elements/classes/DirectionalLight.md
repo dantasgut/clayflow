@@ -6,13 +6,10 @@
 
 # Class: DirectionalLight
 
-Defined in: [elements/scene/DirectionalLight.ts:3](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/DirectionalLight.ts#L3)
+Defined in: [elements/scene/DirectionalLight.ts:8](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/DirectionalLight.ts#L8)
 
-Light é a base de todos os tipos de luz (DirectionalLight, PointLight,
-SpotLight). Compartilham um struct comum coalescível em pool — múltiplas
-lights são lidas simultaneamente por shaders no fragment stage.
-
-`kind` enum interno: 0 = directional, 1 = point, 2 = spot.
+Luz direcional (sol): direção, cor e intensidade. Com `castShadow: true`, anexa o seu `ShadowMap` (matriz da luz,
+vieses e a textura de profundidade), que o estágio de sombra preenche e o render principal amostra.
 
 ## Extends
 
@@ -24,13 +21,13 @@ lights são lidas simultaneamente por shaders no fragment stage.
 
 > **new DirectionalLight**(`values?`): `DirectionalLight`
 
-Defined in: [elements/scene/DirectionalLight.ts:4](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/DirectionalLight.ts#L4)
+Defined in: [elements/scene/DirectionalLight.ts:12](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/DirectionalLight.ts#L12)
 
 #### Parameters
 
 ##### values?
 
-`Record`\<`string`, `unknown`\> = `{}`
+`Record`\<`string`, `unknown`\> & `object` = `{}`
 
 #### Returns
 
@@ -46,7 +43,7 @@ Defined in: [elements/scene/DirectionalLight.ts:4](https://github.com/dantasgut/
 
 > **data**: `Record`\<`string`, `unknown`\> = `{}`
 
-Defined in: [elements/scene/Light.ts:29](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Light.ts#L29)
+Defined in: [elements/scene/Light.ts:29](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Light.ts#L29)
 
 Dados runtime do resource (e.g. Camera position, Material albedo,
 RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
@@ -58,11 +55,21 @@ Mutações devem disparar evento `resourceDirty` para re-upload.
 
 ***
 
+### shadowMap
+
+> `readonly` **shadowMap**: [`ShadowMap`](ShadowMap.md) \| `undefined`
+
+Defined in: [elements/scene/DirectionalLight.ts:10](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/DirectionalLight.ts#L10)
+
+O mapa de sombra anexado (só com `castShadow: true`).
+
+***
+
 ### state
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/Light.ts:28](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Light.ts#L28)
+Defined in: [elements/scene/Light.ts:28](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Light.ts#L28)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -76,7 +83,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/scene/Light.ts:18](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Light.ts#L18)
+Defined in: [elements/scene/Light.ts:18](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Light.ts#L18)
 
 Schema unified — todos os tipos de light usam o mesmo layout.
 
@@ -92,7 +99,7 @@ Schema unified — todos os tipos de light usam o mesmo layout.
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)[]
 
-Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L41)
+Defined in: [scene/contracts/Entity.ts:41](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L41)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -111,7 +118,7 @@ readonly [`Entity`](Entity.md)[]
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/contracts/Entity.ts#L32)
+Defined in: [scene/contracts/Entity.ts:32](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/contracts/Entity.ts#L32)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -136,7 +143,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/Light.ts:32](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Light.ts#L32)
+Defined in: [elements/scene/Light.ts:32](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Light.ts#L32)
 
 Pool storage read-only — fragment shaders iteram sobre o array de lights.
 
@@ -154,7 +161,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/Light.ts:44](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/scene/Light.ts#L44)
+Defined in: [elements/scene/Light.ts:44](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/scene/Light.ts#L44)
 
 Sem pipelines próprios — Light é dado, ForwardFlow é quem itera.
 

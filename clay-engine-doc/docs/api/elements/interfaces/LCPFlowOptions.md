@@ -6,32 +6,21 @@
 
 # Interface: LCPFlowOptions
 
-Defined in: [elements/physics/flows/LCPFlow.ts:60](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L60)
+Defined in: [elements/physics/flows/LCPFlow.ts:96](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L96)
 
 Opções do `LCPFlow`.
 
 ## Properties
 
-### bodiesPoolKey?
-
-> `readonly` `optional` **bodiesPoolKey?**: `string`
-
-Defined in: [elements/physics/flows/LCPFlow.ts:62](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L62)
-
-Pool dos corpos rígidos (default `'LCPSchema'`).
-
-***
-
 ### maxContactsPerBody?
 
 > `readonly` `optional` **maxContactsPerBody?**: `number`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:73](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L73)
+Defined in: [elements/physics/flows/LCPFlow.ts:106](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L106)
 
-Contatos por corpo na capacidade da lista compactada (default 32; uma caixa apoiada gera um contato por canto).
+Contatos por corpo na capacidade da lista compactada (padrão 32; uma caixa apoiada gera um contato por canto).
 Capacidade = `min(corpos × colliders × 8, corpos × maxContactsPerBody, limite de binding do device / 96)`;
-contatos acima dela
-são contados e avisados.
+contatos acima dela são contados e avisados.
 
 ***
 
@@ -39,9 +28,9 @@ são contados e avisados.
 
 > `readonly` `optional` **solveIters?**: `number`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:66](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L66)
+Defined in: [elements/physics/flows/LCPFlow.ts:100](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L100)
 
-Iterações do solve (Jacobi com divisão de massa) por substep (default 8).
+Iterações do solve (Jacobi com divisão de massa) por substep (padrão 8).
 
 ***
 
@@ -49,6 +38,6 @@ Iterações do solve (Jacobi com divisão de massa) por substep (default 8).
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/LCPFlow.ts:64](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/flows/LCPFlow.ts#L64)
+Defined in: [elements/physics/flows/LCPFlow.ts:98](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/flows/LCPFlow.ts#L98)
 
-Substeps de detecção + solve por passo de física (default 4). O passo vem do `Time` da cena.
+Substeps de detecção + solve por passo de física (padrão 4). O passo vem do `Time` da cena.

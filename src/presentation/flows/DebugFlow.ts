@@ -1,8 +1,9 @@
-import type { Frame } from '../../core/contracts/index';
-import { Flow } from '../../scene/flows/Flow';
-import type { Phase } from '../../scene/flows/Flow';
-import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
+import type { Frame } from '../../scene/contracts/gpu';
 import type { EventBus, Unsubscribe } from '../../scene/events/EventBus';
+import { Flow } from '../../scene/flows/Flow';
+import type { TransitionContext } from '../../scene/flows/FlowBinding';
+import type { FlowContext } from '../../scene/flows/FlowRegistry';
+import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 
 export interface ProfilerStatsEvent {
     /** Frames-per-second instantâneo (1/dt). */
@@ -18,6 +19,7 @@ export interface ProfilerStatsEvent {
     readonly stagesNs: Readonly<Record<string, number>>;
 }
 
+/** Opções do `DebugFlow`. */
 export interface DebugFlowOptions {
     /** Emite `profilerStats` ao fim de cada frame quando enabled (default: true). */
     readonly emitStats?: boolean;
@@ -27,16 +29,31 @@ export interface DebugFlowOptions {
     readonly toggleKey?: string;
 }
 
+/** Slots do `DebugFlow` (nenhum). */
+export type DebugSlots = Readonly<Record<string, never>>;
+
+const slots: DebugSlots = {};
+
 /**
  * DebugFlow — overlay opcional de FPS/frame time + emissão periódica de
  * `profilerStats`. Não desenha nada por padrão (flow lightweight); um
  * UIFlow/UiText pode subscrever ao evento e renderizar o texto.
+ *
+ * Sem slots nem pipelines: observa `frameTick` (tempo do quadro) e `frameComplete` (tempos de GPU por passe) no
+ * EventBus da cena desde a construção.
  */
-export class DebugFlow extends Flow {
+export class DebugFlow extends Flow<DebugSlots, 'idle'> {
     readonly type = 'DebugFlow';
-    readonly bodyType = '';
-    readonly phase: Phase = 'forward';
-    override priority = -100;
+    readonly slots = slots;
+    protected readonly initialState = 'idle' as const;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<DebugSlots>> = {
+        '*': {
+            slotsResolved: 'ignore',
+            slotLost: 'ignore',
+            pipelinesCompiled: 'ignore',
+            bindGroupReplaced: 'ignore',
+        },
+    };
 
     private enabled = false;
     private events: EventBus | null = null;
@@ -50,19 +67,16 @@ export class DebugFlow extends Flow {
     private subscriptions: Unsubscribe[] = [];
     private keydownListener: ((ev: KeyboardEvent) => void) | null = null;
 
-    constructor(options: DebugFlowOptions = {}) {
+    constructor(ctx: Pick<FlowContext, 'events'>, options: DebugFlowOptions = {}) {
         super();
         this.emitStats = options.emitStats ?? true;
         this.avgWindow = Math.max(1, options.avgWindow ?? 60);
         this.toggleKey = options.toggleKey ?? 'F1';
+        this.bindEvents(ctx.events);
     }
 
-    /**
-     * Anexa o flow a um EventBus para emitir profilerStats e ouvir a tecla de alternância. Reanexar desfaz as
-     * inscrições anteriores.
-     */
-    bindEvents(events: EventBus): this {
-        this.unbind();
+    /** Inscreve-se no EventBus para emitir profilerStats e ouvir a tecla de alternância. */
+    private bindEvents(events: EventBus): void {
         this.events = events;
         this.subscriptions = [
             events.on('frameTick', (e) => {
@@ -78,7 +92,6 @@ export class DebugFlow extends Flow {
             };
             window.addEventListener('keydown', this.keydownListener);
         }
-        return this;
     }
 
     /** Descarte do estágio: remove as inscrições no EventBus e o ouvinte de teclado. */
@@ -102,14 +115,6 @@ export class DebugFlow extends Flow {
     }
     /** True se DebugFlow está coletando + emitindo stats. */
     isEnabled(): boolean {
-        return this.enabled;
-    }
-
-    getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [];
-    }
-
-    override isReady(): boolean {
         return this.enabled;
     }
 

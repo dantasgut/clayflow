@@ -1,10 +1,12 @@
-import type { BindingLayoutEntry } from '../../core/contracts/index';
-import type { GPUDescriptor, GPUDescriptorRole } from '../descriptors/GPUDescriptor';
-import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
+import type { ComposedShader } from '../shaders/composeWgsl';
+import { stripWgslComments } from '../shaders/scanWgslSymbols';
+
+/** Estágio de shader de uma entrada (`@vertex`, `@fragment`, `@compute`). */
+export type WgslStage = 'vertex' | 'fragment' | 'compute';
 
 /**
- * Binding extraído do parsing WGSL — todos os atributos `@group(N) @binding(M)`
- * declarados no source, com tipo + stages que referenciam.
+ * Binding extraído do WGSL — um `@group(N) @binding(M) var…` declarado no fonte, com o tipo e os estágios cujas
+ * entradas alcançam (por chamadas) uma função que cita a variável.
  */
 export interface WgslBinding {
     /** Slot de bindgroup (`@group(N)`). */
@@ -13,257 +15,310 @@ export interface WgslBinding {
     readonly binding: number;
     /** Nome da variável no WGSL. */
     readonly name: string;
-    /** Address space (uniform/storage/etc.) — opcional, inferido por type. */
-    readonly addressSpace?: 'uniform' | 'storage' | 'private' | 'workgroup' | 'function';
-    /** Access mode para storage buffers (read / write / read_write). */
+    /** Address space (`var<uniform>`, `var<storage>`); ausente em texturas e samplers. */
+    readonly addressSpace?: 'uniform' | 'storage';
+    /** Acesso declarado de um storage buffer (`read` quando omitido). */
     readonly access?: 'read' | 'write' | 'read_write';
-    /** Texto WGSL do tipo (e.g. 'array<vec4f>', 'mat4x4<f32>'). */
+    /** Texto WGSL do tipo (ex.: `array<RigidBody>`, `texture_depth_2d`). */
     readonly typeText: string;
-    /** Set de stages que referenciam este binding (vertex, fragment, compute). */
-    readonly stages: ReadonlySet<'vertex' | 'fragment' | 'compute'>;
+    /** Estágios de todas as entradas do fonte que alcançam um uso da variável. */
+    readonly stages: ReadonlySet<WgslStage>;
 }
 
-/** Resultado do parseWGSL — lista de bindings extraídos. */
+/** Resultado de `parseWGSL`. */
 export interface WgslBindingInfo {
+    /** Bindings na ordem do fonte. */
     readonly bindings: readonly WgslBinding[];
 }
 
-const ATTRIBUTE_PATTERN =
+/** Recurso de uma entrada de layout inferida do tipo WGSL. */
+export type InferredResource =
+    | 'uniform'
+    | 'read-only-storage'
+    | 'storage'
+    | {
+          /** Textura amostrada. */
+          readonly texture: {
+              /** Tipo de amostra (`depth` em `texture_depth_*`; `unfilterable-float` em formatos não filtráveis). */
+              readonly sampleType: 'float' | 'unfilterable-float' | 'depth' | 'sint' | 'uint';
+              /** Dimensão da view. */
+              readonly viewDimension: GPUTextureViewDimension;
+              /** `texture_multisampled_*`. */
+              readonly multisampled: boolean;
+          };
+      }
+    | {
+          /** Textura de storage. */
+          readonly storageTexture: {
+              /** Formato declarado no WGSL. */
+              readonly format: GPUTextureFormat;
+              /** Acesso declarado no WGSL. */
+              readonly access: 'write-only' | 'read-only' | 'read-write';
+              /** Dimensão da view. */
+              readonly viewDimension: GPUTextureViewDimension;
+          };
+      }
+    | {
+          /** Sampler (`sampler_comparison` → `comparison`). */
+          readonly sampler: 'filtering' | 'comparison';
+      };
+
+/** Entrada de layout inferida para um binding usado pelas entradas pedidas. */
+export interface InferredEntry {
+    /** Índice do `@binding`. */
+    readonly binding: number;
+    /** Nome da variável — chave dos bindings privados de um Flow. */
+    readonly name: string;
+    /** Struct (ou elemento de `array<…>`) do binding — chave de `consumes`. */
+    readonly typeName: string;
+    /** Bitmask `GPUShaderStage` dos estágios das entradas pedidas que usam o binding. */
+    readonly visibility: number;
+    /** Tipo de recurso do binding. */
+    readonly resource: InferredResource;
+}
+
+/** Entradas de um `@group(N)`. Grupos sem binding usado ficam com `entries` vazio (o índice é preservado). */
+export interface InferredGroup {
+    /** Índice do `@group`. */
+    readonly group: number;
+    /** Entradas usadas pelas entradas pedidas, em ordem de binding. */
+    readonly entries: readonly InferredEntry[];
+}
+
+/** Layout de um pipeline: um grupo por índice de 0 até o maior grupo usado. */
+export interface InferredLayout {
+    /** Grupos por índice (0 até o maior usado). */
+    readonly groups: readonly InferredGroup[];
+    /** Estágio de cada entrada pedida. */
+    readonly stages: ReadonlyMap<string, WgslStage>;
+}
+
+/** Erro de inferência: entrada inexistente ou tipo de binding que a inferência não sabe ligar. */
+export class LayoutInferenceError extends Error {
+    /** Nome do erro (`'LayoutInferenceError'`). */
+    override readonly name = 'LayoutInferenceError';
+}
+
+const BINDING_PATTERN =
     /@group\s*\(\s*(\d+)\s*\)\s*@binding\s*\(\s*(\d+)\s*\)\s*var(?:\s*<\s*([a-z_]+)(?:\s*,\s*([a-z_]+))?\s*>)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^;]+);/g;
-const ENTRY_PATTERN =
-    /@(?<stage>vertex|fragment|compute)\b(?:\s*@\w+(?:\([^)]*\))?)*\s+fn\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)/g;
+const FN_PATTERN = /((?:@[A-Za-z_]+(?:\s*\([^)]*\))?\s*)*)\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+const CALL_PATTERN = /(?<![@.\w])([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
+const STAGE_BIT: Readonly<Record<WgslStage, number>> = { vertex: 1, fragment: 2, compute: 4 };
+
+interface FnInfo {
+    readonly name: string;
+    readonly stage: WgslStage | undefined;
+    readonly body: string;
+    readonly calls: ReadonlySet<string>;
+}
 
 /**
- * LayoutInferencer extrai a estrutura de bindings de um WGSL source via
- * regex parsing (sem dependência de full WGSL parser). Detecta:
- *   - `@group(N) @binding(M) var<...> name: Type;` → cria WgslBinding.
- *   - `@vertex fn main(...)`, `@fragment fn`, `@compute fn` → identifica stages.
- *   - Quais bindings cada stage referencia (via name lookup nos function bodies).
+ * Inferência de layout da Camada 2 a partir do WGSL montado (`composeWgsl`): grupos, bindings, tipo de cada recurso
+ * e visibilidade. A visibilidade de um binding é a união dos estágios das entradas que **alcançam** — por chamadas
+ * transitivas entre funções de módulo — uma função que cita a variável; usar a variável só numa função auxiliar
+ * conta. É a base da ligação feita pela C2 (`flowBinding`): o estágio nunca escreve layouts à mão.
  *
- * Output (WgslBindingInfo) é usado para gerar layouts/bindgroups
- * automaticamente a partir do shader source — evita declarar layouts
- * manualmente quando a estrutura está toda no shader.
+ * Não é um parser completo de WGSL: varre declarações de módulo (`fn`, `var` com `@group/@binding`) com o fonte sem
+ * comentários, e corpos de função pelo casamento de chaves.
  */
 export class LayoutInferencer {
-    /** Parsa um WGSL source e retorna lista de bindings encontrados. */
+    /** Bindings do fonte com os estágios de todas as entradas que os usam. */
     parseWGSL(source: string): WgslBindingInfo {
-        const bindings: WgslBinding[] = [];
-        const stageBlocks = this.collectEntryBlocks(source);
-
-        let match: RegExpExecArray | null;
-        const re = new RegExp(ATTRIBUTE_PATTERN.source, 'g');
-        while ((match = re.exec(source)) !== null) {
-            const [, groupStr, bindingStr, addressSpace, access, name, typeText] = match;
-            const stages = new Set<'vertex' | 'fragment' | 'compute'>();
-            for (const block of stageBlocks) {
-                if (block.referencesIdentifier(name ?? '')) stages.add(block.stage);
-            }
-            const binding = {
-                group: Number(groupStr),
-                binding: Number(bindingStr),
-                name: name ?? '',
-                typeText: (typeText ?? '').trim(),
-                stages,
-            } as WgslBinding & {
-                addressSpace?: WgslBinding['addressSpace'];
-                access?: WgslBinding['access'];
-            };
-            if (addressSpace !== undefined) {
-                (binding as { addressSpace: WgslBinding['addressSpace'] }).addressSpace =
-                    addressSpace as WgslBinding['addressSpace'];
-            }
-            if (access !== undefined) {
-                (binding as { access: WgslBinding['access'] }).access =
-                    access as WgslBinding['access'];
-            }
-            bindings.push(binding);
-        }
-
-        return { bindings };
-    }
-
-    /**
-     * Mapeia o role declarado no GPUDescriptor para o bitmask `GPUBufferUsage.*`
-     * que será passado a `device.createBuffer({usage})`. Storage/vertex/index
-     * incluem COPY_SRC|COPY_DST para suportar readback e CPU writes.
-     */
-    inferUsageFromRole(role: GPUDescriptorRole): number {
-        const U = GPUBufferUsage;
-        switch (role) {
-            case 'uniform':
-                return U.UNIFORM | U.COPY_DST;
-            case 'storage-rw':
-            case 'storage-ro':
-                return U.STORAGE | U.COPY_SRC | U.COPY_DST;
-            case 'vertex':
-                return U.VERTEX | U.STORAGE | U.COPY_SRC | U.COPY_DST;
-            case 'index':
-                return U.INDEX | U.STORAGE | U.COPY_SRC | U.COPY_DST;
-            case 'indirect':
-                return U.INDIRECT | U.STORAGE | U.COPY_SRC | U.COPY_DST;
-            case 'staging':
-                return U.COPY_DST | U.MAP_READ;
-            case 'texture':
-            case 'storage-texture':
-            case 'sampler':
-            default:
-                return 0;
-        }
-    }
-
-    /**
-     * Deriva uma `BindingLayoutEntry` (binding + visibility + type-specific
-     * config) combinando informação do GPUDescriptor (role) e WgslBinding
-     * opcional (stages que usam o binding). Quando os dois conflitam, o
-     * GPUDescriptor explícito tem precedência.
-     */
-    inferLayoutEntry(
-        descriptor: GPUDescriptor,
-        binding: WgslBinding | undefined,
-        bindingIndex: number,
-    ): BindingLayoutEntry {
-        const visibility = this.visibilityFromBindingOrDescriptor(descriptor, binding);
-        const bindingNumber = descriptor.binding ?? binding?.binding ?? bindingIndex;
-        switch (descriptor.role) {
-            case 'uniform':
-                return {
-                    binding: bindingNumber,
-                    visibility,
-                    kind: 'buffer',
-                    type: 'uniform',
-                };
-            case 'storage-ro':
-                return {
-                    binding: bindingNumber,
-                    visibility,
-                    kind: 'buffer',
-                    type: 'read-only-storage',
-                };
-            case 'storage-rw':
-                return {
-                    binding: bindingNumber,
-                    visibility,
-                    kind: 'buffer',
-                    type: 'storage',
-                };
-            case 'sampler':
-                return {
-                    binding: bindingNumber,
-                    visibility,
-                    kind: 'sampler',
-                    type: 'filtering',
-                };
-            case 'texture':
-                return {
-                    binding: bindingNumber,
-                    visibility,
-                    kind: 'texture',
-                    sampleType: 'float',
-                    viewDimension: descriptor.textureShape?.viewDimension ?? '2d',
-                };
-            case 'storage-texture': {
-                if (descriptor.textureShape === undefined) {
-                    throw new Error(
-                        `LayoutInferencer: storage-texture descriptor '${descriptor.id}' missing textureShape`,
-                    );
+        const code = stripWgslComments(source);
+        const fns = collectFunctions(code);
+        const entries = [...fns.values()].filter((f) => f.stage !== undefined);
+        return {
+            bindings: collectBindings(code).map((b) => {
+                const stages = new Set<WgslStage>();
+                for (const e of entries) {
+                    if (reachesUse(e.name, b.name, fns)) stages.add(e.stage!);
                 }
-                return {
-                    binding: bindingNumber,
-                    visibility,
-                    kind: 'storage-texture',
-                    access: descriptor.textureShape.access ?? 'write-only',
-                    format: descriptor.textureShape.format,
-                    viewDimension: descriptor.textureShape.viewDimension ?? '2d',
-                };
-            }
-            default:
-                throw new Error(
-                    `LayoutInferencer: cannot derive layout entry for role '${descriptor.role}'`,
-                );
-        }
-    }
-
-    private visibilityFromBindingOrDescriptor(
-        descriptor: GPUDescriptor,
-        binding: WgslBinding | undefined,
-    ): number {
-        if (descriptor.visibility !== undefined) return descriptor.visibility;
-        if (binding === undefined)
-            return GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE;
-        let v = 0;
-        if (binding.stages.has('vertex')) v |= GPUShaderStage.VERTEX;
-        if (binding.stages.has('fragment')) v |= GPUShaderStage.FRAGMENT;
-        if (binding.stages.has('compute')) v |= GPUShaderStage.COMPUTE;
-        return v === 0
-            ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE
-            : v;
+                return { ...b, stages };
+            }),
+        };
     }
 
     /**
-     * Parsa o WGSL source e mapeia cada entry point declarado em
-     * `pipeline.entryPoints` para seu stage (`vertex`/`fragment`/`compute`),
-     * lendo a annotation `@vertex`/`@fragment`/`@compute` antes de cada `fn`.
+     * Layout das entradas `entryPoints` de um shader montado: só os bindings usados por elas, com visibilidade dos
+     * estágios delas. Grupos sem uso entre 0 e o maior grupo usado aparecem vazios (o índice do `@group` é o índice
+     * do layout no pipeline).
+     *
+     * @throws LayoutInferenceError se uma entrada não é função de entrada do fonte, ou se o tipo de um binding usado
+     *   não é ligável (ex.: `texture_external`).
      */
-    extractEntryStages(
-        source: string,
-        pipeline: PipelineDescriptor,
-    ): Map<string, 'vertex' | 'fragment' | 'compute'> {
-        const out = new Map<string, 'vertex' | 'fragment' | 'compute'>();
-        const re = new RegExp(ENTRY_PATTERN.source, 'g');
-        let match: RegExpExecArray | null;
-        while ((match = re.exec(source)) !== null) {
-            const stage = match.groups?.stage as 'vertex' | 'fragment' | 'compute' | undefined;
-            const name = match.groups?.name;
-            if (stage !== undefined && name !== undefined) out.set(name, stage);
-        }
-        for (const ep of pipeline.entryPoints) {
-            if (!out.has(ep)) {
-                const fallback: 'compute' | 'vertex' =
-                    pipeline.role === 'compute' ? 'compute' : 'vertex';
-                out.set(ep, fallback);
+    infer(shader: ComposedShader | string, entryPoints: readonly string[]): InferredLayout {
+        const source = typeof shader === 'string' ? shader : shader.spec.source;
+        const code = stripWgslComments(source);
+        const fns = collectFunctions(code);
+        for (const ep of entryPoints) {
+            if (fns.get(ep)?.stage === undefined) {
+                throw new LayoutInferenceError(
+                    `LayoutInferencer: entrada '${ep}' não é função @vertex/@fragment/@compute do shader.`,
+                );
             }
         }
-        return out;
-    }
-
-    private collectEntryBlocks(
-        source: string,
-    ): { stage: 'vertex' | 'fragment' | 'compute'; referencesIdentifier(name: string): boolean }[] {
-        const blocks: {
-            stage: 'vertex' | 'fragment' | 'compute';
-            referencesIdentifier(name: string): boolean;
-        }[] = [];
-        const re = new RegExp(ENTRY_PATTERN.source, 'g');
-        let match: RegExpExecArray | null;
-        while ((match = re.exec(source)) !== null) {
-            const stage = match.groups?.stage as 'vertex' | 'fragment' | 'compute' | undefined;
-            if (stage === undefined) continue;
-            const start = source.indexOf('{', match.index);
-            if (start < 0) continue;
-            const end = this.findMatchingBrace(source, start);
-            const body = end > start ? source.slice(start, end + 1) : '';
-            blocks.push({
-                stage,
-                referencesIdentifier(name: string): boolean {
-                    if (name === '') return false;
-                    const wordRe = new RegExp(`\\b${name}\\b`);
-                    return wordRe.test(body);
-                },
+        const byGroup = new Map<number, InferredEntry[]>();
+        let maxGroup = -1;
+        for (const b of collectBindings(code)) {
+            let visibility = 0;
+            for (const ep of entryPoints) {
+                if (reachesUse(ep, b.name, fns)) visibility |= STAGE_BIT[fns.get(ep)!.stage!];
+            }
+            if (visibility === 0) continue;
+            const list = byGroup.get(b.group) ?? [];
+            list.push({
+                binding: b.binding,
+                name: b.name,
+                typeName: typeNameOf(b.typeText),
+                visibility,
+                resource: resourceOf(b),
             });
+            byGroup.set(b.group, list);
+            maxGroup = Math.max(maxGroup, b.group);
         }
-        return blocks;
+        const groups: InferredGroup[] = [];
+        for (let g = 0; g <= maxGroup; g++) {
+            const entries = (byGroup.get(g) ?? []).sort((a, b) => a.binding - b.binding);
+            groups.push({ group: g, entries });
+        }
+        const stages = new Map(entryPoints.map((ep) => [ep, fns.get(ep)!.stage!]));
+        return { groups, stages };
     }
+}
 
-    private findMatchingBrace(source: string, openIdx: number): number {
-        let depth = 0;
-        for (let i = openIdx; i < source.length; i++) {
-            const c = source[i];
-            if (c === '{') depth++;
-            else if (c === '}') {
-                depth--;
-                if (depth === 0) return i;
-            }
-        }
-        return -1;
+type ParsedBinding = Omit<WgslBinding, 'stages'>;
+
+function collectBindings(code: string): ParsedBinding[] {
+    const out: ParsedBinding[] = [];
+    for (const m of code.matchAll(BINDING_PATTERN)) {
+        const [, group, binding, space, access, name, typeText] = m;
+        out.push({
+            group: Number(group),
+            binding: Number(binding),
+            name: name!,
+            typeText: typeText!.trim(),
+            ...(space === 'uniform' || space === 'storage' ? { addressSpace: space } : {}),
+            ...(space === 'storage'
+                ? { access: (access ?? 'read') as NonNullable<WgslBinding['access']> }
+                : {}),
+        });
     }
+    return out;
+}
+
+function collectFunctions(code: string): Map<string, FnInfo> {
+    const fns = new Map<string, FnInfo>();
+    for (const m of code.matchAll(FN_PATTERN)) {
+        const attrs = m[1] ?? '';
+        const name = m[2]!;
+        const open = code.indexOf('{', m.index + m[0].length);
+        if (open < 0) continue;
+        const close = matchingBrace(code, open);
+        const body = code.slice(open, close + 1);
+        const stage = /@vertex\b/.test(attrs)
+            ? 'vertex'
+            : /@fragment\b/.test(attrs)
+              ? 'fragment'
+              : /@compute\b/.test(attrs)
+                ? 'compute'
+                : undefined;
+        const calls = new Set<string>();
+        for (const c of body.matchAll(CALL_PATTERN)) calls.add(c[1]!);
+        fns.set(name, { name, stage, body, calls });
+    }
+    return fns;
+}
+
+function matchingBrace(code: string, open: number): number {
+    let depth = 0;
+    for (let i = open; i < code.length; i++) {
+        if (code[i] === '{') depth++;
+        else if (code[i] === '}' && --depth === 0) return i;
+    }
+    return code.length - 1;
+}
+
+/** A entrada `entry` alcança (ela ou uma função chamada transitivamente) um uso de `name`? */
+function reachesUse(entry: string, name: string, fns: ReadonlyMap<string, FnInfo>): boolean {
+    const word = new RegExp(`(?<![.\\w])${name}\\b`);
+    const seen = new Set<string>();
+    const stack = [entry];
+    while (stack.length > 0) {
+        const fn = fns.get(stack.pop()!);
+        if (fn === undefined || seen.has(fn.name)) continue;
+        seen.add(fn.name);
+        if (word.test(fn.body)) return true;
+        for (const c of fn.calls) if (fns.has(c)) stack.push(c);
+    }
+    return false;
+}
+
+/** Struct do binding: o elemento de `array<T>`/`array<T, N>`, senão o próprio tipo. */
+function typeNameOf(typeText: string): string {
+    const t = typeText.replace(/\s+/g, ' ').trim();
+    const array = /^array\s*<\s*(.+?)\s*(?:,\s*[^,<>]+)?>$/.exec(t);
+    return array !== null ? array[1]!.trim() : t;
+}
+
+const SAMPLE_TYPE: Readonly<Record<string, 'float' | 'sint' | 'uint'>> = {
+    f32: 'float',
+    i32: 'sint',
+    u32: 'uint',
+};
+
+const ACCESS: Readonly<Record<string, 'write-only' | 'read-only' | 'read-write'>> = {
+    write: 'write-only',
+    read: 'read-only',
+    read_write: 'read-write',
+};
+
+function viewDimensionOf(kind: string): GPUTextureViewDimension {
+    if (kind.endsWith('2d_array')) return '2d-array';
+    if (kind.endsWith('cube_array')) return 'cube-array';
+    if (kind.endsWith('cube')) return 'cube';
+    if (kind.endsWith('3d')) return '3d';
+    if (kind.endsWith('1d')) return '1d';
+    return '2d';
+}
+
+function resourceOf(b: ParsedBinding): InferredResource {
+    if (b.addressSpace === 'uniform') return 'uniform';
+    if (b.addressSpace === 'storage') return b.access === 'read' ? 'read-only-storage' : 'storage';
+    const t = b.typeText.replace(/\s+/g, '');
+    if (t === 'sampler') return { sampler: 'filtering' };
+    if (t === 'sampler_comparison') return { sampler: 'comparison' };
+    const storage = /^(texture_storage_\w+)<(\w+),(\w+)>$/.exec(t);
+    if (storage !== null) {
+        return {
+            storageTexture: {
+                format: storage[2] as GPUTextureFormat,
+                access: ACCESS[storage[3]!] ?? 'write-only',
+                viewDimension: viewDimensionOf(storage[1]!),
+            },
+        };
+    }
+    const depth = /^(texture_depth(?:_multisampled)?_\w+)$/.exec(t);
+    if (depth !== null) {
+        return {
+            texture: {
+                sampleType: 'depth',
+                viewDimension: viewDimensionOf(depth[1]!),
+                multisampled: depth[1]!.includes('multisampled'),
+            },
+        };
+    }
+    const sampled = /^(texture_(?:multisampled_)?\w+)<(\w+)>$/.exec(t);
+    if (sampled !== null) {
+        return {
+            texture: {
+                sampleType: SAMPLE_TYPE[sampled[2]!] ?? 'float',
+                viewDimension: viewDimensionOf(sampled[1]!),
+                multisampled: sampled[1]!.includes('multisampled'),
+            },
+        };
+    }
+    throw new LayoutInferenceError(
+        `LayoutInferencer: binding '${b.name}' (@group(${b.group}) @binding(${b.binding})) com tipo '${b.typeText}' não é ligável.`,
+    );
 }

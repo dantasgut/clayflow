@@ -17,7 +17,7 @@ describe('liberação de ouvintes (R14)', () => {
         const events = new DefaultEventBus();
         const add = vi.spyOn(window, 'addEventListener');
         const remove = vi.spyOn(window, 'removeEventListener');
-        const debug = new DebugFlow().bindEvents(events);
+        const debug = new DebugFlow({ events });
         expect(events.listenerCount('frameTick')).toBe(1);
         expect(events.listenerCount('frameComplete')).toBe(1);
         const keydown = add.mock.calls.find((c) => c[0] === 'keydown')?.[1];
@@ -26,9 +26,9 @@ describe('liberação de ouvintes (R14)', () => {
         expect(remove).toHaveBeenCalledWith('keydown', keydown);
     });
 
-    it('DebugFlow.bindEvents duas vezes não duplica ouvintes', () => {
+    it('DebugFlow se inscreve uma vez, na construção', () => {
         const events = new DefaultEventBus();
-        const debug = new DebugFlow().bindEvents(events).bindEvents(events);
+        const debug = new DebugFlow({ events });
         expect(events.listenerCount()).toBe(2);
         debug.dispose();
     });

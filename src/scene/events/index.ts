@@ -3,6 +3,8 @@ export type {
     EventMap,
     EventName,
     FlowReadyPayload,
+    FlowSuspendedPayload,
+    PoolCreatedPayload,
     ResourceReadyPayload,
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
@@ -11,6 +13,7 @@ export type {
     ProfilerStatsPayload,
     EngineErrorPayload,
     DeviceLostPayload,
+    FrameRetiredPayload,
     DeviceRecoveredPayload,
     MemoryWarningPayload,
 } from './EventMap';

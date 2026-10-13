@@ -2,14 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { PrefixSum, scanLevelCounts } from '../compute/PrefixSum';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
-const buffer = (discriminator: string, byteSize = 1 << 20): StorageBufferSpec => ({
-    kind: 'buffer',
-    subkind: 'storage',
-    discriminator,
-    byteSize,
-});
+/** Buffers de teste por nome — o mesmo objeto a cada chamada (a preparação reconhece o buffer pela identidade). */
+const buffers = new Map<string, StorageBufferSpec>();
+const buffer = (discriminator: string): StorageBufferSpec => {
+    let b = buffers.get(discriminator);
+    if (b === undefined) {
+        b = { kind: 'buffer', subkind: 'storage', discriminator, byteSize: 1 << 20 };
+        buffers.set(discriminator, b);
+    }
+    return b;
+};
 
 const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
 
@@ -81,6 +85,7 @@ describe('PrefixSum — níveis', () => {
 
     it('buffers dos níveis acima do 0 dimensionados pela capacidade', () => {
         const { scan, created } = setup(262_144);
+        scan.prepare(buffer('a'));
         scan.record(recordingFrame().frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
         const levels = created()
             .filter((s) => disc(s).startsWith('ps:scan_level:'))
@@ -122,6 +127,7 @@ describe('PrefixSum — gravação', () => {
     it('sequência: scan_local subindo, scan_top no topo, scan_combine descendo', () => {
         const { scan } = setup(262_144);
         const rec = recordingFrame();
+        scan.prepare(buffer('a'));
         scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 262_144 });
         expect(rec.passes.map((p) => [p.label, p.dispatches[0]])).toEqual([
             ['PrefixSum.scan_local', [262_144, 256]],
@@ -135,6 +141,7 @@ describe('PrefixSum — gravação', () => {
     it('níveis pela contagem da chamada, não pela capacidade', () => {
         const { scan } = setup(262_144);
         const rec = recordingFrame();
+        scan.prepare(buffer('a'));
         scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 300 });
         expect(rec.passes.map((p) => p.label)).toEqual([
             'PrefixSum.scan_local',
@@ -145,6 +152,8 @@ describe('PrefixSum — gravação', () => {
 
     it('src ≠ dst copia antes; no lugar não copia', () => {
         const { scan } = setup(1000);
+        scan.prepare(buffer('b'));
+        scan.prepare(buffer('c'));
         const separate = recordingFrame();
         scan.record(separate.frame, { src: buffer('a'), dst: buffer('b'), count: 1000 });
         expect(separate.copies).toBe(1);
@@ -156,6 +165,7 @@ describe('PrefixSum — gravação', () => {
 
     it('modo inclusivo só no nível 0; cada nível com a sua região', () => {
         const { scan, writes } = setup(70_000);
+        scan.prepare(buffer('a'));
         scan.record(recordingFrame().frame, {
             src: buffer('a'),
             dst: buffer('a'),
@@ -172,12 +182,15 @@ describe('PrefixSum — gravação', () => {
     it('offset dinâmico de cada passe = região do seu nível', () => {
         const { scan } = setup(70_000);
         const rec = recordingFrame();
+        scan.prepare(buffer('a'));
         scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 70_000 });
         expect(rec.passes.map((p) => p.offsets[0]?.[0])).toEqual([0, 256, 512, 256, 0]);
     });
 
     it('duas chamadas no mesmo quadro usam regiões distintas; quadro novo recomeça da região 0', () => {
         const { scan, writes } = setup(1000);
+        scan.prepare(buffer('a'), 2);
+        scan.prepare(buffer('b'), 2);
         const rec = recordingFrame();
         scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 1000 });
         scan.record(rec.frame, { src: buffer('b'), dst: buffer('b'), count: 10 });
@@ -198,21 +211,41 @@ describe('PrefixSum — gravação', () => {
         ]);
     });
 
-    it('crescimento no meio do quadro: buffer anterior destruído só no quadro seguinte', () => {
-        const { scan, destroyed } = setup(10);
+    it('gravar sem prepare → erro; passar das regiões reservadas → RangeError (nada é criado na gravação)', () => {
+        const { scan, core } = setup(10);
+        expect(() => {
+            scan.record(recordingFrame().frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
+        }).toThrow(/prepare/);
+        scan.prepare(buffer('a'), 2);
+        const created = (core.create as unknown as { mock: { calls: unknown[] } }).mock.calls
+            .length;
         const rec = recordingFrame();
-        for (let i = 0; i < 9; i++) {
+        scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
+        scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
+        expect((core.create as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(
+            created,
+        );
+        expect(() => {
             scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
-        }
-        // 9 chamadas × 2 níveis = 18 regiões > 16 iniciais.
-        const uniformsDestroyed = () => destroyed().filter((d) => d.includes(':frame_uniforms:'));
-        expect(uniformsDestroyed()).toEqual([]);
-        scan.record(recordingFrame().frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
-        expect(uniformsDestroyed()).toEqual(['ps:scan:frame_uniforms:1']);
+        }).toThrow(/reserve/);
+    });
+
+    it('prepare com mais gravações por quadro recria o uniform e os kernels (fora da gravação)', () => {
+        const { scan, destroyed } = setup(10);
+        scan.prepare(buffer('a'), 1);
+        scan.prepare(buffer('a'), 4);
+        expect(destroyed().filter((d) => d.includes(':frame_uniforms:'))).toEqual([
+            'ps:scan:frame_uniforms:1',
+        ]);
+        expect(destroyed().filter((d) => d.endsWith('_pipeline')).length).toBeGreaterThan(0);
+        const rec = recordingFrame();
+        for (let i = 0; i < 4; i++)
+            scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
     });
 
     it('destroy libera níveis e uniforms', () => {
         const { scan, destroyed } = setup(262_144);
+        scan.prepare(buffer('a'));
         scan.record(recordingFrame().frame, { src: buffer('a'), dst: buffer('a'), count: 262_144 });
         scan.destroy();
         expect(destroyed().filter((d) => d.startsWith('ps:scan_level:'))).toHaveLength(2);

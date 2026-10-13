@@ -33,7 +33,7 @@ são verificados por `npm run typecheck:bench`.
 | `bigMesh.ts`        | Spec 004: `ParametricGeometry` 300 × 300 (90 601 vértices) com índices `uint32` cobre 100% da área projetada nas duas metades (a de cima usa vértices de índice ≥ 65 536 — com `uint16` truncado cai para ~48%) (SC-008).                                                                                                                                                                                                                                                                                                                                                                                                                                                              | ~1s          |
 | `churn.ts`          | Spec 004: 100 ciclos de inserir, desenhar e remover 1 000 objetos (com sombra): memória de GPU volta à referência do 1º ciclo (±1%) e a contagem de ouvintes fica estável (SC-006). Sem a liberação por entidade, cresce para ~1,2 GB e falha.                                                                                                                                                                                                                                                                                                                                                                                                                                         | ~25s         |
 | `rigidContacts.ts`  | Spec 004: pilhas de esferas e caixas (grade, camadas) num recinto estático com 1 000 e 10 000 corpos, 12 s simulados: nenhum atravessa o chão (≤ folga + 1 cm) nem sai do recinto; ≥ 99% em repouso (< 0,05 m/s), média < 0,01 m/s, nenhum > 1 m/s; sem excedente de contatos (SC-013). Registra GPU+CPU por quadro e memória. Medido (perfil apple-metal-3): 1k — 8,2 ms/quadro, 100% em repouso, 5,7 MiB; 10k — 223,7 ms/quadro, 99,87% em repouso, 70,5 MiB.                                                                                                                                                                                                                        | ~30s         |
-| `trajectories.ts`   | Spec 005: LCP, XPBD (corrente presa), FEM, MPM sólido e fluido, SPH e PBF (tanque com paredes) por 240 passos de `app.step(1/60)`; critérios físicos por cena (sem NaN, no domínio, acima do chão, fluidos assentados, SPH com densidade mediana em ±15% de ρ₀, elos XPBD em ±5%) e comparação bit a bit com a fixture `fixtures/trajectories-<perfil>.{bin,json}`. `--record` roda cada cena duas vezes (exige determinismo) e grava.                                                                                                                                                                                                                                                 | ~3s          |
+| `trajectories.ts`   | Spec 005: LCP, XPBD (corrente presa), FEM, MPM sólido e fluido, SPH e PBF (tanque com paredes) por 240 passos fixos de 1/60 s, comparados com quadros de 1/60, 1/30 e 1/144 s (spec 006, FR-027: mesma trajetória em qualquer taxa); critérios físicos por cena (sem NaN, no domínio, acima do chão, fluidos assentados, SPH com densidade mediana em ±15% de ρ₀, elos XPBD em ±5%) e comparação bit a bit com a fixture `fixtures/trajectories-<perfil>.{bin,json}`. `--record` roda cada cena duas vezes (exige determinismo) e grava.                                                                                                                                               | ~3s          |
 | `render.ts`         | Spec 005: forward (StandardMaterial, WireframeMaterial, sombra), cada efeito de pós isolado e UI, um quadro por cena por `app.step`; pixels comparados com `fixtures/render-<cena>-<perfil>.png` (igualdade exata). `--record` exige duas renderizações idênticas e grava.                                                                                                                                                                                                                                                                                                                                                                                                             | ~1s          |
 | `shaderLibrary.ts`  | Spec 005: cada módulo da `wgslLib` compila sozinho num kernel de teste; valores na GPU contra referência em CPU (256 entradas por caso, erro relativo) para quat, linalg, mat (inclui decomposição polar com partida a quente), sdf, núcleos SPH, pesos MPM (partição da unidade), FEM, ruído (contra `support/noiseReference.ts`), cor, BRDF e XPBD/LCP; para cada schema do motor (40), um kernel grava sentinelas campo a campo no struct gerado e a CPU confere cada `offsetOf` (layout TS ≡ WGSL).                                                                                                                                                                                | ~1s          |
 | `computeKernels.ts` | Spec 005: kernels genéricos contra CPU — `PrefixSum` (N até 70 000 × 256 > 65 535 grupos, exclusiva/inclusiva, entrada preservada), `RadixSort` (N até 4 M; chaves aleatórias/iguais/decrescentes; 8 e 32 bits; estável), `Compaction` (50%/1%, atômica e estável, capacidade excedida sem escrita além), `Reduce` (sum/min/max × u32/i32/f32), `GraphColorer` (grade 2D, malha de tetraedros, grafo aleatório de 1 M arestas: válida, ≤ 2Δ − 1 cores, intervalos cobrem todas as arestas; laço rejeitado), `fixed_point` (1 M contribuições iguais à CPU, saturação). Medido (apple-metal-3): PrefixSum 4 M 1,9 ms; RadixSort 4 M (32 bits) 8,5 ms; 1 M arestas → 40 cores em ~50 ms. | ~9s          |
@@ -54,6 +54,41 @@ Os 13 smokes passam no código-fonte e sobre o build minificado (`npm run build:
 | `GraphColorer` 1 M arestas (Δ = 40) | 40 cores, 46 ms | —        |
 
 A referência da 004 para `rigidContacts` 10k é 223,7 ms; a diferença entre execuções fica em ±3%.
+
+## Spec 006 — render em slots (T048, perfil apple-metal-3, 2026-10-12)
+
+Com `ShadowFlow`, `ForwardFlow` e `PostFlow` no modelo de slots (sem objeto de GPU por entidade; alvos do quadro em
+`FrameTargets`), `npm run smoke -- render,churn,bigMesh,integration` passa: as 10 cenas de `render` saem com pixels
+idênticos às fixtures da 005; `churn` fica em 5,29 MiB e 22 ouvintes do 1º ao 100º ciclo (variação 0,000%); `bigMesh`
+desenha 90 601 vértices com índice `uint32` e cobertura de 100%; `integration` roda 30 quadros com 4 efeitos e 0 erros.
+
+## Spec 006 — todos os Flows em slots (T054, perfil apple-metal-3, 2026-10-12)
+
+Com o caminho legado removido (todos os estágios registrados por factory), `npm run smoke --
+trajectories,render,churn,limits,rigidContacts,multiApp,stress60s,shaderLibrary,computeKernels` passa: trajetórias
+bit a bit nas 7 cenas a 30/60/144 Hz; `render` com as 10 cenas idênticas (UI inclusive); `churn` estável; `stress60s`
+com 3600 quadros, 8 efeitos, 0 erros e memória 11,40 MiB → 11,40 MiB; `rigidContacts` 1k em 9,1 ms e 10k em
+199,7 ms por quadro (GPU+CPU; referência da 005: 8,4 e 220,5 ms), 100,00% e 99,87% em repouso; `shaderLibrary` (14
+módulos, 47 schemas) e `computeKernels` (PrefixSum 4 M 2,18 ms, RadixSort 4 M 8,57 ms) verdes.
+
+## Spec 006 — fechamento (T067, perfil apple-metal-3, 2026-10-12)
+
+Os 13 smokes passam no código-fonte e sobre o build minificado (`npm run build:lib && npm run smoke -- … --dist`):
+`time`, `transforms`, `integration`, `multiApp`, `limits`, `churn`, `bigMesh`, `rigidContacts`, `stress60s`,
+`trajectories` (bit a bit nas 7 cenas a 30, 60 e 144 Hz), `render` (10 cenas com pixels idênticos às fixtures da 005),
+`shaderLibrary`, `computeKernels`. `dist/index.js`: 564,75 kB (144,78 kB gzip).
+
+| Medida                              | Código-fonte      | `--dist`          |
+| ----------------------------------- | ----------------- | ----------------- |
+| `rigidContacts` 1k (GPU+CPU/quadro) | 8,6 ms            | 9,0 ms            |
+| `rigidContacts` 10k                 | 199,7–233,7 ms    | 208,2 ms          |
+| `stress60s` memória                 | 11,40 → 11,40 MiB | 11,40 → 11,40 MiB |
+| `PrefixSum` 4 M                     | 1,88 ms           | —                 |
+| `RadixSort` 4 M (32 bits)           | 8,58 ms           | —                 |
+
+O `rigidContacts` 10k foi medido com a máquina carregada (outro processo a 100% de CPU); entre execuções variou de
+199,7 a 233,7 ms no código-fonte (referência da 005: 220,5 ms). A comparação de desempenho de referência é a da T068
+(`bench:check`).
 
 ## Convenção de logs
 

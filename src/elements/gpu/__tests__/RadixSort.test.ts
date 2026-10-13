@@ -2,18 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { RadixSort } from '../compute/RadixSort';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
-const buffer = (discriminator: string): StorageBufferSpec => ({
-    kind: 'buffer',
-    subkind: 'storage',
-    discriminator,
-    byteSize: 1 << 20,
-});
+/** Buffers de teste por nome — o mesmo objeto a cada chamada (a preparação reconhece o buffer pela identidade). */
+const buffers = new Map<string, StorageBufferSpec>();
+const buffer = (discriminator: string): StorageBufferSpec => {
+    let b = buffers.get(discriminator);
+    if (b === undefined) {
+        b = { kind: 'buffer', subkind: 'storage', discriminator, byteSize: 1 << 20 };
+        buffers.set(discriminator, b);
+    }
+    return b;
+};
 
+/** Ordenação preparada para as chaves `k` (e valores `v` com `withValues`). */
 function setup(capacity: number, withValues = false) {
     const { core, writes } = fakeResourceCore();
     const sort = new RadixSort(core, { discriminator: 'rs', capacity, withValues });
+    sort.prepare(buffer('k'), withValues ? buffer('v') : undefined);
     return { core, writes, sort };
 }
 
@@ -89,6 +95,9 @@ describe('RadixSort — validação', () => {
 
     it('values exige withValues, e withValues exige values', () => {
         expect(() => {
+            setup(100).sort.prepare(buffer('k'), buffer('v'));
+        }).toThrow(/withValues/);
+        expect(() => {
             setup(100).sort.record(recordingFrame().frame, {
                 keys: buffer('k'),
                 values: buffer('v'),
@@ -98,6 +107,21 @@ describe('RadixSort — validação', () => {
         expect(() => {
             setup(100, true).sort.record(recordingFrame().frame, { keys: buffer('k'), count: 10 });
         }).toThrow(/values/);
+    });
+});
+
+describe('RadixSort — duas fases', () => {
+    it('chaves não preparadas → erro; a gravação não cria objetos de GPU', () => {
+        const { sort, core } = setup(1000);
+        expect(() => {
+            sort.record(recordingFrame().frame, { keys: buffer('outra'), count: 10 });
+        }).toThrow(/prepare/);
+        const created = (core.create as unknown as { mock: { calls: unknown[] } }).mock.calls
+            .length;
+        sort.record(recordingFrame().frame, { keys: buffer('k'), count: 1000 });
+        expect((core.create as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(
+            created,
+        );
     });
 });
 

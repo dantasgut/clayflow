@@ -6,7 +6,7 @@
 
 # Class: FlyController
 
-Defined in: [presentation/input/controllers/FlyController.ts:30](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/controllers/FlyController.ts#L30)
+Defined in: [presentation/input/controllers/FlyController.ts:30](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/controllers/FlyController.ts#L30)
 
 Base abstrata de controllers (OrbitController, FpsController, FlyController).
 Subclasses implementam `update(ctx)` chamado pelo InteractionSystem
@@ -23,7 +23,7 @@ Transform) conforme input.
 
 > **new FlyController**(`camera`, `options?`): `FlyController`
 
-Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/controllers/FlyController.ts#L38)
+Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/controllers/FlyController.ts#L38)
 
 #### Parameters
 
@@ -49,7 +49,7 @@ Defined in: [presentation/input/controllers/FlyController.ts:38](https://github.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/InputDrivenController.ts:25](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/InputDrivenController.ts#L25)
+Defined in: [presentation/input/InputDrivenController.ts:25](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/InputDrivenController.ts#L25)
 
 Remove ouvintes de DOM que o controller registrou. Default: no-op.
 
@@ -67,7 +67,7 @@ Remove ouvintes de DOM que o controller registrou. Default: no-op.
 
 > **update**(`ctx`): `void`
 
-Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/input/controllers/FlyController.ts#L55)
+Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/input/controllers/FlyController.ts#L55)
 
 Hook chamado a cada frameTick — leia input, atualize state externo.
 

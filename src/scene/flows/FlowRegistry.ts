@@ -1,134 +1,272 @@
-import type { Flow, Phase } from './Flow';
+import type { EngineCore } from '../../core/contracts/index';
+import type { ResourceDirectory } from '../contracts/ResourceDirectory';
+import type { EventBus, Unsubscribe } from '../events/EventBus';
+import type { World } from '../world/World';
+import { type Flow } from './Flow';
+import { PHASE_ORDER, type Phase } from './Phase';
 
-interface RegisteredFlow {
-    readonly flow: Flow;
-    readonly priority: number;
+/** O que uma factory recebe para construir o Flow. */
+export interface FlowContext {
+    /** Core da cena (criação dos recursos privados do Flow). */
+    readonly core: EngineCore;
+    /** World da cena. */
+    readonly world: World;
+    /** Objetos de GPU alocados pela C2 (buffers dos Resources, pools). */
+    readonly resources: ResourceDirectory;
+    /** EventBus da cena. */
+    readonly events: EventBus;
+    /** Tipo de corpo (chave do pool) da instância, nos registros com `bodyType`. */
+    readonly bodyType?: string;
+}
+
+/** Construtor de um Flow, chamado pela C2 quando o Flow é necessário. */
+export type FlowFactory<F extends Flow = Flow> = (ctx: FlowContext) => F;
+
+/** Opções de registro (a ordem do quadro e a seleção vêm daqui, não do Flow). */
+export interface RegisterOptions {
+    /** Nome do estágio (único na fase). */
+    readonly type: string;
+    /** Fase do quadro em que o Flow grava. */
+    readonly phase: Phase;
+    /**
+     * Chave do pool atendido (`schema.name`, ou `schema.name:algoritmo` com `FlowDescriptor`). Com `bodyType`, a C2
+     * instancia o Flow quando o pool passa a existir (primeiro corpo), uma instância por `bodyType`; sem `bodyType`,
+     * o Flow é instanciado no registro.
+     */
+    readonly bodyType?: string;
+    /** Maior roda antes na fase e vence na seleção do `bodyType`. Default 0. */
+    readonly priority?: number;
+}
+
+/** Erro de registro: `type` repetido na fase, `bodyType` vazio. */
+export class FlowRegistrationError extends Error {
+    /** Nome do erro (`'FlowRegistrationError'`). */
+    override readonly name = 'FlowRegistrationError';
+}
+
+/** Quem aloca os Flows (o `ResourceSystem` da cena). */
+export interface FlowAllocator {
+    /** Resolve slots, prepara pipelines e emite `flowReady` quando o Flow fica pronto. */
+    ensureFlowAllocated(flow: Flow, options: RegisterOptions): void;
+    /** Libera o que a C2 criou para o Flow e o descarta. */
+    releaseFlow(flow: Flow): void;
+    /** O pool já existe? */
+    hasPool(poolKey: string): boolean;
+}
+
+/** Contexto e alocador da cena, ligados na criação da cena. */
+export interface FlowRegistryHost {
+    /** Contexto passado às factories (sem `bodyType`, que vem do registro). */
+    readonly context: Omit<FlowContext, 'bodyType'>;
+    /** Quem aloca as instâncias (`ResourceSystem`). */
+    readonly allocator: FlowAllocator;
+}
+
+/** Um registro (factory + opções) e a instância corrente, quando existe. */
+export interface FlowRegistration<F extends Flow = Flow> {
+    /** Opções do registro, com `priority` resolvida (0 por padrão). */
+    readonly options: Required<Omit<RegisterOptions, 'bodyType'>> & {
+        /** Chave do pool atendido, quando o registro é por tipo de corpo. */
+        readonly bodyType?: string;
+    };
+    /** Factory registrada. */
+    readonly factory: FlowFactory<F>;
+    /** Instância atual (sem `bodyType`: desde o registro; com `bodyType`: quando o pool existe e o registro vence). */
+    readonly flow: F | undefined;
+    /** Substituição explícita do `bodyType` (`override`), que vence a prioridade. */
+    readonly override: boolean;
+}
+
+interface MutableRegistration extends FlowRegistration {
+    flow: Flow | undefined;
+    readonly order: number;
 }
 
 /**
- * Ordem fixa de phases dentro de um frame. ExecutionSystem itera sobre
- * essa ordem e despacha flows de cada phase.
- */
-const PHASE_ORDER: readonly Phase[] = ['physics', 'transform', 'shadow', 'forward', 'post', 'ui'];
-
-/**
- * FlowRegistry mantém os Flows ativos do scene, indexados por phase e
- * (opcionalmente) por bodyType.
+ * Registro dos estágios da cena, por factory. A ordem do quadro é a regra única do documento: fases fixas
+ * (`PHASE_ORDER`); dentro da fase, `priority` decrescente; empate pela ordem de registro. A seleção do Flow de um tipo
+ * de corpo segue a mesma regra: `override` → maior `priority` → último registrado.
  *
- * Ordem (definição única do documento de arquitetura): fases fixas (`PHASE_ORDER`); dentro da fase, `priority`
- * decrescente, empate pela ordem de registro. `resolve(bodyType)` segue a mesma regra: o Flow de maior `priority` para
- * o bodyType, empate para o último registrado; um `override` explícito vence todos.
+ * Registros com `bodyType` não instanciam nada até o pool existir; a C2 (`ResourceSystem`) emite `poolCreated` e o
+ * registro instancia o vencedor, que é alocado (`ensureFlowAllocated`) e só entra no quadro depois de `flowReady`.
  */
 export class FlowRegistry {
-    private readonly byPhase = new Map<Phase, RegisteredFlow[]>();
-    /** Flows de cada bodyType, na ordem de registro. */
-    private readonly byBodyType = new Map<string, Flow[]>();
-    /** Substituições explícitas (`override`), que vencem a prioridade. */
-    private readonly overrides = new Map<string, Flow>();
+    private readonly registrations: MutableRegistration[] = [];
+    private readonly subscriptions: Unsubscribe[] = [];
+    private order = 0;
 
-    /**
-     * Adiciona um flow ao registry. Se `flow.bodyType` é não-vazio, entra entre os candidatos de `resolve()`. Vários
-     * flows com o mesmo bodyType rodam todos; `resolve` escolhe pela prioridade (use `override()` para substituir).
-     */
-    register(flow: Flow): void {
-        this.addToPhase(flow);
-        if (flow.bodyType.length > 0) {
-            this.byBodyType.set(flow.bodyType, [
-                ...(this.byBodyType.get(flow.bodyType) ?? []),
-                flow,
-            ]);
+    constructor(private readonly host?: FlowRegistryHost) {
+        if (host !== undefined) {
+            this.subscriptions.push(
+                host.context.events.on('poolCreated', (e) => {
+                    this.refreshBodyType(e.poolKey);
+                }),
+            );
         }
     }
 
     /**
-     * Substitui o flow responsável por `bodyType` — remove o anterior da
-     * phase array e registra o novo. Use para hot-swap em dev mode ou
-     * para apps que querem behavior diferente do default (e.g. trocar
-     * LCPFlow por solver custom).
+     * Registra uma factory. Sem `bodyType`, instancia e aloca agora; com `bodyType`, instancia quando o pool existir
+     * e o registro vencer a seleção.
+     * @throws FlowRegistrationError se `type` já está registrado na fase ou `bodyType` é vazio.
      */
-    override(bodyType: string, flow: Flow): void {
-        const previous = this.resolve(bodyType);
-        if (previous !== undefined) {
-            this.removeFromPhase(previous);
-            this.forgetBodyType(previous);
-        }
-        this.overrides.set(bodyType, flow);
-        this.addToPhase(flow);
+    register<F extends Flow>(
+        factory: FlowFactory<F>,
+        options: RegisterOptions,
+    ): FlowRegistration<F> {
+        return this.add(factory, options, false) as FlowRegistration<F>;
     }
 
     /**
-     * Remove `flow` do registry (fase e índice por bodyType) e o descarta (`flow.dispose()`). Devolve `false` se o
-     * flow não estava registrado (nada é descartado).
+     * Substitui o Flow de `bodyType`: o registro vence a prioridade dos demais para esse tipo de corpo.
      */
-    unregister(flow: Flow): boolean {
-        if (!this.removeFromPhase(flow)) return false;
-        this.forgetBodyType(flow);
-        flow.dispose();
+    override<F extends Flow>(
+        bodyType: string,
+        factory: FlowFactory<F>,
+        options: Omit<RegisterOptions, 'bodyType'>,
+    ): FlowRegistration<F> {
+        return this.add(factory, { ...options, bodyType }, true) as FlowRegistration<F>;
+    }
+
+    /**
+     * Remove um registro: descarta a instância (objetos de GPU, inscrições, compilação em
+     * curso) e, para `bodyType`, instancia o próximo vencedor. Devolve `false` se não estava registrado.
+     */
+    unregister(registration: FlowRegistration): boolean {
+        const index = this.registrations.indexOf(registration as MutableRegistration);
+        if (index < 0) return false;
+        const reg = this.registrations[index]!;
+        this.registrations.splice(index, 1);
+        this.release(reg);
+        if (reg.options.bodyType !== undefined) this.refreshBodyType(reg.options.bodyType);
         return true;
     }
 
-    /**
-     * Flow responsável por um bodyType: o `override` se houver; senão o de maior `priority`, empate para o último
-     * registrado. Undefined se nenhum.
-     */
-    resolve(bodyType: string): Flow | undefined {
-        const overridden = this.overrides.get(bodyType);
-        if (overridden !== undefined) return overridden;
-        let best: Flow | undefined;
-        for (const flow of this.byBodyType.get(bodyType) ?? []) {
-            if (best === undefined || flow.priority >= best.priority) best = flow;
+    /** Registro que atende `bodyType`: override → maior prioridade → último registrado. */
+    resolve(bodyType: string): FlowRegistration | undefined {
+        let best: MutableRegistration | undefined;
+        for (const reg of this.registrations) {
+            if (reg.options.bodyType !== bodyType) continue;
+            if (best === undefined || this.beats(reg, best)) best = reg;
         }
         return best;
     }
 
-    /** Lista todos os Flows na `phase` (independente de isReady). */
+    /** Todos os registros, na ordem de registro. */
+    allRegistrations(): readonly FlowRegistration[] {
+        return [...this.registrations];
+    }
+
+    /** Instâncias existentes na fase, na ordem do quadro. */
     flowsInPhase(phase: Phase): readonly Flow[] {
-        return (this.byPhase.get(phase) ?? []).map((r) => r.flow);
+        const entries: { flow: Flow; priority: number; order: number }[] = [];
+        for (const reg of this.registrations) {
+            if (reg.options.phase !== phase || reg.flow === undefined) continue;
+            entries.push({ flow: reg.flow, priority: reg.options.priority, order: reg.order });
+        }
+        entries.sort((a, b) => b.priority - a.priority || a.order - b.order);
+        return entries.map((e) => e.flow);
     }
 
-    /** Filtra `flowsInPhase` para retornar só os com `isReady() === true`. */
-    activeFlowsInPhase(phase: Phase): readonly Flow[] {
-        return this.flowsInPhase(phase).filter((f) => f.isReady());
-    }
-
-    /** Retorna a ordem fixa das phases (constante por design). */
+    /** Ordem fixa das fases. */
     phasesInOrder(): readonly Phase[] {
         return PHASE_ORDER;
     }
 
-    /** Insere na fase mantendo `priority` decrescente; `sort` estável preserva a ordem de registro nos empates. */
-    private addToPhase(flow: Flow): void {
-        const arr = this.byPhase.get(flow.phase) ?? [];
-        arr.push({ flow, priority: flow.priority });
-        arr.sort((a, b) => b.priority - a.priority);
-        this.byPhase.set(flow.phase, arr);
-    }
-
-    private removeFromPhase(flow: Flow): boolean {
-        const arr = this.byPhase.get(flow.phase);
-        const index = arr?.findIndex((r) => r.flow === flow) ?? -1;
-        if (arr === undefined || index < 0) return false;
-        arr.splice(index, 1);
-        return true;
-    }
-
-    private forgetBodyType(flow: Flow): void {
-        for (const [bodyType, flows] of this.byBodyType) {
-            const rest = flows.filter((f) => f !== flow);
-            if (rest.length === 0) this.byBodyType.delete(bodyType);
-            else if (rest.length !== flows.length) this.byBodyType.set(bodyType, rest);
-        }
-        for (const [bodyType, overridden] of this.overrides) {
-            if (overridden === flow) this.overrides.delete(bodyType);
-        }
-    }
-
-    /** Iterator sobre todos os Flows registrados em ordem (phase × priority). */
+    /** Todos os estágios instanciados, na ordem do quadro. */
     *allFlows(): IterableIterator<Flow> {
-        for (const phase of PHASE_ORDER) {
-            for (const reg of this.byPhase.get(phase) ?? []) {
-                yield reg.flow;
+        for (const phase of PHASE_ORDER) yield* this.flowsInPhase(phase);
+    }
+
+    /** Desregistra tudo e desfaz as inscrições (descarte da cena). */
+    dispose(): void {
+        for (const reg of [...this.registrations]) {
+            this.registrations.splice(this.registrations.indexOf(reg), 1);
+            this.release(reg);
+        }
+        for (const off of this.subscriptions) off();
+        this.subscriptions.length = 0;
+    }
+
+    private add(
+        factory: FlowFactory,
+        options: RegisterOptions,
+        override: boolean,
+    ): FlowRegistration {
+        if (options.bodyType?.length === 0) {
+            throw new FlowRegistrationError(`FlowRegistry: '${options.type}' com bodyType vazio.`);
+        }
+        const clash = this.registrations.find(
+            (r) =>
+                r.options.type === options.type
+                && r.options.phase === options.phase
+                && r.options.bodyType === options.bodyType,
+        );
+        if (clash !== undefined) {
+            throw new FlowRegistrationError(
+                `FlowRegistry: '${options.type}' já registrado na fase '${options.phase}'${options.bodyType !== undefined ? ` para '${options.bodyType}'` : ''}.`,
+            );
+        }
+        const reg: MutableRegistration = {
+            options: {
+                type: options.type,
+                phase: options.phase,
+                priority: options.priority ?? 0,
+                ...(options.bodyType !== undefined ? { bodyType: options.bodyType } : {}),
+            },
+            factory,
+            flow: undefined,
+            override,
+            order: this.order++,
+        };
+        this.registrations.push(reg);
+        if (reg.options.bodyType === undefined) this.instantiate(reg);
+        else this.refreshBodyType(reg.options.bodyType);
+        return reg;
+    }
+
+    /** `a` vence `b` na seleção do bodyType. */
+    private beats(a: MutableRegistration, b: MutableRegistration): boolean {
+        if (a.override !== b.override) return a.override;
+        if (a.options.priority !== b.options.priority)
+            return a.options.priority > b.options.priority;
+        return a.order > b.order;
+    }
+
+    /** Garante que só o vencedor de `bodyType` está instanciado, e só se o pool existe. */
+    private refreshBodyType(bodyType: string): void {
+        const host = this.host;
+        if (host === undefined) return;
+        const winner = this.resolve(bodyType) as MutableRegistration | undefined;
+        for (const reg of this.registrations) {
+            if (reg.options.bodyType === bodyType && reg !== winner && reg.flow !== undefined) {
+                this.release(reg);
             }
         }
+        if (winner !== undefined && winner.flow === undefined && host.allocator.hasPool(bodyType)) {
+            this.instantiate(winner);
+        }
+    }
+
+    private instantiate(reg: MutableRegistration): void {
+        const host = this.host;
+        if (host === undefined) {
+            throw new FlowRegistrationError(
+                `FlowRegistry: '${reg.options.type}' registrado sem cena (crie o registro por createScene).`,
+            );
+        }
+        const flow = reg.factory({
+            ...host.context,
+            ...(reg.options.bodyType !== undefined ? { bodyType: reg.options.bodyType } : {}),
+        });
+        reg.flow = flow;
+        host.allocator.ensureFlowAllocated(flow, reg.options);
+    }
+
+    private release(reg: MutableRegistration): void {
+        if (reg.flow === undefined) return;
+        const flow = reg.flow;
+        reg.flow = undefined;
+        this.host?.allocator.releaseFlow(flow);
     }
 }

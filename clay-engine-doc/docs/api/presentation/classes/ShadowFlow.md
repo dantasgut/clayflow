@@ -6,48 +6,38 @@
 
 # Class: ShadowFlow
 
-Defined in: [presentation/flows/ShadowFlow.ts:59](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L59)
+Defined in: [presentation/flows/ShadowFlow.ts:106](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L106)
 
-ShadowFlow — depth-only render pass do POV de uma directional light.
-Identifica o primeiro DirectionalLight com `castShadow=1` no World
-e renderiza geometria do mundo em depth32float (mapSize × mapSize).
+ShadowFlow — passe só de profundidade do ponto de vista da primeira `DirectionalLight` que projeta sombra, na
+textura do `ShadowMap` dela (slot `target`).
 
-O depth view resultante é consumido pelo ForwardFlow para PCF shadow
-sampling. Single light by design (multi-light shadows = future work).
-
-A posição de cada objeto vem do pool `WorldTransform` (produzido pelo
-`TransformFlow`), lido no vertex shader por `instance_index` — o slot da entidade
-vai como `firstInstance` do draw; nenhum dado de transformação é enviado por objeto.
+Slots: o `ShadowMap` da luz (caster), os pools `WorldTransform` e `ShadowMap` e as entidades com geometria e
+transform. A matriz luz-vista-projeção é calculada na CPU quando a luz muda (`resourceReady` da luz, escuta de
+`Light`) ou quando o caster aparece, e gravada em `ShadowMap.data.lightViewProj` — o envio reativo da C2 a leva ao
+pool, que este estágio e o render principal leem pelo slot do mapa. A geometria é a alocada pela C2 (nenhuma cópia
+por entidade); a posição vem do pool `WorldTransform` pelo slot da entidade (`firstInstance`).
 
 ## Extends
 
-- `Flow`
+- `RenderFlow`\<[`ShadowSlots`](../interfaces/ShadowSlots.md), `"idle"`\>
 
 ## Constructors
 
 ### Constructor
 
-> **new ShadowFlow**(`core`, `world`, `resources`, `options?`): `ShadowFlow`
+> **new ShadowFlow**(`ctx`, `options?`): `ShadowFlow`
 
-Defined in: [presentation/flows/ShadowFlow.ts:95](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L95)
+Defined in: [presentation/flows/ShadowFlow.ts:125](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L125)
 
 #### Parameters
 
-##### core
+##### ctx
 
-`EngineCore`
-
-##### world
-
-`World`
-
-##### resources
-
-`PoolDirectory`
+`FlowContext`
 
 ##### options?
 
-`ShadowFlowOptions` = `{}`
+[`ShadowFlowOptions`](../interfaces/ShadowFlowOptions.md) = `{}`
 
 #### Returns
 
@@ -55,54 +45,97 @@ Defined in: [presentation/flows/ShadowFlow.ts:95](https://github.com/dantasgut/c
 
 #### Overrides
 
-`Flow.constructor`
+`RenderFlow<ShadowSlots, 'idle'>.constructor`
 
 ## Properties
 
-### bodyType
+### bindings
 
-> `readonly` **bodyType**: `""` = `''`
+> `readonly` **bindings**: `object`
 
-Defined in: [presentation/flows/ShadowFlow.ts:61](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L61)
+Defined in: [presentation/flows/ShadowFlow.ts:111](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L111)
 
-Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
-para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
-quando o flow não é body-bound. Usado por FlowRegistry.resolve(bodyType)
-para encontrar o flow responsável por cada Resource.
+Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
-#### Overrides
+#### shadow
 
-`Flow.bodyType`
+> `readonly` **shadow**: `UniformBufferSpec`
 
-***
-
-### phase
-
-> `readonly` **phase**: `Phase` = `'shadow'`
-
-Defined in: [presentation/flows/ShadowFlow.ts:62](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L62)
-
-Fase do pipeline em que o flow executa.
+Parâmetros do passe (`ShadowDepthParams`: slot do caster).
 
 #### Overrides
 
-`Flow.phase`
+`RenderFlow.bindings`
 
 ***
 
-### priority
+### initialState
 
-> **priority**: `number` = `0`
+> `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L46)
+Defined in: [presentation/flows/ShadowFlow.ts:115](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L115)
 
-Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
-Útil quando dois flows compartilham phase mas têm dependência de ordem
-(e.g. um flow gera dado que outro consome).
+Estado inicial do algoritmo.
 
-#### Inherited from
+#### Overrides
 
-[`PostFlow`](PostFlow.md).[`priority`](PostFlow.md#priority)
+`RenderFlow.initialState`
+
+***
+
+### listens
+
+> `readonly` **listens**: `StructSchema`[]
+
+Defined in: [presentation/flows/ShadowFlow.ts:109](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L109)
+
+Schemas cujos `resourceReady` o Flow recebe como evento.
+
+#### Overrides
+
+`RenderFlow.listens`
+
+***
+
+### pipelines
+
+> `readonly` **pipelines**: readonly `PipelineDescriptor`[]
+
+Defined in: [presentation/flows/ShadowFlow.ts:110](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L110)
+
+Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
+
+#### Overrides
+
+`RenderFlow.pipelines`
+
+***
+
+### slots
+
+> `readonly` **slots**: [`ShadowSlots`](../interfaces/ShadowSlots.md)
+
+Defined in: [presentation/flows/ShadowFlow.ts:108](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L108)
+
+Slots consumidos, por nome.
+
+#### Overrides
+
+`RenderFlow.slots`
+
+***
+
+### transitions
+
+> `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`ShadowSlots`](../interfaces/ShadowSlots.md)\>\>
+
+Defined in: [presentation/flows/ShadowFlow.ts:116](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L116)
+
+Tabela de transições (estado × evento).
+
+#### Overrides
+
+`RenderFlow.transitions`
 
 ***
 
@@ -110,73 +143,63 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"ShadowFlow"` = `'ShadowFlow'`
 
-Defined in: [presentation/flows/ShadowFlow.ts:60](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L60)
+Defined in: [presentation/flows/ShadowFlow.ts:107](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L107)
 
-Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
+Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
-`Flow.type`
+`RenderFlow.type`
 
 ## Accessors
 
-### currentLightDirection
+### lifecycle
 
 #### Get Signature
 
-> **get** **currentLightDirection**(): readonly \[`number`, `number`, `number`, `number`\]
+> **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [presentation/flows/ShadowFlow.ts:237](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L237)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L79)
 
-Direção da light em world coords (vec4, w=0). Usada para diffuse shading.
+Estado do ciclo de vida (só a C2 o muda).
 
 ##### Returns
 
-readonly \[`number`, `number`, `number`, `number`\]
+`FlowLifecycle`
+
+#### Inherited from
+
+`RenderFlow.lifecycle`
 
 ***
 
-### currentLightViewProj
+### state
 
 #### Get Signature
 
-> **get** **currentLightViewProj**(): readonly `number`[]
+> **get** **state**(): `S`
 
-Defined in: [presentation/flows/ShadowFlow.ts:232](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L232)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L84)
 
-mat4×4 view × projection da light POV. ForwardFlow uploada para shadow PCF sample.
-
-##### Returns
-
-readonly `number`[]
-
-***
-
-### depthTextureView
-
-#### Get Signature
-
-> **get** **depthTextureView**(): `TextureViewSpec` \| `null`
-
-Defined in: [presentation/flows/ShadowFlow.ts:170](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L170)
-
-View do shadow map para ForwardFlow consumir como bind group input.
+Estado próprio do algoritmo (só transições o mudam).
 
 ##### Returns
 
-`TextureViewSpec` \| `null`
+`S`
+
+#### Inherited from
+
+`RenderFlow.state`
 
 ## Methods
 
-### dispatch()
+### colorView()
 
-> **dispatch**(`frame`): `void`
+> `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
 
-Defined in: [presentation/flows/ShadowFlow.ts:423](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L423)
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/RenderFlow.ts#L20)
 
-Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
-contém o command encoder ativo — use `frame.compute(...)` ou
-`frame.render(target, ...)` para emitir comandos GPU.
+View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
 #### Parameters
 
@@ -184,13 +207,45 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 `Frame`
 
+##### target
+
+`BoundTarget`
+
+#### Returns
+
+`TextureViewSpec` \| `undefined`
+
+#### Inherited from
+
+`RenderFlow.colorView`
+
+***
+
+### dispatch()
+
+> **dispatch**(`frame`, `bound`): `void`
+
+Defined in: [presentation/flows/ShadowFlow.ts:166](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L166)
+
+Grava a profundidade de cada entidade com geometria e transform.
+
+#### Parameters
+
+##### frame
+
+`Frame`
+
+##### bound
+
+`BoundFlow`\<[`ShadowSlots`](../interfaces/ShadowSlots.md)\>
+
 #### Returns
 
 `void`
 
 #### Overrides
 
-`Flow.dispatch`
+`RenderFlow.dispatch`
 
 ***
 
@@ -198,108 +253,9 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/ShadowFlow.ts:175](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L175)
+Defined in: [presentation/flows/ShadowFlow.ts:210](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/ShadowFlow.ts#L210)
 
-Descarte do estágio: libera os buffers de cada entidade, o mapa de profundidade, pipelines e layouts.
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`Flow.dispose`
-
-***
-
-### getPipelineDescriptors()
-
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
-
-Defined in: [presentation/flows/ShadowFlow.ts:130](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L130)
-
-Retorna os descritores de pipelines GPU que este flow precisa criar
-(para introspeção arquitetural / debugging — o flow ainda materializa
-via core.create internamente).
-
-#### Returns
-
-readonly `PipelineDescriptor`[]
-
-#### Overrides
-
-`Flow.getPipelineDescriptors`
-
-***
-
-### isReady()
-
-> **isReady**(): `boolean`
-
-Defined in: [presentation/flows/ShadowFlow.ts:142](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L142)
-
-Indica se o flow tem trabalho válido para esta frame. Default: true
-(sempre dispatch). Override para gating em prerequisites: e.g. presença
-de Camera no World, pool não-vazio, pipeline async ainda compilando.
-ExecutionSystem skipa flows com `isReady() === false`.
-
-#### Returns
-
-`boolean`
-
-#### Overrides
-
-`Flow.isReady`
-
-***
-
-### onCanvasResized()
-
-> **onCanvasResized**(`_width`, `_height`): `void`
-
-Defined in: [scene/flows/Flow.ts:114](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L114)
-
-Chamado quando o canvas é redimensionado. Subclasses que mantêm
-textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
-devem destruir e nullificar para recriarem na próxima dispatch.
-Importante: destruir bindgroups que referenciam essas textures ANTES
-para evitar use-after-free na GPU.
-
-#### Parameters
-
-##### \_width
-
-`number`
-
-##### \_height
-
-`number`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onCanvasResized`
-
-***
-
-### onEntitiesInserted()
-
-> **onEntitiesInserted**(`entityIds`): `void`
-
-Defined in: [presentation/flows/ShadowFlow.ts:107](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L107)
-
-Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
-um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
-cada quadro.
-
-#### Parameters
-
-##### entityIds
-
-readonly `number`[]
+Libera o uniform de parâmetros.
 
 #### Returns
 
@@ -307,103 +263,4 @@ readonly `number`[]
 
 #### Overrides
 
-`Flow.onEntitiesInserted`
-
-***
-
-### onEntitiesRemoved()
-
-> **onEntitiesRemoved**(`entityIds`): `void`
-
-Defined in: [presentation/flows/ShadowFlow.ts:209](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L209)
-
-Chamado quando entidades são removidas do World. Subclasses que
-cacheiam slots por EntityId devem limpar os entries afetados para
-evitar leaks de slots órfãos.
-
-#### Parameters
-
-##### entityIds
-
-readonly `number`[]
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`Flow.onEntitiesRemoved`
-
-***
-
-### onEvent()
-
-> **onEvent**(`_event`, `_payload`): `void`
-
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L66)
-
-Hook genérico de eventos. Default no-op. A maioria dos flows usa os
-hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
-
-#### Parameters
-
-##### \_event
-
-`string`
-
-##### \_payload
-
-`unknown`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onEvent`
-
-***
-
-### onPoolReallocated()
-
-> **onPoolReallocated**(`poolKey`): `void`
-
-Defined in: [presentation/flows/ShadowFlow.ts:225](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L225)
-
-O pool de matrizes de mundo foi realocado: o bind group do grupo 1 é recriado.
-
-#### Parameters
-
-##### poolKey
-
-`string`
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`Flow.onPoolReallocated`
-
-***
-
-### setPreferAsync()
-
-> **setPreferAsync**(`enabled`): `this`
-
-Defined in: [presentation/flows/ShadowFlow.ts:123](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/ShadowFlow.ts#L123)
-
-Habilita async pipeline compilation. Sync mode (default) bloqueia primeiro dispatch.
-
-#### Parameters
-
-##### enabled
-
-`boolean`
-
-#### Returns
-
-`this`
+`RenderFlow.dispose`

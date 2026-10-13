@@ -117,16 +117,22 @@ referências em CPU.
 ## Kernels genéricos
 
 Em `elements` (C3), para os estágios do motor e para quem escreve um algoritmo novo (nível N3). Todos alocam pela
-capacidade, gravam num `Frame` e não despacham com contagem 0; o despacho linear cobre mais de 65 535 grupos.
+capacidade e trabalham em duas fases: `prepare(...)` — fora da gravação (no construtor ou numa transição do Flow) —
+cria os kernels para os buffers do chamador e reserva as regiões de parâmetros de até `recordsPerFrame` gravações;
+`record(frame, …)` só grava (nenhuma criação no `dispatch`). Não despacham com contagem 0; o despacho linear cobre mais
+de 65 535 grupos. Os bindings internos usam `createComputeKernel` com fontes pelo nome da variável WGSL.
 
 ```ts
 const scan = new PrefixSum(core, { discriminator: 'cells', capacity: cellCount });
-scan.record(frame, { src: counts, dst: starts, count: cellCount });            // exclusiva; `mode: 'inclusive'`
+scan.prepare(starts);                                                            // fora da gravação
+scan.record(frame, { src: counts, dst: starts, count: cellCount });              // exclusiva; `mode: 'inclusive'`
 
 const sort = new RadixSort(core, { discriminator: 'keys', capacity: n, withValues: true });
+sort.prepare(keys, values);
 sort.record(frame, { keys, values, count: n, bits: 16 });                        // estável, no lugar
 
 const reduce = new Reduce(core, { discriminator: 'maxSpeed', capacity: n, op: 'max', type: 'f32' });
+reduce.prepare(speeds, stats);
 reduce.record(frame, { src: speeds, count: n, out: stats, outOffset: 0 });
 ```
 
@@ -143,9 +149,17 @@ reduce.record(frame, { src: speeds, count: n, out: stats, outOffset: 0 });
 
 O smoke `computeKernels` valida todos contra a CPU (inclusive 4 M elementos) e registra os tempos.
 
+## Bindings: layout inferido e `consumes` (spec 006)
+
+O layout de um pipeline vem do WGSL montado: `LayoutInferencer.infer(shader, entryPoints)` devolve os grupos e
+bindings que as entradas usam, o tipo de cada recurso e a visibilidade (a união dos estágios das entradas que
+alcançam a variável, inclusive por funções auxiliares). Num Flow, a C2 liga cada binding a uma fonte — privado do Flow
+pelo nome (`pipeline:variável`, depois `variável`) ou o nome de `consumes` cujo tipo é o do binding (o
+`ConsumerResolver` desse nome devolve o buffer, a view ou o sampler) — e cria os bind groups; ver [Flows](./flows.md).
+Uma entrada de `consumes` pode renomear o tipo lido: `{ name: WireframeMaterial.schema.name, as: 'StandardMaterial' }`
+liga o pool `WireframeMaterial` a um binding declarado como `StandardMaterial`.
+
 ## Fora desta versão
 
-- `consumes` resolvido por `ConsumerResolver` e bindings derivados pelo `LayoutInferencer`: spec 006 (hoje os estágios
-  ligam os buffers explicitamente).
 - Pontos de extensão matemáticos do usuário (`transform`, `surface`, `space`…) e módulos `parametric`, `space`,
   `procedural`, `sampling`: fases posteriores do roadmap.

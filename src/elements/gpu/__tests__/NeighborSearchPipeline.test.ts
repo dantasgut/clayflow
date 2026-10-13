@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NeighborSearchPipeline } from '../NeighborSearchPipeline';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
 function setup(gridDim: [number, number, number]) {
     const { core } = fakeResourceCore();
@@ -39,7 +39,8 @@ describe('NeighborSearchPipeline', () => {
     it('sequência: contagem, soma de prefixos das células (PrefixSum), espalhamento e busca', () => {
         const { ns, particles } = setup([64, 64, 64]);
         const rec = recordingFrame();
-        ns.rebuild(rec.frame, particles, 100);
+        ns.prepare(particles);
+        ns.rebuild(rec.frame, 100);
         expect(rec.passes.map((p) => [p.label, p.dispatches[0]])).toEqual([
             ['NS.assign_count', [100, 64]],
             ['PrefixSum.scan_local', [262_144, 256]],
@@ -57,8 +58,9 @@ describe('NeighborSearchPipeline', () => {
     it('zera contagens no fluxo de comandos a cada reconstrução', () => {
         const { ns, particles } = setup([16, 16, 16]);
         const rec = recordingFrame();
-        ns.rebuild(rec.frame, particles, 10);
-        ns.rebuild(rec.frame, particles, 10);
+        ns.prepare(particles, 2);
+        ns.rebuild(rec.frame, 10);
+        ns.rebuild(rec.frame, 10);
         expect(rec.sequence.filter((s) => s.startsWith('clear:'))).toEqual([
             'clear:ns_cell_count:test@0',
             'clear:ns_ncount:test@0',
@@ -70,13 +72,39 @@ describe('NeighborSearchPipeline', () => {
     it('particleCount = 0 não grava nada', () => {
         const { ns, particles } = setup([16, 16, 16]);
         const rec = recordingFrame();
-        ns.rebuild(rec.frame, particles, 0);
+        ns.prepare(particles);
+        ns.rebuild(rec.frame, 0);
         expect(rec.passes).toHaveLength(0);
+    });
+
+    it('rebuild sem prepare → erro; a gravação não cria objetos de GPU', () => {
+        const { ns, core, particles } = setup([16, 16, 16]);
+        expect(() => {
+            ns.rebuild(recordingFrame().frame, 10);
+        }).toThrow(/prepare/);
+        ns.prepare(particles, 3);
+        const created = vi.mocked(core.create).mock.calls.length;
+        const rec = recordingFrame();
+        for (let i = 0; i < 3; i++) ns.rebuild(rec.frame, 10);
+        expect(vi.mocked(core.create).mock.calls.length).toBe(created);
+    });
+
+    it('prepare com outro buffer de partículas refaz só os kernels que o ligam', () => {
+        const { ns, core, particles } = setup([16, 16, 16]);
+        ns.prepare(particles);
+        const other: StorageBufferSpec = { ...particles, discriminator: 'particles2' };
+        ns.prepare(other);
+        const destroyed = vi.mocked(core.destroy).mock.calls.map((c) => disc(c[0]));
+        expect(destroyed.filter((d) => d.endsWith('_pipeline'))).toEqual([
+            'ns_assign:test_pipeline',
+            'ns_find:test_pipeline',
+        ]);
     });
 
     it('dispose libera os buffers da busca e os da soma de prefixos', () => {
         const { ns, core, particles } = setup([64, 64, 64]);
-        ns.rebuild(recordingFrame().frame, particles, 100);
+        ns.prepare(particles);
+        ns.rebuild(recordingFrame().frame, 100);
         ns.dispose();
         const destroyed = (
             core.destroy as unknown as { mock: { calls: unknown[][] } }

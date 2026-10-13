@@ -118,6 +118,12 @@ export interface EngineAdapter<THandle> {
         readonly device: DeviceReport;
     };
     /**
+     * Resolve quando a engine tem espaço para mais um quadro na GPU. A página espera isto antes de pedir o RAF:
+     * um RAF que não desenha faz o navegador espaçar o próximo (sem vsync, ~1/60 s) e distorce o tempo de quadro.
+     * Engines sem contenção de quadros em voo omitem.
+     */
+    readyForFrame?(handle: THandle): Promise<void>;
+    /**
      * Executa um quadro (update da cena + render) e devolve a amostra — ou `null` quando a engine pede para esperar
      * a GPU (ritmo de quadros: nada foi feito neste tick).
      */

@@ -1,9 +1,10 @@
-// Conjunto de colliders (spec 005, R17): pools tipados de plano, caixa e esfera, com a pose dos colliders dinâmicos
-// vinda do corpo dono. Ligado no grupo 2 pelos estágios que colidem partículas/nós contra o mundo (SPH, PBF, MPM);
-// o `ColliderSet` (C3) fornece os buffers. `MeshCollider` não gera contato (igual à narrowphase do LCP).
+// Conjunto de colliders (spec 005, R17): pools tipados de plano, caixa, esfera e malha, com a pose dos colliders
+// dinâmicos vinda do corpo dono. Ligado no grupo 2 pelos estágios que colidem partículas/nós contra o mundo (SPH, PBF,
+// MPM); o `ColliderSet` (C3) fornece as fontes por nome. A malha está no grupo (spec 006, A6), mas nenhuma função
+// daqui a usa ainda — `MeshCollider` não gera contato (lacuna P2), então os layouts inferidos não a incluem.
 //
-// Requer: structs `ColliderSetCounts`, `PlaneCollider`, `BoxCollider`, `SphereCollider`, `RigidBody` (gerados dos
-// schemas); `quat.wgsl`; `sdf.wgsl`.
+// Requer: structs `ColliderSetCounts`, `PlaneCollider`, `BoxCollider`, `SphereCollider`, `MeshCollider`, `RigidBody`
+// (gerados dos schemas); `quat.wgsl`; `sdf.wgsl`.
 
 @group(2) @binding(0) var<uniform>       collider_counts:        ColliderSetCounts;
 @group(2) @binding(1) var<storage, read> collider_planes:        array<PlaneCollider>;
@@ -13,6 +14,8 @@
 @group(2) @binding(5) var<storage, read> collider_box_owners:    array<u32>;
 @group(2) @binding(6) var<storage, read> collider_sphere_owners: array<u32>;
 @group(2) @binding(7) var<storage, read> collider_bodies:        array<RigidBody>;
+@group(2) @binding(8) var<storage, read> collider_meshes:        array<MeshCollider>;
+@group(2) @binding(9) var<storage, read> collider_mesh_owners:   array<u32>;
 
 // Collider sem corpo dono: o centro é a posição de mundo, sem rotação.
 const COLLIDER_NO_OWNER: u32 = 0xFFFFFFFFu;

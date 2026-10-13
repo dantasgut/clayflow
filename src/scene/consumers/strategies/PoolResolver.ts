@@ -1,16 +1,29 @@
-import type { BindingEntry } from '../../../core/contracts/index';
-import type { ConsumerResolver, ResolveContext } from '../ConsumerResolver';
+import type { Schema } from '../../descriptors/Schema';
+import type { ConsumerResolver, ResolveContext, ResolvedSource } from '../ConsumerResolver';
 
-export type PoolBindingFactory = (ctx: ResolveContext, poolKey: string) => readonly BindingEntry[];
-
+/**
+ * Fonte de um pool da C2 pela chave (`schema.name` ou `schema.name:algoritmo`): o buffer inteiro (`array<T>` no
+ * shader). Registrado automaticamente pelo `ResourceSystem` ao criar o pool.
+ */
 export class PoolResolver implements ConsumerResolver {
-    constructor(
-        readonly name: string,
-        private readonly poolKey: string,
-        private readonly factory: PoolBindingFactory,
-    ) {}
+    /** Struct WGSL do elemento do pool (`schema.wgslName`). */
+    readonly typeName: string;
 
-    resolve(ctx: ResolveContext): readonly BindingEntry[] {
-        return this.factory(ctx, this.poolKey);
+    /**
+     * @param name - Chave do pool (nome em `consumes`).
+     * @param schema - Schema do elemento do pool.
+     */
+    constructor(
+        /** Chave do pool (nome em `consumes`). */
+        readonly name: string,
+        private readonly schema: Schema,
+    ) {
+        this.typeName = schema.wgslName;
+    }
+
+    resolve(ctx: ResolveContext): ResolvedSource | undefined {
+        const pool = ctx.resources.poolInfo(this.name);
+        if (pool === undefined) return undefined;
+        return { kind: 'buffer', buffer: pool.buffer };
     }
 }

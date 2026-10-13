@@ -8,6 +8,6 @@
 
 > `const` **COLLIDER\_POOLS**: readonly \[`StructSchema`, `StructSchema`, `StructSchema`, `StructSchema`\]
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:18](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/elements/physics/colliders/ColliderSet.ts#L18)
+Defined in: [elements/physics/colliders/ColliderSet.ts:19](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/elements/physics/colliders/ColliderSet.ts#L19)
 
 Pools de collider da Camada 3, na ordem em que os estágios os percorrem.

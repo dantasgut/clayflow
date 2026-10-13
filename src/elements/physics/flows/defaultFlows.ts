@@ -1,66 +1,57 @@
-import type { EngineCore } from '../../../core/contracts/index';
-import type { World } from '../../../scene/world/World';
-import type { ResourceSystem } from '../../../scene/systems/ResourceSystem';
-import type { FlowRegistry } from '../../../scene/flows/FlowRegistry';
-import type { Flow } from '../../../scene/flows/Flow';
-import type { Resource } from '../../../scene/contracts/Resource';
-import { LCPFlow } from './LCPFlow';
-import { XPBDFlow } from './XPBDFlow';
+import type { FlowFactory, RegisterOptions } from '../../../scene/flows/FlowRegistry';
+import { FEMSchema } from '../bodies/schemas/FEMSchema';
+import { LCPSchema } from '../bodies/schemas/LCPSchema';
+import { MPMFluidSchema } from '../bodies/schemas/MPMFluidSchema';
+import { MPMSoftSchema } from '../bodies/schemas/MPMSoftSchema';
+import { PBFSchema } from '../bodies/schemas/PBFSchema';
+import { SPHSchema } from '../bodies/schemas/SPHSchema';
+import { XPBDSoftSchema } from '../bodies/schemas/XPBDSoftSchema';
 import { FEMFlow } from './FEMFlow';
+import { LCPFlow } from './LCPFlow';
 import { MPMFlow } from './MPMFlow';
-import { SPHFlow } from './SPHFlow';
 import { PBFFlow } from './PBFFlow';
-import { DistanceConstraint } from '../constraints/DistanceConstraint';
+import { SPHFlow } from './SPHFlow';
+import { XPBDFlow } from './XPBDFlow';
 
-/** Constrói um Flow a partir das dependências de runtime (C1/C2). */
-export type FlowFactory = (core: EngineCore, world: World, resources: ResourceSystem) => Flow;
-
-/**
- * Mapa `schema.name → factory de Flow default`. Usado pelo auto-registro
- * (Application): ao inserir um body cujo `schema.name` não tem flow registrado,
- * a factory correspondente é instanciada e registrada — eliminando o
- * `flows.register(new XxxFlow(...))` manual. Registro manual continua possível
- * e tem precedência (o auto-registro só age quando `resolve(name)` é undefined).
- *
- * Não altera os `*Flow` nem os schemas — apenas referencia o que já existe.
- */
-export const DEFAULT_FLOW_FACTORIES: ReadonlyMap<string, FlowFactory> = new Map<
-    string,
-    FlowFactory
->([
-    ['LCPSchema', (c, w, r) => new LCPFlow(c, w, r)],
-    [
-        'XPBDSoftSchema',
-        (c, w, r) => new XPBDFlow(c, w, r, { constraintPoolKey: DistanceConstraint.schema.name }),
-    ],
-    ['FEMSchema', (c, w, r) => new FEMFlow(c, w, r)],
-    ['MPMFluidSchema', (c, w, r) => new MPMFlow(c, w, r)],
-    ['MPMSoftSchema', (c, w, r) => new MPMFlow(c, w, r, { bodyType: 'MPMSoftSchema' })],
-    ['SPHSchema', (c, w, r) => new SPHFlow(c, w, r)],
-    ['PBFSchema', (c, w, r) => new PBFFlow(c, w, r)],
-]);
-
-/**
- * Para cada resource recém-inserido cujo `schema.name` tem factory default e
- * ainda não tem flow registrado, instancia e registra o flow correspondente.
- * Idempotente (guard por `flows.resolve`); registro manual prévio tem
- * precedência. Pura quanto a side-effects de GPU — só registra no FlowRegistry.
- */
-export function autoRegisterFlows(
-    added: readonly Resource[],
-    flows: FlowRegistry,
-    core: EngineCore,
-    world: World,
-    resources: ResourceSystem,
-): void {
-    for (const r of added) {
-        for (const d of r.getDescriptors()) {
-            const name = (d as { schema?: { name?: string } }).schema?.name;
-            if (name === undefined) continue;
-            const factory = DEFAULT_FLOW_FACTORIES.get(name);
-            if (factory === undefined) continue;
-            if (flows.resolve(name) !== undefined) continue;
-            flows.register(factory(core, world, resources));
-        }
-    }
+/** Registro padrão de um solver: factory e opções (fase, tipo de corpo, prioridade). */
+export interface SolverRegistration {
+    readonly factory: FlowFactory;
+    readonly options: RegisterOptions;
 }
+
+/**
+ * Solvers padrão da Camada 3, registrados por factory na cena pela aplicação (`registerPresentationDefaults`). A C2
+ * instancia cada um quando o primeiro corpo do seu `bodyType` (a chave do pool) é alocado e o anuncia por `flowReady`
+ * depois de preparar slots e pipelines; nenhum solver é criado para tipos de corpo que a cena não usa. Para trocar um
+ * solver, registre outra factory com prioridade maior, ou `flows.override(bodyType, factory, opções)`.
+ */
+export const DEFAULT_SOLVER_REGISTRATIONS: readonly SolverRegistration[] = [
+    {
+        factory: (ctx) => new LCPFlow(ctx),
+        options: { type: 'LCPFlow', phase: 'physics', bodyType: LCPSchema.name, priority: 10 },
+    },
+    {
+        factory: (ctx) => new XPBDFlow(ctx),
+        options: { type: 'XPBDFlow', phase: 'physics', bodyType: XPBDSoftSchema.name, priority: 5 },
+    },
+    {
+        factory: (ctx) => new FEMFlow(ctx),
+        options: { type: 'FEMFlow', phase: 'physics', bodyType: FEMSchema.name },
+    },
+    {
+        factory: (ctx) => new MPMFlow(ctx),
+        options: { type: 'MPMFlow', phase: 'physics', bodyType: MPMFluidSchema.name },
+    },
+    {
+        factory: (ctx) => new MPMFlow(ctx),
+        options: { type: 'MPMFlow', phase: 'physics', bodyType: MPMSoftSchema.name },
+    },
+    {
+        factory: (ctx) => new SPHFlow(ctx),
+        options: { type: 'SPHFlow', phase: 'physics', bodyType: SPHSchema.name },
+    },
+    {
+        factory: (ctx) => new PBFFlow(ctx),
+        options: { type: 'PBFFlow', phase: 'physics', bodyType: PBFSchema.name },
+    },
+];

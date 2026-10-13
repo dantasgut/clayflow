@@ -12,7 +12,7 @@ import {
 import { ColorRangeSchema, GraphColorStatusSchema } from '../compute/schemas';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
-import type { StorageBufferSpec } from '../../../core/contracts/index';
+import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
 const status = (fields: Partial<Record<string, number>>): ArrayBuffer => {
     const bytes = new ArrayBuffer(GraphColorStatusSchema.stride);

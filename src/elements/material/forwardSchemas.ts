@@ -1,14 +1,16 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
-/** Sombra lida pelo desenho forward: matriz luz-vista-projeção, direção da luz, viés e liga/desliga. */
-export const ForwardShadowParamsSchema = new StructSchema(
-    'ForwardShadowParams',
+/**
+ * Parâmetros do quadro do desenho forward (uniform privado do estágio, escrito quando mudam): direção da luz que
+ * ilumina, sombra ligada e o slot do mapa de sombra dela no pool `ShadowMap` (matriz e viés vêm de lá).
+ */
+export const ForwardFrameParamsSchema = new StructSchema(
+    'ForwardFrameParams',
     {
-        lightViewProj: FieldType.mat4x4f,
         lightDir: FieldType.vec4f,
-        bias: FieldType.f32,
-        enabled: FieldType.f32,
+        shadowEnabled: FieldType.f32,
+        shadowSlot: FieldType.u32,
         _pad0: FieldType.f32,
         _pad1: FieldType.f32,
     },

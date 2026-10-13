@@ -143,6 +143,44 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
         expect(core.destroy).toHaveBeenCalledWith(first);
     });
 
+    it("format 'canvas' resolve para o formato do canvas, também ao recriar no resize", () => {
+        const { world, system, events } = setup();
+        const r = new BagResource([
+            {
+                id: 'color',
+                role: 'texture',
+                textureShape: { format: 'canvas', sizeFromCanvas: true },
+            },
+        ]);
+        world.insert(r);
+        expect(system.textureOf(r, 'color')?.format).toBe('bgra8unorm');
+        expect(system.textureViewOf(r, 'color')?.format).toBe('bgra8unorm');
+        events.emit('canvasReconfigured', { width: 64, height: 32, format: 'bgra8unorm' });
+        expect(system.textureOf(r, 'color')).toMatchObject({ format: 'bgra8unorm', width: 64 });
+    });
+
+    it('uso derivado do formato: profundidade é anexo + amostrável, sem cópia; cor também copiável', () => {
+        const { world, system } = setup();
+        const U = GPUTextureUsage;
+        const r = new BagResource([
+            {
+                id: 'depth',
+                role: 'texture',
+                textureShape: { format: 'depth32float', width: 4, height: 4 },
+            },
+            {
+                id: 'color',
+                role: 'texture',
+                textureShape: { format: 'rgba8unorm', width: 4, height: 4 },
+            },
+        ]);
+        world.insert(r);
+        expect(system.textureOf(r, 'depth')?.usage).toBe(U.RENDER_ATTACHMENT | U.TEXTURE_BINDING);
+        expect(system.textureOf(r, 'color')?.usage).toBe(
+            U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT,
+        );
+    });
+
     it('uniform e storage individuais: storage com count 3 envia os 3 elementos', () => {
         const { world, system, writes } = setup();
         const r = new BagResource(
@@ -206,7 +244,7 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
         expect(core.destroy).toHaveBeenCalledWith(vbo);
     });
 
-    it('crescimento de pool destrói o buffer e o bind group anteriores', () => {
+    it('crescimento de pool destrói o buffer anterior (o pool não tem bind group próprio)', () => {
         const { world, system, core } = setup();
         const Pooled = new StructSchema('AllocPooled', { v: FieldType.vec4f });
         const make = () =>
@@ -214,12 +252,11 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
                 v: [0, 0, 0, 0],
             });
         world.insert(make());
-        const firstBg = system.poolBindGroup('AllocPooled')!;
         const firstBuf = system.poolBufferSpec('AllocPooled')!;
         for (let i = 0; i < 16; i++) world.insert(make());
-        expect(system.poolBindGroup('AllocPooled')).not.toBe(firstBg);
-        expect(core.destroy).toHaveBeenCalledWith(firstBg);
+        expect(system.poolBufferSpec('AllocPooled')).not.toBe(firstBuf);
         expect(core.destroy).toHaveBeenCalledWith(firstBuf);
+        expect(vi.mocked(core.create).mock.calls.some(([s]) => s.kind === 'bindgroup')).toBe(false);
     });
 
     it('descritor em pool não aparece em bufferOf (usa poolBufferSpec)', () => {

@@ -1,521 +1,263 @@
-import type {
-    BindGroupSpec,
-    EngineCore,
-    Frame,
-    IndexBufferSpec,
-    LayoutSpec,
-    RenderPipelineSpec,
-    RenderTarget,
-    ShaderModuleSpec,
-    TextureSpec,
-    TextureViewSpec,
-    UniformBufferSpec,
-    VertexBufferSpec,
-} from '../../core/contracts/index';
-import { Flow } from '../../scene/flows/Flow';
-import type { Phase } from '../../scene/flows/Flow';
+import type { EngineCore, Frame, RenderTarget, UniformBufferSpec } from '../../scene/contracts/gpu';
+import type { Resource } from '../../scene/contracts/Resource';
+import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { PoolDirectory } from '../../scene/contracts/PoolDirectory';
+import type { BoundFlow, PreparedRender, TransitionContext } from '../../scene/flows/FlowBinding';
+import type { FlowContext } from '../../scene/flows/FlowRegistry';
+import type { FlowEvent, FlowTransitions } from '../../scene/flows/FlowTransitions';
+import { RenderFlow } from '../../scene/flows/RenderFlow';
+import {
+    slot,
+    type EntitiesSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+    type TargetSlot,
+} from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
-import type { EntityId } from '../../scene/world/EntityId';
 import { Geometry } from '../../elements/geometry/Geometry';
-import { Transform } from '../../elements/scene/Transform';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
-import { composeWgsl } from '../../scene/shaders/composeWgsl';
-import { shadowDepth } from './shaders';
+import { Light } from '../../elements/scene/Light';
+import { ShadowMap } from '../../elements/scene/ShadowMap';
+import { Transform } from '../../elements/scene/Transform';
 import { ShadowDepthParamsSchema } from './renderSchemas';
+import { shadowDepth } from './shaders';
 
-const SHADOW_MAP_SIZE = 1024;
-const WORLD_POOL = Transform.worldSchema.name;
-
-interface ShadowSlot {
-    readonly entityId: EntityId;
-    readonly geometry: Geometry;
-    readonly transform: Transform;
-    vbo: VertexBufferSpec;
-    ibo: IndexBufferSpec;
+/** O `ShadowMap` de uma `DirectionalLight` que projeta sombra (`castShadow = 1`). */
+export function castingShadowMap(world: World): (resource: Resource) => boolean {
+    return (resource) => {
+        const id = world.entityIdOfResource(resource);
+        if (id === undefined) return false;
+        const light = world.resourcesOf(id).find((r) => r instanceof DirectionalLight);
+        return light?.data.castShadow === 1;
+    };
 }
 
-/**
- * Opções do ShadowFlow. Apenas `mapSize` por enquanto.
- */
+/** Slots do estágio de sombra. */
+export interface ShadowSlots extends SlotMap {
+    /** `ShadowMap` da primeira `DirectionalLight` que projeta sombra. */
+    readonly caster: SingletonSlot<false>;
+    /** Pool `WorldTransform` (matriz de mundo pelo slot da entidade). */
+    readonly world: PoolSlot<false>;
+    /** Pool `ShadowMap` (matriz da luz e vieses pelo slot do caster). */
+    readonly shadowMaps: PoolSlot<false>;
+    /** Entidades desenhadas no mapa (geometria + transform). */
+    readonly casters: EntitiesSlot;
+    /** Alvo só de profundidade: a textura `depth` do `ShadowMap` do caster. */
+    readonly target: TargetSlot;
+}
+
+function slotsOf(world: World): ShadowSlots {
+    const select = castingShadowMap(world);
+    return {
+        caster: slot.singleton(ShadowMap.schema, { select }),
+        world: slot.pool(Transform.worldSchema.name),
+        shadowMaps: slot.pool(ShadowMap.schema.name),
+        casters: slot.entities({ all: [Geometry, Transform] }),
+        target: slot.target({
+            color: 'none',
+            depth: { schema: ShadowMap.schema, descId: 'depth', select },
+        }),
+    };
+}
+
+type Ctx = TransitionContext<ShadowSlots>;
+
+const VERTEX_LAYOUT = [
+    {
+        arrayStride: 32,
+        stepMode: 'vertex' as const,
+        attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' as const }],
+    },
+];
+
+function depthPipeline(frontFace: GPUFrontFace, preferAsync: boolean): PipelineDescriptor {
+    return {
+        id: `shadow_depth:${frontFace}`,
+        role: 'render',
+        shader: shadowDepth,
+        entryPoints: ['vs_main'],
+        consumes: [Transform.worldSchema.name, ShadowMap.schema.name],
+        topology: 'triangle-list',
+        cullMode: 'back',
+        frontFace,
+        vertexBuffers: VERTEX_LAYOUT,
+        depth: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' },
+        ...(preferAsync ? { preferAsync: true } : {}),
+    };
+}
+
+/** Opções do `ShadowFlow`. */
 export interface ShadowFlowOptions {
-    /** Resolução do shadow map (mapSize × mapSize). Default: 1024. */
-    readonly mapSize?: number;
+    /** Compila os pipelines em segundo plano; o estágio entra no quadro quando prontos. */
+    readonly preferAsync?: boolean;
 }
 
 /**
- * ShadowFlow — depth-only render pass do POV de uma directional light.
- * Identifica o primeiro DirectionalLight com `castShadow=1` no World
- * e renderiza geometria do mundo em depth32float (mapSize × mapSize).
+ * ShadowFlow — passe só de profundidade do ponto de vista da primeira `DirectionalLight` que projeta sombra, na
+ * textura do `ShadowMap` dela (slot `target`).
  *
- * O depth view resultante é consumido pelo ForwardFlow para PCF shadow
- * sampling. Single light by design (multi-light shadows = future work).
- *
- * A posição de cada objeto vem do pool `WorldTransform` (produzido pelo
- * `TransformFlow`), lido no vertex shader por `instance_index` — o slot da entidade
- * vai como `firstInstance` do draw; nenhum dado de transformação é enviado por objeto.
+ * Slots: o `ShadowMap` da luz (caster), os pools `WorldTransform` e `ShadowMap` e as entidades com geometria e
+ * transform. A matriz luz-vista-projeção é calculada na CPU quando a luz muda (`resourceReady` da luz, escuta de
+ * `Light`) ou quando o caster aparece, e gravada em `ShadowMap.data.lightViewProj` — o envio reativo da C2 a leva ao
+ * pool, que este estágio e o render principal leem pelo slot do mapa. A geometria é a alocada pela C2 (nenhuma cópia
+ * por entidade); a posição vem do pool `WorldTransform` pelo slot da entidade (`firstInstance`).
  */
-export class ShadowFlow extends Flow {
+export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
     readonly type = 'ShadowFlow';
-    readonly bodyType = '';
-    readonly phase: Phase = 'shadow';
+    readonly slots: ShadowSlots;
+    override readonly listens = [Light.schema];
+    override readonly pipelines: readonly PipelineDescriptor[];
+    override readonly bindings: {
+        /** Parâmetros do passe (`ShadowDepthParams`: slot do caster). */
+        readonly shadow: UniformBufferSpec;
+    };
+    protected readonly initialState = 'idle' as const;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<ShadowSlots>>;
 
-    private readonly mapSize: number;
-    private depthTexture: TextureSpec | null = null;
-    private depthView: TextureViewSpec | null = null;
-    private shadowParamsBuffer: UniformBufferSpec | null = null;
-    private shadowParamsLayout: LayoutSpec | null = null;
-    private shadowParamsBindGroup: BindGroupSpec | null = null;
-    private transformLayout: LayoutSpec | null = null;
-    private shader: ShaderModuleSpec | null = null;
-    private pipeline: RenderPipelineSpec | null = null;
-    /** Variante com `frontFace: 'cw'` para objetos espelhados (escala com determinante negativo). */
-    private mirroredPipeline: RenderPipelineSpec | null = null;
-    private mirroredPipelineReady = false;
-    private worldBindGroup: BindGroupSpec | null = null;
-    private readonly slots = new Map<EntityId, ShadowSlot>();
-    /** Entidades que projetam sombra (geometria + transform), mantidas por eventos do World. */
-    private readonly receivers = new Map<EntityId, { geometry: Geometry; transform: Transform }>();
-    /** Luzes direcionais da cena por entidade, mantidas por eventos do World. */
-    private readonly lights = new Map<EntityId, DirectionalLight>();
-    private lightViewProj: number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-    private lightDirection: [number, number, number, number] = [0.4, -1, 0.6, 0];
+    private readonly core: EngineCore;
+    private readonly world: World;
+    private readonly resources: ResourceDirectory;
+    private readonly params: UniformBufferSpec;
+    /** Slot do caster gravado em `ShadowDepthParams` (-1 = ainda não gravado). */
+    private writtenSlot = -1;
 
-    /**
-     * Quando true, o pipeline é criado via `core.createAsync` em background;
-     * `isReady()` retorna false até o pipeline ficar pronto, e o ExecutionSystem
-     * skipa o flow nos primeiros frames. Em sync mode (default), o pipeline é
-     * criado bloqueando no primeiro dispatch.
-     */
-    private preferAsyncPipeline = false;
-    private pipelineReady = true;
-    private asyncKickoffDone = false;
-
-    constructor(
-        private readonly core: EngineCore,
-        private readonly world: World,
-        private readonly resources: PoolDirectory,
-        options: ShadowFlowOptions = {},
-    ) {
+    constructor(ctx: FlowContext, options: ShadowFlowOptions = {}) {
         super();
-        this.mapSize = options.mapSize ?? SHADOW_MAP_SIZE;
-        // Entidades inseridas antes do registro do estágio; as seguintes chegam por onEntitiesInserted.
-        for (const record of world.allRecords()) this.track(record.id);
-    }
-
-    override onEntitiesInserted(entityIds: readonly number[]): void {
-        for (const id of entityIds) this.track(id as EntityId);
-    }
-
-    /** Registra luz direcional e/ou receptor (geometria + transform), reconhecidos por `instanceof`. */
-    private track(entityId: EntityId): void {
-        const resources = this.world.resourcesOf(entityId);
-        const light = resources.find((r): r is DirectionalLight => r instanceof DirectionalLight);
-        if (light !== undefined) this.lights.set(entityId, light);
-        const geometry = resources.find((r): r is Geometry => r instanceof Geometry);
-        const transform = resources.find((r): r is Transform => r instanceof Transform);
-        if (geometry === undefined || transform === undefined) return;
-        this.receivers.set(entityId, { geometry, transform });
-    }
-
-    /** Habilita async pipeline compilation. Sync mode (default) bloqueia primeiro dispatch. */
-    setPreferAsync(enabled: boolean): this {
-        if (enabled === this.preferAsyncPipeline) return this;
-        this.preferAsyncPipeline = enabled;
-        if (enabled && this.pipeline === null) this.pipelineReady = false;
-        return this;
-    }
-
-    getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [
-            {
-                id: 'pipeline_shadow_depth',
-                role: 'render',
-                shader: shadowDepth,
-                entryPoints: ['vs_main'],
-                consumes: ['Transform'],
-            },
-        ];
-    }
-
-    override isReady(): boolean {
-        if (this.preferAsyncPipeline && !this.asyncKickoffDone) {
-            this.kickOffAsyncPipeline();
-        }
-        if (this.preferAsyncPipeline && !this.pipelineReady) return false;
-        return this.findShadowCaster() !== null && this.collectShadowReceivers().length > 0;
-    }
-
-    private kickOffAsyncPipeline(): void {
-        this.asyncKickoffDone = true;
-        this.ensureGpuObjects(); // sync deps (textures, buffers, layouts, shader)
-        if (this.pipeline !== null) {
-            // Já criado sync (toggle ocorreu tarde).
-            this.pipelineReady = true;
-            return;
-        }
-        const spec = this.buildPipelineSpec();
-        if (spec === null) {
-            this.pipelineReady = true;
-            return;
-        }
-        void this.core.createAsync(spec).then(() => {
-            this.pipeline = spec;
-            this.pipelineReady = true;
+        this.core = ctx.core;
+        this.world = ctx.world;
+        this.resources = ctx.resources;
+        this.slots = slotsOf(ctx.world);
+        this.params = ctx.core.create<UniformBufferSpec>({
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'shadow_params_buf',
+            byteSize: ShadowDepthParamsSchema.stride,
         });
-    }
-
-    /** View do shadow map para ForwardFlow consumir como bind group input. */
-    get depthTextureView(): TextureViewSpec | null {
-        return this.depthView;
-    }
-
-    /** Descarte do estágio: libera os buffers de cada entidade, o mapa de profundidade, pipelines e layouts. */
-    override dispose(): void {
-        for (const slot of this.slots.values()) {
-            this.core.destroy(slot.vbo);
-            this.core.destroy(slot.ibo);
-        }
-        this.slots.clear();
-        this.receivers.clear();
-        this.lights.clear();
-        const owned = [
-            this.worldBindGroup,
-            this.shadowParamsBindGroup,
-            this.pipeline,
-            this.mirroredPipeline,
-            this.shader,
-            this.depthView,
-            this.depthTexture,
-            this.shadowParamsBuffer,
-            this.shadowParamsLayout,
-            this.transformLayout,
-        ];
-        for (const spec of owned) if (spec !== null) this.core.destroy(spec);
-        this.worldBindGroup = null;
-        this.shadowParamsBindGroup = null;
-        this.pipeline = null;
-        this.mirroredPipeline = null;
-        this.mirroredPipelineReady = false;
-        this.shader = null;
-        this.depthView = null;
-        this.depthTexture = null;
-        this.shadowParamsBuffer = null;
-        this.shadowParamsLayout = null;
-        this.transformLayout = null;
-    }
-
-    override onEntitiesRemoved(entityIds: readonly number[]): void {
-        for (const id of entityIds) {
-            const entityId = id as EntityId;
-            this.receivers.delete(entityId);
-            this.lights.delete(entityId);
-            const slot = this.slots.get(entityId);
-            if (slot !== undefined) {
-                // Remoção entre quadros, depois do submit: o WebGPU conclui o trabalho submetido antes de liberar.
-                this.core.destroy(slot.vbo);
-                this.core.destroy(slot.ibo);
-            }
-            this.slots.delete(entityId);
-        }
-    }
-
-    /** O pool de matrizes de mundo foi realocado: o bind group do grupo 1 é recriado. */
-    override onPoolReallocated(poolKey: string): void {
-        if (poolKey !== WORLD_POOL) return;
-        if (this.worldBindGroup !== null) this.core.destroy(this.worldBindGroup);
-        this.worldBindGroup = null;
-    }
-
-    /** mat4×4 view × projection da light POV. ForwardFlow uploada para shadow PCF sample. */
-    get currentLightViewProj(): readonly number[] {
-        return this.lightViewProj;
-    }
-
-    /** Direção da light em world coords (vec4, w=0). Usada para diffuse shading. */
-    get currentLightDirection(): readonly [number, number, number, number] {
-        return this.lightDirection;
-    }
-
-    private ensureGpuObjects(): void {
-        if (this.depthTexture === null) {
-            this.depthTexture = this.core.create<TextureSpec>({
-                kind: 'texture',
-                discriminator: 'shadow_depth_tex',
-                width: this.mapSize,
-                height: this.mapSize,
-                format: 'depth32float',
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            });
-        }
-        if (this.depthView === null) {
-            this.depthView = this.core.create<TextureViewSpec>({
-                kind: 'textureview',
-                discriminator: 'shadow_depth_view',
-                source: this.depthTexture,
-                format: 'depth32float',
-            });
-        }
-        if (this.shadowParamsBuffer === null) {
-            this.shadowParamsBuffer = this.core.create<UniformBufferSpec>({
-                kind: 'buffer',
-                subkind: 'uniform',
-                discriminator: 'shadow_params_buf',
-                byteSize: ShadowDepthParamsSchema.stride,
-            });
-        }
-        if (this.shadowParamsLayout === null) {
-            this.shadowParamsLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'shadow_params_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.VERTEX,
-                        kind: 'buffer',
-                        type: 'uniform',
-                    },
-                ],
-            });
-        }
-        if (this.shadowParamsBindGroup === null) {
-            this.shadowParamsBindGroup = this.core.create<BindGroupSpec>({
-                kind: 'bindgroup',
-                discriminator: 'shadow_params_bg',
-                layout: this.shadowParamsLayout,
-                bindings: [{ binding: 0, kind: 'buffer', buffer: this.shadowParamsBuffer }],
-            });
-        }
-        if (this.transformLayout === null) {
-            this.transformLayout = this.core.create<LayoutSpec>({
-                kind: 'layout',
-                discriminator: 'shadow_transform_layout',
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.VERTEX,
-                        kind: 'buffer',
-                        type: 'read-only-storage',
-                    },
-                ],
-            });
-        }
-        if (this.shader === null) {
-            this.shader = this.core.create<ShaderModuleSpec>({ ...composeWgsl(shadowDepth).spec });
-        }
-        if (this.pipeline === null && !this.preferAsyncPipeline) {
-            const spec = this.buildPipelineSpec();
-            if (spec !== null) this.pipeline = this.core.create<RenderPipelineSpec>(spec);
-        }
-    }
-
-    private buildPipelineSpec(frontFace: GPUFrontFace = 'ccw'): RenderPipelineSpec | null {
-        if (
-            this.shadowParamsLayout === null
-            || this.transformLayout === null
-            || this.shader === null
-        )
-            return null;
-        return {
-            kind: 'pipeline',
-            subkind: 'render',
-            discriminator:
-                frontFace === 'ccw' ? 'shadow_depth_pipeline' : 'shadow_depth_pipeline_cw',
-            layouts: [this.shadowParamsLayout, this.transformLayout],
-            vertex: {
-                shader: this.shader,
-                entryPoint: 'vs_main',
-                buffers: [
-                    {
-                        arrayStride: 32,
-                        stepMode: 'vertex',
-                        attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }],
-                    },
-                ],
+        this.bindings = { shadow: this.params };
+        const async = options.preferAsync === true;
+        this.pipelines = [depthPipeline('ccw', async), depthPipeline('cw', async)];
+        const caster = {
+            to: 'idle' as const,
+            run: (_e: unknown, c: Ctx) => {
+                this.updateCaster(c);
             },
-            primitive: { topology: 'triangle-list', cullMode: 'back', frontFace },
-            depthStencil: {
-                format: 'depth32float',
-                depthWriteEnabled: true,
-                depthCompare: 'less',
+        };
+        this.transitions = {
+            '*': {
+                slotsResolved: caster,
+                slotLost: 'ignore',
+                pipelinesCompiled: 'ignore',
+                bindGroupReplaced: 'ignore',
+                poolReallocated: caster,
+                entitiesChanged: 'ignore',
+                canvasReconfigured: 'ignore',
+                resourceReady: {
+                    to: 'idle',
+                    run: (e, c) => {
+                        this.lightChanged(e, c);
+                    },
+                },
             },
         };
     }
 
-    private findShadowCaster(): DirectionalLight | null {
-        for (const light of this.lights.values()) {
-            if (light.data.castShadow === 1) return light;
-        }
-        return null;
-    }
-
-    private collectShadowReceivers(): {
-        entityId: EntityId;
-        geometry: Geometry;
-        transform: Transform;
-    }[] {
-        return [...this.receivers].map(([entityId, r]) => ({ entityId, ...r }));
-    }
-
-    private uploadShadowParams(light: DirectionalLight): void {
-        if (this.shadowParamsBuffer === null) return;
-        const dir = (light.data.direction as readonly number[]) ?? [0, -1, 0, 0];
-        const dx = dir[0] ?? 0,
-            dy = dir[1] ?? -1,
-            dz = dir[2] ?? 0;
-        this.lightDirection = [dx, dy, dz, 0];
-        const eye = [-dx * 10, -dy * 10, -dz * 10];
-        const view = lookAt([eye[0]!, eye[1]!, eye[2]!], [0, 0, 0], [0, 1, 0]);
-        const proj = ortho(-10, 10, -10, 10, 0.1, 50);
-        const vp = mul(proj, view);
-        this.lightViewProj = vp;
-        this.core.write(
-            this.shadowParamsBuffer,
-            ShadowDepthParamsSchema.pack({ lightViewProj: vp }),
-        );
-    }
-
-    private ensureSlot(
-        entityId: EntityId,
-        geometry: Geometry,
-        transform: Transform,
-    ): ShadowSlot | null {
-        const cached = this.slots.get(entityId);
-        if (cached !== undefined) return cached;
-        if (this.transformLayout === null) return null;
-        const vertices = geometry.data.vertices as Float32Array | undefined;
-        const indices = geometry.data.indices as Uint16Array | Uint32Array | undefined;
-        if (vertices === undefined || indices === undefined) return null;
-
-        const vbo = this.core.create<VertexBufferSpec>({
-            kind: 'buffer',
-            subkind: 'vertex',
-            discriminator: `shadow_vbo:${entityId}`,
-            byteSize: vertices.byteLength,
-            stride: 32,
-            count: geometry.vertexCount,
-        });
-        this.core.write(vbo, vertices);
-
-        const padded = padTo4(indices);
-        const ibo = this.core.create<IndexBufferSpec>({
-            kind: 'buffer',
-            subkind: 'index',
-            discriminator: `shadow_ibo:${entityId}`,
-            byteSize: padded.byteLength,
-            count: geometry.indexCount,
-            format: geometry.indexFormat,
-        });
-        this.core.write(ibo, padded);
-
-        const slot: ShadowSlot = {
-            entityId,
-            geometry,
-            transform,
-            vbo,
-            ibo,
-        };
-        this.slots.set(entityId, slot);
-        return slot;
-    }
-
-    dispatch(frame: Frame): void {
-        const light = this.findShadowCaster();
-        if (light === null) return;
-        const receivers = this.collectShadowReceivers();
-        if (receivers.length === 0) return;
-        this.ensureGpuObjects();
-        if (
-            this.pipeline === null
-            || this.depthView === null
-            || this.shadowParamsBindGroup === null
-        )
-            return;
-        this.uploadShadowParams(light);
-        const slots: ShadowSlot[] = [];
-        for (const r of receivers) {
-            const slot = this.ensureSlot(r.entityId, r.geometry, r.transform);
-            if (slot === null) continue;
-            slots.push(slot);
-        }
+    /** Grava a profundidade de cada entidade com geometria e transform. */
+    dispatch(frame: Frame, bound: BoundFlow<ShadowSlots>): void {
+        const depth = bound.slots.target.depth;
+        if (depth === undefined) return;
         const target: RenderTarget = {
             colorAttachments: [],
             depthStencilAttachment: {
-                view: this.depthView,
+                view: depth,
                 depthClearValue: 1.0,
                 depthLoadOp: 'clear',
                 depthStoreOp: 'store',
             },
         };
-        const worldBindGroup = this.ensureWorldBindGroup();
-        if (worldBindGroup === null) return;
-        const paramsBindGroup = this.shadowParamsBindGroup;
+        const ccw = bound.render('shadow_depth:ccw');
+        const cw = bound.render('shadow_depth:cw');
+        const world = bound.slots.world;
+        const entries = bound.slots.casters.entries;
         frame.render(target, 'ShadowFlow', (pass) => {
-            for (const slot of slots) {
-                const worldSlot = this.resources.poolSlotOf(WORLD_POOL, slot.entityId);
+            if (entries.length === 0) return;
+            // Grupos 0 (parâmetros + pool ShadowMap) e 1 (WorldTransform) uma vez por passe.
+            pass.bind
+                .setPipeline(ccw.spec)
+                .setBindGroup(0, ccw.groups[0]!)
+                .setBindGroup(1, ccw.groups[1]!);
+            let current: PreparedRender = ccw;
+            for (const entry of entries) {
+                const worldSlot = world.slotOf(entry.entityId);
                 if (worldSlot === undefined) continue; // ainda sem slot ⇒ não desenha
-                const pipeline = this.pipelineFor(slot.transform);
-                if (pipeline === null) continue;
-                pass.bind
-                    .setPipeline(pipeline)
-                    .setBindGroup(0, paramsBindGroup)
-                    .setBindGroup(1, worldBindGroup);
-                pass.geometry.vertex(0, slot.vbo).index(slot.ibo);
-                pass.draw.indexed(slot.geometry.indexCount, 1, 0, 0, worldSlot);
+                const geometry = entry.get(Geometry);
+                const vertices = this.resources.bufferOf(geometry, 'vertices');
+                const indices = this.resources.bufferOf(geometry, 'indices');
+                if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') continue;
+                const pipeline = isMirrored(entry.get(Transform)) ? cw : ccw;
+                if (!pipeline.ready) continue;
+                if (pipeline !== current) {
+                    pass.bind.setPipeline(pipeline.spec);
+                    current = pipeline;
+                }
+                pass.geometry.vertex(0, vertices).index(indices);
+                pass.draw.indexed(indices.count, 1, 0, 0, worldSlot);
             }
         });
     }
 
-    /** Bind group único do pool `WorldTransform` (grupo 1), ou null se o pool não existe. */
-    private ensureWorldBindGroup(): BindGroupSpec | null {
-        if (this.worldBindGroup !== null) return this.worldBindGroup;
-        const buffer = this.resources.poolBufferSpec(WORLD_POOL);
-        if (buffer === undefined || this.transformLayout === null) return null;
-        this.worldBindGroup = this.core.create<BindGroupSpec>({
-            kind: 'bindgroup',
-            discriminator: `shadow_world_bg:${buffer.discriminator ?? 'pool'}`,
-            layout: this.transformLayout,
-            bindings: [{ binding: 0, kind: 'buffer', buffer }],
-        });
-        return this.worldBindGroup;
+    /** Libera o uniform de parâmetros. */
+    override dispose(): void {
+        this.core.destroy(this.params);
     }
 
-    /** Pipeline na orientação de faces do objeto (espelhado ⇒ `frontFace: 'cw'`). */
-    private pipelineFor(transform: Transform): RenderPipelineSpec | null {
-        if (!isMirrored(transform)) return this.pipeline;
-        if (this.mirroredPipeline === null) {
-            const spec = this.buildPipelineSpec('cw');
-            if (spec === null) return null;
-            this.mirroredPipeline = spec;
-            if (this.preferAsyncPipeline) {
-                void this.core.createAsync(spec).then(() => {
-                    this.mirroredPipelineReady = true;
-                });
-            } else {
-                this.core.create<RenderPipelineSpec>(spec);
-                this.mirroredPipelineReady = true;
-            }
+    /** Slot do caster nos parâmetros do passe e a matriz da luz dele. */
+    private updateCaster(ctx: Ctx): void {
+        const shadowMap = ctx.bound.slots.caster.resource as ShadowMap;
+        const id = this.world.entityIdOfResource(shadowMap);
+        const casterSlot = id === undefined ? undefined : ctx.bound.slots.shadowMaps.slotOf(id);
+        if (casterSlot !== undefined && casterSlot !== this.writtenSlot) {
+            this.core.write(this.params, ShadowDepthParamsSchema.pack({ casterSlot }));
+            this.writtenSlot = casterSlot;
         }
-        return this.mirroredPipelineReady ? this.mirroredPipeline : null;
+        this.writeLightViewProj(shadowMap);
+    }
+
+    /** A luz do caster mudou: recalcula a matriz. */
+    private lightChanged(event: FlowEvent, ctx: Ctx): void {
+        if (event.type !== 'resourceReady') return;
+        const resource = event.resource;
+        const shadowMap = ctx.bound.slots.caster.resource as ShadowMap;
+        const id = this.world.entityIdOfResource(shadowMap);
+        if (id === undefined || !this.world.resourcesOf(id).includes(resource)) return;
+        this.writeLightViewProj(shadowMap);
+    }
+
+    /** Matriz luz-vista-projeção (ortográfica ±10, olho a 10 m contra a direção da luz) gravada no `ShadowMap`. */
+    private writeLightViewProj(shadowMap: ShadowMap): void {
+        const id = this.world.entityIdOfResource(shadowMap);
+        const light =
+            id === undefined
+                ? undefined
+                : this.world.resourcesOf(id).find((r) => r instanceof DirectionalLight);
+        if (light === undefined) return;
+        const dir = (light.data.direction as readonly number[] | undefined) ?? [0, -1, 0, 0];
+        const dx = dir[0] ?? 0;
+        const dy = dir[1] ?? -1;
+        const dz = dir[2] ?? 0;
+        const view = lookAt([-dx * 10, -dy * 10, -dz * 10], [0, 0, 0], [0, 1, 0]);
+        const proj = ortho(-10, 10, -10, 10, 0.1, 50);
+        const vp = mul(proj, view);
+        const current = shadowMap.data.lightViewProj as readonly number[];
+        if (current.length === vp.length && current.every((v, i) => v === vp[i])) return;
+        shadowMap.data.lightViewProj = vp;
     }
 }
 
 /** Escala com produto negativo espelha o objeto (inverte a orientação das faces). */
-function isMirrored(transform: Transform): boolean {
+export function isMirrored(transform: Transform): boolean {
     const scale = transform.data.scale as readonly number[];
     return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
-}
-
-function alignUp(v: number, a: number): number {
-    return Math.ceil(v / a) * a;
-}
-
-function padTo4(arr: ArrayBufferView): Uint8Array {
-    const padded = Math.max(4, alignUp(arr.byteLength, 4));
-    const out = new Uint8Array(padded);
-    out.set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));
-    return out;
 }
 
 function lookAt(e: number[], t: number[], u: number[]): number[] {
@@ -578,7 +320,7 @@ function ortho(l: number, r: number, b: number, t: number, n: number, f: number)
 }
 
 function mul(a: number[], b: number[]): number[] {
-    const o: number[] = new Array(16).fill(0);
+    const o: number[] = new Array<number>(16).fill(0);
     for (let i = 0; i < 4; i++) {
         for (let j = 0; j < 4; j++) {
             let s = 0;

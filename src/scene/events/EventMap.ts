@@ -1,4 +1,7 @@
 import type { Resource } from '../contracts/Resource';
+import type { Schema } from '../descriptors/Schema';
+import type { Flow } from '../flows/Flow';
+import type { BoundFlow } from '../flows/FlowBinding';
 import type { EntityId } from '../world/EntityId';
 import type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 import type { ChangedEvent } from './ChangedEvent';
@@ -10,15 +13,34 @@ import type { ReadyEvent } from './ReadyEvent';
 import type { TimeDroppedEvent } from './TimeDroppedEvent';
 
 /**
- * Payload disparado quando um Flow termina sua inicialização e está
- * pronto para dispatch. Útil para sistemas que dependem de um flow
- * específico estar ativo (e.g. UI mostrando "Loading..." até ForwardFlow ready).
+ * Payload de `flowReady`: a C2 resolveu os slots e compilou os pipelines do Flow, que passa a executar no quadro.
+ * O `ExecutionSystem` mantém os Flows ativos por este evento e por `flowSuspended`.
  */
 export interface FlowReadyPayload {
-    /** Identificador do flow (`Flow.type`, e.g. 'ForwardFlow'). */
+    /** Nome do estágio (`Flow.type`). */
     readonly type: string;
-    /** Body type associado ao flow (e.g. 'LCPSchema'); vazio se não-bound. */
+    /** Tipo de corpo atendido (chave do pool), nos registros com `bodyType`. */
     readonly bodyType?: string;
+    /** A instância pronta. */
+    readonly flow: Flow;
+    /** Slots e pipelines que o `dispatch` recebe (visão viva, mantida pela C2). */
+    readonly bound: BoundFlow;
+}
+
+/** Payload de `flowSuspended`: o Flow saiu de `ready` (slot obrigatório perdido ou descarte) e deixa o quadro. */
+export interface FlowSuspendedPayload {
+    /** `type` do Flow. */
+    readonly type: string;
+    /** O Flow que saiu do quadro. */
+    readonly flow: Flow;
+}
+
+/** Payload de `poolCreated`: a C2 criou o pool `poolKey` (primeiro recurso com o schema/algoritmo). */
+export interface PoolCreatedPayload {
+    /** Chave do pool criado. */
+    readonly poolKey: string;
+    /** Schema do elemento do pool. */
+    readonly schema: Schema;
 }
 
 /**
@@ -39,9 +61,10 @@ export interface ResourceDirtyPayload {
 }
 
 /**
- * Payload do evento `canvasReconfigured` — emitido por `Application.handleResize()`
- * quando canvas dimensões mudam. Flows que mantêm textures dependentes do
- * tamanho do canvas devem invalidar+recriar via `Flow.onCanvasResized`.
+ * Payload do evento `canvasReconfigured` — emitido por `Application.handleResize()` quando as dimensões do canvas
+ * mudam. A C2 recria as texturas `sizeFromCanvas` (religando os bind groups que as usam) e entrega o evento aos Flows
+ * com alvo (`canvasReconfigured` na tabela de transições), que recriam os seus recursos privados dependentes do
+ * tamanho.
  */
 export interface CanvasReconfiguredPayload {
     readonly width: number;
@@ -51,7 +74,7 @@ export interface CanvasReconfiguredPayload {
 
 /**
  * Payload do evento `entitiesInserted` — emitido pelo World depois de `resourcesChanged` quando uma entidade raiz
- * é inserida. Estágios mantêm seus conjuntos de entidades por `Flow.onEntitiesInserted`.
+ * é inserida. A C2 atualiza os slots de entidades dos Flows (`entitiesChanged`).
  */
 export interface EntitiesInsertedPayload {
     /** Ids das entidades raiz inseridas. */
@@ -59,9 +82,8 @@ export interface EntitiesInsertedPayload {
 }
 
 /**
- * Payload do evento `entitiesRemoved` — emitido pelo World quando uma ou
- * mais entidades são removidas. Flows com cache por EntityId devem limpar
- * os entries afetados via `Flow.onEntitiesRemoved`.
+ * Payload do evento `entitiesRemoved` — emitido pelo World quando uma ou mais entidades são removidas. A C2 libera os
+ * recursos delas e atualiza os slots de entidades dos Flows (`entitiesChanged`).
  */
 export interface EntitiesRemovedPayload {
     /** Ids das entidades raiz removidas. */
@@ -113,6 +135,16 @@ export interface DeviceLostPayload {
 }
 
 /**
+ * Payload do evento `frameRetired` — emitido quando um quadro submetido termina na GPU (ou a contagem é zerada
+ * por device perdido/`shutdown`). Quem espera espaço na GPU (`GameLoop`, laços externos) reage a isto em vez de
+ * consultar `framesInFlight` a cada quadro de vídeo.
+ */
+export interface FrameRetiredPayload {
+    /** Quadros ainda em execução na GPU depois desta conclusão. */
+    readonly framesInFlight: number;
+}
+
+/**
  * Payload do evento `deviceRecovered` — emitido por `Application.requestNewDevice()`
  * após recriar device e reattach canvas. Sistemas reativos (ResourceSystem,
  * Flows) devem reconstruir buffers/pipelines.
@@ -154,11 +186,15 @@ export interface EventMap {
     resourceReady: ReadyEvent<ResourceReadyPayload>;
     /** App marcou Resource como modificado — re-upload pendente. */
     resourceDirty: ReadyEvent<ResourceDirtyPayload>;
-    /** Flow concluiu inicialização e está pronto para dispatch. */
+    /** A C2 deixou um Flow pronto (slots resolvidos, pipelines compilados) — entra no quadro. */
     flowReady: ReadyEvent<FlowReadyPayload>;
+    /** Um Flow saiu de `ready` — deixa o quadro. */
+    flowSuspended: ReadyEvent<FlowSuspendedPayload>;
+    /** A C2 criou um pool — registros de Flow com esse `bodyType` são instanciados. */
+    poolCreated: PoolCreatedPayload;
     /** Pool teve buffer realocado (capacity 2× growth) — flows invalidam bindings. */
     poolReallocated: PoolReallocatedEvent;
-    /** BindGroup foi substituído (e.g. textura source mudou). */
+    /** A C2 recriou um bind group de um pipeline de Flow porque uma fonte foi recriada. */
     bindGroupReplaced: BindGroupReplacedEvent;
     /** `Application.step()`/`GameLoop` emitem a cada quadro, depois de `time.advance()`. */
     frameTick: FrameTickEvent;
@@ -168,6 +204,8 @@ export interface EventMap {
     frameRecording: FrameRecordingEvent;
     /** ExecutionSystem emite após record+submit — fim do frame. */
     frameComplete: FrameCompleteEvent;
+    /** Core emite quando um quadro submetido termina na GPU — há espaço para mais um. */
+    frameRetired: FrameRetiredPayload;
     /** Application emite após resize do canvas — flows recriam textures. */
     canvasReconfigured: CanvasReconfiguredPayload;
     /** World emite quando entidades são inseridas — flows atualizam seus conjuntos de entidades. */

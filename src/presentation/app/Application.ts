@@ -21,7 +21,7 @@ import {
     type PresentationDefaults,
 } from '../flows/defaults';
 import type { EnginePlugin } from '../plugins/EnginePlugin';
-import { autoRegisterFlows } from '../../elements/physics/flows/defaultFlows';
+import { ELEMENT_CONSUMERS } from '../../elements/consumers';
 
 /**
  * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
@@ -74,6 +74,11 @@ export interface ApplicationOptions {
      * trabalho na GPU sem limite quando ela é mais lenta que a CPU; `step()` não espera.
      */
     maxFramesInFlight?: number;
+    /**
+     * Registra resolvers de `consumes` próprios da aplicação (ex.: `r.register(new SingletonResolver(Wind.schema,
+     * 'wind'))`). Roda depois dos padrão do motor; `register` de um nome existente o substitui.
+     */
+    consumers?: (registry: ConsumerResolverRegistry) => void;
 }
 
 /**
@@ -82,17 +87,18 @@ export interface ApplicationOptions {
  * Ciclo de vida:
  *   1. `await Application.create({ canvas })` adquire device/queue, configura
  *      swapchain, instancia `World`/`EventBus`/`ResourceSystem`/`FlowRegistry`,
- *      e registra defaults (`ShadowFlow + ForwardFlow + PostFlow + UIFlow + DebugFlow`).
+ *      e registra por factory os estágios padrão (`TransformFlow`, `ShadowFlow`, `ForwardFlow`, `PostFlow`,
+ *      `DebugFlow`, `UIFlow` e os solvers), inserindo os alvos do quadro (`FrameTargets`).
  *   2. `app.world.insert(entity)` para cada entidade da cena. Resources
  *      indexados disparam alocação de buffers/binds reativamente.
- *   3. `app.start()` inicia o `GameLoop` (RAF), que emite `frameTick` e cada
- *      Flow ready dispatcha seus passes dentro de `core.record(...)` + `submit()`.
+ *   3. `app.start()` inicia o `GameLoop` (RAF), que emite `frameTick`; cada Flow pronto (`flowReady`) grava os seus
+ *      passes dentro de `core.record(...)` + `submit()`.
  *   4. `app.stop()` pausa o RAF; `app.dispose()` desfaz event listeners.
  *
  * Resize: por padrão (`autoResize: true` em browser) anexa um listener em
  * `window.resize` debounced 100ms que reconfigura o canvas + emite
- * `canvasReconfigured`, e os flows recriam textures size-dependent via
- * `Flow.onCanvasResized`.
+ * `canvasReconfigured`: a C2 recria as texturas do tamanho do canvas e os Flows recriam os seus recursos privados
+ * dependentes do tamanho numa transição.
  */
 export class Application {
     /** World ECS-like — query/insert/remove de Resources. Atalho para `scene.world`. */
@@ -123,7 +129,6 @@ export class Application {
     private memoryWarningEmitted = false;
     private memoryUnsubscribe: (() => void) | null = null;
     private readonly plugins: EnginePlugin[] = [];
-    private flowAutoUnsubscribe: (() => void) | null = null;
 
     private constructor(
         options: ApplicationOptions,
@@ -141,13 +146,6 @@ export class Application {
         this.maxFramesInFlight = options.maxFramesInFlight ?? 2;
         this.loop = new GameLoop(scene.events, this.time, () => this.readyForFrame());
         this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
-
-        // Auto-registro de Flow por schema: ao inserir um body cujo schema tem
-        // factory default e ainda não há flow para ele, registra automaticamente.
-        // Registro manual prévio tem precedência (resolve !== undefined ⇒ no-op).
-        this.flowAutoUnsubscribe = scene.events.on('resourcesChanged', ({ added }) => {
-            autoRegisterFlows(added, scene.flows, scene.core, scene.world, scene.resourceSystem);
-        });
 
         const autoResize = options.autoResize ?? typeof window !== 'undefined';
         if (autoResize && typeof window !== 'undefined') {
@@ -200,13 +198,9 @@ export class Application {
         const scene: SceneContext = options.scene ?? defaultScene;
         const ownsScene = options.scene !== undefined;
         await scene.initialize(options.canvas, options.canvasOptions, options.device);
-        const defaults = registerPresentationDefaults(scene.flows, {
-            canvas: options.canvas,
-            core: scene.core,
-            world: scene.world,
-            resources: scene.resourceSystem,
-            events: scene.events,
-        });
+        for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
+        options.consumers?.(scene.consumers);
+        const defaults = registerPresentationDefaults(scene.flows, { world: scene.world });
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;
         }
@@ -237,7 +231,7 @@ export class Application {
         this.loop.stop();
     }
 
-    /** True se o GameLoop está ativo (RAF agendado). */
+    /** True se o GameLoop está ativo (RAF agendado ou esperando espaço na GPU). */
     isRunning(): boolean {
         return this.loop.isRunning();
     }
@@ -341,10 +335,6 @@ export class Application {
         if (this.memoryUnsubscribe !== null) {
             this.memoryUnsubscribe();
             this.memoryUnsubscribe = null;
-        }
-        if (this.flowAutoUnsubscribe !== null) {
-            this.flowAutoUnsubscribe();
-            this.flowAutoUnsubscribe = null;
         }
         // Estágios padrão: registrados uma vez por cena; a última aplicação da cena os desregistra.
         const lastUser = releasePresentationDefaults(this.scene.flows);

@@ -19,7 +19,7 @@ os equivalentes 1:1 entre as APIs.
 | `physicsWorld.update(dt)` | `app.step(dt)` |
 | `physicsWorld.bodies.push(rb)` | `app.world.insert(new RigidBody(...))` |
 | `new SoftBody({ algorithm: 'XPBD' })` | `new SoftBody({}, { algorithm: 'XPBD' })` |
-| `Physics.LCPSolver` | `new LCPFlow(app.core, app.world, app.resources)` registrado em `app.flows` |
+| `Physics.LCPSolver` | `LCPFlow`, registrado por factory pelos defaults (substituir: `app.flows.override(bodyType, factory, opções)`) |
 | `mesh.material = mat` | `mesh.add(new StandardMaterial(...))` |
 | `engineCore.commit()` | `app.start()` (GameLoop dispara via RAF) |
 
@@ -45,7 +45,7 @@ app.start();
 
 - C1: `GpuEngineCore` adquire device/queue/canvas swapchain
 - C2: `World`, `EventBus`, `ResourceSystem`, `ExecutionSystem`, `FlowRegistry` instanciam-se
-- C4: `registerPresentationDefaults` registra `ShadowFlow + ForwardFlow + PostFlow + DebugFlow + UIFlow`
+- C4: `registerPresentationDefaults` registra por factory `TransformFlow + ShadowFlow + ForwardFlow + PostFlow + DebugFlow + UIFlow` e os solvers, e insere os `FrameTargets`
 
 ## Inserir entidades
 
@@ -84,15 +84,15 @@ world.physics.addRigidBody({ position: [0, 5, 0], mass: 1, restitution: 0.3 });
 **Depois:**
 
 ```typescript
-import { GravityField, RigidBody, LCPFlow } from 'webgpu-engine';
+import { GravityField, RigidBody } from 'webgpu-engine';
 
 app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
 app.world.insert(new RigidBody({ position: [0, 5, 0, 1], mass: 1, restitution: 0.3 }));
-app.flows.register(new LCPFlow(app.core, app.world, app.resources));
 ```
 
-Cada solver (LCP, XPBD, FEM, MPM, SPH, PBF) é um `Flow` que se auto-registra
-nos pools de bodies por algoritmo (`SoftBody:XPBD`, `MPMParticle:MPM`, etc.).
+Cada solver (LCP, XPBD, FEM, MPM, SPH, PBF) é um `Flow` registrado por factory
+com o `bodyType` do seu pool (`LCPSchema`, `XPBDSoftSchema`, …); a C2 o instancia
+quando o primeiro corpo do tipo entra na cena.
 
 ## Controllers
 
@@ -124,8 +124,8 @@ app.defaults.post.addEffect(new Fxaa());
 app.defaults.post.addEffect(new Vignette());
 ```
 
-A ordem importa — efeitos são aplicados em cadeia ping-pong sobre o offscreen
-do `ForwardFlow` antes de blittar para o canvas.
+A ordem importa — efeitos são aplicados em cadeia pingue-pongue sobre a cor
+da cena (`FrameTargets.color`, onde o `ForwardFlow` desenha) até o canvas.
 
 ## Loaders
 
@@ -206,6 +206,46 @@ Shaders passam a ser montados de módulos (`wgslModule` + `composeWgsl`); ver o 
 | `flows.resolve(bodyType)` devolvia o último registrado | `override`, senão maior `priority` (empate: último registrado) |
 
 Novos: `wgslLib` (módulos de base), `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `GraphColorer`.
+
+## Mudanças incompatíveis da spec 006 (slots de Flow)
+
+Os Flows passam a declarar **slots tipados** e uma **tabela de transições**; a C2 resolve os dados, infere os layouts
+do WGSL, liga os bind groups e decide quando cada Flow entra no quadro. Os estágios são registrados **por factory**.
+Ver o guia [Flows](./flows.md).
+
+| Antes | Agora |
+| --- | --- |
+| `flows.register(new XFlow(core, world, resources))` | `flows.register((ctx) => new XFlow(ctx), { type, phase, bodyType?, priority? })` |
+| `flows.override(bodyType, flow)` | `flows.override(bodyType, (ctx) => new XFlow(ctx), { type, phase, priority? })` |
+| `flows.unregister(flow)` | `flows.unregister(registration)` (o retorno de `register`) |
+| `flow.phase` / `flow.priority` / `flow.bodyType` (campos do Flow) | `RegisterOptions` (`ctx.bodyType` na factory) |
+| `isReady()`, `onPoolReallocated`, `onCanvasResized`, `onEntitiesInserted/Removed`, `onEvent` | slots (`slot.*`) + `transitions` (`poolReallocated`, `canvasReconfigured`, `entitiesChanged`, …) |
+| `getPipelineDescriptors()` no Flow | `pipelines` (e `ctx.prepare`/`ctx.release` em transições) |
+| `rs.poolBindGroup(key)` / `poolCount(key)` no `dispatch` | `dispatch(frame, bound)`: `bound.slots.x` (pool vivo) e `bound.compute(id)`/`bound.render(id)` (bind groups da C2) |
+| Bind groups e layouts criados pelo estágio | inferidos do WGSL (`LayoutInferencer.infer`) e ligados pela C2: privados por nome (`bindings`, `pipeline:variável`) e `consumes` |
+| `LegacyFlow` / `LegacyRenderFlow` | `Flow` / `RenderFlow` |
+| `forward.bindShadowFlow(shadow)`, `post.bindForwardFlow(forward)`, `forward.setRenderToOffscreen(true)`, `forward.colorOutputView` | slots: o forward lê o `ShadowMap` da luz e desenha nos `FrameTargets`; o pós lê `FrameTargets.color` |
+| `new ForwardFlow(core, world, resources, canvas)` | `new ForwardFlow(ctx, { output: 'scene' \| 'canvas', preferAsync? })` |
+| `new ShadowFlow(core, world, resources, { mapSize })` | `new ShadowFlow(ctx, { preferAsync? })`; tamanho em `ShadowMap.data.size` (`new DirectionalLight({ castShadow: true, shadow: { size, bias } })`) |
+| `new PostFlow({ canvas }, core)` | `new PostFlow(ctx)` (`addEffect` igual) |
+| `new UIFlow(core, canvas)` | `new UIFlow(ctx)` (`ui`, `setFont` iguais) |
+| `new DebugFlow(options).bindEvents(events)` | `new DebugFlow(ctx, options)` (inscreve-se na construção) |
+| `registerPresentationDefaults(flows, { canvas, core, world, resources, events })` | `registerPresentationDefaults(flows, { world })` — registra os estágios e os solvers por factory e insere os `FrameTargets` |
+| `DEFAULT_FLOW_FACTORIES` / `autoRegisterFlows` / `physicsPlugin()` | `DEFAULT_SOLVER_REGISTRATIONS`, registradas pelos defaults; a C2 instancia o solver quando o primeiro corpo cria o pool |
+| `createComputeKernel(core, { bindings: [{ binding, type, buffer }] })` (por índice, `ComputeKernelBinding*`) | `createComputeKernel(core, { discriminator, shader, entryPoint, bindings: { nomeDaVariavel: fonte } })` (layout inferido) |
+| Materiais com UBO por entidade (`storage: 'individual'`) | pool de storage por schema (`role: 'storage-ro', storage: 'pool'`), lido como `array<T>` pelo `materialSlot` do registro `Renderable`; `role: 'uniform'` em pool é rejeitado |
+| Forward com `firstInstance` = slot do `WorldTransform` | `firstInstance` = slot do registro `Renderable` (`slot.entities({ all, record: renderableRecord })`, `entry.recordSlot`); shader lê `renderables[instance_index]` |
+| `import type { EngineCore } from '…/core/contracts'` em C3/C4 | `from '…/scene/contracts/gpu'` (ou o barrel `clayflow`) — o lint proíbe `core/` em C3/C4 |
+
+Novos: `slot` (com `record` em `slot.entities`, `EntityRecordDeclaration`), `RenderableSchema`/`renderableRecord`,
+evento `frameRetired`, `FlowTransitions`, `TransitionContext`, `BoundFlow`, `FlowTransitionError`, `FlowBindingError`,
+`FrameTargets`, `ShadowMap` (pool + textura `depth`), eventos `flowReady`, `flowSuspended`, `poolCreated` e
+`bindGroupReplaced`, resolvers `SingletonResolver`/`PoolResolver`/`TextureResolver` e
+`Application.create({ consumers })`.
+
+**Mudança de comportamento:** sem luz que projeta sombra (`castShadow`), o forward desliga a sombra
+(`shadowEnabled = 0`). Antes ele amostrava um mapa substituto e escurecia a região perto da origem. Cenas com uma
+`DirectionalLight` que projeta sombra renderizam igual (verificado pixel a pixel no smoke `render`).
 
 ## Convivência durante a transição
 

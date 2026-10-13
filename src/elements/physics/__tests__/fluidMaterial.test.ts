@@ -5,40 +5,14 @@ import { MPMFlow } from '../flows/MPMFlow';
 import { FluidBody } from '../bodies/FluidBody';
 import { SoftBody } from '../bodies/SoftBody';
 import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
-import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
-import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
-import { World } from '../../../scene/world/World';
-import { Time } from '../../../scene/time/Time';
-import {
-    fakeResourceCore,
-    type WriteCall,
-} from '../../../scene/__tests__/helpers/fakeResourceCore';
-import { countPasses, recordingFrame } from './helpers/recordingFrame';
-import type { Flow } from '../../../scene/flows/Flow';
+import type { WriteCall } from '../../../scene/__tests__/helpers/fakeResourceCore';
+import { countPasses } from './helpers/recordingFrame';
+import { solverScene } from './helpers/solverScene';
 import { PBFSimParamsSchema, SPHSimParamsSchema } from '../schemas/simParams';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /** Índice f32/u32 de um campo do schema. */
 const at = (schema: StructSchema, field: string): number => schema.offsetOf(field) / 4;
-
-type FlowCtor = (
-    core: ReturnType<typeof fakeResourceCore>['core'],
-    world: World,
-    resources: ResourceSystem,
-) => Flow;
-
-function setup(body: () => FluidBody | SoftBody, make: FlowCtor, material?: ParticleMaterial) {
-    const events = new DefaultEventBus();
-    const world = new World(events);
-    const fake = fakeResourceCore();
-    const resources = new ResourceSystem(fake.core, events, world);
-    const time = new Time(events);
-    world.insert(time);
-    if (material !== undefined) world.insert(material);
-    world.insert(body());
-    const flow = make(fake.core, world, resources);
-    return { ...fake, world, time, flow };
-}
 
 /** Última escrita de um buffer cujo discriminador contém `part`, como f32/u32. */
 function lastWrite(writes: WriteCall[], part: string): { f32: Float32Array; u32: Uint32Array } {
@@ -63,16 +37,21 @@ const OPTIONS = {
 const material = new ParticleMaterial(OPTIONS);
 
 describe('SPHFlow — parâmetros do ParticleMaterial', () => {
-    const make: FlowCtor = (c, w, r) => new SPHFlow(c, w, r);
+    async function sph(withMaterial = true) {
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new SPHFlow(ctx), {
+            type: 'SPHFlow',
+            phase: 'physics',
+            bodyType: 'SPHSchema',
+        });
+        if (withMaterial) s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        s.scene.world.insert(new FluidBody({ algorithm: 'SPH' }));
+        return s;
+    }
 
-    it('massa, h, rigidez de Tait, viscosidade, restituição e domínio gravados nos parâmetros', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'SPH' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('massa, h, rigidez de Tait, viscosidade, restituição e domínio gravados nos parâmetros', async () => {
+        const s = await sph();
+        s.step(1 / 60);
         const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
         expect(f32[at(SPHSimParamsSchema, 'rest_density')]).toBeCloseTo(900);
         expect(f32[at(SPHSimParamsSchema, 'h')]).toBeCloseTo(material.sphSmoothingLength, 6);
@@ -85,28 +64,17 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(material.particleMass, 6);
     });
 
-    it('substeps pelo passo estável (CFL 0,4 h/c)', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'SPH' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        const rec = recordingFrame();
-        s.flow.dispatch(rec.frame);
+    it('substeps pelo passo estável (CFL 0,4 h/c)', async () => {
+        const s = await sph();
+        const passes = s.step(1 / 60);
         const expected = ParticleMaterial.substepsFor(1 / 60, material.sphStableDt);
         expect(expected).toBeGreaterThan(1);
-        expect(countPasses(rec.passes, 'SPHFlow.density')).toBe(expected);
+        expect(countPasses(passes, 'SPHFlow.density')).toBe(expected);
     });
 
-    it('vizinhança com raio = 2h e grade pelo domínio', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'SPH' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('vizinhança com raio = 2h e grade pelo domínio', async () => {
+        const s = await sph();
+        s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'ns_params:sph');
         const cell = 2 * material.sphSmoothingLength;
         expect(f32[0]).toBe(-1);
@@ -115,10 +83,9 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         expect(u32[5]).toBe(Math.ceil(2 / cell - 1e-9));
     });
 
-    it('sem material no World usa os padrões', () => {
-        const s = setup(() => new FluidBody({ algorithm: 'SPH' }), make);
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('sem material no World usa os padrões', async () => {
+        const s = await sph(false);
+        s.step(1 / 60);
         const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
         expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(
             ParticleMaterial.defaults.particleMass,
@@ -128,16 +95,21 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
 });
 
 describe('PBFFlow — parâmetros do ParticleMaterial', () => {
-    const make: FlowCtor = (c, w, r) => new PBFFlow(c, w, r);
+    async function pbf() {
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new PBFFlow(ctx), {
+            type: 'PBFFlow',
+            phase: 'physics',
+            bodyType: 'PBFSchema',
+        });
+        s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        s.scene.world.insert(new FluidBody({ algorithm: 'PBF' }));
+        return s;
+    }
 
-    it('ρ₀, h = 2s, massa e m/ρ₀; s_corr escalado com s²', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'PBF' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('ρ₀, h = 2s, massa e m/ρ₀; s_corr escalado com s²', async () => {
+        const s = await pbf();
+        s.step(1 / 60);
         const { f32 } = lastWrite(s.writes, 'pbf_params:per_step');
         expect(f32[at(PBFSimParamsSchema, 'rest_density')]).toBeCloseTo(900);
         expect(f32[at(PBFSimParamsSchema, 'h')]).toBeCloseTo(0.08, 6);
@@ -149,28 +121,29 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
         );
     });
 
-    it('vizinhança com raio = h', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'PBF' }),
-            make,
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('vizinhança com raio = h', async () => {
+        const s = await pbf();
+        s.step(1 / 60);
         expect(lastWrite(s.writes, 'ns_params:pbf').f32[3]).toBeCloseTo(0.08, 6);
     });
 });
 
 describe('MPMFlow — parâmetros do ParticleMaterial', () => {
-    it('fluido: material_id 2, massa/volume/K do material, grade 2s pelo domínio', () => {
-        const s = setup(
-            () => new FluidBody({ algorithm: 'MPM' }),
-            (c, w, r) => new MPMFlow(c, w, r),
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        const rec = recordingFrame();
-        s.flow.dispatch(rec.frame);
+    async function mpm(body: () => FluidBody | SoftBody, bodyType: string) {
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new MPMFlow(ctx), {
+            type: 'MPMFlow',
+            phase: 'physics',
+            bodyType,
+        });
+        s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        s.scene.world.insert(body());
+        return s;
+    }
+
+    it('fluido: material_id 2, massa/volume/K do material, grade 2s pelo domínio', async () => {
+        const s = await mpm(() => new FluidBody({ algorithm: 'MPM' }), 'MPMFluidSchema');
+        const passes = s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(f32[7]).toBeCloseTo(material.particleMass, 6);
         expect(f32[8]).toBeCloseTo(material.particleVolume, 9);
@@ -181,17 +154,12 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
         expect(u32[21]).toBe(2);
         const substeps = ParticleMaterial.substepsFor(1 / 60, material.mpmStableDt);
         expect(u32[22]).toBe(substeps);
-        expect(countPasses(rec.passes, 'MPMFlow.p2g')).toBe(substeps);
+        expect(countPasses(passes, 'MPMFlow.p2g')).toBe(substeps);
     });
 
-    it('sólido: material_id 0 e Lamé do material', () => {
-        const s = setup(
-            () => new SoftBody({ algorithm: 'MPM' }),
-            (c, w, r) => new MPMFlow(c, w, r, { bodyType: 'MPMSoftSchema' }),
-            new ParticleMaterial(OPTIONS),
-        );
-        s.time.advance(1 / 60);
-        s.flow.dispatch(recordingFrame().frame);
+    it('sólido: material_id 0 e Lamé do material', async () => {
+        const s = await mpm(() => new SoftBody({ algorithm: 'MPM' }), 'MPMSoftSchema');
+        s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(u32[21]).toBe(0);
         expect(f32[4]).toBeCloseTo(material.lame.mu, 0);

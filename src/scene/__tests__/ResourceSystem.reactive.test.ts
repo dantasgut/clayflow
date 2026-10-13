@@ -142,4 +142,34 @@ describe('ResourceSystem — dado reativo e fila por quadro', () => {
         expect(last.offset).toBe(slot * 16);
         expect(f32At(last, 0)).toBe(5);
     });
+
+    it('flushDirty drena a fila: reação a resourceReady que suja outro recurso entra no mesmo quadro', () => {
+        const { events, world, writes, resources, frame } = setup();
+        const source = new UniformThing();
+        const derived = new PoolThing();
+        world.insert(source);
+        world.insert(derived);
+        events.on('resourceReady', (e) => {
+            if (e.payload.resource === source) derived.data.value = [7, 0, 0, 0];
+        });
+        source.data.value = [1, 0, 0, 0];
+        writes.length = 0;
+        frame();
+        const pool = resources.poolBufferSpec('ReactivePool');
+        const toPool = writes.filter((w) => w.spec === pool);
+        expect(toPool).toHaveLength(1);
+        expect(f32At(toPool[0]!, 0)).toBe(7);
+    });
+
+    it('ciclo de reações sem fim é detectado', () => {
+        const { events, world, frame } = setup();
+        const a = new UniformThing();
+        world.insert(a);
+        let n = 0;
+        events.on('resourceReady', (e) => {
+            if (e.payload.resource === a) a.data.value = [++n, 0, 0, 0];
+        });
+        a.data.value = [1, 0, 0, 0];
+        expect(frame).toThrow(/não esvaziou/);
+    });
 });

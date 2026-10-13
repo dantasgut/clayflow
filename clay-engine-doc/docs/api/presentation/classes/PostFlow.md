@@ -6,29 +6,34 @@
 
 # Class: PostFlow
 
-Defined in: [presentation/flows/PostFlow.ts:33](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L33)
+Defined in: [presentation/flows/PostFlow.ts:57](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L57)
+
+PostFlow — cadeia de pós-processamento: lê a cor da cena (`FrameTargets.color`, slot `scene`) e aplica os efeitos
+ligados em pingue-pongue até o canvas (`scene → pp[0] → pp[1] → … → canvas`); sem efeitos, copia a cena para o
+canvas.
+
+Recursos privados — as duas texturas de pingue-pongue (do tamanho do canvas, recriadas em `canvasReconfigured`), o
+sampler, um pipeline e um uniform de parâmetros por efeito — são preparados e religados em transições: em
+`framePrepare`, efeitos novos ganham pipeline, os parâmetros são escritos e a origem de cada efeito na cadeia é
+religada quando a cadeia muda.
 
 ## Extends
 
-- `Flow`
+- `RenderFlow`\<[`PostSlots`](../interfaces/PostSlots.md), `"idle"`\>
 
 ## Constructors
 
 ### Constructor
 
-> **new PostFlow**(`options`, `core`): `PostFlow`
+> **new PostFlow**(`ctx`): `PostFlow`
 
-Defined in: [presentation/flows/PostFlow.ts:52](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L52)
+Defined in: [presentation/flows/PostFlow.ts:76](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L76)
 
 #### Parameters
 
-##### options
+##### ctx
 
-`PostFlowOptions` \| `undefined`
-
-##### core
-
-`EngineCore`
+`FlowContext`
 
 #### Returns
 
@@ -36,54 +41,91 @@ Defined in: [presentation/flows/PostFlow.ts:52](https://github.com/dantasgut/cla
 
 #### Overrides
 
-`Flow.constructor`
+`RenderFlow<PostSlots, 'idle'>.constructor`
 
 ## Properties
 
-### bodyType
+### bindings
 
-> `readonly` **bodyType**: `""` = `''`
+> `readonly` **bindings**: `BindingSources`
 
-Defined in: [presentation/flows/PostFlow.ts:35](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L35)
+Defined in: [presentation/flows/PostFlow.ts:60](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L60)
 
-Tipo de Resource consumido como "corpo" deste flow (e.g. 'LCPSchema'
-para LCPFlow) — coincide com o `schema.name` do pool atendido. Vazio
-quando o flow não é body-bound. Usado por FlowRegistry.resolve(bodyType)
-para encontrar o flow responsável por cada Resource.
+Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
 #### Overrides
 
-`Flow.bodyType`
+`RenderFlow.bindings`
 
 ***
 
-### phase
+### initialState
 
-> `readonly` **phase**: `Phase` = `'post'`
+> `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/PostFlow.ts:36](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L36)
+Defined in: [presentation/flows/PostFlow.ts:61](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L61)
 
-Fase do pipeline em que o flow executa.
+Estado inicial do algoritmo.
 
 #### Overrides
 
-`Flow.phase`
+`RenderFlow.initialState`
 
 ***
 
-### priority
+### listens
 
-> **priority**: `number` = `0`
+> `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:46](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L46)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L69)
 
-Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
-Útil quando dois flows compartilham phase mas têm dependência de ordem
-(e.g. um flow gera dado que outro consome).
+Schemas cujos `resourceReady` o Flow recebe como evento.
 
 #### Inherited from
 
-`Flow.priority`
+`RenderFlow.listens`
+
+***
+
+### pipelines
+
+> `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
+
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L65)
+
+Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
+
+#### Inherited from
+
+`RenderFlow.pipelines`
+
+***
+
+### slots
+
+> `readonly` **slots**: [`PostSlots`](../interfaces/PostSlots.md)
+
+Defined in: [presentation/flows/PostFlow.ts:59](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L59)
+
+Slots consumidos, por nome.
+
+#### Overrides
+
+`RenderFlow.slots`
+
+***
+
+### transitions
+
+> `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`PostSlots`](../interfaces/PostSlots.md)\>\>
+
+Defined in: [presentation/flows/PostFlow.ts:62](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L62)
+
+Tabela de transições (estado × evento).
+
+#### Overrides
+
+`RenderFlow.transitions`
 
 ***
 
@@ -91,13 +133,53 @@ Prioridade dentro da phase. Maior valor = roda primeiro. Default 0.
 
 > `readonly` **type**: `"PostFlow"` = `'PostFlow'`
 
-Defined in: [presentation/flows/PostFlow.ts:34](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L34)
+Defined in: [presentation/flows/PostFlow.ts:58](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L58)
 
-Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
+Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
-`Flow.type`
+`RenderFlow.type`
+
+## Accessors
+
+### lifecycle
+
+#### Get Signature
+
+> **get** **lifecycle**(): `FlowLifecycle`
+
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L79)
+
+Estado do ciclo de vida (só a C2 o muda).
+
+##### Returns
+
+`FlowLifecycle`
+
+#### Inherited from
+
+`RenderFlow.lifecycle`
+
+***
+
+### state
+
+#### Get Signature
+
+> **get** **state**(): `S`
+
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/Flow.ts#L84)
+
+Estado próprio do algoritmo (só transições o mudam).
+
+##### Returns
+
+`S`
+
+#### Inherited from
+
+`RenderFlow.state`
 
 ## Methods
 
@@ -105,10 +187,10 @@ Identificador legível (e.g. 'ForwardFlow'). Usado em logs e debug.
 
 > **addEffect**(`effect`): `this`
 
-Defined in: [presentation/flows/PostFlow.ts:83](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L83)
+Defined in: [presentation/flows/PostFlow.ts:121](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L121)
 
-Empilha um efeito no chain. A ordem é importante: efeitos são aplicados
-em sequência (`Bloom → ToneMapping → Fxaa → ...`). Builder fluente.
+Empilha um efeito na cadeia. A ordem importa: efeitos são aplicados em sequência (`Bloom → ToneMapping → Fxaa →
+…`); desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo. Builder fluente.
 
 #### Parameters
 
@@ -122,36 +204,13 @@ em sequência (`Bloom → ToneMapping → Fxaa → ...`). Builder fluente.
 
 ***
 
-### bindForwardFlow()
+### colorView()
 
-> **bindForwardFlow**(`flow`): `this`
+> `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
 
-Defined in: [presentation/flows/PostFlow.ts:64](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L64)
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/scene/flows/RenderFlow.ts#L20)
 
-Liga este PostFlow a um ForwardFlow upstream (PostFlow lê o offscreen
-texture do Forward como input do ping-pong). Builder fluente.
-
-#### Parameters
-
-##### flow
-
-[`ForwardFlow`](ForwardFlow.md)
-
-#### Returns
-
-`this`
-
-***
-
-### dispatch()
-
-> **dispatch**(`frame`): `void`
-
-Defined in: [presentation/flows/PostFlow.ts:284](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L284)
-
-Hot path: chamado uma vez por frame quando o flow está ready. O `frame`
-contém o command encoder ativo — use `frame.compute(...)` ou
-`frame.render(target, ...)` para emitir comandos GPU.
+View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
 #### Parameters
 
@@ -159,13 +218,45 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 `Frame`
 
+##### target
+
+`BoundTarget`
+
+#### Returns
+
+`TextureViewSpec` \| `undefined`
+
+#### Inherited from
+
+`RenderFlow.colorView`
+
+***
+
+### dispatch()
+
+> **dispatch**(`frame`, `bound`): `void`
+
+Defined in: [presentation/flows/PostFlow.ts:127](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L127)
+
+Grava a cadeia preparada em `framePrepare`.
+
+#### Parameters
+
+##### frame
+
+`Frame`
+
+##### bound
+
+`BoundFlow`\<[`PostSlots`](../interfaces/PostSlots.md)\>
+
 #### Returns
 
 `void`
 
 #### Overrides
 
-`Flow.dispatch`
+`RenderFlow.dispatch`
 
 ***
 
@@ -173,82 +264,9 @@ contém o command encoder ativo — use `frame.compute(...)` ou
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/PostFlow.ts:118](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L118)
+Defined in: [presentation/flows/PostFlow.ts:153](https://github.com/dantasgut/clayflow/blob/353be283be8fb2b2a3c19eda1235aec2da05ae96/src/presentation/flows/PostFlow.ts#L153)
 
-Descarte do estágio: libera texturas de ping-pong, bind groups, pipelines dos efeitos e recursos comuns.
-
-#### Returns
-
-`void`
-
-#### Overrides
-
-`Flow.dispose`
-
-***
-
-### getPipelineDescriptors()
-
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
-
-Defined in: [presentation/flows/PostFlow.ts:69](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L69)
-
-Retorna os descritores de pipelines GPU que este flow precisa criar
-(para introspeção arquitetural / debugging — o flow ainda materializa
-via core.create internamente).
-
-#### Returns
-
-readonly `PipelineDescriptor`[]
-
-#### Overrides
-
-`Flow.getPipelineDescriptors`
-
-***
-
-### isReady()
-
-> **isReady**(): `boolean`
-
-Defined in: [presentation/flows/PostFlow.ts:88](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L88)
-
-Indica se o flow tem trabalho válido para esta frame. Default: true
-(sempre dispatch). Override para gating em prerequisites: e.g. presença
-de Camera no World, pool não-vazio, pipeline async ainda compilando.
-ExecutionSystem skipa flows com `isReady() === false`.
-
-#### Returns
-
-`boolean`
-
-#### Overrides
-
-`Flow.isReady`
-
-***
-
-### onCanvasResized()
-
-> **onCanvasResized**(`_width`, `_height`): `void`
-
-Defined in: [presentation/flows/PostFlow.ts:92](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/presentation/flows/PostFlow.ts#L92)
-
-Chamado quando o canvas é redimensionado. Subclasses que mantêm
-textures de tamanho-de-canvas (depth, color offscreen, ping-pong)
-devem destruir e nullificar para recriarem na próxima dispatch.
-Importante: destruir bindgroups que referenciam essas textures ANTES
-para evitar use-after-free na GPU.
-
-#### Parameters
-
-##### \_width
-
-`number`
-
-##### \_height
-
-`number`
+Libera pingue-pongue, sampler e os uniforms dos efeitos.
 
 #### Returns
 
@@ -256,113 +274,4 @@ para evitar use-after-free na GPU.
 
 #### Overrides
 
-`Flow.onCanvasResized`
-
-***
-
-### onEntitiesInserted()
-
-> **onEntitiesInserted**(`_entityIds`): `void`
-
-Defined in: [scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L94)
-
-Chamado quando entidades são inseridas no World (depois da alocação dos seus recursos). Estágios que mantêm
-um conjunto de entidades de interesse (ex.: renderizáveis) o atualizam aqui, em vez de consultar o World a
-cada quadro.
-
-#### Parameters
-
-##### \_entityIds
-
-readonly `number`[]
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onEntitiesInserted`
-
-***
-
-### onEntitiesRemoved()
-
-> **onEntitiesRemoved**(`_entityIds`): `void`
-
-Defined in: [scene/flows/Flow.ts:103](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L103)
-
-Chamado quando entidades são removidas do World. Subclasses que
-cacheiam slots por EntityId devem limpar os entries afetados para
-evitar leaks de slots órfãos.
-
-#### Parameters
-
-##### \_entityIds
-
-readonly `number`[]
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onEntitiesRemoved`
-
-***
-
-### onEvent()
-
-> **onEvent**(`_event`, `_payload`): `void`
-
-Defined in: [scene/flows/Flow.ts:66](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L66)
-
-Hook genérico de eventos. Default no-op. A maioria dos flows usa os
-hooks específicos abaixo (`onPoolReallocated`, etc.) ao invés deste.
-
-#### Parameters
-
-##### \_event
-
-`string`
-
-##### \_payload
-
-`unknown`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onEvent`
-
-***
-
-### onPoolReallocated()
-
-> **onPoolReallocated**(`_poolKey`): `void`
-
-Defined in: [scene/flows/Flow.ts:77](https://github.com/dantasgut/clayflow/blob/dea47c52919ac4b22646c9711a2b32439da41ebd/src/scene/flows/Flow.ts#L77)
-
-Chamado quando um pool com `poolKey` tem seu buffer realocado pelo
-ResourceSystem (growth 2× ou regeneração). Subclasses que cacheiam
-`BindGroupSpec` dependentes do pool devem invalidar o cache aqui
-(set para null) para que a próxima dispatch reconstrua via
-`resources.poolBindGroup(poolKey)`.
-
-#### Parameters
-
-##### \_poolKey
-
-`string`
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-`Flow.onPoolReallocated`
+`RenderFlow.dispose`

@@ -14,6 +14,11 @@ export abstract class Schema {
      * indexação em World.queryBySchemaName e como key em pool entries.
      */
     abstract readonly name: string;
+    /**
+     * Tipo WGSL de um elemento — o nome do struct gerado (`StructSchema.wgslName`) ou o tipo do elemento de um
+     * tensor. É o tipo que um binding `var<…> x: T` ou `array<T>` declara; casa `consumes` com o binding.
+     */
+    abstract readonly wgslName: string;
     /** Tamanho de uma instância em bytes (já alinhado). */
     abstract readonly stride: number;
 

@@ -4,23 +4,15 @@
  * com EngineCore falso registrando a ordem de envio e de gravação.
  */
 import { describe, expect, it } from 'vitest';
-import { DefaultEventBus } from '../../events/DefaultEventBus';
-import { FlowRegistry } from '../../flows/FlowRegistry';
-import { ExecutionSystem } from '../../systems/ExecutionSystem';
-import { ResourceSystem } from '../../systems/ResourceSystem';
-import { World } from '../../world/World';
+import { createScene } from '../../SceneContext';
 import { Transform } from '../../../elements/scene/Transform';
 import { TransformFlow } from '../../../elements/scene/flows/TransformFlow';
 import { fakeSceneCore } from '../helpers/fakeSceneCore';
 
 function setup() {
-    const events = new DefaultEventBus();
-    const world = new World(events);
     const { core, trace } = fakeSceneCore();
-    const resources = new ResourceSystem(core, events, world);
-    const flows = new FlowRegistry();
-    new ExecutionSystem(core, events, flows);
-    flows.register(new TransformFlow(core, resources, events));
+    const { world, events, flows } = createScene({ core });
+    flows.register((ctx) => new TransformFlow(ctx), { type: 'transform', phase: 'transform' });
     let elapsed = 0;
     const frame = (): string[] => {
         trace.length = 0;

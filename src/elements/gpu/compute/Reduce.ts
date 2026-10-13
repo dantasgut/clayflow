@@ -1,9 +1,5 @@
-import type {
-    ComputeKernel,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -39,26 +35,30 @@ export interface ReduceOptions {
 
 /** Argumentos de `Reduce.record`. */
 export interface ReduceRecordArgs {
-    /** Entrada `T[count]`. */
+    /** Entrada `T[count]`, preparada antes (`prepare`). */
     readonly src: StorageBufferSpec;
     /** Elementos (≤ `capacity`). `0` não grava nada (a saída fica como está). */
     readonly count: number;
-    /** Buffer de saída. */
+    /** Buffer de saída, preparado com `src`. */
     readonly out: StorageBufferSpec;
     /** Índice (em elementos) do resultado em `out`. Padrão 0. */
     readonly outOffset?: number;
 }
 
-/** Kernel de um passe e os buffers a que está ligado. */
-interface PassKernel {
+/** Kernels de uma entrada: por passe `k`, o que escreve no parcial seguinte e o que escreve na saída (último passe). */
+interface PreparedPair {
     readonly out: StorageBufferSpec;
-    readonly kernel: ComputeKernel;
+    readonly toPartial: (ComputeKernel | undefined)[];
+    readonly toOut: ComputeKernel[];
 }
 
 /**
- * Redução de `T[count]` a um valor (research R11): árvore por grupo de 256 em memória de workgroup, níveis até restar
- * um valor. Soma, mínimo ou máximo de u32, i32 ou f32 (módulo de operação `reduceOp`, memorizado). Soma de f32 tem
- * ordem de soma diferente da sequencial: tolerância relativa `1e-5 × log2(count)` (contrato).
+ * Redução de `T[count]` a um valor (research R11 da 005): árvore por grupo de 256 em memória de workgroup, níveis até
+ * restar um valor. Soma, mínimo ou máximo de u32, i32 ou f32 (módulo de operação `reduceOp`, memorizado). Soma de f32
+ * tem ordem de soma diferente da sequencial: tolerância relativa `1e-5 × log2(count)` (contrato).
+ *
+ * Duas fases (spec 006): `prepare(src, out, gravaçõesPorQuadro)` cria parciais, kernels de todos os passes possíveis e
+ * regiões de uniform, fora da gravação; `record` só grava.
  */
 export class Reduce {
     private readonly disc: string;
@@ -68,9 +68,8 @@ export class Reduce {
     private readonly shader: ReturnType<typeof reduceKernel>;
     /** Resultados parciais dos níveis intermediários (`partials[k - 1]` = nível k). */
     private partials: StorageBufferSpec[] | null = null;
-    /** Kernels por buffer de entrada do passe. */
-    private readonly kernels = new Map<StorageBufferSpec, PassKernel>();
-    private kernelGeneration = -1;
+    /** Kernels por buffer de entrada. */
+    private readonly prepared = new Map<StorageBufferSpec, PreparedPair>();
 
     constructor(
         private readonly core: EngineCore,
@@ -91,7 +90,30 @@ export class Reduce {
         });
     }
 
-    /** Grava a redução de `src[0, count)` em `out[outOffset]`. */
+    /**
+     * Prepara a redução de `src` em `out` para até `recordsPerFrame` gravações por quadro. Idempotente; fora da
+     * gravação.
+     */
+    prepare(src: StorageBufferSpec, out: StorageBufferSpec, recordsPerFrame = 1): void {
+        const maxPasses = this.levelCapacity.length - 1;
+        if (this.params.reserve(maxPasses * recordsPerFrame)) this.releaseKernels();
+        const partials = (this.partials ??= this.allocate());
+        const cached = this.prepared.get(src);
+        if (cached?.out === out) return;
+        if (cached !== undefined) this.destroyPair(cached);
+        const pair: PreparedPair = { out, toPartial: [], toOut: [] };
+        for (let k = 0; k < maxPasses; k++) {
+            const input = k === 0 ? src : partials[k - 1]!;
+            pair.toOut.push(this.kernel(input, out));
+            pair.toPartial.push(k < maxPasses - 1 ? this.kernel(input, partials[k]!) : undefined);
+        }
+        this.prepared.set(src, pair);
+    }
+
+    /**
+     * Grava a redução de `src[0, count)` em `out[outOffset]`.
+     * @throws Error se (`src`, `out`) não foi preparado.
+     */
     record(frame: Frame, args: ReduceRecordArgs): void {
         const { src, count, out } = args;
         const outOffset = args.outOffset ?? 0;
@@ -111,8 +133,9 @@ export class Reduce {
             );
         }
         if (count === 0) return;
-        const partials = (this.partials ??= this.allocate());
-
+        const pair = this.prepared.get(src);
+        if (pair?.out !== out)
+            throw new Error(`Reduce(${this.disc}): prepare(src, out) antes de gravar.`);
         const counts = reduceLevelCounts(count);
         const passes = counts.length - 1;
         const offsets = counts.slice(0, passes).map((n, k) =>
@@ -121,13 +144,8 @@ export class Reduce {
                 out_index: k === passes - 1 ? outOffset : 0,
             }),
         );
-        if (this.kernelGeneration !== this.params.generation) this.releaseKernels();
-        this.kernelGeneration = this.params.generation;
-
         for (let k = 0; k < passes; k++) {
-            const input = k === 0 ? src : partials[k - 1]!;
-            const output = k === passes - 1 ? out : partials[k]!;
-            const kernel = this.passKernel(input, output);
+            const kernel = k === passes - 1 ? pair.toOut[k]! : pair.toPartial[k]!;
             frame.compute('Reduce', (pass) => {
                 pass.bind
                     .setPipeline(kernel.pipeline)
@@ -144,7 +162,6 @@ export class Reduce {
         for (const b of this.partials ?? []) this.core.destroy(b);
         this.partials = null;
         this.params.destroy();
-        this.kernelGeneration = -1;
     }
 
     /** Parciais dos níveis 1..L-1 pela capacidade (o último passe escreve na saída do chamador). */
@@ -159,30 +176,23 @@ export class Reduce {
         );
     }
 
-    private passKernel(input: StorageBufferSpec, output: StorageBufferSpec): ComputeKernel {
-        const cached = this.kernels.get(input);
-        if (cached?.out === output) return cached.kernel;
-        if (cached !== undefined) destroyComputeKernel(this.core, cached.kernel);
-        const kernel = createComputeKernel(this.core, {
+    private kernel(input: StorageBufferSpec, output: StorageBufferSpec): ComputeKernel {
+        return createComputeKernel(this.core, {
             discriminator: `${this.disc}:reduce`,
             shader: this.shader,
             entryPoint: 'reduce_main',
-            bindGroups: [
-                { bindings: [this.params.binding(0)] },
-                {
-                    bindings: [
-                        { binding: 0, type: 'read-only-storage', buffer: input },
-                        { binding: 1, type: 'storage', buffer: output },
-                    ],
-                },
-            ],
+            bindings: { reduce_level: this.params.source(), reduce_in: input, reduce_out: output },
         });
-        this.kernels.set(input, { out: output, kernel });
-        return kernel;
+    }
+
+    private destroyPair(pair: PreparedPair): void {
+        for (const k of [...pair.toOut, ...pair.toPartial]) {
+            if (k !== undefined) destroyComputeKernel(this.core, k);
+        }
     }
 
     private releaseKernels(): void {
-        for (const { kernel } of this.kernels.values()) destroyComputeKernel(this.core, kernel);
-        this.kernels.clear();
+        for (const pair of this.prepared.values()) this.destroyPair(pair);
+        this.prepared.clear();
     }
 }

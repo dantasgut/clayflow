@@ -1,10 +1,5 @@
-import type {
-    ComputeKernel,
-    ComputeKernelBinding,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../core/contracts/index';
+import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -30,7 +25,7 @@ export interface RadixSortOptions {
 
 /** Argumentos de `RadixSort.record`. */
 export interface RadixSortRecordArgs {
-    /** Chaves `u32[count]`, ordenadas no lugar (crescente). */
+    /** Chaves `u32[count]`, ordenadas no lugar (crescente); preparadas antes (`prepare`). */
     readonly keys: StorageBufferSpec;
     /** Valores `u32[count]` permutados junto com as chaves (exige `withValues`). */
     readonly values?: StorageBufferSpec;
@@ -40,21 +35,31 @@ export interface RadixSortRecordArgs {
     readonly bits?: number;
 }
 
-/** Kernels de um passe e os buffers a que estão ligados. */
+/** Kernels de um sentido do pingue-pongue. */
 interface PassKernels {
     readonly histogram: ComputeKernel;
     readonly scatter: ComputeKernel;
-    readonly outKeys: StorageBufferSpec;
-    readonly valuePair: readonly [StorageBufferSpec, StorageBufferSpec] | undefined;
 }
 
+/** Kernels preparados para um buffer de chaves (e valores): do chamador para o temporário e de volta. */
+interface PreparedKeys {
+    readonly values: StorageBufferSpec | undefined;
+    readonly fromCaller: PassKernels;
+    readonly fromTemp: PassKernels;
+}
+
+/** Passes de 4 bits de uma ordenação de 32 bits. */
+const MAX_PASSES = 32 / DIGIT_BITS;
+
 /**
- * Ordenação radix LSD estável de chaves u32 (research R9), com valores u32 opcionais. Cada passe de 4 bits: histograma
- * dos 16 dígitos por grupo de 256 (dígito-maior), soma de prefixos exclusiva dele (`PrefixSum`) — a base global de cada
- * (dígito, grupo) — e espalhamento estável. Sem atômicos na saída: o resultado é determinístico.
+ * Ordenação radix LSD estável de chaves u32 (research R9 da 005), com valores u32 opcionais. Cada passe de 4 bits:
+ * histograma dos 16 dígitos por grupo de 256 (dígito-maior), soma de prefixos exclusiva dele (`PrefixSum`) — a base
+ * global de cada (dígito, grupo) — e espalhamento estável. Sem atômicos na saída: o resultado é determinístico.
  *
- * Os passes alternam entre o buffer do chamador e um temporário interno (pingue-pongue); com número ímpar de passes, o
- * resultado é copiado de volta, então ele sempre termina em `keys` (e `values`).
+ * Os passes alternam entre o buffer do chamador e um temporário interno (pingue-pongue); com número ímpar de passes,
+ * o resultado é copiado de volta, então ele sempre termina em `keys` (e `values`).
+ *
+ * Duas fases (spec 006): `prepare(keys, values, gravaçõesPorQuadro)` fora da gravação; `record` só grava.
  */
 export class RadixSort {
     private readonly disc: string;
@@ -65,9 +70,7 @@ export class RadixSort {
     private tmpKeys: StorageBufferSpec | null = null;
     private tmpValues: StorageBufferSpec | null = null;
     private hist: StorageBufferSpec | null = null;
-    /** Kernels por buffer de entrada do passe (chaves do chamador ou temporário). */
-    private readonly kernels = new Map<StorageBufferSpec, PassKernels>();
-    private kernelGeneration = -1;
+    private readonly prepared = new Map<StorageBufferSpec, PreparedKeys>();
 
     constructor(
         private readonly core: EngineCore,
@@ -91,7 +94,38 @@ export class RadixSort {
         });
     }
 
-    /** Grava a ordenação de `keys[0, count)` (e `values`) no lugar. */
+    /**
+     * Prepara a ordenação de `keys` (e `values`, com `withValues`) para até `recordsPerFrame` gravações por quadro.
+     * Idempotente; fora da gravação.
+     */
+    prepare(keys: StorageBufferSpec, values?: StorageBufferSpec, recordsPerFrame = 1): void {
+        this.checkValues(values);
+        if (this.params.reserve(MAX_PASSES * recordsPerFrame)) this.releaseKernels();
+        this.allocate();
+        this.scan.prepare(this.hist!, MAX_PASSES * recordsPerFrame);
+        const cached = this.prepared.get(keys);
+        if (cached !== undefined && cached.values === values) return;
+        if (cached !== undefined) this.destroyPrepared(cached);
+        const tmpKeys = this.tmpKeys!;
+        this.prepared.set(keys, {
+            values,
+            fromCaller: this.passKernels(
+                keys,
+                tmpKeys,
+                values === undefined ? undefined : [values, this.tmpValues!],
+            ),
+            fromTemp: this.passKernels(
+                tmpKeys,
+                keys,
+                values === undefined ? undefined : [this.tmpValues!, values],
+            ),
+        });
+    }
+
+    /**
+     * Grava a ordenação de `keys[0, count)` (e `values`) no lugar.
+     * @throws Error se (`keys`, `values`) não foi preparado.
+     */
     record(frame: Frame, args: RadixSortRecordArgs): void {
         const { keys, values, count } = args;
         const bits = args.bits ?? 32;
@@ -100,16 +134,7 @@ export class RadixSort {
                 `RadixSort(${this.disc}): bits deve ser múltiplo de 4 em [4, 32] (recebeu ${bits}).`,
             );
         }
-        if (values !== undefined && !this.withValues) {
-            throw new Error(
-                `RadixSort(${this.disc}): values exige a instância criada com withValues.`,
-            );
-        }
-        if (values === undefined && this.withValues) {
-            throw new Error(
-                `RadixSort(${this.disc}): instância withValues — informe values em record.`,
-            );
-        }
+        this.checkValues(values);
         if (!Number.isInteger(count) || count < 0) {
             throw new RangeError(
                 `RadixSort(${this.disc}): count deve ser inteiro ≥ 0 (recebeu ${count}).`,
@@ -121,38 +146,22 @@ export class RadixSort {
             );
         }
         if (count === 0) return;
-
-        this.allocate();
+        const prepared = this.prepared.get(keys);
+        if (prepared === undefined || prepared.values !== values) {
+            throw new Error(`RadixSort(${this.disc}): prepare(keys, values) antes de gravar.`);
+        }
         const groups = Math.ceil(count / SCAN_GROUP);
         const passes = bits / DIGIT_BITS;
-        const offsets: number[] = [];
-        for (let p = 0; p < passes; p++) {
-            offsets.push(this.params.allocate(frame, { count, shift: p * DIGIT_BITS, groups }));
-        }
-        if (this.kernelGeneration !== this.params.generation) this.releaseKernels();
-        this.kernelGeneration = this.params.generation;
-
-        const tmpKeys = this.tmpKeys!;
         const hist = this.hist!;
-        let inKeys = keys;
         for (let p = 0; p < passes; p++) {
-            const fromCaller = inKeys === keys;
-            const pass = this.passKernels(
-                inKeys,
-                fromCaller ? tmpKeys : keys,
-                values === undefined
-                    ? undefined
-                    : fromCaller
-                      ? [values, this.tmpValues!]
-                      : [this.tmpValues!, values],
-            );
-            this.run(frame, 'RadixSort.histogram', pass.histogram, offsets[p]!, count);
+            const offset = this.params.allocate(frame, { count, shift: p * DIGIT_BITS, groups });
+            const kernels = p % 2 === 0 ? prepared.fromCaller : prepared.fromTemp;
+            this.run(frame, 'RadixSort.histogram', kernels.histogram, offset, count);
             this.scan.record(frame, { src: hist, dst: hist, count: DIGITS * groups });
-            this.run(frame, 'RadixSort.scatter', pass.scatter, offsets[p]!, count);
-            inKeys = fromCaller ? tmpKeys : keys;
+            this.run(frame, 'RadixSort.scatter', kernels.scatter, offset, count);
         }
-        if (inKeys !== keys) {
-            frame.copy(tmpKeys, keys, count * 4);
+        if (passes % 2 === 1) {
+            frame.copy(this.tmpKeys!, keys, count * 4);
             if (values !== undefined) frame.copy(this.tmpValues!, values, count * 4);
         }
     }
@@ -168,7 +177,17 @@ export class RadixSort {
         this.hist = null;
         this.scan.destroy();
         this.params.destroy();
-        this.kernelGeneration = -1;
+    }
+
+    private checkValues(values: StorageBufferSpec | undefined): void {
+        if (values !== undefined && !this.withValues) {
+            throw new Error(
+                `RadixSort(${this.disc}): values exige a instância criada com withValues.`,
+            );
+        }
+        if (values === undefined && this.withValues) {
+            throw new Error(`RadixSort(${this.disc}): instância withValues — informe values.`);
+        }
     }
 
     private allocate(): void {
@@ -189,53 +208,31 @@ export class RadixSort {
         outKeys: StorageBufferSpec,
         valuePair: readonly [StorageBufferSpec, StorageBufferSpec] | undefined,
     ): PassKernels {
-        const cached = this.kernels.get(inKeys);
-        if (
-            cached?.outKeys === outKeys
-            && cached.valuePair?.[0] === valuePair?.[0]
-            && cached.valuePair?.[1] === valuePair?.[1]
-        ) {
-            return cached;
-        }
-        if (cached !== undefined) {
-            destroyComputeKernel(this.core, cached.histogram);
-            destroyComputeKernel(this.core, cached.scatter);
-        }
-        const uniform = { bindings: [this.params.binding(0)] };
+        const radix = this.params.source();
+        const hist = this.hist!;
         const histogram = createComputeKernel(this.core, {
             discriminator: `${this.disc}:radix_histogram`,
             shader: radixHistogram,
             entryPoint: 'radix_histogram_main',
-            bindGroups: [
-                uniform,
-                {
-                    bindings: [
-                        { binding: 0, type: 'read-only-storage', buffer: inKeys },
-                        { binding: 1, type: 'storage', buffer: this.hist! },
-                    ],
-                },
-            ],
+            bindings: { radix, keys: inKeys, hist },
         });
-        const data: ComputeKernelBinding[] = [
-            { binding: 0, type: 'read-only-storage', buffer: inKeys },
-            { binding: 1, type: 'storage', buffer: outKeys },
-            { binding: 2, type: 'read-only-storage', buffer: this.hist! },
-        ];
-        if (valuePair !== undefined) {
-            data.push(
-                { binding: 3, type: 'read-only-storage', buffer: valuePair[0] },
-                { binding: 4, type: 'storage', buffer: valuePair[1] },
-            );
-        }
         const scatter = createComputeKernel(this.core, {
             discriminator: `${this.disc}:radix_scatter${valuePair === undefined ? '' : '_kv'}`,
             shader: radixScatter,
             entryPoint: valuePair === undefined ? 'radix_scatter_main' : 'radix_scatter_kv_main',
-            bindGroups: [uniform, { bindings: data }],
+            bindings:
+                valuePair === undefined
+                    ? { radix, keys_in: inKeys, keys_out: outKeys, hist }
+                    : {
+                          radix,
+                          keys_in: inKeys,
+                          keys_out: outKeys,
+                          hist,
+                          values_in: valuePair[0],
+                          values_out: valuePair[1],
+                      },
         });
-        const pass = { histogram, scatter, outKeys, valuePair };
-        this.kernels.set(inKeys, pass);
-        return pass;
+        return { histogram, scatter };
     }
 
     private run(
@@ -254,11 +251,15 @@ export class RadixSort {
         });
     }
 
-    private releaseKernels(): void {
-        for (const pass of this.kernels.values()) {
-            destroyComputeKernel(this.core, pass.histogram);
-            destroyComputeKernel(this.core, pass.scatter);
+    private destroyPrepared(p: PreparedKeys): void {
+        for (const k of [p.fromCaller, p.fromTemp]) {
+            destroyComputeKernel(this.core, k.histogram);
+            destroyComputeKernel(this.core, k.scatter);
         }
-        this.kernels.clear();
+    }
+
+    private releaseKernels(): void {
+        for (const p of this.prepared.values()) this.destroyPrepared(p);
+        this.prepared.clear();
     }
 }

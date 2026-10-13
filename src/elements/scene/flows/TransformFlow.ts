@@ -1,139 +1,135 @@
-import type {
-    ComputeKernel,
-    EngineCore,
-    Frame,
-    UniformBufferSpec,
-} from '../../../core/contracts/index';
-import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
+import type { EngineCore, Frame, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
-import type { EventBus, Unsubscribe } from '../../../scene/events/EventBus';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
-import { Flow, type Phase } from '../../../scene/flows/Flow';
+import { Flow } from '../../../scene/flows/Flow';
+import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
+import type { FlowContext } from '../../../scene/flows/FlowRegistry';
+import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
+import { slot, type EntitiesSlot, type PoolSlot, type SlotMap } from '../../../scene/flows/slots';
 import { Transform } from '../Transform';
 import { transformCompose } from './shaders';
 import { TransformParamsSchema } from './TransformParams';
 
-const TRANSFORM_POOL = Transform.schema.name;
-const WORLD_POOL = Transform.worldSchema.name;
 const WORKGROUP_SIZE = 64;
 
+/** Slots do estágio de transformação. */
+export interface TransformSlots extends SlotMap {
+    /** Pool das intenções `Transform` (entrada da composição). */
+    readonly transforms: PoolSlot<false>;
+    /** Pool das matrizes de mundo `WorldTransform` (saída). */
+    readonly worlds: PoolSlot<false>;
+    /** Entidades com `Transform` (remoções recompõem). */
+    readonly entities: EntitiesSlot;
+}
+
+const slots: TransformSlots = {
+    transforms: slot.pool(Transform.schema.name),
+    worlds: slot.pool(Transform.worldSchema.name),
+    entities: slot.entities({ all: [Transform] }),
+};
+
+/** `stale`: há intenção de `Transform` ainda não composta; `clean`: as matrizes de mundo estão em dia. */
+export type TransformState = 'stale' | 'clean';
+
+type Ctx = TransitionContext<TransformSlots>;
+
 /**
- * Estágio de transformação — produz, na GPU, a matriz de mundo e a matriz de normais de
- * cada `Transform` a partir da sua intenção (posição, rotação, escala), com a convenção
- * `M = T · R · S`. O resultado fica no pool `WorldTransform` (mesmo slot do `Transform`),
- * que os estágios de sombra e desenho leem por índice de instância.
+ * Estágio de transformação — produz, na GPU, a matriz de mundo e a matriz de normais de cada `Transform` a partir da
+ * sua intenção (posição, rotação, escala), com a convenção `M = T · R · S`. O resultado fica no pool
+ * `WorldTransform` (mesmo slot do `Transform`), que os estágios de sombra e desenho leem por índice de instância.
  *
- * Reativo: só grava o compute quando algum `Transform` foi enviado (`resourceReady`) ou
- * quando os pools foram realocados; numa cena parada, não faz nada.
+ * Slots: os pools `Transform` e `WorldTransform` (ligados por `consumes`) e as entidades com `Transform`. Reativo
+ * pela tabela de transições: fica `stale` com `resourceReady` de um `Transform`, entidades inseridas ou removidas,
+ * pool realocado ou bind group substituído; em `stale`, `framePrepare` escreve a contagem (uma vez por quadro) e o
+ * quadro grava a composição; `frameRecorded` volta a `clean` — numa cena parada não faz nada.
  *
- * Substituível: é o estágio padrão da fase `transform`. Registrar outro Flow nessa fase
- * permite outras regras de transformação — é a base para a hierarquia opcional, para a
- * função `transform` do usuário e para cadeias não euclidianas do roadmap.
+ * Substituível: é o estágio padrão da fase `transform`. Registrar outro Flow nessa fase permite outras regras de
+ * transformação — a base para a hierarquia opcional, para a função `transform` do usuário e para cadeias não
+ * euclidianas do roadmap.
  */
-export class TransformFlow extends Flow {
-    readonly type = 'transform';
-    readonly bodyType = '';
-    readonly phase: Phase = 'transform';
+export class TransformFlow extends Flow<TransformSlots, TransformState> {
+    readonly type = 'TransformFlow';
+    readonly slots = slots;
+    override readonly listens = [Transform.schema];
+    override readonly pipelines: readonly PipelineDescriptor[] = [
+        {
+            id: 'transform_compose',
+            role: 'compute',
+            shader: transformCompose,
+            entryPoints: ['transform_compose_main'],
+            consumes: [Transform.schema.name, Transform.worldSchema.name],
+        },
+    ];
+    override readonly bindings: {
+        /** Parâmetros da composição (`TransformParams`: contagem). */
+        readonly params: UniformBufferSpec;
+    };
+    protected readonly initialState = 'stale' as const;
+    protected readonly transitions: FlowTransitions<
+        TransformState,
+        TransitionContext<TransformSlots>
+    >;
 
-    private needsDispatch = true;
-    private kernel: ComputeKernel | null = null;
-    private paramsBuffer: UniformBufferSpec | null = null;
-    private paramsCount = -1;
-    private readonly unsubscribe: Unsubscribe;
+    private readonly core: EngineCore;
+    private readonly params: UniformBufferSpec;
+    /** Contagem escrita em `TransformParams` (-1 = ainda não escrita). */
+    private writtenCount = -1;
 
-    constructor(
-        private readonly core: EngineCore,
-        private readonly pools: PoolDirectory,
-        events: EventBus,
-    ) {
+    constructor(ctx: FlowContext) {
         super();
-        this.unsubscribe = events.on('resourceReady', (e) => {
-            if (this.pools.poolKeyForResource(e.payload.resource) === TRANSFORM_POOL) {
-                this.needsDispatch = true;
-            }
-        });
-    }
-
-    /** Pipeline de compute do estágio (introspecção). */
-    getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [
-            {
-                id: 'transform_compose',
-                role: 'compute',
-                shader: transformCompose,
-                entryPoints: ['transform_compose_main'],
-                consumes: [TRANSFORM_POOL],
-            },
-        ];
-    }
-
-    /** Pools realocados invalidam o kernel; tudo é recalculado no próximo quadro. */
-    override onPoolReallocated(poolKey: string): void {
-        if (poolKey !== TRANSFORM_POOL && poolKey !== WORLD_POOL) return;
-        if (this.kernel !== null) destroyComputeKernel(this.core, this.kernel);
-        this.kernel = null;
-        this.needsDispatch = true;
-    }
-
-    /** Grava o compute de composição quando houve mudança desde o último quadro. */
-    dispatch(frame: Frame): void {
-        if (!this.needsDispatch) return;
-        const count = this.pools.poolCount(TRANSFORM_POOL);
-        if (count === 0) {
-            this.needsDispatch = false;
-            return;
-        }
-        const kernel = this.ensureKernel();
-        if (kernel === null) return;
-        this.writeParams(count);
-        frame.compute('TransformFlow', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
-            pass.dispatch.invocations(count, WORKGROUP_SIZE);
-        });
-        this.needsDispatch = false;
-    }
-
-    /** Descarte do estágio: cancela a inscrição em eventos e libera kernel e buffer de parâmetros. */
-    override dispose(): void {
-        this.unsubscribe();
-        if (this.kernel !== null) destroyComputeKernel(this.core, this.kernel);
-        if (this.paramsBuffer !== null) this.core.destroy(this.paramsBuffer);
-        this.kernel = null;
-        this.paramsBuffer = null;
-        this.paramsCount = -1;
-        this.needsDispatch = true;
-    }
-
-    private ensureKernel(): ComputeKernel | null {
-        if (this.kernel !== null) return this.kernel;
-        const transforms = this.pools.poolBufferSpec(TRANSFORM_POOL);
-        const worlds = this.pools.poolBufferSpec(WORLD_POOL);
-        if (transforms === undefined || worlds === undefined) return null;
-        this.paramsBuffer ??= this.core.create<UniformBufferSpec>({
+        this.core = ctx.core;
+        this.params = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: 'transform_compose_params',
             byteSize: TransformParamsSchema.stride,
         });
-        this.kernel = createComputeKernel(this.core, {
-            discriminator: 'transform_compose',
-            shader: transformCompose,
-            entryPoint: 'transform_compose_main',
-            bindings: [
-                { binding: 0, type: 'read-only-storage', buffer: transforms },
-                { binding: 1, type: 'storage', buffer: worlds },
-                { binding: 2, type: 'uniform', buffer: this.paramsBuffer },
-            ],
-        });
-        return this.kernel;
+        this.bindings = { params: this.params };
+        const stale = { to: 'stale' as const };
+        this.transitions = {
+            '*': {
+                slotsResolved: stale,
+                slotLost: stale,
+                pipelinesCompiled: stale,
+                resourceReady: stale,
+                entitiesChanged: stale,
+                poolReallocated: stale,
+                bindGroupReplaced: stale,
+            },
+            stale: {
+                framePrepare: {
+                    to: 'stale',
+                    run: (_e, c) => {
+                        this.writeCount(c);
+                    },
+                },
+                frameRecorded: { to: 'clean' },
+            },
+            clean: { framePrepare: 'ignore', frameRecorded: 'ignore' },
+        };
     }
 
-    private writeParams(count: number): void {
-        if (this.paramsBuffer === null || count === this.paramsCount) return;
-        this.core.write(this.paramsBuffer, TransformParamsSchema.pack({ count }));
-        this.paramsCount = count;
+    /** Grava a composição quando há intenção pendente (`stale`). */
+    dispatch(frame: Frame, bound: BoundFlow<TransformSlots>): void {
+        if (this.state !== 'stale') return;
+        const count = bound.slots.transforms.count;
+        if (count === 0) return;
+        const p = bound.compute('transform_compose');
+        frame.compute('TransformFlow', (pass) => {
+            pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
+            pass.dispatch.invocations(count, WORKGROUP_SIZE);
+        });
+    }
+
+    /** Libera o uniform de parâmetros. */
+    override dispose(): void {
+        this.core.destroy(this.params);
+    }
+
+    /** `TransformParams.count` acompanha o pool (escrita só quando muda). */
+    private writeCount(ctx: Ctx): void {
+        const count = ctx.bound.slots.transforms.count;
+        if (count === this.writtenCount) return;
+        this.core.write(this.params, TransformParamsSchema.pack({ count }));
+        this.writtenCount = count;
     }
 }

@@ -1,8 +1,10 @@
 // Spec 005 — Smoke de trajetórias (R14, FR-036).
 //
 // Cada algoritmo de física (LCP, XPBD, FEM, MPM sólido e fluido, SPH, PBF) roda uma cena determinística por 240 passos
-// com `app.step(1/60)`; o pool de cada algoritmo é lido de volta da GPU.
-//   - `--record`: roda cada cena duas vezes, mede o desvio entre execuções (determinismo) e grava
+// fixos de 1/60 s; o pool de cada algoritmo é lido de volta da GPU.
+// Spec 006 (FR-027): a comparação roda cada cena com quadros de 1/60, 1/30 e 1/144 s — o passo fixo do `Time` deve
+// produzir a mesma trajetória em qualquer taxa de quadros (240 passos em 240, 120 ou 576 quadros).
+//   - `--record`: roda (a 60 Hz) cada cena duas vezes, mede o desvio entre execuções (determinismo) e grava
 //     `fixtures/trajectories-<perfil>.bin` (pools concatenados) + `.json` (cenas, strides, tolerâncias).
 //   - padrão: compara com a fixture — bit a bit nas cenas determinísticas; nas demais, `pos`/`vel` dentro da
 //     tolerância gravada (2 × desvio máximo entre execuções).
@@ -36,6 +38,8 @@ import {
 } from './support/fixtures';
 
 const STEPS = 240;
+/** Taxas de quadro comparadas com a mesma fixture (gravada a 60 Hz). */
+const RATES = [60, 30, 144] as const;
 
 function log(msg: string): void {
     console.log(`[trajectories] ${msg}`);
@@ -394,10 +398,19 @@ async function createApp(): Promise<Application> {
 /** Simula a cena e devolve o pool (bytes) e o schema dele. */
 async function run(
     scene: Scene,
+    rate = 60,
 ): Promise<{ bytes: Uint8Array; count: number; schema: StructSchema; profile: string }> {
     const app = await createApp();
     scene.build(app);
-    app.step(1 / 60, STEPS);
+    // Passo fixo de 1/60 s com teto de 4 passos por quadro: STEPS passos em STEPS × rate / 60 quadros.
+    const frames = Math.round((STEPS * rate) / 60);
+    let steps = 0;
+    for (let i = 0; i < frames; i++) {
+        app.step(1 / rate);
+        steps += app.time.steps;
+    }
+    if (steps !== STEPS)
+        throw new Error(`${scene.name} @${rate} Hz: ${steps} passos (esperado ${STEPS})`);
     const schema = scene.schema;
     const spec = app.resources.poolBufferSpec(schema.name);
     if (spec === undefined) throw new Error(`pool ${schema.name} inexistente`);
@@ -527,48 +540,56 @@ async function compare(): Promise<string[]> {
     const failures: string[] = [];
     let manifest: Manifest | null = null;
     let bin: Uint8Array | null = null;
-    for (const scene of SCENES) {
-        const current = await run(scene);
-        if (manifest === null) {
-            manifest = await readJsonFixture<Manifest>(`trajectories-${current.profile}.json`);
-            bin = await readFixture(`trajectories-${current.profile}.bin`);
-            if (manifest === null || bin === null) {
-                return [`sem fixture para o perfil ${current.profile} (rode com --record)`];
+    for (const rate of RATES)
+        for (const scene of SCENES) {
+            const label = `${scene.name}@${rate}Hz`;
+            const current = await run(scene, rate);
+            if (manifest === null) {
+                manifest = await readJsonFixture<Manifest>(`trajectories-${current.profile}.json`);
+                bin = await readFixture(`trajectories-${current.profile}.bin`);
+                if (manifest === null || bin === null) {
+                    return [`sem fixture para o perfil ${current.profile} (rode com --record)`];
+                }
+            }
+            const rec = manifest.scenes.find((s) => s.name === scene.name);
+            if (rec === undefined) {
+                failures.push(`${label}: ausente da fixture`);
+                continue;
+            }
+            if (rec.count !== current.count || rec.stride !== current.schema.stride) {
+                failures.push(
+                    `${label}: forma mudou (${rec.count}×${rec.stride} → ${current.count}×${current.schema.stride})`,
+                );
+                continue;
+            }
+            for (const f of scene.check(poolView(current.bytes, current.count, current.schema))) {
+                failures.push(`${label}: ${f}`);
+            }
+            const expected = bin!.subarray(rec.offset, rec.offset + rec.count * rec.stride);
+            if (rec.tolerance === 0) {
+                const ok = bitwiseEqual(expected, current.bytes);
+                const dev = ok
+                    ? 0
+                    : maxDeviation(expected, current.bytes, rec.count, rec.stride, rec.fields);
+                log(
+                    `${label}: ${ok ? 'idêntica bit a bit' : `DIVERGIU (desvio ${dev.toExponential(2)})`}`,
+                );
+                if (!ok) failures.push(`${label}: não é bit a bit (desvio ${dev})`);
+            } else {
+                const dev = maxDeviation(
+                    expected,
+                    current.bytes,
+                    rec.count,
+                    rec.stride,
+                    rec.fields,
+                );
+                log(
+                    `${label}: desvio ${dev.toExponential(2)} (tolerância ${rec.tolerance.toExponential(2)})`,
+                );
+                if (!(dev <= rec.tolerance))
+                    failures.push(`${label}: desvio ${dev} > ${rec.tolerance}`);
             }
         }
-        const rec = manifest.scenes.find((s) => s.name === scene.name);
-        if (rec === undefined) {
-            failures.push(`${scene.name}: ausente da fixture`);
-            continue;
-        }
-        if (rec.count !== current.count || rec.stride !== current.schema.stride) {
-            failures.push(
-                `${scene.name}: forma mudou (${rec.count}×${rec.stride} → ${current.count}×${current.schema.stride})`,
-            );
-            continue;
-        }
-        for (const f of scene.check(poolView(current.bytes, current.count, current.schema))) {
-            failures.push(`${scene.name}: ${f}`);
-        }
-        const expected = bin!.subarray(rec.offset, rec.offset + rec.count * rec.stride);
-        if (rec.tolerance === 0) {
-            const ok = bitwiseEqual(expected, current.bytes);
-            const dev = ok
-                ? 0
-                : maxDeviation(expected, current.bytes, rec.count, rec.stride, rec.fields);
-            log(
-                `${scene.name}: ${ok ? 'idêntica bit a bit' : `DIVERGIU (desvio ${dev.toExponential(2)})`}`,
-            );
-            if (!ok) failures.push(`${scene.name}: não é bit a bit (desvio ${dev})`);
-        } else {
-            const dev = maxDeviation(expected, current.bytes, rec.count, rec.stride, rec.fields);
-            log(
-                `${scene.name}: desvio ${dev.toExponential(2)} (tolerância ${rec.tolerance.toExponential(2)})`,
-            );
-            if (!(dev <= rec.tolerance))
-                failures.push(`${scene.name}: desvio ${dev} > ${rec.tolerance}`);
-        }
-    }
     return failures;
 }
 

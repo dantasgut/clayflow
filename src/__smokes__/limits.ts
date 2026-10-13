@@ -93,11 +93,7 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
         discriminator: 'limits_mark',
         shader: MARK_SHADER,
         entryPoint: 'mark_main',
-        bindings: [
-            { binding: 0, type: 'uniform', buffer: params },
-            { binding: 1, type: 'storage', buffer: marks },
-            { binding: 2, type: 'storage', buffer: counter },
-        ],
+        bindings: { params, marks, counter },
     });
     app.core.record('limits-mark', (frame) => {
         frame.clear(marks);
@@ -169,8 +165,9 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
         gridDim: [dim, dim, dim],
         origin: [0, 0, 0],
     });
+    ns.prepare(particles);
     app.core.record('limits-ns', (frame) => {
-        ns.rebuild(frame, particles, n);
+        ns.rebuild(frame, n);
     });
     app.core.submit();
     const list = new Uint32Array(await readBuffer(app, ns.neighborList!, n * maxNeighbors * 4));

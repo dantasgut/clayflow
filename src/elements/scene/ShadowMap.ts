@@ -6,9 +6,22 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
+/** Opções de `ShadowMap`. */
+export interface ShadowMapOptions {
+    /** Matriz luz-vista-projeção inicial (o estágio de sombra a recalcula pela luz). Padrão: identidade. */
+    readonly lightViewProj?: readonly number[];
+    /** Viés de profundidade da comparação (contra acne). Padrão 0,005. */
+    readonly bias?: number;
+    /** Viés ao longo da normal. Padrão 0,001. */
+    readonly normalBias?: number;
+    /** Resolução do mapa em texels `[largura, altura]`. Padrão `[1024, 1024]`. */
+    readonly size?: readonly [number, number];
+}
+
 /**
- * ShadowMap config — view-projection matrix da luz + biases para evitar
- * acne/peter-panning. Pool storage para suportar múltiplas luzes.
+ * Mapa de sombra de uma luz (Camada 3): matriz luz-vista-projeção e vieses em pool (`array<ShadowMap>` no shader,
+ * lido pelo render principal pelo slot da luz) e a textura de profundidade `depth32float` em que o estágio de sombra
+ * desenha. Anexado pela `DirectionalLight` que projeta sombra; o tamanho vale na inserção.
  */
 export class ShadowMap extends Entity implements Resource {
     /** StructSchema do ShadowMap (lightViewProj + bias + normalBias + size). */
@@ -22,23 +35,24 @@ export class ShadowMap extends Entity implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
     data: Record<string, unknown> = {};
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(options: ShadowMapOptions = {}) {
         super();
         this.data = ShadowMap.schema.applyDefaults({
-            lightViewProj: values.lightViewProj ?? identity(),
-            bias: values.bias ?? 0.0001,
-            normalBias: values.normalBias ?? 0.001,
-            size: values.size ?? [2048, 2048],
+            lightViewProj: options.lightViewProj ?? identity(),
+            bias: options.bias ?? 0.005,
+            normalBias: options.normalBias ?? 0.001,
+            size: options.size ?? [1024, 1024],
         });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
+        const [width, height] = this.data.size as readonly [number, number];
         return [
+            { id: 'shadowmap', role: 'storage-ro', schema: ShadowMap.schema, storage: 'pool' },
             {
-                id: 'shadowmap',
-                role: 'storage-ro',
-                schema: ShadowMap.schema,
-                storage: 'pool',
+                id: 'depth',
+                role: 'texture',
+                textureShape: { format: 'depth32float', width, height },
             },
         ];
     }
