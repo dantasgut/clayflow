@@ -4,7 +4,11 @@ import type { Resource } from '../../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 
-export abstract class Constraint extends Entity implements Resource {
+/** Base das restrições; `TData` tipa o `data` (ver `Entity`). */
+export abstract class Constraint<TData extends object = Record<string, unknown>>
+    extends Entity<TData>
+    implements Resource
+{
     state: ResourceState = ResourceState.Uninitialized;
 
     abstract getDescriptors(): readonly GPUDescriptor[];

@@ -373,7 +373,7 @@ async function main(): Promise<void> {
     moved[0] = [-5, 2, 0, 1];
     transforms[0]!.data.position = moved[0];
     moved[2] = [-1, -1.5, 0, 1];
-    (transforms[2]!.data.position as number[])[1] = -1.5;
+    transforms[2]!.data.position[1] = -1.5;
     step(capture);
     checkPixels('mutação', moved);
     const movedWorlds = await readWorlds([ids[0]!, ids[2]!]);

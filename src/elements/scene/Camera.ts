@@ -30,6 +30,18 @@ export interface CameraValues {
     readonly aspectMode?: CameraAspectMode;
 }
 
+/** Dado de uma `Camera` (layout de `Camera.schema`). */
+export interface CameraData {
+    projection: number;
+    aspectMode: number;
+    fov: number;
+    orthoHeight: number;
+    near: number;
+    far: number;
+    aspect: number;
+    _pad0: number;
+}
+
 /**
  * Câmera — os **parâmetros** de projeção (spec 007). Posição e orientação vêm do `Transform` da mesma entidade
  * (obrigatório: a câmera olha para −Z local; `Transform.lookRotation` mira um ponto); os controllers mutam esse
@@ -45,7 +57,7 @@ export interface CameraValues {
  * Mudança incompatível: as matrizes (`view`, `projection`, `viewProjection`, `position`) não são mais dado da câmera
  * — ver o guia de migração.
  */
-export class Camera extends Entity implements Resource {
+export class Camera extends Entity<CameraData> implements Resource {
     /** Parâmetros de projeção (pool `Camera`). `projection`: 0 perspectiva, 1 ortográfica; `aspectMode`: 0 canvas, 1 fixo. */
     static readonly schema = new StructSchema('Camera', {
         projection: FieldType.u32,

@@ -10,7 +10,7 @@ import type { Geometry } from '../Geometry';
  * normal declarada nos vértices — senão a face visível é descartada.
  */
 function misoriented(geometry: Geometry): number {
-    const v = geometry.data.vertices as Float32Array;
+    const v = geometry.data.vertices!;
     const idx = geometry.data.indices as Uint16Array;
     const at = (i: number, o: number): number => v[i * 8 + o]!;
     let bad = 0;

@@ -856,7 +856,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             });
             return store.scratch;
         }
-        return trackedOf(occupant)?.raw ?? occupant.data;
+        return trackedOf(occupant)?.raw ?? (occupant.data as Record<string, unknown>);
     }
 
     /**
@@ -966,7 +966,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const previous = trackedOf(resource);
         if (previous?.owner === this.dataSink) return;
         // Vindo de outra cena: o dado cru continua o mesmo; o proxy passa a notificar esta.
-        const data = previous?.raw ?? resource.data;
+        const data = previous?.raw ?? (resource.data as Record<string, unknown>);
         (resource as TrackedResource)[DATA_HOOK] = new Tracked(this.dataSink, resource, data);
         // `Entity` já tem o acessor no protótipo; os demais recebem um na instância.
         if (!(resource instanceof Entity) || Object.prototype.hasOwnProperty.call(resource, 'data'))
@@ -1330,7 +1330,10 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             entry.count = Math.max(entry.count, slot + 1);
             occupy(entry, slot, resource);
             if (policyOf(desc) === 'initial')
-                entry.initial.set(slot, bytesOf(schema.pack(resource.data)));
+                entry.initial.set(
+                    slot,
+                    bytesOf(schema.pack(resource.data as Record<string, unknown>)),
+                );
             if (entityId !== undefined) {
                 entry.slotByEntity.set(entityId, slot);
                 entry.entityBySlot[slot] = entityId;
@@ -1676,7 +1679,7 @@ function alignUp(value: number, alignment: number): number {
 
 /** `data[desc.id]` quando é um bloco de bytes (typed array/DataView). */
 function rawContent(resource: Resource, desc: GPUDescriptor): ArrayBufferView | undefined {
-    const value = resource.data[desc.id];
+    const value = (resource.data as Record<string, unknown>)[desc.id];
     return ArrayBuffer.isView(value) ? value : undefined;
 }
 
@@ -1689,7 +1692,7 @@ function bufferContent(resource: Resource, desc: GPUDescriptor): ArrayBufferView
     if (raw !== undefined) return raw;
     const schema = desc.schema;
     if (schema === undefined) return undefined;
-    const value = resource.data[desc.id];
+    const value = (resource.data as Record<string, unknown>)[desc.id];
     if (Array.isArray(value) && value.every((v) => typeof v === 'object' && v !== null)) {
         const records = value as Record<string, unknown>[];
         const count = desc.count ?? records.length;
@@ -1703,7 +1706,7 @@ function bufferContent(resource: Resource, desc: GPUDescriptor): ArrayBufferView
         });
         return out;
     }
-    if ((desc.count ?? 1) === 1) return schema.pack(resource.data);
+    if ((desc.count ?? 1) === 1) return schema.pack(resource.data as Record<string, unknown>);
     return undefined;
 }
 

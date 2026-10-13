@@ -15,8 +15,13 @@ import type { Input } from './Input';
  * ```ts
  * app.world.insert(new Camera().add(new Transform()).add(new OrbitController({ distance: 8 })));
  * ```
+ *
+ * `TData` tipa o `data` (ver `Entity`); os controllers embutidos não têm dado (o estado fica em campos próprios).
  */
-export abstract class InputDrivenController extends Entity implements Resource {
+export abstract class InputDrivenController<TData extends object = Record<string, unknown>>
+    extends Entity<TData>
+    implements Resource
+{
     state: ResourceState = ResourceState.Uninitialized;
 
     /** Lê o `input` e muta `transform` (posição/rotação); `dt` em segundos. */

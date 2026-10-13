@@ -814,9 +814,8 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         if (this.ensureContacts(bodyCount, totalCol)) ctx.bind(this.contactSources());
         if (this.ensureBodyBuffers(bodyCount)) ctx.bind(this.bodySources());
         const stepDt = time.stepDt;
-        const accel = (bound.slots.gravity?.resource.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
+            .acceleration ?? [0, -9.81, 0, 0];
         // Carimbo de cada substep: a paridade escolhe a região da tabela de warm start que ele grava.
         const stamps: number[] = [];
         for (let step = 0; step < steps; step++) {

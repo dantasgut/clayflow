@@ -21,12 +21,20 @@ export interface ParticleEmitterOptions {
     readonly shape?: EmitterShape;
 }
 
+/** Dado de um `ParticleEmitter`. */
+export interface ParticleEmitterData {
+    maxParticles: number;
+    rate: number;
+    lifetime: number;
+    shape: EmitterShape | undefined;
+}
+
 /**
  * ParticleEmitter é a base de emissores de partículas. Subclasses concretas:
  *   - `ComputeParticleEmitter`: emissão e simulação inteiramente em compute shaders.
  *   - `ScriptedParticleEmitter`: emissão CPU-driven (callback custom por partícula).
  */
-export abstract class ParticleEmitter extends Entity implements Resource {
+export abstract class ParticleEmitter extends Entity<ParticleEmitterData> implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
 
     constructor(options: ParticleEmitterOptions = {}) {

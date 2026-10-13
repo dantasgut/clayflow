@@ -4,36 +4,15 @@
 
 [webgpu-engine](../../modules.md) / [elements](../README.md) / ForceField
 
-# Abstract Class: ForceField
+# Abstract Class: ForceField\<TData\>
 
-Defined in: [elements/physics/forcefields/ForceField.ts:7](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/forcefields/ForceField.ts#L7)
+Defined in: [elements/physics/forcefields/ForceField.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/ForceField.ts#L8)
 
-Entity é a unidade composicional da Camada 2 (Sync) — qualquer objeto
-inserido em `World` herda de Entity. A composição é via `add(child)`:
-uma Entity-pai agrega Entity-filhas em uma árvore plana, e
-`World.insert(root)` percorre a árvore registrando cada filho como
-`Resource` indexável.
-
-Padrão de uso típico:
-```ts
-const box = new BoxGeometry({ size: [1, 1, 1] });
-box.add(new StandardMaterial({ albedo: [0.7, 0.3, 0.2, 1] }));
-box.add(new Transform({ position: [0, 0, 0, 1] }));
-world.insert(box);  // registra geometria + material + transform
-```
-
-Subclasses concretas (Camera, Transform, BoxGeometry, etc.) implementam
-`Resource` (descritores GPU), enquanto Entity provê a hierarquia e o `data`
-do Resource: um acessor no protótipo — subclasses atribuem `this.data = …` no
-construtor e **não** declaram o campo `data` (spec 007). Na cena, a C2 liga o
-acessor ao proxy reativo (mutação de campo e reatribuição inteira marcam o
-recurso) sem redefinir propriedades na instância: o objeto mantém a forma da
-classe (um milhão de entidades sem objetos em modo dicionário).
-Entity é abstrata — não pode ser instanciada diretamente.
+Base dos campos de força; `TData` tipa o `data` (ver `Entity`).
 
 ## Extends
 
-- [`Entity`](Entity.md)
+- [`Entity`](Entity.md)\<`TData`\>
 
 ## Extended by
 
@@ -43,6 +22,12 @@ Entity é abstrata — não pode ser instanciada diretamente.
 - [`DragField`](DragField.md)
 - [`BuoyancyField`](BuoyancyField.md)
 
+## Type Parameters
+
+### TData
+
+`TData` *extends* `object` = `Record`\<`string`, `unknown`\>
+
 ## Implements
 
 - `Resource`
@@ -51,11 +36,11 @@ Entity é abstrata — não pode ser instanciada diretamente.
 
 ### Constructor
 
-> **new ForceField**(): `ForceField`
+> **new ForceField**\<`TData`\>(): `ForceField`\<`TData`\>
 
 #### Returns
 
-`ForceField`
+`ForceField`\<`TData`\>
 
 #### Inherited from
 
@@ -67,7 +52,7 @@ Entity é abstrata — não pode ser instanciada diretamente.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/forcefields/ForceField.ts:8](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/forcefields/ForceField.ts#L8)
+Defined in: [elements/physics/forcefields/ForceField.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/ForceField.ts#L12)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -81,16 +66,16 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Get Signature
 
-> **get** **attached**(): readonly [`Entity`](Entity.md)[]
+> **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly [`Entity`](Entity.md)[]
+readonly [`Entity`](Entity.md)\<`object`\>[]
 
 #### Inherited from
 
@@ -102,22 +87,22 @@ readonly [`Entity`](Entity.md)[]
 
 #### Get Signature
 
-> **get** **data**(): `Record`\<`string`, `unknown`\>
+> **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
 
 ##### Returns
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 #### Set Signature
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -125,7 +110,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 ###### next
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 ##### Returns
 
@@ -145,16 +130,16 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 #### Get Signature
 
-> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
 
 ##### Returns
 
-`Readonly`\<`Record`\<`string`, `unknown`\>\>
+`Readonly`\<`TData`\>
 
 #### Inherited from
 
@@ -166,7 +151,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -175,7 +160,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ##### e
 
-[`Entity`](Entity.md)
+[`Entity`](Entity.md)\<`object`\>
 
 #### Returns
 
@@ -191,7 +176,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > `abstract` **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/forcefields/ForceField.ts:10](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/forcefields/ForceField.ts#L10)
+Defined in: [elements/physics/forcefields/ForceField.ts:14](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/ForceField.ts#L14)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -212,7 +197,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/forcefields/ForceField.ts:12](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/forcefields/ForceField.ts#L12)
+Defined in: [elements/physics/forcefields/ForceField.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/ForceField.ts#L16)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

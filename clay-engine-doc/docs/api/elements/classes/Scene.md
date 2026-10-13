@@ -6,7 +6,7 @@
 
 # Class: Scene
 
-Defined in: [elements/scene/Scene.ts:10](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/Scene.ts#L10)
+Defined in: [elements/scene/Scene.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Scene.ts#L10)
 
 Raiz da cena. `add(entity)` e `addEntity(entity)` inserem a entidade no World (visível aos Flows) e a anexam como
 filha da cena; `add` devolve `this` (encadeável), `addEntity` devolve o `EntityId`. Para anexar um filho a outra
@@ -14,7 +14,7 @@ entidade (sem inserir), use o `add` dessa entidade (`Entity.add`).
 
 ## Extends
 
-- [`Entity`](Entity.md)
+- [`Entity`](Entity.md)\<`Record`\<`string`, `never`\>\>
 
 ## Constructors
 
@@ -22,7 +22,7 @@ entidade (sem inserir), use o `add` dessa entidade (`Entity.add`).
 
 > **new Scene**(`world`): `Scene`
 
-Defined in: [elements/scene/Scene.ts:11](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/Scene.ts#L11)
+Defined in: [elements/scene/Scene.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Scene.ts#L11)
 
 #### Parameters
 
@@ -44,16 +44,16 @@ Defined in: [elements/scene/Scene.ts:11](https://github.com/dantasgut/clayflow/b
 
 #### Get Signature
 
-> **get** **attached**(): readonly [`Entity`](Entity.md)[]
+> **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly [`Entity`](Entity.md)[]
+readonly [`Entity`](Entity.md)\<`object`\>[]
 
 #### Inherited from
 
@@ -65,22 +65,22 @@ readonly [`Entity`](Entity.md)[]
 
 #### Get Signature
 
-> **get** **data**(): `Record`\<`string`, `unknown`\>
+> **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
 
 ##### Returns
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 #### Set Signature
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -88,7 +88,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 ###### next
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 ##### Returns
 
@@ -104,16 +104,16 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 #### Get Signature
 
-> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
 
 ##### Returns
 
-`Readonly`\<`Record`\<`string`, `unknown`\>\>
+`Readonly`\<`TData`\>
 
 #### Inherited from
 
@@ -125,7 +125,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`entity`): `this`
 
-Defined in: [elements/scene/Scene.ts:16](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/Scene.ts#L16)
+Defined in: [elements/scene/Scene.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Scene.ts#L16)
 
 Insere a entidade no World e a anexa à cena. Encadeável. Reuso de instância lança `ReuseError`.
 
@@ -133,7 +133,7 @@ Insere a entidade no World e a anexa à cena. Encadeável. Reuso de instância l
 
 ##### entity
 
-[`Entity`](Entity.md)
+[`Entity`](Entity.md)\<`object`\>
 
 #### Returns
 
@@ -149,7 +149,7 @@ Insere a entidade no World e a anexa à cena. Encadeável. Reuso de instância l
 
 > **addEntity**(`entity`): `EntityId`
 
-Defined in: [elements/scene/Scene.ts:25](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/Scene.ts#L25)
+Defined in: [elements/scene/Scene.ts:25](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Scene.ts#L25)
 
 Insere a entidade no World e a anexa à cena; devolve o EntityId atribuído. Reuso de instância lança
 `ReuseError` e nada é anexado.
@@ -158,7 +158,7 @@ Insere a entidade no World e a anexa à cena; devolve o EntityId atribuído. Reu
 
 ##### entity
 
-[`Entity`](Entity.md)
+[`Entity`](Entity.md)\<`object`\>
 
 #### Returns
 
@@ -170,7 +170,7 @@ Insere a entidade no World e a anexa à cena; devolve o EntityId atribuído. Reu
 
 > **removeEntity**(`entity`): `void`
 
-Defined in: [elements/scene/Scene.ts:32](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/Scene.ts#L32)
+Defined in: [elements/scene/Scene.ts:32](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Scene.ts#L32)
 
 Remove a entidade do World (flows param de processá-la no próximo tick).
 
@@ -178,7 +178,7 @@ Remove a entidade do World (flows param de processá-la no próximo tick).
 
 ##### entity
 
-[`Entity`](Entity.md)
+[`Entity`](Entity.md)\<`object`\>
 
 #### Returns
 

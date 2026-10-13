@@ -26,7 +26,7 @@ export interface OrbitControllerOptions {
  * da roda ou da pinça e decai depois que o usuário solta. Componente da entidade da câmera: a cada quadro posiciona o
  * `Transform` na esfera em torno do alvo e o orienta para ele (`Transform.lookRotation`).
  */
-export class OrbitController extends InputDrivenController {
+export class OrbitController extends InputDrivenController<Record<string, never>> {
     private theta = 0;
     private phi = Math.PI / 4;
     private distance: number;

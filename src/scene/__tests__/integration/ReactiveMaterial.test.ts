@@ -29,8 +29,8 @@ describe('material reativo', () => {
         const material = new StandardMaterial({ albedo: [0.2, 0.2, 0.2, 1] });
         world.insert(material);
         trace.length = 0;
-        (material.data.albedo as number[])[0] = 1;
-        (material.data.albedo as number[])[1] = 0.5;
+        material.data.albedo[0] = 1;
+        material.data.albedo[1] = 0.5;
         expect(trace).toHaveLength(0);
         events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
         expect(trace.filter((c) => c.startsWith('write:'))).toHaveLength(1);

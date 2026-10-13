@@ -6,12 +6,23 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
+/** Dado de um `EulerianGrid` (layout de `EulerianGrid.schema`). */
+export interface EulerianGridData {
+    gridDim: readonly number[];
+    cellSize: number;
+    origin: readonly number[];
+    cellCount: number;
+    _pad0: number;
+    _pad1: number;
+    _pad2: number;
+}
+
 /**
  * Grid Eulerian (estacionário) — armazena velocidades e quantidades em
  * células fixas no espaço. Usado por MPM (P2G/G2P) e FLIP. Para neighbor
  * search Lagrangian (SPH/PBF), use `NeighborSearchGrid`.
  */
-export class EulerianGrid extends Entity implements Resource {
+export class EulerianGrid extends Entity<EulerianGridData> implements Resource {
     /** StructSchema do EulerianGrid (gridDim + cellSize + origin + cellCount). */
     static readonly schema = new StructSchema('EulerianGrid', {
         gridDim: FieldType.vec3u,
@@ -25,17 +36,20 @@ export class EulerianGrid extends Entity implements Resource {
 
     state: ResourceState = ResourceState.Uninitialized;
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<Pick<EulerianGridData, 'gridDim' | 'cellSize' | 'origin'>> = {}) {
         super();
-        const dim = (values.gridDim ?? [32, 32, 32]) as readonly number[];
-        const cellSize = (values.cellSize ?? 0.1) as number;
+        const dim = values.gridDim ?? [32, 32, 32];
+        const cellSize = values.cellSize ?? 0.1;
         const cellCount = (dim[0] ?? 0) * (dim[1] ?? 0) * (dim[2] ?? 0);
-        this.data = EulerianGrid.schema.applyDefaults({
+        this.data = {
             gridDim: dim,
             cellSize,
             origin: values.origin ?? [0, 0, 0, 0],
             cellCount,
-        });
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

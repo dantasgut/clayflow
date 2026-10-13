@@ -3,11 +3,19 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { ForceField } from './ForceField';
 
+/** Dado de um `DragField` (layout de `DragField.schema`). */
+export interface DragFieldData {
+    linearCoeff: number;
+    quadraticCoeff: number;
+    _pad0: number;
+    _pad1: number;
+}
+
 /**
  * Campo de arrasto — frenagem proporcional à velocidade (linear + quadrática).
  * F = -linear·v - quadratic·|v|·v. Simula resistência ao ar/fluido.
  */
-export class DragField extends ForceField {
+export class DragField extends ForceField<DragFieldData> {
     /** StructSchema do DragField (linearCoeff + quadraticCoeff). */
     static readonly schema = new StructSchema('DragField', {
         linearCoeff: FieldType.f32,
@@ -16,12 +24,14 @@ export class DragField extends ForceField {
         _pad1: FieldType.f32,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<DragFieldData> = {}) {
         super();
-        this.data = DragField.schema.applyDefaults({
+        this.data = {
             linearCoeff: values.linearCoeff ?? 0.1,
             quadraticCoeff: values.quadraticCoeff ?? 0.01,
-        });
+            _pad0: 0,
+            _pad1: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

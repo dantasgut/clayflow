@@ -1,9 +1,9 @@
-import { Light } from './Light';
+import { Light, type LightValues } from './Light';
 
 export class PointLight extends Light {
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: LightValues = {}) {
         super();
-        this.data = Light.schema.applyDefaults({
+        this.data = {
             kind: 1,
             castShadow: values.castShadow === true ? 1 : 0,
             intensity: values.intensity ?? 1.0,
@@ -11,6 +11,6 @@ export class PointLight extends Light {
             position: values.position ?? [0, 0, 0, 1],
             direction: values.direction ?? [0, 0, 0, 0],
             color: values.color ?? [1, 1, 1, 1],
-        });
+        };
     }
 }

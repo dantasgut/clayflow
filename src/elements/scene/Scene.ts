@@ -7,13 +7,13 @@ import type { EntityId } from '../../scene/world/EntityId';
  * filha da cena; `add` devolve `this` (encadeável), `addEntity` devolve o `EntityId`. Para anexar um filho a outra
  * entidade (sem inserir), use o `add` dessa entidade (`Entity.add`).
  */
-export class Scene extends Entity {
+export class Scene extends Entity<Record<string, never>> {
     constructor(private readonly world: World) {
         super();
     }
 
     /** Insere a entidade no World e a anexa à cena. Encadeável. Reuso de instância lança `ReuseError`. */
-    override add(entity: Entity): this {
+    override add(entity: Entity<object>): this {
         this.addEntity(entity);
         return this;
     }
@@ -22,14 +22,14 @@ export class Scene extends Entity {
      * Insere a entidade no World e a anexa à cena; devolve o EntityId atribuído. Reuso de instância lança
      * `ReuseError` e nada é anexado.
      */
-    addEntity(entity: Entity): EntityId {
+    addEntity(entity: Entity<object>): EntityId {
         const id = this.world.insert(entity);
         super.add(entity);
         return id;
     }
 
     /** Remove a entidade do World (flows param de processá-la no próximo tick). */
-    removeEntity(entity: Entity): void {
+    removeEntity(entity: Entity<object>): void {
         this.world.remove(entity);
     }
 }

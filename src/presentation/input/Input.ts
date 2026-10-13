@@ -44,7 +44,7 @@ const BUTTONS = { left: 0, middle: 1, right: 2 } as const;
  * Não vai para a GPU (sem descritores); estágios o recebem por `slot.singleton(Input.schema)`. Os controllers de
  * câmera, componentes da entidade da câmera, o leem a cada quadro e mutam o `Transform`.
  */
-export class Input extends Entity implements Resource {
+export class Input extends Entity<Record<string, never>> implements Resource {
     /** Marcador do Resource (não vai para a GPU). */
     static readonly schema = new StructSchema('Input', {});
 

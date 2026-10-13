@@ -199,9 +199,8 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         if (this.params.reserve(iterations)) ctx.bind({ params: this.params.source() });
         const time = bound.slots.time.resource as Time;
         const dt = time.stepDt / this.substeps;
-        const accel = (bound.slots.gravity?.resource.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
+            .acceleration ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         const constraintCount = bound.slots.constraints?.count ?? 0;
         for (let i = 0; i < iterations; i++) {

@@ -45,23 +45,25 @@ export const WORLD_ENTITY = Symbol('clayflow.worldEntity');
  *
  * Subclasses concretas (Camera, Transform, BoxGeometry, etc.) implementam
  * `Resource` (descritores GPU), enquanto Entity provê a hierarquia e o `data`
- * do Resource: um acessor no protótipo — subclasses atribuem `this.data = …` no
- * construtor e **não** declaram o campo `data` (spec 007). Na cena, a C2 liga o
+ * do Resource: um acessor no protótipo, tipado pelo parâmetro `TData`
+ * (`class Camera extends Entity<CameraData>`). Subclasses atribuem `this.data = …`
+ * no construtor e não declaram o campo `data` — um campo próprio na instância
+ * esconderia o acessor e as mutações não marcariam o envio. Na cena, a C2 liga o
  * acessor ao proxy reativo (mutação de campo e reatribuição inteira marcam o
  * recurso) sem redefinir propriedades na instância: o objeto mantém a forma da
  * classe (um milhão de entidades sem objetos em modo dicionário).
  * Entity é abstrata — não pode ser instanciada diretamente.
  */
-export abstract class Entity {
+export abstract class Entity<TData extends object = Record<string, unknown>> {
     /**
      * Filhos da entidade. Privado — manipulado apenas via `add()` para
      * preservar o invariante "uma Entity tem um único pai" (não validado
      * em runtime, mas convenção do projeto).
      */
-    private readonly parts: Entity[] = [];
+    private readonly parts: Entity<object>[] = [];
 
     /** Dado cru fora da cena (antes da inserção). */
-    #data: Record<string, unknown> = {};
+    #data: object = {};
 
     /**
      * Estado reativo posto pela C2 na inserção.
@@ -85,19 +87,19 @@ export abstract class Entity {
      * Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
      * `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
      */
-    get data(): Record<string, unknown> {
+    get data(): TData {
         const hook = this[DATA_HOOK];
-        return hook === undefined ? this.#data : hook.proxied;
+        return (hook === undefined ? this.#data : hook.proxied) as TData;
     }
 
     /** Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio. */
-    set data(next: Record<string, unknown>) {
+    set data(next: TData) {
         const hook = this[DATA_HOOK];
         if (hook === undefined) {
             this.#data = next;
             return;
         }
-        hook.replace(next);
+        hook.replace(next as Record<string, unknown>);
         hook.dataChanged(undefined);
     }
 
@@ -105,15 +107,15 @@ export abstract class Entity {
      * O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
      * estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
      */
-    protected get rawData(): Readonly<Record<string, unknown>> {
-        return this[DATA_HOOK]?.raw ?? this.#data;
+    protected get rawData(): Readonly<TData> {
+        return (this[DATA_HOOK]?.raw ?? this.#data) as TData;
     }
 
     /**
      * Anexa uma Entity-filha. Retorna `this` para chaining fluente.
      * Não valida ciclos nem múltiplos pais — responsabilidade do caller.
      */
-    add(e: Entity): this {
+    add(e: Entity<object>): this {
         this.parts.push(e);
         return this;
     }
@@ -122,7 +124,7 @@ export abstract class Entity {
      * Lista somente-leitura dos filhos diretos. World.insert traverse essa
      * árvore recursivamente para coletar todos os Resources de um root.
      */
-    get attached(): readonly Entity[] {
+    get attached(): readonly Entity<object>[] {
         return this.parts;
     }
 }

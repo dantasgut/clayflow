@@ -6,14 +6,14 @@
 
 # Class: FlyController
 
-Defined in: [presentation/input/controllers/FlyController.ts:47](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/controllers/FlyController.ts#L47)
+Defined in: [presentation/input/controllers/FlyController.ts:47](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/controllers/FlyController.ts#L47)
 
 Voo livre: arrasto com o botão esquerdo gira (guinada/arfagem), WASD + E/Q movem em 3D. Componente da entidade da
 câmera — muta só o `Transform` (posição e rotação).
 
 ## Extends
 
-- [`InputDrivenController`](InputDrivenController.md)
+- [`InputDrivenController`](InputDrivenController.md)\<`Record`\<`string`, `never`\>\>
 
 ## Constructors
 
@@ -21,7 +21,7 @@ câmera — muta só o `Transform` (posição e rotação).
 
 > **new FlyController**(`options?`): `FlyController`
 
-Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/controllers/FlyController.ts#L55)
+Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/controllers/FlyController.ts#L55)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [presentation/input/controllers/FlyController.ts:55](https://github.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [presentation/input/InputDrivenController.ts:20](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/InputDrivenController.ts#L20)
+Defined in: [presentation/input/InputDrivenController.ts:25](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/InputDrivenController.ts#L25)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -57,16 +57,16 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Get Signature
 
-> **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)[]
+> **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly [`Entity`](../../elements/classes/Entity.md)[]
+readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
 #### Inherited from
 
@@ -78,22 +78,22 @@ readonly [`Entity`](../../elements/classes/Entity.md)[]
 
 #### Get Signature
 
-> **get** **data**(): `Record`\<`string`, `unknown`\>
+> **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
 
 ##### Returns
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 #### Set Signature
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -101,7 +101,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 ###### next
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 ##### Returns
 
@@ -117,16 +117,16 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 #### Get Signature
 
-> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
 
 ##### Returns
 
-`Readonly`\<`Record`\<`string`, `unknown`\>\>
+`Readonly`\<`TData`\>
 
 #### Inherited from
 
@@ -138,7 +138,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -147,7 +147,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ##### e
 
-[`Entity`](../../elements/classes/Entity.md)
+[`Entity`](../../elements/classes/Entity.md)\<`object`\>
 
 #### Returns
 
@@ -163,7 +163,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/InputDrivenController.ts:26](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/InputDrivenController.ts#L26)
+Defined in: [presentation/input/InputDrivenController.ts:31](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/InputDrivenController.ts#L31)
 
 Remove ouvintes de DOM que o controller registrou (chamado quando ele sai da cena). Default: no-op.
 
@@ -181,7 +181,7 @@ Remove ouvintes de DOM que o controller registrou (chamado quando ele sai da cen
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [presentation/input/InputDrivenController.ts:30](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/InputDrivenController.ts#L30)
+Defined in: [presentation/input/InputDrivenController.ts:35](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/InputDrivenController.ts#L35)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -202,7 +202,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [presentation/input/InputDrivenController.ts:34](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/InputDrivenController.ts#L34)
+Defined in: [presentation/input/InputDrivenController.ts:39](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/InputDrivenController.ts#L39)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -222,7 +222,7 @@ readonly `PipelineDescriptor`[]
 
 > **tick**(`input`, `dt`, `transform`): `void`
 
-Defined in: [presentation/input/controllers/FlyController.ts:65](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/controllers/FlyController.ts#L65)
+Defined in: [presentation/input/controllers/FlyController.ts:65](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/controllers/FlyController.ts#L65)
 
 Gira pelo arrasto, move pelas teclas e escreve posição e rotação no `Transform`.
 

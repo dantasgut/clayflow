@@ -263,9 +263,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         if (this.iterations === 0) return;
         this.neighborSearch.prepare(bound.slots.bodies.buffer, this.iterations);
         if (this.params.reserve(this.iterations)) ctx.bind({ sph_params: this.params.source() });
-        const accel = (bound.slots.gravity?.resource.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
+            .acceleration ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         for (let i = 0; i < this.iterations; i++) {
             this.params.write(i, {

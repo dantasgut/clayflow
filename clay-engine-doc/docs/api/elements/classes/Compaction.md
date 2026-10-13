@@ -6,7 +6,7 @@
 
 # Class: Compaction
 
-Defined in: [elements/gpu/compute/Compaction.ts:59](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/Compaction.ts#L59)
+Defined in: [elements/gpu/compute/Compaction.ts:59](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/Compaction.ts#L59)
 
 Compactação de índices ou valores por predicado (research R10 da 005): os elementos `i` com `compact_keep(i)` viram
 `compact_value(i)` numa lista densa. Modo padrão: um passe com `atomic_alloc` (ordem não garantida). Modo
@@ -21,7 +21,7 @@ Duas fases (spec 006): `prepare(out, counter, gravaçõesPorQuadro)` fora da gra
 
 > **new Compaction**(`core`, `options`): `Compaction`
 
-Defined in: [elements/gpu/compute/Compaction.ts:71](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/Compaction.ts#L71)
+Defined in: [elements/gpu/compute/Compaction.ts:71](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/Compaction.ts#L71)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [elements/gpu/compute/Compaction.ts:71](https://github.com/dantasgut
 
 > **destroy**(): `void`
 
-Defined in: [elements/gpu/compute/Compaction.ts:158](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/Compaction.ts#L158)
+Defined in: [elements/gpu/compute/Compaction.ts:158](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/Compaction.ts#L158)
 
 Libera kernels, flags, soma de prefixos e uniforms.
 
@@ -57,7 +57,7 @@ Libera kernels, flags, soma de prefixos e uniforms.
 
 > **prepare**(`out`, `counter`, `recordsPerFrame?`): `void`
 
-Defined in: [elements/gpu/compute/Compaction.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/Compaction.ts#L108)
+Defined in: [elements/gpu/compute/Compaction.ts:108](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/Compaction.ts#L108)
 
 Prepara a compactação para a saída `out` e o contador `counter`, para até `recordsPerFrame` gravações por
 quadro. Idempotente; chamado fora da gravação.
@@ -86,7 +86,7 @@ quadro. Idempotente; chamado fora da gravação.
 
 > **record**(`frame`, `args`): `void`
 
-Defined in: [elements/gpu/compute/Compaction.ts:129](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/compute/Compaction.ts#L129)
+Defined in: [elements/gpu/compute/Compaction.ts:129](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/Compaction.ts#L129)
 
 Grava a compactação de `[0, count)` em `out`; o contador é zerado no fluxo de comandos antes.
 

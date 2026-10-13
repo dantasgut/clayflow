@@ -6,7 +6,7 @@
 
 # Class: KeyboardDevice
 
-Defined in: [presentation/input/KeyboardDevice.ts:8](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/KeyboardDevice.ts#L8)
+Defined in: [presentation/input/KeyboardDevice.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/KeyboardDevice.ts#L8)
 
 Device de teclado — captura keydown/keyup no target (window/element), popula `Input.current.keys` (Set de
 KeyboardEvent.code; consulta por `input.isKeyDown(code)`) e emite `keyDown`/`keyUp` no barramento, quando dado.
@@ -17,7 +17,7 @@ KeyboardEvent.code; consulta por `input.isKeyDown(code)`) e emite `keyDown`/`key
 
 > **new KeyboardDevice**(`target`, `input`, `events?`): `KeyboardDevice`
 
-Defined in: [presentation/input/KeyboardDevice.ts:9](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/KeyboardDevice.ts#L9)
+Defined in: [presentation/input/KeyboardDevice.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/KeyboardDevice.ts#L9)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [presentation/input/KeyboardDevice.ts:9](https://github.com/dantasgu
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/KeyboardDevice.ts:16](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/KeyboardDevice.ts#L16)
+Defined in: [presentation/input/KeyboardDevice.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/KeyboardDevice.ts#L16)
 
 Registra listeners no target. Chamado pelo Application após `start()`.
 
@@ -57,7 +57,7 @@ Registra listeners no target. Chamado pelo Application após `start()`.
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/KeyboardDevice.ts:23](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/presentation/input/KeyboardDevice.ts#L23)
+Defined in: [presentation/input/KeyboardDevice.ts:23](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/input/KeyboardDevice.ts#L23)
 
 Remove listeners. Chamado em `Application.dispose()`.
 

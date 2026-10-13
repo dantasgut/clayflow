@@ -90,6 +90,7 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [LoadedTexture](interfaces/LoadedTexture.md)
 - [OrbitControllerOptions](interfaces/OrbitControllerOptions.md)
 - [PointerInputEvent](interfaces/PointerInputEvent.md)
+- [PostProcessData](interfaces/PostProcessData.md)
 - [PostProcessOptions](interfaces/PostProcessOptions.md)
 - [PostSlots](interfaces/PostSlots.md)
 - [PresentationDefaults](interfaces/PresentationDefaults.md)

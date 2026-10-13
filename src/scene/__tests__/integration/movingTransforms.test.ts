@@ -53,7 +53,7 @@ describe('10 mil Transform em movimento (spec 007)', () => {
         const s = setup();
         s.frame();
         s.transforms.forEach((t, i) => {
-            if (i % 2 === 0) (t.data.position as number[])[1] = 2;
+            if (i % 2 === 0) t.data.position[1] = 2;
         });
         const trace = s.frame();
         expect(trace.filter((e) => e.startsWith('write:pool:Transform'))).toHaveLength(COUNT / 2);

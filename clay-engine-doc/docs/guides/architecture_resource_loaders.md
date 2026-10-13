@@ -3912,26 +3912,26 @@ Não há `SceneSpec`, `SceneHandle`, `EntityHandle`, `Presets.*`, `EcsBundle`, `
 ### `Entity` — composição genérica
 
 ```typescript
-abstract class Entity {
-  private parts: Entity[] = [];
-  #data: Record<string, unknown> = {};          // dado cru fora da cena
+abstract class Entity<TData extends object = Record<string, unknown>> {
+  private parts: Entity<object>[] = [];
+  #data: object = {};                           // dado cru fora da cena
   [DATA_HOOK]: DataHook | undefined;            // estado reativo plugado pela C2 na inserção (interno)
   [WORLD_OWNER]: object | undefined;            // World onde está e EntityId da raiz (internos, mantidos pelo World)
   [WORLD_ENTITY]: number;
 
-  add(e: Entity): this {
+  add(e: Entity<object>): this {
     this.parts.push(e);
     return this;                          // sempre retorna a raiz da chain
   }
 
   // Read-only — Scene/World percorrem para co-localizar parts no mesmo EntityId.
   // Mutação exclusiva via add.
-  get attached(): readonly Entity[] { return this.parts; }
+  get attached(): readonly Entity<object>[] { return this.parts; }
 
   // Dado do Resource: fora da cena, o cru; na cena, o proxy reativo (reatribuir marca o recurso inteiro).
-  get data(): Record<string, unknown>;
-  set data(next: Record<string, unknown>);
-  protected get rawData(): Readonly<Record<string, unknown>>;   // leitura sem proxy, para a própria subclasse
+  get data(): TData;
+  set data(next: TData);
+  protected get rawData(): Readonly<TData>;   // leitura sem proxy, para a própria subclasse
 }
 ```
 
@@ -3939,7 +3939,9 @@ Membros públicos: `add` (mutador), `attached` (acessor read-only) e `data` — 
 Sem `type`, sem `state`, sem `getDescriptors`. Os campos internos (gancho de `data`, dono no World) existem em toda
 instância desde a construção, então inserir na cena não muda a forma do objeto: um milhão de entidades não vira um
 milhão de objetos em modo dicionário, e o World não precisa de tabela recurso → entidade para os Resources que herdam
-de `Entity`. Subclasses **não declaram** o campo `data` — atribuem `this.data` no construtor.
+de `Entity`. Subclasses **não declaram** o campo `data` — atribuem `this.data` no construtor — e o tipam pelo
+parâmetro: `class Camera extends Entity<CameraData>`. O motor recebe qualquer `Entity<object>` e lê os campos pelo
+schema.
 
 ### `Resource` — contrato GPU
 
@@ -3955,7 +3957,7 @@ State Pattern com `ResourceStateHandler` (capabilities `canRender`, `needsAlloca
 
 ### Classes data-bearing — schema descreve, `data` armazena
 
-Cada Resource concreta declara `static readonly schema = new StructSchema('Name', {...})`. **Nenhum field do schema é redeclarado** na classe — valores vivem em `data` (`Record<string, unknown>`, acessor herdado de `Entity`; a classe só o atribui no construtor) governado pelo schema:
+Cada Resource concreta declara `static readonly schema = new StructSchema('Name', {...})`. **Nenhum field do schema é redeclarado** na classe — valores vivem em `data` (acessor herdado de `Entity`, tipado por `TData`; a classe só o atribui no construtor) governado pelo schema:
 
 ```typescript
 class StandardMaterial extends Entity implements Resource {
@@ -4123,8 +4125,8 @@ na inserção, o `ResourceSystem` pluga no gancho da Entity (`DATA_HOOK`) o seu 
 raiz e o handler do proxy reativo de `scene/systems/reactiveData.ts`), e o acessor passa a devolver o proxy — sem
 redefinir propriedades na instância (o objeto mantém a forma da classe no V8) e sem closures nem tabelas por recurso
 (as traps são métodos de protótipo; proxies aninhados são criados sob demanda e cacheados). Por isso subclasses
-atribuem `this.data = …` no construtor e **não declaram** o campo `data` (declará-lo sombrearia o acessor; o
-TypeScript recusa com TS2610). Resources que não herdam de `Entity` recebem o acessor na própria instância: funcionam
+atribuem `this.data = …` no construtor e **não declaram** o campo `data` (declará-lo sombrearia o acessor e as
+mutações não marcariam o envio; o TypeScript recusa com TS2610). O tipo do dado vem do parâmetro `Entity<TData>`. Resources que não herdam de `Entity` recebem o acessor na própria instância: funcionam
 igual, mas o V8 os põe em modo dicionário (mais memória por recurso). Atribuição de campo, escrita indexada em
 `Array`, métodos mutadores e a substituição do `data` inteiro marcam o recurso: dado em pool marca o slot na hora (com
 o campo de topo) e sai em faixas contíguas; objetos próprios entram numa fila e são enviados inteiros — tudo **uma vez

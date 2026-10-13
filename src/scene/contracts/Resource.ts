@@ -25,9 +25,11 @@ export interface Resource {
     /**
      * Dados runtime do resource (e.g. Camera position, Material albedo,
      * RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
-     * Mutações devem disparar evento `resourceDirty` para re-upload.
+     * Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+     * concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+     * schema.
      */
-    data: Record<string, unknown>;
+    data: object;
 
     /**
      * Lista de bindings GPU (uniform/storage buffers, texturas, samplers)

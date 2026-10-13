@@ -7,7 +7,7 @@ import { asEntityId, type EntityId } from './EntityId';
 /** Registro de uma entidade inserida (arrays do tamanho exato; tags só depois da primeira `addTag`). */
 interface EntityRecord {
     readonly id: EntityId;
-    readonly root: Entity;
+    readonly root: Entity<object>;
     readonly resources: readonly Resource[];
     tags: Set<string> | undefined;
     readonly schemaNames: readonly string[];
@@ -54,7 +54,7 @@ function setOwner(resource: Resource, world: World | undefined, id: EntityId | -
  */
 export class World {
     private readonly records = new Map<EntityId, EntityRecord>();
-    private readonly entityToId = new Map<Entity, EntityId>();
+    private readonly entityToId = new Map<Entity<object>, EntityId>();
     private readonly bySchema = new Map<string, Set<EntityId>>();
     private readonly byTag = new Map<string, Set<EntityId>>();
     private nextId = 1;
@@ -71,7 +71,7 @@ export class World {
      * o mesmo recurso aparece duas vezes na árvore. Depois de `remove`, a mesma instância pode ser inserida de
      * novo.
      */
-    insert(entity: Entity): EntityId {
+    insert(entity: Entity<object>): EntityId {
         if (this.entityToId.has(entity)) {
             throw new ReuseError(
                 `World: instância já inserida — crie outra instância (${describe(entity)} já está nesta cena).`,
@@ -131,7 +131,7 @@ export class World {
      * EntityId e emite `resourcesChanged` (com `removed`) + `entitiesRemoved`
      * (com `entityIds`). Sistemas reativos liberam recursos GPU.
      */
-    remove(entity: Entity): void {
+    remove(entity: Entity<object>): void {
         const id = this.entityToId.get(entity);
         if (id === undefined) return;
         const record = this.records.get(id);
@@ -216,7 +216,7 @@ export class World {
     }
 
     /** Resolve uma Entity para seu EntityId. Undefined se não foi inserida. */
-    entityIdOf(entity: Entity): EntityId | undefined {
+    entityIdOf(entity: Entity<object>): EntityId | undefined {
         return this.entityToId.get(entity);
     }
 
@@ -235,7 +235,7 @@ export class World {
     }
 
     /** Resolve um EntityId para a Entity raiz inserida (ou undefined se removida). */
-    rootOf(id: EntityId): Entity | undefined {
+    rootOf(id: EntityId): Entity<object> | undefined {
         return this.records.get(id)?.root;
     }
 
@@ -244,7 +244,11 @@ export class World {
         return this.records.values();
     }
 
-    private collectResources(entity: Entity, out: Resource[], schemaNames: Set<string>): void {
+    private collectResources(
+        entity: Entity<object>,
+        out: Resource[],
+        schemaNames: Set<string>,
+    ): void {
         if (this.implementsResource(entity)) {
             out.push(entity);
             const ctor = entity.constructor as { schema?: { name: string } };
@@ -255,7 +259,7 @@ export class World {
         }
     }
 
-    private implementsResource(entity: Entity): entity is Entity & Resource {
+    private implementsResource(entity: Entity<object>): entity is Entity<object> & Resource {
         const candidate = entity as unknown as {
             getDescriptors?: unknown;
             getPipelineDescriptors?: unknown;

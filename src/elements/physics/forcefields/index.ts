@@ -1,6 +1,6 @@
 export { ForceField } from './ForceField';
-export { GravityField } from './GravityField';
-export { WindField } from './WindField';
-export { VortexField } from './VortexField';
-export { DragField } from './DragField';
-export { BuoyancyField } from './BuoyancyField';
+export { GravityField, type GravityFieldData } from './GravityField';
+export { WindField, type WindFieldData } from './WindField';
+export { VortexField, type VortexFieldData } from './VortexField';
+export { DragField, type DragFieldData } from './DragField';
+export { BuoyancyField, type BuoyancyFieldData } from './BuoyancyField';

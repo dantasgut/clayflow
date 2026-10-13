@@ -52,7 +52,7 @@ describe('TransformFlow (slots)', () => {
         const t = new Transform();
         scene.world.insert(t);
         frame();
-        (t.data.position as number[])[1] = 2;
+        t.data.position[1] = 2;
         expect(composes(frame())).toBe(1);
     });
 
@@ -72,7 +72,7 @@ describe('TransformFlow (slots)', () => {
         const first = frame();
         expect(paramWrites(first)).toBe(1);
         const t = scene.world.rootOf(scene.world.queryBySchemaName('Transform')[0]!) as Transform;
-        (t.data.scale as number[])[0] = 2;
+        t.data.scale[0] = 2;
         expect(paramWrites(frame())).toBe(0);
     });
 

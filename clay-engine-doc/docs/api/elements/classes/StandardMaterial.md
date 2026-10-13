@@ -6,14 +6,14 @@
 
 # Class: StandardMaterial
 
-Defined in: [elements/material/StandardMaterial.ts:11](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/material/StandardMaterial.ts#L11)
+Defined in: [elements/material/StandardMaterial.ts:20](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/StandardMaterial.ts#L20)
 
 Material PBR padrão — albedo + metallic-roughness. Renderizado pelo
 `forward.wgsl` (BRDF Cook-Torrance simplificado).
 
 ## Extends
 
-- [`Material`](Material.md)
+- [`Material`](Material.md)\<[`StandardMaterialData`](../interfaces/StandardMaterialData.md)\>
 
 ## Constructors
 
@@ -21,13 +21,13 @@ Material PBR padrão — albedo + metallic-roughness. Renderizado pelo
 
 > **new StandardMaterial**(`values?`): `StandardMaterial`
 
-Defined in: [elements/material/StandardMaterial.ts:15](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/material/StandardMaterial.ts#L15)
+Defined in: [elements/material/StandardMaterial.ts:24](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/StandardMaterial.ts#L24)
 
 #### Parameters
 
 ##### values?
 
-`Record`\<`string`, `unknown`\> = `{}`
+`Partial`\<[`StandardMaterialData`](../interfaces/StandardMaterialData.md)\> = `{}`
 
 #### Returns
 
@@ -43,7 +43,7 @@ Defined in: [elements/material/StandardMaterial.ts:15](https://github.com/dantas
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/material/Material.ts:8](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/material/Material.ts#L8)
+Defined in: [elements/material/Material.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/Material.ts#L12)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -57,7 +57,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema` = `StandardMaterialSchema`
 
-Defined in: [elements/material/StandardMaterial.ts:13](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/material/StandardMaterial.ts#L13)
+Defined in: [elements/material/StandardMaterial.ts:22](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/StandardMaterial.ts#L22)
 
 StructSchema do StandardMaterial (albedo + roughness + metallic).
 
@@ -67,16 +67,16 @@ StructSchema do StandardMaterial (albedo + roughness + metallic).
 
 #### Get Signature
 
-> **get** **attached**(): readonly [`Entity`](Entity.md)[]
+> **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly [`Entity`](Entity.md)[]
+readonly [`Entity`](Entity.md)\<`object`\>[]
 
 #### Inherited from
 
@@ -88,22 +88,22 @@ readonly [`Entity`](Entity.md)[]
 
 #### Get Signature
 
-> **get** **data**(): `Record`\<`string`, `unknown`\>
+> **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
 
 ##### Returns
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 #### Set Signature
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -111,7 +111,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 ###### next
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 ##### Returns
 
@@ -127,16 +127,16 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 #### Get Signature
 
-> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
 
 ##### Returns
 
-`Readonly`\<`Record`\<`string`, `unknown`\>\>
+`Readonly`\<`TData`\>
 
 #### Inherited from
 
@@ -148,7 +148,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -157,7 +157,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ##### e
 
-[`Entity`](Entity.md)
+[`Entity`](Entity.md)\<`object`\>
 
 #### Returns
 
@@ -173,7 +173,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/material/StandardMaterial.ts:24](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/material/StandardMaterial.ts#L24)
+Defined in: [elements/material/StandardMaterial.ts:35](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/StandardMaterial.ts#L35)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -194,7 +194,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/material/StandardMaterial.ts:35](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/material/StandardMaterial.ts#L35)
+Defined in: [elements/material/StandardMaterial.ts:46](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/StandardMaterial.ts#L46)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

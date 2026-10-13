@@ -57,6 +57,20 @@ function positive(name: string, value: number): number {
     return value;
 }
 
+/** Dado de um `ParticleMaterial` (layout de `ParticleMaterial.schema`). */
+export interface ParticleMaterialData {
+    restDensity: number;
+    particleSpacing: number;
+    viscosity: number;
+    speedOfSound: number;
+    restitution: number;
+    youngModulus: number;
+    poissonRatio: number;
+    _pad0: number;
+    domainMin: number[];
+    domainMax: number[];
+}
+
 /**
  * ParticleMaterial — material dos corpos de partículas (fluidos SPH, PBF e MPM; sólidos MPM), em vocabulário de
  * domínio. Recurso único por cena, lido pelos estágios de física como o `GravityField`; sem material no World, os
@@ -66,7 +80,7 @@ function positive(name: string, value: number): number {
  * cúbica com suporte 2h) e do PBF (2 s; poly6/spiky com suporte h), célula da grade MPM (2 s), módulo volumétrico
  * ρ₀c², parâmetros de Lamé de E/ν e o passo estável de cada algoritmo.
  */
-export class ParticleMaterial extends Entity implements Resource {
+export class ParticleMaterial extends Entity<ParticleMaterialData> implements Resource {
     /** Schema do uniform do material (dado do World; os estágios copiam os derivados para os seus parâmetros). */
     static readonly schema = new StructSchema('ParticleMaterial', {
         restDensity: FieldType.f32,
@@ -119,7 +133,7 @@ export class ParticleMaterial extends Entity implements Resource {
         if (!(viscosity >= 0)) {
             throw new RangeError(`ParticleMaterial: viscosity deve ser ≥ 0 (recebeu ${viscosity})`);
         }
-        this.data = ParticleMaterial.schema.applyDefaults({
+        this.data = {
             restDensity: positive('restDensity', options.restDensity ?? 1000),
             particleSpacing: positive('particleSpacing', options.particleSpacing ?? 0.05),
             viscosity,
@@ -127,49 +141,46 @@ export class ParticleMaterial extends Entity implements Resource {
             restitution,
             youngModulus: positive('youngModulus', options.youngModulus ?? 5e4),
             poissonRatio: poisson,
+            _pad0: 0,
             domainMin: [...min, 0],
             domainMax: [...max, 0],
-        });
-    }
-
-    private num(field: string): number {
-        return this.data[field] as number;
+        };
     }
 
     /** Densidade de repouso ρ₀ (kg/m³). */
     get restDensity(): number {
-        return this.num('restDensity');
+        return this.data.restDensity;
     }
 
     /** Espaçamento s (m). */
     get particleSpacing(): number {
-        return this.num('particleSpacing');
+        return this.data.particleSpacing;
     }
 
     /** Viscosidade. */
     get viscosity(): number {
-        return this.num('viscosity');
+        return this.data.viscosity;
     }
 
     /** Velocidade do som c (m/s). */
     get speedOfSound(): number {
-        return this.num('speedOfSound');
+        return this.data.speedOfSound;
     }
 
     /** Restituição. */
     get restitution(): number {
-        return this.num('restitution');
+        return this.data.restitution;
     }
 
     /** Canto mínimo do domínio. */
     get domainMin(): [number, number, number] {
-        const v = this.data.domainMin as number[];
+        const v = this.data.domainMin;
         return [v[0]!, v[1]!, v[2]!];
     }
 
     /** Canto máximo do domínio. */
     get domainMax(): [number, number, number] {
-        const v = this.data.domainMax as number[];
+        const v = this.data.domainMax;
         return [v[0]!, v[1]!, v[2]!];
     }
 
@@ -210,8 +221,8 @@ export class ParticleMaterial extends Entity implements Resource {
 
     /** Parâmetros de Lamé (μ, λ) dos sólidos MPM, de E e ν. */
     get lame(): LameParameters {
-        const e = this.num('youngModulus');
-        const nu = this.num('poissonRatio');
+        const e = this.data.youngModulus;
+        const nu = this.data.poissonRatio;
         return { mu: e / (2 * (1 + nu)), lambda: (e * nu) / ((1 + nu) * (1 - 2 * nu)) };
     }
 

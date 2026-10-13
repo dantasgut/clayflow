@@ -22,7 +22,7 @@ import type { EntityId } from '../../scene/world/EntityId';
  * app.world.insert(new BoxGeometry().add(new Transform({ position: [1, 0, 0, 1] })).add(new Parent(arm)));
  * ```
  */
-export class Parent extends Entity implements Resource {
+export class Parent extends Entity<{ entity: EntityId }> implements Resource {
     state: ResourceState = ResourceState.Uninitialized;
 
     constructor(entity: EntityId) {
@@ -32,7 +32,7 @@ export class Parent extends Entity implements Resource {
 
     /** Entidade pai. */
     get entity(): EntityId {
-        return this.data.entity as EntityId;
+        return this.data.entity;
     }
 
     /** Sem dado de GPU: a hierarquia é mantida pelo estágio de transformação. */

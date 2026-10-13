@@ -27,7 +27,7 @@ export class ComputeParticleEmitter extends ParticleEmitter {
                 id: 'particles',
                 role: 'storage-rw',
                 schema: ComputeParticleEmitter.schema,
-                count: this.data.maxParticles as number,
+                count: this.data.maxParticles,
             },
         ];
     }

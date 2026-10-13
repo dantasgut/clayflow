@@ -27,6 +27,14 @@ function requirePositive(name: string, value: number): number {
     return value;
 }
 
+/** Dado de um `Time` (layout de `Time.schema`). */
+export interface TimeData {
+    dt: number;
+    elapsed: number;
+    stepDt: number;
+    steps: number;
+}
+
 /**
  * Relógio da cena (C2): um por World, criado por `createScene` e inserido no World. É a única fonte de tempo dos
  * estágios — os Flows de física leem `steps`/`stepDt` daqui (consulta pelo schema `Time`), nunca da aplicação.
@@ -41,7 +49,7 @@ function requirePositive(name: string, value: number): number {
  * Mudanças de `scale`/`physicsScale`/`fixedDt` valem a partir do próximo `advance`. O uniform de GPU `Time`
  * (`dt, elapsed, stepDt, steps`) acompanha cada avanço.
  */
-export class Time extends Entity implements Resource {
+export class Time extends Entity<TimeData> implements Resource {
     /** Schema do uniform de GPU: `dt`, `elapsed`, `stepDt` (f32) e `steps` (u32). */
     static readonly schema = new StructSchema('Time', {
         dt: FieldType.f32,
@@ -74,7 +82,7 @@ export class Time extends Entity implements Resource {
     /** @param events Barramento onde `timeDropped` é emitido (o da cena). Opcional em testes. */
     constructor(private readonly events?: EventBus) {
         super();
-        this.data = Time.schema.applyDefaults({ dt: 0, elapsed: 0, stepDt: 0, steps: 0 });
+        this.data = { dt: 0, elapsed: 0, stepDt: 0, steps: 0 };
     }
 
     /** Duração real do último quadro (s), já limitada a `maxFrameDt`. */

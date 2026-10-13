@@ -308,9 +308,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         if (this.iterations === 0) return;
         this.neighborSearch.prepare(bound.slots.bodies.buffer, this.iterations);
         if (this.params.reserve(this.iterations)) ctx.bind({ pbf_params: this.params.source() });
-        const accel = (bound.slots.gravity?.resource.data.acceleration as
-            | readonly number[]
-            | undefined) ?? [0, -9.81, 0, 0];
+        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
+            .acceleration ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         const spacingRatio = material.particleSpacing / 0.05;
         for (let i = 0; i < this.iterations; i++) {

@@ -159,21 +159,26 @@ recebe as fontes **pelo nome da variável** (`bindings: { data: dataBuffer }`) e
 Resource = peça de dados consumida por Flows. Padrão típico (Camera,
 Transform, Material): extends `Entity`, implements `Resource`, declara
 `schema` (StructSchema) + `getDescriptors()` (GPUDescriptor) e atribui
-`this.data = …` no construtor — o campo `data` é o acessor de `Entity`.
+`this.data = …` no construtor — o campo `data` é o acessor de `Entity`, tipado
+pelo parâmetro `TData` (`extends Entity<MyResourceData>`).
 
 ```ts
 import { Entity, ResourceState, StructSchema, FieldType } from 'webgpu-engine';
 
-export class MyResource extends Entity {
+export interface MyResourceData {
+    value: number;
+}
+
+export class MyResource extends Entity<MyResourceData> {
     static readonly schema = new StructSchema('MyResource', {
         value: FieldType.f32,
     });
     state = ResourceState.Uninitialized;
-    // Sem campo `data`: o acessor é de `Entity` (declarar o campo é erro TS2610).
+    // Sem campo `data`: o acessor é de `Entity`, tipado por `MyResourceData`.
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<MyResourceData> = {}) {
         super();
-        this.data = MyResource.schema.applyDefaults({ value: values.value ?? 0 });
+        this.data = { value: values.value ?? 0 };
     }
 
     getDescriptors() {

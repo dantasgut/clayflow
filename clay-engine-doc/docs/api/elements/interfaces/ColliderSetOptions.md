@@ -6,7 +6,7 @@
 
 # Interface: ColliderSetOptions
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:68](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/colliders/ColliderSet.ts#L68)
+Defined in: [elements/physics/colliders/ColliderSet.ts:68](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/ColliderSet.ts#L68)
 
 Opções do `ColliderSet`.
 
@@ -16,7 +16,7 @@ Opções do `ColliderSet`.
 
 > `readonly` `optional` **bodiesPoolKey?**: `string`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:72](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/colliders/ColliderSet.ts#L72)
+Defined in: [elements/physics/colliders/ColliderSet.ts:72](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/ColliderSet.ts#L72)
 
 Pool dos corpos donos (pose dos colliders dinâmicos). Default `LCPSchema`.
 
@@ -26,6 +26,6 @@ Pool dos corpos donos (pose dos colliders dinâmicos). Default `LCPSchema`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:70](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/physics/colliders/ColliderSet.ts#L70)
+Defined in: [elements/physics/colliders/ColliderSet.ts:70](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/ColliderSet.ts#L70)
 
 Prefixo dos discriminadores dos buffers próprios.

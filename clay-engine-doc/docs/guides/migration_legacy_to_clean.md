@@ -253,7 +253,7 @@ instâncias por (geometria, pipeline, orientação); a física publica a pose no
 
 | Antes | Agora |
 | --- | --- |
-| `class X extends Entity { data: Record<string, unknown> = {}; … }` | sem declarar `data` (o acessor é de `Entity`; declarar é erro TS2610): `constructor() { super(); this.data = … }`. Classes que só implementam `Resource` (sem `Entity`) seguem como antes |
+| `class X extends Entity { data: XData = …; … }` | sem declarar `data` (o acessor é de `Entity`; declarar é erro TS2610), com o tipo no parâmetro: `class X extends Entity<XData> { constructor() { super(); this.data = … } }`. Classes que só implementam `Resource` (sem `Entity`) seguem como antes |
 | `camera.data.view` / `projection` / `viewProjection` / `position` (matrizes na CPU) | `Camera` só com parâmetros (`fov`, `near`, `far`, `aspect`, `aspectMode`, `projection`, `orthoHeight`); matrizes na GPU pelo `CameraFlow` no pool `CameraMatrices` (`Camera.matricesSchema`, mesmo slot) |
 | `new Camera({ … })` sozinha | `new Camera({ … }).add(new Transform({ position, rotation: Transform.lookRotation(olho, alvo) }))` — câmera sem `Transform` é erro |
 | `aspect` atualizado à mão no redimensionamento | `aspectMode: 'canvas'` (padrão) acompanha o canvas; `'fixed'` usa `aspect` |

@@ -9,11 +9,23 @@ import { contentKeyOf } from './geometryContent';
 const MAX_UINT16_VERTICES = 65_535;
 
 /**
+ * O que a base lê do `data` de uma geometria: vértices intercalados e índices (ausentes quando produzidos na GPU). As
+ * subclasses estendem com os próprios campos.
+ */
+export interface GeometryData {
+    vertices?: Float32Array;
+    indices?: Uint16Array | Uint32Array;
+}
+
+/**
  * Base das geometrias (C3): vértices intercalados em `data.vertices` e índices em `data.indices`, declarados como
  * descritores `vertex`/`index` que a C2 aloca. Também é o critério de reconhecimento de geometria pelos estágios
  * (`instanceof Geometry`, que sobrevive à minificação).
  */
-export abstract class Geometry extends Entity implements Resource {
+export abstract class Geometry<TData extends GeometryData = GeometryData>
+    extends Entity<TData>
+    implements Resource
+{
     state: ResourceState = ResourceState.Uninitialized;
 
     abstract getDescriptors(): readonly GPUDescriptor[];

@@ -73,7 +73,7 @@ export {
 } from './descriptors/index';
 
 export { World, ReuseError } from './world/World';
-export { Time } from './time/Time';
+export { Time, type TimeData } from './time/Time';
 export { asEntityId } from './world/EntityId';
 export type { EntityId } from './world/EntityId';
 

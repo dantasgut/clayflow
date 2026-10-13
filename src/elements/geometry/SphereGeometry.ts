@@ -1,15 +1,24 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-import { Geometry } from './Geometry';
+import { Geometry, type GeometryData } from './Geometry';
 import { sharedContent } from './geometryContent';
+
+/** Dado de uma `SphereGeometry`. */
+export interface SphereGeometryData extends GeometryData {
+    vertexCount: number;
+    indexCount: number;
+    radius: number;
+    latSegments: number;
+    lonSegments: number;
+}
 
 /**
  * SphereGeometry — esfera gerada via lat/lon tessellation. Default 16
  * latitude segments × 32 longitude segments = 512 quads = 1024 triangles.
  * Aumente `latSegments`/`lonSegments` para superfícies mais smooth.
  */
-export class SphereGeometry extends Geometry {
+export class SphereGeometry extends Geometry<SphereGeometryData> {
     /** Vertex layout idêntico a BoxGeometry: position + normal + uv. */
     static readonly vertexStruct = new StructSchema('SphereVertex', {
         position: FieldType.vec3f,
@@ -52,19 +61,19 @@ export class SphereGeometry extends Geometry {
                 id: 'vertices',
                 role: 'vertex',
                 schema: SphereGeometry.vertexStruct,
-                count: this.data.vertexCount as number,
+                count: this.data.vertexCount,
             },
-            { id: 'indices', role: 'index', count: this.data.indexCount as number },
+            { id: 'indices', role: 'index', count: this.data.indexCount },
         ];
     }
 
     /** = (lat+1) × (lon+1). */
     get vertexCount(): number {
-        return this.data.vertexCount as number;
+        return this.data.vertexCount;
     }
     /** = lat × lon × 6 (2 triangles por quad). */
     get indexCount(): number {
-        return this.data.indexCount as number;
+        return this.data.indexCount;
     }
 }
 

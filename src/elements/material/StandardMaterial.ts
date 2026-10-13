@@ -4,21 +4,32 @@ import { forward } from './shaders';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
 import { Material } from './Material';
 
+/** Dado de um `StandardMaterial` (layout de `StandardMaterial.schema`). */
+export interface StandardMaterialData {
+    albedo: number[];
+    roughness: number;
+    metallic: number;
+    _pad0: number;
+    _pad1: number;
+}
+
 /**
  * Material PBR padrão — albedo + metallic-roughness. Renderizado pelo
  * `forward.wgsl` (BRDF Cook-Torrance simplificado).
  */
-export class StandardMaterial extends Material {
+export class StandardMaterial extends Material<StandardMaterialData> {
     /** StructSchema do StandardMaterial (albedo + roughness + metallic). */
     static readonly schema = StandardMaterialSchema;
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<StandardMaterialData> = {}) {
         super();
-        this.data = StandardMaterial.schema.applyDefaults({
+        this.data = {
             albedo: values.albedo ?? [1, 1, 1, 1],
             roughness: values.roughness ?? 0.5,
             metallic: values.metallic ?? 0.0,
-        });
+            _pad0: 0,
+            _pad1: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

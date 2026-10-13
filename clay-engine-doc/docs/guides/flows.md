@@ -142,8 +142,8 @@ export const DrifterSchema = new StructSchema('Drifter', {
   velocity: FieldType.vec4f,
 });
 
-// `data` é o acessor de `Entity`: a subclasse atribui no construtor e não declara o campo (spec 007).
-export class Drifter extends Entity implements Resource {
+// `data` é o acessor de `Entity`, tipado pelo parâmetro: a subclasse atribui no construtor e não declara o campo.
+export class Drifter extends Entity<{ position: number[]; velocity: number[] }> implements Resource {
   static readonly schema = DrifterSchema;
   state: ResourceState = ResourceState.Uninitialized;
   constructor(values: { position?: number[]; velocity?: number[] } = {}) {

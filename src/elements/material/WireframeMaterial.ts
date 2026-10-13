@@ -5,8 +5,17 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { forward } from './shaders';
 import { Material } from './Material';
 
+/** Dado de um `WireframeMaterial` (layout de `WireframeMaterial.schema`). */
+export interface WireframeMaterialData {
+    color: number[];
+    roughness: number;
+    metallic: number;
+    _pad0: number;
+    _pad1: number;
+}
+
 /** Material wireframe — desenha as edges das primitivas (topology line-list). */
-export class WireframeMaterial extends Material {
+export class WireframeMaterial extends Material<WireframeMaterialData> {
     /** StructSchema do WireframeMaterial (color + roughness + metallic). */
     static readonly schema = new StructSchema('WireframeMaterial', {
         color: FieldType.vec4f,
@@ -16,13 +25,15 @@ export class WireframeMaterial extends Material {
         _pad1: FieldType.f32,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    constructor(values: Partial<Pick<WireframeMaterialData, 'color'>> = {}) {
         super();
-        this.data = WireframeMaterial.schema.applyDefaults({
+        this.data = {
             color: values.color ?? [1, 1, 1, 1],
             roughness: 1.0,
             metallic: 0.0,
-        });
+            _pad0: 0,
+            _pad1: 0,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     app.world.insert(new DirectionalLight({ direction: [-0.3, -1, -0.5, 0], castShadow: true }));
 
     const cycle = (c: number): void => {
-        const roots: Entity[] = [];
+        const roots: Entity<object>[] = [];
         for (let i = 0; i < OBJECTS; i++) {
             const geometry =
                 i % 2 === 0

@@ -17,4 +17,4 @@ export * from './assets/index';
 export * from './ui/index';
 export type * from './plugins/index';
 export { PostProcessEffect } from './resources/PostProcessEffect';
-export type { PostProcessOptions } from './resources/PostProcessEffect';
+export type { PostProcessData, PostProcessOptions } from './resources/PostProcessEffect';

@@ -6,7 +6,7 @@
 
 # Interface: TransformSlots
 
-Defined in: [elements/scene/flows/TransformFlow.ts:34](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L34)
+Defined in: [elements/scene/flows/TransformFlow.ts:34](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/flows/TransformFlow.ts#L34)
 
 Slots do estágio de transformação.
 
@@ -24,7 +24,7 @@ Slots do estágio de transformação.
 
 > `readonly` **children**: `EntitiesSlot`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:42](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L42)
+Defined in: [elements/scene/flows/TransformFlow.ts:42](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/flows/TransformFlow.ts#L42)
 
 Entidades com `Transform` e `Parent` (a hierarquia opcional).
 
@@ -34,7 +34,7 @@ Entidades com `Transform` e `Parent` (a hierarquia opcional).
 
 > `readonly` **entities**: `EntitiesSlot`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:40](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L40)
+Defined in: [elements/scene/flows/TransformFlow.ts:40](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/flows/TransformFlow.ts#L40)
 
 Entidades com `Transform` (remoções recompõem).
 
@@ -44,7 +44,7 @@ Entidades com `Transform` (remoções recompõem).
 
 > `readonly` **transforms**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/TransformFlow.ts:36](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L36)
+Defined in: [elements/scene/flows/TransformFlow.ts:36](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/flows/TransformFlow.ts#L36)
 
 Pool das intenções `Transform` (entrada da composição).
 
@@ -54,6 +54,6 @@ Pool das intenções `Transform` (entrada da composição).
 
 > `readonly` **worlds**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/TransformFlow.ts:38](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/scene/flows/TransformFlow.ts#L38)
+Defined in: [elements/scene/flows/TransformFlow.ts:38](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/flows/TransformFlow.ts#L38)
 
 Pool das matrizes de mundo `WorldTransform` (saída).

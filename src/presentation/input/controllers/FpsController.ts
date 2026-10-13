@@ -20,7 +20,7 @@ export interface FpsControllerOptions {
  * Primeira pessoa: WASD anda no plano horizontal (altura dos olhos fixa); o olhar segue o ponteiro com o botão
  * esquerdo ou, com `canvas`, em pointer lock. Componente da entidade da câmera — muta só o `Transform`.
  */
-export class FpsController extends InputDrivenController {
+export class FpsController extends InputDrivenController<Record<string, never>> {
     private pos: [number, number, number] | null;
     private readonly speed: number;
     private readonly mouseSensitivity: number;

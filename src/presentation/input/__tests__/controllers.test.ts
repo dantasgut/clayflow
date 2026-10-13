@@ -43,9 +43,9 @@ describe('controllers de câmera (spec 007)', () => {
                 .add(new OrbitController({ target: [1, 0, 0], distance: 4 })),
         );
         s.frame();
-        const p = transform.data.position as number[];
+        const p = transform.data.position;
         expect(Math.hypot(p[0]! - 1, p[1]!, p[2]!)).toBeCloseTo(4, 6);
-        const [x, y, z, w] = transform.data.rotation as number[];
+        const [x, y, z, w] = transform.data.rotation;
         const forward = [
             -(2 * (x! * z! + w! * y!)),
             -(2 * (y! * z! - w! * x!)),
@@ -63,7 +63,7 @@ describe('controllers de câmera (spec 007)', () => {
         const transform = new Transform();
         s.world.insert(new Camera().add(transform).add(new OrbitController()));
         s.frame();
-        const before = [...(transform.data.position as number[])];
+        const before = [...transform.data.position];
         s.input.current.pointerButtons = 1;
         s.input.current.pointerDeltaX = 100;
         s.frame();
@@ -78,7 +78,7 @@ describe('controllers de câmera (spec 007)', () => {
             s.world.insert(new Camera().add(transform).add(make()));
             s.input.current.keys.add('KeyW');
             s.frame();
-            const p = transform.data.position as number[];
+            const p = transform.data.position;
             expect(p[2]).toBeLessThan(5); // anda para −Z (para onde olha)
             expect(p[1]).toBeCloseTo(1, 6);
         }

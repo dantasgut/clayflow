@@ -11,7 +11,7 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
  * `depth24plus`), ambas do tamanho do canvas e recriadas pela C2 quando ele muda. O render principal desenha neles;
  * o pós-processamento lê a cor e escreve no canvas. Um por cena, inserido pela aplicação.
  */
-export class FrameTargets extends Entity implements Resource {
+export class FrameTargets extends Entity<Record<string, never>> implements Resource {
     /** Identidade dos alvos na cena (o World indexa pelo schema da classe); sem dados de GPU próprios. */
     static readonly schema = new StructSchema('FrameTargets', { _unused: FieldType.u32 });
 

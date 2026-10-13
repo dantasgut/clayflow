@@ -44,7 +44,7 @@ const DEFAULT_KEYMAP: Required<FlyControllerKeymap> = {
  * Voo livre: arrasto com o botão esquerdo gira (guinada/arfagem), WASD + E/Q movem em 3D. Componente da entidade da
  * câmera — muta só o `Transform` (posição e rotação).
  */
-export class FlyController extends InputDrivenController {
+export class FlyController extends InputDrivenController<Record<string, never>> {
     private pos: [number, number, number] | null;
     private readonly speed: number;
     private readonly mouseSensitivity: number;
@@ -101,6 +101,6 @@ export class FlyController extends InputDrivenController {
 
 /** Posição atual do `Transform` (ponto de partida quando o controller não recebe uma). */
 export function startPosition(transform: Transform): [number, number, number] {
-    const p = transform.data.position as readonly number[];
+    const p = transform.data.position;
     return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0];
 }

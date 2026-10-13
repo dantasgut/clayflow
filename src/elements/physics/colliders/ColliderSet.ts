@@ -288,18 +288,15 @@ export class ColliderSet {
     /** Raio da esfera envolvente do collider (caixa: meia-diagonal; esfera: o raio); 0 para outras formas. */
     private boundingRadius(poolKey: string, id: Parameters<World['resourcesOf']>[0]): number {
         if (poolKey !== BoxCollider.schema.name && poolKey !== SphereCollider.schema.name) return 0;
-        const collider = this.world
-            .resourcesOf(id)
-            .find(
-                (r) =>
-                    r
-                    instanceof (poolKey === BoxCollider.schema.name ? BoxCollider : SphereCollider),
-            );
-        if (collider === undefined) return 0;
-        if (poolKey === SphereCollider.schema.name)
-            return Math.abs(Number(collider.data.radius ?? 0));
-        const h = (collider.data.halfExtents as readonly number[] | undefined) ?? [0, 0, 0];
-        return Math.hypot(h[0] ?? 0, h[1] ?? 0, h[2] ?? 0);
+        for (const r of this.world.resourcesOf(id)) {
+            if (poolKey === SphereCollider.schema.name && r instanceof SphereCollider)
+                return Math.abs(r.data.radius);
+            if (poolKey === BoxCollider.schema.name && r instanceof BoxCollider) {
+                const h = r.data.halfExtents;
+                return Math.hypot(h[0] ?? 0, h[1] ?? 0, h[2] ?? 0);
+            }
+        }
+        return 0;
     }
 
     /**

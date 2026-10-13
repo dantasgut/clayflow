@@ -4,9 +4,9 @@
 
 [webgpu-engine](../../modules.md) / [elements](../README.md) / Entity
 
-# Abstract Class: Entity
+# Abstract Class: Entity\<TData\>
 
-Defined in: [scene/contracts/Entity.ts:55](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L55)
+Defined in: [scene/contracts/Entity.ts:57](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L57)
 
 Entity é a unidade composicional da Camada 2 (Sync) — qualquer objeto
 inserido em `World` herda de Entity. A composição é via `add(child)`:
@@ -24,8 +24,10 @@ world.insert(box);  // registra geometria + material + transform
 
 Subclasses concretas (Camera, Transform, BoxGeometry, etc.) implementam
 `Resource` (descritores GPU), enquanto Entity provê a hierarquia e o `data`
-do Resource: um acessor no protótipo — subclasses atribuem `this.data = …` no
-construtor e **não** declaram o campo `data` (spec 007). Na cena, a C2 liga o
+do Resource: um acessor no protótipo, tipado pelo parâmetro `TData`
+(`class Camera extends Entity<CameraData>`). Subclasses atribuem `this.data = …`
+no construtor e não declaram o campo `data` — um campo próprio na instância
+esconderia o acessor e as mutações não marcariam o envio. Na cena, a C2 liga o
 acessor ao proxy reativo (mutação de campo e reatribuição inteira marcam o
 recurso) sem redefinir propriedades na instância: o objeto mantém a forma da
 classe (um milhão de entidades sem objetos em modo dicionário).
@@ -56,15 +58,21 @@ Entity é abstrata — não pode ser instanciada diretamente.
 - [`NeighborSearchGrid`](NeighborSearchGrid.md)
 - [`EulerianGrid`](EulerianGrid.md)
 
+## Type Parameters
+
+### TData
+
+`TData` *extends* `object` = `Record`\<`string`, `unknown`\>
+
 ## Constructors
 
 ### Constructor
 
-> **new Entity**(): `Entity`
+> **new Entity**\<`TData`\>(): `Entity`\<`TData`\>
 
 #### Returns
 
-`Entity`
+`Entity`\<`TData`\>
 
 ## Accessors
 
@@ -72,16 +80,16 @@ Entity é abstrata — não pode ser instanciada diretamente.
 
 #### Get Signature
 
-> **get** **attached**(): readonly `Entity`[]
+> **get** **attached**(): readonly `Entity`\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly `Entity`[]
+readonly `Entity`\<`object`\>[]
 
 ***
 
@@ -89,22 +97,22 @@ readonly `Entity`[]
 
 #### Get Signature
 
-> **get** **data**(): `Record`\<`string`, `unknown`\>
+> **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
 
 ##### Returns
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 #### Set Signature
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -112,7 +120,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 ###### next
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 ##### Returns
 
@@ -124,16 +132,16 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 #### Get Signature
 
-> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
 
 ##### Returns
 
-`Readonly`\<`Record`\<`string`, `unknown`\>\>
+`Readonly`\<`TData`\>
 
 ## Methods
 
@@ -141,7 +149,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -150,7 +158,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ##### e
 
-`Entity`
+`Entity`\<`object`\>
 
 #### Returns
 

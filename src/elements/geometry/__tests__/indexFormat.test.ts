@@ -53,7 +53,7 @@ describe('formato de índice derivado do número de vértices (R12)', () => {
         ]) {
             const schema = g.getDescriptors()[0]!.schema as StructSchema;
             expect(schema.vertexLayout.stride).toBe(32);
-            expect((g.data.vertices as Float32Array).byteLength).toBe(g.vertexCount * 32);
+            expect(g.data.vertices!.byteLength).toBe(g.vertexCount * 32);
         }
     });
 });

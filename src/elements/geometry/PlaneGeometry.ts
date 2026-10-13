@@ -1,15 +1,22 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-import { Geometry } from './Geometry';
+import { Geometry, type GeometryData } from './Geometry';
 import { sharedContent } from './geometryContent';
+
+/** Dado de uma `PlaneGeometry`. */
+export interface PlaneGeometryData extends GeometryData {
+    vertexCount: number;
+    indexCount: number;
+    size: readonly number[];
+}
 
 /**
  * PlaneGeometry — quad plano em XZ (normal +Y) com `size: [w, h]`.
  * 4 vertices + 6 indices (1 quad = 2 triangles). Útil para chão,
  * shadow receivers, water surface.
  */
-export class PlaneGeometry extends Geometry {
+export class PlaneGeometry extends Geometry<PlaneGeometryData> {
     /** Vertex layout: position + normal + uv. */
     static readonly vertexStruct = new StructSchema('PlaneVertex', {
         position: FieldType.vec3f,

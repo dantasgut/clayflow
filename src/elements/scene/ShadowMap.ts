@@ -16,6 +16,13 @@ export interface ShadowMapOptions {
     readonly size?: readonly [number, number];
 }
 
+/** Dado de um `ShadowMap` (layout de `ShadowMap.schema`). */
+export interface ShadowMapData {
+    bias: number;
+    normalBias: number;
+    size: readonly [number, number];
+}
+
 /**
  * Mapa de sombra de uma luz (Camada 3): vieses e tamanho em pool (`array<ShadowMap>` no shader), a matriz
  * luz-vista-projeção num segundo descritor do mesmo slot (pool `ShadowMatrix`, produzida só na GPU pelo
@@ -25,7 +32,7 @@ export interface ShadowMapOptions {
  *
  * Mudança incompatível: `lightViewProj` não é mais dado nem opção do `ShadowMap` — ver o guia de migração.
  */
-export class ShadowMap extends Entity implements Resource {
+export class ShadowMap extends Entity<ShadowMapData> implements Resource {
     /** Parâmetros do mapa (pool `ShadowMap`): vieses e tamanho, enviados a cada mutação. */
     static readonly schema = new StructSchema('ShadowMap', {
         bias: FieldType.f32,
@@ -42,16 +49,16 @@ export class ShadowMap extends Entity implements Resource {
 
     constructor(options: ShadowMapOptions = {}) {
         super();
-        this.data = ShadowMap.schema.applyDefaults({
+        this.data = {
             bias: options.bias ?? 0.005,
             normalBias: options.normalBias ?? 0.001,
             size: options.size ?? [1024, 1024],
-        });
+        };
     }
 
     /** Parâmetros (CPU envia a cada mutação) + matriz (produzida só pela GPU) + textura de profundidade. */
     getDescriptors(): readonly GPUDescriptor[] {
-        const [width, height] = this.data.size as readonly [number, number];
+        const [width, height] = this.data.size;
         return [
             { id: 'shadowmap', role: 'storage-ro', schema: ShadowMap.schema, storage: 'pool' },
             {

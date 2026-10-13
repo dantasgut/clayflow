@@ -6,7 +6,7 @@
 
 # Class: NeighborSearchGrid
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:14](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/NeighborSearchGrid.ts#L14)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:25](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/NeighborSearchGrid.ts#L25)
 
 Grid uniforme de spatial hashing — particiona o espaço em células de
 lado `cellSize` para acelerar neighbor search SPH/PBF (O(N) vs. O(N²)).
@@ -14,7 +14,7 @@ Compartilhado entre `NeighborSearchPipeline` e os flows fluido.
 
 ## Extends
 
-- [`Entity`](Entity.md)
+- [`Entity`](Entity.md)\<[`NeighborSearchGridData`](../interfaces/NeighborSearchGridData.md)\>
 
 ## Implements
 
@@ -26,13 +26,13 @@ Compartilhado entre `NeighborSearchPipeline` e os flows fluido.
 
 > **new NeighborSearchGrid**(`values?`): `NeighborSearchGrid`
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:28](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/NeighborSearchGrid.ts#L28)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:39](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/NeighborSearchGrid.ts#L39)
 
 #### Parameters
 
 ##### values?
 
-`Record`\<`string`, `unknown`\> = `{}`
+`Partial`\<`Pick`\<[`NeighborSearchGridData`](../interfaces/NeighborSearchGridData.md), `"gridDim"` \| `"cellSize"` \| `"origin"`\>\> = `{}`
 
 #### Returns
 
@@ -48,7 +48,7 @@ Defined in: [elements/gpu/NeighborSearchGrid.ts:28](https://github.com/dantasgut
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:26](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/NeighborSearchGrid.ts#L26)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:37](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/NeighborSearchGrid.ts#L37)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -62,7 +62,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:16](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/NeighborSearchGrid.ts#L16)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:27](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/NeighborSearchGrid.ts#L27)
 
 StructSchema do NeighborSearchGrid (cellSize + gridDim + origin + cellCount).
 
@@ -72,16 +72,16 @@ StructSchema do NeighborSearchGrid (cellSize + gridDim + origin + cellCount).
 
 #### Get Signature
 
-> **get** **attached**(): readonly [`Entity`](Entity.md)[]
+> **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:125](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L125)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
 
 ##### Returns
 
-readonly [`Entity`](Entity.md)[]
+readonly [`Entity`](Entity.md)\<`object`\>[]
 
 #### Inherited from
 
@@ -93,22 +93,22 @@ readonly [`Entity`](Entity.md)[]
 
 #### Get Signature
 
-> **get** **data**(): `Record`\<`string`, `unknown`\>
+> **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:88](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L88)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
 
 ##### Returns
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 #### Set Signature
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:94](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L94)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -116,7 +116,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 ###### next
 
-`Record`\<`string`, `unknown`\>
+`TData`
 
 ##### Returns
 
@@ -136,16 +136,16 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 #### Get Signature
 
-> **get** `protected` **rawData**(): `Readonly`\<`Record`\<`string`, `unknown`\>\>
+> **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:108](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L108)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
 
 ##### Returns
 
-`Readonly`\<`Record`\<`string`, `unknown`\>\>
+`Readonly`\<`TData`\>
 
 #### Inherited from
 
@@ -157,7 +157,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:116](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/scene/contracts/Entity.ts#L116)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -166,7 +166,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ##### e
 
-[`Entity`](Entity.md)
+[`Entity`](Entity.md)\<`object`\>
 
 #### Returns
 
@@ -182,7 +182,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:41](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/NeighborSearchGrid.ts#L41)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:57](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/NeighborSearchGrid.ts#L57)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -203,7 +203,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/gpu/NeighborSearchGrid.ts:45](https://github.com/dantasgut/clayflow/blob/4de303a3fc5e7df4fcf27aed6a61f9e65e814c8b/src/elements/gpu/NeighborSearchGrid.ts#L45)
+Defined in: [elements/gpu/NeighborSearchGrid.ts:61](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/NeighborSearchGrid.ts#L61)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

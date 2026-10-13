@@ -18,6 +18,13 @@ export interface TransformValues {
 
 let legacyModelWarned = false;
 
+/** Dado de um `Transform` (layout de `Transform.schema`; vetores de 4 componentes). */
+export interface TransformData {
+    position: number[];
+    rotation: number[];
+    scale: number[];
+}
+
 /**
  * Transform 3D — a **intenção** de posicionamento de um objeto: posição, rotação
  * (quaternion) e escala. Mutar `data` depois de inserir reposiciona o objeto no
@@ -29,7 +36,7 @@ let legacyModelWarned = false;
  *
  * Mudança incompatível: o antigo campo `model` foi removido — ver o guia de migração.
  */
-export class Transform extends Entity implements Resource {
+export class Transform extends Entity<TransformData> implements Resource {
     /** Intenção do desenvolvedor: posição, rotação e escala (pool `Transform`). */
     static readonly schema = new StructSchema('Transform', {
         position: FieldType.vec4f,
@@ -63,7 +70,7 @@ export class Transform extends Entity implements Resource {
      * consultam para a chave de grupo, sem criar proxy por entidade).
      */
     get mirrored(): boolean {
-        const scale = this.rawData.scale as readonly number[];
+        const scale = this.rawData.scale;
         return (scale[0] ?? 1) * (scale[1] ?? 1) * (scale[2] ?? 1) < 0;
     }
 
