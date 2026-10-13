@@ -1,6 +1,7 @@
 import type { FlowRegistry, FlowRegistration } from '../../scene/flows/FlowRegistry';
 import type { World } from '../../scene/world/World';
 import { ForwardFlow } from './ForwardFlow';
+import { ParticleFlow } from './ParticleFlow';
 import { ShadowFlow } from './ShadowFlow';
 import { PostFlow } from './PostFlow';
 import { UIFlow } from './UIFlow';
@@ -31,6 +32,8 @@ export interface PresentationDefaults {
     readonly shadowMatrix: ShadowMatrixFlow;
     /** Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e sombra pelos slots). */
     readonly forward: ForwardFlow;
+    /** Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos. */
+    readonly particles: ParticleFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
     readonly shadow: ShadowFlow;
     /** Post-processing chain (Bloom/Fxaa/etc. em ping-pong). */
@@ -131,6 +134,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         type: 'forward',
         phase: 'forward',
     });
+    // Corpos de partículas em sprites depois do forward (mesma fase, prioridade menor): lê a profundidade da cena.
+    const particleRegistration = flows.register((ctx) => new ParticleFlow(ctx), {
+        type: 'particles',
+        phase: 'forward',
+        priority: -50,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -150,6 +159,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadowMatrix: shadowMatrixRegistration.flow!,
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
+            particles: particleRegistration.flow!,
             post: postRegistration.flow!,
             ui: uiRegistration.flow!,
             debug: debugRegistration.flow!,
@@ -160,6 +170,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadowMatrixRegistration,
             shadowRegistration,
             forwardRegistration,
+            particleRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

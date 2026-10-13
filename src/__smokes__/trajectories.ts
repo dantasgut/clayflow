@@ -15,7 +15,6 @@ import {
     createScene,
     FluidBody,
     FEMSchema,
-    GravityField,
     LCPSchema,
     MPMFluidSchema,
     MPMSoftSchema,
@@ -35,6 +34,7 @@ import {
     writeFixture,
     writeJsonFixture,
 } from './support/fixtures';
+import { block, ground, gravity, rng, SPACING, tank } from './support/particleScenes';
 
 const STEPS = 240;
 /** Taxas de quadro comparadas com a mesma fixture (gravada a 60 Hz). */
@@ -44,18 +44,6 @@ function log(msg: string): void {
     console.log(`[trajectories] ${msg}`);
     const el = document.getElementById('log');
     if (el !== null) el.textContent += `${msg}\n`;
-}
-
-/** Gerador determinístico (mulberry32). */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
 }
 
 interface Scene {
@@ -85,63 +73,6 @@ function poolView(bytes: Uint8Array, count: number, schema: StructSchema): PoolV
             return [f[base]!, f[base + 1]!, f[base + 2]!, f[base + 3]!];
         },
     };
-}
-
-/** Espaçamento das partículas (material padrão). */
-const SPACING = ParticleMaterial.defaults.particleSpacing;
-/** Meia largura interna do tanque dos fluidos (m). */
-const TANK = 0.5;
-
-function gravity(app: Application): void {
-    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-}
-
-function ground(app: Application): void {
-    gravity(app);
-    app.world.insert(
-        new RigidBody({ shape: 'box', mass: 0, halfExtents: [4, 0.5, 4], position: [0, -0.5, 0] }),
-    );
-}
-
-/** Chão + 4 paredes estáticas: tanque de 2·TANK × 2·TANK com topo do chão em y = 0. */
-function tank(app: Application): void {
-    ground(app);
-    const t = 0.1;
-    const h = 0.6;
-    // Paredes enterradas 0,2 m no chão: a face de baixo não coincide com a superfície do chão.
-    const y = h - 0.2;
-    for (const [x, z, hx, hz] of [
-        [TANK + t, 0, t, TANK + 2 * t],
-        [-(TANK + t), 0, t, TANK + 2 * t],
-        [0, TANK + t, TANK, t],
-        [0, -(TANK + t), TANK, t],
-    ] as const) {
-        app.world.insert(
-            new RigidBody({ shape: 'box', mass: 0, halfExtents: [hx, h, hz], position: [x, y, z] }),
-        );
-    }
-}
-
-function block(
-    n: number,
-    spacing: number,
-    origin: readonly [number, number, number],
-    seed: number,
-): [number, number, number][] {
-    const r = rng(seed);
-    const side = Math.ceil(Math.cbrt(n));
-    const out: [number, number, number][] = [];
-    for (let i = 0; i < n; i++) {
-        const x = i % side;
-        const y = Math.floor(i / (side * side));
-        const z = Math.floor(i / side) % side;
-        out.push([
-            origin[0] + x * spacing + (r() - 0.5) * spacing * 0.1,
-            origin[1] + y * spacing + (r() - 0.5) * spacing * 0.1,
-            origin[2] + z * spacing + (r() - 0.5) * spacing * 0.1,
-        ]);
-    }
-    return out;
 }
 
 /** Bloco de 10×10×10 partículas centrado no tanque, base a 0,1 m do chão (altura média inicial ≈ 0,325 m). */

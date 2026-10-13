@@ -39,7 +39,7 @@ export abstract class ParticleBody<
     /** Schema do struct da partícula (o do pool). */
     readonly particleSchema: StructSchema;
 
-    protected constructor(kind: string, schema: StructSchema, count: number) {
+    constructor(kind: string, schema: StructSchema, count: number) {
         super();
         if (!Number.isInteger(count) || count < 1) {
             throw new RangeError(

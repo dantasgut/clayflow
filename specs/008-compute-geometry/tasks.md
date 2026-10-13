@@ -121,11 +121,17 @@ solvers ignorando slots mortos; trajetórias idênticas.
 
 **Independent Test**: smoke `particles` com SPH, PBF e MPM; pixels nas posições simuladas e movimento entre quadros.
 
-- [ ] T027 [P] [US1] `PointSpriteMaterial` com struct WGSL próprio (`color`, `radius`, …) em `src/elements/material/PointSpriteMaterial.ts` (sem alias de `StandardMaterial`); teste do schema e do struct gerado em `src/elements/material/__tests__/`
-- [ ] T028 [P] [US1] Testes do `ParticleFlow` em `src/presentation/flows/__tests__/ParticleFlow.test.ts` (harness de render): um draw `vertices(6, span)` por corpo com material de sprite (3 corpos = 3 draws); `ParticleDrawParams` escrito na inserção e quando a faixa muda, não por quadro com a cena parada (contagem); corpo sem material de sprite → aviso único e fora do desenho; pool que cresce → bind group trocado; 0 leituras GPU→CPU por quadro
-- [ ] T029 [US1] Implementar `src/presentation/flows/ParticleFlow.ts` (fase `forward`, depois do `ForwardFlow`, `loadOp: 'load'`, profundidade ligada, slot `entities({ all: [ParticleBody, Material] })`, bind do pool por schema, `ParticleDrawParams` por offset dinâmico) e o shader `particle_sprite` (quad por `vertex_index`, posição por `stride_vec4`/`pos_offset_vec4`, posição não finita fora do clip, impostor esférico iluminado pela luz do pool, descarte fora do círculo); registrar em `src/presentation/flows/defaults.ts` e no `renderHarness`
-- [ ] T030 [US1] Smoke `src/__smokes__/particles.ts`: tanque com SPH, PBF, MPM fluido e MPM sólido (um corpo cada, câmera fixa), captura nos quadros 30 e 90; referência `fixtures/particles-<perfil>.png` (`--record`) e verificação de movimento (as duas capturas diferem na região do fluido); contagem de leituras por quadro = 0; documentar em `src/__smokes__/README.md`
-- [ ] T031 [US1] Teste de oclusão no smoke `particles`: caixa na frente de parte do fluido; os pixels da caixa permanecem na captura (profundidade compartilhada com o forward)
+- [x] T027 [P] [US1] `PointSpriteMaterial` com struct WGSL próprio (`color`, `radius`, …) em `src/elements/material/PointSpriteMaterial.ts` (sem alias de `StandardMaterial`); teste do schema e do struct gerado em `src/elements/material/__tests__/`
+- [x] T028 [P] [US1] Testes do `ParticleFlow` em `src/presentation/flows/__tests__/ParticleFlow.test.ts` (harness de render): um draw `vertices(6, span)` por corpo com material de sprite (3 corpos = 3 draws); `ParticleDrawParams` escrito na inserção e quando a faixa muda, não por quadro com a cena parada (contagem); corpo sem material de sprite → aviso único e fora do desenho; pool que cresce → bind group trocado; 0 leituras GPU→CPU por quadro
+- [x] T029 [US1] Implementar `src/presentation/flows/ParticleFlow.ts` (fase `forward`, depois do `ForwardFlow`, `loadOp: 'load'`, profundidade ligada, slot `entities({ all: [ParticleBody, Material] })`, bind do pool por schema, `ParticleDrawParams` por offset dinâmico) e o shader `particle_sprite` (quad por `vertex_index`, posição por `stride_vec4`/`pos_offset_vec4`, posição não finita fora do clip, impostor esférico iluminado pela luz do pool, descarte fora do círculo); registrar em `src/presentation/flows/defaults.ts` e no `renderHarness`
+- [x] T030 [US1] Smoke `src/__smokes__/particles.ts`: tanque com SPH, PBF, MPM fluido e MPM sólido (um corpo cada, câmera fixa), captura nos quadros 30 e 90; referência `fixtures/particles-<perfil>.png` (`--record`) e verificação de movimento (as duas capturas diferem na região do fluido); contagem de leituras por quadro = 0; documentar em `src/__smokes__/README.md`
+- [x] T031 [US1] Teste de oclusão no smoke `particles`: caixa na frente de parte do fluido; os pixels da caixa permanecem na captura (profundidade compartilhada com o forward)
+
+> **US1 (T027–T031)**: `particles` verde — SPH 6 105, PBF 6 604, MPM fluido 3 631 e MPM sólido 2 347 px de sprite no
+> quadro 90, imagem muda entre os quadros 30 e 90, 0 leituras de volta, fixtures gravadas e reproduzidas; oclusão pela
+> caixa verificada. `PointSpriteMaterial` com struct WGSL próprio (`PointSpriteMaterialSchema`); o `forward.wgsl` ainda o
+> lê pelo alias até a US5 (T045). Os parâmetros do quadro do `ParticleFlow` reusam o struct `ForwardFrameParams`; a luz é
+> a primeira viva do pool (sem sombra nos sprites, R7).
 
 **Checkpoint**: fluidos visíveis, um draw por corpo, sem leitura de volta.
 

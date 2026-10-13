@@ -1,5 +1,7 @@
 export { ForwardFlow } from './ForwardFlow';
 export type { ForwardFlowOptions, ForwardOutput, ForwardSlots } from './ForwardFlow';
+export { ParticleFlow } from './ParticleFlow';
+export type { ParticleSlots } from './ParticleFlow';
 export { ShadowFlow } from './ShadowFlow';
 export type { ShadowFlowOptions, ShadowSlots } from './ShadowFlow';
 export { PostFlow } from './PostFlow';

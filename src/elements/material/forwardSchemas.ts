@@ -19,3 +19,19 @@ export const ForwardFrameParamsSchema = new StructSchema(
 
 /** `lightSlot` sem luz que ilumina: o forward usa a direção padrão. */
 export const NO_LIGHT_SLOT = 0xffffffff;
+
+/**
+ * Desenho de um corpo de partículas em sprites (spec 008, uma região por corpo, com offset dinâmico): o primeiro slot da
+ * faixa do corpo no pool, o stride do registro e o deslocamento do campo `pos` em `vec4f` (o pool é lido como
+ * `array<vec4f>`, o mesmo shader para todo schema de partícula) e o slot do material no pool `PointSpriteMaterial`.
+ */
+export const ParticleDrawParamsSchema = new StructSchema(
+    'ParticleDrawParams',
+    {
+        first: FieldType.u32,
+        strideVec4: FieldType.u32,
+        posOffsetVec4: FieldType.u32,
+        materialSlot: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);

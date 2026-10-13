@@ -15,6 +15,7 @@ import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixFlow';
 import { FrameTargets } from '../../../app/FrameTargets';
 import { ForwardFlow, type ForwardOutput } from '../../ForwardFlow';
+import { ParticleFlow } from '../../ParticleFlow';
 import { PostFlow } from '../../PostFlow';
 import { ShadowFlow } from '../../ShadowFlow';
 
@@ -46,6 +47,8 @@ export interface RenderPassRecord {
     readonly draws: readonly DrawCall[];
     /** `draw.vertices` (passes de tela cheia). */
     readonly fullscreen: number;
+    /** Desenhos `draw.vertices` (sem índices), com a contagem de vértices em `indexCount`. */
+    readonly vertexDraws: readonly DrawCall[];
 }
 
 /** Discriminator de um spec (ou string vazia). */
@@ -103,6 +106,7 @@ export async function renderScene(): Promise<{
                 let vertex: ResourceSpec | undefined;
                 let index: ResourceSpec | undefined;
                 let fullscreen = 0;
+                const vertexDraws: DrawCall[] = [];
                 const pass = {
                     bind: {
                         setPipeline: (p: RenderPipelineSpec) => {
@@ -149,15 +153,30 @@ export async function renderScene(): Promise<{
                             });
                             return pass.draw;
                         },
-                        vertices: () => {
+                        vertices: (
+                            count: number,
+                            instances?: number,
+                            _firstVertex?: number,
+                            firstInstance?: number,
+                        ) => {
                             fullscreen++;
+                            vertexDraws.push({
+                                pass: label,
+                                pipeline: pipeline!,
+                                bindGroups: new Map(bound),
+                                vertex,
+                                index: undefined,
+                                indexCount: count,
+                                instanceCount: instances ?? 1,
+                                firstInstance,
+                            });
                             return pass.draw;
                         },
                     },
                     marker: () => undefined,
                 };
                 body(pass);
-                out.push({ label, target, setBindGroups, draws, fullscreen });
+                out.push({ label, target, setBindGroups, draws, fullscreen, vertexDraws });
             },
             compute: (label: string, body: (pass: unknown) => void) => {
                 computes.push(label);
@@ -256,6 +275,8 @@ export interface StageOptions {
      */
     readonly forward?: ForwardOutput;
     readonly post?: boolean;
+    /** Desenho de corpos de partículas (`ParticleFlow`, depois do forward). */
+    readonly particles?: boolean;
 }
 
 /** Registra os estágios pedidos por factory, como `registerPresentationDefaults`, e devolve as instâncias. */
@@ -292,7 +313,9 @@ export function registerStages(
             : undefined;
     const output = options.forward;
     const frameTargets =
-        output !== undefined || options.post === true ? new FrameTargets() : undefined;
+        output !== undefined || options.post === true || options.particles === true
+            ? new FrameTargets()
+            : undefined;
     if (frameTargets !== undefined) scene.world.insert(frameTargets);
     const forward =
         output === undefined
@@ -301,6 +324,12 @@ export function registerStages(
                   type: 'forward',
                   phase: 'forward',
               }).flow;
+    if (options.particles === true)
+        scene.flows.register((ctx) => new ParticleFlow(ctx), {
+            type: 'particles',
+            phase: 'forward',
+            priority: -50,
+        });
     const post =
         options.post === true
             ? scene.flows.register((ctx) => new PostFlow(ctx), { type: 'post', phase: 'post' }).flow

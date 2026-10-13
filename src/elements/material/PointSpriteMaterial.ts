@@ -1,7 +1,6 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import { FieldType } from '../../scene/descriptors/FieldType';
-import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
 import { forward } from './shaders';
 import { Material } from './Material';
 
@@ -15,18 +14,13 @@ export interface PointSpriteMaterialData {
 }
 
 /**
- * Material para point clouds — cada vertex vira um sprite/billboard de
- * `radius` pixels (topology point-list).
+ * Material de sprites — cada partícula de um corpo (`FluidBody`, `SoftBody`) ou cada vértice de uma geometria vira um
+ * quad virado para a câmera de raio `radius` (unidades de mundo), desenhado como esfera iluminada (topologia
+ * `point-list`).
  */
 export class PointSpriteMaterial extends Material<PointSpriteMaterialData> {
-    /** StructSchema do PointSpriteMaterial (color + radius). */
-    static readonly schema = new StructSchema('PointSpriteMaterial', {
-        color: FieldType.vec4f,
-        radius: FieldType.f32,
-        _pad0: FieldType.f32,
-        _pad1: FieldType.f32,
-        _pad2: FieldType.f32,
-    });
+    /** StructSchema do PointSpriteMaterial (cor + raio), struct WGSL próprio (spec 008). */
+    static readonly schema = PointSpriteMaterialSchema;
 
     constructor(values: Partial<PointSpriteMaterialData> = {}) {
         super();
