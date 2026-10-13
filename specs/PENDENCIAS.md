@@ -44,10 +44,11 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 
 ### Pendências novas (levantadas na 007)
 
-| #   | Pendência                      | Estado atual (evidência)                                                                                                                                                                                          | Fase |
-| --- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| G1  | Clip z da câmera em [−1, 1]    | `camera_perspective`/`camera_orthographic` (`elements/gpu/wgsl/math/camera.wgsl`) mantêm a convenção dos controllers e do bench anteriores; o WebGPU usa z em [0, 1] (metade da precisão de profundidade perdida) | F4   |
-| G2  | Passthrough do pós sem efeitos | Sem efeitos, o `PostFlow` ainda copia a cor dos `FrameTargets` para o canvas num passe de tela cheia (0,202 ms em `instances/10k`); o forward deveria desenhar direto no canvas                                   | F4   |
+| #   | Pendência                                 | Estado atual (evidência)                                                                                                                                                                                                                                   | Fase |
+| --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| G1  | Clip z da câmera em [−1, 1]               | `camera_perspective`/`camera_orthographic` (`elements/gpu/wgsl/math/camera.wgsl`) mantêm a convenção dos controllers e do bench anteriores; o WebGPU usa z em [0, 1] (metade da precisão de profundidade perdida)                                          | F4   |
+| G2  | Passthrough do pós sem efeitos            | Sem efeitos, o `PostFlow` ainda copia a cor dos `FrameTargets` para o canvas num passe de tela cheia (0,202 ms em `instances/10k`); o forward deveria desenhar direto no canvas                                                                            | F4   |
+| G3  | p99 de `rigid-bodies/10k` (SC-005 da 007) | Débito aceito (2026-10-13): p99 5,53 ms, média 2,97 ms (1,86× contra a meta de 1,5×; 1,6× sem profiling). Os picos do readback (309 ms) acabaram; a razão vem da oscilação do laço do navegador em quadros de ~3 ms (o Three mostra 2,8× em cenas rápidas) | F10  |
 
 ## 3. Resolvidos na 006 (2026-10-12)
 
@@ -77,5 +78,5 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 ## 5. Ordem do ROADMAP
 
 F1 (004, 005, 006) concluída; F2 (007 — ponte compute↔render; 008 — geometria em compute) bloqueia o resto; F3, F4 e
-F5 podem andar em paralelo depois. As pendências P1–P5, P7–P10, E1 e E4 são da F5; P6 da F9; G1 e G2 da F4. E2, E3 e E5
+F5 podem andar em paralelo depois. As pendências P1–P5, P7–P10, E1 e E4 são da F5; P6 da F9; G1 e G2 da F4; G3 (débito do p99 da 007) da F10, ao fim das fases programadas. E2, E3 e E5
 foram resolvidas na 007 (F2).

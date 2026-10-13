@@ -5,7 +5,7 @@
 **Created**: 2026-10-13
 
 **Status**: Implementada (2026-10-13) — T001–T065 concluídas, gate verde; SC-005 p99 (≤ 1,5× a média) não atendido,
-registrado no `tasks.md` (T063) para decisão do usuário
+aceito como débito G3 (`specs/PENDENCIAS.md`) para o fim das fases programadas (F10)
 
 **Input**: User description: "Estado de cena na GPU e paridade de desempenho com o Three.js (spec 007, fase F2 do
 roadmap — `007-gpu-scene-state`). Implementar no lugar arquitetural certo (C1–C4, `architecture_resource_loaders.md`
