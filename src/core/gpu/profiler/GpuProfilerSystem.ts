@@ -1,3 +1,4 @@
+import type { FrameProfilingGranularity } from '../../contracts/EngineCore';
 import type { Profiler, ProfilerTimestampWrites } from '../../contracts/Profiler';
 import { FrameTimestampAllocator, type TimestampPair } from './FrameTimestampAllocator';
 
@@ -30,9 +31,12 @@ const DEFAULT_FRAME_CAPACITY = 256;
  * O QuerySet tem duas regiões:
  *   - `[0, capacity)` — índices manuais, via `timestampWritesFor(first, last)`
  *     (ex.: `ForwardFlow.setProfileTimestamps`).
- *   - `[capacity, capacity + frameCapacity)` — profiling por quadro: com ele ligado,
+ *   - `[capacity, capacity + frameCapacity)` — profiling por quadro. Granularidade `'passes'`:
  *     todo passe sem timestamps explícitos recebe um par de um `FrameTimestampAllocator`;
- *     passes com timestamps explícitos são respeitados e também somados.
+ *     passes com timestamps explícitos são respeitados e também somados. Granularidade
+ *     `'frame'`: um único par por gravação — início no primeiro passe, fim nos passes de
+ *     render — o total, sem amostrar cada passe de compute (o que, em quadros com dezenas
+ *     de passes, pesa no próprio tempo medido).
  *
  * Ciclo por gravação: `beginFrame` → `passTimestampWrites` (um por passe) → `resolveOnto`
  * (só quando há timestamps a ler e o staging está livre) → `submitFrame` (readback
@@ -46,6 +50,9 @@ export class GpuProfilerSystem implements Profiler {
     private stagingBuffer: GPUBuffer | null = null;
     private readonly capacity: number;
     private frameProfiling = false;
+    private granularity: FrameProfilingGranularity = 'passes';
+    /** Par da gravação aberto pelo primeiro passe (granularidade `'frame'`). */
+    private span: TimestampPair | undefined = undefined;
     private frameCapacity = DEFAULT_FRAME_CAPACITY;
     private allocator: FrameTimestampAllocator;
     private mapInProgress = false;
@@ -94,10 +101,15 @@ export class GpuProfilerSystem implements Profiler {
      * medidos). Recria o QuerySet quando o tamanho muda. Sem `timestamp-query`, guarda a
      * configuração e não mede nada.
      */
-    configureFrameProfiling(enabled: boolean, capacity?: number): void {
+    configureFrameProfiling(
+        enabled: boolean,
+        capacity?: number,
+        granularity: FrameProfilingGranularity = 'passes',
+    ): void {
         const nextCapacity = Math.max(2, capacity ?? this.frameCapacity);
         const changed = enabled !== this.frameProfiling || nextCapacity !== this.frameCapacity;
         this.frameProfiling = enabled;
+        this.granularity = granularity;
         this.frameCapacity = nextCapacity;
         this.allocator = new FrameTimestampAllocator(this.frameCapacity, this.capacity);
         this.overflowWarned = false;
@@ -120,6 +132,7 @@ export class GpuProfilerSystem implements Profiler {
     /** Abre uma gravação: zera os pares do quadro. */
     beginFrame(frameIndex: number): void {
         this.resolvedThisFrame = false;
+        this.span = undefined;
         if (this.frameProfilingActive) this.allocator.begin(frameIndex);
     }
 
@@ -131,8 +144,10 @@ export class GpuProfilerSystem implements Profiler {
     passTimestampWrites(
         label: string,
         explicit?: ProfilerTimestampWrites,
+        kind: 'compute' | 'render' = 'render',
     ): ProfilerTimestampWrites | undefined {
         if (!this.frameProfilingActive || this.querySet === null) return explicit;
+        if (this.granularity === 'frame') return explicit ?? this.frameSpanWrites(kind);
         if (explicit !== undefined) {
             const first = explicit.beginningOfPassWriteIndex;
             const last = explicit.endOfPassWriteIndex;
@@ -151,6 +166,29 @@ export class GpuProfilerSystem implements Profiler {
             beginningOfPassWriteIndex: pair.first,
             endOfPassWriteIndex: pair.last,
         };
+    }
+
+    /**
+     * Granularidade `'frame'`: um par por gravação — o primeiro passe escreve o início e cada passe de render escreve o
+     * fim no mesmo índice (vale o do último executado: o quadro apresentado termina num passe de render, e os passes de
+     * render são poucos). Passes de compute depois do primeiro não são amostrados. Um passe marcador no fim não serve:
+     * no Metal ele começa sem esperar os passes de render anteriores. Gravação só de compute fica sem leitura (use
+     * `'passes'`).
+     */
+    private frameSpanWrites(kind: 'compute' | 'render'): ProfilerTimestampWrites | undefined {
+        if (this.querySet === null) return undefined;
+        if (this.span === undefined) {
+            const pair = this.allocator.allocatePair('frame');
+            if (pair === undefined) return undefined;
+            this.span = pair;
+            return {
+                querySet: this.querySet,
+                beginningOfPassWriteIndex: pair.first,
+                ...(kind === 'render' ? { endOfPassWriteIndex: pair.last } : {}),
+            };
+        }
+        if (kind !== 'render') return undefined;
+        return { querySet: this.querySet, endOfPassWriteIndex: this.span.last };
     }
 
     /**

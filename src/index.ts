@@ -28,6 +28,7 @@ export * from './elements/index';
 // Resources/Flows custom (a barreira pública estável).
 export type {
     EngineCore,
+    FrameProfilingGranularity,
     Frame,
     BindGroupSpec,
     ComputePipelineSpec,

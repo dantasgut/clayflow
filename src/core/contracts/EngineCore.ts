@@ -66,6 +66,9 @@ export interface DeviceLostInfo {
 /** Handler chamado quando o GPU device é perdido. */
 export type DeviceLostHandler = (info: DeviceLostInfo) => void;
 
+/** Granularidade do profiling por quadro: um par de timestamps por passe, ou só o total da gravação. */
+export type FrameProfilingGranularity = 'passes' | 'frame';
+
 /**
  * EngineCore é a fronteira da Camada 1 (Hardware) — abstração estável
  * sobre o WebGPU device. Todas as operações GPU passam por aqui:
@@ -149,12 +152,18 @@ export interface EngineCore {
     memoryUsage(topN?: number): MemoryUsageReport;
 
     /**
-     * Liga/desliga o profiling de GPU por quadro: todo passe sem timestamps explícitos
-     * recebe um par automático e `lastFrameStats().gpuTimeMs` passa a ser preenchido.
-     * `capacity` = timestamps por quadro (default 256 = 128 passes). No-op com aviso único
-     * quando o device não tem `timestamp-query`.
+     * Liga/desliga o profiling de GPU por quadro: `lastFrameStats().gpuTimeMs` passa a ser preenchido. Com
+     * `granularity: 'passes'` (padrão), todo passe sem timestamps explícitos recebe um par automático e `stagesNs`
+     * traz o tempo de cada um; com `'frame'`, só dois timestamps por gravação (um passe vazio no início e outro no
+     * fim) medem o total — sem o custo de amostrar em cada passe, que em quadros com dezenas de passes (física)
+     * pesa no próprio tempo medido. `capacity` = timestamps por quadro (default 256 = 128 passes). No-op com aviso
+     * único quando o device não tem `timestamp-query`.
      */
-    setFrameProfiling(enabled: boolean, capacity?: number): void;
+    setFrameProfiling(
+        enabled: boolean,
+        capacity?: number,
+        granularity?: FrameProfilingGranularity,
+    ): void;
     /**
      * Estatísticas da última gravação submetida (draws, dispatches, passes) e a leitura de
      * GPU mais recente resolvida até o momento da chamada (`gpuTimeMs`, com defasagem de

@@ -61,10 +61,14 @@ Como cada engine mede:
 | Métrica      | clayflow                                                                      | Three.js                                       |
 | ------------ | ----------------------------------------------------------------------------- | ---------------------------------------------- |
 | CPU/quadro   | `update` da cena + `frameComplete.dt` (envio dos dados alterados → `submit`)   | `performance.now()` em volta de `update` + `render` |
-| GPU/quadro   | `frameComplete.stats.gpuTimeMs` (todos os passes, defasagem de 1–3 quadros)   | `resolveTimestampsAsync('render')`             |
+| GPU/quadro   | `frameComplete.stats.gpuTimeMs` com `profiling: 'frame'`: do início do primeiro passe ao fim do último passe de render (defasagem de 1–3 quadros) | `resolveTimestampsAsync('render')`             |
 | Draw calls   | `frameComplete.stats.drawCalls`                                               | `renderer.info.render.drawCalls`               |
 | Memória      | `core.memoryUsage().totalBytes` (exata)                                       | estimada                                       |
 | Quadro/FPS   | intervalo entre `requestAnimationFrame` (igual nas duas)                      | idem                                           |
+
+**Profiling por quadro total**: o adaptador do clayflow liga `profiling: 'frame'` — um par de timestamps por
+quadro, sem amostrar cada passe. Com um par por passe (`profiling: true`), quadros com dezenas de passes de compute
+(física) ficam mais lentos pela própria medição: `rigid-bodies/10k` cai de 335 para 215 fps.
 
 **Tempo simulado**: as duas engines avançam **1/60 s de simulação por quadro** — o clayflow por
 `app.step(1/60)`, o Three/Rapier por `world.step()` com `timestep = 1/60`. Assim um quadro lento não faz uma

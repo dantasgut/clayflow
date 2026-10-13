@@ -3,6 +3,7 @@ import type {
     DeviceLostHandler,
     DeviceLostInfo,
     EngineCore,
+    FrameProfilingGranularity,
 } from '../contracts/EngineCore';
 import type { DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
 import type { Frame } from '../contracts/Frame';
@@ -299,9 +300,13 @@ export class GpuEngineCore implements EngineCore {
         return this.store.memoryUsage(topN);
     }
 
-    setFrameProfiling(enabled: boolean, capacity?: number): void {
+    setFrameProfiling(
+        enabled: boolean,
+        capacity?: number,
+        granularity?: FrameProfilingGranularity,
+    ): void {
         this.frameProfilingRequested = enabled;
-        this.profilerSystem.configureFrameProfiling(enabled, capacity);
+        this.profilerSystem.configureFrameProfiling(enabled, capacity, granularity);
         if (this.context !== null) this.warnIfProfilingUnsupported();
     }
 

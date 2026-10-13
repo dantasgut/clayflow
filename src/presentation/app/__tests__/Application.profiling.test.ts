@@ -25,7 +25,18 @@ describe('Application — opção profiling', () => {
             profiling: true,
             profilingCapacity: 64,
         });
-        expect(core.setFrameProfiling).toHaveBeenCalledWith(true, 64);
+        expect(core.setFrameProfiling).toHaveBeenCalledWith(true, 64, 'passes');
+    });
+
+    it("profiling: 'frame' mede só o total do quadro", async () => {
+        const { scene, core } = fakeScene();
+        await Application.create({
+            canvas: document.createElement('canvas'),
+            scene,
+            autoResize: false,
+            profiling: 'frame',
+        });
+        expect(core.setFrameProfiling).toHaveBeenCalledWith(true, undefined, 'frame');
     });
 
     it('omitido, não liga o profiling', async () => {

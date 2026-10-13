@@ -32,7 +32,8 @@ export function createClayflowAdapter(options: {
             const app = await Application.create({
                 canvas,
                 autoResize: false,
-                profiling: options.profiling,
+                // Só o total do quadro: amostrar cada passe (dezenas na física) pesaria no próprio tempo medido.
+                profiling: options.profiling ? 'frame' : false,
             });
             const aspect = resolution.width / resolution.height;
             // Câmera pelo modelo da 007: parâmetros + Transform; as matrizes são do estágio de câmera, na GPU.

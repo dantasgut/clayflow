@@ -10,6 +10,7 @@ import type {
     World,
 } from '../../scene/index';
 import type { ConsumerResolverRegistry } from '../../scene/consumers/ConsumerResolverRegistry';
+import type { FrameProfilingGranularity } from '../../scene/contracts/gpu';
 import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
 import type { LayoutInferencer } from '../../scene/systems/LayoutInferencer';
 import type { ExecutionSystem } from '../../scene/systems/ExecutionSystem';
@@ -65,11 +66,12 @@ export interface ApplicationOptions {
      */
     scene?: SceneContext;
     /**
-     * Liga o profiling de GPU por quadro: todo passe recebe timestamps automaticamente e
-     * `frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3 quadros).
-     * Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
+     * Liga o profiling de GPU por quadro: `frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3
+     * quadros). `true` ou `'passes'`: todo passe recebe timestamps e `stagesNs` traz o tempo de cada um; `'frame'`:
+     * só o total da gravação (dois timestamps por quadro, sem o custo de amostrar cada passe — o modo para medir
+     * desempenho). Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
      */
-    profiling?: boolean;
+    profiling?: boolean | FrameProfilingGranularity;
     /** Capacidade de timestamps por quadro (pares = passes medidos). Default: 256 (128 passes). */
     profilingCapacity?: number;
     /**
@@ -217,8 +219,9 @@ export class Application {
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;
         }
-        if (options.profiling === true) {
-            scene.core.setFrameProfiling(true, options.profilingCapacity);
+        if (options.profiling !== undefined && options.profiling !== false) {
+            const granularity = options.profiling === true ? 'passes' : options.profiling;
+            scene.core.setFrameProfiling(true, options.profilingCapacity, granularity);
         }
         return new Application(options, defaults, scene, ownsScene);
     }
