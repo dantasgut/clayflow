@@ -143,8 +143,9 @@ testados pela narrowphase e p99 do intervalo de quadro; comparar trajetórias co
    de forma assíncrona e correspondem ao último passo concluído; sem pedido, nada é lido.
 5. **Given** N corpos espalhados, **When** a narrowphase roda, **Then** cada corpo é testado só contra os colliders das
    células vizinhas, e o número de pares testados cresce com os pares próximos, não com N·M.
-6. **Given** os contatos gerados pela broadphase, **When** o solver os consome, **Then** a ordem é determinística e
-   igual à de hoje, e a trajetória é a mesma bit a bit.
+6. **Given** os contatos gerados pela broadphase, **When** o solver os consome, **Then** o conjunto de contatos de
+   cada substep é igual ao da narrowphase exaustiva de hoje, e a trajetória é a mesma bit a bit (o solve não depende
+   da ordem dos contatos).
 7. **Given** colliders grandes (chão) ou planos infinitos, **When** a broadphase roda, **Then** continuam testados
    contra todos os corpos que alcançam, sem perder contato.
 
@@ -275,7 +276,8 @@ qualquer investigação nova.
   (`Transform.scale`) que a CPU já tem, ou na GPU — a regra fica no plano, sem leitura de volta.
 - Corpo rígido removido no meio do passo: o slot do `Transform` deixa de receber pose a partir do quadro seguinte; nada
   é escrito em slot reaproveitado por outra entidade.
-- Corpo rígido estático (massa 0) e collider sem corpo: a GPU não escreve pose; o `Transform` segue a regra comum.
+- Corpo rígido estático (massa 0): a GPU publica a pose inicial, que não muda; o `Transform` de todo corpo é de posse
+  da GPU (mover corpo pela CPU é da F5).
 - Leitura de pose pedida para um corpo removido antes de a leitura chegar: a resposta indica que o corpo não existe
   mais, sem erro.
 - Corpos fora da grade da broadphase: continuam testados (célula de borda ou lista de grandes), sem perder contato.
@@ -306,7 +308,7 @@ qualquer investigação nova.
   parada, a gravação MUST NOT percorrer entidades.
 - **FR-004**: A sombra MUST desenhar agrupada da mesma forma, por (geometria, variante de face).
 - **FR-005**: O vértice MUST ser lido pelo índice de instância e de vértice a partir dos buffers da geometria
-  compartilhada (vertex pulling ou atributos de vértice da cópia única — a escolha fica no plano, mantendo FR-002).
+  compartilhada (atributos de vértice da cópia única; vertex pulling e arena única avaliados e passados à F7 — research R4).
 - **FR-006**: Grupo vazio MUST NOT gerar draw; lista de instâncias que cresce MUST seguir a política de pool
   (dobra, `poolReallocated`/`bindGroupReplaced`).
 
@@ -327,13 +329,15 @@ qualquer investigação nova.
   do `Transform` do corpo no pool da GPU, antes da fase de transformação do mesmo quadro.
 - **FR-012**: O `Transform` de um corpo dinâmico MUST ser de posse da GPU: a CPU MUST NOT enviá-lo depois da inserção;
   mutação pela aplicação MUST ser ignorada com aviso único por corpo.
-- **FR-013**: Nenhuma leitura de GPU para CPU MUST ocorrer por quadro na física; a leitura da pose MUST existir como
-  pedido assíncrono sob demanda (um corpo, um conjunto ou todos), respondido com o último passo concluído.
+- **FR-013**: Nenhuma leitura de pose da GPU para a CPU MUST ocorrer por quadro na física; a leitura da pose MUST
+  existir como pedido assíncrono sob demanda (um corpo, um conjunto ou todos), respondido com o último passo
+  concluído. O diagnóstico de excedente de contatos e de pares MAY ser amostrado (no máximo 1 leitura de poucos bytes
+  a cada 60 passos, sem bloquear).
 - **FR-014**: A narrowphase de corpos rígidos MUST receber pares candidatos de uma broadphase em GPU construída sobre a
   busca de vizinhança e os kernels genéricos da 005 (grade uniforme, ordenação, prefix sum); colliders maiores que a
   célula e planos MUST continuar cobertos.
-- **FR-015**: A ordem dos contatos entregues ao solver MUST ser determinística e igual à da narrowphase exaustiva de
-  hoje (por corpo, por collider), para que a trajetória seja a mesma bit a bit.
+- **FR-015**: O conjunto de contatos de cada substep MUST ser igual ao da narrowphase exaustiva de hoje (o solve é
+  independente da ordem — spec 004, R19), para que a trajetória seja a mesma bit a bit.
 - **FR-016**: Excesso de candidatos além da capacidade MUST crescer a capacidade ou avisar; perda silenciosa de
   contato MUST NOT ocorrer.
 
@@ -407,7 +411,7 @@ Medidos com `npm run bench` na máquina de referência livre, no mesmo protocolo
   intervalo de quadro.
 - **SC-004**: CPU por quadro de `instances/10k-moving` ≤ 3 ms (hoje 199 ms; Three 1,3 ms), com o número de escritas de
   Transform por quadro igual ao número de faixas contíguas sujas (contado em teste).
-- **SC-005**: `rigid-bodies/10k`: 0 leituras de GPU para CPU por quadro (contadas em teste); fps de intervalo de
+- **SC-005**: `rigid-bodies/10k`: 0 leituras de pose da GPU para a CPU por quadro (contadas em teste; diagnóstico amostrado pela FR-013); fps de intervalo de
   quadro ≥ o do Three + Rapier na mesma rodada (hoje 9 × 36); p99 do intervalo de quadro ≤ 1,5× a média.
 - **SC-006**: Pares testados pela narrowphase em `rigid-bodies/10k` ≤ 1% de N·M (contados em teste com a mesma
   disposição), sem contato perdido contra a narrowphase exaustiva.
