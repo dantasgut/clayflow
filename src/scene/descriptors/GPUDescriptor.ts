@@ -87,6 +87,12 @@ export interface GPUDescriptor {
      * `'uint32'`); obrigatório com `upload: 'never'` (índices escritos pela GPU).
      */
     readonly indexFormat?: GPUIndexFormat;
+    /**
+     * Quando a C2 aloca o objeto de GPU de um descritor individual (spec 008): `'eager'` (padrão) na inserção;
+     * `'onDemand'` só quando um estágio o pede (`ResourceDirectory.ensureAllocated`) — dado que só alguns consumidores
+     * usam (ex.: as arestas de arame de uma geometria, só com material de arame). Liberado com o Resource.
+     */
+    readonly allocation?: 'eager' | 'onDemand';
 }
 
 /** Alvo de uma referência de slot (`GPUDescriptor.slotRefs`). */

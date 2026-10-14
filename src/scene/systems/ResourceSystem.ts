@@ -789,6 +789,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return this.allocations.get(resource)?.get(descId)?.buffer;
     }
 
+    /**
+     * Aloca agora o descritor individual `descId` de `resource` se ainda não estiver alocado (descritores
+     * `allocation: 'onDemand'`; spec 008) e devolve o buffer. Chamado fora da gravação (numa transição). Resource fora
+     * da cena ou sem o descritor: `undefined`.
+     */
+    ensureAllocated(resource: Resource, descId: string): AnyBufferSpec | undefined {
+        if (trackedOf(resource)?.allocated !== true) return undefined;
+        const existing = this.allocations.get(resource)?.get(descId);
+        if (existing !== undefined) return existing.buffer;
+        const desc = resource.getDescriptors().find((d) => d.id === descId && d.storage !== 'pool');
+        if (desc === undefined) return undefined;
+        const allocation = this.allocateDescriptor(resource, desc);
+        const own = this.ownForWrite(resource);
+        if (own === undefined) this.allocations.set(resource, new Map([[desc.id, allocation]]));
+        else own.set(desc.id, allocation);
+        return allocation.buffer;
+    }
+
     textureOf(resource: Resource, descId: string): TextureSpec | undefined {
         return this.allocations.get(resource)?.get(descId)?.texture;
     }
@@ -1364,7 +1382,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (pooled.length > 0) this.allocatePooled(resource, pooled);
         const own = new Map<string, Allocation>();
         for (const desc of descs) {
-            if (desc.storage === 'pool') continue;
+            if (desc.storage === 'pool' || desc.allocation === 'onDemand') continue;
             own.set(desc.id, this.allocateDescriptor(resource, desc));
         }
         if (own.size > 0) this.allocations.set(resource, this.shareOwn(own));

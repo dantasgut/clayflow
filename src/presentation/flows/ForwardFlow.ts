@@ -207,8 +207,17 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly pendingMaterials = new Set<EntityId>();
     /** Id do shader de cada material (pelo descritor; reconhecido uma vez por instância). */
     private readonly materialShader = new WeakMap<Material, string>();
-    /** Topologia de cada material (lida uma vez na preparação; o desenho não relê descritores por quadro). */
-    private readonly materialTopology = new WeakMap<Material, GPUPrimitiveTopology>();
+    /**
+     * O que o desenho precisa de cada material, guardado na preparação (o quadro não relê descritores): a topologia e,
+     * em triângulos e faixas, os pipelines das duas orientações de face.
+     */
+    private readonly materialDraw = new WeakMap<
+        Material,
+        {
+            readonly topology: GPUPrimitiveTopology;
+            readonly pipelines?: { readonly ccw: string; readonly cw: string };
+        }
+    >();
     /** Família de layout de cada pipeline: os grupos 0, 1 e 3 são religados quando a família muda no passe. */
     private readonly pipelineFamily = new Map<string, Family>();
     /**
@@ -360,10 +369,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             let current: PreparedRender | undefined;
             for (const group of groups) {
                 const entry = group.representative;
-                const material = entry.get(Material);
-                const topology = this.materialTopology.get(material);
+                const draw = this.materialDraw.get(entry.get(Material));
+                if (draw === undefined) continue;
+                const topology = draw.topology;
                 const id =
-                    topology === undefined ? undefined : this.pipelineOf(entry, material, topology);
+                    draw.pipelines !== undefined
+                        ? entry.get(Transform).mirrored
+                            ? draw.pipelines.cw
+                            : draw.pipelines.ccw
+                        : this.geometryPipelineOf(entry);
                 if (id === undefined) continue;
                 const prepared = bound.pipelines.get(id);
                 if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
@@ -476,8 +490,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 continue;
             }
             this.materialShader.set(material, desc.id);
-            this.materialTopology.set(material, topology);
             if (perGeometry) {
+                this.materialDraw.set(material, { topology });
                 this.prepareGeometryPipeline(
                     ctx,
                     entry.entityId,
@@ -487,7 +501,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 );
                 continue;
             }
-            if (this.materialPipelines.has(desc.id)) continue;
+            const known = this.materialPipelines.get(desc.id);
+            if (known !== undefined) {
+                this.materialDraw.set(material, { topology, pipelines: known });
+                continue;
+            }
             const variant = (frontFace: GPUFrontFace): string => {
                 const descriptor: PipelineDescriptor = {
                     ...desc,
@@ -505,7 +523,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 this.pipelineFamily.set(descriptor.id, 'forward');
                 return descriptor.id;
             };
-            this.materialPipelines.set(desc.id, { ccw: variant('ccw'), cw: variant('cw') });
+            const pipelines = { ccw: variant('ccw'), cw: variant('cw') };
+            this.materialPipelines.set(desc.id, pipelines);
+            this.materialDraw.set(material, { topology, pipelines });
         }
     }
 
@@ -524,7 +544,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const vertices = this.resources.bufferOf(geometry, 'vertices');
         if (vertices?.subkind !== 'vertex' || this.geometryOfEntity.has(entity)) return;
         const wire = desc.topology === 'line-list';
-        const edges = wire ? this.resources.bufferOf(geometry, 'wireEdges') : undefined;
+        // As arestas do arame só são alocadas quando um material de arame as usa.
+        const edges = wire ? this.resources.ensureAllocated(geometry, 'wireEdges') : undefined;
         if (wire && edges?.subkind !== 'index') {
             this.warnWithoutEdges(geometry);
             return;
@@ -585,21 +606,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         }
     }
 
-    /** Pipeline do grupo: pela topologia do material, a orientação das faces e a geometria (sprites e arame). */
-    private pipelineOf(
-        entry: EntityEntry,
-        material: Material,
-        topology: GPUPrimitiveTopology,
-    ): string | undefined {
-        const shader = this.materialShader.get(material);
-        if (shader === undefined) return undefined;
-        if (topology === 'point-list' || topology === 'line-list') {
-            const key = this.geometryOfEntity.get(entry.entityId);
-            return key === undefined ? undefined : this.geometryPipelines.get(key)?.id;
-        }
-        const ids = this.materialPipelines.get(shader);
-        if (ids === undefined) return undefined;
-        return entry.get(Transform).mirrored ? ids.cw : ids.ccw;
+    /** Pipeline por geometria (sprites e arame) da entidade. */
+    private geometryPipelineOf(entry: EntityEntry): string | undefined {
+        const key = this.geometryOfEntity.get(entry.entityId);
+        return key === undefined ? undefined : this.geometryPipelines.get(key)?.id;
     }
 
     /**

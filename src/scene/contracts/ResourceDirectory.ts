@@ -32,4 +32,9 @@ export interface ResourceDirectory extends PoolDirectory {
      * quem consome dado `upload: 'never'` (ex.: o forward avisa quando desenha uma geometria que ninguém escreve).
      */
     hasGpuWriter(resource: Resource, descId: string): boolean;
+    /**
+     * Aloca agora um descritor individual `allocation: 'onDemand'` de `resource` (se ainda não estiver) e devolve o
+     * buffer (spec 008). Chamado numa transição, fora da gravação.
+     */
+    ensureAllocated(resource: Resource, descId: string): AnyBufferSpec | undefined;
 }

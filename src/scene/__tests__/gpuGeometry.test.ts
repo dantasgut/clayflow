@@ -77,3 +77,40 @@ describe('geometria escrita pela GPU (spec 008)', () => {
         expect(s.resources.hasGpuWriter(mesh, 'vertices')).toBe(false);
     });
 });
+
+describe("alocação sob demanda (spec 008, allocation: 'onDemand')", () => {
+    class Lazy extends Entity implements Resource {
+        state = ResourceState.Uninitialized;
+        constructor() {
+            super();
+            this.data = { extra: new Uint32Array([0, 1, 1, 2]) };
+        }
+        getDescriptors(): readonly GPUDescriptor[] {
+            return [
+                {
+                    id: 'extra',
+                    role: 'index',
+                    count: 4,
+                    indexFormat: 'uint32',
+                    allocation: 'onDemand',
+                },
+            ];
+        }
+        getPipelineDescriptors() {
+            return [];
+        }
+    }
+
+    it('não aloca na inserção; ensureAllocated aloca uma vez e a remoção libera', () => {
+        const s = setup();
+        const lazy = new Lazy();
+        s.world.insert(lazy);
+        expect(s.resources.bufferOf(lazy, 'extra')).toBeUndefined();
+        const buffer = s.resources.ensureAllocated(lazy, 'extra');
+        expect(buffer?.subkind).toBe('index');
+        expect(s.resources.ensureAllocated(lazy, 'extra')).toBe(buffer);
+        expect(s.resources.bufferOf(lazy, 'extra')).toBe(buffer);
+        s.world.remove(lazy);
+        expect(s.resources.ensureAllocated(lazy, 'extra')).toBeUndefined();
+    });
+});

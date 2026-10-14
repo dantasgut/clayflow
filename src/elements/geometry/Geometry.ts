@@ -61,7 +61,16 @@ export abstract class Geometry<TData extends GeometryData = GeometryData>
     protected wireDescriptors(): GPUDescriptor[] {
         const edges = this.data.wireEdges;
         if (edges === undefined || edges.length === 0) return [];
-        return [{ id: 'wireEdges', role: 'index', count: edges.length, indexFormat: 'uint32' }];
+        // Só quem desenha o arame pede o buffer (`ensureAllocated`): geometria sem arame não aloca nada.
+        return [
+            {
+                id: 'wireEdges',
+                role: 'index',
+                count: edges.length,
+                indexFormat: 'uint32',
+                allocation: 'onDemand',
+            },
+        ];
     }
 
     /** Número de vértices na geometria — usado para `pass.draw(count)`. */
