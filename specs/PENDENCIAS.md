@@ -63,6 +63,11 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   36 864 partículas com água e cáusticas: 9,3 ms de GPU por quadro em 1280×720.
 - Defeito encontrado e corrigido: o PBF rodava 1 substep fixo e explodia abaixo de 5 cm de espaçamento; agora o passo
   estável vem do material (`pbfStableDt`), sem mudar as trajetórias de 5 cm.
+- Defeito encontrado e corrigido (feedback do usuário: "água grossa"): a viscosidade do SPH entrava na aceleração sem
+  ÷ρ_i — ~1000× a do material (mel no lugar de água); trajetória de SPH e imagem `particles-sph` regravadas. O MPM
+  recebe `viscosity` mas nenhum kernel a lê (fluido MPM sem viscosidade; pendência da F5/016).
+- Ondulações capilares procedurais no material de água: a rede fina das cáusticas (a simulação a 2,5 cm só faz ondas
+  grandes).
 - Capacidade nova da C2: `World.attach`/`detach` recompõem entidades vivas (troca de material sem recriar o corpo).
 - Limites: só a luz direcional que projeta sombra gera cáusticas (spot e pontuais quando tiverem sombra, F4/013); a
   reflexão usa a cor refletida do material (IBL na F4); água atrás de água soma à espessura, sem refração própria.

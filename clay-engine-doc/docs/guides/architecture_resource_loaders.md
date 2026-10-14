@@ -2161,6 +2161,11 @@ guardada no Resource `WaterSurface` da cena (C4, inserido com `FrameTargets`; to
   refração (nunca do que está na frente), absorção de Beer-Lambert, dispersão, Fresnel com a cor refletida, brilho e a
   sombra da cena.
 
+As **ondulações capilares** do material (`rippleStrength`, `rippleSize`, `rippleSpeed`: oito trens de onda com
+dispersão de águas profundas e o tempo da cena) somam à normal da superfície, na composição e nas cáusticas, o detalhe
+que as partículas não resolvem — é delas que vem a rede fina das cáusticas. A suavização alterna direções dos eixos e
+diagonais entre iterações (só os eixos deixavam filetes em lâminas finas).
+
 Os consumidores não sabem de partículas: a água por altura (spec 029) escreve a mesma superfície. A troca de material
 de um corpo vivo usa `World.attach`/`detach` (evento `entitiesRecomposed`; a C2 refaz os registros e os slots de
 entidades da entidade).

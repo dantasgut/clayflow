@@ -318,6 +318,7 @@ Só acréscimos, sem mudança incompatível na API pública:
 | `ensureAllocated` só para buffers | Aloca também descritores de textura sob demanda (o retorno é `undefined` para eles; leia por `textureViewOf`) |
 | PBF com 1 substep fixo | Substeps pelo passo estável do material (`pbfStableDt`); 5 cm continua com 1 |
 | `ForwardFrameParams { …, viewport }` | + `causticsEnabled` (0 = caminho de antes) |
+| Viscosidade do SPH ~1000× a do material (sem ÷ρ) | Viscosidade física: o mesmo `viscosity` deixa o fluido bem menos viscoso — trajetórias de SPH mudam |
 
 Estágios próprios que substituem o forward padrão e queiram cáusticas leem `caustic_map`, `water_light_depth` e
 `water_light_matrix` do `WaterSurface` (ver o documento de arquitetura).

@@ -20,6 +20,9 @@ material; o slot vai por pixel na textura `material` da superfície).
 | `refraction`       | `f32`   | `0.05`                  | Deslocamento da refração na tela por unidade de inclinação               |
 | `caustics`         | `u32`   | `1`                     | Liga as cáusticas deste material                                         |
 | `causticIntensity` | `f32`   | `1`                     | Escala do padrão (1 = físico; 0 = só atenuação)                          |
+| `rippleStrength`   | `f32`   | `0.3`                   | Inclinação das ondulações capilares procedurais (0 desliga)              |
+| `rippleSize`       | `f32`   | `0.06`                  | Comprimento da maior ondulação (m); as demais até ~1/3 dele              |
+| `rippleSpeed`      | `f32`   | `1`                     | Escala da velocidade (1 = dispersão de águas profundas)                  |
 
 `topology: 'point-list'`, `castsShadow: false`. Validação na construção: `ior ≥ 1`, absorção ≥ 0, raios > 0 quando
 dados, cores finitas. Mutação de `data` reenvia o slot (mesma regra dos materiais).
