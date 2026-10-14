@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-14
 
-**Status**: Draft
+**Status**: Planejada (2026-10-14) — FR-014/FR-015/FR-020 e dois casos de borda ajustados no plan (research R12, A3)
 
 **Input**: User description: "Superfície de fluido com cáusticas (spec 017, fase F5 do roadmap — `017-fluid-surfaces`).
 Implementar no lugar arquitetural certo (C1–C4, `architecture_resource_loaders.md` autoritativo), sem helpers nem atalhos
@@ -168,15 +168,15 @@ aparência.
 - Câmera dentro da água ou cortando a superfície no plano próximo: sem cor inválida nem tela preta; a parte além do plano
   próximo é desenhada como a vista de dentro (tingida pela absorção).
 - Fluido parcialmente fora da tela: a suavização não cria bordas falsas no limite da tela.
-- Superfície na frente de outro fluido com superfície: o mais próximo da câmera vence onde se sobrepõem; o de trás aparece
-  pela refração.
+- Superfície na frente de outro fluido com superfície: o mais próximo da câmera dá a forma e a óptica onde se sobrepõem;
+  a água de trás soma à espessura atravessada (tinge), sem refração própria (research R12).
 - Bordas de silhueta (água na frente de fundo distante): a suavização não mistura a profundidade da água com a do fundo
   (sem "halo" nem "cortina" entre a borda e o fundo).
 - Partícula com posição não finita: não contamina a superfície nem as cáusticas.
 - Nenhuma luz, ou luz sem mapa de sombra: a superfície é desenhada (reflexão, refração, absorção); as cáusticas daquela
   luz não aparecem, sem erro.
-- Várias luzes: cada luz que projeta sombra contribui com as suas cáusticas, até o limite declarado; as excedentes não
-  geram cáusticas e isso é avisado uma vez.
+- Várias luzes: a luz que projeta sombra no render principal (uma por cena hoje) gera as cáusticas; outras luzes não
+  geram e isso é avisado uma vez.
 - Redimensionamento do canvas e troca de MSAA (`antialias: false`): a superfície continua correta; os alvos são
   recriados com o canvas.
 - Fluido sem material de superfície e sem `PointSpriteMaterial`: não é desenhado (regra da 008).
@@ -220,15 +220,14 @@ aparência.
 - **FR-012**: A cor transmitida MUST ser atenuada pela espessura de água atravessada (absorção exponencial por canal).
 - **FR-013**: A parcela refletida MUST seguir Fresnel pelo índice de refração; o que é refletido é a cor do ambiente do
   material mais os realces especulares das luzes (reflexão do ambiente real fica com IBL na F4).
-- **FR-014**: A refração MUST usar a cena desenhada antes da água (opacos, sprites e, se houver, outra água atrás) e
-  nunca amostrar a própria água da frente nem objetos na frente da superfície.
+- **FR-014**: A refração MUST usar a cena desenhada antes da água (opacos e sprites) e nunca amostrar a própria água
+  nem objetos na frente da superfície; água atrás de água soma à espessura (research R12).
 
 **Cáusticas**
 
-- **FR-015**: Para cada luz direcional que projeta sombra (a única com mapa de sombra hoje; até o limite declarado no
-  plano), a luz que atravessa a superfície MUST ser refratada e concentrada nas superfícies receptoras abaixo (fundo e
-  objetos submersos), produzindo regiões mais claras e mais escuras que a iluminação sem água, conforme a curvatura da
-  água.
+- **FR-015**: Para a luz direcional que projeta sombra no render principal (a única com mapa de sombra hoje), a luz que
+  atravessa a superfície MUST ser refratada e concentrada nas superfícies receptoras abaixo (fundo e objetos
+  submersos), produzindo regiões mais claras e mais escuras que a iluminação sem água, conforme a curvatura da água.
 - **FR-016**: As cáusticas MUST mover-se com a água e com a direção da luz no mesmo quadro (sem atraso de quadros).
 - **FR-017**: A água MUST atenuar a luz que a atravessa (absorção) em vez de bloqueá-la como um opaco: o que está
   embaixo d'água não fica na sombra da água.
@@ -236,8 +235,8 @@ aparência.
 - **FR-019**: A energia luminosa MUST ser aproximadamente conservada: com a água plana e parada, a iluminação média do
   fundo sob a água é a luz direta atenuada pela absorção, sem padrão; com a água agitada, a média regional se mantém
   dentro da tolerância declarada no plano.
-- **FR-020**: Luzes sem mapa de sombra ou além do limite MUST não gerar cáusticas, sem erro; o excedente MUST ser
-  avisado uma vez.
+- **FR-020**: Luzes sem mapa de sombra ou além da que projeta sombra no render principal MUST não gerar cáusticas, sem
+  erro; o excedente MUST ser avisado uma vez.
 
 **Arquitetura e custo**
 
