@@ -13,7 +13,7 @@ Levantamento em `develop` (`a0b3437`):
   uma região de `*SimParams` por iteração (`PerStepUniforms`). O `data` do material é reativo (`Entity.data` com o
   gancho da C2). Mudar um campo em execução já chega ao próximo passo sem recriar nada.
 - **A3 — Struct do material.** `ParticleMaterial.schema` tem sete `f32`, mais `_pad0` e dois `vec4f`, total de 64 B.
-  Os campos novos entram ocupando `_pad0` e um `vec4f` novo; o struct passa a 80 B. O uniform é só dado do World: os
+  Os campos novos entram ocupando `_pad0` e quatro escalares no fim; o struct passa a 80 B. O uniform é só dado do World: os
   kernels leem os `*SimParams`.
 - **A4 — SPH.** Os passes são densidade → pressão → forças → integração → colisão, com o XSPH acumulado em `color.xyz`
   e aplicado na integração. Não há espaço livre para a normal de superfície em `SPHParticle`, porque `force` e `color`
