@@ -44,6 +44,11 @@ export interface ApplicationOptions {
     device?: DeviceOptions;
     /** Auto-attach window.resize listener (default true em ambiente browser). */
     autoResize?: boolean;
+    /**
+     * Antialiasing da geometria por MSAA (spec 008): 4 amostras por pixel nos alvos da cena, resolvidas antes do pós.
+     * Default true. Vale para a cena (a primeira aplicação dela define).
+     */
+    antialias?: boolean;
     /** Debounce em ms para o handler de resize (default 100). */
     resizeDebounceMs?: number;
     /**
@@ -215,7 +220,10 @@ export class Application {
         await scene.initialize(options.canvas, options.canvasOptions, options.device);
         for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
         options.consumers?.(scene.consumers);
-        const defaults = registerPresentationDefaults(scene.flows, { world: scene.world });
+        const defaults = registerPresentationDefaults(scene.flows, {
+            world: scene.world,
+            samples: options.antialias === false ? 1 : 4,
+        });
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;
         }

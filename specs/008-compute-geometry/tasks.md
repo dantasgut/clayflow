@@ -203,6 +203,11 @@ indireto.
 > arame (12 arestas grossas no lugar da caixa preenchida) e pela caixa de `PointSpriteMaterial` — commit próprio. A
 > contagem indireta de pontos (R6) não foi feita: o desenho segue `activeCount` (CPU), suficiente para a FR-014/015.
 
+- [x] T047b [US5] MSAA (FR-027, puxado da F4/011 por decisão do usuário): `slot.target({ samples })` opcional na C2 (`BoundTarget.samples`/`sampleCount`), textura multiamostrada só com `RENDER_ATTACHMENT | TEXTURE_BINDING`, `FrameTargets({ samples: 4 })` (cor de amostras + profundidade com 4 amostras), `RenderFlow.colorAttachment` (desenha nas amostras e resolve na cor), `multisample.count` do alvo nos pipelines do forward e do `ParticleFlow`, `Application({ antialias })` (padrão ligado); testes `msaa.test.ts` e `FrameTargets.test.ts`; fixtures `render-*`, `particles-*`, `softSurface-*` e `pointCloud-*` regravadas num commit próprio
+
+> **MSAA (T047b)**: 1065 testes e os 17 smokes verdes com MSAA ligado (inclusive `transforms`, que confere a cor nos
+> centros projetados).
+
 **Checkpoint**: topologia respeitada em forward e sombra; fixtures regravadas.
 
 ---

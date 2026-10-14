@@ -3,8 +3,8 @@ import { FrameTargets } from '../FrameTargets';
 import { renderScene } from '../../flows/__tests__/helpers/renderHarness';
 
 describe('FrameTargets', () => {
-    it('descritores: cor no formato do canvas e profundidade depth24plus, ambas do tamanho do canvas', () => {
-        expect(new FrameTargets().getDescriptors()).toEqual([
+    it('descritores: cor no formato do canvas e profundidade depth24plus, ambas do tamanho do canvas (sem MSAA)', () => {
+        expect(new FrameTargets({ samples: 1 }).getDescriptors()).toEqual([
             {
                 id: 'color',
                 role: 'texture',
@@ -16,6 +16,26 @@ describe('FrameTargets', () => {
                 textureShape: { format: 'depth24plus', sizeFromCanvas: true },
             },
         ]);
+    });
+
+    it('MSAA (padrão, spec 008): cor multiamostrada e profundidade com 4 amostras; a cor lida pelo pós é simples', async () => {
+        expect(
+            new FrameTargets().getDescriptors().map((d) => [d.id, d.textureShape?.sampleCount]),
+        ).toEqual([
+            ['color', undefined],
+            ['depth', 4],
+            ['samples', 4],
+        ]);
+        const s = await renderScene();
+        const targets = new FrameTargets();
+        s.scene.world.insert(targets);
+        s.step();
+        const samples = s.scene.resourceSystem.textureOf(targets, 'samples')!;
+        expect([samples.sampleCount, samples.format]).toEqual([4, s.core.canvasFormat]);
+        // Multiamostrada: só alvo de render e leitura.
+        expect(samples.usage).toBe(
+            GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        );
     });
 
     it('a C2 aloca as duas texturas no tamanho e no formato do canvas', async () => {

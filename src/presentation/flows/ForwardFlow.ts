@@ -114,6 +114,8 @@ export function forwardGroupKey(entry: EntityEntry): string {
 function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
     const select = castingShadowMap(world);
     const depth = { schema: FrameTargets.schema, descId: 'depth' };
+    // Cor multiamostrada dos alvos (MSAA, spec 008): o passe desenha nela e resolve na cor.
+    const samples = { schema: FrameTargets.schema, descId: 'samples' };
     return {
         camera: slot.singleton(Camera.schema),
         cameras: slot.pool(Camera.matricesSchema.name),
@@ -136,8 +138,8 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
         lights: slot.pool(Light.schema.name, { optional: true }),
         target: slot.target(
             output === 'scene'
-                ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth }
-                : { color: 'canvas', depth },
+                ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth, samples }
+                : { color: 'canvas', depth, samples },
         ),
     };
 }
@@ -330,15 +332,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      */
     dispatch(frame: Frame, bound: BoundFlow<ForwardSlots>): void {
         const target = bound.slots.target;
-        const colorView = this.colorView(frame, target);
-        if (colorView === undefined || target.depth === undefined) return;
+        const color = this.colorAttachment(frame, target, {
+            loadOp: 'clear',
+            clearValue: CLEAR_COLOR,
+        });
+        if (color === undefined || target.depth === undefined) return;
         const tsWrites = this.profileTimestamps
             ? this.core.profiler.timestampWritesFor(0, 1)
             : undefined;
         const renderTarget: RenderTarget = {
-            colorAttachments: [
-                { view: colorView, clearValue: CLEAR_COLOR, loadOp: 'clear', storeOp: 'store' },
-            ],
+            colorAttachments: [color],
             depthStencilAttachment: {
                 view: target.depth,
                 depthClearValue: 1.0,
@@ -448,6 +451,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 ? renderables.entries
                 : ids.map((id) => renderables.entry(id)).filter((e) => e !== undefined);
         const format = ctx.bound.slots.target.format ?? this.core.canvasFormat;
+        const samples = ctx.bound.slots.target.sampleCount;
         for (const entry of entries) {
             const material = entry.get(Material);
             const topology = material.topology;
@@ -486,6 +490,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     vertexBuffers: VERTEX_LAYOUT,
                     colorTargets: [{ format }],
                     depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+                    multisample: { count: samples },
                     ...(this.preferAsync ? { preferAsync: true } : {}),
                 };
                 ctx.prepare(descriptor);
@@ -540,6 +545,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     depthWriteEnabled: !wire,
                     depthCompare: wire ? 'less-equal' : 'less',
                 },
+                multisample: { count: ctx.bound.slots.target.sampleCount },
                 ...(this.preferAsync ? { preferAsync: true } : {}),
             });
             this.pipelineFamily.set(id, wire ? 'wire' : 'points');

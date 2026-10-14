@@ -226,6 +226,9 @@ aos materiais de partícula das US1–US4.
 
 **Preservação e verificação**
 
+- **FR-027**: (Puxado da F4/011 por decisão do usuário, 2026-10-13.) A geometria MUST ser desenhada com antialiasing por
+  MSAA (4 amostras por pixel nos alvos da cena, resolvidas na cor lida pelo pós), ligado por padrão e desligável pela
+  aplicação; forward, arame, sprites e malhas de corpo mole usam as mesmas amostras.
 - **FR-021**: As imagens das cenas de render existentes MUST continuar idênticas, exceto onde a topologia correta muda
   o desenho (a caixa com `WireframeMaterial` da cena `forward`); essas fixtures MUST ser regravadas com a diferença
   descrita e aprovada no PR.
@@ -295,7 +298,7 @@ Medidos na máquina de referência livre, no protocolo do benchmark.
 ## Out of Scope
 
 - Superfície de fluido, tensão superficial e acoplamento fluido-sólido (F5/017, P7, P10).
-- HDR, PBR, pós-processamento e luzes novas (F4).
+- HDR, PBR, pós-processamento e luzes novas (F4); o MSAA foi trazido para cá (FR-027).
 - Pontos de extensão matemáticos com funções do usuário (F3).
 - Vertex pulling geral, arena de geometria, culling e draws indiretos GPU-driven (F7).
 - Emissores com spawn/update em compute (F9).

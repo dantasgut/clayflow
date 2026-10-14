@@ -58,6 +58,7 @@ const slots: ParticleSlots = {
     target: slot.target({
         color: { schema: FrameTargets.schema, descId: 'color' },
         depth: { schema: FrameTargets.schema, descId: 'depth' },
+        samples: { schema: FrameTargets.schema, descId: 'samples' },
     }),
 };
 
@@ -182,10 +183,11 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<ParticleSlots>): void {
         if (this.order.length === 0) return;
         const target = bound.slots.target;
-        const colorView = this.colorView(frame, target);
-        if (colorView === undefined || target.depth === undefined) return;
+        // Com MSAA, carrega as amostras do forward e resolve de novo na cor da cena.
+        const color = this.colorAttachment(frame, target, { loadOp: 'load' });
+        if (color === undefined || target.depth === undefined) return;
         const renderTarget: RenderTarget = {
-            colorAttachments: [{ view: colorView, loadOp: 'load', storeOp: 'store' }],
+            colorAttachments: [color],
             depthStencilAttachment: {
                 view: target.depth,
                 depthLoadOp: 'load',
@@ -262,6 +264,7 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             cullMode: 'none',
             colorTargets: [{ format }],
             depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+            multisample: { count: ctx.bound.slots.target.sampleCount },
         };
         const buffer = this.resources.poolBufferSpec(poolKey)!;
         this.boundPools.set(poolKey, buffer);

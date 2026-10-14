@@ -592,7 +592,7 @@ export class FlowRuntime {
             case 'texture':
                 return this.textureOf(decl);
             case 'target':
-                return this.targetOf(decl.color, decl.depth);
+                return this.targetOf(decl.color, decl.depth, decl.samples);
         }
     }
 
@@ -696,21 +696,30 @@ export class FlowRuntime {
     private targetOf(
         color: 'canvas' | 'none' | TextureRef,
         depthRef: TextureRef | undefined,
+        samplesRef: TextureRef | undefined,
     ): BoundTarget | undefined {
         let depth: BoundTexture | undefined;
         if (depthRef !== undefined) {
             depth = this.textureOf(depthRef);
             if (depth === undefined) return undefined;
         }
-        const depthPart =
-            depth !== undefined ? { depth: depth.view, depthFormat: depth.texture.format } : {};
+        // Amostras são opcionais: o Resource sem a textura de amostras dá um alvo sem MSAA.
+        const samples = samplesRef === undefined ? undefined : this.textureOf(samplesRef);
+        const sampleCount = samples?.texture.sampleCount ?? depth?.texture.sampleCount ?? 1;
+        const extra = {
+            ...(depth !== undefined
+                ? { depth: depth.view, depthFormat: depth.texture.format }
+                : {}),
+            ...(samples !== undefined ? { samples: samples.view } : {}),
+            sampleCount,
+        };
         if (color === 'canvas')
-            return { color: 'canvas', format: this.host.core.canvasFormat, ...depthPart };
-        if (color === 'none') return { color: 'none', ...depthPart };
+            return { color: 'canvas', format: this.host.core.canvasFormat, ...extra };
+        if (color === 'none') return { color: 'none', ...extra };
         const tex = this.textureOf(color);
         return tex === undefined
             ? undefined
-            : { color: tex.view, format: tex.texture.format, ...depthPart };
+            : { color: tex.view, format: tex.texture.format, ...extra };
     }
 
     /** Primeiro recurso (ordem de inserção) com um descritor de `schema` (e `descId`, se dado) que passa em `select`. */

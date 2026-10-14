@@ -1621,7 +1621,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             width: size.width,
             height: size.height,
             format,
-            usage: textureUsage(desc.role, format),
+            usage: textureUsage(desc.role, format, shape.sampleCount ?? 1),
             ...(shape.dimension !== undefined ? { dimension: shape.dimension } : {}),
             ...(shape.depthOrArrayLayers !== undefined
                 ? { depthOrArrayLayers: shape.depthOrArrayLayers }
@@ -2179,8 +2179,14 @@ function isTypedBufferRole(desc: GPUDescriptor): boolean {
  * textura de profundidade/stencil é anexo de render e amostrável (sem cópia — formatos de profundidade não são
  * copiáveis em todos os aspectos); textura de cor é anexo, amostrável e copiável nos dois sentidos.
  */
-function textureUsage(role: GPUDescriptor['role'], format: GPUTextureFormat): number {
+function textureUsage(
+    role: GPUDescriptor['role'],
+    format: GPUTextureFormat,
+    samples: number,
+): number {
     const U = GPUTextureUsage;
+    // Multiamostrada (MSAA): só alvo de render e leitura (sem cópia nem storage).
+    if (samples > 1) return U.RENDER_ATTACHMENT | U.TEXTURE_BINDING;
     if (role === 'storage-texture')
         return U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST;
     if (isDepthOrStencil(format)) return U.RENDER_ATTACHMENT | U.TEXTURE_BINDING;

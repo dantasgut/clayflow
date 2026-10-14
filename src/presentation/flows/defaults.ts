@@ -17,6 +17,8 @@ import { FrameTargets } from '../app/FrameTargets';
 export interface PresentationDefaultsOptions {
     /** World da cena. */
     readonly world: World;
+    /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
+    readonly samples?: 1 | 4;
 }
 
 /**
@@ -78,7 +80,7 @@ export function registerPresentationDefaults(
         existing.users++;
         return existing.defaults;
     }
-    const frameTargets = new FrameTargets();
+    const frameTargets = new FrameTargets({ samples: options.samples ?? 4 });
     options.world.insert(frameTargets);
     const { defaults, registrations } = createPresentationDefaults(flows);
     DEFAULTS_BY_SCENE.set(flows, {

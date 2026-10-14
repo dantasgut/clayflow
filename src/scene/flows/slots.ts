@@ -149,6 +149,11 @@ export interface TargetSlot {
     readonly color: 'canvas' | 'none' | TextureRef;
     /** Profundidade: a textura de um Resource (opcional). */
     readonly depth?: TextureRef;
+    /**
+     * Cor multiamostrada (spec 008, MSAA): a textura de amostras de um Resource, opcional — quando o Resource a declara,
+     * o passe desenha nela e resolve na `color`; sem ela, desenha direto na `color`.
+     */
+    readonly samples?: TextureRef;
 }
 
 /** Declaração de um slot (valor imutável criado por `slot.*`). */
@@ -256,6 +261,10 @@ export interface BoundTarget {
     readonly depth?: TextureViewSpec;
     /** Formato da profundidade, quando o alvo tem. */
     readonly depthFormat?: GPUTextureFormat;
+    /** View da cor multiamostrada (MSAA), quando o alvo tem: o passe desenha nela e resolve em `color`. */
+    readonly samples?: TextureViewSpec;
+    /** Amostras por pixel do alvo (1 sem MSAA): o `multisample.count` dos pipelines que desenham nele. */
+    readonly sampleCount: 1 | 4;
 }
 
 /** Tipo resolvido de cada declaração. */
@@ -359,13 +368,18 @@ export const slot = {
     target(
         target:
             | 'canvas'
-            | { readonly color: 'canvas' | 'none' | TextureRef; readonly depth?: TextureRef },
+            | {
+                  readonly color: 'canvas' | 'none' | TextureRef;
+                  readonly depth?: TextureRef;
+                  readonly samples?: TextureRef;
+              },
     ): TargetSlot {
         if (target === 'canvas') return Object.freeze({ kind: 'target', color: 'canvas' });
         return Object.freeze({
             kind: 'target',
             color: target.color,
             ...(target.depth !== undefined ? { depth: target.depth } : {}),
+            ...(target.samples !== undefined ? { samples: target.samples } : {}),
         });
     },
 } as const;
