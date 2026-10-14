@@ -17,7 +17,9 @@ let t = 0;
  * `transform.data`: os slots sujos vão em faixas contíguas no início do quadro.
  */
 const impl: SceneImplementation<ClayflowHandle> = {
-    limitations: ['render LDR 8 bits, sem MSAA (até F4)'],
+    limitations: [
+        'render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)',
+    ],
     setup({ engine, variant, rng }) {
         moving = isMoving(variant.params);
         placements = gridScatter(rng, countOf(variant.params), INSTANCES_EXTENT);

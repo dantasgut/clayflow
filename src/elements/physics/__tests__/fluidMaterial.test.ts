@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SPHFlow } from '../flows/SPHFlow';
 import { PBFFlow } from '../flows/PBFFlow';
 import { MPMFlow } from '../flows/MPMFlow';
@@ -81,6 +81,17 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         expect(f32[3]).toBeCloseTo(cell, 6);
         expect(u32[4]).toBe(Math.ceil(2 / cell - 1e-9));
         expect(u32[5]).toBe(Math.ceil(2 / cell - 1e-9));
+    });
+
+    it('grade recriada pelo material: buffers da busca com geração nova (não repetem as specs da anterior)', async () => {
+        const s = await sph();
+        s.step(1 / 60);
+        const created = vi
+            .mocked(s.core.create)
+            .mock.calls.map((c) => (c[0] as { discriminator?: string }).discriminator ?? '');
+        // A busca do construtor (grade padrão) e a do material: discriminadores distintos.
+        expect(created.some((d) => d.includes('sph:gen0'))).toBe(true);
+        expect(created.some((d) => d.includes('sph:gen1'))).toBe(true);
     });
 
     it('sem material no World usa os padrões', async () => {

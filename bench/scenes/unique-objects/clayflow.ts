@@ -5,7 +5,9 @@ import { uniqueObjects } from './scene';
 
 /** Cada objeto com sua própria geometria e seu próprio `StandardMaterial`. */
 const impl: SceneImplementation<ClayflowHandle> = {
-    limitations: ['render LDR 8 bits, sem MSAA (até F4)'],
+    limitations: [
+        'render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)',
+    ],
     setup({ engine, variant, rng }) {
         for (const o of uniqueObjects(rng, Number(variant.params.count))) {
             const geometry =

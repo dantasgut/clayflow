@@ -96,6 +96,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     private neighborSearch: NeighborSearchPipeline;
     /** Grade com que a vizinhança foi criada. */
     private neighborKey: string;
+    /** Geração da busca de vizinhança (discriminador próprio a cada recriação). */
+    private neighborGeneration = 0;
     /** Iterações do quadro corrente (decididas em `framePrepare`). */
     private iterations = 0;
 
@@ -209,7 +211,9 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         grid: ReturnType<ParticleMaterial['gridFor']>,
     ): NeighborSearchPipeline {
         const ns = new NeighborSearchPipeline(this.core, {
-            discriminator: 'sph',
+            // Uma geração por grade: a busca recriada (material mudou) não pode repetir as specs da anterior — a C1
+            // devolveria os bind groups antigos, ligados aos buffers destruídos.
+            discriminator: `sph:gen${this.neighborGeneration++}`,
             maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
             maxNeighbors: this.maxNeighbors,
             particleStrideF32: 16,
