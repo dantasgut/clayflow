@@ -207,6 +207,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly pendingMaterials = new Set<EntityId>();
     /** Id do shader de cada material (pelo descritor; reconhecido uma vez por instância). */
     private readonly materialShader = new WeakMap<Material, string>();
+    /** Topologia de cada material (lida uma vez na preparação; o desenho não relê descritores por quadro). */
+    private readonly materialTopology = new WeakMap<Material, GPUPrimitiveTopology>();
     /** Família de layout de cada pipeline: os grupos 0, 1 e 3 são religados quando a família muda no passe. */
     private readonly pipelineFamily = new Map<string, Family>();
     /**
@@ -219,6 +221,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly geometryOfEntity = new Map<EntityId, string>();
     /** Geometrias escritas pela GPU sem escritor já avisadas. */
     private readonly warnedWriter = new WeakSet<Geometry>();
+    /** Geometrias que entraram desde o último `framePrepare` (conferidas uma vez quanto ao escritor). */
+    private readonly uncheckedGeometries = new Set<Geometry>();
     private geometryCounter = 0;
     /** Número de cada vertex buffer com pipeline por geometria (nome estável dos pipelines). */
     private readonly geometryKeys = new Map<AnyBufferSpec, number>();
@@ -318,7 +322,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     run: (_e, c) => {
                         if (this.pendingMaterials.size > 0)
                             this.prepareMaterials(c, [...this.pendingMaterials]);
-                        this.checkWriters(c);
+                        this.checkWriters();
                         this.writeFrameParams(c);
                     },
                 },
@@ -356,13 +360,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             let current: PreparedRender | undefined;
             for (const group of groups) {
                 const entry = group.representative;
-                const id = this.pipelineOf(entry);
+                const material = entry.get(Material);
+                const topology = this.materialTopology.get(material);
+                const id =
+                    topology === undefined ? undefined : this.pipelineOf(entry, material, topology);
                 if (id === undefined) continue;
                 const prepared = bound.pipelines.get(id);
                 if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
                 // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).
                 const geometry = entry.get(Geometry);
-                const topology = entry.get(Material).topology;
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 if (vertices?.subkind !== 'vertex') continue;
                 const edges =
@@ -453,6 +459,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const format = ctx.bound.slots.target.format ?? this.core.canvasFormat;
         const samples = ctx.bound.slots.target.sampleCount;
         for (const entry of entries) {
+            this.uncheckedGeometries.add(entry.get(Geometry));
             const material = entry.get(Material);
             const topology = material.topology;
             const perGeometry = topology === 'point-list' || topology === 'line-list';
@@ -469,6 +476,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 continue;
             }
             this.materialShader.set(material, desc.id);
+            this.materialTopology.set(material, topology);
             if (perGeometry) {
                 this.prepareGeometryPipeline(
                     ctx,
@@ -578,11 +586,13 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     }
 
     /** Pipeline do grupo: pela topologia do material, a orientação das faces e a geometria (sprites e arame). */
-    private pipelineOf(entry: EntityEntry): string | undefined {
-        const material = entry.get(Material);
+    private pipelineOf(
+        entry: EntityEntry,
+        material: Material,
+        topology: GPUPrimitiveTopology,
+    ): string | undefined {
         const shader = this.materialShader.get(material);
         if (shader === undefined) return undefined;
-        const topology = material.topology;
         if (topology === 'point-list' || topology === 'line-list') {
             const key = this.geometryOfEntity.get(entry.entityId);
             return key === undefined ? undefined : this.geometryPipelines.get(key)?.id;
@@ -592,11 +602,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         return entry.get(Transform).mirrored ? ids.cw : ids.ccw;
     }
 
-    /** Antes da gravação: aviso único de geometria escrita pela GPU sem escritor (percorre os grupos, não entidades). */
-    private checkWriters(ctx: Ctx): void {
-        for (const group of ctx.bound.slots.renderables.groups) {
-            this.warnWithoutWriter(group.representative.get(Geometry));
-        }
+    /**
+     * Antes da gravação: confere uma vez as geometrias que entraram (os escritores declaram `owns` nas transições de
+     * entrada, antes deste ponto) — aviso único de geometria escrita pela GPU sem escritor. Nada por quadro com a cena
+     * parada.
+     */
+    private checkWriters(): void {
+        if (this.uncheckedGeometries.size === 0) return;
+        for (const geometry of this.uncheckedGeometries) this.warnWithoutWriter(geometry);
+        this.uncheckedGeometries.clear();
     }
 
     /** Geometria com vértices escritos só pela GPU e sem escritor declarado: aviso único (desenhada com zeros). */
