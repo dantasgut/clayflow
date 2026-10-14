@@ -20,6 +20,14 @@ fn sph_collision_main(
     var pos = particles[i].pos.xyz;
     var vel = particles[i].vel.xyz;
 
+    // ── Adesão às fronteiras (spec 030): só com adesão > 0, antes do empurrão para fora ─────────────────────────────
+    if (sph_params.adhesion_accel > 0.0) {
+        collider_set_adhesion(
+            pos, &vel, sph_params.support, sph_params.adhesion_accel, sph_params.adhesion_tangential,
+            sph_params.dt, bound_min,
+        );
+    }
+
     // ── Bounds AABB (piso + laterais) ────────────────────────────────────────
     if (pos.y < bound_min.y) { pos.y = bound_min.y; vel.y = max(0.0, vel.y * -restitution); }
     if (pos.x < bound_min.x) { pos.x = bound_min.x; vel.x = abs(vel.x) * restitution; }

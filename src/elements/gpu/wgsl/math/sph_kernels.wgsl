@@ -52,3 +52,62 @@ fn grad_W_spiky(r_vec: vec3f, r: f32, h: f32) -> vec3f {
     let d = h - r;
     return coeff * (d * d / r) * r_vec;
 }
+
+// ── Tensão superficial e adesão (Akinci, Akinci e Teschner 2013; spec 030) ──────────────────────────────────────────
+// Suporte H = alcance da vizinhança do solver (2h na spline cúbica do SPH, h no poly6/spiky do PBF).
+
+// Núcleo de coesão C(r, H): atração em (H/2, H], repulsão perto de 0 (evita aglomerar).
+fn akinci_cohesion(r: f32, H: f32) -> f32 {
+    if (r <= 0.0 || r > H) { return 0.0; }
+    let coeff = 32.0 / (3.14159265 * pow(H, 9.0));
+    let a = (H - r) * (H - r) * (H - r) * r * r * r;
+    if (2.0 * r > H) { return coeff * a; }
+    let H6 = H * H * H * H * H * H;
+    return coeff * (2.0 * a - H6 / 64.0);
+}
+
+// Aceleração de tensão superficial de i por j: coesão (−γ mⱼ C(r) r̂) + curvatura (−γ (nᵢ − nⱼ)), com a correção
+// Kᵢⱼ = 2ρ₀ / (ρᵢ + ρⱼ) que reforça a borda (menos vizinhos) sem aglomerar. `xij` = xᵢ − xⱼ, `r` = |xij| > 0.
+fn akinci_pair_accel(
+    xij: vec3f,
+    r: f32,
+    H: f32,
+    gamma: f32,
+    mass_j: f32,
+    rho0: f32,
+    rho_i: f32,
+    rho_j: f32,
+    n_i: vec3f,
+    n_j: vec3f,
+) -> vec3f {
+    let rho_sum = rho_i + rho_j;
+    if (rho_sum <= 0.0) { return vec3f(0.0); }
+    let k_ij = 2.0 * rho0 / rho_sum;
+    let cohesion = -gamma * mass_j * akinci_cohesion(r, H) * (xij / r);
+    let curvature = -gamma * (n_i - n_j);
+    return k_ij * (cohesion + curvature);
+}
+
+// Perfil do núcleo de adesão de Akinci em u = r/H: (−4u² + 6u − 2)^¼ em [½, 1] (A = 0,007/H³ · este valor).
+fn akinci_adhesion_profile(u: f32) -> f32 {
+    return pow(max(-4.0 * u * u + 6.0 * u - 2.0, 0.0), 0.25);
+}
+
+// Integral de meio-espaço da adesão a distância δ = d/H da fronteira (componente normal; a tangencial se cancela):
+// ∫_{max(δ,½)}^1 a(u) (u² − δ²) du, por Gauss-Legendre de 8 pontos. A fronteira é tratada como localmente plana.
+fn akinci_adhesion_half_space(delta: f32) -> f32 {
+    let lo = max(delta, 0.5);
+    if (lo >= 1.0) { return 0.0; }
+    let x = array<f32, 4>(0.1834346424956498, 0.5255324099163290, 0.7966664774136267, 0.9602898564975363);
+    let w = array<f32, 4>(0.3626837833783620, 0.3137066458778873, 0.2223810344533745, 0.1012285362903763);
+    let half = 0.5 * (1.0 - lo);
+    let mid = 0.5 * (1.0 + lo);
+    let d2 = delta * delta;
+    var sum = 0.0;
+    for (var k = 0u; k < 4u; k++) {
+        let ua = mid - half * x[k];
+        let ub = mid + half * x[k];
+        sum += w[k] * (akinci_adhesion_profile(ua) * (ua * ua - d2) + akinci_adhesion_profile(ub) * (ub * ub - d2));
+    }
+    return sum * half;
+}

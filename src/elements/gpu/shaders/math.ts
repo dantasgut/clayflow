@@ -74,7 +74,7 @@ export const mpmMaterial = wgslModule({ name: 'mpm_material', source: mpmMateria
 export const colliderSet = wgslModule({
     name: 'collider_set',
     source: colliderSetSource,
-    requires: [quat, sdf],
+    requires: [quat, sdf, sphKernels],
     structs: [
         ColliderSetCountsSchema,
         PlaneCollider.schema,

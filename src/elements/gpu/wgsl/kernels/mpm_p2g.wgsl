@@ -37,7 +37,14 @@ fn mpm_p2g_main(
         // Fluido fracamente compressível: p = K (1 − J), σ = −p I ⇒ τ = J σ = K J (J − 1) I.
         let J_f = mat3_det(F);
         let s_f = mpm_params.bulk_modulus * J_f * (J_f - 1.0);
-        PFT = mat3_from_cols(vec3f(s_f, 0.0, 0.0), vec3f(0.0, s_f, 0.0), vec3f(0.0, 0.0, s_f));
+        // Viscosidade newtoniana (spec 030): σ_visc = μ (∇v + ∇vᵀ), com ∇v ≈ C (matriz afim do APIC) ⇒ τ += J μ (C + Cᵀ).
+        let mu_v = mpm_params.viscosity * J_f;
+        let CT   = mat3_transpose(C);
+        PFT = mat3_from_cols(
+            vec3f(s_f, 0.0, 0.0) + mu_v * (C[0] + CT[0]),
+            vec3f(0.0, s_f, 0.0) + mu_v * (C[1] + CT[1]),
+            vec3f(0.0, 0.0, s_f) + mu_v * (C[2] + CT[2]),
+        );
     } else {
         // Neo-Hookean com μ/λ do material.
         let J         = mat3_det(F);

@@ -3,6 +3,7 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { colliderSet, sphKernels } from '../../gpu/shaders/math';
 import sphDensitySource from '../../gpu/wgsl/kernels/sph_density.wgsl?raw';
 import sphPressureSource from '../../gpu/wgsl/kernels/sph_pressure.wgsl?raw';
+import sphNormalsSource from '../../gpu/wgsl/kernels/sph_normals.wgsl?raw';
 import sphForcesSource from '../../gpu/wgsl/kernels/sph_forces.wgsl?raw';
 import sphIntegrateSource from '../../gpu/wgsl/kernels/sph_integrate.wgsl?raw';
 import sphCollisionSource from '../../gpu/wgsl/kernels/sph_collision.wgsl?raw';
@@ -27,7 +28,15 @@ export const sphPressure = wgslModule({
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 
-/** Forças de pressão, viscosidade e XSPH. */
+/** Normais de superfície da tensão superficial de Akinci (spec 030). */
+export const sphNormals = wgslModule({
+    name: 'sph_normals',
+    source: sphNormalsSource,
+    requires: [poolLive, sphKernels],
+    structs: [SPHSimParamsSchema, SPHSchema],
+});
+
+/** Forças de pressão, viscosidade, tensão superficial e XSPH. */
 export const sphForces = wgslModule({
     name: 'sph_forces',
     source: sphForcesSource,

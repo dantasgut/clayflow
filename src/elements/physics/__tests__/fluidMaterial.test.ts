@@ -94,6 +94,71 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         expect(created.some((d) => d.includes('sph:gen1'))).toBe(true);
     });
 
+    it('XSPH, coesão, adesão e suporte 2h do material (spec 030)', async () => {
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new SPHFlow(ctx), {
+            type: 'SPHFlow',
+            phase: 'physics',
+            bodyType: 'SPHSchema',
+        });
+        const m = new ParticleMaterial({ ...OPTIONS, xsph: 0.1, cohesion: 0.5, adhesion: 0.25 });
+        s.scene.world.insert(m);
+        s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
+        const passes = s.step(1 / 60);
+        const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
+        expect(f32[at(SPHSimParamsSchema, 'xsph_c')]).toBeCloseTo(0.1);
+        expect(f32[at(SPHSimParamsSchema, 'cohesion_gamma')]).toBeCloseTo(m.cohesionGamma(), 6);
+        expect(f32[at(SPHSimParamsSchema, 'adhesion_accel')]).toBeCloseTo(m.adhesionAccel(), 4);
+        expect(f32[at(SPHSimParamsSchema, 'adhesion_tangential')]).toBeCloseTo(
+            m.adhesionTangential(),
+            4,
+        );
+        expect(f32[at(SPHSimParamsSchema, 'support')]).toBeCloseTo(2 * m.sphSmoothingLength, 6);
+        // Com coesão, o passe de normais acompanha cada iteração.
+        expect(countPasses(passes, 'SPHFlow.normals')).toBe(countPasses(passes, 'SPHFlow.density'));
+        // Em execução: coesão zero desliga o passe no quadro seguinte.
+        m.data.cohesion = 0;
+        const after = s.step(1 / 60);
+        expect(countPasses(after, 'SPHFlow.normals')).toBe(0);
+        expect(
+            lastWrite(s.writes, 'sph_params:per_step').f32[
+                at(SPHSimParamsSchema, 'cohesion_gamma')
+            ],
+        ).toBe(0);
+    });
+
+    it('padrões: XSPH 0,05, sem coesão nem adesão e sem passe de normais', async () => {
+        const s = await sph();
+        const passes = s.step(1 / 60);
+        const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
+        expect(f32[at(SPHSimParamsSchema, 'xsph_c')]).toBeCloseTo(0.05);
+        expect(f32[at(SPHSimParamsSchema, 'cohesion_gamma')]).toBe(0);
+        expect(f32[at(SPHSimParamsSchema, 'adhesion_accel')]).toBe(0);
+        expect(countPasses(passes, 'SPHFlow.normals')).toBe(0);
+    });
+
+    it('coesão acima do teto de substeps: grampeada e um aviso só', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new SPHFlow(ctx), {
+            type: 'SPHFlow',
+            phase: 'physics',
+            bodyType: 'SPHSchema',
+        });
+        const m = new ParticleMaterial({ ...OPTIONS, cohesion: 1e6 });
+        s.scene.world.insert(m);
+        s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
+        s.step(1 / 60);
+        s.step(1 / 60);
+        const gamma = lastWrite(s.writes, 'sph_params:per_step').f32[
+            at(SPHSimParamsSchema, 'cohesion_gamma')
+        ]!;
+        expect(gamma).toBeLessThan(m.cohesionGamma());
+        expect(gamma).toBeGreaterThan(0);
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes('SPHFlow')).length).toBe(1);
+        warn.mockRestore();
+    });
+
     it('sem material no World usa os padrões', async () => {
         const s = await sph(false);
         s.step(1 / 60);
@@ -130,6 +195,24 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
             material.particleMass / 900,
             9,
         );
+    });
+
+    it('XSPH, coesão, adesão e suporte h do material (spec 030)', async () => {
+        const s = await solverScene();
+        s.scene.flows.register((ctx) => new PBFFlow(ctx), {
+            type: 'PBFFlow',
+            phase: 'physics',
+            bodyType: 'PBFSchema',
+        });
+        const m = new ParticleMaterial({ ...OPTIONS, xsph: 0.02, cohesion: 0.5, adhesion: 0.5 });
+        s.scene.world.insert(m);
+        s.scene.world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
+        s.step(1 / 60);
+        const { f32 } = lastWrite(s.writes, 'pbf_params:per_step');
+        expect(f32[at(PBFSimParamsSchema, 'xsph_c')]).toBeCloseTo(0.02);
+        expect(f32[at(PBFSimParamsSchema, 'cohesion_gamma')]).toBeCloseTo(m.cohesionGamma(), 6);
+        expect(f32[at(PBFSimParamsSchema, 'adhesion_accel')]).toBeCloseTo(m.adhesionAccel(), 4);
+        expect(f32[at(PBFSimParamsSchema, 'support')]).toBeCloseTo(m.pbfSmoothingLength, 6);
     });
 
     it('vizinhança com raio = h', async () => {
