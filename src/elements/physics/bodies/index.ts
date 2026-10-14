@@ -21,6 +21,7 @@ export type {
     SoftBodyAlgorithm,
     SoftBodyData,
     SoftBodyEdges,
+    SoftBodySurface,
 } from './SoftBody';
 export { FluidBody } from './FluidBody';
 export type {

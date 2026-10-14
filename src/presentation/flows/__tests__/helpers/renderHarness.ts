@@ -16,6 +16,7 @@ import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixF
 import { FrameTargets } from '../../../app/FrameTargets';
 import { ForwardFlow, type ForwardOutput } from '../../ForwardFlow';
 import { ParticleFlow } from '../../ParticleFlow';
+import { SoftSurfaceFlow } from '../../../../elements/physics/flows/SoftSurfaceFlow';
 import { PostFlow } from '../../PostFlow';
 import { ShadowFlow } from '../../ShadowFlow';
 
@@ -277,6 +278,8 @@ export interface StageOptions {
     readonly post?: boolean;
     /** Desenho de corpos de partículas (`ParticleFlow`, depois do forward). */
     readonly particles?: boolean;
+    /** Vértices das superfícies de corpos moles (`SoftSurfaceFlow`, fase `transform`). */
+    readonly softSurface?: boolean;
 }
 
 /** Registra os estágios pedidos por factory, como `registerPresentationDefaults`, e devolve as instâncias. */
@@ -324,6 +327,12 @@ export function registerStages(
                   type: 'forward',
                   phase: 'forward',
               }).flow;
+    if (options.softSurface === true)
+        scene.flows.register((ctx) => new SoftSurfaceFlow(ctx), {
+            type: 'softSurface',
+            phase: 'transform',
+            priority: -30,
+        });
     if (options.particles === true)
         scene.flows.register((ctx) => new ParticleFlow(ctx), {
             type: 'particles',

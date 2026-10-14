@@ -31,6 +31,7 @@ import {
 } from '../../elements/material/forwardSchemas';
 import { particleSprite } from '../../elements/material/shaders';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
+import { SoftBody } from '../../elements/physics/bodies/SoftBody';
 import { Camera } from '../../elements/scene/Camera';
 import { Light } from '../../elements/scene/Light';
 import { FrameTargets } from '../app/FrameTargets';
@@ -227,6 +228,8 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             const entry = entries.entry(id);
             if (entry === undefined) continue;
             const body = entry.get(ParticleBody);
+            // Corpo com superfície (malha): desenhado pelo forward como geometria, não como sprites.
+            if (body instanceof SoftBody && body.surface !== undefined) continue;
             if (!(entry.get(Material) instanceof PointSpriteMaterial)) {
                 if (!this.warned.has(id)) {
                     this.warned.add(id);

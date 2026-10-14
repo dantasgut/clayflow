@@ -1,6 +1,7 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { DistanceConstraint } from '../constraints/DistanceConstraint';
+import { SurfaceGeometry } from '../../geometry/SurfaceGeometry';
 import { XPBDSoftSchema } from './schemas/XPBDSoftSchema';
 import { FEMSchema } from './schemas/FEMSchema';
 import { MPM_REST_DEFORMATION, MPMSoftSchema } from './schemas/MPMSoftSchema';
@@ -53,6 +54,20 @@ export interface SoftBodyDomainOptions {
     readonly mass?: ArrayLike<number> | number;
     /** Restrições de distância internas (só XPBD), resolvidas na faixa do próprio corpo. */
     readonly edges?: SoftBodyEdges;
+    /**
+     * Superfície desenhada como malha (spec 008): triângulos sobre as partículas (índices locais) e uvs opcionais. Cria
+     * uma `SurfaceGeometry` como parte do corpo, cujos vértices um estágio recalcula na GPU a cada quadro; com um
+     * material de superfície e um `Transform` na entidade, o corpo é desenhado (e projeta sombra) como malha.
+     */
+    readonly surface?: SoftBodySurface;
+}
+
+/** Superfície de um corpo mole: triângulos sobre as partículas. */
+export interface SoftBodySurface {
+    /** Triângulos: 3 índices locais de partícula por triângulo (anti-horário visto de fora). */
+    readonly triangles: ArrayLike<number>;
+    /** Coordenadas de textura: `u, v` por partícula. Default zero. */
+    readonly uvs?: ArrayLike<number>;
 }
 
 /** Opções cruas do SoftBody: schema, contagem e dado por campo. */
@@ -83,6 +98,8 @@ function isRaw(o: SoftBodyOptions): o is SoftBodyRawOptions {
 export class SoftBody extends ParticleBody<SoftBodyData> {
     /** Número de arestas (restrições de distância internas). */
     readonly edgeCount: number;
+    /** Superfície desenhada como malha, se declarada (parte do corpo). */
+    readonly surface: SurfaceGeometry | undefined = undefined;
 
     constructor(options: SoftBodyOptions) {
         if (isRaw(options)) {
@@ -132,6 +149,14 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
             );
         }
         this.edgeCount = edges === undefined ? 0 : edges.a.length;
+        if (options.surface !== undefined) {
+            this.surface = new SurfaceGeometry(
+                options.position,
+                options.surface.triangles,
+                options.surface.uvs,
+            );
+            this.add(this.surface);
+        }
         this.data =
             edges === undefined
                 ? { body }

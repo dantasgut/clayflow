@@ -143,10 +143,17 @@ solvers ignorando slots mortos; trajetórias idênticas.
 
 **Independent Test**: smoke `softSurface` com tecido XPBD preso por dois cantos, iluminado e com sombra.
 
-- [ ] T032 [P] [US3] Testes da superfície em `src/elements/physics/__tests__/softSurface.test.ts`: `SoftBody` com `surface` cria uma `SurfaceGeometry` como parte (vertices `'never'` 32 B × N, indices `'initial'` `uint32`, adjacência CSR `'initial'`); o `SoftSurfaceFlow` declara `owns` do `vertices`, despacha dois kernels por corpo por quadro e nenhuma escrita da CPU por quadro (contagem)
-- [ ] T033 [US3] Implementar `src/elements/geometry/SurfaceGeometry.ts` e a criação no `SoftBody` (adjacência vértice → triângulos montada uma vez na criação)
-- [ ] T034 [US3] Implementar `src/elements/physics/flows/SoftSurfaceFlow.ts` (fase `transform`, depois dos solvers) e os kernels `soft_face_normals.wgsl` e `soft_vertex_write.wgsl` em `src/elements/gpu/wgsl/kernels/` (posição da faixa do pool, normal média dos triângulos adjacentes, uv); registrar em `src/elements/physics/defaultFlows.ts` (ou o registro de estágios da C3 equivalente)
-- [ ] T035 [US3] Smoke `src/__smokes__/softSurface.ts`: tecido XPBD 32×32 com `edges` e `surface`, `StandardMaterial`, luz direcional com sombra, presos dois cantos (massa 0); FEM de 64 nós como sprites; capturas nos quadros 30 e 120 com referência e verificação de movimento; sombra do tecido visível no chão (pixels mais escuros que a referência sem sombra)
+- [x] T032 [P] [US3] Testes da superfície em `src/elements/physics/__tests__/softSurface.test.ts`: `SoftBody` com `surface` cria uma `SurfaceGeometry` como parte (vertices `'never'` 32 B × N, indices `'initial'` `uint32`, adjacência CSR `'initial'`); o `SoftSurfaceFlow` declara `owns` do `vertices`, despacha dois kernels por corpo por quadro e nenhuma escrita da CPU por quadro (contagem)
+- [x] T033 [US3] Implementar `src/elements/geometry/SurfaceGeometry.ts` e a criação no `SoftBody` (adjacência vértice → triângulos montada uma vez na criação)
+- [x] T034 [US3] Implementar `src/elements/physics/flows/SoftSurfaceFlow.ts` (fase `transform`, depois dos solvers) e os kernels `soft_face_normals.wgsl` e `soft_vertex_write.wgsl` em `src/elements/gpu/wgsl/kernels/` (posição da faixa do pool, normal média dos triângulos adjacentes, uv); registrar em `src/elements/physics/defaultFlows.ts` (ou o registro de estágios da C3 equivalente)
+- [x] T035 [US3] Smoke `src/__smokes__/softSurface.ts`: tecido XPBD 32×32 com `edges` e `surface`, `StandardMaterial`, luz direcional com sombra, presos dois cantos (massa 0); FEM de 64 nós como sprites; capturas nos quadros 30 e 120 com referência e verificação de movimento; sombra do tecido visível no chão (pixels mais escuros que a referência sem sombra)
+
+> **US3 (T032–T035)**: `softSurface` verde — tecido XPBD 32 × 32 desenhado como malha iluminada (7 454 → 2 901 px), com
+> sombra no chão (610 px mais escuros que a cena vazia), FEM como sprites; 0 leituras; fixtures reproduzidas. Os vértices
+> da `SurfaceGeometry` são `upload: 'initial'` (a CPU envia uvs e posições iniciais; o kernel reescreve posição e normal
+> e mantém o uv), não `'never'` como no plano — o uv não precisa de buffer próprio. O FEM só integra a gravidade (sem
+> colisão, F5): o bloco é capturado nos quadros 10 e 25 da queda. Registrado nos estágios padrão (`softSurface`, fase
+> `transform`, prioridade −30).
 
 **Checkpoint**: corpo mole visível como malha deformável com sombra.
 

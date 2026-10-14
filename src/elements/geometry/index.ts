@@ -6,3 +6,4 @@ export { PointCloudGeometry, type PointCloudGeometryData } from './PointCloudGeo
 export { ParametricGeometry, type ParametricGeometryData } from './ParametricGeometry';
 export type { ParametricFunction } from './ParametricGeometry';
 export { ParametricSurfaceGeometry } from './ParametricSurfaceGeometry';
+export { SurfaceGeometry, type SurfaceGeometryData } from './SurfaceGeometry';

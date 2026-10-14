@@ -2,6 +2,7 @@ import type { FlowRegistry, FlowRegistration } from '../../scene/flows/FlowRegis
 import type { World } from '../../scene/world/World';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
+import { SoftSurfaceFlow } from '../../elements/physics/flows/SoftSurfaceFlow';
 import { ShadowFlow } from './ShadowFlow';
 import { PostFlow } from './PostFlow';
 import { UIFlow } from './UIFlow';
@@ -126,6 +127,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
         priority: -20,
     });
+    // Vértices das superfícies de corpos moles na mesma fase, depois da física e antes da sombra e do forward.
+    const softSurfaceRegistration = flows.register((ctx) => new SoftSurfaceFlow(ctx), {
+        type: 'softSurface',
+        phase: 'transform',
+        priority: -30,
+    });
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
@@ -168,6 +175,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             transformRegistration,
             cameraRegistration,
             shadowMatrixRegistration,
+            softSurfaceRegistration,
             shadowRegistration,
             forwardRegistration,
             particleRegistration,
