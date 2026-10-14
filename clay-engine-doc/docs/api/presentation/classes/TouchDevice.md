@@ -6,7 +6,7 @@
 
 # Class: TouchDevice
 
-Defined in: [presentation/input/TouchDevice.ts:9](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/TouchDevice.ts#L9)
+Defined in: [presentation/input/TouchDevice.ts:9](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/input/TouchDevice.ts#L9)
 
 Touch input → reflexo no `Input.current`. Suporta:
   - 1 dedo: atualiza pointerX/Y (paridade com mouse).
@@ -19,7 +19,7 @@ Touch input → reflexo no `Input.current`. Suporta:
 
 > **new TouchDevice**(`canvas`, `input`): `TouchDevice`
 
-Defined in: [presentation/input/TouchDevice.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/TouchDevice.ts#L12)
+Defined in: [presentation/input/TouchDevice.ts:12](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/input/TouchDevice.ts#L12)
 
 #### Parameters
 
@@ -41,7 +41,7 @@ Defined in: [presentation/input/TouchDevice.ts:12](https://github.com/dantasgut/
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/TouchDevice.ts:18](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/TouchDevice.ts#L18)
+Defined in: [presentation/input/TouchDevice.ts:18](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/input/TouchDevice.ts#L18)
 
 Registra listeners de touch no canvas.
 
@@ -55,7 +55,7 @@ Registra listeners de touch no canvas.
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/TouchDevice.ts:26](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/TouchDevice.ts#L26)
+Defined in: [presentation/input/TouchDevice.ts:26](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/input/TouchDevice.ts#L26)
 
 Remove listeners de touch.
 

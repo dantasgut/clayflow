@@ -27,6 +27,65 @@ export interface ParticleMaterialOptions {
     readonly domainMin?: readonly [number, number, number];
     /** Canto máximo do domínio simulado, em metros (default [2, 2, 2]). */
     readonly domainMax?: readonly [number, number, number];
+    /**
+     * Coesão — tensão superficial de Akinci et al. 2013 (SPH e PBF), adimensional (default 0, desligada): 1 dá à
+     * partícula de borda uma aceleração de coesão da ordem de g. Referência de água: `ParticleMaterial.WATER_COHESION`.
+     */
+    readonly cohesion?: number;
+    /**
+     * Adesão às fronteiras sólidas (limites do domínio e colliders), adimensional (default 0, desligada): 1 dá à
+     * partícula em contato uma aceleração de adesão da ordem de g. Referência de água: `ParticleMaterial.WATER_ADHESION`.
+     */
+    readonly adhesion?: number;
+    /** Suavização de velocidade XSPH do SPH e do PBF (default 0.05). */
+    readonly xsph?: number;
+}
+
+/** Aceleração de referência das escalas de coesão e adesão (m/s²). */
+const G0 = 9.81;
+/** Fração do passo de oscilação usada no passo estável da coesão e da adesão. */
+const SURFACE_CFL = 0.4;
+/** Teto de substeps pela coesão/adesão, em múltiplos dos substeps sem elas (acima, os valores são grampeados). */
+const SURFACE_MAX_SUBSTEP_FACTOR = 4;
+
+/** Integral de Simpson de `f` em [a, b] com `n` intervalos (par). */
+function simpson(f: (u: number) => number, a: number, b: number, n = 2048): number {
+    const h = (b - a) / n;
+    let sum = f(a) + f(b);
+    for (let i = 1; i < n; i++) sum += (i % 2 === 1 ? 4 : 2) * f(a + i * h);
+    return (sum * h) / 3;
+}
+
+/**
+ * ∫₀¹ g(u) u² du do núcleo de coesão de Akinci em u = r/H (C = 32/(πH³) g(u)): a aceleração de coesão de uma partícula
+ * na borda de um meio-espaço de fluido é γ ρ₀ · 32 · este valor.
+ */
+const COHESION_HALF_SPACE = simpson(
+    (u) => (u > 0.5 ? (1 - u) ** 3 * u ** 3 : 2 * (1 - u) ** 3 * u ** 3 - 1 / 64) * u * u,
+    0,
+    1,
+);
+
+/**
+ * ∫_{1/2}^1 a(u) u² du do núcleo de adesão de Akinci em u = r/H (A = 0,007/H³ a(u)): a integral de meio-espaço com a
+ * partícula encostada na fronteira (normalização da adesão; o kernel avalia a mesma integral a distância d).
+ */
+const ADHESION_HALF_SPACE = simpson(
+    (u) => Math.max(0, -4 * u * u + 6 * u - 2) ** 0.25 * u * u,
+    0.5,
+    1,
+);
+
+/** Coesão e adesão efetivas de um quadro e os substeps que elas exigem (`ParticleMaterial.surfaceStep`). */
+export interface SurfaceStep {
+    /** Substeps do quadro (os do passo estável do solver, ou mais pela coesão/adesão, até o teto). */
+    readonly substeps: number;
+    /** Coesão efetiva (a do material, ou grampeada). */
+    readonly cohesion: number;
+    /** Adesão efetiva (a do material, ou grampeada). */
+    readonly adhesion: number;
+    /** `true` quando coesão ou adesão foram grampeadas pelo teto de substeps. */
+    readonly clamped: boolean;
 }
 
 /** Passo da calibração do PBF (s) e o raio de kernel em que ele vale (m): ver `ParticleMaterial.pbfStableDt`. */
@@ -54,6 +113,13 @@ export interface ParticleGrid {
     readonly cellSize: number;
 }
 
+function nonNegative(name: string, value: number): number {
+    if (!(value >= 0) || !Number.isFinite(value)) {
+        throw new RangeError(`ParticleMaterial: ${name} deve ser ≥ 0 (recebeu ${value})`);
+    }
+    return value;
+}
+
 function positive(name: string, value: number): number {
     if (!(value > 0) || !Number.isFinite(value)) {
         throw new RangeError(`ParticleMaterial: ${name} deve ser > 0 (recebeu ${value})`);
@@ -77,12 +143,20 @@ export interface ParticleMaterialData {
     youngModulus: number;
     /** Coeficiente de Poisson ν. */
     poissonRatio: number;
-    /** Preenchimento do layout. */
-    _pad0: number;
+    /** Coesão (tensão superficial), adimensional. */
+    cohesion: number;
     /** Canto mínimo do domínio. */
     domainMin: number[];
     /** Canto máximo do domínio. */
     domainMax: number[];
+    /** Adesão às fronteiras sólidas, adimensional. */
+    adhesion: number;
+    /** Suavização de velocidade XSPH. */
+    xsph: number;
+    /** Preenchimento do layout. */
+    _pad0: number;
+    /** Preenchimento do layout. */
+    _pad1: number;
 }
 
 /**
@@ -104,10 +178,24 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
         restitution: FieldType.f32,
         youngModulus: FieldType.f32,
         poissonRatio: FieldType.f32,
-        _pad0: FieldType.f32,
+        cohesion: FieldType.f32,
         domainMin: FieldType.vec4f,
         domainMax: FieldType.vec4f,
+        adhesion: FieldType.f32,
+        xsph: FieldType.f32,
+        _pad0: FieldType.f32,
+        _pad1: FieldType.f32,
     });
+
+    /**
+     * Coesão de referência da água nas cenas de 2–5 cm de espaçamento (calibrada pelo smoke `fluidBehavior`: gota
+     * isolada arredondada em 3 s, filete que se parte em gotas). Não é a tensão física de 0,072 N/m — nessa escala, ela
+     * seria invisível.
+     */
+    static readonly WATER_COHESION = 3;
+
+    /** Adesão de referência da água (calibrada pelo smoke `fluidBehavior`: menisco junto à parede). */
+    static readonly WATER_ADHESION = 8;
 
     /** Material padrão (usado quando o World não tem um). */
     static readonly defaults = new ParticleMaterial();
@@ -148,6 +236,9 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
             throw new RangeError(`ParticleMaterial: viscosity deve ser ≥ 0 (recebeu ${viscosity})`);
         }
         this.data = {
+            cohesion: nonNegative('cohesion', options.cohesion ?? 0),
+            adhesion: nonNegative('adhesion', options.adhesion ?? 0),
+            xsph: nonNegative('xsph', options.xsph ?? 0.05),
             restDensity: positive('restDensity', options.restDensity ?? 1000),
             particleSpacing: positive('particleSpacing', options.particleSpacing ?? 0.05),
             viscosity,
@@ -155,9 +246,10 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
             restitution,
             youngModulus: positive('youngModulus', options.youngModulus ?? 5e4),
             poissonRatio: poisson,
-            _pad0: 0,
             domainMin: [...min, 0],
             domainMax: [...max, 0],
+            _pad0: 0,
+            _pad1: 0,
         };
     }
 
@@ -174,6 +266,21 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
     /** Viscosidade. */
     get viscosity(): number {
         return this.data.viscosity;
+    }
+
+    /** Coesão (tensão superficial), adimensional. */
+    get cohesion(): number {
+        return this.data.cohesion;
+    }
+
+    /** Adesão às fronteiras sólidas, adimensional. */
+    get adhesion(): number {
+        return this.data.adhesion;
+    }
+
+    /** Suavização de velocidade XSPH. */
+    get xsph(): number {
+        return this.data.xsph;
     }
 
     /** Velocidade do som c (m/s). */
@@ -255,11 +362,82 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
         return PBF_CALIBRATION_DT * (this.pbfSmoothingLength / PBF_CALIBRATION_H) ** 2;
     }
 
-    /** Passo estável do MPM: 0,3 dx / max(c, √((λ+2μ)/ρ₀)). */
+    /**
+     * Passo estável do MPM: 0,3 dx / max(c, √((λ+2μ)/ρ₀)) e, com viscosidade, a restrição difusiva dx²ρ₀/(6 μ) da
+     * tensão viscosa do fluido.
+     */
     get mpmStableDt(): number {
         const { mu, lambda } = this.lame;
         const elastic = Math.sqrt((lambda + 2 * mu) / this.restDensity);
-        return (0.3 * this.mpmCellSize) / Math.max(this.speedOfSound, elastic);
+        const wave = (0.3 * this.mpmCellSize) / Math.max(this.speedOfSound, elastic);
+        const viscosity = this.viscosity;
+        if (viscosity <= 0) return wave;
+        return Math.min(wave, (this.mpmCellSize ** 2 * this.restDensity) / (6 * viscosity));
+    }
+
+    /**
+     * γ de Akinci et al. 2013 em unidades do solver, para o suporte `support` (H) da vizinhança e a coesão dada (padrão
+     * a do material): a partícula na borda de um meio-espaço de fluido sente `coesão · g`.
+     */
+    cohesionGamma(cohesion = this.cohesion): number {
+        return (cohesion * G0) / (32 * this.restDensity * COHESION_HALF_SPACE);
+    }
+
+    /**
+     * Escala da adesão para o kernel (m/s²): a aceleração normal a distância d é este valor vezes a integral de
+     * meio-espaço do núcleo de Akinci em [max(d/H, ½), 1] — `adesão · g` com a partícula encostada (d = 0).
+     */
+    adhesionAccel(adhesion = this.adhesion): number {
+        return (adhesion * G0) / ADHESION_HALF_SPACE;
+    }
+
+    /** Arrasto tangencial da adesão (1/s) no contato: `adesão · √(g/s)`. */
+    adhesionTangential(adhesion = this.adhesion): number {
+        return adhesion * Math.sqrt(G0 / this.particleSpacing);
+    }
+
+    /**
+     * Substeps do quadro com coesão e adesão: o passo da oscilação que elas impõem numa partícula (aceleração `valor · g`
+     * ao longo de um espaçamento, 0,4 √(s / (valor · g))) entra junto com o passo estável do solver. Até 4× os substeps
+     * sem elas; acima, coesão e adesão são grampeadas ao que cabe no teto (`clamped`). Com coesão e adesão zero, devolve
+     * exatamente `substepsFor(stepDt, solverStableDt, minimum)`.
+     */
+    surfaceStep(stepDt: number, solverStableDt: number, minimum = 1): SurfaceStep {
+        const base = ParticleMaterial.substepsFor(stepDt, solverStableDt, minimum);
+        const strongest = Math.max(this.cohesion, this.adhesion);
+        if (strongest <= 0 || base === 0) {
+            return {
+                substeps: base,
+                cohesion: this.cohesion,
+                adhesion: this.adhesion,
+                clamped: false,
+            };
+        }
+        const s = this.particleSpacing;
+        const surfaceDt = SURFACE_CFL * Math.sqrt(s / (strongest * G0));
+        const needed = ParticleMaterial.substepsFor(
+            stepDt,
+            Math.min(solverStableDt, surfaceDt),
+            minimum,
+        );
+        const cap = base * SURFACE_MAX_SUBSTEP_FACTOR;
+        if (needed <= cap) {
+            return {
+                substeps: needed,
+                cohesion: this.cohesion,
+                adhesion: this.adhesion,
+                clamped: false,
+            };
+        }
+        // Maior valor cujo passo cabe no teto: dt = stepDt / cap ⇒ valor = s / (g (dt / 0,4)²).
+        const dt = stepDt / cap;
+        const limit = s / (G0 * (dt / SURFACE_CFL) ** 2);
+        return {
+            substeps: cap,
+            cohesion: Math.min(this.cohesion, limit),
+            adhesion: Math.min(this.adhesion, limit),
+            clamped: true,
+        };
     }
 
     /**

@@ -32,7 +32,7 @@ export const particlesScene: SceneDefinition = {
     id: 'particles',
     title: 'Partículas (fluido)',
     description:
-        'Bloco de fluido num tanque — clayflow: SPH na GPU desenhado em sprites lidos do pool (variantes `*-water`: água contínua com cáusticas, spec 017); Three: o mesmo número de partículas instanciadas movidas pela CPU (referência de custo de desenho).',
+        'Bloco de fluido num tanque — clayflow: SPH na GPU desenhado em sprites lidos do pool (variantes `*-water`: água contínua com cáusticas, spec 017; `*-cohesion`: coesão e adesão de referência da água, spec 030); Three: o mesmo número de partículas instanciadas movidas pela CPU (referência de custo de desenho).',
     phase: 'F2',
     seed: 4242,
     camera: { position: [0, 1.4, 2.2], target: [0, 0.3, 0], fovDeg: 50 },
@@ -42,6 +42,9 @@ export const particlesScene: SceneDefinition = {
         // Spec 017: o mesmo fluido como água contínua (superfície, óptica e cáusticas sob luz com sombra).
         { id: '4k-water', params: { count: 4096, water: true } },
         { id: '64k-water', params: { count: 64_000, water: true } },
+        // Spec 030: o mesmo fluido em sprites com a coesão e a adesão de referência da água (custo da simulação).
+        { id: '4k-cohesion', params: { count: 4096, cohesion: true } },
+        { id: '64k-cohesion', params: { count: 64_000, cohesion: true } },
     ],
     implementations: {
         clayflow: async () => (await import('./clayflow')).default,

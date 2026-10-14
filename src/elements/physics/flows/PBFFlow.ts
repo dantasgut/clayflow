@@ -26,7 +26,7 @@ import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
-import { ParticleMaterial } from '../materials/ParticleMaterial';
+import { ParticleMaterial, type SurfaceStep } from '../materials/ParticleMaterial';
 import { PBFSimParamsSchema } from '../schemas/simParams';
 import {
     pbfApply,
@@ -44,8 +44,6 @@ import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 const PBF_S_CORR_N = 4;
 /** ε do confinamento de vorticidade (0 = desligado). */
 const PBF_VORTICITY_EPS = 0;
-/** Coeficiente do XSPH. */
-const PBF_XSPH = 0.05;
 /** Relaxação ε do denominador de λ (Macklin & Müller 2013), nas unidades de |∇C|² (1/m²). */
 const PBF_RELAXATION = 600;
 /** Coeficiente do `s_corr` para espaçamento de 0,05 m; escala com s² (mesma unidade de λ). */
@@ -118,6 +116,10 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     private readonly colliderSet: ColliderSet;
     /** Correções Δp/Δv por partícula (vec4f), separadas das posições/velocidades lidas pelos vizinhos. */
     private readonly delta: StorageBufferSpec;
+    /** (nᵢ, ρᵢ) por partícula para a tensão superficial de Akinci (vec4f; spec 030). */
+    private readonly normals: StorageBufferSpec;
+    /** Materiais já avisados de coesão/adesão grampeadas. */
+    private readonly warnedClamp = new WeakSet<ParticleMaterial>();
     private neighborSearch: NeighborSearchPipeline;
     /** Grade com que a vizinhança foi criada. */
     private neighborKey: string;
@@ -147,12 +149,19 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             discriminator: 'pbf_delta',
             byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
         });
+        this.normals = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'pbf_normal',
+            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
+        });
         const grid = gridOf(ParticleMaterial.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
         this.bindings = {
             pbf_params: this.params.source(),
             pbf_delta: this.delta,
+            pbf_normal: this.normals,
             ...this.neighborSources(),
         };
         const consumes = [bodyType, `${bodyType}.live`];
@@ -256,6 +265,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     override dispose(): void {
         this.params.dispose();
         this.core.destroy(this.delta);
+        this.core.destroy(this.normals);
         this.colliderSet.destroy();
         this.neighborSearch.dispose();
     }
@@ -316,11 +326,10 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             ctx.bind(this.neighborSources());
         }
         // Substeps pelo passo estável do material (spec 017: abaixo de 5 cm o passo fixo explodia o fluido).
-        this.substeps = ParticleMaterial.substepsFor(
-            time.stepDt,
-            material.pbfStableDt,
-            this.minSubsteps,
-        );
+        // Coesão/adesão podem pedir mais substeps (spec 030); com as duas em zero, é o passo estável do PBF.
+        const surface = material.surfaceStep(time.stepDt, material.pbfStableDt, this.minSubsteps);
+        if (surface.clamped) this.warnClamp(material, surface);
+        this.substeps = surface.substeps;
         this.iterations = time.steps * this.substeps;
         if (this.iterations === 0) return;
         this.neighborSearch.prepare(
@@ -343,7 +352,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 s_corr_k: PBF_S_CORR_K_AT_5CM * spacingRatio * spacingRatio,
                 s_corr_n: PBF_S_CORR_N,
                 vorticity_eps: PBF_VORTICITY_EPS,
-                xsph_c: PBF_XSPH,
+                xsph_c: material.xsph,
                 dt_frame: time.stepDt,
                 particle_count: count,
                 max_neighbors: this.maxNeighbors,
@@ -353,9 +362,23 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 bound_min: material.domainMin,
                 particle_mass: material.particleMass,
                 mass_over_density: material.particleMass / material.restDensity,
+                cohesion_gamma: material.cohesionGamma(surface.cohesion),
+                adhesion_accel: material.adhesionAccel(surface.adhesion),
+                adhesion_tangential: material.adhesionTangential(surface.adhesion),
+                support: material.pbfSmoothingLength,
             });
         }
         this.params.flush(this.iterations);
+    }
+
+    /** Aviso único por material: coesão/adesão acima do teto de substeps foram grampeadas. */
+    private warnClamp(material: ParticleMaterial, surface: SurfaceStep): void {
+        if (this.warnedClamp.has(material)) return;
+        this.warnedClamp.add(material);
+        console.warn(
+            `PBFFlow: coesão ${material.cohesion} / adesão ${material.adhesion} exigem mais que o teto de substeps; `
+                + `usando ${surface.cohesion.toPrecision(3)} / ${surface.adhesion.toPrecision(3)}`,
+        );
     }
 }
 

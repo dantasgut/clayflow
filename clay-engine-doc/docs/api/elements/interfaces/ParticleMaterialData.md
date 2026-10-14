@@ -6,7 +6,7 @@
 
 # Interface: ParticleMaterialData
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:65](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L65)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:131](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L131)
 
 Dado de um `ParticleMaterial` (layout de `ParticleMaterial.schema`).
 
@@ -16,9 +16,39 @@ Dado de um `ParticleMaterial` (layout de `ParticleMaterial.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:81](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L81)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:157](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L157)
 
 Preenchimento do layout.
+
+***
+
+### \_pad1
+
+> **\_pad1**: `number`
+
+Defined in: [elements/physics/materials/ParticleMaterial.ts:159](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L159)
+
+Preenchimento do layout.
+
+***
+
+### adhesion
+
+> **adhesion**: `number`
+
+Defined in: [elements/physics/materials/ParticleMaterial.ts:153](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L153)
+
+Adesão às fronteiras sólidas, adimensional.
+
+***
+
+### cohesion
+
+> **cohesion**: `number`
+
+Defined in: [elements/physics/materials/ParticleMaterial.ts:147](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L147)
+
+Coesão (tensão superficial), adimensional.
 
 ***
 
@@ -26,7 +56,7 @@ Preenchimento do layout.
 
 > **domainMax**: `number`[]
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:85](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L85)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:151](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L151)
 
 Canto máximo do domínio.
 
@@ -36,7 +66,7 @@ Canto máximo do domínio.
 
 > **domainMin**: `number`[]
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:83](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L83)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:149](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L149)
 
 Canto mínimo do domínio.
 
@@ -46,7 +76,7 @@ Canto mínimo do domínio.
 
 > **particleSpacing**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:69](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L69)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:135](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L135)
 
 Espaçamento das partículas (m).
 
@@ -56,7 +86,7 @@ Espaçamento das partículas (m).
 
 > **poissonRatio**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:79](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L79)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:145](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L145)
 
 Coeficiente de Poisson ν.
 
@@ -66,7 +96,7 @@ Coeficiente de Poisson ν.
 
 > **restDensity**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:67](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L67)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:133](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L133)
 
 Densidade de repouso ρ₀ (kg/m³).
 
@@ -76,7 +106,7 @@ Densidade de repouso ρ₀ (kg/m³).
 
 > **restitution**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:75](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L75)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:141](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L141)
 
 Restituição.
 
@@ -86,7 +116,7 @@ Restituição.
 
 > **speedOfSound**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:73](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L73)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:139](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L139)
 
 Velocidade do som c (m/s).
 
@@ -96,9 +126,19 @@ Velocidade do som c (m/s).
 
 > **viscosity**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:71](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L71)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:137](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L137)
 
 Viscosidade.
+
+***
+
+### xsph
+
+> **xsph**: `number`
+
+Defined in: [elements/physics/materials/ParticleMaterial.ts:155](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L155)
+
+Suavização de velocidade XSPH.
 
 ***
 
@@ -106,6 +146,6 @@ Viscosidade.
 
 > **youngModulus**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:77](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L77)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:143](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/materials/ParticleMaterial.ts#L143)
 
 Módulo de Young E.

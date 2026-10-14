@@ -4,6 +4,7 @@
 @group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
+@group(3) @binding(0) var<storage, read_write> pbf_normal:     array<vec4f>;  // (nᵢ, ρᵢ) com coesão > 0 (spec 030)
 
 @compute @workgroup_size(64)
 fn pbf_vorticity_main(
@@ -38,4 +39,19 @@ fn pbf_vorticity_main(
     // Passo 2: ηᵢ = Σⱼ ‖ωⱼ‖ · ∇W  (lendo curl armazenado do frame anterior — ok para 1ª iteração = 0)
     // Só ω: a força de confinamento lê |ωⱼ| dos vizinhos e é aplicada no passe seguinte (junto do XSPH).
     particles[i].curl = vec4f(omega, 0.0);
+
+    // Tensão superficial de Akinci (spec 030): normal nᵢ = H Σ (m/ρ₀) ∇W e densidade ρᵢ = m Σ W (poly6), lidas pelos
+    // vizinhos no passe do XSPH. Só com coesão > 0.
+    if (pbf_params.cohesion_gamma > 0.0) {
+        var n   = vec3f(0.0);
+        var rho = pbf_params.particle_mass * W_poly6(0.0, h);
+        for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
+            let j  = neighbor_list[k * pbf_params.neighbor_stride + i];
+            let dv = xi - particles[j].pos.xyz;
+            let r  = length(dv);
+            n   += pbf_params.mass_over_density * grad_W_spiky(dv, r, h);
+            rho += pbf_params.particle_mass * W_poly6(r * r, h);
+        }
+        pbf_normal[i] = vec4f(pbf_params.support * n, rho);
+    }
 }

@@ -18,7 +18,7 @@ import { PBFSimParamsSchema } from '../../physics/schemas/simParams';
 export const pbfPredict = wgslModule({
     name: 'pbf_predict',
     source: pbfPredictSource,
-    requires: [poolLive],
+    requires: [poolLive, colliderSet],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 

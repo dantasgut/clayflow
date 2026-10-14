@@ -111,3 +111,52 @@ fn collider_set_constrain(p: vec3f, v: ptr<function, vec3f>, band: f32) {
         collider_constrain_node(collider_hit_sphere(i, p), v, band);
     }
 }
+
+// ── Adesão de fluidos às fronteiras (spec 030) ──────────────────────────────────────────────────────────────────────
+// A fronteira é genérica: distância com sinal e normal (`ColliderHit`) — os planos do domínio e os colliders do conjunto
+// hoje; os colisores de fluido da 015/016 entram pelo mesmo `ColliderHit`.
+
+// Adesão de uma fronteira a menos de H: a velocidade ganha `dt · accel · I(δ)` na direção da superfície (I = integral de
+// meio-espaço do núcleo de Akinci, δ = d/H; dentro do sólido, δ = 0) e a componente tangencial é amortecida
+// implicitamente por `1 / (1 + dt · tangential · I(δ))` (aderência ao escorrer, sem instabilidade).
+fn collider_adhesion_contact(
+    hit: ColliderHit,
+    v: ptr<function, vec3f>,
+    H: f32,
+    accel: f32,
+    tangential: f32,
+    dt: f32,
+) {
+    if (hit.dist >= H) { return; }
+    let weight = akinci_adhesion_half_space(max(hit.dist, 0.0) / H);
+    if (weight <= 0.0) { return; }
+    let n = hit.normal;
+    var vel = *v - dt * accel * weight * n;
+    let vn = dot(vel, n);
+    let vt = (vel - vn * n) / (1.0 + dt * tangential * weight);
+    *v = vn * n + vt;
+}
+
+// Adesão somada sobre os planos do domínio (piso e lados mínimos, como a colisão) e os colliders plano/caixa/esfera.
+fn collider_set_adhesion(
+    p: vec3f,
+    v: ptr<function, vec3f>,
+    H: f32,
+    accel: f32,
+    tangential: f32,
+    dt: f32,
+    bound_min: vec3f,
+) {
+    collider_adhesion_contact(ColliderHit(p.y - bound_min.y, vec3f(0.0, 1.0, 0.0)), v, H, accel, tangential, dt);
+    collider_adhesion_contact(ColliderHit(p.x - bound_min.x, vec3f(1.0, 0.0, 0.0)), v, H, accel, tangential, dt);
+    collider_adhesion_contact(ColliderHit(p.z - bound_min.z, vec3f(0.0, 0.0, 1.0)), v, H, accel, tangential, dt);
+    for (var i = 0u; i < collider_counts.plane_count; i++) {
+        collider_adhesion_contact(collider_hit_plane(i, p), v, H, accel, tangential, dt);
+    }
+    for (var i = 0u; i < collider_counts.box_count; i++) {
+        collider_adhesion_contact(collider_hit_box(i, p), v, H, accel, tangential, dt);
+    }
+    for (var i = 0u; i < collider_counts.sphere_count; i++) {
+        collider_adhesion_contact(collider_hit_sphere(i, p), v, H, accel, tangential, dt);
+    }
+}

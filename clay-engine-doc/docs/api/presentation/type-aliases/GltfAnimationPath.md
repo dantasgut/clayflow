@@ -8,6 +8,6 @@
 
 > **GltfAnimationPath** = `"translation"` \| `"rotation"` \| `"scale"` \| `"weights"`
 
-Defined in: [presentation/assets/GltfLoader.ts:74](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/assets/GltfLoader.ts#L74)
+Defined in: [presentation/assets/GltfLoader.ts:74](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/assets/GltfLoader.ts#L74)
 
 Caminho do target em uma animation channel — determina qual atributo do node muda.

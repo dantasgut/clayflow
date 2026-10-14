@@ -2197,6 +2197,19 @@ pós, e os pipelines usam `multisample.count` do alvo.
 gravando direto numa lista intercalada `k * stride + i`, lida assim pelos kernels de SPH e PBF): lista determinística
 sem vetor local por partícula. Cada busca recriada (o `ParticleMaterial` mudou a grade) tem discriminador com geração.
 
+**Fronteira genérica dos fluidos (spec 030).** O que um fluido de partículas enxerga de um sólido é uma distância com
+sinal e uma normal — `ColliderHit { dist, normal }` em `math/collider_set.wgsl`. A colisão (empurrão para fora) e a
+adesão usam só isso: `collider_set_adhesion` soma, sobre os planos do domínio e os colliders plano/caixa/esfera do
+`ColliderSet`, a integral de meio-espaço do núcleo de adesão de Akinci (Gauss-Legendre de 8 pontos em δ = d/H; a
+fronteira é tratada como localmente plana na escala do suporte H) e amortece a velocidade tangencial implicitamente.
+Fronteiras novas (colisores de fluido da 015/016, SDF de superfícies paramétricas) entram produzindo `ColliderHit`, sem
+mudar a adesão. A tensão superficial (coesão + curvatura, com a correção Kᵢⱼ limitada) usa a lista de vizinhos de cada
+solver: o SPH grava as normais num passe próprio (`sph_normals`, buffer privado `sph_normal`, só com coesão > 0); o PBF
+as grava no passe de vorticidade (`pbf_normal`, com a densidade) e soma a aceleração no Δv do XSPH. A adesão entra uma
+vez por iteração: na colisão do SPH e na predição do PBF (que liga o grupo de colliders; a colisão do PBF roda N vezes).
+Os parâmetros (`cohesion_gamma`, `adhesion_accel`, `adhesion_tangential`, `support`) vêm do `ParticleMaterial` pelos
+`*SimParams` de cada iteração; com coesão e adesão zero, os kernels não leem nem somam nada.
+
 ### Correções aplicadas — tabela C2 original → C2 refatorada
 
 | # | Antes (C2 original) | Depois (C2 refatorada) | Princípio |

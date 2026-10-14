@@ -1,4 +1,4 @@
-import type { EngineCore, Frame } from '../../../scene/contracts/gpu';
+import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
@@ -26,13 +26,17 @@ import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
-import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
+import { ParticleMaterial, TAIT_GAMMA, type SurfaceStep } from '../materials/ParticleMaterial';
 import { SPHSimParamsSchema } from '../schemas/simParams';
-import { sphCollision, sphDensity, sphForces, sphIntegrate, sphPressure } from '../shaders/sph';
+import {
+    sphCollision,
+    sphDensity,
+    sphForces,
+    sphIntegrate,
+    sphNormals,
+    sphPressure,
+} from '../shaders/sph';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
-
-/** Coeficiente do XSPH (suavização de velocidade). */
-const SPH_XSPH = 0.05;
 
 /** Opções do `SPHFlow`. */
 export interface SPHFlowOptions {
@@ -93,6 +97,12 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     private readonly maxNeighbors: number;
     private readonly params: PerStepUniforms;
     private readonly colliderSet: ColliderSet;
+    /** Normais de superfície por partícula (vec4f), da tensão superficial de Akinci (spec 030). */
+    private readonly normals: StorageBufferSpec;
+    /** Coesão > 0 no quadro corrente: grava o passe de normais (decidido em `framePrepare`). */
+    private cohesionOn = false;
+    /** Materiais já avisados de coesão/adesão grampeadas. */
+    private readonly warnedClamp = new WeakSet<ParticleMaterial>();
     private neighborSearch: NeighborSearchPipeline;
     /** Grade com que a vizinhança foi criada. */
     private neighborKey: string;
@@ -115,10 +125,20 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
             discriminator: 'sph_colliders',
         });
+        this.normals = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'sph_normal',
+            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
+        });
         const grid = gridOf(ParticleMaterial.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
-        this.bindings = { sph_params: this.params.source(), ...this.neighborSources() };
+        this.bindings = {
+            sph_params: this.params.source(),
+            sph_normal: this.normals,
+            ...this.neighborSources(),
+        };
         const consumes = [bodyType, `${bodyType}.live`];
         const compute = (
             id: string,
@@ -133,6 +153,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         });
         this.pipelines = [
             compute('sph_density', sphDensity, 'sph_density_main'),
+            compute('sph_normals', sphNormals, 'sph_normals_main'),
             compute('sph_pressure', sphPressure, 'sph_pressure_main'),
             compute('sph_forces', sphForces, 'sph_forces_main'),
             compute('sph_integrate', sphIntegrate, 'sph_integrate_main'),
@@ -175,6 +196,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         const count = bound.slots.bodies.count;
         if (this.iterations === 0 || count === 0) return;
         const density = bound.compute('sph_density');
+        const normals = bound.compute('sph_normals');
         const pressure = bound.compute('sph_pressure');
         const forces = bound.compute('sph_forces');
         const integrate = bound.compute('sph_integrate');
@@ -193,6 +215,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             // A vizinhança acompanha cada iteração (as posições mudam entre elas).
             this.neighborSearch.rebuild(frame, count);
             run('SPHFlow.density', density, offset);
+            if (this.cohesionOn) run('SPHFlow.normals', normals, offset);
             run('SPHFlow.pressure', pressure, offset);
             run('SPHFlow.forces', forces, offset);
             run('SPHFlow.integrate', integrate, offset);
@@ -203,6 +226,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     /** Libera parâmetros, colliders e a busca de vizinhança. */
     override dispose(): void {
         this.params.dispose();
+        this.core.destroy(this.normals);
         this.colliderSet.destroy();
         this.neighborSearch.dispose();
     }
@@ -262,11 +286,10 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             this.neighborKey = key;
             ctx.bind(this.neighborSources());
         }
-        const substeps = ParticleMaterial.substepsFor(
-            time.stepDt,
-            material.sphStableDt,
-            this.minSubsteps,
-        );
+        const surface = material.surfaceStep(time.stepDt, material.sphStableDt, this.minSubsteps);
+        if (surface.clamped) this.warnClamp(material, surface);
+        const substeps = surface.substeps;
+        this.cohesionOn = surface.cohesion > 0;
         this.iterations = time.steps * substeps;
         if (this.iterations === 0) return;
         this.neighborSearch.prepare(
@@ -287,7 +310,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 stiffness: material.taitStiffness,
                 gamma: TAIT_GAMMA,
                 viscosity: material.viscosity,
-                xsph_c: SPH_XSPH,
+                xsph_c: material.xsph,
                 dt_frame: time.stepDt,
                 collision_radius: material.particleSpacing / 2,
                 particle_count: count,
@@ -297,9 +320,23 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 bound_min: material.domainMin,
                 particle_mass: material.particleMass,
                 inv_particle_mass: 1 / material.particleMass,
+                cohesion_gamma: material.cohesionGamma(surface.cohesion),
+                adhesion_accel: material.adhesionAccel(surface.adhesion),
+                adhesion_tangential: material.adhesionTangential(surface.adhesion),
+                support: 2 * material.sphSmoothingLength,
             });
         }
         this.params.flush(this.iterations);
+    }
+
+    /** Aviso único por material: coesão/adesão acima do teto de substeps foram grampeadas. */
+    private warnClamp(material: ParticleMaterial, surface: SurfaceStep): void {
+        if (this.warnedClamp.has(material)) return;
+        this.warnedClamp.add(material);
+        console.warn(
+            `SPHFlow: coesão ${material.cohesion} / adesão ${material.adhesion} exigem mais que o teto de substeps; `
+                + `usando ${surface.cohesion.toPrecision(3)} / ${surface.adhesion.toPrecision(3)}`,
+        );
     }
 }
 

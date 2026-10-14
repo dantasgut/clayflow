@@ -6,7 +6,7 @@
 
 # Class: GraphColorer
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:181](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/GraphColorer.ts#L181)
+Defined in: [elements/gpu/compute/GraphColorer.ts:181](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/GraphColorer.ts#L181)
 
 Coloração de arestas na GPU (research R12) para resolver restrições em paralelo: arestas da mesma cor não
 compartilham vértice. Cada cor é um emparelhamento maximal construído por subpassos (prioridade única por aresta
@@ -23,7 +23,7 @@ em CPU.
 
 > **new GraphColorer**(`core`, `options`): `GraphColorer`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:192](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/GraphColorer.ts#L192)
+Defined in: [elements/gpu/compute/GraphColorer.ts:192](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/GraphColorer.ts#L192)
 
 #### Parameters
 
@@ -45,7 +45,7 @@ Defined in: [elements/gpu/compute/GraphColorer.ts:192](https://github.com/dantas
 
 > **color**(`edges`, `count`, `vertexCount`): `Promise`\<[`GraphColoring`](../interfaces/GraphColoring.md)\>
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:228](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/GraphColorer.ts#L228)
+Defined in: [elements/gpu/compute/GraphColorer.ts:228](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/GraphColorer.ts#L228)
 
 Colore as `count` arestas `edges` (`vec2u[count]`) de um grafo com `vertexCount` vértices. Rejeita laços
 (`a == b`) e índices fora de `[0, vertexCount)`; arestas repetidas recebem cores distintas.
@@ -74,7 +74,7 @@ Colore as `count` arestas `edges` (`vec2u[count]`) de um grafo com `vertexCount`
 
 > **destroy**(): `void`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:255](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/GraphColorer.ts#L255)
+Defined in: [elements/gpu/compute/GraphColorer.ts:255](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/GraphColorer.ts#L255)
 
 Libera kernels, buffers, ordenação e soma de prefixos internas.
 

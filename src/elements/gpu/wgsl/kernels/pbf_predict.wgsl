@@ -2,6 +2,7 @@
 @group(0) @binding(0) var<uniform>             pbf_params: PBFSimParams;
 @group(1) @binding(0) var<storage, read_write> particles:  array<PBFParticle>;
 @group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
+// Grupo 2: conjunto de colliders (`collider_set.wgsl`), para a adesão (spec 030).
 
 @compute @workgroup_size(64)
 fn pbf_predict_main(
@@ -23,6 +24,16 @@ fn pbf_predict_main(
 
     // Semi-implicit Euler: vel first, then pos
     p.vel = vec4f(p.vel.xyz + dt * g, 0.0);
+
+    // Adesão às fronteiras (spec 030): uma vez por iteração, junto da gravidade (a colisão roda N vezes no solver).
+    if (pbf_params.adhesion_accel > 0.0) {
+        var v = p.vel.xyz;
+        collider_set_adhesion(
+            p.pos.xyz, &v, pbf_params.support, pbf_params.adhesion_accel, pbf_params.adhesion_tangential, dt,
+            pbf_params.bound_min,
+        );
+        p.vel = vec4f(v, 0.0);
+    }
     p.pos = vec4f(p.pos.xyz + dt * p.vel.xyz, p.pos.w);
 
     particles[i] = p;

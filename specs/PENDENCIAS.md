@@ -56,6 +56,18 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   regravadas (ordem dos vizinhos).
 - MSAA 4× antecipado da F4/011.
 
+### Notas da 030
+
+- Coesão (tensão superficial de Akinci) e adesão às fronteiras no SPH e no PBF, pelo `ParticleMaterial`
+  (`cohesion`, `adhesion`, `xsph`); com zero, trajetórias idênticas bit a bit. Viscosidade do MPM fluido resolvida
+  (fixtures `particles-mpm-fluid`, `fluidSurface-mpm` e a trajetória MPM fluido regravadas).
+- A adesão age sobre a fronteira genérica `ColliderHit` (domínio e colliders plano/caixa/esfera). Limites: sem reação
+  no corpo rígido (acoplamento, P7 — F5/015–016); colliders de malha não recebem adesão até gerarem contato (P2); a
+  fronteira é tratada como localmente plana na escala do suporte (cantos vivos aproximados).
+- A coesão age entre todos os corpos do mesmo solver (o material é um por cena); entre solvers, não (P7).
+- Sem coesão, o PBF sem gravidade se dispersa (o termo anti-aglomeração `s_corr` só repele) — comportamento anterior,
+  mantido.
+
 ### Notas da 017
 
 - Superfície de fluido (P10): resolvida — água contínua a partir das partículas, com óptica e cáusticas num estágio que
@@ -65,7 +77,7 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   estável vem do material (`pbfStableDt`), sem mudar as trajetórias de 5 cm.
 - Defeito encontrado e corrigido (feedback do usuário: "água grossa"): a viscosidade do SPH entrava na aceleração sem
   ÷ρ_i — ~1000× a do material (mel no lugar de água); trajetória de SPH e imagem `particles-sph` regravadas. O MPM
-  recebe `viscosity` mas nenhum kernel a lê (fluido MPM sem viscosidade; pendência da F5/016).
+  recebia `viscosity` mas nenhum kernel a lia — resolvido na 030 (tensão viscosa pela matriz afim do APIC).
 - Ondulações capilares procedurais no material de água: a rede fina das cáusticas (a simulação a 2,5 cm só faz ondas
   grandes).
 - Capacidade nova da C2: `World.attach`/`detach` recompõem entidades vivas (troca de material sem recriar o corpo).

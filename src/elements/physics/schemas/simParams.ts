@@ -98,6 +98,14 @@ export const SPHSimParamsSchema = new StructSchema(
         inv_particle_mass: FieldType.f32,
         /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
         neighbor_stride: FieldType.u32,
+        /** γ da tensão superficial de Akinci (0 = desligada; spec 030). */
+        cohesion_gamma: FieldType.f32,
+        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030). */
+        adhesion_accel: FieldType.f32,
+        /** Arrasto tangencial da adesão no contato, 1/s (spec 030). */
+        adhesion_tangential: FieldType.f32,
+        /** Suporte H da vizinhança (2h no SPH, h no PBF): alcance da coesão e da adesão (spec 030). */
+        support: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
@@ -125,6 +133,14 @@ export const PBFSimParamsSchema = new StructSchema(
         mass_over_density: FieldType.f32,
         /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
         neighbor_stride: FieldType.u32,
+        /** γ da tensão superficial de Akinci (0 = desligada; spec 030). */
+        cohesion_gamma: FieldType.f32,
+        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030). */
+        adhesion_accel: FieldType.f32,
+        /** Arrasto tangencial da adesão no contato, 1/s (spec 030). */
+        adhesion_tangential: FieldType.f32,
+        /** Suporte H da vizinhança (2h no SPH, h no PBF): alcance da coesão e da adesão (spec 030). */
+        support: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );

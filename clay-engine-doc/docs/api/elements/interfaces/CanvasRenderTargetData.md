@@ -6,7 +6,7 @@
 
 # Interface: CanvasRenderTargetData
 
-Defined in: [elements/scene/RenderTarget.ts:44](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/RenderTarget.ts#L44)
+Defined in: [elements/scene/RenderTarget.ts:44](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/RenderTarget.ts#L44)
 
 Dado de um `CanvasRenderTarget` (as opções com os defaults aplicados).
 
@@ -20,7 +20,7 @@ Dado de um `CanvasRenderTarget` (as opções com os defaults aplicados).
 
 > **colorFormat**: `GPUTextureFormat`
 
-Defined in: [elements/scene/RenderTarget.ts:36](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/RenderTarget.ts#L36)
+Defined in: [elements/scene/RenderTarget.ts:36](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/RenderTarget.ts#L36)
 
 Formato da cor.
 
@@ -34,7 +34,7 @@ Formato da cor.
 
 > **depthFormat**: `GPUTextureFormat`
 
-Defined in: [elements/scene/RenderTarget.ts:38](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/RenderTarget.ts#L38)
+Defined in: [elements/scene/RenderTarget.ts:38](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/RenderTarget.ts#L38)
 
 Formato da profundidade.
 
@@ -48,7 +48,7 @@ Formato da profundidade.
 
 > **height**: `number`
 
-Defined in: [elements/scene/RenderTarget.ts:34](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/RenderTarget.ts#L34)
+Defined in: [elements/scene/RenderTarget.ts:34](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/RenderTarget.ts#L34)
 
 Altura em texels.
 
@@ -62,7 +62,7 @@ Altura em texels.
 
 > **sampleCount**: `1` \| `4`
 
-Defined in: [elements/scene/RenderTarget.ts:40](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/RenderTarget.ts#L40)
+Defined in: [elements/scene/RenderTarget.ts:40](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/RenderTarget.ts#L40)
 
 Amostras por pixel.
 
@@ -76,7 +76,7 @@ Amostras por pixel.
 
 > **sizeFromCanvas**: `boolean`
 
-Defined in: [elements/scene/RenderTarget.ts:46](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/RenderTarget.ts#L46)
+Defined in: [elements/scene/RenderTarget.ts:46](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/RenderTarget.ts#L46)
 
 Tamanho segue o canvas.
 
@@ -86,7 +86,7 @@ Tamanho segue o canvas.
 
 > **width**: `number`
 
-Defined in: [elements/scene/RenderTarget.ts:32](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/RenderTarget.ts#L32)
+Defined in: [elements/scene/RenderTarget.ts:32](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/RenderTarget.ts#L32)
 
 Largura em texels.
 

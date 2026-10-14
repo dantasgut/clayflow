@@ -4,6 +4,7 @@
 @group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
+@group(3) @binding(0) var<storage, read>       sph_normal:     array<vec4f>;  // normais (só com coesão > 0, spec 030)
 
 @compute @workgroup_size(64)
 fn sph_forces_main(
@@ -31,6 +32,12 @@ fn sph_forces_main(
     var f_press  = vec3f(0.0);
     var f_visc   = vec3f(0.0);
     var xsph_acc = vec3f(0.0);
+    // Tensão superficial de Akinci (spec 030): só com coesão > 0 — com zero, nada é lido nem somado.
+    let gamma   = sph_params.cohesion_gamma;
+    let surface = gamma > 0.0;
+    var a_st    = vec3f(0.0);
+    var n_i     = vec3f(0.0);
+    if (surface) { n_i = sph_normal[i].xyz; }
 
     for (var k: u32 = 0u; k < nb_n && k < max_nb; k++) {
         let j    = neighbor_list[k * sph_params.neighbor_stride + i];
@@ -64,6 +71,13 @@ fn sph_forces_main(
         if (rho_j > 0.001) {
             xsph_acc += (mass / rho_j) * vij * w;
         }
+
+        if (surface) {
+            a_st += akinci_pair_accel(
+                r_vec, r, sph_params.support, gamma, mass, sph_params.rest_density,
+                rho_i, rho_j, n_i, sph_normal[j].xyz,
+            );
+        }
     }
 
     // Aceleração total = g + pressão + viscosidade. A pressão já sai como aceleração (termo simétrico Σ m(p/ρ²)); a
@@ -71,7 +85,8 @@ fn sph_forces_main(
     // efetiva era ρ₀ (~1000) vezes a do material e a água se comportava como mel (spec 017).
     var visc_acc = vec3f(0.0);
     if (rho_i > 0.001) { visc_acc = f_visc / rho_i; }
-    let accel = g + f_press + visc_acc;
+    var accel = g + f_press + visc_acc;
+    if (surface) { accel += a_st; }
 
     particles[i].force = vec4f(accel, 0.0);
     particles[i].color = vec4f(xsph_c * xsph_acc, 0.0);

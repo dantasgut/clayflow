@@ -6,7 +6,7 @@
 
 # Interface: PBFFlowOptions
 
-Defined in: [elements/physics/flows/PBFFlow.ts:55](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/PBFFlow.ts#L55)
+Defined in: [elements/physics/flows/PBFFlow.ts:53](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L53)
 
 Opções do `PBFFlow`.
 
@@ -16,7 +16,7 @@ Opções do `PBFFlow`.
 
 > `readonly` `optional` **maxNeighbors?**: `number`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:64](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/PBFFlow.ts#L64)
+Defined in: [elements/physics/flows/PBFFlow.ts:62](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L62)
 
 Vizinhos guardados por partícula (padrão 64).
 
@@ -26,7 +26,7 @@ Vizinhos guardados por partícula (padrão 64).
 
 > `readonly` `optional` **solverIters?**: `number`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:62](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/PBFFlow.ts#L62)
+Defined in: [elements/physics/flows/PBFFlow.ts:60](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L60)
 
 Iterações de projeção de densidade por substep (padrão 4).
 
@@ -36,7 +36,7 @@ Iterações de projeção de densidade por substep (padrão 4).
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:60](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/PBFFlow.ts#L60)
+Defined in: [elements/physics/flows/PBFFlow.ts:58](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L58)
 
 Mínimo de substeps por passo de física (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais (spec
 017). O passo vem do `Time` da cena.
