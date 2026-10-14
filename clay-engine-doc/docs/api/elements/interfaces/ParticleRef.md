@@ -6,7 +6,7 @@
 
 # Interface: ParticleRef
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:8](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L8)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:8](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/constraints/DistanceConstraint.ts#L8)
 
 Partícula de um corpo: o corpo (`FluidBody`/`SoftBody` na cena) e o índice dela no corpo.
 
@@ -16,7 +16,7 @@ Partícula de um corpo: o corpo (`FluidBody`/`SoftBody` na cena) e o índice del
 
 > `readonly` **body**: [`ParticleBody`](../classes/ParticleBody.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:10](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L10)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/constraints/DistanceConstraint.ts#L10)
 
 Partículas por campo.
 
@@ -26,6 +26,6 @@ Partículas por campo.
 
 > `readonly` **index**: `number`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:12](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L12)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/constraints/DistanceConstraint.ts#L12)
 
 Índice da partícula no corpo.

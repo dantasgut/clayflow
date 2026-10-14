@@ -35,13 +35,18 @@ import {
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
-import { ForwardFrameParamsSchema, NO_LIGHT_SLOT } from '../../elements/material/forwardSchemas';
+import {
+    ForwardFrameParamsSchema,
+    NO_LIGHT_SLOT,
+    WaterLightMatrixSchema,
+} from '../../elements/material/forwardSchemas';
 import { Camera } from '../../elements/scene/Camera';
 import { Light } from '../../elements/scene/Light';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
 import { renderableRecord, RenderInstanceSchema } from '../../elements/scene/Renderable';
 import { FrameTargets } from '../app/FrameTargets';
+import { WaterSurface } from '../app/WaterSurface';
 import { castingShadowMap } from './ShadowFlow';
 
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
@@ -91,6 +96,8 @@ export interface ForwardSlots extends SlotMap {
     readonly shadowMaps: PoolSlot<true>;
     /** Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU; opcional). */
     readonly shadowMatrices: PoolSlot<true>;
+    /** Superfície de água da cena (cáusticas da luz que projeta sombra, spec 017; opcional). */
+    readonly water: SingletonSlot<true>;
     /** Pool `Light` (direção da luz que ilumina pelo `lightSlot`; opcional). */
     readonly lights: PoolSlot<true>;
     /** Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`. */
@@ -135,6 +142,7 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
         shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
         shadowMaps: slot.pool(ShadowMap.schema.name, { optional: true }),
         shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
+        water: slot.singleton(WaterSurface.schema, { optional: true }),
         lights: slot.pool(Light.schema.name, { optional: true }),
         target: slot.target(
             output === 'scene'
@@ -196,6 +204,17 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly dummyShadowMaps: StorageBufferSpec;
     private readonly dummyShadowMatrices: StorageBufferSpec;
     private readonly dummyLights: StorageBufferSpec;
+    /** Substitutos das cáusticas (spec 017): fator 1 e "sem água" — só lidos com `causticsEnabled = 1`. */
+    private readonly dummyCaustics: TextureSpec;
+    private readonly dummyCausticsView: TextureViewSpec;
+    private readonly dummyWaterDepth: TextureSpec;
+    private readonly dummyWaterDepthView: TextureViewSpec;
+    private readonly dummyLightMatrix: StorageBufferSpec;
+    /** Fontes das cáusticas ligadas (as reais ou os substitutos). */
+    private causticSources:
+        | readonly [TextureViewSpec, TextureViewSpec, StorageBufferSpec]
+        | undefined;
+    private causticsEnabled = false;
     /** Conteúdo escrito em `ForwardFrameParams` (comparado para escrever só quando muda). */
     private writtenFrame = '';
     /** Pipelines (por orientação) do shader de cada material, preparados quando o material aparece. */
@@ -288,7 +307,35 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             discriminator: 'forward_lights_dummy',
             byteSize: Light.schema.stride,
         });
+        const dummy = (name: string, format: GPUTextureFormat): [TextureSpec, TextureViewSpec] => {
+            const texture = ctx.core.create<TextureSpec>({
+                kind: 'texture',
+                discriminator: `forward_${name}_dummy`,
+                width: 1,
+                height: 1,
+                format,
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            });
+            const view = ctx.core.create<TextureViewSpec>({
+                kind: 'textureview',
+                discriminator: `forward_${name}_dummy_view`,
+                source: texture,
+                format,
+            });
+            return [texture, view];
+        };
+        [this.dummyCaustics, this.dummyCausticsView] = dummy('caustics', 'rgba16float');
+        [this.dummyWaterDepth, this.dummyWaterDepthView] = dummy('water_depth', 'r32float');
+        this.dummyLightMatrix = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'forward_water_light_matrix_dummy',
+            byteSize: WaterLightMatrixSchema.stride,
+        });
         this.bindings = {
+            caustic_map: this.dummyCausticsView,
+            water_light_depth: this.dummyWaterDepthView,
+            water_light_matrix: this.dummyLightMatrix,
             forward_frame: this.frameParams,
             shadow_sampler: this.sampler,
             shadow_map: this.dummyDepthView,
@@ -332,6 +379,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         if (this.pendingMaterials.size > 0)
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
+                        this.bindCaustics(c);
                         this.writeFrameParams(c);
                     },
                 },
@@ -441,9 +489,43 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             this.dummyShadowMaps,
             this.dummyShadowMatrices,
             this.dummyLights,
+            this.dummyCausticsView,
+            this.dummyCaustics,
+            this.dummyWaterDepthView,
+            this.dummyWaterDepth,
+            this.dummyLightMatrix,
         ]) {
             this.core.destroy(spec);
         }
+    }
+
+    /**
+     * Cáusticas da água (spec 017): com a superfície vista pela luz produzida, liga o mapa de cáusticas e a profundidade
+     * da água na vista da luz e acende `causticsEnabled`; sem ela, os substitutos e o fator 1 exato (imagens de antes).
+     */
+    private bindCaustics(ctx: Ctx): void {
+        const water = ctx.bound.slots.water?.resource as WaterSurface | undefined;
+        const produced = water?.isProduced('light') === true;
+        const caustics = produced ? this.resources.textureViewOf(water, 'caustics') : undefined;
+        const depth = produced ? this.resources.textureViewOf(water, 'lightDepth') : undefined;
+        const matrix = produced ? this.resources.bufferOf(water, 'lightMatrix') : undefined;
+        const real =
+            caustics !== undefined && depth !== undefined && matrix?.subkind === 'storage'
+                ? ([caustics, depth, matrix] as const)
+                : undefined;
+        this.causticsEnabled = real !== undefined;
+        const sources: readonly [TextureViewSpec, TextureViewSpec, StorageBufferSpec] = real ?? [
+            this.dummyCausticsView,
+            this.dummyWaterDepthView,
+            this.dummyLightMatrix,
+        ];
+        if (this.causticSources?.every((b, i) => b === sources[i]) === true) return;
+        this.causticSources = sources;
+        ctx.bind({
+            caustic_map: sources[0],
+            water_light_depth: sources[1],
+            water_light_matrix: sources[2],
+        });
     }
 
     /** Mapa de sombra da luz que projeta e o pool de luzes (ou os substitutos) nos bindings do grupo 3. */
@@ -670,7 +752,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const shadow = on ? shadowSlot : 0;
         // Tamanho do alvo em pixels: a espessura das linhas do arame é em pixels de tela.
         const { width, height } = this.core.canvasSize() ?? { width: 1, height: 1 };
-        const key = `${cameraSlot}:${light}:${shadow}:${width}x${height}`;
+        const caustics = this.causticsEnabled && on;
+        const key = `${cameraSlot}:${light}:${shadow}:${width}x${height}:${caustics}`;
         if (key === this.writtenFrame) return;
         this.core.write(
             this.frameParams,
@@ -680,6 +763,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 shadowEnabled: on ? 1 : 0,
                 shadowSlot: shadow,
                 viewport: [width, height],
+                causticsEnabled: caustics ? 1 : 0,
             }),
         );
         this.writtenFrame = key;

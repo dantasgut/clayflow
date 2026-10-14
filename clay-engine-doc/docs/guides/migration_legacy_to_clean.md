@@ -307,6 +307,22 @@ Novos: `ParticleBody`, `SurfaceGeometry`, `ParticleFlow`, `SoftSurfaceFlow`, `GP
 acrescentada e pelo MSAA (bordas). **Trajetórias:** SPH e PBF regravadas (a ordem dos vizinhos mudou com a busca nova;
 determinísticas e iguais em 30/60/144 Hz); as outras cinco cenas são idênticas.
 
+## Spec 017 (superfície de água)
+
+Só acréscimos, sem mudança incompatível na API pública:
+
+| Antes | Agora |
+| --- | --- |
+| Fluido só como sprites (`PointSpriteMaterial`) | `FluidSurfaceMaterial` desenha o corpo como água contínua com cáusticas |
+| Composição de uma entidade fixa na inserção | `world.attach(entidade, componente)` / `world.detach(entidade, componente)` (evento `entitiesRecomposed`) |
+| `ensureAllocated` só para buffers | Aloca também descritores de textura sob demanda (o retorno é `undefined` para eles; leia por `textureViewOf`) |
+| PBF com 1 substep fixo | Substeps pelo passo estável do material (`pbfStableDt`); 5 cm continua com 1 |
+| `ForwardFrameParams { …, viewport }` | + `causticsEnabled` (0 = caminho de antes) |
+| Viscosidade do SPH ~1000× a do material (sem ÷ρ) | Viscosidade física: o mesmo `viscosity` deixa o fluido bem menos viscoso — trajetórias de SPH mudam |
+
+Estágios próprios que substituem o forward padrão e queiram cáusticas leem `caustic_map`, `water_light_depth` e
+`water_light_matrix` do `WaterSurface` (ver o documento de arquitetura).
+
 ## Convivência durante a transição
 
 `webgpu-engine/legacy` continua exportado e funcional, apontando para

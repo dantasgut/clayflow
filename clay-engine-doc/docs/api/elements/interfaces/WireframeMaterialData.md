@@ -6,7 +6,7 @@
 
 # Interface: WireframeMaterialData
 
-Defined in: [elements/material/WireframeMaterial.ts:8](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L8)
+Defined in: [elements/material/WireframeMaterial.ts:8](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/WireframeMaterial.ts#L8)
 
 Dado de um `WireframeMaterial` (layout de `WireframeMaterial.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `WireframeMaterial` (layout de `WireframeMaterial.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/material/WireframeMaterial.ts:14](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L14)
+Defined in: [elements/material/WireframeMaterial.ts:14](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/WireframeMaterial.ts#L14)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/material/WireframeMaterial.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L16)
+Defined in: [elements/material/WireframeMaterial.ts:16](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/WireframeMaterial.ts#L16)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **\_pad2**: `number`
 
-Defined in: [elements/material/WireframeMaterial.ts:18](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L18)
+Defined in: [elements/material/WireframeMaterial.ts:18](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/WireframeMaterial.ts#L18)
 
 Preenchimento do layout.
 
@@ -46,7 +46,7 @@ Preenchimento do layout.
 
 > **color**: `number`[]
 
-Defined in: [elements/material/WireframeMaterial.ts:10](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L10)
+Defined in: [elements/material/WireframeMaterial.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/WireframeMaterial.ts#L10)
 
 Cor RGBA linear.
 
@@ -56,6 +56,6 @@ Cor RGBA linear.
 
 > **lineWidth**: `number`
 
-Defined in: [elements/material/WireframeMaterial.ts:12](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L12)
+Defined in: [elements/material/WireframeMaterial.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/WireframeMaterial.ts#L12)
 
 Espessura das linhas em pixels.

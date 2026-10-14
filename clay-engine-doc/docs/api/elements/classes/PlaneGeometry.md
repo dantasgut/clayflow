@@ -6,7 +6,7 @@
 
 # Class: PlaneGeometry
 
-Defined in: [elements/geometry/PlaneGeometry.ts:22](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PlaneGeometry.ts#L22)
+Defined in: [elements/geometry/PlaneGeometry.ts:22](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PlaneGeometry.ts#L22)
 
 PlaneGeometry — quad plano em XZ (normal +Y) com `size: [w, h]`.
 4 vertices + 6 indices (1 quad = 2 triangles). Útil para chão,
@@ -22,7 +22,7 @@ shadow receivers, water surface.
 
 > **new PlaneGeometry**(`values?`): `PlaneGeometry`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:32](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PlaneGeometry.ts#L32)
+Defined in: [elements/geometry/PlaneGeometry.ts:32](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PlaneGeometry.ts#L32)
 
 #### Parameters
 
@@ -44,7 +44,7 @@ Defined in: [elements/geometry/PlaneGeometry.ts:32](https://github.com/dantasgut
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:36](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L36)
+Defined in: [elements/geometry/Geometry.ts:36](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L36)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -58,7 +58,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema` = `PlaneGeometry.vertexStruct`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:30](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PlaneGeometry.ts#L30)
+Defined in: [elements/geometry/PlaneGeometry.ts:30](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PlaneGeometry.ts#L30)
 
 Alias para vertexStruct.
 
@@ -68,7 +68,7 @@ Alias para vertexStruct.
 
 > `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PlaneGeometry.ts#L24)
+Defined in: [elements/geometry/PlaneGeometry.ts:24](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PlaneGeometry.ts#L24)
 
 Vertex layout: position + normal + uv.
 
@@ -80,7 +80,7 @@ Vertex layout: position + normal + uv.
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L138)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -101,7 +101,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **contentKey**(): `string` \| `undefined`
 
-Defined in: [elements/geometry/Geometry.ts:49](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L49)
+Defined in: [elements/geometry/Geometry.ts:49](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L49)
 
 Chave de conteúdo (spec 007): geometrias com a mesma chave compartilham os buffers de vértice e índice na GPU (a
 Camada 2 deduplica). Paramétricas: a dos parâmetros; arrays próprios: a do hash dos bytes. `undefined` sem
@@ -123,7 +123,7 @@ vértices e índices em `data` (ex.: nuvem de pontos produzida na GPU, que é se
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -136,7 +136,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -162,7 +162,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:91](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PlaneGeometry.ts#L91)
+Defined in: [elements/geometry/PlaneGeometry.ts:91](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PlaneGeometry.ts#L91)
 
 = 6 (2 triangles × 3 indices).
 
@@ -182,7 +182,7 @@ Defined in: [elements/geometry/PlaneGeometry.ts:91](https://github.com/dantasgut
 
 > **get** **indexFormat**(): `GPUIndexFormat`
 
-Defined in: [elements/geometry/Geometry.ts:73](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L73)
+Defined in: [elements/geometry/Geometry.ts:82](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L82)
 
 Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint32'`).
 
@@ -202,7 +202,7 @@ Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -223,7 +223,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:87](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PlaneGeometry.ts#L87)
+Defined in: [elements/geometry/PlaneGeometry.ts:87](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PlaneGeometry.ts#L87)
 
 = 4 (4 cantos do quad).
 
@@ -241,7 +241,7 @@ Defined in: [elements/geometry/PlaneGeometry.ts:87](https://github.com/dantasgut
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -262,11 +262,36 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 ***
 
+### detach()
+
+> **detach**(`e`): `boolean`
+
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L127)
+
+Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
+inserida, use `World.detach` (que também atualiza a cena).
+
+#### Parameters
+
+##### e
+
+[`Entity`](Entity.md)\<`object`\>
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`Geometry`](Geometry.md).[`detach`](Geometry.md#detach)
+
+***
+
 ### getDescriptors()
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/PlaneGeometry.ts:78](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PlaneGeometry.ts#L78)
+Defined in: [elements/geometry/PlaneGeometry.ts:78](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PlaneGeometry.ts#L78)
 
 Declara VBO + IBO.
 
@@ -284,7 +309,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:40](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L40)
+Defined in: [elements/geometry/Geometry.ts:40](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L40)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -304,7 +329,7 @@ readonly `PipelineDescriptor`[]
 
 > `protected` **wireDescriptors**(): `GPUDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:61](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L61)
+Defined in: [elements/geometry/Geometry.ts:61](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L61)
 
 Descritor das arestas de arame (`data.wireEdges`, índices `uint32` aos pares; spec 008): alocado e deduplicado pela
 C2 como os índices. Vazio sem arestas. Subclasses o acrescentam aos seus descritores.
@@ -323,7 +348,7 @@ C2 como os índices. Vazio sem arestas. Subclasses o acrescentam aos seus descri
 
 > `protected` `static` **indexArray**(`indices`, `vertexCount`): `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:81](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L81)
+Defined in: [elements/geometry/Geometry.ts:90](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L90)
 
 Array de índices no menor formato que endereça `vertexCount` vértices: `Uint16Array` até 65 535 vértices,
 `Uint32Array` acima.

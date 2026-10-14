@@ -6,7 +6,7 @@
 
 # Interface: LoadedTexture
 
-Defined in: [presentation/assets/TextureLoader.ts:5](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/assets/TextureLoader.ts#L5)
+Defined in: [presentation/assets/TextureLoader.ts:5](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/assets/TextureLoader.ts#L5)
 
 Texture asset carregada — bitmap + dimensões. Apps usam o bitmap
 para uploadar via `core.writeTexture(spec, bitmap, layout, size)`.
@@ -17,7 +17,7 @@ para uploadar via `core.writeTexture(spec, bitmap, layout, size)`.
 
 > `readonly` **bitmap**: `ImageBitmap`
 
-Defined in: [presentation/assets/TextureLoader.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/assets/TextureLoader.ts#L11)
+Defined in: [presentation/assets/TextureLoader.ts:11](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/assets/TextureLoader.ts#L11)
 
 ImageBitmap (decodificado pelo browser).
 
@@ -27,7 +27,7 @@ ImageBitmap (decodificado pelo browser).
 
 > `readonly` **height**: `number`
 
-Defined in: [presentation/assets/TextureLoader.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/assets/TextureLoader.ts#L9)
+Defined in: [presentation/assets/TextureLoader.ts:9](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/assets/TextureLoader.ts#L9)
 
 Altura em pixels.
 
@@ -37,6 +37,6 @@ Altura em pixels.
 
 > `readonly` **width**: `number`
 
-Defined in: [presentation/assets/TextureLoader.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/assets/TextureLoader.ts#L7)
+Defined in: [presentation/assets/TextureLoader.ts:7](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/assets/TextureLoader.ts#L7)
 
 Largura em pixels.

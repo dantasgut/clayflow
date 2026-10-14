@@ -6,7 +6,7 @@
 
 # Interface: PointCloudGeometryData
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L7)
+Defined in: [elements/geometry/PointCloudGeometry.ts:7](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PointCloudGeometry.ts#L7)
 
 Dado de uma `PointCloudGeometry`.
 
@@ -20,7 +20,7 @@ Dado de uma `PointCloudGeometry`.
 
 > **activeCount**: `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L11)
+Defined in: [elements/geometry/PointCloudGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PointCloudGeometry.ts#L11)
 
 Pontos desenhados (os primeiros do buffer).
 
@@ -30,7 +30,7 @@ Pontos desenhados (os primeiros do buffer).
 
 > `optional` **indices?**: `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L19)
+Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L19)
 
 Índices de triângulo.
 
@@ -44,7 +44,7 @@ Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clay
 
 > **maxPoints**: `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L9)
+Defined in: [elements/geometry/PointCloudGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/PointCloudGeometry.ts#L9)
 
 Pontos que cabem no buffer.
 
@@ -54,7 +54,7 @@ Pontos que cabem no buffer.
 
 > `optional` **vertices?**: `Float32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L17)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L17)
 
 Vértices intercalados (posição, normal, uv).
 
@@ -68,7 +68,7 @@ Vértices intercalados (posição, normal, uv).
 
 > `optional` **wireEdges?**: `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L24)
+Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L24)
 
 Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
 (de feição nas geometrias estáticas: sem as diagonais de faces planas).

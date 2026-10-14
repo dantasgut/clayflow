@@ -6,7 +6,7 @@
 
 # Interface: XPBDSlots
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:36](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L36)
+Defined in: [elements/physics/flows/XPBDFlow.ts:36](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L36)
 
 Slots do XPBD.
 
@@ -24,7 +24,7 @@ Slots do XPBD.
 
 > `readonly` **bodies**: `BodiesSlot`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:38](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L38)
+Defined in: [elements/physics/flows/XPBDFlow.ts:38](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L38)
 
 Pool de corpos do `bodyType` do registro.
 
@@ -34,7 +34,7 @@ Pool de corpos do `bodyType` do registro.
 
 > `readonly` **constraints**: `PoolSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:42](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L42)
+Defined in: [elements/physics/flows/XPBDFlow.ts:42](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L42)
 
 Pool das restrições de distância (opcional).
 
@@ -44,7 +44,7 @@ Pool das restrições de distância (opcional).
 
 > `readonly` **gravity**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:44](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L44)
+Defined in: [elements/physics/flows/XPBDFlow.ts:44](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L44)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
@@ -54,6 +54,6 @@ Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 > `readonly` **time**: `SingletonSlot`\<`false`\>
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:40](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L40)
+Defined in: [elements/physics/flows/XPBDFlow.ts:40](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L40)
 
 Relógio da cena (passos fixos do quadro).

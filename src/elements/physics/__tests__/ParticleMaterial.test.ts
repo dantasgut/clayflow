@@ -66,6 +66,15 @@ describe('ParticleMaterial — grandezas derivadas', () => {
         expect(ParticleMaterial.substepsFor(1 / 60, 1)).toBe(1);
         expect(ParticleMaterial.substepsFor(1 / 60, 1, 3)).toBe(3);
     });
+
+    it('passo estável do PBF: a calibração de 5 cm a 60 Hz (1 substep) escalada por h² (spec 017)', () => {
+        const at = (s: number) => new ParticleMaterial({ particleSpacing: s });
+        expect(at(0.05).pbfStableDt).toBeCloseTo(1 / 60, 12);
+        expect(ParticleMaterial.substepsFor(1 / 60, at(0.05).pbfStableDt)).toBe(1);
+        expect(ParticleMaterial.substepsFor(1 / 60, at(0.025).pbfStableDt)).toBe(4);
+        expect(ParticleMaterial.substepsFor(1 / 60, at(0.1).pbfStableDt)).toBe(1);
+        expect(ParticleMaterial.substepsFor(1 / 30, at(0.05).pbfStableDt)).toBe(2);
+    });
 });
 
 describe('ParticleMaterial.of', () => {

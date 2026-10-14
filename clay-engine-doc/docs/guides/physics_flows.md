@@ -37,7 +37,12 @@ por pool; acima disso, erro com o teto.
 **Desenho.** Com `PointSpriteMaterial` na entidade, o corpo é desenhado como esferas pelo `ParticleFlow`, que lê as
 posições direto do pool (sem cópia nem leitura de volta). Um `SoftBody({ surface: { triangles } })` vira malha: a
 `SurfaceGeometry` dele é recalculada na GPU a cada quadro e desenhada com o material de superfície da entidade (e um
-`Transform`), com sombra.
+`Transform`), com sombra. Com `FluidSurfaceMaterial` (spec 017), o fluido vira água contínua — refração, absorção pela
+espessura, reflexão com Fresnel e cáusticas sob a luz que projeta sombra — sem mudar a simulação. Para trocar o
+material de um corpo vivo: `world.detach(corpo, materialAntigo)` e `world.attach(corpo, materialNovo)`.
+
+O PBF calcula os substeps pelo passo estável do material (`ParticleMaterial.pbfStableDt`: a calibração de 5 cm a 60 Hz
+escalada por (h / 0,1)²): 1 substep a 5 cm, 4 a 2,5 cm.
 
 Nenhum `schema`, `vec4` cru ou `flows.register` manual é necessário: os solvers padrão já estão registrados por
 factory (`DEFAULT_SOLVER_REGISTRATIONS`, pelos defaults da `Application`) e, ao `world.insert(body)`, a C2 cria o

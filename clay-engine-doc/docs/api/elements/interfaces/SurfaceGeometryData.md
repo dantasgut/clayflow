@@ -6,7 +6,7 @@
 
 # Interface: SurfaceGeometryData
 
-Defined in: [elements/geometry/SurfaceGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SurfaceGeometry.ts#L8)
+Defined in: [elements/geometry/SurfaceGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/SurfaceGeometry.ts#L8)
 
 Dado de uma `SurfaceGeometry`.
 
@@ -20,7 +20,7 @@ Dado de uma `SurfaceGeometry`.
 
 > **adjacency**: `Uint32Array`
 
-Defined in: [elements/geometry/SurfaceGeometry.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SurfaceGeometry.ts#L17)
+Defined in: [elements/geometry/SurfaceGeometry.ts:17](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/SurfaceGeometry.ts#L17)
 
 Adjacência vértice → triângulos (CSR): `vertexCount + 1` inícios seguidos dos triângulos de cada vértice — o que o
 kernel de normais soma por vértice.
@@ -31,7 +31,7 @@ kernel de normais soma por vértice.
 
 > **indexCount**: `number`
 
-Defined in: [elements/geometry/SurfaceGeometry.ts:21](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SurfaceGeometry.ts#L21)
+Defined in: [elements/geometry/SurfaceGeometry.ts:21](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/SurfaceGeometry.ts#L21)
 
 Número de índices.
 
@@ -41,7 +41,7 @@ Número de índices.
 
 > **indices**: `Uint32Array`
 
-Defined in: [elements/geometry/SurfaceGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SurfaceGeometry.ts#L12)
+Defined in: [elements/geometry/SurfaceGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/SurfaceGeometry.ts#L12)
 
 Triângulos (índices locais de vértice).
 
@@ -55,7 +55,7 @@ Triângulos (índices locais de vértice).
 
 > **vertexCount**: `number`
 
-Defined in: [elements/geometry/SurfaceGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SurfaceGeometry.ts#L19)
+Defined in: [elements/geometry/SurfaceGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/SurfaceGeometry.ts#L19)
 
 Número de vértices.
 
@@ -65,7 +65,7 @@ Número de vértices.
 
 > **vertices**: `Float32Array`
 
-Defined in: [elements/geometry/SurfaceGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SurfaceGeometry.ts#L10)
+Defined in: [elements/geometry/SurfaceGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/SurfaceGeometry.ts#L10)
 
 Vértices intercalados (posição, normal, uv; 8 floats): o estado inicial; depois a GPU escreve posição e normal.
 
@@ -79,7 +79,7 @@ Vértices intercalados (posição, normal, uv; 8 floats): o estado inicial; depo
 
 > `optional` **wireEdges?**: `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L24)
+Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/geometry/Geometry.ts#L24)
 
 Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
 (de feição nas geometrias estáticas: sem as diagonais de faces planas).

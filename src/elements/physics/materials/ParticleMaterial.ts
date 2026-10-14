@@ -29,6 +29,10 @@ export interface ParticleMaterialOptions {
     readonly domainMax?: readonly [number, number, number];
 }
 
+/** Passo da calibração do PBF (s) e o raio de kernel em que ele vale (m): ver `ParticleMaterial.pbfStableDt`. */
+const PBF_CALIBRATION_DT = 1 / 60;
+const PBF_CALIBRATION_H = 0.1;
+
 /** Expoente da equação de Tait do SPH fracamente compressível. */
 export const TAIT_GAMMA = 7;
 
@@ -88,7 +92,7 @@ export interface ParticleMaterialData {
  *
  * As grandezas numéricas dos solvers derivam dele: massa da partícula ρ₀s³, raio de suavização do SPH (1,3 s; spline
  * cúbica com suporte 2h) e do PBF (2 s; poly6/spiky com suporte h), célula da grade MPM (2 s), módulo volumétrico
- * ρ₀c², parâmetros de Lamé de E/ν e o passo estável de cada algoritmo.
+ * ρ₀c², parâmetros de Lamé de E/ν e o passo estável de cada algoritmo (o do PBF escalado da calibração, spec 017).
  */
 export class ParticleMaterial extends Entity<ParticleMaterialData> implements Resource {
     /** Schema do uniform do material (dado do World; os estágios copiam os derivados para os seus parâmetros). */
@@ -239,6 +243,16 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
     /** Passo estável do SPH (CFL): 0,4 h / c. */
     get sphStableDt(): number {
         return (0.4 * this.sphSmoothingLength) / this.speedOfSound;
+    }
+
+    /**
+     * Passo estável do PBF: o passo da calibração (1/60 s com h = 0,1 m, isto é, 5 cm de espaçamento, e 4 iterações)
+     * escalado por (h / 0,1)². Duas coisas encolhem com o raio do kernel: o deslocamento por substep tolerado (CFL, ∝ h)
+     * e o alcance do solver de Jacobi, que propaga a correção cerca de um kernel por iteração (∝ h) — com o passo
+     * fixo, abaixo de 5 cm o fluido explodia (spec 017).
+     */
+    get pbfStableDt(): number {
+        return PBF_CALIBRATION_DT * (this.pbfSmoothingLength / PBF_CALIBRATION_H) ** 2;
     }
 
     /** Passo estável do MPM: 0,3 dx / max(c, √((λ+2μ)/ρ₀)). */

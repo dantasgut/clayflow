@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "profileId": "apple-metal-3-chrome155-macos-1280x720-ifpfky",
-  "createdAt": "2026-10-14T04:57:57.161Z",
-  "commit": "0ccacce",
+  "createdAt": "2026-10-14T14:43:42.270Z",
+  "commit": "e24c5f3",
   "tolerance": 0.1,
   "results": [
     {
@@ -11,75 +11,75 @@
       "engine": "clayflow",
       "status": "ok",
       "metrics": {
-        "cpuMs": 0.020000100135803223,
-        "gpuMs": 0.34887,
+        "cpuMs": 0.02499997615814209,
+        "gpuMs": 0.348704,
         "frameMs": {
-          "mean": 0.45248948011531653,
+          "mean": 0.45489924032532075,
           "p95": 0.8600000143051147,
           "p99": 0.9500000476837158
         },
-        "fps": 2209.996130175559,
+        "fps": 2198.2890085392337,
         "drawCalls": 2,
-        "memoryBytes": 18356800,
+        "memoryBytes": 18358216,
         "memoryKind": "exact",
         "samples": {
-          "frames": 66595,
-          "gpu": 33855
+          "frames": 66276,
+          "gpu": 33485
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
-          "cpuMs": 0.020000100135803223,
-          "gpuMs": 0.344287,
+          "cpuMs": 0.02499997615814209,
+          "gpuMs": 0.348704,
           "frameMs": {
-            "mean": 0.45248948011531653,
-            "p95": 0.8600000143051147,
-            "p99": 0.9699999094009399
+            "mean": 0.4560124937331626,
+            "p95": 0.8650000095367432,
+            "p99": 0.9600000381469727
           },
-          "fps": 2209.996130175559,
+          "fps": 2192.922373274171,
           "drawCalls": 2,
-          "memoryBytes": 18356800,
+          "memoryBytes": 18358216,
           "memoryKind": "exact",
           "samples": {
-            "frames": 22101,
-            "gpu": 11253
+            "frames": 21931,
+            "gpu": 11122
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.020000100135803223,
-          "gpuMs": 0.34887,
+          "cpuMs": 0.02499997615814209,
+          "gpuMs": 0.346911,
           "frameMs": {
-            "mean": 0.44539528772428716,
-            "p95": 0.8549998998641968,
+            "mean": 0.45489924032532075,
+            "p95": 0.8600000143051147,
             "p99": 0.9500000476837158
           },
-          "fps": 2245.1966322082635,
+          "fps": 2198.2890085392337,
           "drawCalls": 2,
-          "memoryBytes": 18356800,
+          "memoryBytes": 18358216,
           "memoryKind": "exact",
           "samples": {
-            "frames": 22452,
-            "gpu": 11405
+            "frames": 21983,
+            "gpu": 11117
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.020000100135803223,
-          "gpuMs": 0.351369,
+          "cpuMs": 0.02499997615814209,
+          "gpuMs": 0.350161,
           "frameMs": {
-            "mean": 0.45368863986587904,
-            "p95": 0.8600000143051147,
-            "p99": 0.9499999284744263
+            "mean": 0.4471932295854782,
+            "p95": 0.8500000238418579,
+            "p99": 0.9249999523162842
           },
-          "fps": 2204.154814843112,
+          "fps": 2236.1698117096744,
           "drawCalls": 2,
-          "memoryBytes": 18356800,
+          "memoryBytes": 18358216,
           "memoryKind": "exact",
           "samples": {
-            "frames": 22042,
-            "gpu": 11197
+            "frames": 22362,
+            "gpu": 11246
           },
           "vsyncLimited": false
         }
@@ -96,79 +96,79 @@
       "status": "ok",
       "metrics": {
         "cpuMs": 0.02499997615814209,
-        "gpuMs": 0.349536,
+        "gpuMs": 0.3655575,
         "frameMs": {
-          "mean": 0.5132296638425142,
-          "p95": 1.0350000858306885,
-          "p99": 1.3208000326156608
+          "mean": 0.5344788882963036,
+          "p95": 1.1150000095367432,
+          "p99": 1.3949999809265137
         },
-        "fps": 1948.4454435331556,
+        "fps": 1870.9812901826376,
         "drawCalls": 2,
-        "memoryBytes": 43129408,
+        "memoryBytes": 43130824,
         "memoryKind": "exact",
         "samples": {
-          "frames": 58440,
-          "gpu": 31784
+          "frames": 45095,
+          "gpu": 25470
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
-          "cpuMs": 0.02499997615814209,
-          "gpuMs": 0.34912,
+          "cpuMs": 0.040000081062316895,
+          "gpuMs": 0.8924865,
           "frameMs": {
-            "mean": 0.5071831414512974,
-            "p95": 1,
-            "p99": 1.2649999856948853
+            "mean": 1.3527366783865922,
+            "p95": 2.9700000286102295,
+            "p99": 3.6857000529766055
           },
-          "fps": 1971.6743682341532,
+          "fps": 739.2421717970263,
           "drawCalls": 2,
-          "memoryBytes": 43129408,
+          "memoryBytes": 43130824,
           "memoryKind": "exact",
           "samples": {
-            "frames": 19717,
-            "gpu": 10729
+            "frames": 7394,
+            "gpu": 4884
           },
           "vsyncLimited": false
         },
         {
           "cpuMs": 0.02499997615814209,
-          "gpuMs": 0.349536,
+          "gpuMs": 0.3569945,
           "frameMs": {
-            "mean": 0.5132296638425142,
-            "p95": 1.0350000858306885,
-            "p99": 1.3208000326156608
-          },
-          "fps": 1948.4454435331556,
-          "drawCalls": 2,
-          "memoryBytes": 43129408,
-          "memoryKind": "exact",
-          "samples": {
-            "frames": 19485,
-            "gpu": 10558
-          },
-          "vsyncLimited": false
-        },
-        {
-          "cpuMs": 0.02499997615814209,
-          "gpuMs": 0.349745,
-          "frameMs": {
-            "mean": 0.5198497764842899,
+            "mean": 0.5265983887101907,
             "p95": 1.065000057220459,
+            "p99": 1.3155000448226857
+          },
+          "fps": 1898.9803642379584,
+          "drawCalls": 2,
+          "memoryBytes": 43130824,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 18991,
+            "gpu": 10398
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 0.02499997615814209,
+          "gpuMs": 0.3655575,
+          "frameMs": {
+            "mean": 0.5344788882963036,
+            "p95": 1.1150000095367432,
             "p99": 1.3949999809265137
           },
-          "fps": 1923.6326439590582,
+          "fps": 1870.9812901826376,
           "drawCalls": 2,
-          "memoryBytes": 43129408,
+          "memoryBytes": 43130824,
           "memoryKind": "exact",
           "samples": {
-            "frames": 19238,
-            "gpu": 10497
+            "frames": 18710,
+            "gpu": 10188
           },
           "vsyncLimited": false
         }
       ],
-      "unstable": false,
+      "unstable": true,
       "limitations": [
         "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)"
       ]
@@ -180,79 +180,79 @@
       "status": "ok",
       "metrics": {
         "cpuMs": 0.02499997615814209,
-        "gpuMs": 2.39563,
+        "gpuMs": 2.368839,
         "frameMs": {
-          "mean": 2.633325434440434,
-          "p95": 5.129999995231628,
-          "p99": 5.235000014305115
+          "mean": 2.580781935476488,
+          "p95": 4.980000019073486,
+          "p99": 5.081299922466277
         },
-        "fps": 379.74797452730866,
+        "fps": 387.47946358953834,
         "drawCalls": 2,
-        "memoryBytes": 241310272,
+        "memoryBytes": 241311688,
         "memoryKind": "exact",
         "samples": {
-          "frames": 11411,
-          "gpu": 7414
+          "frames": 11397,
+          "gpu": 7419
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
           "cpuMs": 0.02499997615814209,
-          "gpuMs": 2.39563,
+          "gpuMs": 2.368839,
           "frameMs": {
-            "mean": 2.633325434440434,
-            "p95": 5.129999995231628,
-            "p99": 5.235000014305115
+            "mean": 2.580781935476488,
+            "p95": 4.980000019073486,
+            "p99": 5.081299922466277
           },
-          "fps": 379.74797452730866,
+          "fps": 387.47946358953834,
           "drawCalls": 2,
-          "memoryBytes": 241310272,
+          "memoryBytes": 241311688,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3798,
-            "gpu": 2481
+            "frames": 3875,
+            "gpu": 2528
           },
           "vsyncLimited": false
         },
         {
           "cpuMs": 0.02499997615814209,
-          "gpuMs": 2.4091095,
+          "gpuMs": 2.671167,
           "frameMs": {
-            "mean": 2.6414963021457227,
-            "p95": 5.170000076293945,
-            "p99": 5.405750072002411
+            "mean": 2.893030653563864,
+            "p95": 5.745000004768372,
+            "p99": 6.004999995231628
           },
-          "fps": 378.57331058449205,
+          "fps": 345.65828010433313,
           "drawCalls": 2,
-          "memoryBytes": 241310272,
+          "memoryBytes": 241311688,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3786,
-            "gpu": 2452
+            "frames": 3458,
+            "gpu": 2237
           },
           "vsyncLimited": false
         },
         {
           "cpuMs": 0.02499997615814209,
-          "gpuMs": 2.387214,
+          "gpuMs": 2.2317995,
           "frameMs": {
-            "mean": 2.613813692170894,
-            "p95": 5.0950000286102295,
-            "p99": 5.228700020313262
+            "mean": 2.461727362184778,
+            "p95": 4.705000042915344,
+            "p99": 4.825000047683716
           },
-          "fps": 382.5827383930541,
+          "fps": 406.2188264067155,
           "drawCalls": 2,
-          "memoryBytes": 241310272,
+          "memoryBytes": 241311688,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3827,
-            "gpu": 2481
+            "frames": 4064,
+            "gpu": 2654
           },
           "vsyncLimited": false
         }
       ],
-      "unstable": false,
+      "unstable": true,
       "limitations": [
         "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)"
       ]
@@ -263,75 +263,75 @@
       "engine": "clayflow",
       "status": "ok",
       "metrics": {
-        "cpuMs": 2.8000000715255737,
-        "gpuMs": 0.313454,
+        "cpuMs": 2.884999990463257,
+        "gpuMs": 0.31559950000000003,
         "frameMs": {
-          "mean": 2.93453638496953,
-          "p95": 3.175000029802322,
-          "p99": 3.240000009536743
+          "mean": 3.0200045289840673,
+          "p95": 3.274999976158142,
+          "p99": 3.3494499051570887
         },
-        "fps": 340.76933076104393,
+        "fps": 331.12533123796374,
         "drawCalls": 2,
-        "memoryBytes": 18356800,
+        "memoryBytes": 18358216,
         "memoryKind": "exact",
         "samples": {
-          "frames": 10210,
-          "gpu": 5110
+          "frames": 9963,
+          "gpu": 4985
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
-          "cpuMs": 2.8000000715255737,
-          "gpuMs": 0.313454,
+          "cpuMs": 2.884999990463257,
+          "gpuMs": 0.315828,
           "frameMs": {
-            "mean": 2.93453638496953,
-            "p95": 3.175000029802322,
-            "p99": 3.240000009536743
+            "mean": 3.0200045289840673,
+            "p95": 3.274999976158142,
+            "p99": 3.3494499051570887
           },
-          "fps": 340.76933076104393,
+          "fps": 331.12533123796374,
           "drawCalls": 2,
-          "memoryBytes": 18356800,
+          "memoryBytes": 18358216,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3408,
-            "gpu": 1706
+            "frames": 3312,
+            "gpu": 1657
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 2.790000081062317,
-          "gpuMs": 0.313453,
+          "cpuMs": 2.8600000143051147,
+          "gpuMs": 0.31487,
           "frameMs": {
-            "mean": 2.9273441615494016,
-            "p95": 3.1649999618530273,
-            "p99": 3.240000009536743
+            "mean": 2.9901046337746364,
+            "p95": 3.2450000047683716,
+            "p99": 3.3100000619888306
           },
-          "fps": 341.60657060245154,
+          "fps": 334.4364570739533,
           "drawCalls": 2,
-          "memoryBytes": 18356800,
+          "memoryBytes": 18358216,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3417,
-            "gpu": 1710
+            "frames": 3345,
+            "gpu": 1674
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 2.8200000524520874,
-          "gpuMs": 0.313871,
+          "cpuMs": 2.884999990463257,
+          "gpuMs": 0.31559950000000003,
           "frameMs": {
-            "mean": 2.954830132946482,
-            "p95": 3.1999999284744263,
-            "p99": 3.259999990463257
+            "mean": 3.0249758015887633,
+            "p95": 3.284999966621399,
+            "p99": 3.36000000834465
           },
-          "fps": 338.4289299239091,
+          "fps": 330.5811568723243,
           "drawCalls": 2,
-          "memoryBytes": 18356800,
+          "memoryBytes": 18358216,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3385,
-            "gpu": 1694
+            "frames": 3306,
+            "gpu": 1654
           },
           "vsyncLimited": false
         }
@@ -347,75 +347,75 @@
       "engine": "clayflow",
       "status": "ok",
       "metrics": {
-        "cpuMs": 0.3999999761581421,
-        "gpuMs": 0.733322,
+        "cpuMs": 0.41499996185302734,
+        "gpuMs": 0.736156,
         "frameMs": {
-          "mean": 1.3193073878659423,
-          "p95": 2.125,
-          "p99": 2.2416000080108627
+          "mean": 1.3009522570672947,
+          "p95": 2.049999952316284,
+          "p99": 2.1857000446319597
         },
-        "fps": 757.9734709267104,
+        "fps": 768.6677159500656,
         "drawCalls": 1001,
-        "memoryBytes": 27697872,
+        "memoryBytes": 27699288,
         "memoryKind": "exact",
         "samples": {
-          "frames": 22757,
-          "gpu": 12632
+          "frames": 23014,
+          "gpu": 11966
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
-          "cpuMs": 0.4049999713897705,
-          "gpuMs": 0.734676,
+          "cpuMs": 0.41499996185302734,
+          "gpuMs": 0.743781,
           "frameMs": {
-            "mean": 1.3212841854871602,
-            "p95": 2.1299999952316284,
-            "p99": 2.2416000080108627
+            "mean": 1.3120247933959361,
+            "p95": 1.9050000786781311,
+            "p99": 2.178899974822997
           },
-          "fps": 756.8394528473812,
+          "fps": 762.1807187131601,
           "drawCalls": 1001,
-          "memoryBytes": 27697872,
+          "memoryBytes": 27699288,
           "memoryKind": "exact",
           "samples": {
-            "frames": 7569,
-            "gpu": 4180
+            "frames": 7623,
+            "gpu": 3901
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.3999999761581421,
-          "gpuMs": 0.733322,
+          "cpuMs": 0.41499996185302734,
+          "gpuMs": 0.7285305,
           "frameMs": {
-            "mean": 1.31447095163049,
-            "p95": 2.115000009536743,
-            "p99": 2.2200000286102295
+            "mean": 1.2981619937645188,
+            "p95": 2.080000025033951,
+            "p99": 2.2050000393390654
           },
-          "fps": 760.7623422636952,
+          "fps": 770.3198867347181,
           "drawCalls": 1001,
-          "memoryBytes": 27697872,
+          "memoryBytes": 27699288,
           "memoryKind": "exact",
           "samples": {
-            "frames": 7608,
-            "gpu": 4158
+            "frames": 7704,
+            "gpu": 4070
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.3999999761581421,
-          "gpuMs": 0.714843,
+          "cpuMs": 0.41499996185302734,
+          "gpuMs": 0.736156,
           "frameMs": {
-            "mean": 1.3193073878659423,
-            "p95": 2.125,
-            "p99": 2.2450000047683716
+            "mean": 1.3009522570672947,
+            "p95": 2.049999952316284,
+            "p99": 2.1857000446319597
           },
-          "fps": 757.9734709267104,
+          "fps": 768.6677159500656,
           "drawCalls": 1001,
-          "memoryBytes": 27697872,
+          "memoryBytes": 27699288,
           "memoryKind": "exact",
           "samples": {
-            "frames": 7580,
-            "gpu": 4294
+            "frames": 7687,
+            "gpu": 3995
           },
           "vsyncLimited": false
         }
@@ -447,75 +447,75 @@
       "engine": "clayflow",
       "status": "ok",
       "metrics": {
-        "cpuMs": 0.20500004291534424,
-        "gpuMs": 1.9111795,
+        "cpuMs": 0.2049999237060547,
+        "gpuMs": 2.1605914999999998,
         "frameMs": {
-          "mean": 2.9359040211329615,
-          "p95": 5.9835000157356255,
-          "p99": 7.120200004577637
+          "mean": 3.126878712094549,
+          "p95": 6.259999990463257,
+          "p99": 7.125599999427795
         },
-        "fps": 340.61058972019845,
+        "fps": 319.8077354686223,
         "drawCalls": 3,
-        "memoryBytes": 21994468,
+        "memoryBytes": 21995884,
         "memoryKind": "exact",
         "samples": {
-          "frames": 10381,
-          "gpu": 6849
+          "frames": 9779,
+          "gpu": 6482
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
           "cpuMs": 0.20000004768371582,
-          "gpuMs": 1.89245,
+          "gpuMs": 2.1605914999999998,
           "frameMs": {
-            "mean": 2.798702097872754,
-            "p95": 5.73999992609024,
-            "p99": 6.64020007371902
+            "mean": 3.126878712094549,
+            "p95": 6.35050002336502,
+            "p99": 7.125599999427795
           },
-          "fps": 357.3084826570442,
+          "fps": 319.8077354686223,
           "drawCalls": 3,
-          "memoryBytes": 21994468,
+          "memoryBytes": 21995884,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3575,
-            "gpu": 2358
+            "frames": 3199,
+            "gpu": 2120
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.20500004291534424,
-          "gpuMs": 1.925303,
+          "cpuMs": 0.2099999189376831,
+          "gpuMs": 2.19555,
           "frameMs": {
-            "mean": 2.9433568696759664,
-            "p95": 5.985500013828277,
-            "p99": 7.120200004577637
+            "mean": 3.1281003752225933,
+            "p95": 6.259999990463257,
+            "p99": 7.161049969196311
           },
-          "fps": 339.74813258376304,
+          "fps": 319.6828362417369,
           "drawCalls": 3,
-          "memoryBytes": 21994468,
+          "memoryBytes": 21995884,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3399,
-            "gpu": 2243
+            "frames": 3198,
+            "gpu": 2121
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.20500004291534424,
-          "gpuMs": 1.9111795,
+          "cpuMs": 0.2049999237060547,
+          "gpuMs": 1.905555,
           "frameMs": {
-            "mean": 2.9359040211329615,
-            "p95": 5.9835000157356255,
-            "p99": 7.339400033950806
+            "mean": 2.9577040213018675,
+            "p95": 6.149999976158142,
+            "p99": 7.064999960660934
           },
-          "fps": 340.61058972019845,
+          "fps": 338.10009142153393,
           "drawCalls": 3,
-          "memoryBytes": 21994468,
+          "memoryBytes": 21995884,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3407,
-            "gpu": 2248
+            "frames": 3382,
+            "gpu": 2241
           },
           "vsyncLimited": false
         }
@@ -532,74 +532,74 @@
       "status": "ok",
       "metrics": {
         "cpuMs": 0.09500002861022949,
-        "gpuMs": 2.9940165,
+        "gpuMs": 2.917163,
         "frameMs": {
-          "mean": 2.9839830002854413,
-          "p95": 5.475000023841858,
-          "p99": 5.5524000072479245
+          "mean": 3.0403632218714542,
+          "p95": 5.5299999713897705,
+          "p99": 5.605550005435944
         },
-        "fps": 335.1225526098313,
+        "fps": 328.9080701957918,
         "drawCalls": 3,
-        "memoryBytes": 105978148,
+        "memoryBytes": 105979564,
         "memoryKind": "exact",
         "samples": {
-          "frames": 10057,
-          "gpu": 6418
+          "frames": 9779,
+          "gpu": 6490
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
           "cpuMs": 0.09500002861022949,
-          "gpuMs": 2.9932255,
+          "gpuMs": 2.917163,
           "frameMs": {
-            "mean": 2.9826215329612507,
-            "p95": 5.465000033378601,
-            "p99": 5.5524000072479245
+            "mean": 3.033359114350714,
+            "p95": 5.509999990463257,
+            "p99": 5.570200047492981
           },
-          "fps": 335.27552488604385,
+          "fps": 329.66752774804525,
           "drawCalls": 3,
-          "memoryBytes": 105978148,
+          "memoryBytes": 105979564,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3353,
-            "gpu": 2146
+            "frames": 3297,
+            "gpu": 2193
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 0.10000002384185791,
+          "gpuMs": 2.919247,
+          "frameMs": {
+            "mean": 3.1335792606486415,
+            "p95": 5.9049999713897705,
+            "p99": 6.111350013017657
+          },
+          "fps": 319.1238889527891,
+          "drawCalls": 3,
+          "memoryBytes": 105979564,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 3192,
+            "gpu": 2122
           },
           "vsyncLimited": false
         },
         {
           "cpuMs": 0.09500002861022949,
-          "gpuMs": 3.0008705,
+          "gpuMs": 2.913997,
           "frameMs": {
-            "mean": 2.9839830002854413,
-            "p95": 5.489999938011169,
-            "p99": 5.564999995231628
+            "mean": 3.0403632218714542,
+            "p95": 5.5299999713897705,
+            "p99": 5.605550005435944
           },
-          "fps": 335.1225526098313,
+          "fps": 328.9080701957918,
           "drawCalls": 3,
-          "memoryBytes": 105978148,
+          "memoryBytes": 105979564,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3353,
-            "gpu": 2138
-          },
-          "vsyncLimited": false
-        },
-        {
-          "cpuMs": 0.09500002861022949,
-          "gpuMs": 2.9940165,
-          "frameMs": {
-            "mean": 2.984204714990523,
-            "p95": 5.475000023841858,
-            "p99": 5.540000021457672
-          },
-          "fps": 335.0976543186568,
-          "drawCalls": 3,
-          "memoryBytes": 105978148,
-          "memoryKind": "exact",
-          "samples": {
-            "frames": 3351,
-            "gpu": 2134
+            "frames": 3290,
+            "gpu": 2175
           },
           "vsyncLimited": false
         }
@@ -615,82 +615,83 @@
       "engine": "clayflow",
       "status": "ok",
       "metrics": {
-        "cpuMs": 0.2049999237060547,
-        "gpuMs": 2.206237,
+        "cpuMs": 0.19999992847442627,
+        "gpuMs": 2.223383,
         "frameMs": {
-          "mean": 2.938290748897278,
-          "p95": 5.539999961853027,
-          "p99": 5.930000066757202
+          "mean": 2.925406432744355,
+          "p95": 5.460000038146973,
+          "p99": 5.972100001573563
         },
-        "fps": 340.33391704864255,
+        "fps": 341.83284373990017,
         "drawCalls": 2,
-        "memoryBytes": 50837572,
+        "memoryBytes": 50838988,
         "memoryKind": "exact",
         "samples": {
-          "frames": 10270,
-          "gpu": 6818
+          "frames": 10315,
+          "gpu": 6845
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
-          "cpuMs": 0.2049999237060547,
-          "gpuMs": 2.2295495,
+          "cpuMs": 0.19999992847442627,
+          "gpuMs": 2.1547795,
           "frameMs": {
-            "mean": 2.938290748897278,
-            "p95": 5.539999961853027,
-            "p99": 5.930000066757202
+            "mean": 2.845300142252937,
+            "p95": 5.3950000166893,
+            "p99": 5.899299976825715
           },
-          "fps": 340.33391704864255,
+          "fps": 351.4567708165192,
           "drawCalls": 2,
-          "memoryBytes": 50837572,
+          "memoryBytes": 50838988,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3405,
-            "gpu": 2262
+            "frames": 3515,
+            "gpu": 2332
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.2049999237060547,
-          "gpuMs": 2.203841,
+          "cpuMs": 0.19999992847442627,
+          "gpuMs": 2.223383,
           "frameMs": {
-            "mean": 2.942604411770316,
-            "p95": 5.605250018835067,
-            "p99": 6.090050032138823
+            "mean": 2.925406432744355,
+            "p95": 5.460000038146973,
+            "p99": 5.975250023603438
           },
-          "fps": 339.8350101019473,
+          "fps": 341.83284373990017,
           "drawCalls": 2,
-          "memoryBytes": 50837572,
+          "memoryBytes": 50838988,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3400,
-            "gpu": 2256
+            "frames": 3420,
+            "gpu": 2269
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.19000005722045898,
-          "gpuMs": 2.206237,
+          "cpuMs": 0.20249998569488525,
+          "gpuMs": 2.243257,
           "frameMs": {
-            "mean": 2.886476190472062,
-            "p95": 5.444999933242798,
-            "p99": 5.743600006103517
+            "mean": 2.958718934919707,
+            "p95": 5.475000023841858,
+            "p99": 5.972100001573563
           },
-          "fps": 346.44318331843135,
+          "fps": 337.98411474564,
           "drawCalls": 2,
-          "memoryBytes": 50837572,
+          "memoryBytes": 50838988,
           "memoryKind": "exact",
           "samples": {
-            "frames": 3465,
-            "gpu": 2300
+            "frames": 3380,
+            "gpu": 2244
           },
           "vsyncLimited": false
         }
       ],
       "unstable": false,
       "limitations": [
-        "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)"
+        "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)",
+        "variantes *-water: o Three desenha as mesmas esferas (sem superfície de água): referência, não paridade"
       ]
     },
     {
@@ -699,82 +700,253 @@
       "engine": "clayflow",
       "status": "ok",
       "metrics": {
-        "cpuMs": 0.1650000810623169,
-        "gpuMs": 13.075925,
+        "cpuMs": 0.1700000762939453,
+        "gpuMs": 13.517377,
         "frameMs": {
-          "mean": 13.497712550536502,
-          "p95": 26.955000042915344,
-          "p99": 27.171000003814697
+          "mean": 13.881366158160025,
+          "p95": 27.704999923706055,
+          "p99": 27.88899998664856
         },
-        "fps": 74.08662736414938,
+        "fps": 72.03901897020127,
         "drawCalls": 2,
-        "memoryBytes": 57297464,
+        "memoryBytes": 57298880,
         "memoryKind": "exact",
         "samples": {
-          "frames": 2229,
-          "gpu": 1454
+          "frames": 2155,
+          "gpu": 1401
         },
         "vsyncLimited": false
       },
       "repetitions": [
         {
-          "cpuMs": 0.1650000810623169,
-          "gpuMs": 13.075925,
-          "frameMs": {
-            "mean": 13.497712550536502,
-            "p95": 26.955000042915344,
-            "p99": 27.171000003814697
-          },
-          "fps": 74.08662736414938,
-          "drawCalls": 2,
-          "memoryBytes": 57297464,
-          "memoryKind": "exact",
-          "samples": {
-            "frames": 741,
-            "gpu": 485
-          },
-          "vsyncLimited": false
-        },
-        {
           "cpuMs": 0.16999995708465576,
-          "gpuMs": 12.996384,
+          "gpuMs": 13.517377,
           "frameMs": {
-            "mean": 13.419571619755134,
-            "p95": 26.658500003814698,
-            "p99": 26.923899953365325
+            "mean": 13.875020804418439,
+            "p95": 27.65499997138977,
+            "p99": 27.886999988555907
           },
-          "fps": 74.51802697843844,
+          "fps": 72.07196400610474,
           "drawCalls": 2,
-          "memoryBytes": 57297464,
+          "memoryBytes": 57298880,
           "memoryKind": "exact",
           "samples": {
-            "frames": 747,
-            "gpu": 487
+            "frames": 721,
+            "gpu": 468
           },
           "vsyncLimited": false
         },
         {
-          "cpuMs": 0.1650000810623169,
-          "gpuMs": 13.0928425,
+          "cpuMs": 0.17500007152557373,
+          "gpuMs": 13.463378,
           "frameMs": {
-            "mean": 13.503879892037787,
-            "p95": 26.975000023841858,
-            "p99": 27.267999982833864
+            "mean": 13.881366158160025,
+            "p95": 27.704999923706055,
+            "p99": 27.88899998664856
           },
-          "fps": 74.05279134551724,
+          "fps": 72.03901897020127,
           "drawCalls": 2,
-          "memoryBytes": 57297464,
+          "memoryBytes": 57298880,
           "memoryKind": "exact",
           "samples": {
-            "frames": 741,
-            "gpu": 482
+            "frames": 721,
+            "gpu": 470
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 0.1700000762939453,
+          "gpuMs": 13.680875,
+          "frameMs": {
+            "mean": 14.04253856931796,
+            "p95": 27.982000017166136,
+            "p99": 28.180799946784973
+          },
+          "fps": 71.21219536365992,
+          "drawCalls": 2,
+          "memoryBytes": 57298880,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 713,
+            "gpu": 463
           },
           "vsyncLimited": false
         }
       ],
       "unstable": false,
       "limitations": [
-        "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)"
+        "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)",
+        "variantes *-water: o Three desenha as mesmas esferas (sem superfície de água): referência, não paridade"
+      ]
+    },
+    {
+      "scene": "particles",
+      "variant": "4k-water",
+      "engine": "clayflow",
+      "status": "ok",
+      "metrics": {
+        "cpuMs": 0.26999998092651367,
+        "gpuMs": 3.108036,
+        "frameMs": {
+          "mean": 3.944016167183028,
+          "p95": 7.480000019073486,
+          "p99": 7.604999943971634
+        },
+        "fps": 253.54865639768397,
+        "drawCalls": 7,
+        "memoryBytes": 96857816,
+        "memoryKind": "exact",
+        "samples": {
+          "frames": 7635,
+          "gpu": 5077
+        },
+        "vsyncLimited": false
+      },
+      "repetitions": [
+        {
+          "cpuMs": 0.25999999046325684,
+          "gpuMs": 3.117578,
+          "frameMs": {
+            "mean": 3.901950078012419,
+            "p95": 7.485000014305115,
+            "p99": 7.604999943971634
+          },
+          "fps": 256.2821102286838,
+          "drawCalls": 7,
+          "memoryBytes": 96857816,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 2564,
+            "gpu": 1705
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 0.26999998092651367,
+          "gpuMs": 3.108036,
+          "frameMs": {
+            "mean": 3.944016167183028,
+            "p95": 7.480000019073486,
+            "p99": 7.610000014305115
+          },
+          "fps": 253.54865639768397,
+          "drawCalls": 7,
+          "memoryBytes": 96857816,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 2536,
+            "gpu": 1686
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 0.26999998092651367,
+          "gpuMs": 3.0816615,
+          "frameMs": {
+            "mean": 3.9454812623575126,
+            "p95": 7.389999985694885,
+            "p99": 7.519999980926514
+          },
+          "fps": 253.45450491443415,
+          "drawCalls": 7,
+          "memoryBytes": 96857816,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 2535,
+            "gpu": 1686
+          },
+          "vsyncLimited": false
+        }
+      ],
+      "unstable": false,
+      "limitations": [
+        "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)",
+        "variantes *-water: o Three desenha as mesmas esferas (sem superfície de água): referência, não paridade"
+      ]
+    },
+    {
+      "scene": "particles",
+      "variant": "64k-water",
+      "engine": "clayflow",
+      "status": "ok",
+      "metrics": {
+        "cpuMs": 0.23000001907348633,
+        "gpuMs": 15.219892999999999,
+        "frameMs": {
+          "mean": 16.058362760857634,
+          "p95": 17.059500062465666,
+          "p99": 17.294250049591064
+        },
+        "fps": 62.27284903773047,
+        "drawCalls": 7,
+        "memoryBytes": 103317708,
+        "memoryKind": "exact",
+        "samples": {
+          "frames": 1869,
+          "gpu": 938
+        },
+        "vsyncLimited": false
+      },
+      "repetitions": [
+        {
+          "cpuMs": 0.2250000238418579,
+          "gpuMs": 15.195101,
+          "frameMs": {
+            "mean": 16.0475480768543,
+            "p95": 16.985000014305115,
+            "p99": 17.294250049591064
+          },
+          "fps": 62.3148156472776,
+          "drawCalls": 7,
+          "memoryBytes": 103317708,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 624,
+            "gpu": 313
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 0.23000001907348633,
+          "gpuMs": 15.246435,
+          "frameMs": {
+            "mean": 16.089630225080384,
+            "p95": 17.099750024080276,
+            "p99": 17.33395003914833
+          },
+          "fps": 62.1518323299443,
+          "drawCalls": 7,
+          "memoryBytes": 103317708,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 622,
+            "gpu": 313
+          },
+          "vsyncLimited": false
+        },
+        {
+          "cpuMs": 0.23000001907348633,
+          "gpuMs": 15.219892999999999,
+          "frameMs": {
+            "mean": 16.058362760857634,
+            "p95": 17.059500062465666,
+            "p99": 17.230599992275238
+          },
+          "fps": 62.27284903773047,
+          "drawCalls": 7,
+          "memoryBytes": 103317708,
+          "memoryKind": "exact",
+          "samples": {
+            "frames": 623,
+            "gpu": 312
+          },
+          "vsyncLimited": false
+        }
+      ],
+      "unstable": false,
+      "limitations": [
+        "render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)",
+        "variantes *-water: o Three desenha as mesmas esferas (sem superfície de água): referência, não paridade"
       ]
     }
   ]

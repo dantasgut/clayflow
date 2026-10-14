@@ -6,7 +6,7 @@
 
 # Interface: CameraValues
 
-Defined in: [elements/scene/Camera.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L16)
+Defined in: [elements/scene/Camera.ts:16](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L16)
 
 Valores de construção de uma `Camera` (todos opcionais).
 
@@ -16,7 +16,7 @@ Valores de construção de uma `Camera` (todos opcionais).
 
 > `readonly` `optional` **aspect?**: `number`
 
-Defined in: [elements/scene/Camera.ts:28](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L28)
+Defined in: [elements/scene/Camera.ts:28](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L28)
 
 Razão de aspecto usada com `aspectMode: 'fixed'`. Default 16/9.
 
@@ -26,7 +26,7 @@ Razão de aspecto usada com `aspectMode: 'fixed'`. Default 16/9.
 
 > `readonly` `optional` **aspectMode?**: `CameraAspectMode`
 
-Defined in: [elements/scene/Camera.ts:30](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L30)
+Defined in: [elements/scene/Camera.ts:30](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L30)
 
 Origem da razão de aspecto. Default `'canvas'`.
 
@@ -36,7 +36,7 @@ Origem da razão de aspecto. Default `'canvas'`.
 
 > `readonly` `optional` **far?**: `number`
 
-Defined in: [elements/scene/Camera.ts:26](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L26)
+Defined in: [elements/scene/Camera.ts:26](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L26)
 
 Plano distante. Default 1000.
 
@@ -46,7 +46,7 @@ Plano distante. Default 1000.
 
 > `readonly` `optional` **fov?**: `number`
 
-Defined in: [elements/scene/Camera.ts:20](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L20)
+Defined in: [elements/scene/Camera.ts:20](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L20)
 
 Campo de visão vertical em radianos (perspectiva). Default `π/4`.
 
@@ -56,7 +56,7 @@ Campo de visão vertical em radianos (perspectiva). Default `π/4`.
 
 > `readonly` `optional` **near?**: `number`
 
-Defined in: [elements/scene/Camera.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L24)
+Defined in: [elements/scene/Camera.ts:24](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L24)
 
 Plano próximo. Default 0,1.
 
@@ -66,7 +66,7 @@ Plano próximo. Default 0,1.
 
 > `readonly` `optional` **orthoHeight?**: `number`
 
-Defined in: [elements/scene/Camera.ts:22](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L22)
+Defined in: [elements/scene/Camera.ts:22](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L22)
 
 Altura visível em unidades de mundo (ortográfica). Default 10.
 
@@ -76,6 +76,6 @@ Altura visível em unidades de mundo (ortográfica). Default 10.
 
 > `readonly` `optional` **projection?**: `CameraProjection`
 
-Defined in: [elements/scene/Camera.ts:18](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L18)
+Defined in: [elements/scene/Camera.ts:18](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Camera.ts#L18)
 
 Projeção. Default `'perspective'`.

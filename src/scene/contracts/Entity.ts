@@ -121,6 +121,17 @@ export abstract class Entity<TData extends object = Record<string, unknown>> {
     }
 
     /**
+     * Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
+     * inserida, use `World.detach` (que também atualiza a cena).
+     */
+    detach(e: Entity<object>): boolean {
+        const i = this.parts.indexOf(e);
+        if (i < 0) return false;
+        this.parts.splice(i, 1);
+        return true;
+    }
+
+    /**
      * Lista somente-leitura dos filhos diretos. World.insert traverse essa
      * árvore recursivamente para coletar todos os Resources de um root.
      */

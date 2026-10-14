@@ -153,6 +153,89 @@ export class World {
     }
 
     /**
+     * Anexa `component` (e a árvore dele) a uma entidade já inserida — ex.: trocar o material de um corpo sem recriá-lo
+     * (spec 017). Os recursos novos entram na cena (`resourcesChanged` com `added`) e a entidade é recomposta
+     * (`entitiesRecomposed`): a C2 reavalia os registros e os slots de entidades dela.
+     *
+     * @throws ReuseError se `component` (ou um recurso da árvore dele) já está numa cena.
+     * @throws Error se `entity` não é uma raiz inserida neste World.
+     */
+    attach(entity: Entity<object>, component: Entity<object>): void {
+        const id = this.entityToId.get(entity);
+        const record = id === undefined ? undefined : this.records.get(id);
+        if (id === undefined || record === undefined) {
+            throw new Error(
+                `World.attach: ${describe(entity)} não é uma entidade inserida nesta cena.`,
+            );
+        }
+        const added: Resource[] = [];
+        this.collectResources(component, added, new Set());
+        for (const r of added) {
+            if (worldOf(r) !== undefined || record.resources.includes(r)) {
+                throw new ReuseError(
+                    `World: instância já inserida — crie outra instância (${describe(r)} já está numa cena).`,
+                );
+            }
+        }
+        entity.add(component);
+        for (const r of added) setOwner(r, this, id);
+        this.recompose(record, [...record.resources, ...added]);
+        this.events.emit('resourcesChanged', { added, removed: [] });
+        this.events.emit('entitiesRecomposed', { entityIds: [id] });
+    }
+
+    /**
+     * Desanexa `component` (filho direto) de uma entidade inserida: os recursos dele saem da cena
+     * (`resourcesChanged` com `removed`) e a entidade é recomposta (`entitiesRecomposed`). Devolve `false` se
+     * `component` não é filho direto de `entity` ou `entity` não está inserida.
+     */
+    detach(entity: Entity<object>, component: Entity<object>): boolean {
+        const id = this.entityToId.get(entity);
+        const record = id === undefined ? undefined : this.records.get(id);
+        if (id === undefined || record === undefined || !entity.attached.includes(component))
+            return false;
+        const removed: Resource[] = [];
+        this.collectResources(component, removed, new Set());
+        entity.detach(component);
+        const gone = new Set<Resource>(removed);
+        for (const r of removed) setOwner(r, undefined, -1);
+        this.recompose(
+            record,
+            record.resources.filter((r) => !gone.has(r)),
+        );
+        this.events.emit('resourcesChanged', { added: [], removed });
+        this.events.emit('entitiesRecomposed', { entityIds: [id] });
+        return true;
+    }
+
+    /** Troca os recursos do registro e reindexa os schemas que entraram e saíram. */
+    private recompose(record: EntityRecord, resources: readonly Resource[]): void {
+        const names = new Set<string>();
+        for (const r of resources) {
+            const ctor = r.constructor as { schema?: { name: string } };
+            if (ctor.schema !== undefined) names.add(ctor.schema.name);
+        }
+        for (const name of record.schemaNames) {
+            if (!names.has(name)) this.bySchema.get(name)?.delete(record.id);
+        }
+        for (const name of names) {
+            let set = this.bySchema.get(name);
+            if (set === undefined) {
+                set = new Set();
+                this.bySchema.set(name, set);
+            }
+            set.add(record.id);
+        }
+        this.records.set(record.id, {
+            id: record.id,
+            root: record.root,
+            resources: resources.slice(),
+            tags: record.tags,
+            schemaNames: [...names],
+        });
+    }
+
+    /**
      * Tags são labels arbitrários associados a entityIds. Útil para queries
      * por gameplay context (e.g. "enemy", "interactive", "bloom-only").
      */

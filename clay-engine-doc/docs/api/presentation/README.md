@@ -22,9 +22,11 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [AudioLoader](classes/AudioLoader.md)
 - [Bloom](classes/Bloom.md)
 - [Blur](classes/Blur.md)
+- [CausticsFlow](classes/CausticsFlow.md)
 - [ChromaticAberration](classes/ChromaticAberration.md)
 - [ColorGrading](classes/ColorGrading.md)
 - [DebugFlow](classes/DebugFlow.md)
+- [FluidSurfaceFlow](classes/FluidSurfaceFlow.md)
 - [FlyController](classes/FlyController.md)
 - [FontLoader](classes/FontLoader.md)
 - [ForwardFlow](classes/ForwardFlow.md)
@@ -61,13 +63,18 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [UiTree](classes/UiTree.md)
 - [UiVBox](classes/UiVBox.md)
 - [Vignette](classes/Vignette.md)
+- [WaterFlow](classes/WaterFlow.md)
+- [WaterSurface](classes/WaterSurface.md)
 
 ## Interfaces
 
 - [ApplicationOptions](interfaces/ApplicationOptions.md)
+- [CausticsSlots](interfaces/CausticsSlots.md)
 - [ColorGradingOptions](interfaces/ColorGradingOptions.md)
 - [DebugFlowOptions](interfaces/DebugFlowOptions.md)
 - [EnginePlugin](interfaces/EnginePlugin.md)
+- [FluidSurfaceFlowOptions](interfaces/FluidSurfaceFlowOptions.md)
+- [FluidSurfaceSlots](interfaces/FluidSurfaceSlots.md)
 - [FlyControllerKeymap](interfaces/FlyControllerKeymap.md)
 - [FlyControllerOptions](interfaces/FlyControllerOptions.md)
 - [ForwardFlowOptions](interfaces/ForwardFlowOptions.md)
@@ -101,6 +108,8 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [ShadowSlots](interfaces/ShadowSlots.md)
 - [UiBounds](interfaces/UiBounds.md)
 - [UISlots](interfaces/UISlots.md)
+- [WaterSlots](interfaces/WaterSlots.md)
+- [WaterSurfaceOptions](interfaces/WaterSurfaceOptions.md)
 - [WheelInputEvent](interfaces/WheelInputEvent.md)
 
 ## Type Aliases
@@ -109,6 +118,7 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [ForwardOutput](type-aliases/ForwardOutput.md)
 - [GltfAnimationPath](type-aliases/GltfAnimationPath.md)
 - [GltfInterpolation](type-aliases/GltfInterpolation.md)
+- [WaterView](type-aliases/WaterView.md)
 
 ## Variables
 

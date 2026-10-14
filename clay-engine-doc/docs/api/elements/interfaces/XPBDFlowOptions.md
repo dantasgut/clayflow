@@ -6,7 +6,7 @@
 
 # Interface: XPBDFlowOptions
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:26](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L26)
+Defined in: [elements/physics/flows/XPBDFlow.ts:26](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L26)
 
 Opções do `XPBDFlow`.
 
@@ -16,7 +16,7 @@ Opções do `XPBDFlow`.
 
 > `readonly` `optional` **constraintPoolKey?**: `string`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:28](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L28)
+Defined in: [elements/physics/flows/XPBDFlow.ts:28](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L28)
 
 Pool das restrições de distância (padrão `DistanceConstraint`).
 
@@ -26,7 +26,7 @@ Pool das restrições de distância (padrão `DistanceConstraint`).
 
 > `readonly` `optional` **solverIters?**: `number`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:32](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L32)
+Defined in: [elements/physics/flows/XPBDFlow.ts:32](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L32)
 
 Iterações do solver de restrições por substep (padrão 1).
 
@@ -36,6 +36,6 @@ Iterações do solver de restrições por substep (padrão 1).
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:30](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/XPBDFlow.ts#L30)
+Defined in: [elements/physics/flows/XPBDFlow.ts:30](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/flows/XPBDFlow.ts#L30)
 
 Substeps por passo de física (padrão 8). O passo vem do `Time` da cena.

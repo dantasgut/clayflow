@@ -83,6 +83,16 @@ export interface EntitiesInsertedPayload {
 }
 
 /**
+ * Payload do evento `entitiesRecomposed` — emitido pelo World depois de `resourcesChanged` quando recursos são anexados
+ * ou desanexados de entidades já inseridas (`World.attach`/`detach`). A C2 reavalia os registros e os slots de
+ * entidades delas (uma entidade pode entrar, sair ou mudar de entrada num conjunto).
+ */
+export interface EntitiesRecomposedPayload {
+    /** Ids das entidades raiz recompostas. */
+    readonly entityIds: readonly EntityId[];
+}
+
+/**
  * Payload do evento `entitiesRemoved` — emitido pelo World quando uma ou mais entidades são removidas. A C2 libera os
  * recursos delas e atualiza os slots de entidades dos Flows (`entitiesChanged`).
  */
@@ -218,6 +228,8 @@ export interface EventMap {
     entitiesInserted: EntitiesInsertedPayload;
     /** World emite quando entidades removidas — flows limpam slots cacheados. */
     entitiesRemoved: EntitiesRemovedPayload;
+    /** World emite quando a composição de entidades inseridas muda (`attach`/`detach`). */
+    entitiesRecomposed: EntitiesRecomposedPayload;
     /** DebugFlow emite (throttled 250ms) com FPS + frame time + stages timestamps. */
     profilerStats: ProfilerStatsPayload;
     /** ExecutionSystem emite quando captureErrors=true e há erro WebGPU. */

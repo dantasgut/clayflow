@@ -6,7 +6,7 @@
 
 # Interface: UISlots
 
-Defined in: [presentation/flows/UIFlow.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/UIFlow.ts#L16)
+Defined in: [presentation/flows/UIFlow.ts:16](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L16)
 
 Slots da UI.
 
@@ -24,6 +24,6 @@ Slots da UI.
 
 > `readonly` **target**: `TargetSlot`
 
-Defined in: [presentation/flows/UIFlow.ts:18](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/UIFlow.ts#L18)
+Defined in: [presentation/flows/UIFlow.ts:18](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L18)
 
 O canvas do quadro (a UI carrega o conteúdo e desenha por cima).

@@ -24,7 +24,7 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | P7  | Sem acoplamento entre solvers                     | Cada solver reage só aos colliders do `ColliderSet`: fluido não empurra rígido, rígido não interage com macio, MPM e SPH/PBF não se veem                     | F5       |
 | P8  | Corpo rígido só com esfera e caixa                | `RigidBody` aceita `shape: 'sphere' \| 'box'` (`elements/physics/bodies/RigidBody.ts`); sem cápsula, convexo ou SDF                                          | F5 (015) |
 | P9  | Sem consultas espaciais                           | Não há raycast, shapecast nem character controller                                                                                                           | F5 (018) |
-| P10 | Sem superfície de fluido                          | Fluidos desenhados como partículas (sprites lidos do pool, `ParticleFlow`, 008); sem superfície contínua (espaço de tela ou isosuperfície)                   | F5 (017) |
+| P10 | ~~Sem superfície de fluido~~ — resolvida na 017   | `FluidSurfaceMaterial`: água contínua em espaço de tela (`FluidSurfaceFlow`, `WaterFlow`) com cáusticas (`CausticsFlow`); a água por altura fica na 029      | F5 (017) |
 
 ## 2. Limites de escala
 
@@ -55,6 +55,22 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   intercalada, sem vetor local por partícula — `particles/64k` 17 → 74 fps (GPU 60 → 13 ms); trajetórias de SPH e PBF
   regravadas (ordem dos vizinhos).
 - MSAA 4× antecipado da F4/011.
+
+### Notas da 017
+
+- Superfície de fluido (P10): resolvida — água contínua a partir das partículas, com óptica e cáusticas num estágio que
+  consome uma superfície genérica (a 029 reusa). `particles/64k-water`: +1,6 ms de GPU sobre os sprites; barragem de
+  36 864 partículas com água e cáusticas: 9,3 ms de GPU por quadro em 1280×720.
+- Defeito encontrado e corrigido: o PBF rodava 1 substep fixo e explodia abaixo de 5 cm de espaçamento; agora o passo
+  estável vem do material (`pbfStableDt`), sem mudar as trajetórias de 5 cm.
+- Defeito encontrado e corrigido (feedback do usuário: "água grossa"): a viscosidade do SPH entrava na aceleração sem
+  ÷ρ_i — ~1000× a do material (mel no lugar de água); trajetória de SPH e imagem `particles-sph` regravadas. O MPM
+  recebe `viscosity` mas nenhum kernel a lê (fluido MPM sem viscosidade; pendência da F5/016).
+- Ondulações capilares procedurais no material de água: a rede fina das cáusticas (a simulação a 2,5 cm só faz ondas
+  grandes).
+- Capacidade nova da C2: `World.attach`/`detach` recompõem entidades vivas (troca de material sem recriar o corpo).
+- Limites: só a luz direcional que projeta sombra gera cáusticas (spot e pontuais quando tiverem sombra, F4/013); a
+  reflexão usa a cor refletida do material (IBL na F4); água atrás de água soma à espessura, sem refração própria.
 
 ### Pendências novas (levantadas na 007)
 
@@ -87,10 +103,10 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | Fim do readback da física (E3)                                                                                                | F2 (007) |
 | Geometria gerada em compute                                                                                                   | ✅ 008   |
 | Pontos de extensão matemáticos (métrica, espaços não euclidianos)                                                             | F3       |
-| Lacunas de simulação P1–P10 e limites E1, E2, E4                                                                              | F5       |
+| Lacunas de simulação P1–P9 e limites E1, E2, E4                                                                               | F5       |
 
 ## 5. Ordem do ROADMAP
 
 F1 (004, 005, 006) concluída; F2 (007 — ponte compute↔render; 008 — geometria em compute) bloqueia o resto; F3, F4 e
-F5 podem andar em paralelo depois. As pendências P1–P5, P7–P10, E1 e E4 são da F5; P6 da F9; G1 e G2 da F4; G3 (débito do p99 da 007) da F10, ao fim das fases programadas. E2, E3 e E5
+F5 podem andar em paralelo depois. As pendências P1–P5, P7–P9, E1 e E4 são da F5 (P10 resolvida na 017); P6 da F9; G1 e G2 da F4; G3 (débito do p99 da 007) da F10, ao fim das fases programadas. E2, E3 e E5
 foram resolvidas na 007 (F2); a geometria em compute, na 008 (F2 concluída).

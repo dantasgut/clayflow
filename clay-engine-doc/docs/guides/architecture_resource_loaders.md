@@ -2137,6 +2137,39 @@ instância (`array<vec4f>`, stride e deslocamento do campo `pos` em `ParticleDra
 dinâmico) — sem cópia para vertex buffer nem leitura de volta —, esfera impostora iluminada pela luz do pool, na cor e
 na profundidade da cena (`loadOp: 'load'`).
 
+**Superfície de água (spec 017).** Um corpo de partículas com `FluidSurfaceMaterial` (C3, struct próprio: cor de
+dispersão, absorção por canal, cor refletida, índice de refração, refletividade, brilho, raio e suavização, cáusticas) é
+desenhado como água contínua, não como sprites (o `ParticleFlow` o ignora). A cadeia é dividida entre **produtor** e
+**consumidores** por uma superfície genérica — profundidade linear suavizada, espessura e slot do material por pixel —
+guardada no Resource `WaterSurface` da cena (C4, inserido com `FrameTargets`; todos os descritores
+`allocation: 'onDemand'`, alocados por `ensureAllocated` — que também aloca texturas — só quando entra água):
+
+- `FluidSurfaceFlow` (produtor de partículas, uma classe em duas vistas). Vista da câmera (fase `forward`, −60): esferas
+  lidas do pool (um `draw.vertices(6, N)` por corpo), profundidade e material da mais próxima, espessura aditiva cortada
+  pela profundidade da cena, filtro separável de faixa estreita (limiar de silhueta que acompanha a inclinação local;
+  materiais diferentes não se misturam). Vista da luz (fase `shadow`, −10): a caixa envolvente das partículas na base da
+  luz que projeta sombra é acumulada por atômicos e uma matriz ortográfica ajustada à água (`lightMatrix`, só GPU) dá
+  texels de milímetros — o mapa de sombra da cena (±10 m) daria centímetros.
+- `CausticsFlow` (fase `shadow`, −20): um fóton por texel da superfície vista pela luz, refratado pela normal, até o
+  receptor (mapa de sombra da cena, lido bilinear) por iteração de ponto fixo; energia de Fresnel × absorção no
+  percurso depositada com B-spline quadrático em ponto fixo (`atomicAdd`: soma independente da ordem, imagem
+  determinística); resolução no mapa `caustics` (fator de transmissão rgb).
+- `ForwardFlow`: com a superfície da luz produzida, `causticsEnabled = 1` e a luz direta é multiplicada pelo mapa
+  abaixo da água vista pela luz; sem água, os substitutos e o caminho de antes (imagens idênticas).
+- `WaterFlow` (fase `forward`, −70): copia a cor da cena para `background` e compõe num triângulo de tela cheia (MSAA:
+  nas amostras, resolvidas na cor; profundidade da cena só leitura, teste por `frag_depth`): normal da profundidade,
+  refração (nunca do que está na frente), absorção de Beer-Lambert, dispersão, Fresnel com a cor refletida, brilho e a
+  sombra da cena.
+
+As **ondulações capilares** do material (`rippleStrength`, `rippleSize`, `rippleSpeed`: oito trens de onda com
+dispersão de águas profundas e o tempo da cena) somam à normal da superfície, na composição e nas cáusticas, o detalhe
+que as partículas não resolvem — é delas que vem a rede fina das cáusticas. A suavização alterna direções dos eixos e
+diagonais entre iterações (só os eixos deixavam filetes em lâminas finas).
+
+Os consumidores não sabem de partículas: a água por altura (spec 029) escreve a mesma superfície. A troca de material
+de um corpo vivo usa `World.attach`/`detach` (evento `entitiesRecomposed`; a C2 refaz os registros e os slots de
+entidades da entidade).
+
 **Geometria escrita pela GPU.** Descritores `vertex`/`index` com `upload: 'never'` (índice exige `indexFormat`) ficam
 fora da deduplicação; `slot.entities({ owns: [[Geometry, 'vertices']] })` aceita descritor individual e registra o
 escritor (`hasGpuWriter`; o forward avisa uma vez quando desenha uma geometria `'never'` sem escritor). O forward e a
