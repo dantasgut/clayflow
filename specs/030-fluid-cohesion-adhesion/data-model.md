@@ -4,12 +4,12 @@
 
 Recurso único por cena; uniform de dado do World (80 B, era 64 B).
 
-| Campo                    | Tipo | Padrão | Validação      | Significado                                                                  |
-| ------------------------ | ---- | ------ | -------------- | ---------------------------------------------------------------------------- |
-| `cohesion`               | f32  | 0      | ≥ 0, finito    | Tensão superficial adimensional (R2): 1 ≈ aceleração de coesão da ordem de g |
-| `surface.x` → `adhesion` | f32  | 0      | ≥ 0, finito    | Adesão às fronteiras sólidas (R3): 1 ≈ aceleração de contato da ordem de g   |
-| `surface.y` → `xsph`     | f32  | 0,05   | ≥ 0, finito    | Suavização de velocidade XSPH (SPH e PBF)                                    |
-| `viscosity`              | f32  | 0,01   | (já existente) | Passa a valer também no MPM fluido (R7)                                      |
+| Campo       | Tipo | Padrão | Validação      | Significado                                                                  |
+| ----------- | ---- | ------ | -------------- | ---------------------------------------------------------------------------- |
+| `cohesion`  | f32  | 0      | ≥ 0, finito    | Tensão superficial adimensional (R2): 1 ≈ aceleração de coesão da ordem de g |
+| `adhesion`  | f32  | 0      | ≥ 0, finito    | Adesão às fronteiras sólidas (R3): 1 ≈ aceleração de contato da ordem de g   |
+| `xsph`      | f32  | 0,05   | ≥ 0, finito    | Suavização de velocidade XSPH (SPH e PBF)                                    |
+| `viscosity` | f32  | 0,01   | (já existente) | Passa a valer também no MPM fluido (R7)                                      |
 
 Acessores novos: `cohesion`, `adhesion`, `xsph`; constantes `WATER_COHESION`, `WATER_ADHESION` (calibradas, R2);
 derivados `cohesionGamma(solver)`, `adhesionBeta(solver)` (unidades do solver, pelo suporte H), `capillaryStableDt`,

@@ -140,7 +140,7 @@ C é a matriz afim do APIC, que aproxima ∇v. Esse é o mesmo tratamento do MLS
 Campos novos em `ParticleMaterial`:
 
 - `cohesion` (padrão 0), no lugar de `_pad0`;
-- um `vec4f` `surface` = (`adhesion`, `xsph`, `_pad`, `_pad`), com padrão (0, 0,05, 0, 0).
+- `adhesion` (padrão 0), `xsph` (padrão 0,05) e dois preenchimentos, escalares no fim do struct (depois de `domainMax`), para `material.data.adhesion` funcionar como os demais campos.
 
 A validação segue as funções `positive`/não negativa já existentes.
 
