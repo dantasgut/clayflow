@@ -3,7 +3,7 @@
 //
 // Cada caso simula uma cena pequena por passos fixos de 1/60 s e lê o pool de volta (só aqui, para medir):
 //   - gota alongada sem gravidade (SPH e PBF): com a coesão da água, razão de semieixos ≤ 1,15 em 3 s; sem, não (SC-001);
-//   - filete livre: com coesão, parte-se em ≥ 2 gotas; sem, continua inteiro (SC-002);
+//   - jato esticado sem gravidade: com coesão, parte-se em ≥ 2 gotas (Rayleigh-Plateau); sem, vira um fio só (SC-002);
 //   - barragem: com coesão, menos partículas isoladas na borda e energia que não cresce depois de assentar;
 //   - menisco: com adesão, a superfície junto à parede fica ≥ meio espaçamento acima do centro; sem, não (SC-003);
 //   - placa inclinada: com adesão, a gota leva ≥ 30% mais para descer e deixa partículas aderidas; sem, nenhuma
@@ -35,7 +35,6 @@ import {
     front,
     hashBytes,
     hasNaN,
-    isolated,
     kinetic,
     sparse,
     surfaceHeight,
@@ -58,7 +57,7 @@ import {
 } from './support/fluidBehaviorScenes';
 
 const QUERY = new URLSearchParams(location.search);
-/** Coesão e adesão de referência (a calibração pode sobrepor por `--query wc=…&wa=…`). */
+/** Coesão e adesão de referência (para calibrar, `--query wc=…&wa=…` as sobrepõe; a fixture vale só com as de referência). */
 const WATER_C = Number(QUERY.get('wc') ?? ParticleMaterial.WATER_COHESION);
 const WATER_A = Number(QUERY.get('wa') ?? ParticleMaterial.WATER_ADHESION);
 /** Viscosidade alta do MPM (Pa·s): na escala de 0,4 m, o tempo viscoso L²ρ/μ fica abaixo de 1 s. */
@@ -232,20 +231,13 @@ const CASES: Record<string, Case> = {
 
     async filament() {
         const c = collector();
-        const steps = Number(QUERY.get('fs') ?? 120);
-        const fn = (QUERY.get('fn') ?? '64x3x3').split('x').map(Number) as [number, number, number];
-        const fx = QUERY.get('fx') === null ? undefined : Number(QUERY.get('fx'));
-        const fk = Number(QUERY.get('fk') ?? 1);
-        const water = await c.run('water', filament('SPH', WATER_C, fn, fx, fk), steps);
-        const none = await c.run('zero', filament('SPH', 0, fn, fx, fk), steps);
+        // Jato esticado (v = x · 1/s): o filete parado só se retrai numa gota nessa resolução (research, calibração).
+        const water = await c.run('water', filament('SPH', WATER_C, [64, 3, 3], undefined, 1), 120);
+        const none = await c.run('zero', filament('SPH', 0, [64, 3, 3], undefined, 1), 120);
         const nw = c.measure('gotas com coesão', components(water.p, 1.5 * S, 20));
         const nz = c.measure('gotas sem coesão', components(none.p, 1.5 * S, 20));
-        c.measure('isoladas do filete sem coesão', isolated(none.p, 1.5 * S));
-        c.measure('razão do filete com coesão', axisRatio(water.p));
-        c.measure('extensão x do filete com coesão', front(water.p, 0));
-        c.measure('isoladas do filete com coesão', isolated(water.p, 1.5 * S));
-        c.check(nw >= 2, `filete com coesão não se partiu (${nw} componentes)`);
-        c.check(nz <= 1, `filete sem coesão se partiu (${nz} componentes)`);
+        c.check(nw >= 2, `jato com coesão não se partiu (${nw} componentes)`);
+        c.check(nz <= 1, `jato sem coesão formou gotas (${nz} componentes)`);
         return c.result();
     },
 

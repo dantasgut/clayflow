@@ -6,7 +6,7 @@
 
 # Interface: ForwardSlots
 
-Defined in: [presentation/flows/ForwardFlow.ts:79](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L79)
+Defined in: [presentation/flows/ForwardFlow.ts:79](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L79)
 
 Slots do render principal.
 
@@ -24,7 +24,7 @@ Slots do render principal.
 
 > `readonly` **camera**: `SingletonSlot`\<`false`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:81](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L81)
+Defined in: [presentation/flows/ForwardFlow.ts:81](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L81)
 
 Câmera ativa: o seu slot em `cameras` vai nos parâmetros do quadro.
 
@@ -34,7 +34,7 @@ Câmera ativa: o seu slot em `cameras` vai nos parâmetros do quadro.
 
 > `readonly` **cameras**: `PoolSlot`\<`false`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:83](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L83)
+Defined in: [presentation/flows/ForwardFlow.ts:83](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L83)
 
 Pool `CameraMatrices` (grupo 0), produzido na GPU pelo estágio de câmera.
 
@@ -44,7 +44,7 @@ Pool `CameraMatrices` (grupo 0), produzido na GPU pelo estágio de câmera.
 
 > `readonly` **caster**: `SingletonSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:92](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L92)
+Defined in: [presentation/flows/ForwardFlow.ts:92](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L92)
 
 `ShadowMap` da luz que projeta sombra (opcional; sem ele, `shadowEnabled = 0`).
 
@@ -54,7 +54,7 @@ Defined in: [presentation/flows/ForwardFlow.ts:92](https://github.com/dantasgut/
 
 > `readonly` **lights**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:102](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L102)
+Defined in: [presentation/flows/ForwardFlow.ts:102](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L102)
 
 Pool `Light` (direção da luz que ilumina pelo `lightSlot`; opcional).
 
@@ -64,7 +64,7 @@ Pool `Light` (direção da luz que ilumina pelo `lightSlot`; opcional).
 
 > `readonly` **renderables**: `EntitiesSlot`
 
-Defined in: [presentation/flows/ForwardFlow.ts:90](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L90)
+Defined in: [presentation/flows/ForwardFlow.ts:90](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L90)
 
 Entidades desenhadas (geometria + material + transform), com o registro `Renderable` e os grupos de instâncias
 por (geometria, shader do material, orientação) mantidos pela C2.
@@ -75,7 +75,7 @@ por (geometria, shader do material, orientação) mantidos pela C2.
 
 > `readonly` **shadowMaps**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:96](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L96)
+Defined in: [presentation/flows/ForwardFlow.ts:96](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L96)
 
 Pool `ShadowMap` (vieses pelo slot do caster; opcional).
 
@@ -85,7 +85,7 @@ Pool `ShadowMap` (vieses pelo slot do caster; opcional).
 
 > `readonly` **shadowMatrices**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:98](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L98)
+Defined in: [presentation/flows/ForwardFlow.ts:98](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L98)
 
 Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU; opcional).
 
@@ -95,7 +95,7 @@ Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU; opcion
 
 > `readonly` **shadowTexture**: `TextureSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:94](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L94)
+Defined in: [presentation/flows/ForwardFlow.ts:94](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L94)
 
 Textura de profundidade do caster (opcional).
 
@@ -105,7 +105,7 @@ Textura de profundidade do caster (opcional).
 
 > `readonly` **target**: `TargetSlot`
 
-Defined in: [presentation/flows/ForwardFlow.ts:104](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L104)
+Defined in: [presentation/flows/ForwardFlow.ts:104](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L104)
 
 Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`.
 
@@ -115,7 +115,7 @@ Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`.
 
 > `readonly` **water**: `SingletonSlot`\<`true`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:100](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L100)
+Defined in: [presentation/flows/ForwardFlow.ts:100](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L100)
 
 Superfície de água da cena (cáusticas da luz que projeta sombra, spec 017; opcional).
 
@@ -125,6 +125,6 @@ Superfície de água da cena (cáusticas da luz que projeta sombra, spec 017; op
 
 > `readonly` **world**: `PoolSlot`\<`false`\>
 
-Defined in: [presentation/flows/ForwardFlow.ts:85](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/ForwardFlow.ts#L85)
+Defined in: [presentation/flows/ForwardFlow.ts:85](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/ForwardFlow.ts#L85)
 
 Pool `WorldTransform` (grupo 1, matriz de mundo pelo `transformSlot` do registro).

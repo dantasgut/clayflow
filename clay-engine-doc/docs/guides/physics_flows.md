@@ -44,6 +44,30 @@ material de um corpo vivo: `world.detach(corpo, materialAntigo)` e `world.attach
 O PBF calcula os substeps pelo passo estável do material (`ParticleMaterial.pbfStableDt`: a calibração de 5 cm a 60 Hz
 escalada por (h / 0,1)²): 1 substep a 5 cm, 4 a 2,5 cm.
 
+**Coesão, adesão e viscosidade (spec 030).** O comportamento do líquido é declarado no `ParticleMaterial` (um por cena):
+
+| Campo       | Padrão | Efeito                                                                                                                            |
+| ----------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `cohesion`  | 0      | Tensão superficial de Akinci et al. 2013 (SPH e PBF): gotas arredondadas, jatos que se partem, borda que se fecha                 |
+| `adhesion`  | 0      | Atração às fronteiras sólidas (limites do domínio e colliders plano/caixa/esfera): menisco, gota que gruda e escorre devagar      |
+| `xsph`      | 0,05   | Suavização de velocidade XSPH do SPH e do PBF (antes uma constante dos solvers)                                                  |
+| `viscosity` | 0,01   | Viscosidade dinâmica (Pa·s) — agora também no MPM fluido (tensão `J μ (C + Cᵀ)` pela matriz afim do APIC)                       |
+
+`cohesion` e `adhesion` são adimensionais: 1 dá à partícula de borda (ou encostada na fronteira) uma aceleração da ordem
+de g. As referências calibradas para água em cenas de 2–5 cm são `ParticleMaterial.WATER_COHESION` (3) e
+`ParticleMaterial.WATER_ADHESION` (8). Com os dois em zero, nada muda: as trajetórias são as mesmas, bit a bit. Os
+valores podem mudar em execução (`material.data.cohesion = …`), com efeito no passo seguinte. Coesão e adesão fortes
+pedem mais substeps (oscilação 0,4 √(s / (valor · g))), até 4× os do solver; acima disso, são grampeadas com um aviso
+único por material.
+
+```typescript
+app.world.insert(new ParticleMaterial({
+    particleSpacing: 0.025,
+    cohesion: ParticleMaterial.WATER_COHESION,
+    adhesion: ParticleMaterial.WATER_ADHESION,
+}));
+```
+
 Nenhum `schema`, `vec4` cru ou `flows.register` manual é necessário: os solvers padrão já estão registrados por
 factory (`DEFAULT_SOLVER_REGISTRATIONS`, pelos defaults da `Application`) e, ao `world.insert(body)`, a C2 cria o
 pool e instancia o Flow do algoritmo.

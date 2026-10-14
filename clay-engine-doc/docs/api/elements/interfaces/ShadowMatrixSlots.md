@@ -6,7 +6,7 @@
 
 # Interface: ShadowMatrixSlots
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:21](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/flows/ShadowMatrixFlow.ts#L21)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:21](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/flows/ShadowMatrixFlow.ts#L21)
 
 Slots do estágio da matriz de sombra.
 
@@ -24,7 +24,7 @@ Slots do estágio da matriz de sombra.
 
 > `readonly` **casters**: `EntitiesSlot`
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:27](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/flows/ShadowMatrixFlow.ts#L27)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:27](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/flows/ShadowMatrixFlow.ts#L27)
 
 Luzes direcionais com mapa de sombra: registro `ShadowRecord` e a lista das vivas (grupo único).
 
@@ -34,7 +34,7 @@ Luzes direcionais com mapa de sombra: registro `ShadowRecord` e a lista das viva
 
 > `readonly` **lights**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:23](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/flows/ShadowMatrixFlow.ts#L23)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:23](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/flows/ShadowMatrixFlow.ts#L23)
 
 Pool `Light` (direção da luz).
 
@@ -44,6 +44,6 @@ Pool `Light` (direção da luz).
 
 > `readonly` **matrices**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:25](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/flows/ShadowMatrixFlow.ts#L25)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:25](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/flows/ShadowMatrixFlow.ts#L25)
 
 Pool `ShadowMatrix` (saída).

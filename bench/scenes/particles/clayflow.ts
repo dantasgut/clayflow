@@ -32,7 +32,18 @@ const impl: SceneImplementation<ClayflowHandle> = {
         const water = variant.params.water === true;
         const { spacing } = blockOf(count);
         world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-        world.insert(new ParticleMaterial({ particleSpacing: spacing }));
+        const cohesion = variant.params.cohesion === true;
+        world.insert(
+            new ParticleMaterial({
+                particleSpacing: spacing,
+                ...(cohesion
+                    ? {
+                          cohesion: ParticleMaterial.WATER_COHESION,
+                          adhesion: ParticleMaterial.WATER_ADHESION,
+                      }
+                    : {}),
+            }),
+        );
         const t = 0.1;
         world.insert(new BoxCollider({ halfExtents: [2, 0.5, 2, 0], center: [0, -0.5, 0, 1] }));
         for (const [x, z, hx, hz] of [

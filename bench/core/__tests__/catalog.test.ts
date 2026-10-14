@@ -16,7 +16,7 @@ const scene = (over: Partial<SceneDefinition> = {}): SceneDefinition => ({
 });
 
 describe('catálogo real', () => {
-    it('as 5 cenas da F0 e a de partículas da F2 (com as variantes de água da 017), 13 variantes', () => {
+    it('as 5 cenas da F0 e a de partículas da F2 (com as variantes de água da 017 e de coesão da 030), 15 variantes', () => {
         expect(CATALOG.map((s) => s.id)).toEqual([
             'instances',
             'unique-objects',
@@ -25,12 +25,14 @@ describe('catálogo real', () => {
             'rigid-bodies',
             'particles',
         ]);
-        expect(CATALOG.reduce((n, s) => n + s.variants.length, 0)).toBe(13);
+        expect(CATALOG.reduce((n, s) => n + s.variants.length, 0)).toBe(15);
         expect(findScene('particles')?.variants.map((v) => v.id)).toEqual([
             '4k',
             '64k',
             '4k-water',
             '64k-water',
+            '4k-cohesion',
+            '64k-cohesion',
         ]);
         expect(findScene('instances')?.variants.map((v) => v.id)).toEqual([
             '10k',

@@ -6,7 +6,7 @@
 
 # Interface: SoftBodyEdges
 
-Defined in: [elements/physics/bodies/SoftBody.ts:30](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/SoftBody.ts#L30)
+Defined in: [elements/physics/bodies/SoftBody.ts:30](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/SoftBody.ts#L30)
 
 Restrições de distância internas de um corpo XPBD: pares de índices locais de partícula.
 
@@ -16,7 +16,7 @@ Restrições de distância internas de um corpo XPBD: pares de índices locais d
 
 > `readonly` **a**: `ArrayLike`\<`number`\>
 
-Defined in: [elements/physics/bodies/SoftBody.ts:32](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/SoftBody.ts#L32)
+Defined in: [elements/physics/bodies/SoftBody.ts:32](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/SoftBody.ts#L32)
 
 Primeira partícula de cada aresta (índice local, `< N`).
 
@@ -26,7 +26,7 @@ Primeira partícula de cada aresta (índice local, `< N`).
 
 > `readonly` **b**: `ArrayLike`\<`number`\>
 
-Defined in: [elements/physics/bodies/SoftBody.ts:34](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/SoftBody.ts#L34)
+Defined in: [elements/physics/bodies/SoftBody.ts:34](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/SoftBody.ts#L34)
 
 Segunda partícula de cada aresta (índice local, `< N`).
 
@@ -36,7 +36,7 @@ Segunda partícula de cada aresta (índice local, `< N`).
 
 > `readonly` `optional` **compliance?**: `number` \| `ArrayLike`\<`number`\>
 
-Defined in: [elements/physics/bodies/SoftBody.ts:38](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/SoftBody.ts#L38)
+Defined in: [elements/physics/bodies/SoftBody.ts:38](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/SoftBody.ts#L38)
 
 Compliance de cada aresta (m/N; 0 = rígida), ou um valor para todas. Default 0.
 
@@ -46,6 +46,6 @@ Compliance de cada aresta (m/N; 0 = rígida), ou um valor para todas. Default 0.
 
 > `readonly` `optional` **restLength?**: `ArrayLike`\<`number`\>
 
-Defined in: [elements/physics/bodies/SoftBody.ts:36](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/SoftBody.ts#L36)
+Defined in: [elements/physics/bodies/SoftBody.ts:36](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/SoftBody.ts#L36)
 
 Comprimento de repouso de cada aresta (m). Default: a distância inicial entre as duas partículas.

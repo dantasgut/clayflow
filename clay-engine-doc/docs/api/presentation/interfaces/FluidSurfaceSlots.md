@@ -6,7 +6,7 @@
 
 # Interface: FluidSurfaceSlots
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:65](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L65)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:65](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L65)
 
 Slots do produtor da superfície de água a partir das partículas.
 
@@ -24,7 +24,7 @@ Slots do produtor da superfície de água a partir das partículas.
 
 > `readonly` **bodies**: `EntitiesSlot`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:79](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L79)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:79](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L79)
 
 Corpos de partículas com material de água.
 
@@ -34,7 +34,7 @@ Corpos de partículas com material de água.
 
 > `readonly` **camera**: `SingletonSlot`\<`false`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:67](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L67)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:67](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L67)
 
 Câmera ativa.
 
@@ -44,7 +44,7 @@ Câmera ativa.
 
 > `readonly` **cameras**: `PoolSlot`\<`false`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:69](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L69)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:69](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L69)
 
 Pool `CameraMatrices` (produzido na GPU pelo estágio de câmera).
 
@@ -54,7 +54,7 @@ Pool `CameraMatrices` (produzido na GPU pelo estágio de câmera).
 
 > `readonly` **caster**: `SingletonSlot`\<`true`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:71](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L71)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:71](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L71)
 
 `ShadowMap` da luz que projeta sombra (vista da luz; opcional).
 
@@ -64,7 +64,7 @@ Defined in: [presentation/flows/FluidSurfaceFlow.ts:71](https://github.com/danta
 
 > `readonly` **particleMaterial**: `SingletonSlot`\<`true`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:77](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L77)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:77](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L77)
 
 Parâmetros do material de partícula (espaçamento: raio automático das esferas).
 
@@ -74,7 +74,7 @@ Parâmetros do material de partícula (espaçamento: raio automático das esfera
 
 > `readonly` **sceneDepth**: `TextureSlot`\<`true`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:83](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L83)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:83](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L83)
 
 Profundidade da cena (vista da câmera: a água atrás dos objetos não entra).
 
@@ -84,7 +84,7 @@ Profundidade da cena (vista da câmera: a água atrás dos objetos não entra).
 
 > `readonly` **shadowMaps**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:73](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L73)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:73](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L73)
 
 Pool `ShadowMap` (o slot do mapa da luz que projeta).
 
@@ -94,7 +94,7 @@ Pool `ShadowMap` (o slot do mapa da luz que projeta).
 
 > `readonly` **shadowMatrices**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:75](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L75)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:75](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L75)
 
 Pool `ShadowMatrix` (matriz da luz, produzida na GPU).
 
@@ -104,6 +104,6 @@ Pool `ShadowMatrix` (matriz da luz, produzida na GPU).
 
 > `readonly` **water**: `SingletonSlot`\<`false`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:81](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L81)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:81](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/flows/FluidSurfaceFlow.ts#L81)
 
 A superfície de água da cena (texturas compartilhadas com os consumidores).

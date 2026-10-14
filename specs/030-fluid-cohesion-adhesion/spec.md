@@ -51,12 +51,14 @@ medir a forma da gota, a quebra do filete e as partículas soltas na borda.
 
 **Acceptance Scenarios**:
 
-1. **Given** um cubo de fluido em gravidade zero com coesão de água, **When** a simulação corre 3 s, **Then** o corpo
-   converge para uma forma arredondada (razão entre o maior e o menor semieixo ≤ 1,15), no SPH e no PBF.
-2. **Given** o mesmo cubo com coesão zero, **When** corre 3 s, **Then** a forma não se arredonda pelo mesmo critério
-   (a coesão é a causa, não outra força).
-3. **Given** um filete vertical de fluido caindo com coesão de água, **When** corre até tocar o fundo, **Then** o filete
-   se parte em pelo menos duas gotas separadas antes do fundo.
+1. **Given** um bloco alongado de fluido (16 × 6 × 6 partículas) em gravidade zero com coesão de água, **When** a
+   simulação corre 3 s, **Then** o corpo forma uma gota: um corpo só, arredondado (razão entre o maior e o menor
+   semieixo ≤ 1,15), no SPH e no PBF.
+2. **Given** o mesmo bloco com coesão zero, **When** corre 3 s, **Then** não se forma uma gota pelo mesmo critério — o
+   corpo continua alongado ou se dispersa (a coesão é a causa, não outra força).
+3. **Given** um jato de fluido (64 × 3 × 3 partículas, sem gravidade, esticado com velocidade proporcional à posição ao
+   longo do eixo, 1/s) com coesão de água, **When** corre 2 s, **Then** o jato se parte em pelo menos duas gotas (≥ 20
+   partículas cada); sem coesão, vira um fio só, sem gotas.
 4. **Given** uma barragem com coesão de água, **When** a água assenta, **Then** há menos partículas isoladas (sem
    vizinhas) na borda do que com coesão zero, e nenhuma partícula ganha energia sem fonte (o corpo assenta).
 5. **Given** coesão zero (o padrão), **When** qualquer cena existente roda, **Then** as trajetórias são idênticas, bit a
@@ -223,9 +225,9 @@ de fluido com coesão e adesão.
 
 ### Measurable Outcomes
 
-- **SC-001**: Gota isolada em gravidade zero com coesão de água converge, em 3 s, para razão de semieixos ≤ 1,15 no SPH e
-  no PBF; com coesão zero, não converge.
-- **SC-002**: Filete com coesão de água se parte em ≥ 2 gotas antes de tocar o fundo.
+- **SC-001**: Bloco alongado em gravidade zero com coesão de água forma, em 3 s, uma gota (um corpo, razão de semieixos ≤
+  1,15) no SPH e no PBF; com coesão zero, não.
+- **SC-002**: Jato esticado com coesão de água se parte em ≥ 2 gotas em 2 s; sem coesão, não forma gotas.
 - **SC-003**: Com adesão alta, a altura do fluido junto à parede supera a do centro em pelo menos meio espaçamento de
   partícula; com adesão zero, não.
 - **SC-004**: Na placa inclinada, com adesão alta, a gota leva ≥ 30% mais tempo para percorrer a placa e deixa

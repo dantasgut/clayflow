@@ -142,7 +142,10 @@ export function drop(algorithm: Algorithm, cohesion: number): BehaviorScene {
     };
 }
 
-/** Filete livre (64 × 3 × 3) sem gravidade: com coesão, parte-se em gotas (Rayleigh-Plateau). */
+/**
+ * Filete (64 × 3 × 3 por padrão) sem gravidade, esticado com v = x · `stretch` (jato): com coesão, parte-se em gotas
+ * (Rayleigh-Plateau).
+ */
 export function filament(
     algorithm: Algorithm,
     cohesion: number,

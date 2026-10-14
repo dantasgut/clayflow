@@ -6,7 +6,7 @@
 
 # Interface: WaterSurfaceOptions
 
-Defined in: [presentation/app/WaterSurface.ts:11](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/WaterSurface.ts#L11)
+Defined in: [presentation/app/WaterSurface.ts:11](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/app/WaterSurface.ts#L11)
 
 Opções da superfície de água da cena.
 
@@ -16,6 +16,6 @@ Opções da superfície de água da cena.
 
 > `readonly` `optional` **lightSize?**: `number`
 
-Defined in: [presentation/app/WaterSurface.ts:13](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/WaterSurface.ts#L13)
+Defined in: [presentation/app/WaterSurface.ts:13](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/app/WaterSurface.ts#L13)
 
 Resolução (largura = altura) da superfície vista pela luz e do mapa de cáusticas. Padrão 512.

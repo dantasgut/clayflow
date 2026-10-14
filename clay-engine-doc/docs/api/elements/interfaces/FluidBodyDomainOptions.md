@@ -6,7 +6,7 @@
 
 # Interface: FluidBodyDomainOptions
 
-Defined in: [elements/physics/bodies/FluidBody.ts:31](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/FluidBody.ts#L31)
+Defined in: [elements/physics/bodies/FluidBody.ts:31](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/FluidBody.ts#L31)
 
 Opções de domínio do FluidBody — o fluido inteiro: N partículas em arrays. O algoritmo seleciona o schema. `pos.w` é
 do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticleMaterial` da cena.
@@ -17,7 +17,7 @@ do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volum
 
 > `readonly` **algorithm**: [`FluidAlgorithm`](../type-aliases/FluidAlgorithm.md)
 
-Defined in: [elements/physics/bodies/FluidBody.ts:33](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/FluidBody.ts#L33)
+Defined in: [elements/physics/bodies/FluidBody.ts:33](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/FluidBody.ts#L33)
 
 Seleciona o schema e o estágio que simula (SPH, PBF ou MPM).
 
@@ -27,7 +27,7 @@ Seleciona o schema e o estágio que simula (SPH, PBF ou MPM).
 
 > `readonly` **position**: [`ParticlePositions`](../type-aliases/ParticlePositions.md)
 
-Defined in: [elements/physics/bodies/FluidBody.ts:35](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/FluidBody.ts#L35)
+Defined in: [elements/physics/bodies/FluidBody.ts:35](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/FluidBody.ts#L35)
 
 Posições iniciais (mundo): `x, y, z` por partícula; o tamanho define N.
 
@@ -37,6 +37,6 @@ Posições iniciais (mundo): `x, y, z` por partícula; o tamanho define N.
 
 > `readonly` `optional` **velocity?**: `ArrayLike`\<`number`\>
 
-Defined in: [elements/physics/bodies/FluidBody.ts:37](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/FluidBody.ts#L37)
+Defined in: [elements/physics/bodies/FluidBody.ts:37](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/bodies/FluidBody.ts#L37)
 
 Velocidades iniciais: `x, y, z` por partícula. Default zero.

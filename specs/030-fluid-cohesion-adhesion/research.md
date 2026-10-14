@@ -47,6 +47,9 @@ A força entre i e j é a coesão mais a curvatura, multiplicadas pelo fator de 
 - **Curvatura:** `F_curv = −γ mᵢ (nᵢ − nⱼ)`, com a normal `nᵢ = H Σⱼ (mⱼ/ρⱼ) ∇W(rᵢⱼ)`.
 - **Suporte `H`:** é o da vizinhança de cada solver, 2h no SPH e h no PBF.
 
+**Implementado:** a normal usa o volume de repouso (m/ρ₀) e Kᵢⱼ é limitado a 2 (ρᵢ + ρⱼ ≥ ρ₀) — com m/ρⱼ e sem
+limite, partículas soltas (ρ igual à auto-contribuição) eram arremessadas com coesão alta.
+
 **Por quê:** é o modelo pedido pelo usuário. Também é local, usa só a lista de vizinhos que já existe, e o termo de
 curvatura reduz a área sem aglomerar partículas. A correção K_ij evita a borda densa.
 
@@ -111,18 +114,25 @@ geometria e duplicaria o trabalho da 015/016, que vai trazer fronteiras por SDF.
 ### R5 — Identidade bit a bit com zero (FR-005, FR-010)
 
 - **Coesão = 0:** o Flow não grava o passe de normais. Os kernels testam `cohesion_gamma > 0` e
-  `adhesion_beta > 0` antes de qualquer conta, e sem o termo nada é somado. A ordem das somas já existentes não muda.
+  `adhesion_accel > 0` antes de qualquer conta, e sem o termo nada é somado. A ordem das somas já existentes não muda.
 - **XSPH padrão 0,05:** é igual ao atual.
 - **Verificação:** fixtures existentes passam sem regravar (exceto o MPM fluido, R7).
 
 ### R6 — Estabilidade (FR-015)
 
-O passo capilar `dt_σ = √(ρ₀ s³ / (2π σ_eff))`, com σ*eff derivado de γ (Brackbill), entra em `sphStableDt` e
-`pbfStableDt` como `min(CFL, dt*σ)`. Só vale com coesão > 0. Com coesão = 0, o passo continua exatamente o de hoje.
+Coesão e adesão impõem uma oscilação numa partícula: aceleração `valor · g` ao longo de um espaçamento, passo
+`dt_s = 0,4 √(s / (valor · g))` (vale o maior entre coesão e adesão). `ParticleMaterial.surfaceStep(stepDt, dtSolver)`
+combina esse passo com o estável do solver e devolve os substeps, os valores efetivos e se houve grampeamento. Com
+coesão e adesão zero, devolve exatamente `substepsFor(stepDt, dtSolver)` — os passos estáveis do solver
+(`sphStableDt`, `pbfStableDt`) não mudam.
 
-Se o passo capilar exigir mais de 4× os substeps base, a coesão efetiva é grampeada ao valor que cabe em 4× e o Flow
-avisa uma vez por material. Para isso, `ParticleMaterial.effectiveCohesion(stepDt)` devolve o valor e se houve
-grampeamento. A adesão segue a mesma regra, com `dt_β` pela aceleração máxima de contato.
+Se o passo exigir mais de 4× os substeps sem coesão/adesão, os valores efetivos são grampeados ao que cabe em 4× e o
+Flow avisa uma vez por material.
+
+**Implementado (decisão revista):** o passo capilar de Brackbill (`√(ρ₀ s³ / (2π σ))`) foi trocado pela oscilação da
+aceleração, que usa a mesma escala adimensional do material. Na calibração, com a coesão de referência, ele não muda
+os substeps (o CFL do SPH já é menor); a instabilidade observada com coesão alta vinha de partículas soltas (normal
+com m/ρⱼ e Kᵢⱼ sem limite), corrigida no kernel (R1: volume de repouso na normal, Kᵢⱼ ≤ 2).
 
 ### R7 — Viscosidade do MPM fluido (FR-012)
 
@@ -147,7 +157,7 @@ A validação segue as funções `positive`/não negativa já existentes.
 Os Flows copiam para os `*SimParams` os valores derivados, já em unidades do solver e grampeados por R6:
 
 - `cohesion_gamma`;
-- `adhesion_beta`;
+- `adhesion_accel`;
 - `adhesion_tangential`;
 - `xsph_c`.
 
@@ -186,3 +196,40 @@ Página temporária de gravação no scratchpad, nos moldes da 017, com cinco cl
 - barragem com a água da 017, com coesão e adesão de referência × sem elas, lado a lado.
 
 Os clipes são juntados num mp4 de até 30 MiB.
+
+## Partida
+
+Baseline vigente (`apple-metal-3-chrome155-macos-1280x720`, regravado na 017), GPU por quadro:
+
+| Variante    | GPU      | CPU     |
+| ----------- | -------- | ------- |
+| `4k`        | 2,22 ms  | 0,20 ms |
+| `64k`       | 13,52 ms | 0,17 ms |
+| `4k-water`  | 3,11 ms  | 0,27 ms |
+| `64k-water` | 15,22 ms | 0,23 ms |
+
+Fixtures que dependem do MPM fluido (R7): `particles-mpm-fluid`, `fluidSurface-mpm` e a cena `mpm-fluid` de
+`trajectories-apple-metal-3.bin`. Com coesão e adesão zero, os smokes `trajectories` (SPH e PBF a 30/60/144 Hz) e
+`particles` (SPH, PBF, MPM sólido) saíram bit a bit iguais; só as três do MPM fluido mudaram.
+
+## Calibração (smoke `fluidBehavior`)
+
+Espaçamento de 2,5 cm. Coesão de referência **3**, adesão de referência **8** (`WATER_COHESION`, `WATER_ADHESION`):
+
+| Caso                                              | Sem                   | Com                      |
+| ------------------------------------------------- | --------------------- | ------------------------ |
+| Gota em g = 0, SPH (razão de semieixos)           | 2,68                  | 1,006                    |
+| Gota em g = 0, PBF                                | dispersa (576 corpos) | 1,022 (1 corpo)          |
+| Jato esticado (gotas de ≥ 20 partículas em 2 s)   | 1 fio                 | 4 gotas                  |
+| Barragem (partículas soltas)                      | 2                     | 0                        |
+| Menisco (subida junto à parede)                   | 0,03 s                | 1,3 s                    |
+| Placa inclinada (passos até o fim; aderidas)      | 30; 0                 | 190; 62                  |
+| Gota pousada (área com adesão 0 / 0,5 / 1 × ref.) | —                     | 0,084 / 0,144 / 0,169 m² |
+| MPM, frente em 2 s (μ 0,01 × 5000 Pa·s)           | 0,87 m                | 0,46 m                   |
+| Energia em 1 s (XSPH 0 × 0,3)                     | 0,44                  | 0,029                    |
+
+- Coesão 1 não partia o jato nem segurava a gota pousada; 10 arredondava a gota no SPH mas deixava o PBF alongado
+  (razão 1,33). Adesão 3 não fazia menisco; 30 prendia a gota na placa e saturava o espalhamento.
+- O filete parado (sem gravidade, sem velocidade) só se retrai numa gota em qualquer coesão, na resolução de 3
+  partículas de diâmetro: a quebra de Rayleigh-Plateau aparece no jato esticado (velocidade inicial v = x · 1/s), o
+  caso físico de um jato. A spec foi ajustada (US1 cenário 3, SC-002).

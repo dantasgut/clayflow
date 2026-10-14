@@ -11,14 +11,14 @@ Recurso único por cena; uniform de dado do World (80 B, era 64 B).
 | `xsph`      | f32  | 0,05   | ≥ 0, finito    | Suavização de velocidade XSPH (SPH e PBF)                                    |
 | `viscosity` | f32  | 0,01   | (já existente) | Passa a valer também no MPM fluido (R7)                                      |
 
-Acessores novos: `cohesion`, `adhesion`, `xsph`; constantes `WATER_COHESION`, `WATER_ADHESION` (calibradas, R2);
-derivados `cohesionGamma(solver)`, `adhesionBeta(solver)` (unidades do solver, pelo suporte H), `capillaryStableDt`,
-`effectiveCohesion(stepDt, solver)` → `{ value, clamped }` (R6). `sphStableDt`/`pbfStableDt`/`mpmStableDt` incluem
-as restrições capilar e viscosa só quando o termo é > 0 (com zero, valor idêntico ao atual).
+Acessores novos: `cohesion`, `adhesion`, `xsph`; constantes `WATER_COHESION` (3) e `WATER_ADHESION` (8), calibradas
+pelo smoke `fluidBehavior`; derivados `cohesionGamma()` (γ de Akinci), `adhesionAccel()` (m/s², escala da integral de
+meio-espaço) e `adhesionTangential()` (1/s); `surfaceStep(stepDt, dtSolver, mínimo)` → `{ substeps, cohesion,
+adhesion, clamped }` (R6). `mpmStableDt` ganha a restrição viscosa dx²ρ₀/(6 μ).
 
 ## SPHSimParams / PBFSimParams (C3, alterados)
 
-Campos novos (fim do struct): `cohesion_gamma: f32`, `adhesion_beta: f32`, `adhesion_tangential: f32`,
+Campos novos (fim do struct): `cohesion_gamma: f32`, `adhesion_accel: f32`, `adhesion_tangential: f32`,
 `support: f32` (H). O domínio continua só `bound_min` (A6). `xsph_c` passa a vir do material.
 
 ## MPMSimParams (C3)
