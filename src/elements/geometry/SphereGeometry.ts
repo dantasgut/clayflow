@@ -6,10 +6,15 @@ import { sharedContent } from './geometryContent';
 
 /** Dado de uma `SphereGeometry`. */
 export interface SphereGeometryData extends GeometryData {
+    /** Número de vértices. */
     vertexCount: number;
+    /** Número de índices. */
     indexCount: number;
+    /** Raio. */
     radius: number;
+    /** Divisões em latitude. */
     latSegments: number;
+    /** Divisões em longitude. */
     lonSegments: number;
 }
 

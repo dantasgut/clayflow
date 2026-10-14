@@ -6,7 +6,7 @@
 
 # Interface: PointCloudGeometryData
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L8)
+Defined in: [elements/geometry/PointCloudGeometry.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L7)
 
 Dado de uma `PointCloudGeometry`.
 
@@ -16,11 +16,13 @@ Dado de uma `PointCloudGeometry`.
 
 ## Properties
 
-### indexCount
+### activeCount
 
-> **indexCount**: `number`
+> **activeCount**: `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L10)
+Defined in: [elements/geometry/PointCloudGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L11)
+
+Pontos desenhados (os primeiros do buffer).
 
 ***
 
@@ -28,7 +30,9 @@ Defined in: [elements/geometry/PointCloudGeometry.ts:10](https://github.com/dant
 
 > `optional` **indices?**: `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L17)
+Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L19)
+
+Índices de triângulo.
 
 #### Inherited from
 
@@ -36,19 +40,13 @@ Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clay
 
 ***
 
-### maxParticles
+### maxPoints
 
-> **maxParticles**: `number`
+> **maxPoints**: `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L11)
+Defined in: [elements/geometry/PointCloudGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L9)
 
-***
-
-### vertexCount
-
-> **vertexCount**: `number`
-
-Defined in: [elements/geometry/PointCloudGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L9)
+Pontos que cabem no buffer.
 
 ***
 
@@ -56,8 +54,25 @@ Defined in: [elements/geometry/PointCloudGeometry.ts:9](https://github.com/danta
 
 > `optional` **vertices?**: `Float32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L16)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L17)
+
+Vértices intercalados (posição, normal, uv).
 
 #### Inherited from
 
 [`GeometryData`](GeometryData.md).[`vertices`](GeometryData.md#vertices)
+
+***
+
+### wireEdges?
+
+> `optional` **wireEdges?**: `Uint32Array`\<`ArrayBufferLike`\>
+
+Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L24)
+
+Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
+(de feição nas geometrias estáticas: sem as diagonais de faces planas).
+
+#### Inherited from
+
+[`GeometryData`](GeometryData.md).[`wireEdges`](GeometryData.md#wireedges)

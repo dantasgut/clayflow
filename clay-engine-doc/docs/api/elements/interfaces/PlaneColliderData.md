@@ -6,7 +6,7 @@
 
 # Interface: PlaneColliderData
 
-Defined in: [elements/physics/colliders/PlaneCollider.ts:7](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/PlaneCollider.ts#L7)
+Defined in: [elements/physics/colliders/PlaneCollider.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/PlaneCollider.ts#L7)
 
 Dado de um `PlaneCollider` (layout de `PlaneCollider.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `PlaneCollider` (layout de `PlaneCollider.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/colliders/PlaneCollider.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/PlaneCollider.ts#L10)
+Defined in: [elements/physics/colliders/PlaneCollider.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/PlaneCollider.ts#L13)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/physics/colliders/PlaneCollider.ts:10](https://github.com/
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/colliders/PlaneCollider.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/PlaneCollider.ts#L11)
+Defined in: [elements/physics/colliders/PlaneCollider.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/PlaneCollider.ts#L15)
+
+Preenchimento do layout.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/physics/colliders/PlaneCollider.ts:11](https://github.com/
 
 > **\_pad2**: `number`
 
-Defined in: [elements/physics/colliders/PlaneCollider.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/PlaneCollider.ts#L12)
+Defined in: [elements/physics/colliders/PlaneCollider.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/PlaneCollider.ts#L17)
+
+Preenchimento do layout.
 
 ***
 
@@ -40,7 +46,9 @@ Defined in: [elements/physics/colliders/PlaneCollider.ts:12](https://github.com/
 
 > **normal**: `number`[]
 
-Defined in: [elements/physics/colliders/PlaneCollider.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/PlaneCollider.ts#L8)
+Defined in: [elements/physics/colliders/PlaneCollider.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/PlaneCollider.ts#L9)
+
+Normal.
 
 ***
 
@@ -48,4 +56,6 @@ Defined in: [elements/physics/colliders/PlaneCollider.ts:8](https://github.com/d
 
 > **offset**: `number`
 
-Defined in: [elements/physics/colliders/PlaneCollider.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/colliders/PlaneCollider.ts#L9)
+Defined in: [elements/physics/colliders/PlaneCollider.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/PlaneCollider.ts#L11)
+
+Deslocamento ao longo da normal.

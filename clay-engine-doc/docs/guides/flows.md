@@ -30,12 +30,12 @@ Cada slot é resolvido pela C2 e entregue ao `dispatch` em `bound.slots`, com ti
 | Construtor | Resolve para | Uso típico |
 |---|---|---|
 | `slot.bodies()` | `BoundPool` do `bodyType` do registro | o pool de corpos de um solver |
-| `slot.pool(key, { optional? })` | `BoundPool` (buffer, `count`, `stride`, `slotOf`, `entityAt`) | `WorldTransform`, restrições |
+| `slot.pool(key, { optional? })` | `BoundPool` (buffer, `count`, `stride`, `slotOf`, `rangeOf`, `entityAt`, `live`) | `WorldTransform`, restrições |
 | `slot.pools(keys)` | mapa chave → `BoundPool \| undefined` | conjunto de colliders |
 | `slot.singleton(schema, { optional?, select? })` | `BoundSingleton` (`resource`, `bufferOf(descId)`…) | câmera, `Time`, `GravityField` |
 | `slot.entities({ all: [A, B, …], record?, groups?, owns? })` | `BoundEntities` (entidades com um Resource de cada tipo; com `record`, `entry.recordSlot` e `records`; com `groups`, `groups` e `instances`) | renderizáveis, casters, corpos |
 | `slot.texture(schema, descId, { optional?, select? })` | `BoundTexture` (`texture`, `view`) | cor da cena, mapa de sombra |
-| `slot.target('canvas' \| { color, depth? })` | `BoundTarget` (só em `RenderFlow`) | alvo de render |
+| `slot.target('canvas' \| { color, depth?, samples? })` | `BoundTarget` (só em `RenderFlow`; `samples`/`sampleCount` com MSAA) | alvo de render |
 
 Com `record`, a C2 mantém um registro de GPU por entidade do conjunto, num pool com chave `record.schema.name`: cada
 campo (`u32`) recebe o slot de pool do descritor nomeado de um Resource da entidade — ex.: `renderableRecord` =
@@ -74,6 +74,18 @@ primeiro envio a CPU não escreve mais o slot (mutação ignorada com aviso úni
 dado por cópia na GPU e o dado é lido sob demanda com `app.resources.read(resource)` / `readAll(resources)`. O
 `BoundPool` informa `gpuOwned` (quantos slots são de posse da GPU) e `ownedByGpu(slot)`. É assim que a física
 publica a pose dos corpos direto no `Transform`.
+
+`owns` também aceita um descritor **individual** (spec 008): o conjunto passa a ser o escritor declarado de um dado
+`upload: 'never'` — ex.: `owns: [[PointCloudGeometry, 'vertices']]` num estágio que escreve os vértices por kernel. A C2
+registra o escritor (`resources.hasGpuWriter(geometria, 'vertices')`); o forward avisa uma vez quando desenha uma
+geometria `'never'` sem escritor.
+
+### Faixas e slots vivos (spec 008)
+
+Um Resource com descritor `count: N` em pool ocupa N slots contíguos: `bound.slots.x.rangeOf(entityId)` dá
+`{ first, count }` (os corpos de partículas usam isso; o desenho deles lê `first + instance_index`). Kernels que
+percorrem `[0, count)` de um pool com faixas liberadas testam o bitset de vivos: `BoundPool.live` (ou `consumes`
+`'<pool>.live'`, tipo `u32`) e `pool_live(live[i >> 5u], i)` do módulo `poolLive` da `wgslLib`.
 
 Slot obrigatório não resolvido mantém o Flow `pending` (fora do quadro). Slots opcionais resolvem como `undefined`
 enquanto o dado não existe; quando aparecem, somem ou trocam de recurso, o Flow recebe `slotChanged`.
@@ -270,7 +282,10 @@ app.flows.unregister(reg);                                                      
 `RenderFlow` é um `Flow` cujo slot `target` é o alvo de render: o canvas (`slot.target('canvas')`) ou texturas de
 Resources (`{ color, depth }` — ex.: a cor e a profundidade dos `FrameTargets`, a `depth` de um `ShadowMap`; `color:
 'none'` para passes só de profundidade). A C2 resolve o alvo, inclusive o formato (`bound.slots.target.format`), e o
-recria com o canvas. No `dispatch`, `this.colorView(frame, bound.slots.target)` dá a view de cor do quadro.
+recria com o canvas. No `dispatch`, `this.colorView(frame, bound.slots.target)` dá a view de cor do quadro; com MSAA
+(`slot.target({ …, samples: { schema: FrameTargets.schema, descId: 'samples' } })`),
+`this.colorAttachment(frame, target, { loadOp })` monta o anexo que desenha nas amostras e resolve na cor, e os
+pipelines usam `multisample: { count: bound.slots.target.sampleCount }`.
 
 ```typescript
 class OverlayFlow extends RenderFlow<{ target: TargetSlot }, 'idle'> {

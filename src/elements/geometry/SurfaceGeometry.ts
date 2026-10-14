@@ -15,7 +15,9 @@ export interface SurfaceGeometryData extends GeometryData {
      * kernel de normais soma por vértice.
      */
     adjacency: Uint32Array;
+    /** Número de vértices. */
     vertexCount: number;
+    /** Número de índices. */
     indexCount: number;
 }
 

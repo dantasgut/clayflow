@@ -195,7 +195,14 @@ export interface BoundPool {
     /** Slot da entidade no pool (o primeiro da faixa), ou `undefined`. */
     slotOf(entityId: EntityId): number | undefined;
     /** Faixa da entidade no pool (`count` slots contíguos a partir de `first`, spec 008), ou `undefined`. */
-    rangeOf(entityId: EntityId): { readonly first: number; readonly count: number } | undefined;
+    rangeOf(entityId: EntityId):
+        | {
+              /** Primeiro slot da faixa. */
+              readonly first: number;
+              /** Slots da faixa. */
+              readonly count: number;
+          }
+        | undefined;
     /** O slot é de posse da GPU (escrito por um estágio, não pela CPU)? */
     ownedByGpu(slot: number): boolean;
     /** Entidade que ocupa o slot, ou `undefined`. */

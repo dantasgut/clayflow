@@ -20,12 +20,24 @@ import { RigidBody, SoftBody, FluidBody } from 'webgpu-engine';
 // Corpo rígido dinâmico (LCP) — colisor + Transform anexados automaticamente
 const ball = new RigidBody({ shape: 'sphere', radius: 0.4, mass: 1, friction: 0.3, restitution: 0.45 });
 
-// Partícula de soft body (XPBD) — pos.w recebe invMass derivado de mass
-const node = new SoftBody({ algorithm: 'XPBD', position: [0, 2, 0], mass: 1 });
+// Soft body (XPBD): um corpo com N partículas em arrays (x, y, z por partícula); pos.w recebe invMass de mass
+const rope = new SoftBody({ algorithm: 'XPBD', position: [0, 2, 0, 0, 1.8, 0], mass: [0, 1] });
 
-// Partícula de fluido (SPH/PBF/MPM)
-const drop = new FluidBody({ algorithm: 'MPM', position: [0, 0.5, 0] });
+// Fluido (SPH/PBF/MPM): um corpo com N partículas
+const water = new FluidBody({ algorithm: 'SPH', position: blockOfPositions });
 ```
+
+**Corpos de partículas são contêineres** (spec 008): `FluidBody` e `SoftBody` são **um** Resource com N partículas
+numa faixa contígua do pool do algoritmo (a ordem das partículas é a dos arrays); `mass` e `velocity` vêm por partícula
+ou como valor único. O estado é da simulação depois da inserção: para lê-lo na CPU,
+`app.resources.read(corpo, 'body')` devolve o dado por campo. Um corpo removido libera a faixa inteira (os slots ficam
+fora da simulação e da busca de vizinhança). SPH e PBF aceitam até `NEIGHBOR_SEARCH_MAX_PARTICLES` (65 536) partículas
+por pool; acima disso, erro com o teto.
+
+**Desenho.** Com `PointSpriteMaterial` na entidade, o corpo é desenhado como esferas pelo `ParticleFlow`, que lê as
+posições direto do pool (sem cópia nem leitura de volta). Um `SoftBody({ surface: { triangles } })` vira malha: a
+`SurfaceGeometry` dele é recalculada na GPU a cada quadro e desenhada com o material de superfície da entidade (e um
+`Transform`), com sombra.
 
 Nenhum `schema`, `vec4` cru ou `flows.register` manual é necessário: os solvers padrão já estão registrados por
 factory (`DEFAULT_SOLVER_REGISTRATIONS`, pelos defaults da `Application`) e, ao `world.insert(body)`, a C2 cria o
@@ -38,7 +50,8 @@ sem derivações. Coexiste com a forma de domínio na mesma cena (produz o mesmo
 
 ```typescript
 import { FluidBody, MPMFluidSchema } from 'webgpu-engine';
-const drop = new FluidBody({ schema: MPMFluidSchema, data: { pos: [0, 0.5, 0, 0] } });
+// count partículas, dado por campo do schema (fieldElements números por partícula)
+const drop = new FluidBody({ schema: MPMFluidSchema, count: 1, data: { pos: [0, 0.5, 0, 0] } });
 ```
 
 Os nomes de campo de cada schema (`pos`, `vel`, `F_col0…`) estão na definição do schema — veja a
@@ -55,11 +68,11 @@ Os nomes de campo de cada schema (`pos`, `vel`, `F_col0…`) estão na definiç�
 | `FluidBody`  | `SPHSchema`          | `SPHFlow`       | WCSPH                            |
 | `FluidBody`  | `PBFSchema`          | `PBFFlow`       | Position-Based Fluids            |
 | `FluidBody`  | `MPMFluidSchema`     | `MPMFlow`       | Material Point Method (snow)     |
-| `DistanceConstraint` | `DistanceConstraint` | *(consumido por `XPBDFlow.constraintPoolKey`)* | Constraint XPBD escalar |
+| `DistanceConstraint` | `DistanceConstraint` | *(consumido por `XPBDFlow.constraintPoolKey`)* | Constraint XPBD escalar (`{ a: { body, index }, b }`; internas: `SoftBody({ edges })`) |
 
 > A pool key default de cada flow corresponde ao schema homônimo (ex.: `MPMFlow.bodyType` default `'MPMFluidSchema'`). Para coexistir duas pools do mesmo algoritmo (ex.: MPM soft e MPM fluido no mesmo frame), use schemas distintos.
 
-## Receita: ragdoll com XPBD + DistanceConstraint
+## Receita: corda com XPBD (arestas internas)
 
 ```typescript
 import {
@@ -80,29 +93,28 @@ app.flows.override(
     { type: 'XPBDTuned', phase: 'physics' },
 );
 
-// 10 partículas em coluna. mass=0 ⇒ partícula fixa (invMass 0).
+// Um corpo: 10 partículas em coluna (mass 0 ⇒ fixa) e 9 arestas internas entre consecutivas (índices locais).
 const N = 10;
 const REST = 0.2;
-for (let i = 0; i < N; i++) {
-    app.world.insert(new SoftBody({
-        algorithm: 'XPBD',
-        position: [0, 2 - i * REST, 0],
-        mass: i === 0 ? 0 : 1,
-    }));
-}
-// Constraints entre partículas consecutivas (índice = ordem de inserção no pool)
-for (let i = 0; i < N - 1; i++) {
-    app.world.insert(new DistanceConstraint({
-        i, j: i + 1, restLength: REST, compliance: 0,
-    }));
-}
+const links = Array.from({ length: N - 1 }, (_, i) => i);
+const rope = new SoftBody({
+    algorithm: 'XPBD',
+    position: Array.from({ length: N }, (_, i) => [0, 2 - i * REST, 0]).flat(),
+    mass: Array.from({ length: N }, (_, i) => (i === 0 ? 0 : 1)),
+    edges: { a: links, b: links.map((i) => i + 1), restLength: links.map(() => REST), compliance: 0 },
+});
+app.world.insert(rope);
+// Restrição entre corpos (mesmo pool): partículas por { body, index } — a C2 resolve o slot.
+const other = new SoftBody({ algorithm: 'XPBD', position: [0.3, 2, 0], mass: 1 });
+app.world.insert(other);
+app.world.insert(new DistanceConstraint({ a: { body: rope, index: N - 1 }, b: { body: other, index: 0 }, restLength: 0.3 }));
 app.start();
 ```
 
 ## Receita: snow material com MPM
 
 ```typescript
-import { Application, FluidBody, GravityField, ParticleMaterial } from 'webgpu-engine';
+import { Application, FluidBody, GravityField, ParticleMaterial, PointSpriteMaterial } from 'webgpu-engine';
 
 const app = await Application.create({ canvas });
 app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
@@ -115,20 +127,15 @@ app.world.insert(new ParticleMaterial({
     domainMax: [1.6, 1.6, 1.6],
 }));
 
-// Esfera de 200 partículas (FluidBody 'MPM' → pool roteia ao MPMFlow)
+// Esfera de 200 partículas num corpo (FluidBody 'MPM' → pool roteia ao MPMFlow)
+const position: number[] = [];
 for (let i = 0; i < 200; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.random() * Math.PI;
     const r = 0.3 * Math.cbrt(Math.random());
-    app.world.insert(new FluidBody({
-        algorithm: 'MPM',
-        position: [
-            r * Math.sin(phi) * Math.cos(theta),
-            0.5 + r * Math.cos(phi),
-            r * Math.sin(phi) * Math.sin(theta),
-        ],
-    }));
+    position.push(r * Math.sin(phi) * Math.cos(theta), 0.5 + r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
 }
+app.world.insert(new FluidBody({ algorithm: 'MPM', position }).add(new PointSpriteMaterial({ radius: 0.025 })));
 app.start();
 ```
 
@@ -147,6 +154,14 @@ const pose = await app.resources.read(ball.attached.find((p) => p instanceof Tra
 console.log(pose?.position); // a do último quadro enviado
 const poses = await app.resources.readAll(transforms); // um lote: uma cópia por faixa contígua e uma leitura
 ```
+
+## Busca de vizinhança (SPH, PBF)
+
+Reconstruída a cada substep: célula de cada partícula viva, soma de prefixos, espalhamento, ordenação por índice dentro
+de cada célula (com as posições copiadas na mesma ordem) e busca em 9 faixas de células contíguas numa ordem fixa,
+gravando a lista intercalada (`k * stride + i`). A lista é determinística (trajetórias bit a bit entre execuções e nas
+taxas de 30/60/144 Hz) sem vetor local por partícula. Com 64 000 partículas SPH, o bench `particles/64k` roda a 74 fps
+(13 ms de GPU por quadro, desenho incluído).
 
 ## Convenções dos Flows
 

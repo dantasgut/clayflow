@@ -6,7 +6,7 @@
 
 # Interface: ShadowMapData
 
-Defined in: [elements/scene/ShadowMap.ts:20](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L20)
+Defined in: [elements/scene/ShadowMap.ts:20](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/ShadowMap.ts#L20)
 
 Dado de um `ShadowMap` (layout de `ShadowMap.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `ShadowMap` (layout de `ShadowMap.schema`).
 
 > **bias**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:21](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L21)
+Defined in: [elements/scene/ShadowMap.ts:22](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/ShadowMap.ts#L22)
+
+Viés de profundidade da comparação.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/scene/ShadowMap.ts:21](https://github.com/dantasgut/clayfl
 
 > **normalBias**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:22](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L22)
+Defined in: [elements/scene/ShadowMap.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/ShadowMap.ts#L24)
+
+Viés ao longo da normal.
 
 ***
 
@@ -32,4 +36,6 @@ Defined in: [elements/scene/ShadowMap.ts:22](https://github.com/dantasgut/clayfl
 
 > **size**: readonly \[`number`, `number`\]
 
-Defined in: [elements/scene/ShadowMap.ts:23](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/ShadowMap.ts#L23)
+Defined in: [elements/scene/ShadowMap.ts:26](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/ShadowMap.ts#L26)
+
+Tamanho.

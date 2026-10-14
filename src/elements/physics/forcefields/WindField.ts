@@ -5,10 +5,15 @@ import { ForceField } from './ForceField';
 
 /** Dado de um `WindField` (layout de `WindField.schema`). */
 export interface WindFieldData {
+    /** Direção. */
     direction: readonly number[];
+    /** Intensidade. */
     magnitude: number;
+    /** Turbulência. */
     turbulence: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
 }
 

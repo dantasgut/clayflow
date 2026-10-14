@@ -6,11 +6,13 @@
 
 # Class: PointCloudGeometry
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L19)
+Defined in: [elements/geometry/PointCloudGeometry.ts:29](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L29)
 
-Point cloud — array de pontos como geometry. Cada ponto tem position +
-normal (para shading point-sprite). Usado por particle systems e
-scientific visualization.
+Nuvem de pontos escrita pela GPU (spec 008, R6): um vertex buffer de `maxPoints` vértices (posição, normal, uv; o
+layout do forward) que **só a GPU escreve** (`upload: 'never'`) — por um estágio que declara a posse dele
+(`slot.entities({ owns: [[PointCloudGeometry, 'vertices']] })`). Com `PointSpriteMaterial` cada ponto vira um sprite;
+com material de triângulos ou linhas, os vértices são desenhados sem índices. Desenha os `activeCount` primeiros
+(mutável: o desenho segue o valor do quadro). Própria da entidade (fora da deduplicação).
 
 ## Extends
 
@@ -22,17 +24,21 @@ scientific visualization.
 
 > **new PointCloudGeometry**(`values?`): `PointCloudGeometry`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:26](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L26)
+Defined in: [elements/geometry/PointCloudGeometry.ts:38](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L38)
 
 #### Parameters
 
 ##### values?
 
-`Record`\<`string`, `unknown`\> = `{}`
+[`PointCloudGeometryValues`](../interfaces/PointCloudGeometryValues.md) = `{}`
 
 #### Returns
 
 `PointCloudGeometry`
+
+#### Throws
+
+RangeError com capacidade não positiva ou `activeCount` fora de `[0, maxPoints]`.
 
 #### Overrides
 
@@ -44,7 +50,7 @@ Defined in: [elements/geometry/PointCloudGeometry.ts:26](https://github.com/dant
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:29](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L29)
+Defined in: [elements/geometry/Geometry.ts:36](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L36)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -54,13 +60,13 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 ***
 
-### schema
+### vertexStruct
 
-> `readonly` `static` **schema**: `StructSchema`
+> `readonly` `static` **vertexStruct**: `StructSchema`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:21](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L21)
+Defined in: [elements/geometry/PointCloudGeometry.ts:31](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L31)
 
-StructSchema do ponto (position + normal, 32 bytes).
+Layout do ponto (o do forward: posição, normal, uv; 32 bytes).
 
 ## Accessors
 
@@ -70,7 +76,7 @@ StructSchema do ponto (position + normal, 32 bytes).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -91,17 +97,15 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **contentKey**(): `string` \| `undefined`
 
-Defined in: [elements/geometry/Geometry.ts:42](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L42)
+Defined in: [elements/geometry/PointCloudGeometry.ts:79](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L79)
 
-Chave de conteúdo (spec 007): geometrias com a mesma chave compartilham os buffers de vértice e índice na GPU (a
-Camada 2 deduplica). Paramétricas: a dos parâmetros; arrays próprios: a do hash dos bytes. `undefined` sem
-vértices e índices em `data` (ex.: nuvem de pontos produzida na GPU, que é sempre própria).
+Própria da entidade: fora da deduplicação por conteúdo.
 
 ##### Returns
 
 `string` \| `undefined`
 
-#### Inherited from
+#### Overrides
 
 [`Geometry`](Geometry.md).[`contentKey`](Geometry.md#contentkey)
 
@@ -113,7 +117,7 @@ vértices e índices em `data` (ex.: nuvem de pontos produzida na GPU, que é se
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -126,7 +130,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -152,9 +156,9 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:52](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L52)
+Defined in: [elements/geometry/PointCloudGeometry.ts:74](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L74)
 
-Point clouds não usam index buffer — sempre 0.
+Sem índices.
 
 ##### Returns
 
@@ -172,7 +176,7 @@ Point clouds não usam index buffer — sempre 0.
 
 > **get** **indexFormat**(): `GPUIndexFormat`
 
-Defined in: [elements/geometry/Geometry.ts:56](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L56)
+Defined in: [elements/geometry/Geometry.ts:73](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L73)
 
 Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint32'`).
 
@@ -192,7 +196,7 @@ Formato do index buffer, derivado do array de índices (`Uint32Array` → `'uint
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -213,9 +217,9 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:48](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L48)
+Defined in: [elements/geometry/PointCloudGeometry.ts:69](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L69)
 
-Número de pontos no buffer (sempre = `maxParticles`).
+Pontos desenhados (`activeCount`).
 
 ##### Returns
 
@@ -231,7 +235,7 @@ Número de pontos no buffer (sempre = `maxParticles`).
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -256,12 +260,9 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:32](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L32)
+Defined in: [elements/geometry/PointCloudGeometry.ts:56](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/PointCloudGeometry.ts#L56)
 
-Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
-que este resource expõe ao `ResourceSystem`. Cada descriptor define
-`id`, `role`, `schema` (StructSchema) e opcionalmente `storage`
-(`'pool'` para coalescer N members do mesmo schema em 1 buffer).
+Vértices escritos só pela GPU.
 
 #### Returns
 
@@ -277,7 +278,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:43](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/PointCloudGeometry.ts#L43)
+Defined in: [elements/geometry/Geometry.ts:40](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L40)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -287,9 +288,28 @@ Vazio para a maioria (Flows criam pipelines diretamente).
 
 readonly `PipelineDescriptor`[]
 
-#### Overrides
+#### Inherited from
 
 [`Geometry`](Geometry.md).[`getPipelineDescriptors`](Geometry.md#getpipelinedescriptors)
+
+***
+
+### wireDescriptors()
+
+> `protected` **wireDescriptors**(): `GPUDescriptor`[]
+
+Defined in: [elements/geometry/Geometry.ts:61](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L61)
+
+Descritor das arestas de arame (`data.wireEdges`, índices `uint32` aos pares; spec 008): alocado e deduplicado pela
+C2 como os índices. Vazio sem arestas. Subclasses o acrescentam aos seus descritores.
+
+#### Returns
+
+`GPUDescriptor`[]
+
+#### Inherited from
+
+[`Geometry`](Geometry.md).[`wireDescriptors`](Geometry.md#wiredescriptors)
 
 ***
 
@@ -297,7 +317,7 @@ readonly `PipelineDescriptor`[]
 
 > `protected` `static` **indexArray**(`indices`, `vertexCount`): `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:64](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L64)
+Defined in: [elements/geometry/Geometry.ts:81](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L81)
 
 Array de índices no menor formato que endereça `vertexCount` vértices: `Uint16Array` até 65 535 vértices,
 `Uint32Array` acima.

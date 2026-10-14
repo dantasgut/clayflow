@@ -6,10 +6,15 @@ import { Material } from './Material';
 
 /** Dado de um `WireframeMaterial` (layout de `WireframeMaterial.schema`). */
 export interface WireframeMaterialData {
+    /** Cor RGBA linear. */
     color: number[];
+    /** Espessura das linhas em pixels. */
     lineWidth: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
     _pad2: number;
 }
 

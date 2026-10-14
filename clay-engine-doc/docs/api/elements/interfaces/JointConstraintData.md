@@ -6,7 +6,7 @@
 
 # Interface: JointConstraintData
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L7)
+Defined in: [elements/physics/constraints/JointConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L7)
 
 Dado de um `JointConstraint` (layout de `JointConstraint.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `JointConstraint` (layout de `JointConstraint.schema`).
 
 > **anchorA**: `number`[]
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L12)
+Defined in: [elements/physics/constraints/JointConstraint.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L17)
+
+Ancoragem no primeiro corpo.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/physics/constraints/JointConstraint.ts:12](https://github.
 
 > **anchorB**: `number`[]
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L13)
+Defined in: [elements/physics/constraints/JointConstraint.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L19)
+
+Ancoragem no segundo corpo.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/physics/constraints/JointConstraint.ts:13](https://github.
 
 > **bodyA**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L8)
+Defined in: [elements/physics/constraints/JointConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L9)
+
+Primeiro corpo.
 
 ***
 
@@ -40,7 +46,9 @@ Defined in: [elements/physics/constraints/JointConstraint.ts:8](https://github.c
 
 > **bodyB**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L9)
+Defined in: [elements/physics/constraints/JointConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L11)
+
+Segundo corpo.
 
 ***
 
@@ -48,7 +56,9 @@ Defined in: [elements/physics/constraints/JointConstraint.ts:9](https://github.c
 
 > **color**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L11)
+Defined in: [elements/physics/constraints/JointConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L15)
+
+Cor RGBA linear.
 
 ***
 
@@ -56,7 +66,9 @@ Defined in: [elements/physics/constraints/JointConstraint.ts:11](https://github.
 
 > **kind**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L10)
+Defined in: [elements/physics/constraints/JointConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L13)
+
+Tipo (código numérico do layout).
 
 ***
 
@@ -64,4 +76,6 @@ Defined in: [elements/physics/constraints/JointConstraint.ts:10](https://github.
 
 > **limits**: `number`[]
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:14](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/JointConstraint.ts#L14)
+Defined in: [elements/physics/constraints/JointConstraint.ts:21](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/JointConstraint.ts#L21)
+
+Limites da junta.

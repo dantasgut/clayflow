@@ -6,7 +6,7 @@
 
 # Class: UiTree
 
-Defined in: [presentation/ui/UiTree.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiTree.ts#L8)
+Defined in: [presentation/ui/UiTree.ts:8](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiTree.ts#L8)
 
 UiTree é o container raiz da hierarquia UI. UIFlow expõe via `app.defaults.ui.ui`
 para o app adicionar elementos top-level. UiFlattener percorre `tree.root.children`
@@ -28,7 +28,7 @@ recursivamente para gerar quads por frame.
 
 > `readonly` **root**: [`UiElement`](UiElement.md)
 
-Defined in: [presentation/ui/UiTree.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiTree.ts#L10)
+Defined in: [presentation/ui/UiTree.ts:10](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiTree.ts#L10)
 
 Raiz oculta (UiElement abstrato vazio). Filhos diretos são os top-level UI.
 
@@ -38,7 +38,7 @@ Raiz oculta (UiElement abstrato vazio). Filhos diretos são os top-level UI.
 
 > **add**(`element`): `this`
 
-Defined in: [presentation/ui/UiTree.ts:13](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiTree.ts#L13)
+Defined in: [presentation/ui/UiTree.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiTree.ts#L13)
 
 Atalho — adiciona um elemento como filho da raiz. Chaining fluente.
 

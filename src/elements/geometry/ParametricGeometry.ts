@@ -17,9 +17,13 @@ export type ParametricFunction = (u: number, v: number) => readonly [number, num
 
 /** Dado de uma `ParametricGeometry`. */
 export interface ParametricGeometryData extends GeometryData {
+    /** Número de vértices. */
     vertexCount: number;
+    /** Número de índices. */
     indexCount: number;
+    /** Divisões em u. */
     uSteps: number;
+    /** Divisões em v. */
     vSteps: number;
 }
 

@@ -6,7 +6,7 @@
 
 # Interface: GravityFieldData
 
-Defined in: [elements/physics/forcefields/GravityField.ts:7](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L7)
+Defined in: [elements/physics/forcefields/GravityField.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L7)
 
 Dado de um `GravityField` (layout de `GravityField.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `GravityField` (layout de `GravityField.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L9)
+Defined in: [elements/physics/forcefields/GravityField.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L11)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:9](https://github.com/
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L10)
+Defined in: [elements/physics/forcefields/GravityField.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L13)
+
+Preenchimento do layout.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:10](https://github.com
 
 > **\_pad2**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L11)
+Defined in: [elements/physics/forcefields/GravityField.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L15)
+
+Preenchimento do layout.
 
 ***
 
@@ -40,7 +46,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:11](https://github.com
 
 > **\_pad3**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L16)
+Defined in: [elements/physics/forcefields/GravityField.ts:25](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L25)
+
+Preenchimento do layout.
 
 ***
 
@@ -48,7 +56,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:16](https://github.com
 
 > **\_pad4**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L17)
+Defined in: [elements/physics/forcefields/GravityField.ts:27](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L27)
+
+Preenchimento do layout.
 
 ***
 
@@ -56,7 +66,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:17](https://github.com
 
 > **acceleration**: readonly `number`[]
 
-Defined in: [elements/physics/forcefields/GravityField.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L12)
+Defined in: [elements/physics/forcefields/GravityField.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L17)
+
+Aceleração (m/s²).
 
 ***
 
@@ -64,7 +76,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:12](https://github.com
 
 > **gravitationalConstant**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:15](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L15)
+Defined in: [elements/physics/forcefields/GravityField.ts:23](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L23)
+
+Constante gravitacional G.
 
 ***
 
@@ -72,7 +86,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:15](https://github.com
 
 > **sourceMass**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:14](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L14)
+Defined in: [elements/physics/forcefields/GravityField.ts:21](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L21)
+
+Massa da fonte pontual.
 
 ***
 
@@ -80,7 +96,9 @@ Defined in: [elements/physics/forcefields/GravityField.ts:14](https://github.com
 
 > **sourceMode**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L8)
+Defined in: [elements/physics/forcefields/GravityField.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L9)
+
+Modo da fonte: 0 uniforme, 1 pontual.
 
 ***
 
@@ -88,4 +106,6 @@ Defined in: [elements/physics/forcefields/GravityField.ts:8](https://github.com/
 
 > **sourcePosition**: readonly `number`[]
 
-Defined in: [elements/physics/forcefields/GravityField.ts:13](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/GravityField.ts#L13)
+Defined in: [elements/physics/forcefields/GravityField.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/GravityField.ts#L19)
+
+Posição da fonte pontual.

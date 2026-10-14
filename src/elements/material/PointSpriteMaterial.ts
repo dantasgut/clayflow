@@ -6,10 +6,15 @@ import { Material } from './Material';
 
 /** Dado de um `PointSpriteMaterial` (layout de `PointSpriteMaterial.schema`). */
 export interface PointSpriteMaterialData {
+    /** Cor RGBA linear. */
     color: number[];
+    /** Raio. */
     radius: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
     _pad2: number;
 }
 

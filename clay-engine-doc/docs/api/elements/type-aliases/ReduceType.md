@@ -8,6 +8,6 @@
 
 > **ReduceType** = `"u32"` \| `"i32"` \| `"f32"`
 
-Defined in: [elements/gpu/compute/shaders.ts:133](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/shaders.ts#L133)
+Defined in: [elements/gpu/compute/shaders.ts:140](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/shaders.ts#L140)
 
 Tipo dos elementos reduzidos.

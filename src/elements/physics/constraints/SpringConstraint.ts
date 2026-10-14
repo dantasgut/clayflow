@@ -5,13 +5,21 @@ import { Constraint } from './Constraint';
 
 /** Dado de um `SpringConstraint` (layout de `SpringConstraint.schema`). */
 export interface SpringConstraintData {
+    /** Primeiro corpo. */
     bodyA: number;
+    /** Segundo corpo. */
     bodyB: number;
+    /** Rigidez. */
     stiffness: number;
+    /** Amortecimento. */
     damping: number;
+    /** Comprimento de repouso. */
     restLength: number;
+    /** Cor RGBA linear. */
     color: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
 }
 

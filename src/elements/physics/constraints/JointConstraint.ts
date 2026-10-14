@@ -5,12 +5,19 @@ import { Constraint } from './Constraint';
 
 /** Dado de um `JointConstraint` (layout de `JointConstraint.schema`). */
 export interface JointConstraintData {
+    /** Primeiro corpo. */
     bodyA: number;
+    /** Segundo corpo. */
     bodyB: number;
+    /** Tipo (código numérico do layout). */
     kind: number;
+    /** Cor RGBA linear. */
     color: number;
+    /** Ancoragem no primeiro corpo. */
     anchorA: number[];
+    /** Ancoragem no segundo corpo. */
     anchorB: number[];
+    /** Limites da junta. */
     limits: number[];
 }
 

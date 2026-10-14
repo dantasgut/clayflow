@@ -6,7 +6,7 @@
 
 # Interface: ParticleEmitterData
 
-Defined in: [elements/particles/ParticleEmitter.ts:25](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/particles/ParticleEmitter.ts#L25)
+Defined in: [elements/particles/ParticleEmitter.ts:25](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/particles/ParticleEmitter.ts#L25)
 
 Dado de um `ParticleEmitter`.
 
@@ -16,7 +16,9 @@ Dado de um `ParticleEmitter`.
 
 > **lifetime**: `number`
 
-Defined in: [elements/particles/ParticleEmitter.ts:28](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/particles/ParticleEmitter.ts#L28)
+Defined in: [elements/particles/ParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/particles/ParticleEmitter.ts#L31)
+
+Vida de cada partícula (s).
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/particles/ParticleEmitter.ts:28](https://github.com/dantas
 
 > **maxParticles**: `number`
 
-Defined in: [elements/particles/ParticleEmitter.ts:26](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/particles/ParticleEmitter.ts#L26)
+Defined in: [elements/particles/ParticleEmitter.ts:27](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/particles/ParticleEmitter.ts#L27)
+
+Capacidade de partículas.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/particles/ParticleEmitter.ts:26](https://github.com/dantas
 
 > **rate**: `number`
 
-Defined in: [elements/particles/ParticleEmitter.ts:27](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/particles/ParticleEmitter.ts#L27)
+Defined in: [elements/particles/ParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/particles/ParticleEmitter.ts#L29)
+
+Partículas emitidas por segundo.
 
 ***
 
@@ -40,4 +46,6 @@ Defined in: [elements/particles/ParticleEmitter.ts:27](https://github.com/dantas
 
 > **shape**: [`EmitterShape`](EmitterShape.md) \| `undefined`
 
-Defined in: [elements/particles/ParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/particles/ParticleEmitter.ts#L29)
+Defined in: [elements/particles/ParticleEmitter.ts:33](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/particles/ParticleEmitter.ts#L33)
+
+Forma de emissão.

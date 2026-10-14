@@ -815,7 +815,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     poolRangeOf(
         poolKey: string,
         entityId: EntityId,
-    ): { readonly first: number; readonly count: number } | undefined {
+    ):
+        | {
+              /** Primeiro slot da faixa. */
+              readonly first: number;
+              /** Slots da faixa. */
+              readonly count: number;
+          }
+        | undefined {
         const entry = this.pools.get(poolKey);
         const first = entry?.slotByEntity.get(entityId);
         if (entry === undefined || first === undefined) return undefined;

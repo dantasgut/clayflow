@@ -13,7 +13,9 @@ const MAX_UINT16_VERTICES = 65_535;
  * subclasses estendem com os próprios campos.
  */
 export interface GeometryData {
+    /** Vértices intercalados (posição, normal, uv). */
     vertices?: Float32Array;
+    /** Índices de triângulo. */
     indices?: Uint16Array | Uint32Array;
     /**
      * Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha

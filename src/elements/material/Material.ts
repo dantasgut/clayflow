@@ -31,6 +31,7 @@ export abstract class Material<TData extends object = Record<string, unknown>>
         return this.castsShadowOverride ?? this.topology === 'triangle-list';
     }
 
+    /** Define se o material projeta sombra (vale sobre o padrão da topologia). */
     set castsShadow(value: boolean) {
         this.castsShadowOverride = value;
     }

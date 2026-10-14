@@ -5,9 +5,13 @@ import { ForceField } from './ForceField';
 
 /** Dado de um `DragField` (layout de `DragField.schema`). */
 export interface DragFieldData {
+    /** Coeficiente linear. */
     linearCoeff: number;
+    /** Coeficiente quadrático. */
     quadraticCoeff: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
 }
 

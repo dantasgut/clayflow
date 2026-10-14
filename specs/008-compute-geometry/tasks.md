@@ -216,11 +216,19 @@ indireto.
 
 - [ ] T048 [P] Bench `particles` (R11) em `bench/scenes/particles/clayflow.ts` e `three.ts` (variantes `4k`, `65k`); registrar a cena no runner (`bench/`) e a limitação no resumo (Three sem simulação, sprites atualizados pela CPU)
 - [ ] T049 Medir `npm run bench -- --scene particles` contra SC-004/SC-005 e anotar abaixo deste item (CPU 65k/4k, fps de intervalo de 65k, GPU por passe)
-- [ ] T050 [P] Documento de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: faixas de pool, bitset de vivos, `slotRef`, render de corpos (`ParticleFlow`), geometria da GPU (`owns` individual, `indexFormat`), topologia e sombra por material; remover as marcas "alvo F2/008" atendidas
-- [ ] T051 [P] Guias: `clay-engine-doc/docs/guides/flows.md` (estágio que escreve geometria), guia de física (corpos-contêiner, `edges`, `surface`, restrições por `(corpo, índice)`), `dev_workflow.md` se citar corpos
-- [ ] T052 [P] Guia de migração `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`: seção da 008 (uma entidade por partícula → arrays; `DistanceConstraint` `{ i, j }` → `{ a, b }`; `PointCloudGeometry` `points` → `vertices`; `PointSpriteMaterial` com struct próprio; topologia agora respeitada)
-- [ ] T053 [P] `specs/ROADMAP.md` (008 entregue, F2 concluída; referências de linha desatualizadas do diagnóstico corrigidas) e `specs/PENDENCIAS.md` (§4 "Geometria gerada em compute" resolvida; P10 descrito com precisão — fluidos desenhados como partículas; A3 registrado como corrigido)
-- [ ] T054 [P] JSDoc dos membros novos e `npm run doc` (API regenerada); `npm run doc:coverage` sem membro sem documentação
+- [x] T050 [P] Documento de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: faixas de pool, bitset de vivos, `slotRef`, render de corpos (`ParticleFlow`), geometria da GPU (`owns` individual, `indexFormat`), topologia e sombra por material; remover as marcas "alvo F2/008" atendidas
+- [x] T051 [P] Guias: `clay-engine-doc/docs/guides/flows.md` (estágio que escreve geometria), guia de física (corpos-contêiner, `edges`, `surface`, restrições por `(corpo, índice)`), `dev_workflow.md` se citar corpos
+- [x] T052 [P] Guia de migração `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`: seção da 008 (uma entidade por partícula → arrays; `DistanceConstraint` `{ i, j }` → `{ a, b }`; `PointCloudGeometry` `points` → `vertices`; `PointSpriteMaterial` com struct próprio; topologia agora respeitada)
+- [x] T053 [P] `specs/ROADMAP.md` (008 entregue, F2 concluída; referências de linha desatualizadas do diagnóstico corrigidas) e `specs/PENDENCIAS.md` (§4 "Geometria gerada em compute" resolvida; P10 descrito com precisão — fluidos desenhados como partículas; A3 registrado como corrigido)
+- [x] T054 [P] JSDoc dos membros novos e `npm run doc` (API regenerada); `npm run doc:coverage` sem membro sem documentação
+
+> **Documentação (T050–T054)**: arquitetura (seção "Geometria em compute e corpos de partículas (spec 008)": faixas,
+> vivos, `slotRefs`, corpos-contêiner, `ParticleFlow`, geometria da GPU, topologia e arame, MSAA, busca de vizinhança;
+> marcas "alvo F2/008" removidas), `physics_flows.md` (corpos por arrays, `edges`, restrições por `(corpo, índice)`,
+> desenho, busca), `flows.md` (`owns` individual, faixas e vivos, alvo com MSAA), migração (seção da 008), ROADMAP (F2
+> concluída; referências de linha corrigidas) e PENDENCIAS (§4 resolvida, P10 e E4 precisos, notas da 008); JSDoc dos
+> campos `*Data`/`*Values` e tipos inline; `doc:coverage` sem membro sem documentação; API regenerada.
+
 - [ ] T055 Fechamento: `npm run smoke -- <todos>` no fonte e com `--dist`; `npm run bench` completo e `npm run bench:check` contra o baseline vigente; anotar abaixo deste item
 - [ ] T056 Regravar o baseline (`npm run bench:baseline`) com a cena `particles` incluída e anotar abaixo deste item
 - [ ] T057 Gate completo: `format:check`, `lint` (0 erros), `tsc`, `typecheck:bench`, `test:coverage`, `build:lib`; marcar a spec como implementada em `specs/008-compute-geometry/spec.md`

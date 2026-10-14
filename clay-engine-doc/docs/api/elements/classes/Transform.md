@@ -6,7 +6,7 @@
 
 # Class: Transform
 
-Defined in: [elements/scene/Transform.ts:39](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L39)
+Defined in: [elements/scene/Transform.ts:42](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L42)
 
 Transform 3D — a **intenção** de posicionamento de um objeto: posição, rotação
 (quaternion) e escala. Mutar `data` depois de inserir reposiciona o objeto no
@@ -32,7 +32,7 @@ Mudança incompatível: o antigo campo `model` foi removido — ver o guia de mi
 
 > **new Transform**(`values?`): `Transform`
 
-Defined in: [elements/scene/Transform.ts:58](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L58)
+Defined in: [elements/scene/Transform.ts:61](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L61)
 
 #### Parameters
 
@@ -54,7 +54,7 @@ Defined in: [elements/scene/Transform.ts:58](https://github.com/dantasgut/clayfl
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/Transform.ts:56](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L56)
+Defined in: [elements/scene/Transform.ts:59](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L59)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -68,7 +68,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/scene/Transform.ts:41](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L41)
+Defined in: [elements/scene/Transform.ts:44](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L44)
 
 Intenção do desenvolvedor: posição, rotação e escala (pool `Transform`).
 
@@ -78,7 +78,7 @@ Intenção do desenvolvedor: posição, rotação e escala (pool `Transform`).
 
 > `readonly` `static` **worldSchema**: `StructSchema`
 
-Defined in: [elements/scene/Transform.ts:51](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L51)
+Defined in: [elements/scene/Transform.ts:54](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L54)
 
 Produto do estágio de transformação, só na GPU (pool `WorldTransform`):
 `world = T·R·S` e `normal = R·S⁻¹` (matriz para normais).
@@ -91,7 +91,7 @@ Produto do estágio de transformação, só na GPU (pool `WorldTransform`):
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -112,7 +112,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -125,7 +125,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -155,7 +155,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** **mirrored**(): `boolean`
 
-Defined in: [elements/scene/Transform.ts:72](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L72)
+Defined in: [elements/scene/Transform.ts:75](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L75)
 
 Escala com produto negativo: o objeto é espelhado (inverte a orientação das faces). Lida do dado cru (os estágios a
 consultam para a chave de grupo, sem criar proxy por entidade).
@@ -172,7 +172,7 @@ consultam para a chave de grupo, sem criar proxy por entidade).
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -191,7 +191,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -216,7 +216,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/Transform.ts:78](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L78)
+Defined in: [elements/scene/Transform.ts:81](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L81)
 
 Intenção (CPU envia a cada mutação) + matriz de mundo (produzida só pela GPU).
 
@@ -234,7 +234,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/Transform.ts:97](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L97)
+Defined in: [elements/scene/Transform.ts:100](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L100)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -254,7 +254,7 @@ readonly `PipelineDescriptor`[]
 
 > `static` **lookRotation**(`from`, `to`, `up?`): \[`number`, `number`, `number`, `number`\]
 
-Defined in: [elements/scene/Transform.ts:106](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L106)
+Defined in: [elements/scene/Transform.ts:109](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L109)
 
 Rotação (quaternion `[x, y, z, w]`) de um objeto em `from` que olha para `to` com o "para cima" `up` — a
 convenção da câmera: o objeto olha para −Z local. Vocabulário de autoria: o resultado vai em
@@ -284,7 +284,7 @@ readonly `number`[] = `...`
 
 > `static` **resetLegacyModelWarning**(): `void`
 
-Defined in: [elements/scene/Transform.ts:151](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Transform.ts#L151)
+Defined in: [elements/scene/Transform.ts:154](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Transform.ts#L154)
 
 Reabilita o aviso de `model` legado (uso em testes).
 

@@ -8,6 +8,7 @@ export type ParticleFields = Record<string, ArrayLike<number>>;
 
 /** Dado de um `ParticleBody`: as partículas por campo (descritor `body`, uma faixa de `count` slots). */
 export interface ParticleBodyData {
+    /** Partículas por campo. */
     body: ParticleFields;
 }
 

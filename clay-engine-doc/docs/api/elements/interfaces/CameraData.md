@@ -6,7 +6,7 @@
 
 # Interface: CameraData
 
-Defined in: [elements/scene/Camera.ts:34](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L34)
+Defined in: [elements/scene/Camera.ts:34](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L34)
 
 Dado de uma `Camera` (layout de `Camera.schema`).
 
@@ -16,7 +16,9 @@ Dado de uma `Camera` (layout de `Camera.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/scene/Camera.ts:42](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L42)
+Defined in: [elements/scene/Camera.ts:50](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L50)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/scene/Camera.ts:42](https://github.com/dantasgut/clayflow/
 
 > **aspect**: `number`
 
-Defined in: [elements/scene/Camera.ts:41](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L41)
+Defined in: [elements/scene/Camera.ts:48](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L48)
+
+Razão de aspecto fixa.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/scene/Camera.ts:41](https://github.com/dantasgut/clayflow/
 
 > **aspectMode**: `number`
 
-Defined in: [elements/scene/Camera.ts:36](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L36)
+Defined in: [elements/scene/Camera.ts:38](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L38)
+
+Origem da razão de aspecto: 0 canvas, 1 fixa.
 
 ***
 
@@ -40,7 +46,9 @@ Defined in: [elements/scene/Camera.ts:36](https://github.com/dantasgut/clayflow/
 
 > **far**: `number`
 
-Defined in: [elements/scene/Camera.ts:40](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L40)
+Defined in: [elements/scene/Camera.ts:46](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L46)
+
+Plano distante.
 
 ***
 
@@ -48,7 +56,9 @@ Defined in: [elements/scene/Camera.ts:40](https://github.com/dantasgut/clayflow/
 
 > **fov**: `number`
 
-Defined in: [elements/scene/Camera.ts:37](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L37)
+Defined in: [elements/scene/Camera.ts:40](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L40)
+
+Campo de visão vertical (radianos).
 
 ***
 
@@ -56,7 +66,9 @@ Defined in: [elements/scene/Camera.ts:37](https://github.com/dantasgut/clayflow/
 
 > **near**: `number`
 
-Defined in: [elements/scene/Camera.ts:39](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L39)
+Defined in: [elements/scene/Camera.ts:44](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L44)
+
+Plano próximo.
 
 ***
 
@@ -64,7 +76,9 @@ Defined in: [elements/scene/Camera.ts:39](https://github.com/dantasgut/clayflow/
 
 > **orthoHeight**: `number`
 
-Defined in: [elements/scene/Camera.ts:38](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L38)
+Defined in: [elements/scene/Camera.ts:42](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L42)
+
+Altura visível da projeção ortográfica.
 
 ***
 
@@ -72,4 +86,6 @@ Defined in: [elements/scene/Camera.ts:38](https://github.com/dantasgut/clayflow/
 
 > **projection**: `number`
 
-Defined in: [elements/scene/Camera.ts:35](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/Camera.ts#L35)
+Defined in: [elements/scene/Camera.ts:36](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/Camera.ts#L36)
+
+Projeção: 0 perspectiva, 1 ortográfica.

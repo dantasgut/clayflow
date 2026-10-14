@@ -6,8 +6,11 @@ import { sharedContent } from './geometryContent';
 
 /** Dado de uma `BoxGeometry`. */
 export interface BoxGeometryData extends GeometryData {
+    /** Número de vértices. */
     vertexCount: number;
+    /** Número de índices. */
     indexCount: number;
+    /** Tamanho. */
     size: readonly number[];
 }
 

@@ -91,8 +91,10 @@ pelo harness da F0, como consequência da arquitetura.
 ### 3.3 Qualidade e correção
 
 - Shader único Lambert para todos os materiais; roughness/metallic, cor/intensidade de luz, pool de luzes, UVs
-  ignorados; normal sem matriz normal (`forward.wgsl:55-98`); topologia do material ignorada (`ForwardFlow.ts:616`).
-- Cena em LDR 8 bits, sem MSAA; SSAO/FXAA falsos; tone mapping sobre LDR (`effects.wgsl:36-127`).
+  ignorados; normal sem matriz normal (`forward.wgsl`, `vs_main`/`fs_main`). (Topologia do material ignorada: resolvido
+  na 008 — `Material.topology` na chave do grupo, arame e sprites.)
+- Cena em LDR 8 bits; SSAO/FXAA falsos; tone mapping sobre LDR (`effects.wgsl`). (MSAA: resolvido na 008, puxado da
+  F4/011 — 4 amostras por padrão.)
 - `Transform.model` nunca derivado de posição/rotação/escala (`Transform.ts:25-33`); sombra com frustum fixo ±10.
 - FEM sem solve elástico; emissores sem simulação; Wind/Vortex/Drag/Buoyancy sem consumidor. (Fluidos colidem com os
   colliders desde a 005; os 23 WGSL órfãos foram resolvidos na 005 — matemática extraída para a `wgslLib`, cascas
@@ -364,6 +366,16 @@ CPU 14,5 → 0,02 ms (Three 0,03), 2 draws, GPU 0,46 ms (alvo 0,52); `instances/
 3 ms; Three 1,38); `rigid-bodies/10k` 9 → 206 fps (Three + Rapier 36), sem readback da pose; `instances/100k` 1755
 fps; `instances/1m` completa o protocolo (408 fps, GPU 2,35 ms; heap JS retido 1,31 GB, meta 1,5 GB). A GPU restante
 de `instances/10k` contra o Three (0,09 ms) é sobretudo o passthrough do pós sem efeitos (0,20 ms; F4).
+
+**Status (2026-10-14)**: F2/008 implementada (`feature/008-compute-geometry`; aguarda PR) — **F2 concluída**. Corpos de
+partículas como contêineres (`FluidBody`/`SoftBody` com arrays numa faixa contígua do pool; restrições por
+`(corpo, índice)`; slots vivos na GPU); SPH, PBF, MPM (fluido e sólido), XPBD e FEM visíveis — sprites lidos direto do
+pool (`ParticleFlow`) e superfície de corpo mole escrita por kernel (`SoftSurfaceFlow`) —, sem leitura de volta;
+geometria escrita pela GPU (`PointCloudGeometry`, descritores `'never'` com escritor declarado); topologia do material
+respeitada (sprites de vértice; `WireframeMaterial` refeito como no legado: arestas da geometria em quads com
+espessura). Antecipado de outras fases por decisão do usuário: **MSAA** 4× (F4/011) e a otimização da busca de
+vizinhança (F5/015: `particles/64k` 17 → 74 fps, GPU 60 → 13 ms). Os `*_vertex_write` do legado não voltaram: o desenho
+lê o pool. A superfície de fluido (água contínua) continua na F5/017.
 
 ## 7. Adoção pelo MorphSociety (no repositório do jogo)
 

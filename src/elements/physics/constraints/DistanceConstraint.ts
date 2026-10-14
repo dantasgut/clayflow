@@ -6,15 +6,21 @@ import { Constraint } from './Constraint';
 
 /** Partícula de um corpo: o corpo (`FluidBody`/`SoftBody` na cena) e o índice dela no corpo. */
 export interface ParticleRef {
+    /** Partículas por campo. */
     readonly body: ParticleBody;
+    /** Índice da partícula no corpo. */
     readonly index: number;
 }
 
 /** Dado de um `DistanceConstraint` (layout de `DistanceConstraint.schema`; `i`/`j` resolvidos pela C2). */
 export interface DistanceConstraintData {
+    /** Primeira partícula (slot resolvido pela C2). */
     i: ParticleRef;
+    /** Segunda partícula (slot resolvido pela C2). */
     j: ParticleRef;
+    /** Comprimento de repouso. */
     rest_length: number;
+    /** Compliance (m/N; 0 = rígida). */
     compliance: number;
 }
 

@@ -23,9 +23,13 @@ export interface ParticleEmitterOptions {
 
 /** Dado de um `ParticleEmitter`. */
 export interface ParticleEmitterData {
+    /** Capacidade de partículas. */
     maxParticles: number;
+    /** Partículas emitidas por segundo. */
     rate: number;
+    /** Vida de cada partícula (s). */
     lifetime: number;
+    /** Forma de emissão. */
     shape: EmitterShape | undefined;
 }
 

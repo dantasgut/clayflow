@@ -46,9 +46,18 @@ export interface PoolDirectory {
     poolSlotOf(poolKey: string, entityId: EntityId): number | undefined;
     /** Faixa da entidade no pool (`count` slots a partir de `first`; spec 008). */
     poolRangeOf(
+        /** Chave do pool. */
         poolKey: string,
+        /** Entidade. */
         entityId: EntityId,
-    ): { readonly first: number; readonly count: number } | undefined;
+    ):
+        | {
+              /** Primeiro slot da faixa. */
+              readonly first: number;
+              /** Slots da faixa. */
+              readonly count: number;
+          }
+        | undefined;
     /**
      * Bitset de slots ocupados do pool na GPU (`array<u32>`, um bit por slot; spec 008), criado no primeiro pedido e
      * mantido pela C2. `undefined` se o pool não existe.

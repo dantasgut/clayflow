@@ -20,8 +20,11 @@ let legacyModelWarned = false;
 
 /** Dado de um `Transform` (layout de `Transform.schema`; vetores de 4 componentes). */
 export interface TransformData {
+    /** Posição. */
     position: number[];
+    /** Rotação (quatérnio `x, y, z, w`). */
     rotation: number[];
+    /** Escala por eixo. */
     scale: number[];
 }
 

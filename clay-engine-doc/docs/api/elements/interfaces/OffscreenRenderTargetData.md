@@ -6,7 +6,7 @@
 
 # Interface: OffscreenRenderTargetData
 
-Defined in: [elements/scene/RenderTarget.ts:30](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/RenderTarget.ts#L30)
+Defined in: [elements/scene/RenderTarget.ts:30](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/RenderTarget.ts#L30)
 
 Dado de um `OffscreenRenderTarget` (as opções com os defaults aplicados).
 
@@ -20,7 +20,9 @@ Dado de um `OffscreenRenderTarget` (as opções com os defaults aplicados).
 
 > **colorFormat**: `GPUTextureFormat`
 
-Defined in: [elements/scene/RenderTarget.ts:33](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/RenderTarget.ts#L33)
+Defined in: [elements/scene/RenderTarget.ts:36](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/RenderTarget.ts#L36)
+
+Formato da cor.
 
 ***
 
@@ -28,7 +30,9 @@ Defined in: [elements/scene/RenderTarget.ts:33](https://github.com/dantasgut/cla
 
 > **depthFormat**: `GPUTextureFormat`
 
-Defined in: [elements/scene/RenderTarget.ts:34](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/RenderTarget.ts#L34)
+Defined in: [elements/scene/RenderTarget.ts:38](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/RenderTarget.ts#L38)
+
+Formato da profundidade.
 
 ***
 
@@ -36,7 +40,9 @@ Defined in: [elements/scene/RenderTarget.ts:34](https://github.com/dantasgut/cla
 
 > **height**: `number`
 
-Defined in: [elements/scene/RenderTarget.ts:32](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/RenderTarget.ts#L32)
+Defined in: [elements/scene/RenderTarget.ts:34](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/RenderTarget.ts#L34)
+
+Altura em texels.
 
 ***
 
@@ -44,7 +50,9 @@ Defined in: [elements/scene/RenderTarget.ts:32](https://github.com/dantasgut/cla
 
 > **sampleCount**: `1` \| `4`
 
-Defined in: [elements/scene/RenderTarget.ts:35](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/RenderTarget.ts#L35)
+Defined in: [elements/scene/RenderTarget.ts:40](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/RenderTarget.ts#L40)
+
+Amostras por pixel.
 
 ***
 
@@ -52,4 +60,6 @@ Defined in: [elements/scene/RenderTarget.ts:35](https://github.com/dantasgut/cla
 
 > **width**: `number`
 
-Defined in: [elements/scene/RenderTarget.ts:31](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/RenderTarget.ts#L31)
+Defined in: [elements/scene/RenderTarget.ts:32](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/RenderTarget.ts#L32)
+
+Largura em texels.

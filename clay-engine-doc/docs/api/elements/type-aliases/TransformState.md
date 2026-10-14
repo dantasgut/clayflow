@@ -8,6 +8,6 @@
 
 > **TransformState** = `"stale"` \| `"clean"`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:56](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/scene/flows/TransformFlow.ts#L56)
+Defined in: [elements/scene/flows/TransformFlow.ts:56](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/scene/flows/TransformFlow.ts#L56)
 
 `stale`: há intenção de `Transform` ainda não composta; `clean`: as matrizes de mundo estão em dia.

@@ -59,15 +59,25 @@ function positive(name: string, value: number): number {
 
 /** Dado de um `ParticleMaterial` (layout de `ParticleMaterial.schema`). */
 export interface ParticleMaterialData {
+    /** Densidade de repouso ρ₀ (kg/m³). */
     restDensity: number;
+    /** Espaçamento das partículas (m). */
     particleSpacing: number;
+    /** Viscosidade. */
     viscosity: number;
+    /** Velocidade do som c (m/s). */
     speedOfSound: number;
+    /** Restituição. */
     restitution: number;
+    /** Módulo de Young E. */
     youngModulus: number;
+    /** Coeficiente de Poisson ν. */
     poissonRatio: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Canto mínimo do domínio. */
     domainMin: number[];
+    /** Canto máximo do domínio. */
     domainMax: number[];
 }
 

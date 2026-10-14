@@ -6,7 +6,7 @@
 
 # Class: PBFFlow
 
-Defined in: [elements/physics/flows/PBFFlow.ts:99](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L99)
+Defined in: [elements/physics/flows/PBFFlow.ts:100](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L100)
 
 PBFFlow — fluidos por Position Based Fluids. O quadro executa `time.steps × substeps` iterações; cada uma
 reconstrói a vizinhança e roda predict → (densidade/λ → correção → aplicação → colisão)×N → velocidade →
@@ -26,7 +26,7 @@ material muda) e `ColliderSet` — são preparados e religados em transições, 
 
 > **new PBFFlow**(`ctx`, `options?`): `PBFFlow`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:121](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L121)
+Defined in: [elements/physics/flows/PBFFlow.ts:124](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L124)
 
 #### Parameters
 
@@ -52,7 +52,7 @@ Defined in: [elements/physics/flows/PBFFlow.ts:121](https://github.com/dantasgut
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:103](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L103)
+Defined in: [elements/physics/flows/PBFFlow.ts:104](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L104)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -66,7 +66,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"running"`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:104](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L104)
+Defined in: [elements/physics/flows/PBFFlow.ts:105](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L105)
 
 Estado inicial do algoritmo.
 
@@ -80,7 +80,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -94,7 +94,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/PBFFlow.ts:102](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L102)
+Defined in: [elements/physics/flows/PBFFlow.ts:103](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L103)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -108,7 +108,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`PBFSlots`](../interfaces/PBFSlots.md)
 
-Defined in: [elements/physics/flows/PBFFlow.ts:101](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L101)
+Defined in: [elements/physics/flows/PBFFlow.ts:102](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L102)
 
 Slots consumidos, por nome.
 
@@ -122,7 +122,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"running"`, `TransitionContext`\<[`PBFSlots`](../interfaces/PBFSlots.md)\>\>
 
-Defined in: [elements/physics/flows/PBFFlow.ts:105](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L105)
+Defined in: [elements/physics/flows/PBFFlow.ts:106](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L106)
 
 Tabela de transições (estado × evento).
 
@@ -136,7 +136,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"PBFFlow"` = `'PBFFlow'`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:100](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L100)
+Defined in: [elements/physics/flows/PBFFlow.ts:101](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L101)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -152,7 +152,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -172,7 +172,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -190,7 +190,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:206](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L206)
+Defined in: [elements/physics/flows/PBFFlow.ts:209](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L209)
 
 Grava as iterações do quadro (decididas em `framePrepare`).
 
@@ -218,7 +218,7 @@ Grava as iterações do quadro (decididas em `framePrepare`).
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:248](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/flows/PBFFlow.ts#L248)
+Defined in: [elements/physics/flows/PBFFlow.ts:251](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L251)
 
 Libera parâmetros, correções, colliders e a busca de vizinhança.
 
