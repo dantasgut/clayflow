@@ -6,7 +6,7 @@
 
 # Interface: PostSlots
 
-Defined in: [presentation/flows/PostFlow.ts:22](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/PostFlow.ts#L22)
+Defined in: [presentation/flows/PostFlow.ts:22](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/PostFlow.ts#L22)
 
 Slots do pós-processamento.
 
@@ -24,7 +24,7 @@ Slots do pós-processamento.
 
 > `readonly` **scene**: `TextureSlot`\<`false`\>
 
-Defined in: [presentation/flows/PostFlow.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/PostFlow.ts#L24)
+Defined in: [presentation/flows/PostFlow.ts:24](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/PostFlow.ts#L24)
 
 Cor da cena desenhada pelo render principal (`FrameTargets.color`).
 
@@ -34,6 +34,6 @@ Cor da cena desenhada pelo render principal (`FrameTargets.color`).
 
 > `readonly` **target**: `TargetSlot`
 
-Defined in: [presentation/flows/PostFlow.ts:26](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/PostFlow.ts#L26)
+Defined in: [presentation/flows/PostFlow.ts:26](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/PostFlow.ts#L26)
 
 O canvas do quadro (último passe da cadeia).

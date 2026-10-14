@@ -6,7 +6,7 @@
 
 # Interface: SphereColliderData
 
-Defined in: [elements/physics/colliders/SphereCollider.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/SphereCollider.ts#L7)
+Defined in: [elements/physics/colliders/SphereCollider.ts:7](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/SphereCollider.ts#L7)
 
 Dado de um `SphereCollider` (layout de `SphereCollider.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `SphereCollider` (layout de `SphereCollider.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/colliders/SphereCollider.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/SphereCollider.ts#L13)
+Defined in: [elements/physics/colliders/SphereCollider.ts:13](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/SphereCollider.ts#L13)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/colliders/SphereCollider.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/SphereCollider.ts#L15)
+Defined in: [elements/physics/colliders/SphereCollider.ts:15](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/SphereCollider.ts#L15)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **\_pad2**: `number`
 
-Defined in: [elements/physics/colliders/SphereCollider.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/SphereCollider.ts#L17)
+Defined in: [elements/physics/colliders/SphereCollider.ts:17](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/SphereCollider.ts#L17)
 
 Preenchimento do layout.
 
@@ -46,7 +46,7 @@ Preenchimento do layout.
 
 > **center**: `number`[]
 
-Defined in: [elements/physics/colliders/SphereCollider.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/SphereCollider.ts#L9)
+Defined in: [elements/physics/colliders/SphereCollider.ts:9](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/SphereCollider.ts#L9)
 
 Centro (local ao corpo dono, ou de mundo sem dono).
 
@@ -56,6 +56,6 @@ Centro (local ao corpo dono, ou de mundo sem dono).
 
 > **radius**: `number`
 
-Defined in: [elements/physics/colliders/SphereCollider.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/SphereCollider.ts#L11)
+Defined in: [elements/physics/colliders/SphereCollider.ts:11](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/SphereCollider.ts#L11)
 
 Raio.

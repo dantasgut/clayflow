@@ -6,7 +6,7 @@
 
 # Interface: DistanceConstraintData
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L16)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:16](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/constraints/DistanceConstraint.ts#L16)
 
 Dado de um `DistanceConstraint` (layout de `DistanceConstraint.schema`; `i`/`j` resolvidos pela C2).
 
@@ -16,7 +16,7 @@ Dado de um `DistanceConstraint` (layout de `DistanceConstraint.schema`; `i`/`j` 
 
 > **compliance**: `number`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L24)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:24](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/constraints/DistanceConstraint.ts#L24)
 
 Compliance (m/N; 0 = rígida).
 
@@ -26,7 +26,7 @@ Compliance (m/N; 0 = rígida).
 
 > **i**: [`ParticleRef`](ParticleRef.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:18](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L18)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:18](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/constraints/DistanceConstraint.ts#L18)
 
 Primeira partícula (slot resolvido pela C2).
 
@@ -36,7 +36,7 @@ Primeira partícula (slot resolvido pela C2).
 
 > **j**: [`ParticleRef`](ParticleRef.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:20](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L20)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:20](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/constraints/DistanceConstraint.ts#L20)
 
 Segunda partícula (slot resolvido pela C2).
 
@@ -46,6 +46,6 @@ Segunda partícula (slot resolvido pela C2).
 
 > **rest\_length**: `number`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:22](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L22)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:22](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/constraints/DistanceConstraint.ts#L22)
 
 Comprimento de repouso.

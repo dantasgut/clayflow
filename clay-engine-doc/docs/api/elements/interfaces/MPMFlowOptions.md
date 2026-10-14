@@ -6,7 +6,7 @@
 
 # Interface: MPMFlowOptions
 
-Defined in: [elements/physics/flows/MPMFlow.ts:38](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/MPMFlow.ts#L38)
+Defined in: [elements/physics/flows/MPMFlow.ts:38](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/MPMFlow.ts#L38)
 
 Opções do `MPMFlow`.
 
@@ -16,6 +16,6 @@ Opções do `MPMFlow`.
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:40](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/MPMFlow.ts#L40)
+Defined in: [elements/physics/flows/MPMFlow.ts:40](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/MPMFlow.ts#L40)
 
 Mínimo de substeps por passo (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais.

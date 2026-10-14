@@ -6,7 +6,7 @@
 
 # Class: ColliderSet
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:93](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L93)
+Defined in: [elements/physics/colliders/ColliderSet.ts:93](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L93)
 
 Conjunto de colliders compartilhado pelos estágios que colidem contra os pools tipados (narrowphase do LCP,
 colisão dos fluidos) — peça dos slots do Flow (`slot.pools` dos colliders): mantém, por pool, o mapa collider →
@@ -26,7 +26,7 @@ malha, mapas de dono de cada um e o pool de corpos.
 
 > **new ColliderSet**(`core`, `world`, `resources`, `options`): `ColliderSet`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:107](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L107)
+Defined in: [elements/physics/colliders/ColliderSet.ts:107](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L107)
 
 #### Parameters
 
@@ -58,7 +58,7 @@ Defined in: [elements/physics/colliders/ColliderSet.ts:107](https://github.com/d
 
 > **get** **generation**(): `number`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:117](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L117)
+Defined in: [elements/physics/colliders/ColliderSet.ts:117](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L117)
 
 Muda sempre que um buffer exposto por `pool()`/`bindings()` muda.
 
@@ -74,7 +74,7 @@ Muda sempre que um buffer exposto por `pool()`/`bindings()` muda.
 
 > **get** **totalCount**(): `number`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:122](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L122)
+Defined in: [elements/physics/colliders/ColliderSet.ts:122](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L122)
 
 Total de colliders em todos os pools.
 
@@ -88,7 +88,7 @@ Total de colliders em todos os pools.
 
 > **bodiesBuffer**(): `StorageBufferSpec`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:196](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L196)
+Defined in: [elements/physics/colliders/ColliderSet.ts:196](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L196)
 
 Pool de corpos donos (ou buffer mínimo).
 
@@ -102,7 +102,7 @@ Pool de corpos donos (ou buffer mínimo).
 
 > **broadphase**(): `BroadphaseShape`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:190](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L190)
+Defined in: [elements/physics/colliders/ColliderSet.ts:190](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L190)
 
 Dados da broadphase (válidos depois de `refresh()`).
 
@@ -116,7 +116,7 @@ Dados da broadphase (válidos depois de `refresh()`).
 
 > **destroy**(): `void`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:204](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L204)
+Defined in: [elements/physics/colliders/ColliderSet.ts:204](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L204)
 
 Libera os buffers próprios (mapas de dono, buffers mínimos, contagens).
 
@@ -130,7 +130,7 @@ Libera os buffers próprios (mapas de dono, buffers mínimos, contagens).
 
 > **markDirty**(): `void`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:129](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L129)
+Defined in: [elements/physics/colliders/ColliderSet.ts:129](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L129)
 
 Marca os mapas de dono para reconstrução no próximo `refresh()`.
 
@@ -144,7 +144,7 @@ Marca os mapas de dono para reconstrução no próximo `refresh()`.
 
 > **onPoolReallocated**(`poolKey`): `void`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:134](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L134)
+Defined in: [elements/physics/colliders/ColliderSet.ts:134](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L134)
 
 Reação do estágio dono ao evento `poolReallocated`: só pools de collider e de corpos afetam o conjunto.
 
@@ -164,7 +164,7 @@ Reação do estágio dono ao evento `poolReallocated`: só pools de collider e d
 
 > **pool**(`poolKey`): [`ColliderPoolView`](../interfaces/ColliderPoolView.md)
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:178](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L178)
+Defined in: [elements/physics/colliders/ColliderSet.ts:178](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L178)
 
 Visão de um pool de collider (válida depois de `refresh()`).
 
@@ -184,7 +184,7 @@ Visão de um pool de collider (válida depois de `refresh()`).
 
 > **refresh**(): `boolean`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:144](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L144)
+Defined in: [elements/physics/colliders/ColliderSet.ts:144](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L144)
 
 Reconstrói os mapas de dono e as contagens se sujos; garante buffers válidos para todos os pools. Chamado numa
 transição do Flow dono. Devolve `true` se alguma fonte de `sources()`/`pool()` mudou (religar).
@@ -199,7 +199,7 @@ transição do Flow dono. Devolve `true` se alguma fonte de `sources()`/`pool()`
 
 > **sources**(): `BindingSources`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:156](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/colliders/ColliderSet.ts#L156)
+Defined in: [elements/physics/colliders/ColliderSet.ts:156](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/colliders/ColliderSet.ts#L156)
 
 Fontes do grupo de colliders pelos nomes do `collider_set.wgsl` (válidas depois de `refresh()`).
 

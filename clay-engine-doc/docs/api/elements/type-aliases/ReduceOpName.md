@@ -8,6 +8,6 @@
 
 > **ReduceOpName** = `"sum"` \| `"min"` \| `"max"`
 
-Defined in: [elements/gpu/compute/shaders.ts:138](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/shaders.ts#L138)
+Defined in: [elements/gpu/compute/shaders.ts:138](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/shaders.ts#L138)
 
 Operação de redução.

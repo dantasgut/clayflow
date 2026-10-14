@@ -8,7 +8,7 @@
 
 > **compactionModules**(`predicate`): [`CompactionModules`](../interfaces/CompactionModules.md)
 
-Defined in: [elements/gpu/compute/shaders.ts:103](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/shaders.ts#L103)
+Defined in: [elements/gpu/compute/shaders.ts:103](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/shaders.ts#L103)
 
 Kernels de compactação para o predicado `predicate`, que define `fn compact_keep(i: u32) -> bool` e
 `fn compact_value(i: u32) -> u32` (e os bindings que lê, no grupo 1). Memorizado por predicado.

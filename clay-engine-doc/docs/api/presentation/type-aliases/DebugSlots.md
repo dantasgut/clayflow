@@ -8,6 +8,6 @@
 
 > **DebugSlots** = `Readonly`\<`Record`\<`string`, `never`\>\>
 
-Defined in: [presentation/flows/DebugFlow.ts:33](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/DebugFlow.ts#L33)
+Defined in: [presentation/flows/DebugFlow.ts:33](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/DebugFlow.ts#L33)
 
 Slots do `DebugFlow` (nenhum).

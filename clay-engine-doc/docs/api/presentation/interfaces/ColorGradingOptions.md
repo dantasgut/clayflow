@@ -6,7 +6,7 @@
 
 # Interface: ColorGradingOptions
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:5](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/effects/ColorGrading.ts#L5)
+Defined in: [presentation/flows/effects/ColorGrading.ts:5](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/effects/ColorGrading.ts#L5)
 
 Opções de domínio do color grading (lift/gain/gamma), além de `enabled` e `strength` (mistura com o original).
 
@@ -20,7 +20,7 @@ Opções de domínio do color grading (lift/gain/gamma), além de `enabled` e `s
 
 > `optional` **enabled?**: `boolean`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/resources/PostProcessEffect.ts#L16)
+Defined in: [presentation/resources/PostProcessEffect.ts:16](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/resources/PostProcessEffect.ts#L16)
 
 Liga/desliga o effect sem removê-lo do pipeline. Default: true.
 
@@ -34,7 +34,7 @@ Liga/desliga o effect sem removê-lo do pipeline. Default: true.
 
 > `readonly` `optional` **gain?**: `number`
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/effects/ColorGrading.ts#L9)
+Defined in: [presentation/flows/effects/ColorGrading.ts:9](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/effects/ColorGrading.ts#L9)
 
 Ganho multiplicativo depois do lift (default 1).
 
@@ -44,7 +44,7 @@ Ganho multiplicativo depois do lift (default 1).
 
 > `readonly` `optional` **gamma?**: `number`
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/effects/ColorGrading.ts#L11)
+Defined in: [presentation/flows/effects/ColorGrading.ts:11](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/effects/ColorGrading.ts#L11)
 
 Gama aplicado ao resultado (default 1; > 1 clareia os meios-tons).
 
@@ -54,7 +54,7 @@ Gama aplicado ao resultado (default 1; > 1 clareia os meios-tons).
 
 > `readonly` `optional` **lift?**: `number`
 
-Defined in: [presentation/flows/effects/ColorGrading.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/effects/ColorGrading.ts#L7)
+Defined in: [presentation/flows/effects/ColorGrading.ts:7](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/effects/ColorGrading.ts#L7)
 
 Deslocamento subtraído da cor antes do ganho (default 0).
 
@@ -64,7 +64,7 @@ Deslocamento subtraído da cor antes do ganho (default 0).
 
 > `optional` **strength?**: `number`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:21](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/resources/PostProcessEffect.ts#L21)
+Defined in: [presentation/resources/PostProcessEffect.ts:21](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/resources/PostProcessEffect.ts#L21)
 
 Intensidade do effect (uniform `strength` no shader). Semântica
 varia por effect: 0 = sem efeito; 1.0 = padrão; >1 = exagerado.

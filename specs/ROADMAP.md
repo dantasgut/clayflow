@@ -367,7 +367,7 @@ CPU 14,5 → 0,02 ms (Three 0,03), 2 draws, GPU 0,46 ms (alvo 0,52); `instances/
 fps; `instances/1m` completa o protocolo (408 fps, GPU 2,35 ms; heap JS retido 1,31 GB, meta 1,5 GB). A GPU restante
 de `instances/10k` contra o Three (0,09 ms) é sobretudo o passthrough do pós sem efeitos (0,20 ms; F4).
 
-**Status (2026-10-14)**: F2/008 implementada (`feature/008-compute-geometry`; aguarda PR) — **F2 concluída**. Corpos de
+**Status (2026-10-14)**: F2/008 implementada (PR #40) — **F2 concluída**. Corpos de
 partículas como contêineres (`FluidBody`/`SoftBody` com arrays numa faixa contígua do pool; restrições por
 `(corpo, índice)`; slots vivos na GPU); SPH, PBF, MPM (fluido e sólido), XPBD e FEM visíveis — sprites lidos direto do
 pool (`ParticleFlow`) e superfície de corpo mole escrita por kernel (`SoftSurfaceFlow`) —, sem leitura de volta;
@@ -375,7 +375,14 @@ geometria escrita pela GPU (`PointCloudGeometry`, descritores `'never'` com escr
 respeitada (sprites de vértice; `WireframeMaterial` refeito como no legado: arestas da geometria em quads com
 espessura). Antecipado de outras fases por decisão do usuário: **MSAA** 4× (F4/011) e a otimização da busca de
 vizinhança (F5/015: `particles/64k` 17 → 74 fps, GPU 60 → 13 ms). Os `*_vertex_write` do legado não voltaram: o desenho
-lê o pool. A superfície de fluido (água contínua) continua na F5/017.
+lê o pool.
+
+**Status (2026-10-14)**: F5/017 implementada (`feature/017-fluid-surfaces`; aguarda PR), antes das demais specs da F5 por
+decisão do usuário. Água contínua a partir das partículas (`FluidSurfaceMaterial`): superfície em espaço de tela
+(`FluidSurfaceFlow`, vistas da câmera e da luz), óptica (`WaterFlow`: refração, absorção, Fresnel, sombra) e
+**cáusticas** (`CausticsFlow`, fótons em espaço da luz com enquadramento ajustado à água) num estágio que consome uma
+superfície genérica (`WaterSurface`) — a 029 reusa. Capacidades novas: `World.attach`/`detach` (troca de material em
+corpo vivo) e `ensureAllocated` de textura. Defeito corrigido: passo estável do PBF derivado do material.
 
 ## 7. Adoção pelo MorphSociety (no repositório do jogo)
 

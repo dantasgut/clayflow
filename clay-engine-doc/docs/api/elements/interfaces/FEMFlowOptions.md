@@ -6,7 +6,7 @@
 
 # Interface: FEMFlowOptions
 
-Defined in: [elements/physics/flows/FEMFlow.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/FEMFlow.ts#L24)
+Defined in: [elements/physics/flows/FEMFlow.ts:24](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/FEMFlow.ts#L24)
 
 Opções do `FEMFlow`.
 
@@ -16,7 +16,7 @@ Opções do `FEMFlow`.
 
 > `readonly` `optional` **damping?**: `number`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:32](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/FEMFlow.ts#L32)
+Defined in: [elements/physics/flows/FEMFlow.ts:32](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/FEMFlow.ts#L32)
 
 Amortecimento da velocidade por passo, em [0, 1]. Padrão 0,05.
 
@@ -26,7 +26,7 @@ Amortecimento da velocidade por passo, em [0, 1]. Padrão 0,05.
 
 > `readonly` `optional` **lambda?**: `number`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:30](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/FEMFlow.ts#L30)
+Defined in: [elements/physics/flows/FEMFlow.ts:30](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/FEMFlow.ts#L30)
 
 Segundo parâmetro de Lamé λ (resistência à variação de volume, Pa). Padrão 5e3.
 
@@ -36,7 +36,7 @@ Segundo parâmetro de Lamé λ (resistência à variação de volume, Pa). Padr�
 
 > `readonly` `optional` **mu?**: `number`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:28](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/FEMFlow.ts#L28)
+Defined in: [elements/physics/flows/FEMFlow.ts:28](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/FEMFlow.ts#L28)
 
 Primeiro parâmetro de Lamé μ (rigidez ao cisalhamento, Pa). Padrão 5e3.
 
@@ -46,6 +46,6 @@ Primeiro parâmetro de Lamé μ (rigidez ao cisalhamento, Pa). Padrão 5e3.
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:26](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/FEMFlow.ts#L26)
+Defined in: [elements/physics/flows/FEMFlow.ts:26](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/FEMFlow.ts#L26)
 
 Substeps por passo de física (padrão 1). O passo vem do `Time` da cena.

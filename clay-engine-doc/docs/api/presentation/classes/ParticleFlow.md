@@ -6,7 +6,7 @@
 
 # Class: ParticleFlow
 
-Defined in: [presentation/flows/ParticleFlow.ts:89](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L89)
+Defined in: [presentation/flows/ParticleFlow.ts:91](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L91)
 
 ParticleFlow — desenha os corpos de partículas (`FluidBody`, `SoftBody`) com `PointSpriteMaterial` como sprites (spec
 008, research R4): **um desenho por corpo** (`draw.vertices(6, N)`), com o vertex shader lendo a posição de cada
@@ -20,7 +20,8 @@ partícula direto do pool do corpo pelo índice da instância — sem cópia par
 
 Desenha depois do forward, na cor e na profundidade da cena (`loadOp: 'load'`), com teste e escrita de profundidade:
 partículas e geometrias se ocultam. Os parâmetros são escritos quando um corpo entra ou sai; os pools são religados
-quando crescem (detectado em `framePrepare`). Corpos com outro material ficam fora, com aviso único.
+quando crescem (detectado em `framePrepare`). Corpos com `FluidSurfaceMaterial` são da superfície de água (spec 017);
+com outro material ficam fora, com aviso único.
 
 ## Extends
 
@@ -32,7 +33,7 @@ quando crescem (detectado em `framePrepare`). Corpos com outro material ficam fo
 
 > **new ParticleFlow**(`ctx`): `ParticleFlow`
 
-Defined in: [presentation/flows/ParticleFlow.ts:111](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L111)
+Defined in: [presentation/flows/ParticleFlow.ts:113](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L113)
 
 #### Parameters
 
@@ -54,13 +55,13 @@ Defined in: [presentation/flows/ParticleFlow.ts:111](https://github.com/dantasgu
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [presentation/flows/ParticleFlow.ts:92](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L92)
+Defined in: [presentation/flows/ParticleFlow.ts:94](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L94)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
 #### Overrides
 
-[`SoftSurfaceFlow`](../../elements/classes/SoftSurfaceFlow.md).[`bindings`](../../elements/classes/SoftSurfaceFlow.md#bindings)
+[`DebugFlow`](DebugFlow.md).[`bindings`](DebugFlow.md#bindings)
 
 ***
 
@@ -68,7 +69,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/ParticleFlow.ts:93](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L93)
+Defined in: [presentation/flows/ParticleFlow.ts:95](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L95)
 
 Estado inicial do algoritmo.
 
@@ -82,7 +83,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -96,7 +97,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/Flow.ts#L65)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/Flow.ts#L65)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -110,7 +111,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`ParticleSlots`](../interfaces/ParticleSlots.md)
 
-Defined in: [presentation/flows/ParticleFlow.ts:91](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L91)
+Defined in: [presentation/flows/ParticleFlow.ts:93](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L93)
 
 Slots consumidos, por nome.
 
@@ -124,7 +125,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `Ctx`\>
 
-Defined in: [presentation/flows/ParticleFlow.ts:94](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L94)
+Defined in: [presentation/flows/ParticleFlow.ts:96](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L96)
 
 Tabela de transições (estado × evento).
 
@@ -138,7 +139,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"ParticleFlow"` = `'ParticleFlow'`
 
-Defined in: [presentation/flows/ParticleFlow.ts:90](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L90)
+Defined in: [presentation/flows/ParticleFlow.ts:92](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L92)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -154,7 +155,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -174,7 +175,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -192,7 +193,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > `protected` **colorAttachment**(`frame`, `target`, `load`): `ColorAttachment` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:29](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/RenderFlow.ts#L29)
+Defined in: [scene/flows/RenderFlow.ts:29](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/RenderFlow.ts#L29)
 
 Anexo de cor do alvo (spec 008): com amostras (MSAA), desenha na textura de amostras — guardada, para um passe
 seguinte carregar — e resolve na cor; sem elas, desenha direto na cor. `undefined` sem cor.
@@ -225,7 +226,7 @@ seguinte carregar — e resolve na cor; sem elas, desenha direto na cor. `undefi
 
 > `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/flows/RenderFlow.ts#L20)
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/RenderFlow.ts#L20)
 
 View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
@@ -253,7 +254,7 @@ View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `u
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [presentation/flows/ParticleFlow.ts:183](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L183)
+Defined in: [presentation/flows/ParticleFlow.ts:185](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L185)
 
 Grava um desenho por corpo, sobre a cor e a profundidade da cena.
 
@@ -281,7 +282,7 @@ Grava um desenho por corpo, sobre a cor e a profundidade da cena.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/ParticleFlow.ts:216](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L216)
+Defined in: [presentation/flows/ParticleFlow.ts:218](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L218)
 
 Libera os recursos privados.
 

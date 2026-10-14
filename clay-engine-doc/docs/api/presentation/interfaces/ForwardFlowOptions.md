@@ -6,7 +6,7 @@
 
 # Interface: ForwardFlowOptions
 
-Defined in: [presentation/flows/ForwardFlow.ts:150](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ForwardFlow.ts#L150)
+Defined in: [presentation/flows/ForwardFlow.ts:158](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ForwardFlow.ts#L158)
 
 Opções do `ForwardFlow`.
 
@@ -16,7 +16,7 @@ Opções do `ForwardFlow`.
 
 > `readonly` `optional` **output?**: [`ForwardOutput`](../type-aliases/ForwardOutput.md)
 
-Defined in: [presentation/flows/ForwardFlow.ts:152](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ForwardFlow.ts#L152)
+Defined in: [presentation/flows/ForwardFlow.ts:160](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ForwardFlow.ts#L160)
 
 Onde desenhar a cor. Padrão `'scene'` (o pós-processamento compõe no canvas).
 
@@ -26,6 +26,6 @@ Onde desenhar a cor. Padrão `'scene'` (o pós-processamento compõe no canvas).
 
 > `readonly` `optional` **preferAsync?**: `boolean`
 
-Defined in: [presentation/flows/ForwardFlow.ts:154](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ForwardFlow.ts#L154)
+Defined in: [presentation/flows/ForwardFlow.ts:162](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ForwardFlow.ts#L162)
 
 Compila os pipelines de material em segundo plano; objetos de um material ainda compilando não são desenhados.

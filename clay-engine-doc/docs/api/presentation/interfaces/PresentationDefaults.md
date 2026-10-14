@@ -6,7 +6,7 @@
 
 # Interface: PresentationDefaults
 
-Defined in: [presentation/flows/defaults.ts:29](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L29)
+Defined in: [presentation/flows/defaults.ts:33](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L33)
 
 Bag dos Flows default registrados pelo Application. Permite o app
 customizar diretamente (e.g. `defaults.post.addEffect(new Bloom(...))`,
@@ -18,9 +18,19 @@ customizar diretamente (e.g. `defaults.post.addEffect(new Bloom(...))`,
 
 > `readonly` **camera**: [`CameraFlow`](../../elements/classes/CameraFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:33](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L33)
+Defined in: [presentation/flows/defaults.ts:37](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L37)
 
 Estágio de câmera (fase `transform`, depois da composição): parâmetros + Transform → matrizes da câmera.
+
+***
+
+### caustics
+
+> `readonly` **caustics**: [`CausticsFlow`](../classes/CausticsFlow.md)
+
+Defined in: [presentation/flows/defaults.ts:49](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L49)
+
+Cáusticas da água em espaço da luz (fase `shadow`, depois da superfície vista pela luz).
 
 ***
 
@@ -28,9 +38,29 @@ Estágio de câmera (fase `transform`, depois da composição): parâmetros + Tr
 
 > `readonly` **debug**: [`DebugFlow`](../classes/DebugFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:47](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L47)
+Defined in: [presentation/flows/defaults.ts:59](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L59)
 
 Debug overlay — emite profilerStats event quando habilitado.
+
+***
+
+### fluidLightSurface
+
+> `readonly` **fluidLightSurface**: [`FluidSurfaceFlow`](../classes/FluidSurfaceFlow.md)
+
+Defined in: [presentation/flows/defaults.ts:47](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L47)
+
+Superfície de água das partículas vista pela luz que projeta sombra (fase `shadow`, depois do mapa).
+
+***
+
+### fluidSurface
+
+> `readonly` **fluidSurface**: [`FluidSurfaceFlow`](../classes/FluidSurfaceFlow.md)
+
+Defined in: [presentation/flows/defaults.ts:45](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L45)
+
+Superfície de água das partículas vista pela câmera (fase `forward`, depois dos sprites; spec 017).
 
 ***
 
@@ -38,7 +68,7 @@ Debug overlay — emite profilerStats event quando habilitado.
 
 > `readonly` **forward**: [`ForwardFlow`](../classes/ForwardFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:37](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L37)
+Defined in: [presentation/flows/defaults.ts:41](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L41)
 
 Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e sombra pelos slots).
 
@@ -48,7 +78,7 @@ Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e
 
 > `readonly` **particles**: [`ParticleFlow`](../classes/ParticleFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:39](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L39)
+Defined in: [presentation/flows/defaults.ts:43](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L43)
 
 Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos.
 
@@ -58,7 +88,7 @@ Corpos de partículas em sprites (fase `forward`, depois do forward), lidos dire
 
 > `readonly` **post**: [`PostFlow`](../classes/PostFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:43](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L43)
+Defined in: [presentation/flows/defaults.ts:55](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L55)
 
 Post-processing chain (Bloom/Fxaa/etc. em ping-pong).
 
@@ -68,7 +98,7 @@ Post-processing chain (Bloom/Fxaa/etc. em ping-pong).
 
 > `readonly` **shadow**: [`ShadowFlow`](../classes/ShadowFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:41](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L41)
+Defined in: [presentation/flows/defaults.ts:53](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L53)
 
 Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela.
 
@@ -78,7 +108,7 @@ Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap
 
 > `readonly` **shadowMatrix**: [`ShadowMatrixFlow`](../../elements/classes/ShadowMatrixFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:35](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L35)
+Defined in: [presentation/flows/defaults.ts:39](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L39)
 
 Estágio da matriz de sombra (fase `transform`, depois da câmera): direção da luz → matriz do `ShadowMap`.
 
@@ -88,7 +118,7 @@ Estágio da matriz de sombra (fase `transform`, depois da câmera): direção da
 
 > `readonly` **transform**: [`TransformFlow`](../../elements/classes/TransformFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:31](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L31)
+Defined in: [presentation/flows/defaults.ts:35](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L35)
 
 Estágio de transformação (fase `transform`): intenção dos Transform → matrizes de mundo.
 
@@ -98,6 +128,16 @@ Estágio de transformação (fase `transform`): intenção dos Transform → mat
 
 > `readonly` **ui**: [`UIFlow`](../classes/UIFlow.md)
 
-Defined in: [presentation/flows/defaults.ts:45](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L45)
+Defined in: [presentation/flows/defaults.ts:57](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L57)
 
 UI pass (quads + glyphs sobre o canvas).
+
+***
+
+### water
+
+> `readonly` **water**: [`WaterFlow`](../classes/WaterFlow.md)
+
+Defined in: [presentation/flows/defaults.ts:51](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L51)
+
+Composição óptica da água nos alvos da cena (fase `forward`, depois da superfície).

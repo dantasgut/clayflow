@@ -8,7 +8,7 @@
 
 > **releasePresentationDefaults**(`flows`): `boolean`
 
-Defined in: [presentation/flows/defaults.ts:100](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L100)
+Defined in: [presentation/flows/defaults.ts:118](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/defaults.ts#L118)
 
 Libera um uso dos estágios padrão da cena. O último usuário os desregistra (e descarta: GPU e inscrições).
 Devolve `true` quando foi o último usuário (nenhuma aplicação usa mais a cena).

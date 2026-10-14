@@ -6,7 +6,7 @@
 
 # Interface: ParticleSlots
 
-Defined in: [presentation/flows/ParticleFlow.ts:40](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L40)
+Defined in: [presentation/flows/ParticleFlow.ts:41](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L41)
 
 Slots do desenho de corpos de partículas.
 
@@ -24,7 +24,7 @@ Slots do desenho de corpos de partículas.
 
 > `readonly` **bodies**: `EntitiesSlot`
 
-Defined in: [presentation/flows/ParticleFlow.ts:48](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L48)
+Defined in: [presentation/flows/ParticleFlow.ts:49](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L49)
 
 Corpos de partículas com material (só `PointSpriteMaterial` é desenhado).
 
@@ -34,7 +34,7 @@ Corpos de partículas com material (só `PointSpriteMaterial` é desenhado).
 
 > `readonly` **camera**: `SingletonSlot`\<`false`\>
 
-Defined in: [presentation/flows/ParticleFlow.ts:42](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L42)
+Defined in: [presentation/flows/ParticleFlow.ts:43](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L43)
 
 Câmera ativa.
 
@@ -44,7 +44,7 @@ Câmera ativa.
 
 > `readonly` **cameras**: `PoolSlot`\<`false`\>
 
-Defined in: [presentation/flows/ParticleFlow.ts:44](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L44)
+Defined in: [presentation/flows/ParticleFlow.ts:45](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L45)
 
 Pool `CameraMatrices` (produzido na GPU pelo estágio de câmera).
 
@@ -54,7 +54,7 @@ Pool `CameraMatrices` (produzido na GPU pelo estágio de câmera).
 
 > `readonly` **lights**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/ParticleFlow.ts:46](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L46)
+Defined in: [presentation/flows/ParticleFlow.ts:47](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L47)
 
 Pool `Light` (direção da luz que ilumina; opcional).
 
@@ -64,6 +64,6 @@ Pool `Light` (direção da luz que ilumina; opcional).
 
 > `readonly` **target**: `TargetSlot`
 
-Defined in: [presentation/flows/ParticleFlow.ts:50](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ParticleFlow.ts#L50)
+Defined in: [presentation/flows/ParticleFlow.ts:51](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/ParticleFlow.ts#L51)
 
 Cor e profundidade da cena (`FrameTargets`), carregadas: o desenho vem depois do forward.

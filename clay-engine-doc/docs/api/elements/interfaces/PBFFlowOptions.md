@@ -6,7 +6,7 @@
 
 # Interface: PBFFlowOptions
 
-Defined in: [elements/physics/flows/PBFFlow.ts:55](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L55)
+Defined in: [elements/physics/flows/PBFFlow.ts:55](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/PBFFlow.ts#L55)
 
 Opções do `PBFFlow`.
 
@@ -16,7 +16,7 @@ Opções do `PBFFlow`.
 
 > `readonly` `optional` **maxNeighbors?**: `number`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:61](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L61)
+Defined in: [elements/physics/flows/PBFFlow.ts:64](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/PBFFlow.ts#L64)
 
 Vizinhos guardados por partícula (padrão 64).
 
@@ -26,7 +26,7 @@ Vizinhos guardados por partícula (padrão 64).
 
 > `readonly` `optional` **solverIters?**: `number`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:59](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L59)
+Defined in: [elements/physics/flows/PBFFlow.ts:62](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/PBFFlow.ts#L62)
 
 Iterações de projeção de densidade por substep (padrão 4).
 
@@ -36,6 +36,7 @@ Iterações de projeção de densidade por substep (padrão 4).
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:57](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/flows/PBFFlow.ts#L57)
+Defined in: [elements/physics/flows/PBFFlow.ts:60](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/flows/PBFFlow.ts#L60)
 
-Substeps por passo de física (padrão 1). O passo vem do `Time` da cena.
+Mínimo de substeps por passo de física (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais (spec
+017). O passo vem do `Time` da cena.
