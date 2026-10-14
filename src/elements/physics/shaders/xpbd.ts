@@ -1,3 +1,4 @@
+import { poolLive } from '../../gpu/compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { xpbd } from '../../gpu/shaders/math';
 import predictSource from '../../gpu/wgsl/kernels/predict.wgsl?raw';
@@ -13,6 +14,7 @@ import { SimParamsSchema } from '../../physics/schemas/simParams';
 export const xpbdPredict = wgslModule({
     name: 'xpbd_predict',
     source: predictSource,
+    requires: [poolLive],
     structs: [SimParamsSchema, XPBDSoftSchema],
 });
 
@@ -20,6 +22,7 @@ export const xpbdPredict = wgslModule({
 export const xpbdVelocityUpdate = wgslModule({
     name: 'xpbd_velocity_update',
     source: velocityUpdateSource,
+    requires: [poolLive],
     structs: [SimParamsSchema, XPBDSoftSchema],
 });
 
@@ -27,6 +30,6 @@ export const xpbdVelocityUpdate = wgslModule({
 export const xpbdDistanceSolve = wgslModule({
     name: 'xpbd_distance_solve',
     source: distanceSolveSource,
-    requires: [xpbd],
+    requires: [poolLive, xpbd],
     structs: [SimParamsSchema, XPBDSoftSchema, DistanceConstraint.schema],
 });

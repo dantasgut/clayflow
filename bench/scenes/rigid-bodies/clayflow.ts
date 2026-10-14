@@ -16,7 +16,9 @@ import { BALL_RADIUS, ballPositions, GROUND_HALF } from './scene';
  * de instâncias (spec 007).
  */
 const impl: SceneImplementation<ClayflowHandle> = {
-    limitations: ['render LDR 8 bits, sem MSAA (até F4)'],
+    limitations: [
+        'render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)',
+    ],
     setup({ engine, variant, rng }) {
         const world = engine.app.world;
         world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));

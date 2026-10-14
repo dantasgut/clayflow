@@ -6,7 +6,7 @@
 
 # Abstract Class: UiElement
 
-Defined in: [presentation/ui/UiElement.ts:25](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiElement.ts#L25)
+Defined in: [presentation/ui/UiElement.ts:25](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiElement.ts#L25)
 
 UiElement é a base de todos os elementos UI (Panel, Button, Slider, Text).
 Composição via árvore — cada elemento tem `bounds` próprios e `children`
@@ -42,7 +42,7 @@ Layout (HBox/VBox) calcula bounds dos filhos automaticamente.
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiElement.ts#L27)
+Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiElement.ts#L27)
 
 Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
@@ -52,7 +52,7 @@ Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 > **children**: `UiElement`[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiElement.ts#L31)
+Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiElement.ts#L31)
 
 Filhos diretos. Renderizados após o pai (z-order natural).
 
@@ -62,7 +62,7 @@ Filhos diretos. Renderizados após o pai (z-order natural).
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiElement.ts#L29)
+Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiElement.ts#L29)
 
 Quando false, o elemento e seus filhos não são renderizados.
 
@@ -72,7 +72,7 @@ Quando false, o elemento e seus filhos não são renderizados.
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/ui/UiElement.ts#L34)
+Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/ui/UiElement.ts#L34)
 
 Anexa um UiElement filho. Chaining fluente.
 

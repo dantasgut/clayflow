@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SPHFlow } from '../flows/SPHFlow';
 import { PBFFlow } from '../flows/PBFFlow';
 import { MPMFlow } from '../flows/MPMFlow';
@@ -45,7 +45,7 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
             bodyType: 'SPHSchema',
         });
         if (withMaterial) s.scene.world.insert(new ParticleMaterial(OPTIONS));
-        s.scene.world.insert(new FluidBody({ algorithm: 'SPH' }));
+        s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
         return s;
     }
 
@@ -83,6 +83,17 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         expect(u32[5]).toBe(Math.ceil(2 / cell - 1e-9));
     });
 
+    it('grade recriada pelo material: buffers da busca com geração nova (não repetem as specs da anterior)', async () => {
+        const s = await sph();
+        s.step(1 / 60);
+        const created = vi
+            .mocked(s.core.create)
+            .mock.calls.map((c) => (c[0] as { discriminator?: string }).discriminator ?? '');
+        // A busca do construtor (grade padrão) e a do material: discriminadores distintos.
+        expect(created.some((d) => d.includes('sph:gen0'))).toBe(true);
+        expect(created.some((d) => d.includes('sph:gen1'))).toBe(true);
+    });
+
     it('sem material no World usa os padrões', async () => {
         const s = await sph(false);
         s.step(1 / 60);
@@ -103,7 +114,7 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
             bodyType: 'PBFSchema',
         });
         s.scene.world.insert(new ParticleMaterial(OPTIONS));
-        s.scene.world.insert(new FluidBody({ algorithm: 'PBF' }));
+        s.scene.world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
         return s;
     }
 
@@ -142,7 +153,10 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
     }
 
     it('fluido: material_id 2, massa/volume/K do material, grade 2s pelo domínio', async () => {
-        const s = await mpm(() => new FluidBody({ algorithm: 'MPM' }), 'MPMFluidSchema');
+        const s = await mpm(
+            () => new FluidBody({ algorithm: 'MPM', position: [0, 0, 0] }),
+            'MPMFluidSchema',
+        );
         const passes = s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(f32[7]).toBeCloseTo(material.particleMass, 6);
@@ -158,7 +172,10 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
     });
 
     it('sólido: material_id 0 e Lamé do material', async () => {
-        const s = await mpm(() => new SoftBody({ algorithm: 'MPM' }), 'MPMSoftSchema');
+        const s = await mpm(
+            () => new SoftBody({ algorithm: 'MPM', position: [0, 0, 0] }),
+            'MPMSoftSchema',
+        );
         s.step(1 / 60);
         const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
         expect(u32[21]).toBe(0);

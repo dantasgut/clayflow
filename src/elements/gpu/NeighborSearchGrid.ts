@@ -8,12 +8,19 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 
 /** Dado de um `NeighborSearchGrid` (layout de `NeighborSearchGrid.schema`). */
 export interface NeighborSearchGridData {
+    /** Aresta da célula. */
     cellSize: number;
+    /** Células por eixo. */
     gridDim: readonly number[];
+    /** Origem da grade. */
     origin: readonly number[];
+    /** Número de células. */
     cellCount: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
     _pad2: number;
 }
 

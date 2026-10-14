@@ -24,7 +24,7 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | P7  | Sem acoplamento entre solvers                     | Cada solver reage só aos colliders do `ColliderSet`: fluido não empurra rígido, rígido não interage com macio, MPM e SPH/PBF não se veem                     | F5       |
 | P8  | Corpo rígido só com esfera e caixa                | `RigidBody` aceita `shape: 'sphere' \| 'box'` (`elements/physics/bodies/RigidBody.ts`); sem cápsula, convexo ou SDF                                          | F5 (015) |
 | P9  | Sem consultas espaciais                           | Não há raycast, shapecast nem character controller                                                                                                           | F5 (018) |
-| P10 | Sem superfície de fluido                          | Fluidos são renderizados só como partículas                                                                                                                  | F5 (017) |
+| P10 | Sem superfície de fluido                          | Fluidos desenhados como partículas (sprites lidos do pool, `ParticleFlow`, 008); sem superfície contínua (espaço de tela ou isosuperfície)                   | F5 (017) |
 
 ## 2. Limites de escala
 
@@ -33,7 +33,7 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | E1  | XPBD resolve em uma única thread                              | `distance_solve_main` com `@workgroup_size(1)` percorre todas as restrições em laço (`elements/gpu/wgsl/kernels/distance_solve.wgsl`); `GraphColorer` já existe para paralelizar                                                                     | F5 (015) |
 | E2  | ~~LCP sem broadphase~~ — resolvido na 007                     | Broadphase em grade hash na GPU (`SpatialHashGrid`), pares por substep e narrowphase indireta: pares testados 0,087% de N·M em `rigid-bodies/10k`, mesmo conjunto de contatos e trajetórias bit a bit                                                | F2 (007) |
 | E3  | ~~Readback dos corpos rígidos por quadro~~ — resolvido na 007 | A pose é publicada na GPU direto no pool de `Transform` (posse da GPU, `rb_publish_pose`); a CPU lê sob demanda (`resources.read`); só contadores de diagnóstico são lidos, a cada 60 passos                                                         | F2 (007) |
-| E4  | Teto de partículas fixo                                       | SPH e PBF alocam 65 536 partículas (`SPHFlow.ts:243`, `PBFFlow.ts:42`)                                                                                                                                                                               | F5       |
+| E4  | Teto de partículas fixo                                       | SPH e PBF alocam 65 536 partículas (`NEIGHBOR_SEARCH_MAX_PARTICLES`); desde a 008 o excedente é erro na inserção com o teto (antes estourava em silêncio)                                                                                            | F5       |
 | E5  | ~~Render sem instancing~~ — resolvido na 007                  | Grupos de instâncias por (geometria, pipeline, orientação) mantidos pela C2; forward e sombra fazem um `draw.indexed` por grupo; geometria deduplicada por conteúdo (`instances/10k`: 2 draws). Vertex pulling e arena ficaram para a F7 (R4 da 007) | F2 (007) |
 
 ### Notas da 007
@@ -41,6 +41,20 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 - SC-004 (`instances/10k-moving` ≤ 3 ms de CPU): atendida — 2,80 ms (era 199 ms; Three 1,38 ms).
 - Memória da US7: 1 milhão de entidades com heap JS retido de 1,18 GB após a montagem e 1,31 GB após os quadros (meta
   1,5 GB); GPU = pools (200 MiB) + 16,9 MiB.
+
+### Notas da 008
+
+- Geometria gerada em compute (§4): resolvida — geometria escrita pela GPU (`PointCloudGeometry`, `SurfaceGeometry`),
+  corpos de partículas desenhados lendo o pool, topologia do material respeitada.
+- Defeito encontrado e corrigido: slot liberado de pool de partículas continuava simulado e entrava na busca de
+  vizinhança (despacho de `[0, count)` sem teste de ocupação); agora há bitset de vivos na GPU (`pool_live`).
+- Defeito encontrado e corrigido: a busca de vizinhança recriada pelo material (outra grade) repetia as specs da
+  anterior e reaproveitava bind groups ligados a buffers destruídos (erro de validação a cada quadro); agora cada
+  busca tem discriminador com geração.
+- Busca de vizinhança otimizada (antecipado da F5/015): células ordenadas por índice, faixas contíguas e lista
+  intercalada, sem vetor local por partícula — `particles/64k` 17 → 74 fps (GPU 60 → 13 ms); trajetórias de SPH e PBF
+  regravadas (ordem dos vizinhos).
+- MSAA 4× antecipado da F4/011.
 
 ### Pendências novas (levantadas na 007)
 
@@ -71,7 +85,7 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | Pools de Transform/Camera/Light/Material/Renderable produzidos e lidos pela GPU sem a CPU (o `Renderable` existe desde a 006) | F2 (007) |
 | Instancing e vertex pulling (E5)                                                                                              | F2 (007) |
 | Fim do readback da física (E3)                                                                                                | F2 (007) |
-| Geometria gerada em compute                                                                                                   | F2 (008) |
+| Geometria gerada em compute                                                                                                   | ✅ 008   |
 | Pontos de extensão matemáticos (métrica, espaços não euclidianos)                                                             | F3       |
 | Lacunas de simulação P1–P10 e limites E1, E2, E4                                                                              | F5       |
 
@@ -79,4 +93,4 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 
 F1 (004, 005, 006) concluída; F2 (007 — ponte compute↔render; 008 — geometria em compute) bloqueia o resto; F3, F4 e
 F5 podem andar em paralelo depois. As pendências P1–P5, P7–P10, E1 e E4 são da F5; P6 da F9; G1 e G2 da F4; G3 (débito do p99 da 007) da F10, ao fim das fases programadas. E2, E3 e E5
-foram resolvidas na 007 (F2).
+foram resolvidas na 007 (F2); a geometria em compute, na 008 (F2 concluída).

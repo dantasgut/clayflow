@@ -5,10 +5,15 @@ import { Collider } from './Collider';
 
 /** Dado de um `MeshCollider` (layout de `MeshCollider.schema` mais os triângulos, 9 floats cada). */
 export interface MeshColliderData {
+    /** Número de triângulos. */
     triangleCount: number;
+    /** Primeiro triângulo. */
     firstTriangle: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Triângulos (índices de vértice). */
     triangles: readonly number[];
 }
 

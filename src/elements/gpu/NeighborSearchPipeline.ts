@@ -1,4 +1,5 @@
 import type { PoolBufferSpec } from '../../scene/contracts/PoolDirectory';
+import type { BoundPool } from '../../scene/flows/slots';
 import type {
     EngineCore,
     Frame,
@@ -10,11 +11,11 @@ import {
     destroyComputeKernel,
     type ComputeKernel,
 } from '../../scene/flows/createComputeKernel';
-import { nsAssignCount, nsFind, nsScatter } from './shaders/neighborSearch';
+import { nsAssignCount, nsFind, nsScatter, nsSortCells } from './shaders/neighborSearch';
 import { NsSimParamsSchema } from './schemas';
 import { PrefixSum } from './compute/PrefixSum';
 
-/** Teto de vizinhos por partícula: tamanho do vetor local em que `ns_find` ordena a lista (`NS_MAX_NEIGHBORS`). */
+/** Teto de vizinhos por partícula (tamanho da região de cada partícula na lista de vizinhos). */
 const MAX_NEIGHBORS = 128;
 
 /**
@@ -42,18 +43,38 @@ export interface NeighborSearchOptions {
 }
 
 /**
+ * Teto de partículas por pool dos estágios que usam a busca de vizinhança (SPH, PBF): o tamanho das listas da grade
+ * (PENDENCIAS E4; aumentá-lo é da F5).
+ */
+export const NEIGHBOR_SEARCH_MAX_PARTICLES = 65536;
+
+/**
  * NeighborSearchPipeline implementa busca de vizinhos GPU via spatial
  * hashing + parallel prefix scan + scatter:
  *   1. `assign_count`: cada partícula computa cell index + atomicAdd em cellCount.
  *   2. soma de prefixos exclusiva cellCount → cellStart (offsets por cell) pelo `PrefixSum` genérico — qualquer
  *      número de células.
  *   3. `scatter`: cada partícula é escrita em sortedParticles[cellStart[cell] + cursor].
- *   4. `find`: cada partícula busca vizinhos nas 27 cells adjacentes via
- *      sortedParticles[cellStart[c]..cellStart[c]+cellCount[c]].
+ *   4. `sort_cells` (spec 008): cada célula é ordenada por índice — o espalhamento atômico varia a ordem entre execuções.
+ *   5. `find`: cada partícula busca vizinhos nas 27 cells adjacentes, numa ordem fixa, via
+ *      sortedParticles[cellStart[c]..cellStart[c]+cellCount[c]] — a lista sai determinística, gravada direto.
  *
  * Usado por SPHFlow e PBFFlow para acelerar density/forces computation.
  */
 export class NeighborSearchPipeline {
+    /**
+     * Confere que o pool cabe no teto da busca (`NEIGHBOR_SEARCH_MAX_PARTICLES`).
+     * @throws RangeError nomeando o estágio, a entidade do corpo que passou do teto, a contagem e o teto.
+     */
+    static requireCapacity(stage: string, pool: BoundPool): void {
+        if (pool.count <= NEIGHBOR_SEARCH_MAX_PARTICLES) return;
+        const entity = pool.entityAt(NEIGHBOR_SEARCH_MAX_PARTICLES);
+        throw new RangeError(
+            `${stage}: o pool '${pool.poolKey}' chegou a ${pool.count} partículas (corpo da entidade ${entity ?? '?'}); `
+                + `o teto da busca de vizinhança é ${NEIGHBOR_SEARCH_MAX_PARTICLES}.`,
+        );
+    }
+
     private readonly disc: string;
     private readonly gridDim: readonly [number, number, number];
     private readonly cellSize: number;
@@ -71,16 +92,20 @@ export class NeighborSearchPipeline {
     /** Soma de prefixos das contagens por célula. */
     private scan: PrefixSum | null = null;
     private sortedParticlesBuffer: StorageBufferSpec | null = null;
+    /** Posições na ordem de `sortedParticles` (vec4 por partícula), lidas em sequência pela busca. */
+    private sortedPositionsBuffer: StorageBufferSpec | null = null;
     private neighborListBuffer: StorageBufferSpec | null = null;
     private neighborCountBuffer: StorageBufferSpec | null = null;
 
     private assignKernel: ComputeKernel | null = null;
     private scatterKernel: ComputeKernel | null = null;
+    private sortCellsKernel: ComputeKernel | null = null;
     private findKernel: ComputeKernel | null = null;
 
     /** Contagem escrita em `NsSimParams` (-1 = ainda não escrito). */
     private uploadedParticleCount = -1;
     private currentParticlesBuffer: PoolBufferSpec | null = null;
+    private currentLiveBuffer: StorageBufferSpec | null = null;
 
     constructor(
         private readonly core: EngineCore,
@@ -105,8 +130,10 @@ export class NeighborSearchPipeline {
     private releaseParticleKernels(): void {
         if (this.assignKernel !== null) destroyComputeKernel(this.core, this.assignKernel);
         if (this.findKernel !== null) destroyComputeKernel(this.core, this.findKernel);
+        if (this.sortCellsKernel !== null) destroyComputeKernel(this.core, this.sortCellsKernel);
         this.assignKernel = null;
         this.findKernel = null;
+        this.sortCellsKernel = null;
     }
 
     /**
@@ -166,6 +193,14 @@ export class NeighborSearchPipeline {
                 byteSize: this.maxParticles * 4,
             });
         }
+        if (this.sortedPositionsBuffer === null) {
+            this.sortedPositionsBuffer = this.core.create<StorageBufferSpec>({
+                kind: 'buffer',
+                subkind: 'storage',
+                discriminator: `ns_sorted_pos:${this.disc}`,
+                byteSize: this.maxParticles * 16,
+            });
+        }
         if (this.neighborListBuffer === null) {
             this.neighborListBuffer = this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
@@ -198,6 +233,7 @@ export class NeighborSearchPipeline {
             this.cellCursorBuffer,
             this.cellIdsBuffer,
             this.sortedParticlesBuffer,
+            this.sortedPositionsBuffer,
             this.neighborListBuffer,
             this.neighborCountBuffer,
         ];
@@ -208,9 +244,11 @@ export class NeighborSearchPipeline {
         this.cellCursorBuffer = null;
         this.cellIdsBuffer = null;
         this.sortedParticlesBuffer = null;
+        this.sortedPositionsBuffer = null;
         this.neighborListBuffer = null;
         this.neighborCountBuffer = null;
         this.currentParticlesBuffer = null;
+        this.currentLiveBuffer = null;
         this.uploadedParticleCount = -1;
     }
 
@@ -219,12 +257,20 @@ export class NeighborSearchPipeline {
      * buffers da grade, kernels e a soma de prefixos. Idempotente; fora da gravação (numa transição do Flow — ex.: o
      * pool de partículas cresceu ou o número de passos do quadro mudou).
      */
-    prepare(particlesBuffer: PoolBufferSpec, rebuildsPerFrame = 1): void {
+    prepare(
+        particlesBuffer: PoolBufferSpec,
+        liveBuffer: StorageBufferSpec,
+        rebuildsPerFrame = 1,
+    ): void {
         this.allocate();
         this.scan!.prepare(this.cellStartBuffer!, rebuildsPerFrame);
-        if (this.currentParticlesBuffer !== particlesBuffer) {
+        if (
+            this.currentParticlesBuffer !== particlesBuffer
+            || this.currentLiveBuffer !== liveBuffer
+        ) {
             this.releaseParticleKernels();
             this.currentParticlesBuffer = particlesBuffer;
+            this.currentLiveBuffer = liveBuffer;
         }
         const nsParams = this.paramsBuffer!;
         this.assignKernel ??= createComputeKernel(this.core, {
@@ -234,6 +280,7 @@ export class NeighborSearchPipeline {
             bindings: {
                 ns_params: nsParams,
                 particle_data: particlesBuffer,
+                live: liveBuffer,
                 cell_ids: this.cellIdsBuffer!,
                 cell_count: this.cellCountBuffer!,
             },
@@ -249,6 +296,19 @@ export class NeighborSearchPipeline {
                 sorted_particles: this.sortedParticlesBuffer!,
             },
         });
+        this.sortCellsKernel ??= createComputeKernel(this.core, {
+            discriminator: `ns_sort_cells:${this.disc}`,
+            shader: nsSortCells,
+            entryPoint: 'ns_sort_cells_main',
+            bindings: {
+                ns_params: nsParams,
+                cell_start: this.cellStartBuffer!,
+                cell_count_buf: this.cellCountBuffer!,
+                sorted_particles: this.sortedParticlesBuffer!,
+                particle_data: particlesBuffer,
+                sorted_positions: this.sortedPositionsBuffer!,
+            },
+        });
         this.findKernel ??= createComputeKernel(this.core, {
             discriminator: `ns_find:${this.disc}`,
             shader: nsFind,
@@ -261,6 +321,8 @@ export class NeighborSearchPipeline {
                 sorted_particles: this.sortedParticlesBuffer!,
                 neighbor_list: this.neighborListBuffer!,
                 neighbor_count: this.neighborCountBuffer!,
+                live: liveBuffer,
+                sorted_positions: this.sortedPositionsBuffer!,
             },
         });
     }
@@ -284,12 +346,14 @@ export class NeighborSearchPipeline {
                 particle_count: particleCount,
                 particle_stride: this.particleStrideF32,
                 max_neighbors: this.maxNeighbors,
+                list_stride: this.maxParticles,
             }),
         );
     }
 
     /**
-     * Buffer de neighbor indices flat — `neighborList[p*maxNeighbors + n]`
+     * Lista de vizinhos intercalada — o vizinho `n` da partícula `p` em `neighborList[n * maxParticles + p]` (leituras e
+     * escritas contíguas entre partículas vizinhas)
      * dá o índice da n-ésima partícula vizinha de p (até `neighborCount[p]`).
      * Null antes de `rebuild` ser chamado pela primeira vez.
      */
@@ -310,7 +374,7 @@ export class NeighborSearchPipeline {
      * `particleCount = 0` não grava nada.
      *
      * Sequência: assign_count → soma de prefixos (cellCount → cellStart) → copy(cellStart, cellCursor) → scatter →
-     * find.
+     * sort_cells (cada célula em ordem de índice) → find.
      * @throws Error se `prepare` não foi chamado.
      */
     rebuild(frame: Frame, particleCount: number): void {
@@ -318,8 +382,15 @@ export class NeighborSearchPipeline {
         const assign = this.assignKernel;
         const scan = this.scan;
         const scatter = this.scatterKernel;
+        const sortCells = this.sortCellsKernel;
         const find = this.findKernel;
-        if (assign === null || scan === null || scatter === null || find === null) {
+        if (
+            assign === null
+            || scan === null
+            || scatter === null
+            || sortCells === null
+            || find === null
+        ) {
             throw new Error(
                 `NeighborSearchPipeline(${this.disc}): prepare(partículas) antes de gravar.`,
             );
@@ -343,6 +414,8 @@ export class NeighborSearchPipeline {
         // cell_cursor para alocar o slot dentro do range [start, start+count).
         frame.copy(cellStart, this.cellCursorBuffer!, this.cellCount * 4);
         run('NS.scatter', scatter, particleCount);
+        // Ordem fixa dentro de cada célula: a busca grava a lista determinística direto (sem ordenar por partícula).
+        run('NS.sort_cells', sortCells, this.cellCount);
         run('NS.find', find, particleCount);
     }
 }

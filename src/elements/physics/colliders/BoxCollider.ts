@@ -5,7 +5,9 @@ import { Collider } from './Collider';
 
 /** Dado de um `BoxCollider` (layout de `BoxCollider.schema`). */
 export interface BoxColliderData {
+    /** Meia-extensão por eixo. */
     halfExtents: number[];
+    /** Centro (local ao corpo dono, ou de mundo sem dono). */
     center: number[];
 }
 

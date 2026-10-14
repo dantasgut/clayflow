@@ -13,10 +13,8 @@
 import {
     Application,
     createScene,
-    DistanceConstraint,
     FluidBody,
     FEMSchema,
-    GravityField,
     LCPSchema,
     MPMFluidSchema,
     MPMSoftSchema,
@@ -36,6 +34,7 @@ import {
     writeFixture,
     writeJsonFixture,
 } from './support/fixtures';
+import { block, ground, gravity, rng, SPACING, tank } from './support/particleScenes';
 
 const STEPS = 240;
 /** Taxas de quadro comparadas com a mesma fixture (gravada a 60 Hz). */
@@ -45,18 +44,6 @@ function log(msg: string): void {
     console.log(`[trajectories] ${msg}`);
     const el = document.getElementById('log');
     if (el !== null) el.textContent += `${msg}\n`;
-}
-
-/** Gerador determinístico (mulberry32). */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
 }
 
 interface Scene {
@@ -86,63 +73,6 @@ function poolView(bytes: Uint8Array, count: number, schema: StructSchema): PoolV
             return [f[base]!, f[base + 1]!, f[base + 2]!, f[base + 3]!];
         },
     };
-}
-
-/** Espaçamento das partículas (material padrão). */
-const SPACING = ParticleMaterial.defaults.particleSpacing;
-/** Meia largura interna do tanque dos fluidos (m). */
-const TANK = 0.5;
-
-function gravity(app: Application): void {
-    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-}
-
-function ground(app: Application): void {
-    gravity(app);
-    app.world.insert(
-        new RigidBody({ shape: 'box', mass: 0, halfExtents: [4, 0.5, 4], position: [0, -0.5, 0] }),
-    );
-}
-
-/** Chão + 4 paredes estáticas: tanque de 2·TANK × 2·TANK com topo do chão em y = 0. */
-function tank(app: Application): void {
-    ground(app);
-    const t = 0.1;
-    const h = 0.6;
-    // Paredes enterradas 0,2 m no chão: a face de baixo não coincide com a superfície do chão.
-    const y = h - 0.2;
-    for (const [x, z, hx, hz] of [
-        [TANK + t, 0, t, TANK + 2 * t],
-        [-(TANK + t), 0, t, TANK + 2 * t],
-        [0, TANK + t, TANK, t],
-        [0, -(TANK + t), TANK, t],
-    ] as const) {
-        app.world.insert(
-            new RigidBody({ shape: 'box', mass: 0, halfExtents: [hx, h, hz], position: [x, y, z] }),
-        );
-    }
-}
-
-function block(
-    n: number,
-    spacing: number,
-    origin: readonly [number, number, number],
-    seed: number,
-): [number, number, number][] {
-    const r = rng(seed);
-    const side = Math.ceil(Math.cbrt(n));
-    const out: [number, number, number][] = [];
-    for (let i = 0; i < n; i++) {
-        const x = i % side;
-        const y = Math.floor(i / (side * side));
-        const z = Math.floor(i / side) % side;
-        out.push([
-            origin[0] + x * spacing + (r() - 0.5) * spacing * 0.1,
-            origin[1] + y * spacing + (r() - 0.5) * spacing * 0.1,
-            origin[2] + z * spacing + (r() - 0.5) * spacing * 0.1,
-        ]);
-    }
-    return out;
 }
 
 /** Bloco de 10×10×10 partículas centrado no tanque, base a 0,1 m do chão (altura média inicial ≈ 0,325 m). */
@@ -221,21 +151,22 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             gravity(app);
+            // Um corpo: 32 nós em corrente (o primeiro fixo) e 31 arestas internas.
             const n = 32;
-            for (let i = 0; i < n; i++) {
-                app.world.insert(
-                    new SoftBody({
-                        algorithm: 'XPBD',
-                        position: [i * 0.1, 2, 0],
-                        mass: i === 0 ? 0 : 0.1,
-                    }),
-                );
-            }
-            for (let i = 0; i + 1 < n; i++) {
-                app.world.insert(
-                    new DistanceConstraint({ i, j: i + 1, restLength: 0.1, compliance: 1e-6 }),
-                );
-            }
+            const links = Array.from({ length: n - 1 }, (_, i) => i);
+            app.world.insert(
+                new SoftBody({
+                    algorithm: 'XPBD',
+                    position: Array.from({ length: n }, (_, i) => [i * 0.1, 2, 0]).flat(),
+                    mass: Array.from({ length: n }, (_, i) => (i === 0 ? 0 : 0.1)),
+                    edges: {
+                        a: links,
+                        b: links.map((i) => i + 1),
+                        restLength: links.map(() => 0.1),
+                        compliance: 1e-6,
+                    },
+                }),
+            );
         },
         // Ponto fixo parado; elos dentro de 5% do repouso (a corrente pendura, não estica).
         check: (v) => {
@@ -261,9 +192,8 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             gravity(app);
-            for (const position of block(64, 0.1, [0, 1, 0], 2)) {
-                app.world.insert(new SoftBody({ algorithm: 'FEM', position, mass: 0.05 }));
-            }
+            const position = block(64, 0.1, [0, 1, 0], 2).flat();
+            app.world.insert(new SoftBody({ algorithm: 'FEM', position, mass: 0.05 }));
         },
         // O FEM só integra gravidade (A5): nós independentes com a mesma dinâmica — o bloco cai sem deformar.
         check: (v) => {
@@ -288,9 +218,8 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of block(512, SPACING, [-3.5 * SPACING, 0.1, -3.5 * SPACING], 3)) {
-                app.world.insert(new SoftBody({ algorithm: 'MPM', position }));
-            }
+            const position = block(512, SPACING, [-3.5 * SPACING, 0.1, -3.5 * SPACING], 3).flat();
+            app.world.insert(new SoftBody({ algorithm: 'MPM', position }));
         },
         // Sólido elástico: assenta inteiro sobre o chão, sem se espalhar além da largura inicial + 50%.
         check: (v) => {
@@ -311,9 +240,7 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of FLUID_BLOCK(4)) {
-                app.world.insert(new FluidBody({ algorithm: 'MPM', position }));
-            }
+            app.world.insert(new FluidBody({ algorithm: 'MPM', position: FLUID_BLOCK(4).flat() }));
         },
         check: fluidChecks,
     },
@@ -323,9 +250,7 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of FLUID_BLOCK(5)) {
-                app.world.insert(new FluidBody({ algorithm: 'SPH', position }));
-            }
+            app.world.insert(new FluidBody({ algorithm: 'SPH', position: FLUID_BLOCK(5).flat() }));
         },
         // Além dos critérios gerais: densidade mediana (pos.w) em ±15% de ρ₀ — a superfície fica abaixo, o miolo perto.
         check: (v) => {
@@ -346,9 +271,7 @@ const SCENES: readonly Scene[] = [
         fields: ['pos', 'vel'],
         build: (app) => {
             tank(app);
-            for (const position of FLUID_BLOCK(6)) {
-                app.world.insert(new FluidBody({ algorithm: 'PBF', position }));
-            }
+            app.world.insert(new FluidBody({ algorithm: 'PBF', position: FLUID_BLOCK(6).flat() }));
         },
         check: fluidChecks,
     },

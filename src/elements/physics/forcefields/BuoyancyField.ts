@@ -5,9 +5,13 @@ import { ForceField } from './ForceField';
 
 /** Dado de um `BuoyancyField` (layout de `BuoyancyField.schema`). */
 export interface BuoyancyFieldData {
+    /** Densidade do fluido. */
     fluidDensity: number;
+    /** Altura da superfície do fluido. */
     fluidLevel: number;
+    /** Gravidade. */
     gravity: number;
+    /** Preenchimento do layout. */
     _pad: number;
 }
 

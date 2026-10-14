@@ -6,16 +6,26 @@
 
 # Interface: PresentationDefaultsOptions
 
-Defined in: [presentation/flows/defaults.ts:15](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/defaults.ts#L15)
+Defined in: [presentation/flows/defaults.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L17)
 
 Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`).
 
 ## Properties
 
+### samples?
+
+> `readonly` `optional` **samples?**: `1` \| `4`
+
+Defined in: [presentation/flows/defaults.ts:21](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L21)
+
+Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4.
+
+***
+
 ### world
 
 > `readonly` **world**: `World`
 
-Defined in: [presentation/flows/defaults.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/defaults.ts#L17)
+Defined in: [presentation/flows/defaults.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/defaults.ts#L19)
 
 World da cena.

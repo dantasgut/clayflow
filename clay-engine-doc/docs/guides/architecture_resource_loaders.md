@@ -2103,6 +2103,67 @@ slot.entities({
 por entidade com a cena parada. Com 1 000 000 de caixas (Geometry + Material + Transform), o heap JS retido fica em
 ~1,3 KB por entidade (incluindo os objetos do usuário) e a memória de GPU é a dos pools mais uma cópia da geometria.
 
+### Geometria em compute e corpos de partículas (spec 008)
+
+**Faixas de pool.** Um descritor em pool com `count: N` ocupa **N slots contíguos** (`[first, first + N)`) do pool; o
+dado `data[id]` é por campo (SoA: um array por campo do schema, `fieldElements(tipo)` números por registro) e a C2 o
+empacota no layout do `array<T>` com `StructSchema.packRange` (inverso: `unpackRange`). A alocação usa uma lista de
+intervalos livres (`FreeRanges`: first-fit, coalescência na liberação, crescimento por dobra em laço); um Resource com
+descritores de contagens diferentes (partículas e arestas de um corpo) tem uma faixa por pool. `BoundPool.rangeOf(id)`
+(e `ResourceSystem.poolRangeOf`) devolve `{ first, count }`; `resources.read(resource, descId)` de uma faixa devolve o
+dado por campo. Sem `count`, o comportamento é o de um slot por Resource.
+
+**Slots vivos.** A C2 mantém por pool um bitset de ocupação na GPU (`array<u32>`, um bit por slot), criado no primeiro
+pedido (`poolLiveBuffer`, `BoundPool.live`, consumes `<pool>.live`) e escrito no mesmo envio da alocação ou liberação.
+Kernels que percorrem `[0, count)` testam `pool_live(live[slot >> 5u], slot)` (módulo `poolLive` da `wgslLib`): faixas
+liberadas não são simuladas nem entram na busca de vizinhança, e corpos vivos nunca mudam de slot.
+
+**Referências de slot.** Como o slot de um Resource é da C2, campos `u32` que guardam slots são declarados no descritor:
+`slotRefs: { i: 'self:body', j: 'self:body' }` (índice local na faixa do descritor `body` do próprio Resource) ou
+`{ i: 'ref:body' }` (valor `{ body, index }`: índice na faixa do descritor `body` de outro Resource, alocado antes na
+mesma inserção). A C2 resolve no empacotamento; índice fora da faixa ou alvo fora da cena é erro na inserção; alvo que
+sai antes de quem o referencia gera aviso (os slots ficam com o bit de vivo zerado).
+
+**Corpos-contêiner.** `FluidBody` e `SoftBody` (base `ParticleBody`) são **um** Resource com N partículas em arrays
+(`position` com `x, y, z` por partícula; `velocity`, `mass` por partícula ou única), numa faixa do pool do algoritmo; o
+schema precisa de `pos: vec4f`. `SoftBody({ edges })` (XPBD) declara as restrições de distância internas como um segundo
+descritor em pool (`DistanceConstraint.schema`, `slotRefs` `self:body`); `DistanceConstraint({ a: { body, index }, b })`
+liga partículas de corpos diferentes do mesmo pool. O teto da busca de vizinhança (`NEIGHBOR_SEARCH_MAX_PARTICLES`,
+65 536) é validado pelos estágios de SPH e PBF.
+
+**Desenho de partículas.** O `ParticleFlow` (C4, fase `forward`, depois do forward) desenha cada corpo com
+`PointSpriteMaterial` num `draw.vertices(6, N)`: o vertex shader lê a posição direto do pool do corpo pelo índice da
+instância (`array<vec4f>`, stride e deslocamento do campo `pos` em `ParticleDrawParams`, um por corpo com offset
+dinâmico) — sem cópia para vertex buffer nem leitura de volta —, esfera impostora iluminada pela luz do pool, na cor e
+na profundidade da cena (`loadOp: 'load'`).
+
+**Geometria escrita pela GPU.** Descritores `vertex`/`index` com `upload: 'never'` (índice exige `indexFormat`) ficam
+fora da deduplicação; `slot.entities({ owns: [[Geometry, 'vertices']] })` aceita descritor individual e registra o
+escritor (`hasGpuWriter`; o forward avisa uma vez quando desenha uma geometria `'never'` sem escritor). O forward e a
+sombra desenham geometria sem índices por `draw.vertices(vertexCount, …)`. `PointCloudGeometry({ maxPoints })` tem os
+vértices só da GPU e desenha os `activeCount` primeiros. `SoftBody({ surface })` cria uma `SurfaceGeometry` (vértices
+`'initial'`: posições e uvs da inserção; índices; adjacência CSR) que o `SoftSurfaceFlow` (fase `transform`) reescreve a
+cada quadro — normais de face e depois posição + normal média por vértice, sem atômicos —, desenhada pelo forward e pela
+sombra como qualquer geometria.
+
+**Topologia do material.** `Material.topology` (do descritor de pipeline) entra na chave do grupo de desenho;
+`castsShadow` (padrão: só triângulos) decide a sombra. `PointSpriteMaterial` (struct próprio): sprites nos vértices da
+geometria, lidos do vertex buffer como storage (um pipeline por vertex buffer). `WireframeMaterial`: as **arestas da
+geometria**, em espaço de objeto (descritor `wireEdges`, pares de índices, alocado e deduplicado pela C2 como os índices;
+de feição nas geometrias estáticas — sem as diagonais de faces planas — e topológicas na `SurfaceGeometry`), cada uma
+um quad de `lineWidth` pixels na tela (`ForwardFrameParams.viewport`) com borda suavizada (`fwidth`/`smoothstep`) e
+mistura alfa — o desenho do legado; não há linhas de hardware.
+
+**MSAA.** `FrameTargets({ samples: 4 })` (padrão; `Application({ antialias: false })` desliga) declara a cor
+multiamostrada (`samples`) e a profundidade com as mesmas amostras; `slot.target({ samples })` a expõe
+(`BoundTarget.samples`, `sampleCount`), `RenderFlow.colorAttachment` desenha nas amostras e resolve na cor lida pelo
+pós, e os pipelines usam `multisample.count` do alvo.
+
+**Busca de vizinhança.** Contagem por célula, soma de prefixos, espalhamento, `ns_sort_cells` (cada célula ordenada por
+índice, com as posições copiadas na mesma ordem) e `ns_find` (9 faixas de células contíguas em x, numa ordem fixa,
+gravando direto numa lista intercalada `k * stride + i`, lida assim pelos kernels de SPH e PBF): lista determinística
+sem vetor local por partícula. Cada busca recriada (o `ParticleMaterial` mudou a grade) tem discriminador com geração.
+
 ### Correções aplicadas — tabela C2 original → C2 refatorada
 
 | # | Antes (C2 original) | Depois (C2 refatorada) | Princípio |
@@ -2379,17 +2440,15 @@ Um mesmo EntityId pode acumular papéis ortogonais. O `Flow` da física consulta
 
 ```
 Planeta:    Transform + RigidBody + SphereGeometry + StandardMaterial + GravityField + SphereCollider
-Pano:       Transform + SoftBody + PlaneGeometry + StandardMaterial + SpringConstraint
-Fluido:     Transform + FluidBody + PointCloudGeometry({ source }) + PointSpriteMaterial + BuoyancyField
+Pano:       Transform + SoftBody({ edges, surface }) + StandardMaterial
+Fluido:     FluidBody({ position }) + PointSpriteMaterial + BuoyancyField
 Vento:      Transform + WindField   ← entidade ambiental sem body
 ```
 
-> **Ponte pool de partículas → geometria (alvo da F2/008).** Uma geometria declara um pool de origem
-> (`PointCloudGeometry({ source })`); o estágio de vértice lê as posições direto do slot do pool por `instance_index`
-> (buffer polivalente storage/vertex), sem cópia; um kernel de sincronização só existe quando o layout difere. Emissores
-> e corpos de partículas seguem a mesma regra. **Estado atual:** `PointCloudGeometry` e os emissores são isolados —
-> não há pipeline nem ligação com os pools de partículas (os kernels `*_vertex_write` do legado, que copiavam para um
-> vertex intercalado fixo, foram removidos na spec 005).
+> **Ponte pool de partículas → desenho (spec 008).** Corpos de partículas são desenhados lendo as posições direto da
+> faixa do corpo no pool pelo índice da instância (`ParticleFlow`), sem cópia; superfícies de corpo mole são geometrias
+> escritas por kernel (`SurfaceGeometry`, `SoftSurfaceFlow`). Os kernels `*_vertex_write` do legado (cópia para um
+> vértice intercalado fixo) não voltaram. Ver "Geometria em compute e corpos de partículas (spec 008)".
 
 > **Nota sobre Flows.** O solver (`LCPFlow`, `XPBDFlow`, `SPHFlow`, ...) é escolhido pela engine a partir do schema do corpo (registro por factory com `bodyType` = pool key — `schema.name`, ou `${schema.name}:${algorithm}` com FlowDescriptor; a C2 instancia o vencedor quando o pool é criado) — não entra na composição ECS como Resource. `Flow` é API pública do nível N3 (algoritmo novo); os Flows do motor seguem o mesmo contrato.
 
@@ -2512,7 +2571,7 @@ classDiagram
             <<schema 'PlaneGeometry' — size: vec2f, divisions: vec2u>>
         }
         class PointCloudGeometry {
-            <<schema + pool de origem (source) — lê posições do pool de partículas: alvo F2/008>>
+            <<vertices só da GPU (upload 'never'), maxPoints + activeCount; escrita por um estágio com owns>>
         }
         class ParametricSurfaceGeometry {
             <<schema 'ParametricSurfaceGeometry' — uSteps: u32, vSteps: u32 + compute>>
@@ -2530,7 +2589,7 @@ classDiagram
             <<consumes: ['Camera', 'Transform', 'Light', 'ShadowMap']>>
         }
         class WireframeMaterial {
-            <<schema 'WireframeMaterial' — color: vec4f>>
+            <<schema 'WireframeMaterial' — color: vec4f, lineWidth: f32 — arestas da geometria (wireEdges) em quads>>
         }
         class PointSpriteMaterial {
             <<schema 'PointSpriteMaterial' — radius: f32, color: vec4f — fluido e partículas>>
@@ -2551,12 +2610,12 @@ classDiagram
             <<body_shape vec4f (shapeType, halfExtents), padding vec4f>>
         }
         class SoftBody {
-            <<storage: 'pool' — partículas coalesced no PoolEntry interno>>
-            <<schema 'SoftBody' partículas + internalSprings>>
+            <<storage: 'pool', count: N — faixa de N partículas (arrays por campo)>>
+            <<schema do algoritmo (XPBD/FEM/MPM) + edges (DistanceConstraint, slotRefs) + surface (SurfaceGeometry)>>
         }
         class FluidBody {
-            <<storage: 'pool' — partículas coalesced no PoolEntry interno>>
-            <<schema 'FluidBody' partículas : pos, vel, density, pressure>>
+            <<storage: 'pool', count: N — faixa de N partículas (arrays por campo)>>
+            <<schema do algoritmo (SPH/PBF/MPM)>>
         }
     }
     note for PhysicsBody "Dev cria instâncias individuais (`new RigidBody({...})`).\nEngine agrega no PoolEntry interno transparentemente — dev nunca lida com o pool."
@@ -2620,7 +2679,7 @@ classDiagram
         }
         class DistanceConstraint {
             <<storage: 'pool'>>
-            <<schema 'DistanceConstraint' — bodyA: u32, bodyB: u32, minDist: f32, maxDist: f32>>
+            <<schema 'DistanceConstraint' — i, j: u32 (slotRefs { body, index }), rest_length, compliance>>
         }
     }
     note for Constraint "Constraint é SEMPRE entre dois EntityIds distintos (ex.: dobradiça entre\nduas caixas, corda entre dois corpos). Vínculos INTERNOS a um mesmo body\n(ex.: molas entre partículas de um SoftBody, tetraedros de um FEMBody)\nnão são Constraints — são dados internos do body (ex.: SoftBody.internalSprings,\nFEMBody.tetrahedra). Presets que geram cloth/rope populam esses arrays\ninternos diretamente, não emitem Constraint Resources."
@@ -2846,21 +2905,23 @@ src/elements/
 │     ├── BoxGeometry.ts                schema 'BoxGeometry' { size, ... }
 │     ├── SphereGeometry.ts             schema 'SphereGeometry' { radius, segments }
 │     ├── PlaneGeometry.ts              schema 'PlaneGeometry' { size, divisions }
-│     ├── PointCloudGeometry.ts         nuvem de pontos; ponte com pools de partículas (source): alvo F2/008
+│     ├── PointCloudGeometry.ts         nuvem de pontos com vértices escritos pela GPU (spec 008)
+│     ├── SurfaceGeometry.ts            superfície de corpo mole escrita por kernel (spec 008)
 │     └── ParametricSurfaceGeometry.ts  compute shader avalia f(u,v) → pos, normal
 │
 ├── material/                         ← shading e aparência
 │     ├── Material.ts                   abstract extends Entity, implements Resource
 │     ├── StandardMaterial.ts           schema 'StandardMaterial' { albedo, roughness, metallic }
-│     ├── WireframeMaterial.ts          schema 'WireframeMaterial' { color }
+│     ├── WireframeMaterial.ts          schema 'WireframeMaterial' { color, lineWidth } — arestas em quads
 │     └── PointSpriteMaterial.ts        schema 'PointSpriteMaterial' { radius, color }
 │
 ├── physics/
 │     ├── bodies/                     ← contêineres de estado físico
 │     │     ├── PhysicsBody.ts          abstract extends Entity, implements Resource
 │     │     ├── RigidBody.ts            schema 'RigidBody' { pos, rot, linVel, angVel, mass, ... }
-│     │     ├── SoftBody.ts             schema 'SoftBody' partículas + internalSprings
-│     │     └── FluidBody.ts            schema 'FluidBody' partículas { pos, vel, density, pressure }
+│     │     ├── ParticleBody.ts         base dos corpos de partículas (faixa de N slots, spec 008)
+│     │     ├── SoftBody.ts             partículas em arrays + edges + surface
+│     │     └── FluidBody.ts            partículas em arrays (SPH/PBF/MPM)
 │     │
 │     ├── forcefields/                ← campos de força — ambiental ou corpo-a-corpo
 │     │     ├── ForceField.ts           abstract extends Entity, implements Resource
@@ -3073,7 +3134,7 @@ class BoxGeometry extends Entity implements Resource {
 
 }
 ```
-Geometria com computação GPU: `getPipelineDescriptors()` retorna um compute shader. `data` fica vazio — o dado nasce e vive no `StorageBuffer`, sem trânsito CPU → GPU. (Exemplo de contrato; a ponte com pools de partículas — `PointCloudGeometry({ source })`, leitura por `instance_index` sem cópia — é alvo da F2/008.)
+Geometria com computação GPU: `getPipelineDescriptors()` retorna um compute shader. `data` fica vazio — o dado nasce e vive no `StorageBuffer`, sem trânsito CPU → GPU. (Exemplo de contrato. Na spec 008, a geometria escrita pela GPU usa descritores `'never'` com escritor declarado por `owns`, e corpos de partículas são desenhados lendo o pool pelo índice da instância.)
 
 ```typescript
 // Camada 3 — PointCloudGeometry.ts (geometria procedural — gerada em GPU)

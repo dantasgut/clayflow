@@ -165,7 +165,16 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
         gridDim: [dim, dim, dim],
         origin: [0, 0, 0],
     });
-    ns.prepare(particles);
+    // Todas as partículas vivas (bitset de ocupação com os n bits ligados).
+    const liveBits = new Uint32Array(Math.ceil(n / 32)).fill(0xffffffff);
+    const live = app.core.create<StorageBufferSpec>({
+        kind: 'buffer',
+        subkind: 'storage',
+        discriminator: 'limits_live',
+        byteSize: liveBits.byteLength,
+    });
+    app.core.write(live, liveBits);
+    ns.prepare(particles, live);
     app.core.record('limits-ns', (frame) => {
         ns.rebuild(frame, n);
     });
@@ -221,7 +230,8 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
             continue;
         }
         totalNeighbors += expected.length;
-        const got = Array.from(list.subarray(i * maxNeighbors, i * maxNeighbors + counts[i]!)).sort(
+        // Lista intercalada (spec 008): o vizinho k de i em k * n + i (maxParticles = n).
+        const got = Array.from({ length: counts[i]! }, (_, k) => list[k * n + i]!).sort(
             (a, b) => a - b,
         );
         expected.sort((a, b) => a - b);

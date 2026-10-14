@@ -6,8 +6,8 @@
 
 # Type Alias: SoftBodyOptions
 
-> **SoftBodyOptions** = [`SoftBodyDomainOptions`](../interfaces/SoftBodyDomainOptions.md) \| [`SoftBodyRawOptions`](../interfaces/SoftBodyRawOptions.md)
+> **SoftBodyOptions** = [`SoftBodyDomainOptions`](../interfaces/SoftBodyDomainOptions.md) \| [`SoftBodyRawOptions`](SoftBodyRawOptions.md)
 
-Defined in: [elements/physics/bodies/SoftBody.ts:44](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/SoftBody.ts#L44)
+Defined in: [elements/physics/bodies/SoftBody.ts:77](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/SoftBody.ts#L77)
 
-União pública aceita pelo construtor do SoftBody: vocabulário de domínio ou struct cru.
+União aceita pelo construtor do SoftBody: vocabulário de domínio ou struct cru.

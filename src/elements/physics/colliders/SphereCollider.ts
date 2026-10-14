@@ -5,10 +5,15 @@ import { Collider } from './Collider';
 
 /** Dado de um `SphereCollider` (layout de `SphereCollider.schema`). */
 export interface SphereColliderData {
+    /** Centro (local ao corpo dono, ou de mundo sem dono). */
     center: number[];
+    /** Raio. */
     radius: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
     _pad2: number;
 }
 

@@ -8,6 +8,7 @@ import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { SphereGeometry } from '../../../elements/geometry/SphereGeometry';
 import { StandardMaterial } from '../../../elements/material/StandardMaterial';
 import { WireframeMaterial } from '../../../elements/material/WireframeMaterial';
+import { PointSpriteMaterial } from '../../../elements/material/PointSpriteMaterial';
 import { Camera } from '../../../elements/scene/Camera';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
@@ -25,8 +26,53 @@ async function scene() {
 const instances = (draws: readonly DrawCall[]) => draws.map((d) => d.instanceCount);
 const total = (draws: readonly DrawCall[]) => draws.reduce((n, d) => n + d.instanceCount, 0);
 
+describe('topologia do material (spec 008)', () => {
+    it('triângulos, arame e sprites: cada um com o seu desenho; grupos por topologia', async () => {
+        const s = await scene();
+        s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
+        s.scene.world.insert(new BoxGeometry().add(new WireframeMaterial()).add(new Transform()));
+        s.scene.world.insert(new BoxGeometry().add(new PointSpriteMaterial()).add(new Transform()));
+        s.step();
+        const forward = s.step().find((p) => p.label === 'ForwardFlow')!;
+        // Caixa: 36 índices de triângulo.
+        expect(forward.draws.map((d) => [d.pipeline.primitive?.topology, d.indexCount])).toEqual([
+            ['triangle-list', 36],
+        ]);
+        // Arame: um quad (6 vértices) por aresta de feição da caixa (12); sprites: 6 por vértice (24).
+        expect(forward.vertexDraws.map((d) => d.indexCount)).toEqual([72, 144]);
+        // Sombra: só a caixa de triângulos (arame e sprites não projetam).
+        expect(instances(s.draws('ShadowFlow'))).toEqual([1]);
+    });
+
+    it('as arestas do arame são da geometria (wireEdges), compartilhadas por conteúdo', async () => {
+        const s = await scene();
+        const a = new BoxGeometry();
+        const b = new BoxGeometry();
+        s.scene.world.insert(a.add(new WireframeMaterial()).add(new Transform()));
+        s.scene.world.insert(
+            b.add(new WireframeMaterial()).add(new Transform({ position: [2, 0, 0, 1] })),
+        );
+        s.step();
+        const edges = s.scene.resourceSystem.bufferOf(a, 'wireEdges');
+        expect(edges).toBe(s.scene.resourceSystem.bufferOf(b, 'wireEdges'));
+        expect(edges?.subkind === 'index' && edges.count).toBe(24);
+        // Mesma geometria e material: um grupo, um desenho com duas instâncias.
+        const forward = s.step().find((p) => p.label === 'ForwardFlow')!;
+        expect(forward.vertexDraws.map((d) => d.instanceCount)).toEqual([2]);
+    });
+
+    it('castsShadow do material vale sobre a topologia', async () => {
+        const s = await scene();
+        const wire = new WireframeMaterial();
+        wire.castsShadow = true;
+        s.scene.world.insert(new BoxGeometry().add(wire).add(new Transform()));
+        s.step();
+        expect(instances(s.draws('ShadowFlow'))).toEqual([1]);
+    });
+});
+
 describe('desenho por grupo de instâncias (spec 007)', () => {
-    it('forward: 2 geometrias × 2 shaders = 4 desenhos; sombra: 2 geometrias = 2 desenhos', async () => {
+    it('forward: 2 geometrias × 2 shaders = 4 desenhos; sombra: só as de triângulos', async () => {
         const s = await scene();
         for (let i = 0; i < 40; i++) {
             const geometry = i % 2 === 0 ? new BoxGeometry() : new SphereGeometry({ radius: 0.5 });
@@ -36,10 +82,12 @@ describe('desenho por grupo de instâncias (spec 007)', () => {
             );
         }
         s.step();
-        expect(instances(s.draws('ForwardFlow'))).toEqual([10, 10, 10, 10]);
-        expect(instances(s.draws('ShadowFlow'))).toEqual([20, 20]);
-        // Cada desenho usa os buffers da geometria do grupo (uma cópia por conteúdo).
-        expect(new Set(s.draws('ForwardFlow').map((d) => d.vertex)).size).toBe(2);
+        const passes = s.step();
+        const forward = passes.find((p) => p.label === 'ForwardFlow')!;
+        expect(instances([...forward.draws, ...forward.vertexDraws])).toEqual([10, 10, 10, 10]);
+        expect(instances(s.draws('ShadowFlow'))).toEqual([10, 10]);
+        // Cada desenho indexado usa os buffers da geometria do grupo (uma cópia por conteúdo).
+        expect(new Set(forward.draws.map((d) => d.vertex)).size).toBe(2);
     });
 
     it('escala espelhada vai para o grupo da variante cw; troca de sinal em execução muda de grupo', async () => {

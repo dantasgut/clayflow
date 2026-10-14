@@ -2,7 +2,9 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import nsAssignCountSource from '../wgsl/kernels/ns_assign_count.wgsl?raw';
 import nsScatterSource from '../wgsl/kernels/ns_scatter.wgsl?raw';
 import nsFindSource from '../wgsl/kernels/ns_find.wgsl?raw';
+import nsSortCellsSource from '../wgsl/kernels/ns_sort_cells.wgsl?raw';
 import { NsSimParamsSchema } from '../../gpu/schemas';
+import { poolLive } from '../compute/shaders';
 
 // Kernels da busca de vizinhança (hashing espacial + espalhamento + busca; a soma de prefixos é o `PrefixSum`).
 
@@ -10,6 +12,7 @@ import { NsSimParamsSchema } from '../../gpu/schemas';
 export const nsAssignCount = wgslModule({
     name: 'ns_assign_count',
     source: nsAssignCountSource,
+    requires: [poolLive],
     structs: [NsSimParamsSchema],
 });
 
@@ -20,9 +23,17 @@ export const nsScatter = wgslModule({
     structs: [NsSimParamsSchema],
 });
 
-/** Busca dos vizinhos (lista ordenada por índice). */
+/** Ordenação por índice das partículas de cada célula (lista de vizinhos determinística). */
+export const nsSortCells = wgslModule({
+    name: 'ns_sort_cells',
+    source: nsSortCellsSource,
+    structs: [NsSimParamsSchema],
+});
+
+/** Busca dos vizinhos (células em ordem fixa, cada uma ordenada por índice). */
 export const nsFind = wgslModule({
     name: 'ns_find',
     source: nsFindSource,
+    requires: [poolLive],
     structs: [NsSimParamsSchema],
 });

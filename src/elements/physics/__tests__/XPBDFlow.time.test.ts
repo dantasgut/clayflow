@@ -13,8 +13,9 @@ async function setup(substeps: number) {
         phase: 'physics',
         bodyType: XPBDSoftSchema.name,
     });
-    s.scene.world.insert(new SoftBody({ algorithm: 'XPBD', position: [0, 1, 0], mass: 1 }));
-    return { ...s, flow: () => reg.flow! };
+    const first = new SoftBody({ algorithm: 'XPBD', position: [0, 1, 0], mass: 1 });
+    s.scene.world.insert(first);
+    return { ...s, first, flow: () => reg.flow! };
 }
 
 const paramWrites = (writes: Awaited<ReturnType<typeof solverScene>>['writes']) =>
@@ -65,9 +66,15 @@ describe('XPBDFlow — avanço governado pelo Time (slots)', () => {
     it('restrições: o pipeline de distância é preparado quando o pool de restrições aparece (slotChanged)', async () => {
         const s = await setup(1);
         expect(countPasses(s.step(), 'XPBDFlow.distance_solve')).toBe(0);
-        s.scene.world.insert(new SoftBody({ algorithm: 'XPBD', position: [0.1, 1, 0], mass: 1 }));
+        const second = new SoftBody({ algorithm: 'XPBD', position: [0.1, 1, 0], mass: 1 });
+        s.scene.world.insert(second);
         s.scene.world.insert(
-            new DistanceConstraint({ i: 0, j: 1, restLength: 0.1, compliance: 0 }),
+            new DistanceConstraint({
+                a: { body: s.first, index: 0 },
+                b: { body: second, index: 0 },
+                restLength: 0.1,
+                compliance: 0,
+            }),
         );
         expect(countPasses(s.step(), 'XPBDFlow.distance_solve')).toBe(1);
         expect(s.flow().lifecycle).toBe('ready');

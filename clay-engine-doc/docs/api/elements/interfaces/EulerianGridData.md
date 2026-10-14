@@ -6,7 +6,7 @@
 
 # Interface: EulerianGridData
 
-Defined in: [elements/gpu/EulerianGrid.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L10)
+Defined in: [elements/gpu/EulerianGrid.ts:10](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L10)
 
 Dado de um `EulerianGrid` (layout de `EulerianGrid.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `EulerianGrid` (layout de `EulerianGrid.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/gpu/EulerianGrid.ts:15](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L15)
+Defined in: [elements/gpu/EulerianGrid.ts:20](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L20)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/gpu/EulerianGrid.ts:15](https://github.com/dantasgut/clayf
 
 > **\_pad1**: `number`
 
-Defined in: [elements/gpu/EulerianGrid.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L16)
+Defined in: [elements/gpu/EulerianGrid.ts:22](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L22)
+
+Preenchimento do layout.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/gpu/EulerianGrid.ts:16](https://github.com/dantasgut/clayf
 
 > **\_pad2**: `number`
 
-Defined in: [elements/gpu/EulerianGrid.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L17)
+Defined in: [elements/gpu/EulerianGrid.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L24)
+
+Preenchimento do layout.
 
 ***
 
@@ -40,7 +46,9 @@ Defined in: [elements/gpu/EulerianGrid.ts:17](https://github.com/dantasgut/clayf
 
 > **cellCount**: `number`
 
-Defined in: [elements/gpu/EulerianGrid.ts:14](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L14)
+Defined in: [elements/gpu/EulerianGrid.ts:18](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L18)
+
+Número de células.
 
 ***
 
@@ -48,7 +56,9 @@ Defined in: [elements/gpu/EulerianGrid.ts:14](https://github.com/dantasgut/clayf
 
 > **cellSize**: `number`
 
-Defined in: [elements/gpu/EulerianGrid.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L12)
+Defined in: [elements/gpu/EulerianGrid.ts:14](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L14)
+
+Aresta da célula.
 
 ***
 
@@ -56,7 +66,9 @@ Defined in: [elements/gpu/EulerianGrid.ts:12](https://github.com/dantasgut/clayf
 
 > **gridDim**: readonly `number`[]
 
-Defined in: [elements/gpu/EulerianGrid.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L11)
+Defined in: [elements/gpu/EulerianGrid.ts:12](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L12)
+
+Células por eixo.
 
 ***
 
@@ -64,4 +76,6 @@ Defined in: [elements/gpu/EulerianGrid.ts:11](https://github.com/dantasgut/clayf
 
 > **origin**: readonly `number`[]
 
-Defined in: [elements/gpu/EulerianGrid.ts:13](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/EulerianGrid.ts#L13)
+Defined in: [elements/gpu/EulerianGrid.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/EulerianGrid.ts#L16)
+
+Origem da grade.

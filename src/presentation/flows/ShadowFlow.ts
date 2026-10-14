@@ -17,6 +17,7 @@ import {
 } from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
+import { Material } from '../../elements/material/Material';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
@@ -47,10 +48,19 @@ export interface ShadowSlots extends SlotMap {
     readonly target: TargetSlot;
 }
 
-/** Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces. */
-export function shadowGroupKey(entry: EntityEntry): string {
+/** Prefixo da chave dos grupos que não projetam sombra (material com `castsShadow` falso): não desenhados. */
+const NO_SHADOW = 'no-shadow|';
+
+/**
+ * Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces. A entidade cujo material não
+ * projeta sombra (spec 008: linhas e sprites, salvo opção do material) vai para um grupo `no-shadow`, não desenhado;
+ * sem material, projeta.
+ */
+export function shadowGroupKey(entry: EntityEntry, world: World): string {
     const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
-    return `${geometry}|${entry.get(Transform).mirrored ? 'cw' : 'ccw'}`;
+    const material = world.resourcesOf(entry.entityId).find((r) => r instanceof Material);
+    const casts = material === undefined || (material as Material).castsShadow;
+    return `${casts ? '' : NO_SHADOW}${geometry}|${entry.get(Transform).mirrored ? 'cw' : 'ccw'}`;
 }
 
 function slotsOf(world: World): ShadowSlots {
@@ -63,7 +73,7 @@ function slotsOf(world: World): ShadowSlots {
             all: [Geometry, Transform],
             groups: {
                 schema: ShadowInstanceSchema,
-                key: shadowGroupKey,
+                key: (entry) => shadowGroupKey(entry, world),
                 instance: [Transform, 'world'],
                 rekeyOn: { [Transform.schema.name]: ['scale'] },
             },
@@ -198,19 +208,26 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                 .setBindGroup(1, ccw.groups[1]!);
             let current: PreparedRender = ccw;
             for (const group of groups) {
+                if (group.key.startsWith(NO_SHADOW)) continue;
                 const entry = group.representative;
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
-                const indices = this.resources.bufferOf(geometry, 'indices');
-                if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') continue;
+                if (vertices?.subkind !== 'vertex') continue;
                 const pipeline = entry.get(Transform).mirrored ? cw : ccw;
                 if (!pipeline.ready) continue;
                 if (pipeline !== current) {
                     pass.bind.setPipeline(pipeline.spec);
                     current = pipeline;
                 }
-                pass.geometry.vertex(0, vertices).index(indices);
-                pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
+                pass.geometry.vertex(0, vertices);
+                const indices = this.resources.bufferOf(geometry, 'indices');
+                if (indices?.subkind === 'index') {
+                    pass.geometry.index(indices);
+                    pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
+                } else {
+                    // Geometria sem índices (ex.: escrita por um estágio): pela contagem de vértices.
+                    pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
+                }
             }
         });
     }

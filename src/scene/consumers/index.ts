@@ -8,4 +8,5 @@ export { ConsumerResolverRegistry, ConsumerResolutionError } from './ConsumerRes
 export { SingletonResolver } from './strategies/SingletonResolver';
 export type { SingletonResolverOptions } from './strategies/SingletonResolver';
 export { PoolResolver } from './strategies/PoolResolver';
+export { PoolLiveResolver } from './strategies/PoolLiveResolver';
 export { TextureResolver } from './strategies/TextureResolver';

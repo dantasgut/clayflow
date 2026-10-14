@@ -5,11 +5,17 @@ import { ForceField } from './ForceField';
 
 /** Dado de um `VortexField` (layout de `VortexField.schema`). */
 export interface VortexFieldData {
+    /** Eixo de rotação. */
     axis: readonly number[];
+    /** Centro (local ao corpo dono, ou de mundo sem dono). */
     center: readonly number[];
+    /** Intensidade. */
     magnitude: number;
+    /** Decaimento com a distância. */
     falloff: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
 }
 

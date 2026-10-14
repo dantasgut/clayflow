@@ -37,7 +37,12 @@ export type {
     ResourceDirectory,
 } from './contracts/index';
 
-export type { GPUDescriptor, GPUDescriptorRole } from './descriptors/GPUDescriptor';
+export type {
+    GPUDescriptor,
+    GPUDescriptorRole,
+    SlotRef,
+    SlotRefTarget,
+} from './descriptors/GPUDescriptor';
 export type {
     PipelineDescriptor,
     PipelineDescriptorRole,

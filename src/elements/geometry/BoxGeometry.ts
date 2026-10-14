@@ -6,8 +6,11 @@ import { sharedContent } from './geometryContent';
 
 /** Dado de uma `BoxGeometry`. */
 export interface BoxGeometryData extends GeometryData {
+    /** Número de vértices. */
     vertexCount: number;
+    /** Número de índices. */
     indexCount: number;
+    /** Tamanho. */
     size: readonly number[];
 }
 
@@ -35,16 +38,20 @@ export class BoxGeometry extends Geometry<BoxGeometryData> {
             sy = (size[1] ?? 1) / 2,
             sz = (size[2] ?? 1) / 2;
         // Mesmo tamanho → mesmos arrays (gerados uma vez por chave; a C2 deduplica os buffers pela chave).
-        const { vertices, indices } = sharedContent(`BoxGeometry:${sx},${sy},${sz}`, () => ({
-            vertices: generateBox(sx, sy, sz),
-            indices: boxIndices(),
-        }));
+        const { vertices, indices, wireEdges } = sharedContent(
+            `BoxGeometry:${sx},${sy},${sz}`,
+            () => ({
+                vertices: generateBox(sx, sy, sz),
+                indices: boxIndices(),
+            }),
+        );
         this.data = {
             size,
             vertices,
             indices,
             vertexCount: vertices.length / 8,
             indexCount: indices.length,
+            wireEdges,
         };
     }
 
@@ -58,6 +65,7 @@ export class BoxGeometry extends Geometry<BoxGeometryData> {
                 count: this.data.vertexCount,
             },
             { id: 'indices', role: 'index', count: this.data.indexCount },
+            ...this.wireDescriptors(),
         ];
     }
 

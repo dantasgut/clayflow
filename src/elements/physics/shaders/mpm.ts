@@ -1,3 +1,4 @@
+import { poolLive } from '../../gpu/compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { colliderSet, mat, mpmMaterial, mpmWeights } from '../../gpu/shaders/math';
 import mpmClearGridSource from '../../gpu/wgsl/kernels/mpm_clear_grid.wgsl?raw';
@@ -23,7 +24,7 @@ export const mpmClearGrid = wgslModule({
 export const mpmP2G = wgslModule({
     name: 'mpm_p2g',
     source: mpmP2GSource,
-    requires: [mat, mpmWeights, mpmMaterial],
+    requires: [poolLive, mat, mpmWeights, mpmMaterial],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema, MPMFluidSchema],
 });
 
@@ -39,7 +40,7 @@ export const mpmGridUpdate = wgslModule({
 export const mpmG2P = wgslModule({
     name: 'mpm_g2p',
     source: mpmG2PSource,
-    requires: [mat, mpmWeights, mpmMaterial],
+    requires: [poolLive, mat, mpmWeights, mpmMaterial],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema, MPMFluidSchema],
 });
 
@@ -47,6 +48,6 @@ export const mpmG2P = wgslModule({
 export const mpmParticleCollision = wgslModule({
     name: 'mpm_particle_collision',
     source: mpmParticleCollisionSource,
-    requires: [colliderSet, mpmMaterial],
+    requires: [poolLive, colliderSet, mpmMaterial],
     structs: [MPMSimParamsSchema, MPMFluidSchema],
 });

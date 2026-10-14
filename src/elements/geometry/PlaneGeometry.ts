@@ -6,8 +6,11 @@ import { sharedContent } from './geometryContent';
 
 /** Dado de uma `PlaneGeometry`. */
 export interface PlaneGeometryData extends GeometryData {
+    /** Número de vértices. */
     vertexCount: number;
+    /** Número de índices. */
     indexCount: number;
+    /** Tamanho. */
     size: readonly number[];
 }
 
@@ -31,7 +34,7 @@ export class PlaneGeometry extends Geometry<PlaneGeometryData> {
         const size = (values.size ?? [1, 1]) as readonly number[];
         const w = (size[0] ?? 1) / 2,
             h = (size[1] ?? 1) / 2;
-        const { vertices, indices } = sharedContent(`PlaneGeometry:${w},${h}`, () => ({
+        const { vertices, indices, wireEdges } = sharedContent(`PlaneGeometry:${w},${h}`, () => ({
             vertices: new Float32Array([
                 -w,
                 0,
@@ -68,7 +71,7 @@ export class PlaneGeometry extends Geometry<PlaneGeometryData> {
             ]),
             indices: new Uint16Array([0, 2, 1, 0, 3, 2]), // ccw visto de +Y (normal para cima)
         }));
-        this.data = { size, vertices, indices, vertexCount: 4, indexCount: 6 };
+        this.data = { size, vertices, indices, vertexCount: 4, indexCount: 6, wireEdges };
     }
 
     /** Declara VBO + IBO. */
@@ -76,6 +79,7 @@ export class PlaneGeometry extends Geometry<PlaneGeometryData> {
         return [
             { id: 'vertices', role: 'vertex', schema: PlaneGeometry.vertexStruct, count: 4 },
             { id: 'indices', role: 'index', count: 6 },
+            ...this.wireDescriptors(),
         ];
     }
 

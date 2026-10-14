@@ -6,18 +6,17 @@
 
 # Class: FluidBody
 
-Defined in: [elements/physics/bodies/FluidBody.ts:57](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/FluidBody.ts#L57)
+Defined in: [elements/physics/bodies/FluidBody.ts:60](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/FluidBody.ts#L60)
 
-FluidBody — partícula de fluido (water, smoke, gel). Data class pura
-governada pelo `schema`. Pool key = `schema.name` roteia para
-SPHFlow/PBFFlow/MPMFlow.
+FluidBody — um fluido (água, fumaça, gel) de N partículas num único Resource (spec 008), na faixa de N slots do pool
+do algoritmo (`SPHSchema`, `PBFSchema`, `MPMFluidSchema`), que roteia para o `SPHFlow`, `PBFFlow` ou `MPMFlow`.
 
- - **Domínio**: `new FluidBody({ algorithm: 'SPH', position, velocity })`.
- - **Cru** (avançado): `new FluidBody({ schema, data })`.
+ - **Domínio**: `new FluidBody({ algorithm: 'SPH', position, velocity })`, com `position` = `x, y, z` por partícula.
+ - **Cru** (avançado): `new FluidBody({ schema, count, data })`, com `data` por campo do schema.
 
 ## Extends
 
-- [`PhysicsBody`](PhysicsBody.md)
+- [`ParticleBody`](ParticleBody.md)
 
 ## Constructors
 
@@ -25,7 +24,7 @@ SPHFlow/PBFFlow/MPMFlow.
 
 > **new FluidBody**(`options`): `FluidBody`
 
-Defined in: [elements/physics/bodies/FluidBody.ts:60](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/FluidBody.ts#L60)
+Defined in: [elements/physics/bodies/FluidBody.ts:61](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/FluidBody.ts#L61)
 
 #### Parameters
 
@@ -39,21 +38,49 @@ Defined in: [elements/physics/bodies/FluidBody.ts:60](https://github.com/dantasg
 
 #### Overrides
 
-[`PhysicsBody`](PhysicsBody.md).[`constructor`](PhysicsBody.md#constructor)
+[`ParticleBody`](ParticleBody.md).[`constructor`](ParticleBody.md#constructor)
 
 ## Properties
+
+### count
+
+> `readonly` **count**: `number`
+
+Defined in: [elements/physics/bodies/ParticleBody.ts:39](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/ParticleBody.ts#L39)
+
+Número de partículas.
+
+#### Inherited from
+
+[`ParticleBody`](ParticleBody.md).[`count`](ParticleBody.md#count)
+
+***
+
+### particleSchema
+
+> `readonly` **particleSchema**: `StructSchema`
+
+Defined in: [elements/physics/bodies/ParticleBody.ts:41](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/ParticleBody.ts#L41)
+
+Schema do struct da partícula (o do pool).
+
+#### Inherited from
+
+[`ParticleBody`](ParticleBody.md).[`particleSchema`](ParticleBody.md#particleschema)
+
+***
 
 ### state
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:19](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/PhysicsBody.ts#L19)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/PhysicsBody.ts#L19)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
-[`PhysicsBody`](PhysicsBody.md).[`state`](PhysicsBody.md#state)
+[`ParticleBody`](ParticleBody.md).[`state`](ParticleBody.md#state)
 
 ## Accessors
 
@@ -63,7 +90,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L127)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -74,7 +101,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 #### Inherited from
 
-[`PhysicsBody`](PhysicsBody.md).[`attached`](PhysicsBody.md#attached)
+[`ParticleBody`](ParticleBody.md).[`attached`](ParticleBody.md#attached)
 
 ***
 
@@ -84,7 +111,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -97,7 +124,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -113,7 +140,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 #### Inherited from
 
-[`PhysicsBody`](PhysicsBody.md).[`data`](PhysicsBody.md#data)
+[`ParticleBody`](ParticleBody.md).[`data`](ParticleBody.md#data)
 
 ***
 
@@ -123,7 +150,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -134,7 +161,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 #### Inherited from
 
-[`PhysicsBody`](PhysicsBody.md).[`rawData`](PhysicsBody.md#rawdata)
+[`ParticleBody`](ParticleBody.md).[`rawData`](ParticleBody.md#rawdata)
 
 ## Methods
 
@@ -142,7 +169,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -159,7 +186,25 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Inherited from
 
-[`PhysicsBody`](PhysicsBody.md).[`add`](PhysicsBody.md#add)
+[`ParticleBody`](ParticleBody.md).[`add`](ParticleBody.md#add)
+
+***
+
+### bodyDescriptor()
+
+> `protected` **bodyDescriptor**(): `GPUDescriptor`
+
+Defined in: [elements/physics/bodies/ParticleBody.ts:65](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/ParticleBody.ts#L65)
+
+Descritor das partículas: pool do schema, `count` slots, enviado só na inserção.
+
+#### Returns
+
+`GPUDescriptor`
+
+#### Inherited from
+
+[`ParticleBody`](ParticleBody.md).[`bodyDescriptor`](ParticleBody.md#bodydescriptor)
 
 ***
 
@@ -167,17 +212,17 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/bodies/FluidBody.ts:85](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/FluidBody.ts#L85)
+Defined in: [elements/physics/bodies/ParticleBody.ts:60](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/ParticleBody.ts#L60)
 
-Pool storage para coalescer N FluidBodies do mesmo schema em 1 buffer GPU.
+Partículas numa faixa do pool do schema (a simulação é dona do estado depois da inserção).
 
 #### Returns
 
 readonly `GPUDescriptor`[]
 
-#### Overrides
+#### Inherited from
 
-[`PhysicsBody`](PhysicsBody.md).[`getDescriptors`](PhysicsBody.md#getdescriptors)
+[`ParticleBody`](ParticleBody.md).[`getDescriptors`](ParticleBody.md#getdescriptors)
 
 ***
 
@@ -185,7 +230,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/bodies/PhysicsBody.ts:23](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/bodies/PhysicsBody.ts#L23)
+Defined in: [elements/physics/bodies/PhysicsBody.ts:23](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/bodies/PhysicsBody.ts#L23)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -197,4 +242,4 @@ readonly `PipelineDescriptor`[]
 
 #### Inherited from
 
-[`PhysicsBody`](PhysicsBody.md).[`getPipelineDescriptors`](PhysicsBody.md#getpipelinedescriptors)
+[`ParticleBody`](ParticleBody.md).[`getPipelineDescriptors`](ParticleBody.md#getpipelinedescriptors)

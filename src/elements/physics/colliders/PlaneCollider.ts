@@ -5,10 +5,15 @@ import { Collider } from './Collider';
 
 /** Dado de um `PlaneCollider` (layout de `PlaneCollider.schema`). */
 export interface PlaneColliderData {
+    /** Normal. */
     normal: number[];
+    /** Deslocamento ao longo da normal. */
     offset: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
     _pad2: number;
 }
 

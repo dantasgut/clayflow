@@ -22,7 +22,13 @@ import type { EntityId } from '../../scene/world/EntityId';
  * app.world.insert(new BoxGeometry().add(new Transform({ position: [1, 0, 0, 1] })).add(new Parent(arm)));
  * ```
  */
-export class Parent extends Entity<{ entity: EntityId }> implements Resource {
+export class Parent
+    extends Entity<{
+        /** Entidade pai. */
+        entity: EntityId;
+    }>
+    implements Resource
+{
     state: ResourceState = ResourceState.Uninitialized;
 
     constructor(entity: EntityId) {

@@ -6,7 +6,7 @@
 
 # Interface: BuoyancyFieldData
 
-Defined in: [elements/physics/forcefields/BuoyancyField.ts:7](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/BuoyancyField.ts#L7)
+Defined in: [elements/physics/forcefields/BuoyancyField.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/BuoyancyField.ts#L7)
 
 Dado de um `BuoyancyField` (layout de `BuoyancyField.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `BuoyancyField` (layout de `BuoyancyField.schema`).
 
 > **\_pad**: `number`
 
-Defined in: [elements/physics/forcefields/BuoyancyField.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/BuoyancyField.ts#L11)
+Defined in: [elements/physics/forcefields/BuoyancyField.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/BuoyancyField.ts#L15)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/physics/forcefields/BuoyancyField.ts:11](https://github.co
 
 > **fluidDensity**: `number`
 
-Defined in: [elements/physics/forcefields/BuoyancyField.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/BuoyancyField.ts#L8)
+Defined in: [elements/physics/forcefields/BuoyancyField.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/BuoyancyField.ts#L9)
+
+Densidade do fluido.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/physics/forcefields/BuoyancyField.ts:8](https://github.com
 
 > **fluidLevel**: `number`
 
-Defined in: [elements/physics/forcefields/BuoyancyField.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/BuoyancyField.ts#L9)
+Defined in: [elements/physics/forcefields/BuoyancyField.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/BuoyancyField.ts#L11)
+
+Altura da superfície do fluido.
 
 ***
 
@@ -40,4 +46,6 @@ Defined in: [elements/physics/forcefields/BuoyancyField.ts:9](https://github.com
 
 > **gravity**: `number`
 
-Defined in: [elements/physics/forcefields/BuoyancyField.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/BuoyancyField.ts#L10)
+Defined in: [elements/physics/forcefields/BuoyancyField.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/BuoyancyField.ts#L13)
+
+Gravidade.

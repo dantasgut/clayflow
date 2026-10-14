@@ -1,6 +1,7 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/pbf_collision.wgsl.ts
 @group(0) @binding(0) var<uniform>             pbf_params: PBFSimParams;
 @group(1) @binding(0) var<storage, read_write> particles:  array<PBFParticle>;
+@group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 // Grupo 2: conjunto de colliders (`collider_set.wgsl`).
 
 @compute @workgroup_size(64)
@@ -11,7 +12,7 @@ fn pbf_collision_main(
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
-    if (i >= pbf_params.particle_count) { return; }
+    if (i >= pbf_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 
     let restitution    = pbf_params.restitution;
     let bound_min      = pbf_params.bound_min;

@@ -5,15 +5,25 @@ import { ForceField } from './ForceField';
 
 /** Dado de um `GravityField` (layout de `GravityField.schema`). */
 export interface GravityFieldData {
+    /** Modo da fonte: 0 uniforme, 1 pontual. */
     sourceMode: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
     _pad2: number;
+    /** Aceleração (m/s²). */
     acceleration: readonly number[];
+    /** Posição da fonte pontual. */
     sourcePosition: readonly number[];
+    /** Massa da fonte pontual. */
     sourceMass: number;
+    /** Constante gravitacional G. */
     gravitationalConstant: number;
+    /** Preenchimento do layout. */
     _pad3: number;
+    /** Preenchimento do layout. */
     _pad4: number;
 }
 

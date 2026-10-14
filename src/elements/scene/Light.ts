@@ -8,17 +8,25 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 
 /** Dado de uma luz (layout de `Light.schema`, comum a todos os tipos). */
 export interface LightData {
+    /** Tipo (código numérico do layout). */
     kind: number;
+    /** Projeta sombra (1/0 no layout; booleano nos valores). */
     castShadow: number;
+    /** Intensidade. */
     intensity: number;
+    /** Alcance (luzes pontuais). */
     range: number;
+    /** Posição. */
     position: number[];
+    /** Direção. */
     direction: number[];
+    /** Cor RGBA linear. */
     color: number[];
 }
 
 /** Valores do construtor das luzes: os campos do dado exceto `kind`, com `castShadow` booleano. */
 export interface LightValues extends Partial<Omit<LightData, 'kind' | 'castShadow'>> {
+    /** Projeta sombra (1/0 no layout; booleano nos valores). */
     castShadow?: boolean;
 }
 

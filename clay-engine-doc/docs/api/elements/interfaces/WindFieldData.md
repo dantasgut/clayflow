@@ -6,7 +6,7 @@
 
 # Interface: WindFieldData
 
-Defined in: [elements/physics/forcefields/WindField.ts:7](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/WindField.ts#L7)
+Defined in: [elements/physics/forcefields/WindField.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/WindField.ts#L7)
 
 Dado de um `WindField` (layout de `WindField.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `WindField` (layout de `WindField.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/forcefields/WindField.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/WindField.ts#L11)
+Defined in: [elements/physics/forcefields/WindField.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/WindField.ts#L15)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/physics/forcefields/WindField.ts:11](https://github.com/da
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/forcefields/WindField.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/WindField.ts#L12)
+Defined in: [elements/physics/forcefields/WindField.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/WindField.ts#L17)
+
+Preenchimento do layout.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/physics/forcefields/WindField.ts:12](https://github.com/da
 
 > **direction**: readonly `number`[]
 
-Defined in: [elements/physics/forcefields/WindField.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/WindField.ts#L8)
+Defined in: [elements/physics/forcefields/WindField.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/WindField.ts#L9)
+
+Direção.
 
 ***
 
@@ -40,7 +46,9 @@ Defined in: [elements/physics/forcefields/WindField.ts:8](https://github.com/dan
 
 > **magnitude**: `number`
 
-Defined in: [elements/physics/forcefields/WindField.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/WindField.ts#L9)
+Defined in: [elements/physics/forcefields/WindField.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/WindField.ts#L11)
+
+Intensidade.
 
 ***
 
@@ -48,4 +56,6 @@ Defined in: [elements/physics/forcefields/WindField.ts:9](https://github.com/dan
 
 > **turbulence**: `number`
 
-Defined in: [elements/physics/forcefields/WindField.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/WindField.ts#L10)
+Defined in: [elements/physics/forcefields/WindField.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/WindField.ts#L13)
+
+Turbulência.

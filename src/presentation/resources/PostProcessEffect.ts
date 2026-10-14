@@ -28,8 +28,11 @@ export interface PostProcessOptions {
 
 /** Dado de um `PostProcessEffect`. */
 export interface PostProcessData {
+    /** Efeito ativo. */
     enabled: boolean;
+    /** Intensidade do efeito. */
     strength: number;
+    /** Parâmetros auxiliares do efeito. */
     aux: readonly [number, number, number];
 }
 

@@ -6,7 +6,7 @@
 
 # Interface: RadixSortOptions
 
-Defined in: [elements/gpu/compute/RadixSort.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/RadixSort.ts#L17)
+Defined in: [elements/gpu/compute/RadixSort.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/RadixSort.ts#L17)
 
 Opções de `RadixSort`.
 
@@ -16,7 +16,7 @@ Opções de `RadixSort`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:21](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/RadixSort.ts#L21)
+Defined in: [elements/gpu/compute/RadixSort.ts:21](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/RadixSort.ts#L21)
 
 Maior `count` aceito por `record`.
 
@@ -26,7 +26,7 @@ Maior `count` aceito por `record`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:19](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/RadixSort.ts#L19)
+Defined in: [elements/gpu/compute/RadixSort.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/RadixSort.ts#L19)
 
 Prefixo único dos recursos da instância.
 
@@ -36,6 +36,6 @@ Prefixo único dos recursos da instância.
 
 > `readonly` `optional` **withValues?**: `boolean`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:23](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/RadixSort.ts#L23)
+Defined in: [elements/gpu/compute/RadixSort.ts:23](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/RadixSort.ts#L23)
 
 Permite ordenar valores junto com as chaves (aloca o buffer temporário dos valores).

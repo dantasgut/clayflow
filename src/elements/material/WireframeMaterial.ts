@@ -1,38 +1,40 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import { FieldType } from '../../scene/descriptors/FieldType';
-import { StructSchema } from '../../scene/descriptors/StructSchema';
-import { forward } from './shaders';
+import { WireframeMaterialSchema } from './WireframeMaterialSchema';
+import { wire } from './shaders';
 import { Material } from './Material';
 
 /** Dado de um `WireframeMaterial` (layout de `WireframeMaterial.schema`). */
 export interface WireframeMaterialData {
+    /** Cor RGBA linear. */
     color: number[];
-    roughness: number;
-    metallic: number;
+    /** Espessura das linhas em pixels. */
+    lineWidth: number;
+    /** Preenchimento do layout. */
     _pad0: number;
+    /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
+    _pad2: number;
 }
 
-/** Material wireframe — desenha as edges das primitivas (topology line-list). */
+/**
+ * Material de arame (spec 008; o desenho do legado na arquitetura atual): desenha as **arestas da geometria** (descritor
+ * `wireEdges`, em espaço de objeto — as de feição, sem as diagonais de faces planas) como linhas de `lineWidth` pixels,
+ * com borda suavizada. Sem iluminação e sem sombra (`castsShadow` falso por padrão).
+ */
 export class WireframeMaterial extends Material<WireframeMaterialData> {
-    /** StructSchema do WireframeMaterial (color + roughness + metallic). */
-    static readonly schema = new StructSchema('WireframeMaterial', {
-        color: FieldType.vec4f,
-        roughness: FieldType.f32,
-        metallic: FieldType.f32,
-        _pad0: FieldType.f32,
-        _pad1: FieldType.f32,
-    });
+    /** StructSchema do WireframeMaterial (cor + espessura em pixels). */
+    static readonly schema = WireframeMaterialSchema;
 
-    constructor(values: Partial<Pick<WireframeMaterialData, 'color'>> = {}) {
+    constructor(values: Partial<Pick<WireframeMaterialData, 'color' | 'lineWidth'>> = {}) {
         super();
         this.data = {
             color: values.color ?? [1, 1, 1, 1],
-            roughness: 1.0,
-            metallic: 0.0,
+            lineWidth: values.lineWidth ?? 2,
             _pad0: 0,
             _pad1: 0,
+            _pad2: 0,
         };
     }
 
@@ -52,14 +54,14 @@ export class WireframeMaterial extends Material<WireframeMaterialData> {
             {
                 id: 'pipeline_wireframe',
                 role: 'render',
-                shader: forward,
+                shader: wire,
                 entryPoints: ['vs_main', 'fs_main'],
                 consumes: [
                     'CameraMatrices',
                     'WorldTransform',
                     'Renderable',
                     'RenderInstance',
-                    { name: WireframeMaterial.schema.name, as: 'StandardMaterial' },
+                    WireframeMaterial.schema.name,
                 ],
                 topology: 'line-list',
             },

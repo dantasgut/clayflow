@@ -6,7 +6,7 @@
 
 # Interface: ShadowFlowOptions
 
-Defined in: [presentation/flows/ShadowFlow.ts:109](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/ShadowFlow.ts#L109)
+Defined in: [presentation/flows/ShadowFlow.ts:119](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ShadowFlow.ts#L119)
 
 Opções do `ShadowFlow`.
 
@@ -16,6 +16,6 @@ Opções do `ShadowFlow`.
 
 > `readonly` `optional` **preferAsync?**: `boolean`
 
-Defined in: [presentation/flows/ShadowFlow.ts:111](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/flows/ShadowFlow.ts#L111)
+Defined in: [presentation/flows/ShadowFlow.ts:121](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/flows/ShadowFlow.ts#L121)
 
 Compila os pipelines em segundo plano; o estágio entra no quadro quando prontos.

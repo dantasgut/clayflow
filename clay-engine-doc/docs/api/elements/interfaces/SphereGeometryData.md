@@ -6,7 +6,7 @@
 
 # Interface: SphereGeometryData
 
-Defined in: [elements/geometry/SphereGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/SphereGeometry.ts#L8)
+Defined in: [elements/geometry/SphereGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SphereGeometry.ts#L8)
 
 Dado de uma `SphereGeometry`.
 
@@ -20,7 +20,9 @@ Dado de uma `SphereGeometry`.
 
 > **indexCount**: `number`
 
-Defined in: [elements/geometry/SphereGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/SphereGeometry.ts#L10)
+Defined in: [elements/geometry/SphereGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SphereGeometry.ts#L12)
+
+Número de índices.
 
 ***
 
@@ -28,7 +30,9 @@ Defined in: [elements/geometry/SphereGeometry.ts:10](https://github.com/dantasgu
 
 > `optional` **indices?**: `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L17)
+Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L19)
+
+Índices de triângulo.
 
 #### Inherited from
 
@@ -40,7 +44,9 @@ Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clay
 
 > **latSegments**: `number`
 
-Defined in: [elements/geometry/SphereGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/SphereGeometry.ts#L12)
+Defined in: [elements/geometry/SphereGeometry.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SphereGeometry.ts#L16)
+
+Divisões em latitude.
 
 ***
 
@@ -48,7 +54,9 @@ Defined in: [elements/geometry/SphereGeometry.ts:12](https://github.com/dantasgu
 
 > **lonSegments**: `number`
 
-Defined in: [elements/geometry/SphereGeometry.ts:13](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/SphereGeometry.ts#L13)
+Defined in: [elements/geometry/SphereGeometry.ts:18](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SphereGeometry.ts#L18)
+
+Divisões em longitude.
 
 ***
 
@@ -56,7 +64,9 @@ Defined in: [elements/geometry/SphereGeometry.ts:13](https://github.com/dantasgu
 
 > **radius**: `number`
 
-Defined in: [elements/geometry/SphereGeometry.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/SphereGeometry.ts#L11)
+Defined in: [elements/geometry/SphereGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SphereGeometry.ts#L14)
+
+Raio.
 
 ***
 
@@ -64,7 +74,9 @@ Defined in: [elements/geometry/SphereGeometry.ts:11](https://github.com/dantasgu
 
 > **vertexCount**: `number`
 
-Defined in: [elements/geometry/SphereGeometry.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/SphereGeometry.ts#L9)
+Defined in: [elements/geometry/SphereGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/SphereGeometry.ts#L10)
+
+Número de vértices.
 
 ***
 
@@ -72,8 +84,25 @@ Defined in: [elements/geometry/SphereGeometry.ts:9](https://github.com/dantasgut
 
 > `optional` **vertices?**: `Float32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/geometry/Geometry.ts#L16)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L17)
+
+Vértices intercalados (posição, normal, uv).
 
 #### Inherited from
 
 [`GeometryData`](GeometryData.md).[`vertices`](GeometryData.md#vertices)
+
+***
+
+### wireEdges?
+
+> `optional` **wireEdges?**: `Uint32Array`\<`ArrayBufferLike`\>
+
+Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/geometry/Geometry.ts#L24)
+
+Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
+(de feição nas geometrias estáticas: sem as diagonais de faces planas).
+
+#### Inherited from
+
+[`GeometryData`](GeometryData.md).[`wireEdges`](GeometryData.md#wireedges)

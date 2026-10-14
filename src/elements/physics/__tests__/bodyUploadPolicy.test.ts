@@ -15,11 +15,11 @@ describe('política de envio dos corpos simulados', () => {
     it.each([
         ['RigidBody esfera', () => new RigidBody({ shape: 'sphere', radius: 0.5, mass: 1 })],
         ['RigidBody caixa', () => new RigidBody({ shape: 'box', halfExtents: [1, 1, 1], mass: 0 })],
-        ['SoftBody XPBD', () => new SoftBody({ algorithm: 'XPBD', mass: 1 })],
-        ['SoftBody FEM', () => new SoftBody({ algorithm: 'FEM', mass: 1 })],
-        ['FluidBody SPH', () => new FluidBody({ algorithm: 'SPH' })],
-        ['FluidBody PBF', () => new FluidBody({ algorithm: 'PBF' })],
-        ['FluidBody MPM', () => new FluidBody({ algorithm: 'MPM' })],
+        ['SoftBody XPBD', () => new SoftBody({ algorithm: 'XPBD', position: [0, 0, 0], mass: 1 })],
+        ['SoftBody FEM', () => new SoftBody({ algorithm: 'FEM', position: [0, 0, 0], mass: 1 })],
+        ['FluidBody SPH', () => new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] })],
+        ['FluidBody PBF', () => new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] })],
+        ['FluidBody MPM', () => new FluidBody({ algorithm: 'MPM', position: [0, 0, 0] })],
     ])("%s declara upload 'initial' no pool do corpo", (_name, make) => {
         const descs = pooled(make().getDescriptors());
         expect(descs.length).toBeGreaterThan(0);
@@ -27,10 +27,11 @@ describe('política de envio dos corpos simulados', () => {
     });
 
     it('colisores e restrições continuam com o envio padrão (CPU é dona)', () => {
+        const body = new SoftBody({ algorithm: 'XPBD', position: [0, 0, 0, 1, 0, 0], mass: 1 });
         const items = [
             new BoxCollider({ halfExtents: [1, 1, 1, 0] }),
             new SphereCollider({ radius: 1 }),
-            new DistanceConstraint({}),
+            new DistanceConstraint({ a: { body, index: 0 }, b: { body, index: 1 } }),
         ];
         for (const item of items) {
             for (const d of pooled(item.getDescriptors())) expect(d.upload).toBeUndefined();

@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { StandardMaterial } from '../../../elements/material/StandardMaterial';
-import { WireframeMaterial } from '../../../elements/material/WireframeMaterial';
+import { TintMaterial } from './helpers/tintMaterial';
 import { Camera } from '../../../elements/scene/Camera';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
@@ -66,9 +66,7 @@ describe('apresentação — tabelas de transição', () => {
             format: s.core.canvasFormat,
         });
         for (let i = 0; i < 300; i++) {
-            s.scene.world.insert(
-                new BoxGeometry().add(new WireframeMaterial()).add(new Transform()),
-            );
+            s.scene.world.insert(new BoxGeometry().add(new TintMaterial()).add(new Transform()));
         }
         s.step();
         for (const b of s.boxes) s.scene.world.remove(b);

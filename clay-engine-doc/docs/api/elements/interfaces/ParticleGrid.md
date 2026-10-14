@@ -6,7 +6,7 @@
 
 # Interface: ParticleGrid
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:44](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/materials/ParticleMaterial.ts#L44)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:44](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/materials/ParticleMaterial.ts#L44)
 
 Grade uniforme que cobre o domínio das partículas.
 
@@ -16,7 +16,7 @@ Grade uniforme que cobre o domínio das partículas.
 
 > `readonly` **cellSize**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:50](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/materials/ParticleMaterial.ts#L50)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:50](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/materials/ParticleMaterial.ts#L50)
 
 Aresta da célula (mundo).
 
@@ -26,7 +26,7 @@ Aresta da célula (mundo).
 
 > `readonly` **gridDim**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:48](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/materials/ParticleMaterial.ts#L48)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:48](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/materials/ParticleMaterial.ts#L48)
 
 Células por eixo.
 
@@ -36,6 +36,6 @@ Células por eixo.
 
 > `readonly` **origin**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:46](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/materials/ParticleMaterial.ts#L46)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:46](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/materials/ParticleMaterial.ts#L46)
 
 Canto mínimo da grade (mundo).

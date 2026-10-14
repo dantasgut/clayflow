@@ -1,3 +1,4 @@
+import { poolLive } from '../../gpu/compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { colliderSet, sphKernels } from '../../gpu/shaders/math';
 import pbfPredictSource from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
@@ -17,6 +18,7 @@ import { PBFSimParamsSchema } from '../../physics/schemas/simParams';
 export const pbfPredict = wgslModule({
     name: 'pbf_predict',
     source: pbfPredictSource,
+    requires: [poolLive],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -24,7 +26,7 @@ export const pbfPredict = wgslModule({
 export const pbfDensityLambda = wgslModule({
     name: 'pbf_density_lambda',
     source: pbfDensityLambdaSource,
-    requires: [sphKernels],
+    requires: [poolLive, sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -32,7 +34,7 @@ export const pbfDensityLambda = wgslModule({
 export const pbfPositionCorrect = wgslModule({
     name: 'pbf_position_correct',
     source: pbfPositionCorrectSource,
-    requires: [sphKernels],
+    requires: [poolLive, sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -40,6 +42,7 @@ export const pbfPositionCorrect = wgslModule({
 export const pbfApply = wgslModule({
     name: 'pbf_apply',
     source: pbfApplySource,
+    requires: [poolLive],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -47,7 +50,7 @@ export const pbfApply = wgslModule({
 export const pbfCollision = wgslModule({
     name: 'pbf_collision',
     source: pbfCollisionSource,
-    requires: [colliderSet],
+    requires: [poolLive, colliderSet],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -55,6 +58,7 @@ export const pbfCollision = wgslModule({
 export const pbfVelocityUpdate = wgslModule({
     name: 'pbf_velocity_update',
     source: pbfVelocityUpdateSource,
+    requires: [poolLive],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -62,7 +66,7 @@ export const pbfVelocityUpdate = wgslModule({
 export const pbfVorticity = wgslModule({
     name: 'pbf_vorticity',
     source: pbfVorticitySource,
-    requires: [sphKernels],
+    requires: [poolLive, sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -70,6 +74,6 @@ export const pbfVorticity = wgslModule({
 export const pbfXsph = wgslModule({
     name: 'pbf_xsph',
     source: pbfXsphSource,
-    requires: [sphKernels],
+    requires: [poolLive, sphKernels],
     structs: [PBFSimParamsSchema, PBFSchema],
 });

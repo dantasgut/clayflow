@@ -106,9 +106,10 @@ export interface EntitiesSlot<T extends readonly ResourceType[] = readonly Resou
     /** Grupos de instâncias, mantidos pela C2 (opcional). */
     readonly groups?: EntityGroupsDeclaration;
     /**
-     * Descritores em pool cujo dado passa a ser da GPU para as entidades do conjunto (spec 007): depois do primeiro
+     * Descritores cujo dado passa a ser da GPU para as entidades do conjunto. Em pool (spec 007): depois do primeiro
      * envio a CPU não os envia mais e mutação em `data` é ignorada com aviso — ex.: a física escreve a pose no
-     * `Transform` dos corpos.
+     * `Transform` dos corpos. Individual (spec 008): o conjunto é o escritor declarado de um dado `upload: 'never'`
+     * (ex.: os vértices de uma geometria escrita por um kernel; `hasGpuWriter`).
      */
     readonly owns?: readonly (readonly [ResourceType, string])[];
 }
@@ -148,6 +149,11 @@ export interface TargetSlot {
     readonly color: 'canvas' | 'none' | TextureRef;
     /** Profundidade: a textura de um Resource (opcional). */
     readonly depth?: TextureRef;
+    /**
+     * Cor multiamostrada (spec 008, MSAA): a textura de amostras de um Resource, opcional — quando o Resource a declara,
+     * o passe desenha nela e resolve na `color`; sem ela, desenha direto na `color`.
+     */
+    readonly samples?: TextureRef;
 }
 
 /** Declaração de um slot (valor imutável criado por `slot.*`). */
@@ -181,8 +187,22 @@ export interface BoundPool {
     readonly generation: number;
     /** Slots de posse da GPU (escritos por um estágio, não pela CPU). */
     readonly gpuOwned: number;
-    /** Slot da entidade no pool, ou `undefined`. */
+    /**
+     * Bitset de slots ocupados na GPU (`array<u32>`, um bit por slot; spec 008) — o que um kernel que percorre
+     * `[0, count)` testa para ignorar faixas liberadas (`pool_live`). Também em `consumes` como `<poolKey>.live`.
+     */
+    readonly live: StorageBufferSpec;
+    /** Slot da entidade no pool (o primeiro da faixa), ou `undefined`. */
     slotOf(entityId: EntityId): number | undefined;
+    /** Faixa da entidade no pool (`count` slots contíguos a partir de `first`, spec 008), ou `undefined`. */
+    rangeOf(entityId: EntityId):
+        | {
+              /** Primeiro slot da faixa. */
+              readonly first: number;
+              /** Slots da faixa. */
+              readonly count: number;
+          }
+        | undefined;
     /** O slot é de posse da GPU (escrito por um estágio, não pela CPU)? */
     ownedByGpu(slot: number): boolean;
     /** Entidade que ocupa o slot, ou `undefined`. */
@@ -248,6 +268,10 @@ export interface BoundTarget {
     readonly depth?: TextureViewSpec;
     /** Formato da profundidade, quando o alvo tem. */
     readonly depthFormat?: GPUTextureFormat;
+    /** View da cor multiamostrada (MSAA), quando o alvo tem: o passe desenha nela e resolve em `color`. */
+    readonly samples?: TextureViewSpec;
+    /** Amostras por pixel do alvo (1 sem MSAA): o `multisample.count` dos pipelines que desenham nele. */
+    readonly sampleCount: 1 | 4;
 }
 
 /** Tipo resolvido de cada declaração. */
@@ -351,13 +375,18 @@ export const slot = {
     target(
         target:
             | 'canvas'
-            | { readonly color: 'canvas' | 'none' | TextureRef; readonly depth?: TextureRef },
+            | {
+                  readonly color: 'canvas' | 'none' | TextureRef;
+                  readonly depth?: TextureRef;
+                  readonly samples?: TextureRef;
+              },
     ): TargetSlot {
         if (target === 'canvas') return Object.freeze({ kind: 'target', color: 'canvas' });
         return Object.freeze({
             kind: 'target',
             color: target.color,
             ...(target.depth !== undefined ? { depth: target.depth } : {}),
+            ...(target.samples !== undefined ? { samples: target.samples } : {}),
         });
     },
 } as const;

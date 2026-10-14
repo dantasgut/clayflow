@@ -8,7 +8,7 @@
 
 > **reduceLevelCounts**(`count`): `number`[]
 
-Defined in: [elements/gpu/compute/Reduce.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/gpu/compute/Reduce.ts#L16)
+Defined in: [elements/gpu/compute/Reduce.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/gpu/compute/Reduce.ts#L16)
 
 Contagens de cada nível da redução para `count` elementos: `n_0 = count`, `n_{l+1} = ⌈n_l / 256⌉`, até 1. Sempre há
 ao menos um passe (`count = 1` → `[1, 1]`).

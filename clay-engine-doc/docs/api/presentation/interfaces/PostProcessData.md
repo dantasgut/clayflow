@@ -6,7 +6,7 @@
 
 # Interface: PostProcessData
 
-Defined in: [presentation/resources/PostProcessEffect.ts:30](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L30)
+Defined in: [presentation/resources/PostProcessEffect.ts:30](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/resources/PostProcessEffect.ts#L30)
 
 Dado de um `PostProcessEffect`.
 
@@ -16,7 +16,9 @@ Dado de um `PostProcessEffect`.
 
 > **aux**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [presentation/resources/PostProcessEffect.ts:33](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L33)
+Defined in: [presentation/resources/PostProcessEffect.ts:36](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/resources/PostProcessEffect.ts#L36)
+
+Parâmetros auxiliares do efeito.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [presentation/resources/PostProcessEffect.ts:33](https://github.com/
 
 > **enabled**: `boolean`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:31](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L31)
+Defined in: [presentation/resources/PostProcessEffect.ts:32](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/resources/PostProcessEffect.ts#L32)
+
+Efeito ativo.
 
 ***
 
@@ -32,4 +36,6 @@ Defined in: [presentation/resources/PostProcessEffect.ts:31](https://github.com/
 
 > **strength**: `number`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:32](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/presentation/resources/PostProcessEffect.ts#L32)
+Defined in: [presentation/resources/PostProcessEffect.ts:34](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/presentation/resources/PostProcessEffect.ts#L34)
+
+Intensidade do efeito.

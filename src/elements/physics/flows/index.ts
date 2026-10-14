@@ -10,3 +10,5 @@ export { PBFFlow } from './PBFFlow';
 export type { PBFFlowOptions, PBFSlots } from './PBFFlow';
 export { SPHFlow } from './SPHFlow';
 export type { SPHFlowOptions, SPHSlots } from './SPHFlow';
+export { SoftSurfaceFlow } from './SoftSurfaceFlow';
+export type { SoftSurfaceSlots } from './SoftSurfaceFlow';

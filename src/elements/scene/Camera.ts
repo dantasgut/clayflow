@@ -32,13 +32,21 @@ export interface CameraValues {
 
 /** Dado de uma `Camera` (layout de `Camera.schema`). */
 export interface CameraData {
+    /** Projeção: 0 perspectiva, 1 ortográfica. */
     projection: number;
+    /** Origem da razão de aspecto: 0 canvas, 1 fixa. */
     aspectMode: number;
+    /** Campo de visão vertical (radianos). */
     fov: number;
+    /** Altura visível da projeção ortográfica. */
     orthoHeight: number;
+    /** Plano próximo. */
     near: number;
+    /** Plano distante. */
     far: number;
+    /** Razão de aspecto fixa. */
     aspect: number;
+    /** Preenchimento do layout. */
     _pad0: number;
 }
 

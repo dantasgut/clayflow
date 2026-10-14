@@ -28,15 +28,21 @@ export interface RenderTargetOptions {
 
 /** Dado de um `OffscreenRenderTarget` (as opções com os defaults aplicados). */
 export interface OffscreenRenderTargetData {
+    /** Largura em texels. */
     width: number;
+    /** Altura em texels. */
     height: number;
+    /** Formato da cor. */
     colorFormat: GPUTextureFormat;
+    /** Formato da profundidade. */
     depthFormat: GPUTextureFormat;
+    /** Amostras por pixel. */
     sampleCount: 1 | 4;
 }
 
 /** Dado de um `CanvasRenderTarget` (as opções com os defaults aplicados). */
 export interface CanvasRenderTargetData extends OffscreenRenderTargetData {
+    /** Tamanho segue o canvas. */
     sizeFromCanvas: boolean;
 }
 

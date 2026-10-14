@@ -117,7 +117,7 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         this.gridKey = gridKeyOf(this.grid);
         this.gridBuffer = this.createGrid();
         this.bindings = { mpm_params: this.params.source(), grid: this.gridBuffer };
-        const consumes = [this.bodyType];
+        const consumes = [this.bodyType, `${this.bodyType}.live`];
         this.pipelines = [
             {
                 id: 'mpm_clear_grid',

@@ -18,8 +18,11 @@ export interface ShadowMapOptions {
 
 /** Dado de um `ShadowMap` (layout de `ShadowMap.schema`). */
 export interface ShadowMapData {
+    /** Viés de profundidade da comparação. */
     bias: number;
+    /** Viés ao longo da normal. */
     normalBias: number;
+    /** Tamanho. */
     size: readonly [number, number];
 }
 

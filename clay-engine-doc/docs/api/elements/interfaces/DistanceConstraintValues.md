@@ -6,82 +6,46 @@
 
 # Interface: DistanceConstraintValues
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L15)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:28](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L28)
 
-Valores do construtor do `DistanceConstraint`: os campos do dado, com `bodyA`/`bodyB`/`restLength` como sinônimos.
-
-## Extends
-
-- `Partial`\<[`DistanceConstraintData`](DistanceConstraintData.md)\>
+Valores do construtor do `DistanceConstraint`.
 
 ## Properties
 
-### bodyA?
+### a
 
-> `optional` **bodyA?**: `number`
+> `readonly` **a**: [`ParticleRef`](ParticleRef.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:16](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L16)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:30](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L30)
+
+Primeira partícula.
 
 ***
 
-### bodyB?
+### b
 
-> `optional` **bodyB?**: `number`
+> `readonly` **b**: [`ParticleRef`](ParticleRef.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:17](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L17)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:32](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L32)
+
+Segunda partícula.
 
 ***
 
 ### compliance?
 
-> `optional` **compliance?**: `number`
+> `readonly` `optional` **compliance?**: `number`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L11)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:36](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L36)
 
-#### Inherited from
-
-[`DistanceConstraintData`](DistanceConstraintData.md).[`compliance`](DistanceConstraintData.md#compliance)
-
-***
-
-### i?
-
-> `optional` **i?**: `number`
-
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L8)
-
-#### Inherited from
-
-[`DistanceConstraintData`](DistanceConstraintData.md).[`i`](DistanceConstraintData.md#i)
-
-***
-
-### j?
-
-> `optional` **j?**: `number`
-
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L9)
-
-#### Inherited from
-
-[`DistanceConstraintData`](DistanceConstraintData.md).[`j`](DistanceConstraintData.md#j)
-
-***
-
-### rest\_length?
-
-> `optional` **rest\_length?**: `number`
-
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L10)
-
-#### Inherited from
-
-[`DistanceConstraintData`](DistanceConstraintData.md).[`rest_length`](DistanceConstraintData.md#rest_length)
+Compliance (m/N; 0 = rígida). Default 0.
 
 ***
 
 ### restLength?
 
-> `optional` **restLength?**: `number`
+> `readonly` `optional` **restLength?**: `number`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:18](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/DistanceConstraint.ts#L18)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:34](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/DistanceConstraint.ts#L34)
+
+Comprimento de repouso (m). Default 1.

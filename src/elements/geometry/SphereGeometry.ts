@@ -6,10 +6,15 @@ import { sharedContent } from './geometryContent';
 
 /** Dado de uma `SphereGeometry`. */
 export interface SphereGeometryData extends GeometryData {
+    /** Número de vértices. */
     vertexCount: number;
+    /** Número de índices. */
     indexCount: number;
+    /** Raio. */
     radius: number;
+    /** Divisões em latitude. */
     latSegments: number;
+    /** Divisões em longitude. */
     lonSegments: number;
 }
 
@@ -33,7 +38,7 @@ export class SphereGeometry extends Geometry<SphereGeometryData> {
         const radius = (values.radius ?? 1) as number;
         const lat = (values.latSegments ?? 16) as number;
         const lon = (values.lonSegments ?? 32) as number;
-        const { vertices, indices } = sharedContent(
+        const { vertices, indices, wireEdges } = sharedContent(
             `SphereGeometry:${radius},${lat},${lon}`,
             () => {
                 const generated = generateSphere(radius, lat, lon);
@@ -51,6 +56,7 @@ export class SphereGeometry extends Geometry<SphereGeometryData> {
             indices,
             vertexCount: vertices.length / 8,
             indexCount: indices.length,
+            wireEdges,
         };
     }
 
@@ -64,6 +70,7 @@ export class SphereGeometry extends Geometry<SphereGeometryData> {
                 count: this.data.vertexCount,
             },
             { id: 'indices', role: 'index', count: this.data.indexCount },
+            ...this.wireDescriptors(),
         ];
     }
 

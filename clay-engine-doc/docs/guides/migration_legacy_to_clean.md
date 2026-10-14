@@ -275,6 +275,38 @@ Novos: `Parent` (hierarquia opcional), `CameraFlow`, `ShadowMatrixFlow`, `Transf
 **Imagem:** a matriz da sombra calculada em `f32` na GPU (antes `f64` na CPU) muda 1 pixel em 1/255 em 7 das 10 cenas
 do smoke `render` (tolerância declarada no plano: ≤ 0,1 % dos pixels e desvio ≤ 2/255).
 
+## Mudanças incompatíveis da spec 008 (geometria em compute)
+
+Corpos de partículas são contêineres numa faixa do pool, desenhados na GPU; o material decide a topologia; a cena tem
+MSAA por padrão.
+
+| Antes | Agora |
+| --- | --- |
+| `new FluidBody({ algorithm, position: [x, y, z], velocity })` — uma entidade por partícula | `new FluidBody({ algorithm, position, velocity })` com `position` = `x, y, z` por partícula (N partículas num Resource, faixa contígua do pool); `velocity` idem |
+| `new SoftBody({ algorithm, position: [x, y, z], mass })` por partícula | `new SoftBody({ algorithm, position, mass, edges?, surface? })` — `mass` por partícula ou única; `edges` (XPBD) = restrições internas; `surface` = malha desenhada |
+| `new FluidBody({ schema, data })` / `new SoftBody({ schema, data })` | `{ schema, count, data }` com `data` por campo (`fieldElements` números por partícula) |
+| `body.data.pos` (um registro) | `body.data.body.pos` (por campo, `4·N` floats); leitura da GPU: `await app.resources.read(corpo, 'body')` |
+| `new DistanceConstraint({ i, j, restLength })` (slots absolutos) / sinônimos `bodyA`, `bodyB`, `rest_length` | `new DistanceConstraint({ a: { body, index }, b: { body, index }, restLength, compliance })` — a C2 resolve o slot (`slotRefs`); restrições internas de um corpo vão em `SoftBody({ edges })` |
+| `new PointCloudGeometry({ maxParticles })`, descritor `points` (storage) | `new PointCloudGeometry({ maxPoints, activeCount? })`, descritor `vertices` (`role: 'vertex'`, `upload: 'never'`), escrito por um estágio com `owns: [[PointCloudGeometry, 'vertices']]` |
+| `PointSpriteMaterial` lido como `StandardMaterial` (alias em `consumes`) | struct próprio `PointSpriteMaterial` (`color`, `radius` em unidades de mundo); sprites nos vértices da geometria ou nas partículas de um corpo |
+| `WireframeMaterial({ color })` com `roughness`/`metallic` e desenhado como triângulos | `WireframeMaterial({ color, lineWidth })` — desenha as arestas da geometria (`wireEdges`) em quads de `lineWidth` px com borda suavizada; não projeta sombra (`castsShadow`) |
+| Topologia do material ignorada (`triangle-list` sempre) | `Material.topology` respeitada (entra na chave do grupo); `Material.castsShadow` (padrão: só triângulos) |
+| `ForwardFrameParams { cameraSlot, lightSlot, shadowEnabled, shadowSlot }` | + `viewport` (tamanho do alvo em px) |
+| Sem antialiasing de geometria | MSAA 4× por padrão: `FrameTargets({ samples })` (cor `samples` + profundidade com amostras); `Application.create({ antialias: false })` desliga |
+| `BoundTarget { color, format, depth, depthFormat }` | + `samples?` e `sampleCount` (obrigatório em implementações próprias) |
+| `NeighborSearchPipeline.prepare(particles, rebuilds?)` | `prepare(particles, live, rebuilds?)` — `live` é o bitset de slots vivos do pool (`BoundPool.live`) |
+| Lista de vizinhos `neighbor_list[i * max_nb + k]` | intercalada: `neighbor_list[k * stride + i]` (`neighbor_stride` em `SPHSimParams`/`PBFSimParams`, `list_stride` em `NsSimParams`) |
+| `autoResize` só com `window.resize` (canvas 300×150 até o primeiro resize) | tamanho exibido × DPR desde a criação; `ResizeObserver` no canvas |
+
+Novos: `ParticleBody`, `SurfaceGeometry`, `ParticleFlow`, `SoftSurfaceFlow`, `GPUDescriptor.count` em pool,
+`GPUDescriptor.slotRefs`, `GPUDescriptor.indexFormat`, `StructSchema.packRange`/`unpackRange`, `BoundPool.rangeOf`/
+`live`, `resources.poolRangeOf`/`poolLiveBuffer`/`hasGpuWriter`, `slot.target({ samples })`,
+`RenderFlow.colorAttachment`, `NEIGHBOR_SEARCH_MAX_PARTICLES`, `Geometry.data.wireEdges`.
+
+**Imagem:** as fixtures `render-*` mudam pelo arame (arestas no lugar da caixa preenchida), pela caixa de sprites
+acrescentada e pelo MSAA (bordas). **Trajetórias:** SPH e PBF regravadas (a ordem dos vizinhos mudou com a busca nova;
+determinísticas e iguais em 30/60/144 Hz); as outras cinco cenas são idênticas.
+
 ## Convivência durante a transição
 
 `webgpu-engine/legacy` continua exportado e funcional, apontando para

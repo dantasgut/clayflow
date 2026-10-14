@@ -6,7 +6,7 @@
 
 # Interface: WireframeMaterialData
 
-Defined in: [elements/material/WireframeMaterial.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/WireframeMaterial.ts#L9)
+Defined in: [elements/material/WireframeMaterial.ts:8](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L8)
 
 Dado de um `WireframeMaterial` (layout de `WireframeMaterial.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `WireframeMaterial` (layout de `WireframeMaterial.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/material/WireframeMaterial.ts:13](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/WireframeMaterial.ts#L13)
+Defined in: [elements/material/WireframeMaterial.ts:14](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L14)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,19 @@ Defined in: [elements/material/WireframeMaterial.ts:13](https://github.com/danta
 
 > **\_pad1**: `number`
 
-Defined in: [elements/material/WireframeMaterial.ts:14](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/WireframeMaterial.ts#L14)
+Defined in: [elements/material/WireframeMaterial.ts:16](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L16)
+
+Preenchimento do layout.
+
+***
+
+### \_pad2
+
+> **\_pad2**: `number`
+
+Defined in: [elements/material/WireframeMaterial.ts:18](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L18)
+
+Preenchimento do layout.
 
 ***
 
@@ -32,20 +46,16 @@ Defined in: [elements/material/WireframeMaterial.ts:14](https://github.com/danta
 
 > **color**: `number`[]
 
-Defined in: [elements/material/WireframeMaterial.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/WireframeMaterial.ts#L10)
+Defined in: [elements/material/WireframeMaterial.ts:10](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L10)
+
+Cor RGBA linear.
 
 ***
 
-### metallic
+### lineWidth
 
-> **metallic**: `number`
+> **lineWidth**: `number`
 
-Defined in: [elements/material/WireframeMaterial.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/WireframeMaterial.ts#L12)
+Defined in: [elements/material/WireframeMaterial.ts:12](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/material/WireframeMaterial.ts#L12)
 
-***
-
-### roughness
-
-> **roughness**: `number`
-
-Defined in: [elements/material/WireframeMaterial.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/material/WireframeMaterial.ts#L11)
+Espessura das linhas em pixels.

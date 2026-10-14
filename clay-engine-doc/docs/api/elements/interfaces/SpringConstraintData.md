@@ -6,7 +6,7 @@
 
 # Interface: SpringConstraintData
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L7)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L7)
 
 Dado de um `SpringConstraint` (layout de `SpringConstraint.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `SpringConstraint` (layout de `SpringConstraint.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:14](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L14)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:21](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L21)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/physics/constraints/SpringConstraint.ts:14](https://github
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L15)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:23](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L23)
+
+Preenchimento do layout.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/physics/constraints/SpringConstraint.ts:15](https://github
 
 > **bodyA**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L8)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L9)
+
+Primeiro corpo.
 
 ***
 
@@ -40,7 +46,9 @@ Defined in: [elements/physics/constraints/SpringConstraint.ts:8](https://github.
 
 > **bodyB**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L9)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L11)
+
+Segundo corpo.
 
 ***
 
@@ -48,7 +56,9 @@ Defined in: [elements/physics/constraints/SpringConstraint.ts:9](https://github.
 
 > **color**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L13)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:19](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L19)
+
+Cor RGBA linear.
 
 ***
 
@@ -56,7 +66,9 @@ Defined in: [elements/physics/constraints/SpringConstraint.ts:13](https://github
 
 > **damping**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L11)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L15)
+
+Amortecimento.
 
 ***
 
@@ -64,7 +76,9 @@ Defined in: [elements/physics/constraints/SpringConstraint.ts:11](https://github
 
 > **restLength**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:12](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L12)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:17](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L17)
+
+Comprimento de repouso.
 
 ***
 
@@ -72,4 +86,6 @@ Defined in: [elements/physics/constraints/SpringConstraint.ts:12](https://github
 
 > **stiffness**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/constraints/SpringConstraint.ts#L10)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/constraints/SpringConstraint.ts#L13)
+
+Rigidez.

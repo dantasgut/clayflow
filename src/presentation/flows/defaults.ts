@@ -1,6 +1,8 @@
 import type { FlowRegistry, FlowRegistration } from '../../scene/flows/FlowRegistry';
 import type { World } from '../../scene/world/World';
 import { ForwardFlow } from './ForwardFlow';
+import { ParticleFlow } from './ParticleFlow';
+import { SoftSurfaceFlow } from '../../elements/physics/flows/SoftSurfaceFlow';
 import { ShadowFlow } from './ShadowFlow';
 import { PostFlow } from './PostFlow';
 import { UIFlow } from './UIFlow';
@@ -15,6 +17,8 @@ import { FrameTargets } from '../app/FrameTargets';
 export interface PresentationDefaultsOptions {
     /** World da cena. */
     readonly world: World;
+    /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
+    readonly samples?: 1 | 4;
 }
 
 /**
@@ -31,6 +35,8 @@ export interface PresentationDefaults {
     readonly shadowMatrix: ShadowMatrixFlow;
     /** Render principal: desenha a cena nos `FrameTargets` (câmera, mundo, materiais e sombra pelos slots). */
     readonly forward: ForwardFlow;
+    /** Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos. */
+    readonly particles: ParticleFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
     readonly shadow: ShadowFlow;
     /** Post-processing chain (Bloom/Fxaa/etc. em ping-pong). */
@@ -74,7 +80,7 @@ export function registerPresentationDefaults(
         existing.users++;
         return existing.defaults;
     }
-    const frameTargets = new FrameTargets();
+    const frameTargets = new FrameTargets({ samples: options.samples ?? 4 });
     options.world.insert(frameTargets);
     const { defaults, registrations } = createPresentationDefaults(flows);
     DEFAULTS_BY_SCENE.set(flows, {
@@ -123,6 +129,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
         priority: -20,
     });
+    // Vértices das superfícies de corpos moles na mesma fase, depois da física e antes da sombra e do forward.
+    const softSurfaceRegistration = flows.register((ctx) => new SoftSurfaceFlow(ctx), {
+        type: 'softSurface',
+        phase: 'transform',
+        priority: -30,
+    });
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
@@ -130,6 +142,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
     const forwardRegistration = flows.register((ctx) => new ForwardFlow(ctx, { output: 'scene' }), {
         type: 'forward',
         phase: 'forward',
+    });
+    // Corpos de partículas em sprites depois do forward (mesma fase, prioridade menor): lê a profundidade da cena.
+    const particleRegistration = flows.register((ctx) => new ParticleFlow(ctx), {
+        type: 'particles',
+        phase: 'forward',
+        priority: -50,
     });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
@@ -150,6 +168,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadowMatrix: shadowMatrixRegistration.flow!,
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
+            particles: particleRegistration.flow!,
             post: postRegistration.flow!,
             ui: uiRegistration.flow!,
             debug: debugRegistration.flow!,
@@ -158,8 +177,10 @@ function createPresentationDefaults(flows: FlowRegistry): {
             transformRegistration,
             cameraRegistration,
             shadowMatrixRegistration,
+            softSurfaceRegistration,
             shadowRegistration,
             forwardRegistration,
+            particleRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

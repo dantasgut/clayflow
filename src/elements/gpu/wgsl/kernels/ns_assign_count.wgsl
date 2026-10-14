@@ -4,6 +4,7 @@ const NS_INVALID_CELL: u32 = 0xFFFFFFFFu;
 @group(0) @binding(0) var<uniform>             ns_params:    NsSimParams;
 @group(1) @binding(0) var<storage, read>       particle_data: array<f32>;
 @group(1) @binding(1) var<storage, read_write> cell_ids:      array<u32>;
+@group(1) @binding(2) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 @group(2) @binding(0) var<storage, read_write> cell_count:    array<atomic<u32>>;
 
 @compute @workgroup_size(64)
@@ -15,6 +16,11 @@ fn ns_assign_count_main(
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
     if (i >= ns_params.particle_count) { return; }  // counts.x = particle_count
+    // Slot livre (faixa liberada): fora da grade, nunca vizinho de ninguém.
+    if (!pool_live(live[i >> 5u], i)) {
+        cell_ids[i] = NS_INVALID_CELL;
+        return;
+    }
 
     let stride = ns_params.particle_stride;  // particle_stride_f32
     let px = particle_data[i * stride + 0u];

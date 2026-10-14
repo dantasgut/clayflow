@@ -6,7 +6,7 @@
 
 # Interface: DragFieldData
 
-Defined in: [elements/physics/forcefields/DragField.ts:7](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/DragField.ts#L7)
+Defined in: [elements/physics/forcefields/DragField.ts:7](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/DragField.ts#L7)
 
 Dado de um `DragField` (layout de `DragField.schema`).
 
@@ -16,7 +16,9 @@ Dado de um `DragField` (layout de `DragField.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/forcefields/DragField.ts:10](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/DragField.ts#L10)
+Defined in: [elements/physics/forcefields/DragField.ts:13](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/DragField.ts#L13)
+
+Preenchimento do layout.
 
 ***
 
@@ -24,7 +26,9 @@ Defined in: [elements/physics/forcefields/DragField.ts:10](https://github.com/da
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/forcefields/DragField.ts:11](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/DragField.ts#L11)
+Defined in: [elements/physics/forcefields/DragField.ts:15](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/DragField.ts#L15)
+
+Preenchimento do layout.
 
 ***
 
@@ -32,7 +36,9 @@ Defined in: [elements/physics/forcefields/DragField.ts:11](https://github.com/da
 
 > **linearCoeff**: `number`
 
-Defined in: [elements/physics/forcefields/DragField.ts:8](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/DragField.ts#L8)
+Defined in: [elements/physics/forcefields/DragField.ts:9](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/DragField.ts#L9)
+
+Coeficiente linear.
 
 ***
 
@@ -40,4 +46,6 @@ Defined in: [elements/physics/forcefields/DragField.ts:8](https://github.com/dan
 
 > **quadraticCoeff**: `number`
 
-Defined in: [elements/physics/forcefields/DragField.ts:9](https://github.com/dantasgut/clayflow/blob/cf3219b12b1efe68ec0c4bb1126f4798a2caa0e4/src/elements/physics/forcefields/DragField.ts#L9)
+Defined in: [elements/physics/forcefields/DragField.ts:11](https://github.com/dantasgut/clayflow/blob/161548fe265352b137bd38850130eaaaf360daf5/src/elements/physics/forcefields/DragField.ts#L11)
+
+Coeficiente quadrático.

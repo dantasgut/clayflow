@@ -32,6 +32,8 @@ export function createClayflowAdapter(options: {
             const app = await Application.create({
                 canvas,
                 autoResize: false,
+                // Mesma configuração do adaptador do Three (antialias: false): sem MSAA na comparação.
+                antialias: false,
                 // Só o total do quadro: amostrar cada passe (dezenas na física) pesaria no próprio tempo medido.
                 profiling: options.profiling ? 'frame' : false,
             });
