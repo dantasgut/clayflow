@@ -1,4 +1,5 @@
-import type { ConsumerResolver, ResolveContext, ResolvedSource } from '../ConsumerResolver';
+import type { ConsumerResolver, ResolveContext } from '../ConsumerResolver';
+import type { ResolvedSource } from '../ResolvedSource';
 
 /**
  * Fonte do bitset de slots ocupados de um pool (spec 008): `consumes` `<chave do pool>.live`, lido como `array<u32>`

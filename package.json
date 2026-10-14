@@ -39,6 +39,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,json,md}\" \"bench/**/*.{ts,json,md}\" \"*.{json,md,js}\"",
     "check:dead": "knip",
     "check:circular": "madge --circular --extensions ts --ts-config tsconfig.json --exclude '^(core/contracts/(specs/BundleSpec|passes/(RenderPass|BundleRunner))|presentation/plugins/EnginePlugin)\\.ts$' src/",
+    "ci": "npm run lint && npm run format:check && npm run check:circular && npm run check:dead && tsc --noEmit && npm run test:coverage && npm run doc:coverage && npm run build:lib",
     "prepare": "husky",
     "bench": "tsx bench/runner/cli.ts run",
     "bench:check": "tsx bench/runner/cli.ts check",

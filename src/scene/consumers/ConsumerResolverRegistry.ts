@@ -1,4 +1,5 @@
-import type { ConsumerResolver, ResolveContext, ResolvedSource } from './ConsumerResolver';
+import type { ConsumerResolver, ResolveContext } from './ConsumerResolver';
+import type { ResolvedSource } from './ResolvedSource';
 
 /** Erro de resolução: nome de `consumes` sem resolver registrado. */
 export class ConsumerResolutionError extends Error {

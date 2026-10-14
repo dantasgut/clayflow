@@ -7,7 +7,7 @@ import type {
     RenderPipelineSpec,
     ShaderModuleSpec,
 } from '../../../core/contracts/index';
-import type { ResolvedSource } from '../../consumers/ConsumerResolver';
+import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import { FlowBindingError } from '../../flows/FlowBindingError';
 import type { PreparedCompute, PreparedRender } from '../../flows/FlowBinding';

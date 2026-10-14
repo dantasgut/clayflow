@@ -1,5 +1,6 @@
 import type { Schema } from '../../descriptors/Schema';
-import type { ConsumerResolver, ResolveContext, ResolvedSource } from '../ConsumerResolver';
+import type { ConsumerResolver, ResolveContext } from '../ConsumerResolver';
+import type { ResolvedSource } from '../ResolvedSource';
 
 /**
  * Fonte de um pool da C2 pela chave (`schema.name` ou `schema.name:algoritmo`): o buffer inteiro (`array<T>` no

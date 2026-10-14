@@ -1,6 +1,7 @@
 import type { Resource } from '../../contracts/Resource';
 import type { Schema } from '../../descriptors/Schema';
-import type { ConsumerResolver, ResolveContext, ResolvedSource } from '../ConsumerResolver';
+import type { ConsumerResolver, ResolveContext } from '../ConsumerResolver';
+import type { ResolvedSource } from '../ResolvedSource';
 import { firstResourceOf } from './firstResourceOf';
 import { sourceOfDescriptor } from './sourceOfDescriptor';
 

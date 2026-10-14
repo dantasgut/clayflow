@@ -5,7 +5,7 @@ import type {
     SamplerSpec,
     TextureViewSpec,
 } from '../../core/contracts/index';
-import type { BindableBufferSpec, ResolvedSource } from '../consumers/ConsumerResolver';
+import type { BindableBufferSpec, ResolvedSource } from '../consumers/ResolvedSource';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
 import type { InferredLayout } from '../systems/LayoutInferencer';
 import type { BoundSlots, SlotMap } from './slots';

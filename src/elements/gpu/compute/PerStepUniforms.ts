@@ -1,5 +1,5 @@
 import type { EngineCore, UniformBufferSpec } from '../../../scene/contracts/gpu';
-import type { ResolvedSource } from '../../../scene/consumers/ConsumerResolver';
+import type { ResolvedSource } from '../../../scene/consumers/ResolvedSource';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /** Opções de `PerStepUniforms`. */

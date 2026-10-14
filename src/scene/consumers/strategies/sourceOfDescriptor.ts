@@ -1,6 +1,6 @@
 import type { Resource } from '../../contracts/Resource';
 import type { ResourceDirectory } from '../../contracts/ResourceDirectory';
-import type { ResolvedSource } from '../ConsumerResolver';
+import type { ResolvedSource } from '../ResolvedSource';
 
 /** Fonte do que a C2 alocou para o descritor `descId` de `resource` (buffer, view ou sampler), com a visibilidade explícita do descritor. */
 export function sourceOfDescriptor(
