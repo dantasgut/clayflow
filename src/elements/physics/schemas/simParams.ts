@@ -96,6 +96,8 @@ export const SPHSimParamsSchema = new StructSchema(
         bound_min: FieldType.vec3f,
         particle_mass: FieldType.f32,
         inv_particle_mass: FieldType.f32,
+        /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
+        neighbor_stride: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -121,6 +123,8 @@ export const PBFSimParamsSchema = new StructSchema(
         bound_min: FieldType.vec3f,
         particle_mass: FieldType.f32,
         mass_over_density: FieldType.f32,
+        /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
+        neighbor_stride: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

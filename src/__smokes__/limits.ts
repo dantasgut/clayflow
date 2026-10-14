@@ -230,7 +230,8 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
             continue;
         }
         totalNeighbors += expected.length;
-        const got = Array.from(list.subarray(i * maxNeighbors, i * maxNeighbors + counts[i]!)).sort(
+        // Lista intercalada (spec 008): o vizinho k de i em k * n + i (maxParticles = n).
+        const got = Array.from({ length: counts[i]! }, (_, k) => list[k * n + i]!).sort(
             (a, b) => a - b,
         );
         expected.sort((a, b) => a - b);

@@ -292,6 +292,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 collision_radius: material.particleSpacing / 2,
                 particle_count: count,
                 max_neighbors: this.maxNeighbors,
+                neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: material.restitution,
                 bound_min: material.domainMin,
                 particle_mass: material.particleMass,

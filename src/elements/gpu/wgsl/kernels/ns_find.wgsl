@@ -7,6 +7,8 @@
 @group(1) @binding(4) var<storage, read_write> neighbor_list:   array<u32>;
 @group(1) @binding(5) var<storage, read_write> neighbor_count:  array<u32>;
 @group(1) @binding(6) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
+// Posições na ordem de `sorted_particles` (escritas por `ns_sort_cells`): leitura contígua dos candidatos.
+@group(1) @binding(7) var<storage, read>       sorted_positions: array<vec4f>;
 
 @compute @workgroup_size(64)
 fn ns_find_main(
@@ -27,7 +29,6 @@ fn ns_find_main(
     let gx        = ns_params.grid_x;
     let gy        = ns_params.grid_y;
     let gz        = ns_params.grid_z;
-    let n_cells   = ns_params.cell_count;
 
     let px = particle_data[i * stride + 0u];
     let py = particle_data[i * stride + 1u];
@@ -38,53 +39,38 @@ fn ns_find_main(
     let iz0 = i32(floor((pz - origin.z) / cell_size));
 
     var nb_count: u32 = 0u;
-    let list_base = i * max_nb;
-    // Vizinhos coletados localmente e ordenados por índice antes de gravar: a ordem nas células vem do espalhamento
-    // por contador atômico (varia entre execuções); com a lista ordenada as somas dos solvers ficam determinísticas.
-    var found: array<u32, NS_MAX_NEIGHBORS>;
+    // Lista intercalada: o vizinho k de i em k * list_stride + i (contíguo entre threads vizinhas).
+    let list_stride = ns_params.list_stride;
+    // Cada célula já vem ordenada por índice (`ns_sort_cells`) e as células são percorridas numa ordem fixa: a lista
+    // sai determinística gravada direto, sem vetor local nem ordenação por partícula.
 
-    // Stencil 3×3×3
-    for (var dz: i32 = -1; dz <= 1; dz++) {
-    for (var dy: i32 = -1; dy <= 1; dy++) {
-    for (var dx: i32 = -1; dx <= 1; dx++) {
-        let nx = ix0 + dx;
-        let ny = iy0 + dy;
-        let nz = iz0 + dz;
-
-        if (nx < 0 || ny < 0 || nz < 0
-         || u32(nx) >= gx || u32(ny) >= gy || u32(nz) >= gz) { continue; }
-
-        let cell = u32(nx) + u32(ny) * gx + u32(nz) * gx * gy;
-        let start = cell_start[cell];
-        let count = cell_count_buf[cell];
-
-        for (var k: u32 = 0u; k < count; k++) {
-            let j = sorted_particles[start + k];
-            if (j == i) { continue; }
-
-            let qx = particle_data[j * stride + 0u] - px;
-            let qy = particle_data[j * stride + 1u] - py;
-            let qz = particle_data[j * stride + 2u] - pz;
-            let dist_sq = qx*qx + qy*qy + qz*qz;
-
-            if (dist_sq < h_sq && nb_count < max_nb) {
-                // Inserção ordenada (lista curta: dezenas de vizinhos).
-                var k = nb_count;
-                while (k > 0u && found[k - 1u] > j) {
-                    found[k] = found[k - 1u];
-                    k--;
+    // Stencil 3×3×3 em 9 faixas: as 3 células vizinhas em x são contíguas na ordem por célula (mesma ordem de visita
+    // de antes: dz, dy, dx crescentes).
+    let x_lo = max(ix0 - 1, 0);
+    let x_hi = min(ix0 + 1, i32(gx) - 1);
+    if (x_lo <= x_hi) {
+        for (var dz: i32 = -1; dz <= 1; dz++) {
+        for (var dy: i32 = -1; dy <= 1; dy++) {
+            let ny = iy0 + dy;
+            let nz = iz0 + dz;
+            if (ny < 0 || nz < 0 || u32(ny) >= gy || u32(nz) >= gz) { continue; }
+            let row = u32(ny) * gx + u32(nz) * gx * gy;
+            let first = row + u32(x_lo);
+            let last = row + u32(x_hi);
+            let start = cell_start[first];
+            let end = cell_start[last] + cell_count_buf[last];
+            for (var k: u32 = start; k < end; k++) {
+                let j = sorted_particles[k];
+                if (j == i) { continue; }
+                let q = sorted_positions[k].xyz - vec3f(px, py, pz);
+                let dist_sq = q.x * q.x + q.y * q.y + q.z * q.z;
+                if (dist_sq < h_sq && nb_count < max_nb) {
+                    neighbor_list[nb_count * list_stride + i] = j;
+                    nb_count++;
                 }
-                found[k] = j;
-                nb_count++;
             }
-        }
-    }}}
-
-    for (var k = 0u; k < nb_count; k++) {
-        neighbor_list[list_base + k] = found[k];
+        }}
     }
+
     neighbor_count[i] = nb_count;
 }
-
-// Teto de vizinhos por partícula (tamanho do vetor local de ordenação); `NeighborSearchPipeline` valida `maxNeighbors`.
-const NS_MAX_NEIGHBORS: u32 = 128u;

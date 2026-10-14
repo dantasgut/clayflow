@@ -25,7 +25,7 @@ fn sph_density_main(
     var rho = mass * W_cubic(0.0, h);
 
     for (var k: u32 = 0u; k < nb_n && k < max_nb; k++) {
-        let j  = neighbor_list[i * max_nb + k];
+        let j  = neighbor_list[k * sph_params.neighbor_stride + i];
         let xj = particles[j].pos.xyz;
         let r  = length(xi - xj);
         rho   += mass * W_cubic(r, h);

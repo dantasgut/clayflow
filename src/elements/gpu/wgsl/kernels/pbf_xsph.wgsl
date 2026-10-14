@@ -33,7 +33,7 @@ fn pbf_xsph_main(
     var xsph = vec3f(0.0);
     var eta  = vec3f(0.0);
     for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
-        let j    = neighbor_list[i * max_nb + k];
+        let j    = neighbor_list[k * pbf_params.neighbor_stride + i];
         let dv   = xi - particles[j].pos.xyz;
         let r_sq = dot(dv, dv);
         xsph += (particles[j].vel.xyz - vi) * W_poly6(r_sq, h);

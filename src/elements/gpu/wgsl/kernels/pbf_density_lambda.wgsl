@@ -30,7 +30,7 @@ fn pbf_density_lambda_main(
     var grad_i = vec3f(0.0);
 
     for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
-        let j   = neighbor_list[i * max_nb + k];
+        let j   = neighbor_list[k * pbf_params.neighbor_stride + i];
         let xj  = particles[j].pos.xyz;
         let dv  = xi - xj;
         let r_sq = dot(dv, dv);

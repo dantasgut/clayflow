@@ -336,6 +336,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 dt_frame: time.stepDt,
                 particle_count: count,
                 max_neighbors: this.maxNeighbors,
+                neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: material.restitution,
                 collision_radius: material.particleSpacing / 2,
                 bound_min: material.domainMin,

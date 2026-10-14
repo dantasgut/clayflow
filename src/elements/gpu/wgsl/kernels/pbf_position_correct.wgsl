@@ -32,7 +32,7 @@ fn pbf_position_correct_main(
     var delta = vec3f(0.0);
 
     for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
-        let j    = neighbor_list[i * max_nb + k];
+        let j    = neighbor_list[k * pbf_params.neighbor_stride + i];
         let xj   = particles[j].pos.xyz;
         let lj   = particles[j].pos.w;
         let dv   = xi - xj;

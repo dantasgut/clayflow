@@ -33,7 +33,7 @@ fn sph_forces_main(
     var xsph_acc = vec3f(0.0);
 
     for (var k: u32 = 0u; k < nb_n && k < max_nb; k++) {
-        let j    = neighbor_list[i * max_nb + k];
+        let j    = neighbor_list[k * sph_params.neighbor_stride + i];
         let xj   = particles[j].pos.xyz;
         let vj   = particles[j].vel.xyz;
         let rho_j = particles[j].pos.w;

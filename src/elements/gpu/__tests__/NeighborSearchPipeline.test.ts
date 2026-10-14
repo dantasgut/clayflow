@@ -42,7 +42,7 @@ describe('NeighborSearchPipeline', () => {
         );
     });
 
-    it('sequência: contagem, soma de prefixos das células (PrefixSum), espalhamento e busca', () => {
+    it('sequência: contagem, soma de prefixos das células (PrefixSum), espalhamento, ordenação das células e busca', () => {
         const { ns, particles, live } = setup([64, 64, 64]);
         const rec = recordingFrame();
         ns.prepare(particles, live);
@@ -55,6 +55,7 @@ describe('NeighborSearchPipeline', () => {
             ['PrefixSum.scan_combine', [1024, 256]],
             ['PrefixSum.scan_combine', [262_144, 256]],
             ['NS.scatter', [100, 64]],
+            ['NS.sort_cells', [262_144, 64]],
             ['NS.find', [100, 64]],
         ]);
         // cellCount → cellStart (o scan roda no lugar em cellStart) e cellStart → cellCursor.
@@ -104,6 +105,7 @@ describe('NeighborSearchPipeline', () => {
         expect(destroyed.filter((d) => d.endsWith('_pipeline'))).toEqual([
             'ns_assign:test_pipeline',
             'ns_find:test_pipeline',
+            'ns_sort_cells:test_pipeline',
         ]);
     });
 

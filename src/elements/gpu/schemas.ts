@@ -14,6 +14,8 @@ export const NsSimParamsSchema = new StructSchema(
         particle_count: FieldType.u32,
         particle_stride: FieldType.u32,
         max_neighbors: FieldType.u32,
+        /** Passo da lista de vizinhos intercalada: o vizinho `k` da partícula `i` está em `k * list_stride + i`. */
+        list_stride: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

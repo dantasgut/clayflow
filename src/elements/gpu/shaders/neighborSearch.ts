@@ -2,6 +2,7 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import nsAssignCountSource from '../wgsl/kernels/ns_assign_count.wgsl?raw';
 import nsScatterSource from '../wgsl/kernels/ns_scatter.wgsl?raw';
 import nsFindSource from '../wgsl/kernels/ns_find.wgsl?raw';
+import nsSortCellsSource from '../wgsl/kernels/ns_sort_cells.wgsl?raw';
 import { NsSimParamsSchema } from '../../gpu/schemas';
 import { poolLive } from '../compute/shaders';
 
@@ -22,7 +23,14 @@ export const nsScatter = wgslModule({
     structs: [NsSimParamsSchema],
 });
 
-/** Busca dos vizinhos (lista ordenada por índice). */
+/** Ordenação por índice das partículas de cada célula (lista de vizinhos determinística). */
+export const nsSortCells = wgslModule({
+    name: 'ns_sort_cells',
+    source: nsSortCellsSource,
+    structs: [NsSimParamsSchema],
+});
+
+/** Busca dos vizinhos (células em ordem fixa, cada uma ordenada por índice). */
 export const nsFind = wgslModule({
     name: 'ns_find',
     source: nsFindSource,
