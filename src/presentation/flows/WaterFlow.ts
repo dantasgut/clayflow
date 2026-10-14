@@ -223,6 +223,10 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         const slots = ctx.bound.slots;
         const water = slots.water.resource as WaterSurface;
         this.water = water;
+        if (!water.isProduced('camera')) {
+            this.active = false;
+            return;
+        }
         const depthView = this.resources.textureViewOf(water, 'depth');
         const materials = this.resources.poolBufferSpec(FluidSurfaceMaterial.schema.name);
         const sceneDepth = slots.target.depth;

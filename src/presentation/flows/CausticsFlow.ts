@@ -145,6 +145,11 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
     private prepareFrame(ctx: Ctx): void {
         const slots = ctx.bound.slots;
         const water = slots.water.resource as WaterSurface;
+        // Sem a superfície vista pela luz (sem água ou sem luz com sombra): nada a preparar.
+        if (!water.isProduced('light')) {
+            this.active = false;
+            return;
+        }
         const caster = slots.caster?.resource;
         const lightId = caster === undefined ? undefined : this.world.entityIdOfResource(caster);
         const shadowSlot = lightId === undefined ? undefined : slots.shadowMaps?.slotOf(lightId);

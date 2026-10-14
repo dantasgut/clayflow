@@ -442,6 +442,12 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
 
     /** Antes da gravação: pipelines, regiões, parâmetros e a cadeia de suavização (refeita quando uma fonte muda). */
     private prepareFrame(ctx: Ctx): void {
+        if (this.bodies.size === 0) {
+            // Sem água: nada a preparar (custo zero por quadro).
+            if (this.active) this.water?.markProduced(this.view, false);
+            this.active = false;
+            return;
+        }
         const slots = ctx.bound.slots;
         const shadowSlot = this.shadowSlot(ctx);
         const ready =
