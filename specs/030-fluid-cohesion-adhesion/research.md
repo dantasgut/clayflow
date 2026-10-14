@@ -233,3 +233,19 @@ Espaçamento de 2,5 cm. Coesão de referência **3**, adesão de referência **8
 - O filete parado (sem gravidade, sem velocidade) só se retrai numa gota em qualquer coesão, na resolução de 3
   partículas de diâmetro: a quebra de Rayleigh-Plateau aparece no jato esticado (velocidade inicial v = x · 1/s), o
   caso físico de um jato. A spec foi ajustada (US1 cenário 3, SC-002).
+
+## Medição (SC-009, baseline regravado)
+
+| Variante       | GPU      | Razão sobre `64k`/`4k` |
+| -------------- | -------- | ---------------------- |
+| `4k`           | 2,21 ms  | —                      |
+| `4k-cohesion`  | 2,22 ms  | 1,00×                  |
+| `64k`          | 13,40 ms | —                      |
+| `64k-cohesion` | 16,58 ms | 1,24× (meta ≤ 1,25×)   |
+| `64k-water`    | 15,74 ms | —                      |
+
+`bench:check` sem regressão nas variantes de partículas (as variações de `instances` e `rigid-bodies`, cenas que a 030
+não toca, ficaram no ruído da máquina); `64k` em 13,40 ms contra 13,52 ms do baseline anterior. O passe de normais e a
+coesão custam ~3 ms em 64 000 partículas a 2,5 cm (13 substeps SPH por quadro).
+
+Gate: 1 102 testes; os 20 smokes no fonte e com `--dist`; `doc:coverage` com 0 erros.

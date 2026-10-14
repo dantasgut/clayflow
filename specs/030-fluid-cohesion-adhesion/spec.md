@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-14
 
-**Status**: Draft
+**Status**: Implementada (2026-10-14) — T001–T027 concluídas, gate verde, baseline regravado; coesão 3 e adesão 8 de referência calibradas; filete trocado por jato esticado (SC-002)
 
 **Input**: User description: "Coesão e adesão de fluidos (spec 030, fase F5 do roadmap, número fora da sequência como a
 029 — `030-fluid-cohesion-adhesion`). Continuação da 017 pedida pelo usuário: a água ainda não tem coesão (tensão

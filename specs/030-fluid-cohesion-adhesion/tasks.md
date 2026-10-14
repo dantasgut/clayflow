@@ -42,16 +42,16 @@ contracts/fluid-surface-forces, quickstart)
 ## Phase 6: US4 — ajuste em execução e medição (P2)
 
 - [x] T020 [US4] Casos do smoke: troca de coesão/adesão em execução (efeito no passo seguinte, sem realocar) e mesma trajetória a 30/60/144 Hz com coesão e adesão (SC-008) em `src/__smokes__/fluidBehavior.ts`
-- [ ] T021 [US4] Variantes `4k-cohesion` e `64k-cohesion` em `bench/scenes/particles/scene.ts`, `clayflow.ts`, `three.ts`; medir SC-009 e registrar em `specs/030-fluid-cohesion-adhesion/research.md`
+- [x] T021 [US4] Variantes `4k-cohesion` e `64k-cohesion` em `bench/scenes/particles/scene.ts`, `clayflow.ts`, `three.ts`; medir SC-009 e registrar em `specs/030-fluid-cohesion-adhesion/research.md`
 
 ## Phase 7: Polish
 
 - [x] T022 [P] Documento de arquitetura (fronteira genérica `ColliderHit` e adesão) em `clay-engine-doc/docs/guides/architecture_resource_loaders.md`; guia de materiais de partículas (coesão, adesão, XSPH, viscosidade no MPM)
 - [x] T023 [P] ROADMAP (030 na linha F5) e PENDENCIAS (viscosidade do MPM resolvida; adesão sem reação no rígido como nota para 015/016) em `specs/ROADMAP.md`, `specs/PENDENCIAS.md`
-- [ ] T024 [P] JSDoc dos campos novos e API regenerada; `doc:coverage` sem erros
-- [ ] T025 Smokes todos no fonte e com `--dist`; `bench:check` sem regressão; gate completo (format, lint, tsc, `typecheck:bench`, `test:coverage`, `build:lib`, `doc:coverage`); baseline regravado
-- [ ] T026 Vídeos (gota, filete, menisco, placa inclinada, barragem com água da 017 com × sem coesão/adesão) no scratchpad, enviados ao usuário
-- [ ] T027 Spec marcada como implementada em `specs/030-fluid-cohesion-adhesion/spec.md`
+- [x] T024 [P] JSDoc dos campos novos e API regenerada; `doc:coverage` sem erros
+- [x] T025 Smokes todos no fonte e com `--dist`; `bench:check` sem regressão; gate completo (format, lint, tsc, `typecheck:bench`, `test:coverage`, `build:lib`, `doc:coverage`); baseline regravado
+- [x] T026 Vídeos (gota, filete, menisco, placa inclinada, barragem com água da 017 com × sem coesão/adesão) no scratchpad, enviados ao usuário
+- [x] T027 Spec marcada como implementada em `specs/030-fluid-cohesion-adhesion/spec.md`
 
 ## Dependencies
 
