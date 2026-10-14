@@ -66,8 +66,12 @@ fn sph_forces_main(
         }
     }
 
-    // Aceleração total = g + f_press + f_visc (força / massa = aceleração)
-    let accel = g + f_press + f_visc;
+    // Aceleração total = g + pressão + viscosidade. A pressão já sai como aceleração (termo simétrico Σ m(p/ρ²)); a
+    // viscosidade de Müller é força por volume (μ Σ m v_ij/ρ_j ∇²W) e precisa de ÷ρ_i — sem ela a viscosidade
+    // efetiva era ρ₀ (~1000) vezes a do material e a água se comportava como mel (spec 017).
+    var visc_acc = vec3f(0.0);
+    if (rho_i > 0.001) { visc_acc = f_visc / rho_i; }
+    let accel = g + f_press + visc_acc;
 
     particles[i].force = vec4f(accel, 0.0);
     particles[i].color = vec4f(xsph_c * xsph_acc, 0.0);
