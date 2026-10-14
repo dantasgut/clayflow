@@ -6,7 +6,7 @@
 
 # Interface: CausticsSlots
 
-Defined in: [presentation/flows/CausticsFlow.ts:36](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/CausticsFlow.ts#L36)
+Defined in: [presentation/flows/CausticsFlow.ts:37](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/CausticsFlow.ts#L37)
 
 Slots das cáusticas.
 
@@ -24,7 +24,7 @@ Slots das cáusticas.
 
 > `readonly` **caster**: `SingletonSlot`\<`true`\>
 
-Defined in: [presentation/flows/CausticsFlow.ts:38](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/CausticsFlow.ts#L38)
+Defined in: [presentation/flows/CausticsFlow.ts:39](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/CausticsFlow.ts#L39)
 
 `ShadowMap` da luz que projeta sombra (as cáusticas são dela).
 
@@ -34,7 +34,7 @@ Defined in: [presentation/flows/CausticsFlow.ts:38](https://github.com/dantasgut
 
 > `readonly` **shadowMaps**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/CausticsFlow.ts:42](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/CausticsFlow.ts#L42)
+Defined in: [presentation/flows/CausticsFlow.ts:43](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/CausticsFlow.ts#L43)
 
 Pool `ShadowMap` (o slot do mapa).
 
@@ -44,7 +44,7 @@ Pool `ShadowMap` (o slot do mapa).
 
 > `readonly` **shadowMatrices**: `PoolSlot`\<`true`\>
 
-Defined in: [presentation/flows/CausticsFlow.ts:44](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/CausticsFlow.ts#L44)
+Defined in: [presentation/flows/CausticsFlow.ts:45](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/CausticsFlow.ts#L45)
 
 Pool `ShadowMatrix` (matriz da luz).
 
@@ -54,9 +54,19 @@ Pool `ShadowMatrix` (matriz da luz).
 
 > `readonly` **shadowTexture**: `TextureSlot`\<`true`\>
 
-Defined in: [presentation/flows/CausticsFlow.ts:40](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/CausticsFlow.ts#L40)
+Defined in: [presentation/flows/CausticsFlow.ts:41](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/CausticsFlow.ts#L41)
 
 Mapa de sombra dela: os receptores (fundo e objetos submersos).
+
+***
+
+### time
+
+> `readonly` **time**: `SingletonSlot`\<`false`\>
+
+Defined in: [presentation/flows/CausticsFlow.ts:49](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/CausticsFlow.ts#L49)
+
+Tempo da cena (fase das ondulações do material).
 
 ***
 
@@ -64,6 +74,6 @@ Mapa de sombra dela: os receptores (fundo e objetos submersos).
 
 > `readonly` **water**: `SingletonSlot`\<`false`\>
 
-Defined in: [presentation/flows/CausticsFlow.ts:46](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/CausticsFlow.ts#L46)
+Defined in: [presentation/flows/CausticsFlow.ts:47](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/CausticsFlow.ts#L47)
 
 A superfície de água da cena.

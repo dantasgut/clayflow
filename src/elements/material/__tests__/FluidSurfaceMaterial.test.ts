@@ -48,11 +48,13 @@ describe('FluidSurfaceMaterial (spec 017)', () => {
         );
         expect(() => new FluidSurfaceMaterial({ smoothingRadius: -1 })).toThrow(/smoothingRadius/);
         expect(() => new FluidSurfaceMaterial({ depthThreshold: 0 })).toThrow(/depthThreshold/);
+        expect(() => new FluidSurfaceMaterial({ rippleSize: 0 })).toThrow(/rippleSize/);
+        expect(() => new FluidSurfaceMaterial({ rippleStrength: -1 })).toThrow(/rippleStrength/);
     });
 
     it('empacota no layout do struct (sem padding implícito a mais)', () => {
         const schema = FluidSurfaceMaterial.schema;
-        expect(schema.stride).toBe(96);
+        expect(schema.stride).toBe(112);
         const m = new FluidSurfaceMaterial({ ior: 1.25 });
         const bytes = schema.pack(m.data as unknown as Record<string, unknown>);
         const f32 = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);

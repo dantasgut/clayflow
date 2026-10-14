@@ -8,7 +8,7 @@
 
 > `const` **XPBDRigidSchema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/schemas/XPBDRigidSchema.ts:10](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/bodies/schemas/XPBDRigidSchema.ts#L10)
+Defined in: [elements/physics/bodies/schemas/XPBDRigidSchema.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/bodies/schemas/XPBDRigidSchema.ts#L10)
 
 Schema do RigidBody integrado pelo XPBDFlow rigid (10 vec4f = 160B).
 Layout idêntico ao LCPSchema (mesmo struct WGSL `RigidBody`); schema

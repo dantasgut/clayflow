@@ -84,8 +84,8 @@ export const WaterViewParamsSchema = new StructSchema(
 );
 
 /**
- * Um passo da suavização da superfície de água (spec 017): direção (0 = horizontal, 1 = vertical) e a vista (escala
- * de pixels por metro tirada da câmera ou da matriz da luz).
+ * Um passo da suavização da superfície de água (spec 017): direção (0 = horizontal, 1 = vertical, 2 e 3 = diagonais) e
+ * a vista (escala de pixels por metro tirada da câmera ou da matriz da luz).
  */
 export const WaterSmoothParamsSchema = new StructSchema(
     'WaterSmoothParams',
@@ -128,20 +128,25 @@ export const WaterBoundsParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
-/** Cáusticas (spec 017): slot do mapa de sombra da luz e tamanho do mapa de cáusticas (= superfície vista pela luz). */
+/**
+ * Cáusticas (spec 017): slot do mapa de sombra da luz, tamanho do mapa de cáusticas (= superfície vista pela luz) e o
+ * tempo da cena (ondulações do material).
+ */
 export const CausticParamsSchema = new StructSchema(
     'CausticParams',
     {
         shadowSlot: FieldType.u32,
         width: FieldType.u32,
         height: FieldType.u32,
-        _pad0: FieldType.u32,
+        /** Tempo da cena (s): fase das ondulações do material. */
+        time: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
 
 /**
- * Composição da água (spec 017): slots da câmera, da luz e do mapa de sombra, sombra ligada e tamanho do alvo.
+ * Composição da água (spec 017): slots da câmera, da luz e do mapa de sombra, sombra ligada, tamanho do alvo e o tempo
+ * da cena (ondulações do material).
  */
 export const WaterCompositeParamsSchema = new StructSchema(
     'WaterCompositeParams',
@@ -151,7 +156,8 @@ export const WaterCompositeParamsSchema = new StructSchema(
         shadowSlot: FieldType.u32,
         shadowEnabled: FieldType.f32,
         viewport: FieldType.vec2f,
-        _pad0: FieldType.f32,
+        /** Tempo da cena (s): fase das ondulações do material. */
+        time: FieldType.f32,
         _pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },

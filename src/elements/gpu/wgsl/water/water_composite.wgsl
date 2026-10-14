@@ -2,7 +2,8 @@
 // água: normal reconstruída da profundidade suavizada, refração da cena de antes da água (`background`, nunca o que
 // está na frente da superfície), absorção pela espessura (Beer-Lambert por canal), dispersão interna iluminada,
 // reflexão do ambiente com Fresnel e brilho especular sob a sombra da cena. Consome a superfície genérica
-// (profundidade, espessura e material por pixel) — não sabe de partículas. Structs `CameraMatrices`, `Light`,
+// (profundidade, espessura e material por pixel) — não sabe de partículas. As ondulações do material
+// (`water_ripple.wgsl`) somam o detalhe fino à normal. Structs `CameraMatrices`, `Light`,
 // `ShadowMap`, `ShadowMatrix`, `FluidSurfaceMaterial` e `WaterCompositeParams` gerados dos schemas; a profundidade da
 // cena vem do módulo da variante (com ou sem amostras).
 @group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
@@ -84,8 +85,12 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     // Vista → mundo (vista rígida).
     let r = mat3x3f(cam.view[0].xyz, cam.view[1].xyz, cam.view[2].xyz);
     let rt = transpose(r);
-    let n = normalize(rt * nv);
     let pw = rt * (pv - cam.view[3].xyz);
+    // Ondulações do material somadas à normal da simulação (faces voltadas para cima).
+    let n_sim = normalize(rt * nv);
+    let slope = water_ripple_slope(pw.xz, water_composite.time, material) * water_ripple_weight(n_sim);
+    let n = normalize(n_sim + vec3f(-slope.x, 0.0, -slope.y));
+    nv = normalize(r * n);
     let v = normalize(cam.position.xyz - pw);
     // Espessura atravessada (limitada: dentro da água ela continua finita).
     let thickness = clamp(textureLoad(water_thickness, pi, 0).x, 0.0, 1e3);

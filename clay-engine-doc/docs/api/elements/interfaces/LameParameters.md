@@ -6,7 +6,7 @@
 
 # Interface: LameParameters
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:40](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/materials/ParticleMaterial.ts#L40)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:40](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L40)
 
 Constantes de Lamé derivadas do módulo de Young e do coeficiente de Poisson.
 
@@ -16,7 +16,7 @@ Constantes de Lamé derivadas do módulo de Young e do coeficiente de Poisson.
 
 > `readonly` **lambda**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:44](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/materials/ParticleMaterial.ts#L44)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:44](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L44)
 
 λ — primeiro parâmetro de Lamé.
 
@@ -26,6 +26,6 @@ Defined in: [elements/physics/materials/ParticleMaterial.ts:44](https://github.c
 
 > `readonly` **mu**: `number`
 
-Defined in: [elements/physics/materials/ParticleMaterial.ts:42](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/physics/materials/ParticleMaterial.ts#L42)
+Defined in: [elements/physics/materials/ParticleMaterial.ts:42](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/physics/materials/ParticleMaterial.ts#L42)
 
 μ — módulo de cisalhamento.

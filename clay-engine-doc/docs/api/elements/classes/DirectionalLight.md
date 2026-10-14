@@ -6,7 +6,7 @@
 
 # Class: DirectionalLight
 
-Defined in: [elements/scene/DirectionalLight.ts:8](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/DirectionalLight.ts#L8)
+Defined in: [elements/scene/DirectionalLight.ts:8](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/DirectionalLight.ts#L8)
 
 Luz direcional (sol): direção, cor e intensidade. Com `castShadow: true`, anexa o seu `ShadowMap` (matriz da luz,
 vieses e a textura de profundidade), que o estágio de sombra preenche e o render principal amostra.
@@ -21,7 +21,7 @@ vieses e a textura de profundidade), que o estágio de sombra preenche e o rende
 
 > **new DirectionalLight**(`values?`): `DirectionalLight`
 
-Defined in: [elements/scene/DirectionalLight.ts:12](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/DirectionalLight.ts#L12)
+Defined in: [elements/scene/DirectionalLight.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/DirectionalLight.ts#L12)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [elements/scene/DirectionalLight.ts:12](https://github.com/dantasgut
 
 > `readonly` **shadowMap**: [`ShadowMap`](ShadowMap.md) \| `undefined`
 
-Defined in: [elements/scene/DirectionalLight.ts:10](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/DirectionalLight.ts#L10)
+Defined in: [elements/scene/DirectionalLight.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/DirectionalLight.ts#L10)
 
 O mapa de sombra anexado (só com `castShadow: true`).
 
@@ -53,7 +53,7 @@ O mapa de sombra anexado (só com `castShadow: true`).
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/scene/Light.ts:52](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/Light.ts#L52)
+Defined in: [elements/scene/Light.ts:52](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Light.ts#L52)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -67,7 +67,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/scene/Light.ts:42](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/Light.ts#L42)
+Defined in: [elements/scene/Light.ts:42](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Light.ts#L42)
 
 Schema unified — todos os tipos de light usam o mesmo layout.
 
@@ -83,7 +83,7 @@ Schema unified — todos os tipos de light usam o mesmo layout.
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/contracts/Entity.ts#L138)
+Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L138)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -104,7 +104,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -117,7 +117,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -143,7 +143,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -162,7 +162,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -187,7 +187,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/contracts/Entity.ts#L127)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -212,7 +212,7 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/scene/Light.ts:55](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/Light.ts#L55)
+Defined in: [elements/scene/Light.ts:55](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Light.ts#L55)
 
 Pool storage read-only — fragment shaders iteram sobre o array de lights.
 
@@ -230,7 +230,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/Light.ts:67](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/Light.ts#L67)
+Defined in: [elements/scene/Light.ts:67](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/Light.ts#L67)
 
 Sem pipelines próprios — Light é dado, ForwardFlow é quem itera.
 

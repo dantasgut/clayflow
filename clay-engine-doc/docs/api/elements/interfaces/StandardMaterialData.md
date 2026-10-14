@@ -6,7 +6,7 @@
 
 # Interface: StandardMaterialData
 
-Defined in: [elements/material/StandardMaterial.ts:8](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/StandardMaterial.ts#L8)
+Defined in: [elements/material/StandardMaterial.ts:8](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/StandardMaterial.ts#L8)
 
 Dado de um `StandardMaterial` (layout de `StandardMaterial.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `StandardMaterial` (layout de `StandardMaterial.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/material/StandardMaterial.ts:16](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/StandardMaterial.ts#L16)
+Defined in: [elements/material/StandardMaterial.ts:16](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/StandardMaterial.ts#L16)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/material/StandardMaterial.ts:18](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/StandardMaterial.ts#L18)
+Defined in: [elements/material/StandardMaterial.ts:18](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/StandardMaterial.ts#L18)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **albedo**: `number`[]
 
-Defined in: [elements/material/StandardMaterial.ts:10](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/StandardMaterial.ts#L10)
+Defined in: [elements/material/StandardMaterial.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/StandardMaterial.ts#L10)
 
 Cor base RGBA.
 
@@ -46,7 +46,7 @@ Cor base RGBA.
 
 > **metallic**: `number`
 
-Defined in: [elements/material/StandardMaterial.ts:14](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/StandardMaterial.ts#L14)
+Defined in: [elements/material/StandardMaterial.ts:14](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/StandardMaterial.ts#L14)
 
 Metalicidade.
 
@@ -56,6 +56,6 @@ Metalicidade.
 
 > **roughness**: `number`
 
-Defined in: [elements/material/StandardMaterial.ts:12](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/StandardMaterial.ts#L12)
+Defined in: [elements/material/StandardMaterial.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/StandardMaterial.ts#L12)
 
 Rugosidade.

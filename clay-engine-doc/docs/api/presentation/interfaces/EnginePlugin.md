@@ -6,7 +6,7 @@
 
 # Interface: EnginePlugin
 
-Defined in: [presentation/plugins/EnginePlugin.ts:22](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/plugins/EnginePlugin.ts#L22)
+Defined in: [presentation/plugins/EnginePlugin.ts:22](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/plugins/EnginePlugin.ts#L22)
 
 EnginePlugin: extensão pluggable para `Application`. Plugins podem registrar
 Flows, instalar handlers de evento, criar sistemas auxiliares, etc.
@@ -32,7 +32,7 @@ Type-only cycle Application↔EnginePlugin é aceito (madge --exclude documentad
 
 > `readonly` **name**: `string`
 
-Defined in: [presentation/plugins/EnginePlugin.ts:24](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/plugins/EnginePlugin.ts#L24)
+Defined in: [presentation/plugins/EnginePlugin.ts:24](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/plugins/EnginePlugin.ts#L24)
 
 Identificador único do plugin (para logs/dedup).
 
@@ -42,7 +42,7 @@ Identificador único do plugin (para logs/dedup).
 
 > `optional` **dispose**(`app`): `void`
 
-Defined in: [presentation/plugins/EnginePlugin.ts:30](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/plugins/EnginePlugin.ts#L30)
+Defined in: [presentation/plugins/EnginePlugin.ts:30](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/plugins/EnginePlugin.ts#L30)
 
 Optional. Cleanup quando Application.dispose() é chamado.
 
@@ -62,7 +62,7 @@ Optional. Cleanup quando Application.dispose() é chamado.
 
 > **install**(`app`): `void`
 
-Defined in: [presentation/plugins/EnginePlugin.ts:26](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/plugins/EnginePlugin.ts#L26)
+Defined in: [presentation/plugins/EnginePlugin.ts:26](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/plugins/EnginePlugin.ts#L26)
 
 Hook de instalação — chamado antes do GameLoop iniciar; registra flows/listeners/sistemas.
 

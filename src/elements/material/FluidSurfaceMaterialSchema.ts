@@ -19,6 +19,10 @@ export const FluidSurfaceMaterialSchema = new StructSchema('FluidSurfaceMaterial
     refraction: FieldType.f32,
     caustics: FieldType.u32,
     causticIntensity: FieldType.f32,
+    rippleStrength: FieldType.f32,
+    rippleSize: FieldType.f32,
+    rippleSpeed: FieldType.f32,
     _pad0: FieldType.f32,
     _pad1: FieldType.f32,
+    _pad2: FieldType.f32,
 });

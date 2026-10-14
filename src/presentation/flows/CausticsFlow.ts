@@ -30,6 +30,7 @@ import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { Light } from '../../elements/scene/Light';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { WaterSurface } from '../app/WaterSurface';
+import { Time } from '../../scene/time/Time';
 import { castingShadowMap } from './ShadowFlow';
 
 /** Slots das cáusticas. */
@@ -44,6 +45,8 @@ export interface CausticsSlots extends SlotMap {
     readonly shadowMatrices: PoolSlot<true>;
     /** A superfície de água da cena. */
     readonly water: SingletonSlot<false>;
+    /** Tempo da cena (fase das ondulações do material). */
+    readonly time: SingletonSlot<false>;
 }
 
 type Ctx = TransitionContext<CausticsSlots>;
@@ -89,6 +92,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
             shadowMaps: slot.pool(ShadowMap.schema.name, { optional: true }),
             shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
             water: slot.singleton(WaterSurface.schema),
+            time: slot.singleton(Time.schema),
         };
         this.params = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
@@ -207,12 +211,13 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
             );
             this.sources = sources;
         }
-        const key = `${shadowSlot}:${this.size}`;
+        const time = (slots.time.resource as Time).data.elapsed;
+        const key = `${shadowSlot}:${this.size}:${time}`;
         if (key !== this.written) {
             this.written = key;
             this.core.write(
                 this.params,
-                CausticParamsSchema.pack({ shadowSlot, width: this.size, height: this.size }),
+                CausticParamsSchema.pack({ shadowSlot, width: this.size, height: this.size, time }),
             );
         }
         this.active = true;

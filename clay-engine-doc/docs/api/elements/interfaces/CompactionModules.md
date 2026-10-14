@@ -6,7 +6,7 @@
 
 # Interface: CompactionModules
 
-Defined in: [elements/gpu/compute/shaders.ts:88](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/shaders.ts#L88)
+Defined in: [elements/gpu/compute/shaders.ts:88](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/shaders.ts#L88)
 
 Kernels de compactação montados sobre um predicado do consumidor.
 
@@ -16,7 +16,7 @@ Kernels de compactação montados sobre um predicado do consumidor.
 
 > `readonly` **atomic**: `WgslModule`
 
-Defined in: [elements/gpu/compute/shaders.ts:90](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/shaders.ts#L90)
+Defined in: [elements/gpu/compute/shaders.ts:90](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/shaders.ts#L90)
 
 Passe único por `atomic_alloc` (ordem não garantida).
 
@@ -26,7 +26,7 @@ Passe único por `atomic_alloc` (ordem não garantida).
 
 > `readonly` **flags**: `WgslModule`
 
-Defined in: [elements/gpu/compute/shaders.ts:92](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/shaders.ts#L92)
+Defined in: [elements/gpu/compute/shaders.ts:92](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/shaders.ts#L92)
 
 Modo estável: flags do predicado.
 
@@ -36,6 +36,6 @@ Modo estável: flags do predicado.
 
 > `readonly` **scatter**: `WgslModule`
 
-Defined in: [elements/gpu/compute/shaders.ts:94](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/shaders.ts#L94)
+Defined in: [elements/gpu/compute/shaders.ts:94](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/shaders.ts#L94)
 
 Modo estável: espalhamento pelas posições escaneadas.

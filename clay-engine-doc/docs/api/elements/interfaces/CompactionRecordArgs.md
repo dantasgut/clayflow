@@ -6,7 +6,7 @@
 
 # Interface: CompactionRecordArgs
 
-Defined in: [elements/gpu/compute/Compaction.ts:34](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/Compaction.ts#L34)
+Defined in: [elements/gpu/compute/Compaction.ts:34](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/Compaction.ts#L34)
 
 Argumentos de `Compaction.record`.
 
@@ -16,7 +16,7 @@ Argumentos de `Compaction.record`.
 
 > `readonly` **count**: `number`
 
-Defined in: [elements/gpu/compute/Compaction.ts:36](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/Compaction.ts#L36)
+Defined in: [elements/gpu/compute/Compaction.ts:36](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/Compaction.ts#L36)
 
 Elementos de entrada avaliados pelo predicado (`i ∈ [0, count)`). `0` só zera o contador.
 
@@ -26,7 +26,7 @@ Elementos de entrada avaliados pelo predicado (`i ∈ [0, count)`). `0` só zera
 
 > `readonly` **counter**: `StorageBufferSpec`
 
-Defined in: [elements/gpu/compute/Compaction.ts:40](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/Compaction.ts#L40)
+Defined in: [elements/gpu/compute/Compaction.ts:40](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/Compaction.ts#L40)
 
 Contador `AtomicAllocCounter`: aceitos (`count`, inclui os recusados) e excedente (`overflow`).
 
@@ -36,6 +36,6 @@ Contador `AtomicAllocCounter`: aceitos (`count`, inclui os recusados) e excedent
 
 > `readonly` **out**: `StorageBufferSpec`
 
-Defined in: [elements/gpu/compute/Compaction.ts:38](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/Compaction.ts#L38)
+Defined in: [elements/gpu/compute/Compaction.ts:38](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/Compaction.ts#L38)
 
 Saída `u32[capacity]`, preparada antes (`prepare`).

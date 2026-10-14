@@ -6,7 +6,7 @@
 
 # Class: PrefixSum
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:66](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/PrefixSum.ts#L66)
+Defined in: [elements/gpu/compute/PrefixSum.ts:66](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/PrefixSum.ts#L66)
 
 Soma de prefixos u32 em vários níveis (research R8 da 005): por grupo de 256 (Hillis–Steele em memória de
 workgroup), com os totais dos grupos subindo nível a nível até caber num grupo, e a descida somando o prefixo de
@@ -26,7 +26,7 @@ gravação, numa transição do Flow; `record` só grava.
 
 > **new PrefixSum**(`core`, `options`): `PrefixSum`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:78](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/PrefixSum.ts#L78)
+Defined in: [elements/gpu/compute/PrefixSum.ts:78](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/PrefixSum.ts#L78)
 
 #### Parameters
 
@@ -50,7 +50,7 @@ Defined in: [elements/gpu/compute/PrefixSum.ts:78](https://github.com/dantasgut/
 
 > **get** **regionsPerRecord**(): `number`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:97](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/PrefixSum.ts#L97)
+Defined in: [elements/gpu/compute/PrefixSum.ts:97](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/PrefixSum.ts#L97)
 
 Regiões de uniform que uma gravação usa no máximo (uma por nível).
 
@@ -64,7 +64,7 @@ Regiões de uniform que uma gravação usa no máximo (uma por nível).
 
 > **destroy**(): `void`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:166](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/PrefixSum.ts#L166)
+Defined in: [elements/gpu/compute/PrefixSum.ts:166](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/PrefixSum.ts#L166)
 
 Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no próximo `prepare`.
 
@@ -78,7 +78,7 @@ Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no p
 
 > **prepare**(`dst`, `recordsPerFrame?`): `void`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:105](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/PrefixSum.ts#L105)
+Defined in: [elements/gpu/compute/PrefixSum.ts:105](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/PrefixSum.ts#L105)
 
 Prepara a soma com saída em `dst` para até `recordsPerFrame` gravações por quadro: buffers dos níveis, kernels de
 todos os níveis possíveis e regiões de uniform. Idempotente; chamado fora da gravação.
@@ -103,7 +103,7 @@ todos os níveis possíveis e regiões de uniform. Idempotente; chamado fora da 
 
 > **record**(`frame`, `args`): `void`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:131](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/gpu/compute/PrefixSum.ts#L131)
+Defined in: [elements/gpu/compute/PrefixSum.ts:131](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/gpu/compute/PrefixSum.ts#L131)
 
 Grava a soma de prefixos de `src[0, count)` em `dst`.
 

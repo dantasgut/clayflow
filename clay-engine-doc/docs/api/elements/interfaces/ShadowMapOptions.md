@@ -6,7 +6,7 @@
 
 # Interface: ShadowMapOptions
 
-Defined in: [elements/scene/ShadowMap.ts:10](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/ShadowMap.ts#L10)
+Defined in: [elements/scene/ShadowMap.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/ShadowMap.ts#L10)
 
 Opções de `ShadowMap`.
 
@@ -16,7 +16,7 @@ Opções de `ShadowMap`.
 
 > `readonly` `optional` **bias?**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:12](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/ShadowMap.ts#L12)
+Defined in: [elements/scene/ShadowMap.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/ShadowMap.ts#L12)
 
 Viés de profundidade da comparação (contra acne). Padrão 0,005.
 
@@ -26,7 +26,7 @@ Viés de profundidade da comparação (contra acne). Padrão 0,005.
 
 > `readonly` `optional` **normalBias?**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:14](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/ShadowMap.ts#L14)
+Defined in: [elements/scene/ShadowMap.ts:14](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/ShadowMap.ts#L14)
 
 Viés ao longo da normal. Padrão 0,001.
 
@@ -36,6 +36,6 @@ Viés ao longo da normal. Padrão 0,001.
 
 > `readonly` `optional` **size?**: readonly \[`number`, `number`\]
 
-Defined in: [elements/scene/ShadowMap.ts:16](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/scene/ShadowMap.ts#L16)
+Defined in: [elements/scene/ShadowMap.ts:16](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/scene/ShadowMap.ts#L16)
 
 Resolução do mapa em texels `[largura, altura]`. Padrão `[1024, 1024]`.

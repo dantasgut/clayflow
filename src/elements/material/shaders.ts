@@ -10,6 +10,7 @@ import waterSceneSource from '../gpu/wgsl/water/water_scene.wgsl?raw';
 import waterSmoothSource from '../gpu/wgsl/water/water_smooth.wgsl?raw';
 import causticsSource from '../gpu/wgsl/water/caustics.wgsl?raw';
 import waterLightSource from '../gpu/wgsl/water/water_light.wgsl?raw';
+import waterRippleSource from '../gpu/wgsl/water/water_ripple.wgsl?raw';
 import waterCompositeSource from '../gpu/wgsl/water/water_composite.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
@@ -158,11 +159,18 @@ export const waterSmooth = wgslModule({
     ],
 });
 
+/** Ondulações capilares procedurais do material de água (inclinação somada à normal; spec 017). */
+const waterRipple = wgslModule({
+    name: 'water_ripple',
+    source: waterRippleSource,
+    structs: [FluidSurfaceMaterialSchema],
+});
+
 /** Cáusticas por fótons em espaço da luz: limpar, depositar, resolver (spec 017). */
 export const caustics = wgslModule({
     name: 'caustics',
     source: causticsSource,
-    requires: [waterView],
+    requires: [waterView, waterRipple],
     structs: [
         ShadowMap.matrixSchema,
         WaterLightMatrixSchema,
@@ -185,7 +193,7 @@ function waterCompositeModule(name: string, scene: typeof waterSceneSingle) {
     return wgslModule({
         name,
         source: waterCompositeSource,
-        requires: [waterView, scene, brdf],
+        requires: [waterView, scene, brdf, waterRipple],
         structs: [
             Camera.matricesSchema,
             Light.schema,

@@ -6,7 +6,7 @@
 
 # Interface: FluidSurfaceFlowOptions
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:57](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/FluidSurfaceFlow.ts#L57)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:57](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L57)
 
 Opções do `FluidSurfaceFlow`.
 
@@ -16,7 +16,7 @@ Opções do `FluidSurfaceFlow`.
 
 > `readonly` `optional` **smoothingIterations?**: `number`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:61](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/FluidSurfaceFlow.ts#L61)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:61](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L61)
 
 Iterações da suavização (cada uma = horizontal + vertical; mínimo 1). Padrão 2.
 
@@ -26,6 +26,6 @@ Iterações da suavização (cada uma = horizontal + vertical; mínimo 1). Padr�
 
 > `readonly` `optional` **view?**: [`WaterView`](../type-aliases/WaterView.md)
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:59](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/FluidSurfaceFlow.ts#L59)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:59](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/FluidSurfaceFlow.ts#L59)
 
 Vista produzida. Padrão `'camera'`.

@@ -31,17 +31,28 @@ export interface FluidSurfaceMaterialData {
     caustics: number;
     /** Escala do padrão das cáusticas (1 = físico; 0 = só a atenuação da luz pela água). */
     causticIntensity: number;
+    /**
+     * Ondulações capilares procedurais (inclinação máxima somada à normal): o detalhe que a simulação não resolve
+     * (ondas de milímetros a centímetros) — afeta refração, reflexo e cáusticas. 0 desliga.
+     */
+    rippleStrength: number;
+    /** Comprimento da maior ondulação (m). */
+    rippleSize: number;
+    /** Escala da velocidade das ondulações (1 = dispersão de águas profundas). */
+    rippleSpeed: number;
     /** Preenchimento do layout. */
     _pad0: number;
     /** Preenchimento do layout. */
     _pad1: number;
+    /** Preenchimento do layout. */
+    _pad2: number;
 }
 
 /** Opções do `FluidSurfaceMaterial`: os campos do dado, com `caustics` booleano. */
 export interface FluidSurfaceMaterialOptions extends Partial<
     Omit<
         FluidSurfaceMaterialData,
-        'caustics' | 'color' | 'absorption' | 'ambient' | '_pad0' | '_pad1'
+        'caustics' | 'color' | 'absorption' | 'ambient' | '_pad0' | '_pad1' | '_pad2'
     >
 > {
     /** Cor da dispersão interna, RGBA linear. */
@@ -86,8 +97,12 @@ export class FluidSurfaceMaterial extends Material<FluidSurfaceMaterialData> {
             refraction: nonNegative('refraction', options.refraction ?? 0.05),
             caustics: (options.caustics ?? true) ? 1 : 0,
             causticIntensity: nonNegative('causticIntensity', options.causticIntensity ?? 1),
+            rippleStrength: nonNegative('rippleStrength', options.rippleStrength ?? 0.3),
+            rippleSize: positive('rippleSize', options.rippleSize ?? 0.06),
+            rippleSpeed: nonNegative('rippleSpeed', options.rippleSpeed ?? 1),
             _pad0: 0,
             _pad1: 0,
+            _pad2: 0,
         };
         this.castsShadow = false;
     }

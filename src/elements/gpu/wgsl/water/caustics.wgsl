@@ -125,7 +125,17 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     let sx = caustic_slope(t, vec2i(1, 0), z0, texel.x, limit);
     // y da textura desce, y métrico sobe.
     let sy = -caustic_slope(t, vec2i(0, 1), z0, texel.y, limit);
-    let n = normalize(vec3f(sx, sy, -1.0));
+    var n = normalize(vec3f(sx, sy, -1.0));
+    // Ondulações do material: a normal vai ao mundo (linhas da matriz da luz normalizadas), recebe a inclinação das
+    // ondas no ponto da superfície e volta — as cáusticas finas vêm delas.
+    let r0 = normalize(vec3f(lvp[0].x, lvp[1].x, lvp[2].x));
+    let r1 = normalize(vec3f(lvp[0].y, lvp[1].y, lvp[2].y));
+    let r2 = normalize(vec3f(lvp[0].z, lvp[1].z, lvp[2].z));
+    let n_world = normalize(r0 * n.x + r1 * n.y + r2 * n.z);
+    let p_world = caustic_to_world(vec3f(xy0, z0), lvp, scale);
+    let slope = water_ripple_slope(p_world.xz, caustic_params.time, material) * water_ripple_weight(n_world);
+    let n_rippled = normalize(n_world + vec3f(-slope.x, 0.0, -slope.y));
+    n = normalize(vec3f(dot(r0, n_rippled), dot(r1, n_rippled), dot(r2, n_rippled)));
     let incident = vec3f(0.0, 0.0, 1.0);
     let eta = 1.0 / max(material.ior, 1.0);
     var dir = refract(incident, n, eta);

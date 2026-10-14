@@ -8,7 +8,7 @@
 
 > `const` **ELEMENT\_CONSUMERS**: readonly `ConsumerResolver`[]
 
-Defined in: [elements/consumers.ts:12](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/consumers.ts#L12)
+Defined in: [elements/consumers.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/consumers.ts#L12)
 
 Resolvers de `consumes` dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
 aplicação): `GravityField` e `ParticleMaterial`. Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,

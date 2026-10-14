@@ -8,7 +8,8 @@
 //   - absorção (SC-004): o fundo visto através de camadas de 5, 15 e 30 cm escurece de forma monotônica e o padrão
 //     segue reconhecível na camada rasa;
 //   - cáusticas (SC-003), com a câmera de cima e a água sem refração nem tinta (o fundo mostra só a luz transmitida):
-//     água agitada (ondas refletidas da barragem) tem regiões ≥ 30% mais claras e ≥ 20% mais escuras que a mesma água parada; parada, variação ≤ 5%;
+//     água agitada (ondas refletidas da barragem e ondulações do material) tem regiões ≥ 30% mais claras e ≥ 20% mais escuras que a mesma água parada; parada (sem
+//     ondulações), variação ≤ 5%;
 //     o fundo fora da água é idêntico ao da cena sem fluido;
 //   - caixa submersa recebe a luz transmitida; sprites e água na mesma cena; câmera dentro da água sem preto nem cor
 //     inválida; sem MSAA;
@@ -175,14 +176,17 @@ function erode(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
     return out;
 }
 
-/** Razão de luminância a/b nos pixels da região (fundo iluminado: b > 0,1). */
+/**
+ * Razão de luminância a/b nos pixels da região, só nos ladrilhos claros iluminados (b > 0,4): nos escuros, a
+ * quantização de 8 bits (±1/255 sobre ~0,2) pesaria alguns por cento na razão.
+ */
 function ratios(a: ImageData, b: ImageData, region: (x: number, y: number) => boolean): number[] {
     const out: number[] = [];
     for (let y = 0; y < a.height; y++) {
         for (let x = 0; x < a.width; x++) {
             if (!region(x, y)) continue;
             const lb = luminance(b, x, y);
-            if (lb < 0.1) continue;
+            if (lb < 0.4) continue;
             out.push(luminance(a, x, y) / lb);
         }
     }
@@ -302,7 +306,12 @@ async function main(): Promise<void> {
             { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE },
             [AGITATED_FRAME],
         );
-        const flat = await run('parada', { layer: 6, material: CLEAR, eye: TOP_EYE }, [150]);
+        // Parada: sem as ondulações do material e depois de assentar (mede a planura da superfície simulada).
+        const flat = await run(
+            'parada',
+            { layer: 6, material: { ...CLEAR, rippleStrength: 0 }, eye: TOP_EYE },
+            [300],
+        );
         const off = await run(
             'agitada-sem',
             { dam: [24, 24, 32], material: { ...CLEAR, caustics: false }, eye: TOP_EYE },

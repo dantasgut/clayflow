@@ -6,13 +6,13 @@
 
 # Interface: FluidSurfaceMaterialOptions
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:41](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L41)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:52](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L52)
 
 Opções do `FluidSurfaceMaterial`: os campos do dado, com `caustics` booleano.
 
 ## Extends
 
-- `Partial`\<`Omit`\<[`FluidSurfaceMaterialData`](FluidSurfaceMaterialData.md), `"caustics"` \| `"color"` \| `"absorption"` \| `"ambient"` \| `"_pad0"` \| `"_pad1"`\>\>
+- `Partial`\<`Omit`\<[`FluidSurfaceMaterialData`](FluidSurfaceMaterialData.md), `"caustics"` \| `"color"` \| `"absorption"` \| `"ambient"` \| `"_pad0"` \| `"_pad1"` \| `"_pad2"`\>\>
 
 ## Properties
 
@@ -20,7 +20,7 @@ Opções do `FluidSurfaceMaterial`: os campos do dado, com `caustics` booleano.
 
 > `readonly` `optional` **absorption?**: readonly `number`[]
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:50](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L50)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:61](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L61)
 
 Absorção por metro (rgb).
 
@@ -30,7 +30,7 @@ Absorção por metro (rgb).
 
 > `readonly` `optional` **ambient?**: readonly `number`[]
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:52](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L52)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:63](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L63)
 
 Cor refletida, RGBA linear.
 
@@ -40,7 +40,7 @@ Cor refletida, RGBA linear.
 
 > `optional` **causticIntensity?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:33](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L33)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:33](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L33)
 
 Escala do padrão das cáusticas (1 = físico; 0 = só a atenuação da luz pela água).
 
@@ -54,7 +54,7 @@ Escala do padrão das cáusticas (1 = físico; 0 = só a atenuação da luz pela
 
 > `readonly` `optional` **caustics?**: `boolean`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:54](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L54)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:65](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L65)
 
 Cáusticas ligadas. Padrão `true`.
 
@@ -64,7 +64,7 @@ Cáusticas ligadas. Padrão `true`.
 
 > `readonly` `optional` **color?**: readonly `number`[]
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:48](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L48)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:59](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L59)
 
 Cor da dispersão interna, RGBA linear.
 
@@ -74,7 +74,7 @@ Cor da dispersão interna, RGBA linear.
 
 > `optional` **depthThreshold?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:25](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L25)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:25](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L25)
 
 Descontinuidade de silhueta em múltiplos do raio: além dela a suavização não mistura profundidades.
 
@@ -88,7 +88,7 @@ Descontinuidade de silhueta em múltiplos do raio: além dela a suavização nã
 
 > `optional` **ior?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:15](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L15)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:15](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L15)
 
 Índice de refração (Fresnel, refração na tela e nas cáusticas).
 
@@ -102,7 +102,7 @@ Defined in: [elements/material/FluidSurfaceMaterial.ts:15](https://github.com/da
 
 > `optional` **particleRadius?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:21](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L21)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:21](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L21)
 
 Raio da esfera de cada partícula em mundo; 0 = automático (0,6 × espaçamento do `ParticleMaterial`).
 
@@ -116,7 +116,7 @@ Raio da esfera de cada partícula em mundo; 0 = automático (0,6 × espaçamento
 
 > `optional` **reflectivity?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:17](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L17)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:17](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L17)
 
 Escala da parcela refletida.
 
@@ -130,7 +130,7 @@ Escala da parcela refletida.
 
 > `optional` **refraction?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:29](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L29)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:29](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L29)
 
 Deslocamento da refração na tela por unidade de inclinação da superfície.
 
@@ -140,11 +140,54 @@ Deslocamento da refração na tela por unidade de inclinação da superfície.
 
 ***
 
+### rippleSize?
+
+> `optional` **rippleSize?**: `number`
+
+Defined in: [elements/material/FluidSurfaceMaterial.ts:40](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L40)
+
+Comprimento da maior ondulação (m).
+
+#### Inherited from
+
+[`FluidSurfaceMaterialData`](FluidSurfaceMaterialData.md).[`rippleSize`](FluidSurfaceMaterialData.md#ripplesize)
+
+***
+
+### rippleSpeed?
+
+> `optional` **rippleSpeed?**: `number`
+
+Defined in: [elements/material/FluidSurfaceMaterial.ts:42](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L42)
+
+Escala da velocidade das ondulações (1 = dispersão de águas profundas).
+
+#### Inherited from
+
+[`FluidSurfaceMaterialData`](FluidSurfaceMaterialData.md).[`rippleSpeed`](FluidSurfaceMaterialData.md#ripplespeed)
+
+***
+
+### rippleStrength?
+
+> `optional` **rippleStrength?**: `number`
+
+Defined in: [elements/material/FluidSurfaceMaterial.ts:38](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L38)
+
+Ondulações capilares procedurais (inclinação máxima somada à normal): o detalhe que a simulação não resolve
+(ondas de milímetros a centímetros) — afeta refração, reflexo e cáusticas. 0 desliga.
+
+#### Inherited from
+
+[`FluidSurfaceMaterialData`](FluidSurfaceMaterialData.md).[`rippleStrength`](FluidSurfaceMaterialData.md#ripplestrength)
+
+***
+
 ### shininess?
 
 > `optional` **shininess?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:19](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L19)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:19](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L19)
 
 Expoente do brilho especular.
 
@@ -158,7 +201,7 @@ Expoente do brilho especular.
 
 > `optional` **smoothingRadius?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:23](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L23)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:23](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L23)
 
 Raio da suavização da superfície em múltiplos do raio da partícula.
 
@@ -172,7 +215,7 @@ Raio da suavização da superfície em múltiplos do raio da partícula.
 
 > `optional` **thicknessScale?**: `number`
 
-Defined in: [elements/material/FluidSurfaceMaterial.ts:27](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/elements/material/FluidSurfaceMaterial.ts#L27)
+Defined in: [elements/material/FluidSurfaceMaterial.ts:27](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/elements/material/FluidSurfaceMaterial.ts#L27)
 
 Escala da espessura acumulada (absorção e dispersão).
 

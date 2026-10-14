@@ -6,7 +6,7 @@
 
 # Class: UIFlow
 
-Defined in: [presentation/flows/UIFlow.ts:36](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L36)
+Defined in: [presentation/flows/UIFlow.ts:36](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L36)
 
 UIFlow — desenha a árvore de UI (`UiTree`) por cima do canvas (carrega o conteúdo, `loadOp: 'load'`).
 
@@ -24,7 +24,7 @@ fonte, quando muda, é religado na mesma transição. Os recursos (tela, quads, 
 
 > **new UIFlow**(`ctx`): `UIFlow`
 
-Defined in: [presentation/flows/UIFlow.ts:49](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L49)
+Defined in: [presentation/flows/UIFlow.ts:49](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L49)
 
 #### Parameters
 
@@ -46,7 +46,7 @@ Defined in: [presentation/flows/UIFlow.ts:49](https://github.com/dantasgut/clayf
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [presentation/flows/UIFlow.ts:39](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L39)
+Defined in: [presentation/flows/UIFlow.ts:39](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L39)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -60,7 +60,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/UIFlow.ts:41](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L41)
+Defined in: [presentation/flows/UIFlow.ts:41](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L41)
 
 Estado inicial do algoritmo.
 
@@ -74,7 +74,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -88,7 +88,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [presentation/flows/UIFlow.ts:40](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L40)
+Defined in: [presentation/flows/UIFlow.ts:40](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L40)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -102,7 +102,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`UISlots`](../interfaces/UISlots.md)
 
-Defined in: [presentation/flows/UIFlow.ts:38](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L38)
+Defined in: [presentation/flows/UIFlow.ts:38](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L38)
 
 Slots consumidos, por nome.
 
@@ -116,7 +116,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`UISlots`](../interfaces/UISlots.md)\>\>
 
-Defined in: [presentation/flows/UIFlow.ts:42](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L42)
+Defined in: [presentation/flows/UIFlow.ts:42](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L42)
 
 Tabela de transições (estado × evento).
 
@@ -130,7 +130,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"UIFlow"` = `'UIFlow'`
 
-Defined in: [presentation/flows/UIFlow.ts:37](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L37)
+Defined in: [presentation/flows/UIFlow.ts:37](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L37)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -146,7 +146,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -166,7 +166,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -186,7 +186,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **get** **ui**(): [`UiTree`](UiTree.md)
 
-Defined in: [presentation/flows/UIFlow.ts:99](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L99)
+Defined in: [presentation/flows/UIFlow.ts:99](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L99)
 
 Acesso à árvore de UI — adicione panels/labels/buttons via `ui.add(...)`.
 
@@ -200,7 +200,7 @@ Acesso à árvore de UI — adicione panels/labels/buttons via `ui.add(...)`.
 
 > `protected` **colorAttachment**(`frame`, `target`, `load`): `ColorAttachment` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:29](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/RenderFlow.ts#L29)
+Defined in: [scene/flows/RenderFlow.ts:29](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/flows/RenderFlow.ts#L29)
 
 Anexo de cor do alvo (spec 008): com amostras (MSAA), desenha na textura de amostras — guardada, para um passe
 seguinte carregar — e resolve na cor; sem elas, desenha direto na cor. `undefined` sem cor.
@@ -233,7 +233,7 @@ seguinte carregar — e resolve na cor; sem elas, desenha direto na cor. `undefi
 
 > `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/scene/flows/RenderFlow.ts#L20)
+Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/scene/flows/RenderFlow.ts#L20)
 
 View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
@@ -261,7 +261,7 @@ View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `u
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [presentation/flows/UIFlow.ts:114](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L114)
+Defined in: [presentation/flows/UIFlow.ts:114](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L114)
 
 Grava os quads enviados em `framePrepare`.
 
@@ -289,7 +289,7 @@ Grava os quads enviados em `framePrepare`.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/UIFlow.ts:130](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L130)
+Defined in: [presentation/flows/UIFlow.ts:130](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L130)
 
 Libera os objetos de GPU da UI.
 
@@ -307,7 +307,7 @@ Libera os objetos de GPU da UI.
 
 > **setFont**(`font`): `this`
 
-Defined in: [presentation/flows/UIFlow.ts:107](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/flows/UIFlow.ts#L107)
+Defined in: [presentation/flows/UIFlow.ts:107](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/flows/UIFlow.ts#L107)
 
 Define a fonte usada pelo UI (atlas + texture). Chamado uma vez
 após carregar a fonte via `Application.assets.loadFont(url)`.

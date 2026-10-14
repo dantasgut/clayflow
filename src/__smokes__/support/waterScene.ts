@@ -38,6 +38,8 @@ export interface WaterSceneOptions {
     readonly material?: FluidSurfaceMaterialOptions | 'sprites' | 'none';
     /** Caixa submersa no centro do tanque. */
     readonly box?: boolean;
+    /** Fundo: quadriculado (padrão; mostra a refração) ou areia clara (mostra as cáusticas). */
+    readonly floor?: 'checker' | 'sand';
     /** Direção da luz. */
     readonly light?: readonly [number, number, number];
     /** Posição e alvo da câmera. */
@@ -72,7 +74,7 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
     );
     world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
     world.insert(new ParticleMaterial({ particleSpacing: WATER_SPACING }));
-    floor(app);
+    floor(app, options.floor ?? 'checker');
     walls(app);
     if (options.box === true) {
         const box = new BoxGeometry({ size: [2 * BOX_HALF, 2 * BOX_HALF, 2 * BOX_HALF] });
@@ -102,7 +104,7 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
 }
 
 /** Fundo quadriculado: ladrilhos de 10 cm claros e escuros sobre o tanque. */
-function floor(app: Application): void {
+function floor(app: Application, kind: 'checker' | 'sand'): void {
     const [hx, hz] = WATER_TANK;
     const tile = 0.1;
     for (let i = 0; i < Math.round((2 * hx) / tile); i++) {
@@ -111,7 +113,14 @@ function floor(app: Application): void {
             const plane = new PlaneGeometry({ size: [tile, tile] });
             plane.add(
                 new StandardMaterial({
-                    albedo: light ? [0.92, 0.92, 0.88, 1] : [0.25, 0.27, 0.3, 1],
+                    albedo:
+                        kind === 'sand'
+                            ? light
+                                ? [0.86, 0.82, 0.7, 1]
+                                : [0.82, 0.78, 0.66, 1]
+                            : light
+                              ? [0.92, 0.92, 0.88, 1]
+                              : [0.25, 0.27, 0.3, 1],
                     roughness: 0.9,
                     metallic: 0,
                 }),

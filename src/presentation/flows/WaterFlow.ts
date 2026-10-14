@@ -30,6 +30,7 @@ import { Light } from '../../elements/scene/Light';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { FrameTargets } from '../app/FrameTargets';
 import { WaterSurface } from '../app/WaterSurface';
+import { Time } from '../../scene/time/Time';
 import { castingShadowMap } from './ShadowFlow';
 
 /** Slots da composição da água. */
@@ -50,6 +51,8 @@ export interface WaterSlots extends SlotMap {
     readonly shadowMatrices: PoolSlot<true>;
     /** A superfície de água da cena. */
     readonly water: SingletonSlot<false>;
+    /** Tempo da cena (fase das ondulações do material). */
+    readonly time: SingletonSlot<false>;
     /** Cor e profundidade da cena (a água é composta sobre elas). */
     readonly target: TargetSlot;
 }
@@ -104,6 +107,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
             shadowMaps: slot.pool(ShadowMap.schema.name, { optional: true }),
             shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
             water: slot.singleton(WaterSurface.schema),
+            time: slot.singleton(Time.schema),
             target: slot.target({
                 color: { schema: FrameTargets.schema, descId: 'color' },
                 depth: { schema: FrameTargets.schema, descId: 'depth' },
@@ -297,7 +301,9 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         const { width, height } = this.core.canvasSize() ?? { width: 1, height: 1 };
         const light = on ? lightSlot : NO_LIGHT_SLOT;
         const shadow = on ? shadowSlot : 0;
-        const key = `${cameraSlot}:${light}:${shadow}:${width}x${height}`;
+        // O tempo muda a cada quadro (ondulações): um uniform pequeno por quadro, só com água na tela.
+        const time = (slots.time.resource as Time).data.elapsed;
+        const key = `${cameraSlot}:${light}:${shadow}:${width}x${height}:${time}`;
         if (key === this.written) return;
         this.written = key;
         this.core.write(
@@ -308,6 +314,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
                 shadowSlot: shadow,
                 shadowEnabled: on ? 1 : 0,
                 viewport: [width, height],
+                time,
             }),
         );
     }

@@ -6,7 +6,7 @@
 
 # Class: GameLoop
 
-Defined in: [presentation/app/GameLoop.ts:20](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/app/GameLoop.ts#L20)
+Defined in: [presentation/app/GameLoop.ts:20](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/GameLoop.ts#L20)
 
 Laço de quadros sobre `requestAnimationFrame`. Cada quadro mede o tempo real decorrido e chama `advance`, a
 única definição de "avançar um quadro" — a mesma que `Application.step()` usa sem laço: `time.advance(realDt)`
@@ -25,7 +25,7 @@ e o acumulador do `Time` compensa até o teto.
 
 > **new GameLoop**(`events`, `time`, `canAdvance?`): `GameLoop`
 
-Defined in: [presentation/app/GameLoop.ts:28](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/app/GameLoop.ts#L28)
+Defined in: [presentation/app/GameLoop.ts:28](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/GameLoop.ts#L28)
 
 #### Parameters
 
@@ -51,7 +51,7 @@ Defined in: [presentation/app/GameLoop.ts:28](https://github.com/dantasgut/clayf
 
 > **advance**(`realDt`): `void`
 
-Defined in: [presentation/app/GameLoop.ts:35](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/app/GameLoop.ts#L35)
+Defined in: [presentation/app/GameLoop.ts:35](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/GameLoop.ts#L35)
 
 Avança um quadro de duração real `realDt` (s): move o relógio e emite `frameTick` (síncrono).
 
@@ -71,7 +71,7 @@ Avança um quadro de duração real `realDt` (s): move o relógio e emite `frame
 
 > **isRunning**(): `boolean`
 
-Defined in: [presentation/app/GameLoop.ts:72](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/app/GameLoop.ts#L72)
+Defined in: [presentation/app/GameLoop.ts:72](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/GameLoop.ts#L72)
 
 True se o laço está ativo (RAF agendado ou esperando espaço na GPU).
 
@@ -85,7 +85,7 @@ True se o laço está ativo (RAF agendado ou esperando espaço na GPU).
 
 > **start**(): `void`
 
-Defined in: [presentation/app/GameLoop.ts:47](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/app/GameLoop.ts#L47)
+Defined in: [presentation/app/GameLoop.ts:47](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/GameLoop.ts#L47)
 
 Inicia o laço (RAF). No-op se já rodando.
 
@@ -99,7 +99,7 @@ Inicia o laço (RAF). No-op se já rodando.
 
 > **stop**(): `void`
 
-Defined in: [presentation/app/GameLoop.ts:61](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/app/GameLoop.ts#L61)
+Defined in: [presentation/app/GameLoop.ts:61](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/app/GameLoop.ts#L61)
 
 Cancela o RAF agendado e a espera pela GPU. No-op se não rodando.
 

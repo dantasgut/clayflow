@@ -140,7 +140,8 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
     private readonly world: World;
     private readonly resources: ResourceDirectory;
     private readonly viewParams: UniformBufferSpec;
-    private readonly smoothParams: readonly [UniformBufferSpec, UniformBufferSpec];
+    /** Parâmetros dos passos da suavização, um por direção (horizontal, vertical, diagonais). */
+    private readonly smoothParams: readonly UniformBufferSpec[];
     private readonly dummyShadowMatrices: StorageBufferSpec;
     /** Matriz da vista da luz substituta (a vista da câmera não a usa, mas o shader a declara). */
     private readonly dummyLightMatrix: StorageBufferSpec;
@@ -205,10 +206,9 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
                 byteSize,
             });
         this.viewParams = uniform('view_params', WaterViewParamsSchema.stride);
-        this.smoothParams = [
-            uniform('smooth_h', WaterSmoothParamsSchema.stride),
-            uniform('smooth_v', WaterSmoothParamsSchema.stride),
-        ];
+        this.smoothParams = ['h', 'v', 'd', 'a'].map((d) =>
+            uniform(`smooth_${d}`, WaterSmoothParamsSchema.stride),
+        );
         this.dummyShadowMatrices = ctx.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
@@ -774,7 +774,12 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         if (sources.some((s) => s === undefined)) return;
         if (this.chain !== undefined && sameSources(this.chain.sources, sources)) return;
         this.releaseChain();
-        const [h, v] = this.smoothParams;
+        const [h, v, d, a] = this.smoothParams as [
+            UniformBufferSpec,
+            UniformBufferSpec,
+            UniformBufferSpec,
+            UniformBufferSpec,
+        ];
         const depthKernel = (
             name: string,
             src: TextureViewSpec,
@@ -798,8 +803,10 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
             });
         const depth: ComputeKernel[] = [];
         for (let i = 0; i < this.iterations; i++) {
-            depth.push(depthKernel(`smooth_h${i}`, i === 0 ? raw! : final!, temp!, h));
-            depth.push(depthKernel(`smooth_v${i}`, temp!, final!, v));
+            // Iterações alternam eixos e diagonais.
+            const [first, second] = i % 2 === 0 ? [h, v] : [d, a];
+            depth.push(depthKernel(`smooth_${i}a`, i === 0 ? raw! : final!, temp!, first));
+            depth.push(depthKernel(`smooth_${i}b`, temp!, final!, second));
         }
         const thickness: ComputeKernel[] = [];
         if (!light) {

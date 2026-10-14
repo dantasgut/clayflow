@@ -6,7 +6,7 @@
 
 # Interface: FpsControllerOptions
 
-Defined in: [presentation/input/controllers/FpsController.ts:8](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/input/controllers/FpsController.ts#L8)
+Defined in: [presentation/input/controllers/FpsController.ts:8](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/controllers/FpsController.ts#L8)
 
 Opções do FpsController.
 
@@ -16,7 +16,7 @@ Opções do FpsController.
 
 > `readonly` `optional` **canvas?**: `HTMLCanvasElement`
 
-Defined in: [presentation/input/controllers/FpsController.ts:16](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/input/controllers/FpsController.ts#L16)
+Defined in: [presentation/input/controllers/FpsController.ts:16](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/controllers/FpsController.ts#L16)
 
 Canvas para pedir pointer lock no clique (olhar sem segurar o botão).
 
@@ -26,7 +26,7 @@ Canvas para pedir pointer lock no clique (olhar sem segurar o botão).
 
 > `readonly` `optional` **mouseSensitivity?**: `number`
 
-Defined in: [presentation/input/controllers/FpsController.ts:14](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/input/controllers/FpsController.ts#L14)
+Defined in: [presentation/input/controllers/FpsController.ts:14](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/controllers/FpsController.ts#L14)
 
 Radianos por pixel. Default 0.003.
 
@@ -36,7 +36,7 @@ Radianos por pixel. Default 0.003.
 
 > `readonly` `optional` **position?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [presentation/input/controllers/FpsController.ts:10](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/input/controllers/FpsController.ts#L10)
+Defined in: [presentation/input/controllers/FpsController.ts:10](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/controllers/FpsController.ts#L10)
 
 Posição inicial (olhos). Default: a do `Transform` da câmera no primeiro quadro.
 
@@ -46,6 +46,6 @@ Posição inicial (olhos). Default: a do `Transform` da câmera no primeiro quad
 
 > `readonly` `optional` **speed?**: `number`
 
-Defined in: [presentation/input/controllers/FpsController.ts:12](https://github.com/dantasgut/clayflow/blob/d26a3f3c8e017e203a83f183aa41fb2bba647071/src/presentation/input/controllers/FpsController.ts#L12)
+Defined in: [presentation/input/controllers/FpsController.ts:12](https://github.com/dantasgut/clayflow/blob/fc1ab580d2f75a8c5357a3b9ff4fa8127ee6a076/src/presentation/input/controllers/FpsController.ts#L12)
 
 Unidades por segundo. Default 4.

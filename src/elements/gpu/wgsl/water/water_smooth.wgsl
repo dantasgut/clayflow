@@ -43,11 +43,16 @@ fn water_smooth_depth(@builtin(global_invocation_id) gid: vec3u) {
         textureStore(smooth_dst, p, vec4f(z, 0.0, 0.0, 0.0));
         return;
     }
-    let step = max(1, i32(ceil(radius_px / f32(WATER_MAX_TAPS))));
-    let taps = min(WATER_MAX_TAPS, i32(ceil(radius_px / f32(step))));
+    // Direção do passo: eixos (0, 1) e diagonais (2, 3), alternados entre iterações — só os eixos deixam filetes
+    // alinhados a eles em lâminas finas.
+    let dirs = array<vec2i, 4>(vec2i(1, 0), vec2i(0, 1), vec2i(1, 1), vec2i(1, -1));
+    let dir = dirs[min(water_smooth.direction, 3u)];
+    let unit = length(vec2f(dir));
+    let reach = radius_px / unit;
+    let step = max(1, i32(ceil(reach / f32(WATER_MAX_TAPS))));
+    let taps = min(WATER_MAX_TAPS, i32(ceil(reach / f32(step))));
     let sigma = radius_px * 0.5;
     let threshold = material.depthThreshold * r;
-    let dir = select(vec2i(1, 0), vec2i(0, 1), water_smooth.direction == 1u);
     // Inclinação local (diferença central entre vizinhos da mesma superfície): numa superfície rasante a profundidade
     // muda muito por pixel, e o limiar acompanha o plano — senão os vizinhos seriam rejeitados e a suavização sumiria.
     let zp = textureLoad(smooth_src, clamp(p + dir, vec2i(0), size - 1), 0).x;
@@ -60,7 +65,8 @@ fn water_smooth_depth(@builtin(global_invocation_id) gid: vec3u) {
     var weight = 1.0;
     for (var k: i32 = 1; k <= taps; k = k + 1) {
         let offset = k * step;
-        let w_space = exp(-f32(offset * offset) / (2.0 * sigma * sigma));
+        let dist = f32(offset) * unit;
+        let w_space = exp(-(dist * dist) / (2.0 * sigma * sigma));
         for (var s: i32 = -1; s <= 1; s = s + 2) {
             let q = clamp(p + dir * offset * s, vec2i(0), size - 1);
             let zq = textureLoad(smooth_src, q, 0).x;
