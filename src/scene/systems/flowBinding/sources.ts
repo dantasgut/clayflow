@@ -1,5 +1,5 @@
 import type { BindingEntry, BindingLayoutEntry } from '../../../core/contracts/index';
-import type { ResolvedSource } from '../../consumers/ConsumerResolver';
+import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { BindingSource } from '../../flows/FlowBinding';
 import type { InferredEntry } from '../LayoutInferencer';
 

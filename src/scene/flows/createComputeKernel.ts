@@ -6,7 +6,7 @@ import type {
     LayoutSpec,
     ShaderModuleSpec,
 } from '../../core/contracts/index';
-import type { ResolvedSource } from '../consumers/ConsumerResolver';
+import type { ResolvedSource } from '../consumers/ResolvedSource';
 import { composeWgsl } from '../shaders/composeWgsl';
 import type { WgslModule } from '../shaders/WgslModule';
 import { LayoutInferencer } from '../systems/LayoutInferencer';

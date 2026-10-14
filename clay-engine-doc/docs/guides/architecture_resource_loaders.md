@@ -2323,6 +2323,7 @@ src/scene/
 │
 ├── consumers/                        ← ConsumerResolver — resolve nomes em PipelineDescriptor.consumes
 │     ├── ConsumerResolver.ts           interface — resolve(world, ctx) BindGroupEntry[]
+│     ├── ResolvedSource.ts             tipos da fonte de binding (buffer, textureView, sampler) — sem dependência do World
 │     ├── ConsumerResolverRegistry.ts   register + resolve
 │     └── strategies/
 │           ├── SingletonResolver.ts    pega 1 Resource ativo do schema (ex.: Camera, Time)

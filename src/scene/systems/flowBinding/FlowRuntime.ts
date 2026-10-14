@@ -1,5 +1,5 @@
 import type { EngineCore, BindGroupSpec } from '../../../core/contracts/index';
-import type { ResolvedSource } from '../../consumers/ConsumerResolver';
+import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
 import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
@@ -27,6 +27,7 @@ import type {
     BoundTexture,
     EntitiesSlot,
     EntityEntry,
+    EntityRecordDeclaration,
     ResourceType,
     SlotDeclaration,
     TextureRef,
@@ -34,16 +35,25 @@ import type {
 import type { World } from '../../world/World';
 import type { EntityId } from '../../world/EntityId';
 import type { LayoutInferencer, InferredEntry } from '../LayoutInferencer';
-import type { ResourceSystem } from '../ResourceSystem';
-import { EntityGroups, type GroupMember } from './EntityGroups';
+import type { ResourceDirectory } from '../../contracts/ResourceDirectory';
+import { EntityGroups, type GroupMember, type InstanceListHost } from './EntityGroups';
 import { PipelineState } from './PipelineState';
 import { normalizeSource } from './sources';
+
+/** O que o runtime de um Flow usa da C2 (implementado pelo `ResourceSystem`). */
+export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
+    acquireEntityRecords(all: readonly ResourceType[], declaration: EntityRecordDeclaration): void;
+    releaseEntityRecords(declaration: EntityRecordDeclaration): void;
+    acquireOwnership(owner: object, resource: Resource, descId: string): void;
+    releaseOwnership(owner: object, resource: Resource, descId: string): void;
+    poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined;
+}
 
 /** O que o runtime de um Flow usa da cena. */
 export interface FlowRuntimeHost {
     readonly core: EngineCore;
     readonly world: World;
-    readonly resources: ResourceSystem;
+    readonly resources: FlowResourceHost;
     readonly consumers: ConsumerResolverRegistry;
     readonly events: EventBus;
     readonly inferencer: LayoutInferencer;
