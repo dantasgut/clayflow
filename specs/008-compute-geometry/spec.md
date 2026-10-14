@@ -4,7 +4,8 @@
 
 **Created**: 2026-10-13
 
-**Status**: Draft
+**Status**: Implementada (2026-10-14) — T001–T057 concluídas, gate verde; MSAA (FR-027) e a otimização da busca de
+vizinhos puxados para cá; o arame refeito como no legado (decisão do usuário)
 
 **Input**: User description: "Geometria em compute (spec 008, fase F2 do roadmap — `008-compute-geometry`, fecha a F2
 junto com a 007). Implementar no lugar arquitetural certo (C1–C4, `architecture_resource_loaders.md` autoritativo), sem

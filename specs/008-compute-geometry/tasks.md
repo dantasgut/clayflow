@@ -214,8 +214,14 @@ indireto.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T048 [P] Bench `particles` (R11) em `bench/scenes/particles/clayflow.ts` e `three.ts` (variantes `4k`, `65k`); registrar a cena no runner (`bench/`) e a limitação no resumo (Three sem simulação, sprites atualizados pela CPU)
-- [ ] T049 Medir `npm run bench -- --scene particles` contra SC-004/SC-005 e anotar abaixo deste item (CPU 65k/4k, fps de intervalo de 65k, GPU por passe)
+- [x] T048 [P] Bench `particles` (R11) em `bench/scenes/particles/clayflow.ts` e `three.ts` (variantes `4k`, `65k`); registrar a cena no runner (`bench/`) e a limitação no resumo (Three sem simulação, sprites atualizados pela CPU)
+- [x] T049 Medir `npm run bench -- --scene particles` contra SC-004/SC-005 e anotar abaixo deste item (CPU 65k/4k, fps de intervalo de 65k, GPU por passe)
+
+> **Bench `particles` (T049, 2026-10-14)**: `4k` 346 fps (CPU 0,19 ms, GPU 2,2 ms); `64k` 73 fps (CPU 0,17 ms, GPU
+> 13,4 ms) — SC-004 (CPU de 64k ≤ 1,5× a de 4k) e SC-005 (≥ 60 fps) atendidas. Antes da otimização da busca de vizinhos
+> (`c1dcf0d`): 17 fps e 60 ms de GPU (`NS.find` ordenava um vetor local de 128 por partícula). O desenho dos sprites de
+> 64k custa 0,5 ms; o Three (partículas instanciadas na CPU, sem simulação) 212 fps.
+
 - [x] T050 [P] Documento de arquitetura `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: faixas de pool, bitset de vivos, `slotRef`, render de corpos (`ParticleFlow`), geometria da GPU (`owns` individual, `indexFormat`), topologia e sombra por material; remover as marcas "alvo F2/008" atendidas
 - [x] T051 [P] Guias: `clay-engine-doc/docs/guides/flows.md` (estágio que escreve geometria), guia de física (corpos-contêiner, `edges`, `surface`, restrições por `(corpo, índice)`), `dev_workflow.md` se citar corpos
 - [x] T052 [P] Guia de migração `clay-engine-doc/docs/guides/migration_legacy_to_clean.md`: seção da 008 (uma entidade por partícula → arrays; `DistanceConstraint` `{ i, j }` → `{ a, b }`; `PointCloudGeometry` `points` → `vertices`; `PointSpriteMaterial` com struct próprio; topologia agora respeitada)
@@ -229,9 +235,23 @@ indireto.
 > concluída; referências de linha corrigidas) e PENDENCIAS (§4 resolvida, P10 e E4 precisos, notas da 008); JSDoc dos
 > campos `*Data`/`*Values` e tipos inline; `doc:coverage` sem membro sem documentação; API regenerada.
 
-- [ ] T055 Fechamento: `npm run smoke -- <todos>` no fonte e com `--dist`; `npm run bench` completo e `npm run bench:check` contra o baseline vigente; anotar abaixo deste item
-- [ ] T056 Regravar o baseline (`npm run bench:baseline`) com a cena `particles` incluída e anotar abaixo deste item
-- [ ] T057 Gate completo: `format:check`, `lint` (0 erros), `tsc`, `typecheck:bench`, `test:coverage`, `build:lib`; marcar a spec como implementada em `specs/008-compute-geometry/spec.md`
+- [x] T055 Fechamento: `npm run smoke -- <todos>` no fonte e com `--dist`; `npm run bench` completo e `npm run bench:check` contra o baseline vigente; anotar abaixo deste item
+
+> **Fechamento (T055)**: 18 smokes verdes no fonte e com `--dist` (fixtures `particles` de SPH/PBF regravadas pela
+> ordem nova dos vizinhos). `bench:check` contra o baseline da 007: só `instances/100k` e `1m` com +25% de CPU em 0,02
+> ms (arredondamento, ~4 µs). O primeiro `check` apontou `unique-objects/1k` (0,37 → 0,59 ms): o forward relia
+> descritores por grupo e por quadro, e toda geometria alocava as arestas de arame — corrigido (`7ba4861`, `0ccacce`:
+> topologia guardada na preparação, `allocation: 'onDemand'` + `ensureAllocated`); agora 0,40 ms (+8%).
+
+- [x] T056 Regravar o baseline (`npm run bench:baseline`) com a cena `particles` incluída e anotar abaixo deste item
+
+> **Baseline (T056)**: regravado (`apple-metal-3-chrome155-macos-1280x720-ifpfky`, 11 resultados do clayflow, com
+> `particles`).
+
+- [x] T057 Gate completo: `format:check`, `lint` (0 erros), `tsc`, `typecheck:bench`, `test:coverage`, `build:lib`; marcar a spec como implementada em `specs/008-compute-geometry/spec.md`
+
+> **Gate (T057)**: `format:check`, `lint` 0 erros, `tsc`, `typecheck:bench`, `test:coverage` 1068 testes (87,9% de
+> linhas), `build:lib` e `doc:coverage` 0 erros.
 
 ---
 
