@@ -23,11 +23,6 @@ import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../scene/flows/createComputeKernel';
-import {
     slot,
     type EntitiesSlot,
     type EntityEntry,
@@ -39,8 +34,6 @@ import {
 } from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
-import { EdgeParamsSchema } from '../../elements/geometry/edges';
-import { edgesFromTriangles } from '../../elements/geometry/shaders';
 import { Material } from '../../elements/material/Material';
 import { ForwardFrameParamsSchema, NO_LIGHT_SLOT } from '../../elements/material/forwardSchemas';
 import { Camera } from '../../elements/scene/Camera';
@@ -65,15 +58,14 @@ const VERTEX_LAYOUT = [
     },
 ];
 
-/** Índices de arestas de uma malha (desenho em linhas), gerados por kernel a partir dos índices de triângulo. */
-interface EdgeIndex {
-    readonly buffer: IndexBufferSpec;
-    readonly params: UniformBufferSpec;
-    readonly kernel: ComputeKernel;
-    readonly triangles: number;
-    /** O kernel ainda não rodou (roda no próximo quadro, antes do passe). */
-    pending: boolean;
-}
+/** Família de layout dos pipelines do forward (grupos compartilhados no passe). */
+type Family = 'forward' | 'points' | 'wire';
+
+/** Mistura alfa do arame (borda suavizada). */
+const ALPHA_BLEND = {
+    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+} as const;
 
 /** Onde o forward desenha a cor: a cor da cena (`FrameTargets`, lida pelo pós) ou direto no canvas. */
 export type ForwardOutput = 'scene' | 'canvas';
@@ -214,22 +206,20 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     /** Id do shader de cada material (pelo descritor; reconhecido uma vez por instância). */
     private readonly materialShader = new WeakMap<Material, string>();
     /** Família de layout de cada pipeline: os grupos 0, 1 e 3 são religados quando a família muda no passe. */
-    private readonly pipelineFamily = new Map<string, 'forward' | 'points'>();
+    private readonly pipelineFamily = new Map<string, Family>();
     /**
-     * Pipelines de sprites de vértice (`point-list`), um por (shader do material, vertex buffer da geometria): os
-     * vértices são um binding privado do pipeline. Contagem de entidades por pipeline (liberado com a última).
+     * Pipelines por geometria (spec 008) — sprites de vértice (`point-list`) e arame (`line-list`): um por (shader do
+     * material, vertex buffer da geometria); os vértices (e as arestas do arame) são bindings privados do pipeline.
+     * Contagem de entidades por pipeline (liberado com a última).
      */
-    private readonly pointPipelines = new Map<string, { readonly id: string; users: number }>();
-    /** Pipeline de sprites de cada entidade que o usa (para liberar na saída). */
-    private readonly pointOfEntity = new Map<EntityId, string>();
-    /** Índices de arestas (`line-list`) por buffer de índices de triângulo, gerados por kernel. */
-    private readonly edges = new Map<AnyBufferSpec, EdgeIndex>();
+    private readonly geometryPipelines = new Map<string, { readonly id: string; users: number }>();
+    /** Pipeline por geometria de cada entidade que o usa (para liberar na saída). */
+    private readonly geometryOfEntity = new Map<EntityId, string>();
     /** Geometrias escritas pela GPU sem escritor já avisadas. */
     private readonly warnedWriter = new WeakSet<Geometry>();
-    private pointCounter = 0;
-    private edgeCounter = 0;
-    /** Número de cada vertex buffer com pipeline de sprites (nome estável do pipeline). */
-    private readonly pointKeys = new Map<AnyBufferSpec, number>();
+    private geometryCounter = 0;
+    /** Número de cada vertex buffer com pipeline por geometria (nome estável dos pipelines). */
+    private readonly geometryKeys = new Map<AnyBufferSpec, number>();
     /** Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda. */
     profileTimestamps = false;
 
@@ -313,7 +303,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     run: (e, c) => {
                         if (e.type !== 'entitiesChanged') return;
                         for (const id of e.removed) this.pendingMaterials.delete(id);
-                        this.releasePoints(c, e.removed);
+                        this.releaseGeometryPipelines(c, e.removed);
                         this.prepareMaterials(c, e.added);
                     },
                 },
@@ -326,7 +316,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     run: (_e, c) => {
                         if (this.pendingMaterials.size > 0)
                             this.prepareMaterials(c, [...this.pendingMaterials]);
-                        this.prepareGroups(c);
+                        this.checkWriters(c);
                         this.writeFrameParams(c);
                     },
                 },
@@ -357,19 +347,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             },
             ...(tsWrites !== undefined ? { timestampWrites: tsWrites } : {}),
         };
-        // Índices de arestas novos ou refeitos: gerados antes do passe (kernel criado em `framePrepare`).
-        for (const edge of this.edges.values()) {
-            if (!edge.pending) continue;
-            edge.pending = false;
-            frame.compute('ForwardFlow.edges', (pass) => {
-                pass.bind.setPipeline(edge.kernel.pipeline);
-                edge.kernel.bindGroups.forEach((group, g) => pass.bind.setBindGroup(g, group));
-                pass.dispatch.invocations(edge.triangles, 64);
-            });
-        }
         const groups = bound.slots.renderables.groups;
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
-            let family: 'forward' | 'points' | undefined;
+            let family: Family | undefined;
             let current: PreparedRender | undefined;
             for (const group of groups) {
                 const entry = group.representative;
@@ -382,13 +362,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 const topology = entry.get(Material).topology;
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 if (vertices?.subkind !== 'vertex') continue;
-                const indices = this.resources.bufferOf(geometry, 'indices');
-                const lineIndices =
-                    topology === 'line-list' && indices !== undefined
-                        ? this.edges.get(indices)?.buffer
+                const edges =
+                    topology === 'line-list'
+                        ? this.resources.bufferOf(geometry, 'wireEdges')
                         : undefined;
-                if (topology === 'line-list' && indices !== undefined && lineIndices === undefined)
-                    continue;
+                if (topology === 'line-list' && edges?.subkind !== 'index') continue;
                 if (prepared !== current) {
                     pass.bind.setPipeline(prepared.spec);
                     const next = this.pipelineFamily.get(id) ?? 'forward';
@@ -399,8 +377,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             .setBindGroup(1, prepared.groups[1]!)
                             .setBindGroup(3, prepared.groups[3]!);
                         family = next;
-                    } else if (next === 'points') {
-                        // Os vértices da geometria são um binding privado (grupo 3) de cada pipeline de sprites.
+                    } else if (next !== 'forward') {
+                        // Os vértices (e as arestas) da geometria são bindings privados (grupo 3) de cada pipeline.
                         pass.bind.setBindGroup(3, prepared.groups[3]!);
                     }
                     // Material: o pool do schema do pipeline, indexado no shader pelo registro.
@@ -412,11 +390,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
                     continue;
                 }
+                if (edges?.subkind === 'index') {
+                    // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
+                    pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
+                    continue;
+                }
                 pass.geometry.vertex(0, vertices);
-                const drawn = lineIndices ?? (indices?.subkind === 'index' ? indices : undefined);
-                if (drawn?.subkind === 'index') {
-                    pass.geometry.index(drawn);
-                    pass.draw.indexed(drawn.count, group.count, 0, 0, group.first);
+                const indices = this.resources.bufferOf(geometry, 'indices');
+                if (indices?.subkind === 'index') {
+                    pass.geometry.index(indices);
+                    pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
                 } else {
                     // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
                     pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
@@ -427,8 +410,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
 
     /** Libera os recursos privados. */
     override dispose(): void {
-        for (const edge of this.edges.values()) this.destroyEdges(edge);
-        this.edges.clear();
         for (const spec of [
             this.frameParams,
             this.sampler,
@@ -455,10 +436,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
 
     /**
      * Prepara os pipelines do shader de cada material que entrou na cena — das entidades `ids` (as adicionadas), ou de
-     * todas — conforme a topologia do material (spec 008): triângulos com as duas orientações de face, linhas (vértices
-     * da geometria com os índices de arestas) e pontos (sprites; um pipeline por vertex buffer de geometria). Custo
-     * proporcional às entidades novas, não à cena. Material cujo pool ainda não existe fica pendente e é tentado de novo
-     * em `framePrepare`.
+     * todas — conforme a topologia do material (spec 008): triângulos com as duas orientações de face; pontos (sprites)
+     * e linhas (arame: as arestas da geometria em quads com espessura) com um pipeline por vertex buffer de geometria.
+     * Custo proporcional às entidades novas, não à cena. Material cujo pool ainda não existe fica pendente e é tentado
+     * de novo em `framePrepare`.
      */
     private prepareMaterials(ctx: Ctx, ids?: readonly EntityId[]): void {
         const renderables = ctx.bound.slots.renderables;
@@ -470,7 +451,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         for (const entry of entries) {
             const material = entry.get(Material);
             const topology = material.topology;
-            if (this.materialShader.has(material) && topology !== 'point-list') {
+            const perGeometry = topology === 'point-list' || topology === 'line-list';
+            if (this.materialShader.has(material) && !perGeometry) {
                 this.pendingMaterials.delete(entry.entityId);
                 continue;
             }
@@ -483,44 +465,43 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 continue;
             }
             this.materialShader.set(material, desc.id);
-            if (topology === 'point-list') {
-                this.preparePoints(ctx, entry.entityId, desc, entry.get(Geometry), format);
+            if (perGeometry) {
+                this.prepareGeometryPipeline(
+                    ctx,
+                    entry.entityId,
+                    desc,
+                    entry.get(Geometry),
+                    format,
+                );
                 continue;
             }
             if (this.materialPipelines.has(desc.id)) continue;
-            const variant = (suffix: string, extra: Partial<PipelineDescriptor>): string => {
+            const variant = (frontFace: GPUFrontFace): string => {
                 const descriptor: PipelineDescriptor = {
                     ...desc,
-                    id: `forward:${desc.id}:${suffix}`,
+                    id: `forward:${desc.id}:${frontFace}`,
                     topology,
+                    cullMode: topology === 'triangle-list' ? 'back' : 'none',
+                    frontFace,
                     vertexBuffers: VERTEX_LAYOUT,
                     colorTargets: [{ format }],
                     depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-                    ...extra,
                     ...(this.preferAsync ? { preferAsync: true } : {}),
                 };
                 ctx.prepare(descriptor);
                 this.pipelineFamily.set(descriptor.id, 'forward');
                 return descriptor.id;
             };
-            if (topology === 'triangle-list') {
-                this.materialPipelines.set(desc.id, {
-                    ccw: variant('ccw', { cullMode: 'back', frontFace: 'ccw' }),
-                    cw: variant('cw', { cullMode: 'back', frontFace: 'cw' }),
-                });
-            } else {
-                // Linhas e faixas: sem descarte de faces; uma variante para as duas orientações.
-                const id = variant('lines', { cullMode: 'none' });
-                this.materialPipelines.set(desc.id, { ccw: id, cw: id });
-            }
+            this.materialPipelines.set(desc.id, { ccw: variant('ccw'), cw: variant('cw') });
         }
     }
 
     /**
-     * Pipeline de sprites do material sobre a geometria da entidade: os vértices da geometria são um binding privado
-     * dele (`point_vertices`, lidos como storage). Um por (shader, vertex buffer), contado por entidade.
+     * Pipeline do material sobre a geometria da entidade (sprites ou arame): os vértices da geometria — e, no arame, as
+     * arestas dela (`wireEdges`) — são bindings privados do pipeline, lidos como storage. Um por (shader, vertex
+     * buffer), contado por entidade. O arame mistura por alfa (borda suavizada) sem escrever profundidade.
      */
-    private preparePoints(
+    private prepareGeometryPipeline(
         ctx: Ctx,
         entity: EntityId,
         desc: PipelineDescriptor,
@@ -528,126 +509,88 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         format: GPUTextureFormat,
     ): void {
         const vertices = this.resources.bufferOf(geometry, 'vertices');
-        if (vertices?.subkind !== 'vertex' || this.pointOfEntity.has(entity)) return;
-        const key = `${desc.id}|${String(this.pointKeys.get(vertices) ?? this.newPointKey(vertices))}`;
-        let pipeline = this.pointPipelines.get(key);
+        if (vertices?.subkind !== 'vertex' || this.geometryOfEntity.has(entity)) return;
+        const wire = desc.topology === 'line-list';
+        const edges = wire ? this.resources.bufferOf(geometry, 'wireEdges') : undefined;
+        if (wire && edges?.subkind !== 'index') {
+            this.warnWithoutEdges(geometry);
+            return;
+        }
+        const n = this.geometryKeys.get(vertices) ?? this.newGeometryKey(vertices);
+        const key = `${desc.id}|${n}`;
+        let pipeline = this.geometryPipelines.get(key);
         if (pipeline === undefined) {
-            const id = `forward:${desc.id}:points:${this.pointKeys.get(vertices)!}`;
-            ctx.bind({ [`${id}:point_vertices`]: vertices });
+            const id = `forward:${desc.id}:${wire ? 'wire' : 'points'}:${n}`;
+            ctx.bind(
+                wire
+                    ? {
+                          [`${id}:wire_vertices`]: vertices,
+                          [`${id}:wire_edges`]: edges! as IndexBufferSpec,
+                      }
+                    : { [`${id}:point_vertices`]: vertices },
+            );
             ctx.prepare({
                 ...desc,
                 id,
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [{ format }],
-                depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+                colorTargets: [wire ? { format, blend: ALPHA_BLEND } : { format }],
+                depth: {
+                    format: 'depth24plus',
+                    depthWriteEnabled: !wire,
+                    depthCompare: wire ? 'less-equal' : 'less',
+                },
                 ...(this.preferAsync ? { preferAsync: true } : {}),
             });
-            this.pipelineFamily.set(id, 'points');
+            this.pipelineFamily.set(id, wire ? 'wire' : 'points');
             pipeline = { id, users: 0 };
-            this.pointPipelines.set(key, pipeline);
+            this.geometryPipelines.set(key, pipeline);
         }
         pipeline.users++;
-        this.pointOfEntity.set(entity, key);
+        this.geometryOfEntity.set(entity, key);
     }
 
-    /** Número estável de um vertex buffer (nome do pipeline de sprites dele). */
-    private newPointKey(vertices: AnyBufferSpec): number {
-        const n = this.pointCounter++;
-        this.pointKeys.set(vertices, n);
+    /** Número estável de um vertex buffer (nome dos pipelines por geometria). */
+    private newGeometryKey(vertices: AnyBufferSpec): number {
+        const n = this.geometryCounter++;
+        this.geometryKeys.set(vertices, n);
         return n;
     }
 
-    /** Entidades que saíram: libera o pipeline de sprites com a última entidade que o usava. */
-    private releasePoints(ctx: Ctx, ids: readonly EntityId[]): void {
+    /** Entidades que saíram: libera o pipeline por geometria com a última entidade que o usava. */
+    private releaseGeometryPipelines(ctx: Ctx, ids: readonly EntityId[]): void {
         for (const id of ids) {
-            const key = this.pointOfEntity.get(id);
+            const key = this.geometryOfEntity.get(id);
             if (key === undefined) continue;
-            this.pointOfEntity.delete(id);
-            const pipeline = this.pointPipelines.get(key)!;
+            this.geometryOfEntity.delete(id);
+            const pipeline = this.geometryPipelines.get(key)!;
             if (--pipeline.users > 0) continue;
-            this.pointPipelines.delete(key);
+            this.geometryPipelines.delete(key);
             this.pipelineFamily.delete(pipeline.id);
             ctx.release(pipeline.id);
         }
     }
 
-    /** Pipeline do grupo: pela topologia do material, a orientação das faces e a geometria (sprites). */
+    /** Pipeline do grupo: pela topologia do material, a orientação das faces e a geometria (sprites e arame). */
     private pipelineOf(entry: EntityEntry): string | undefined {
         const material = entry.get(Material);
         const shader = this.materialShader.get(material);
         if (shader === undefined) return undefined;
-        if (material.topology === 'point-list') {
-            const key = this.pointOfEntity.get(entry.entityId);
-            return key === undefined ? undefined : this.pointPipelines.get(key)?.id;
+        const topology = material.topology;
+        if (topology === 'point-list' || topology === 'line-list') {
+            const key = this.geometryOfEntity.get(entry.entityId);
+            return key === undefined ? undefined : this.geometryPipelines.get(key)?.id;
         }
         const ids = this.materialPipelines.get(shader);
         if (ids === undefined) return undefined;
         return entry.get(Transform).mirrored ? ids.cw : ids.ccw;
     }
 
-    /**
-     * Antes da gravação: os índices de arestas dos grupos em linhas (criados para índices de triângulo novos, com o kernel
-     * pendente; liberados quando nenhum grupo os usa) e o aviso único de geometria escrita pela GPU sem escritor.
-     * Percorre os grupos (não as entidades).
-     */
-    private prepareGroups(ctx: Ctx): void {
-        const used = new Set<AnyBufferSpec>();
+    /** Antes da gravação: aviso único de geometria escrita pela GPU sem escritor (percorre os grupos, não entidades). */
+    private checkWriters(ctx: Ctx): void {
         for (const group of ctx.bound.slots.renderables.groups) {
-            const entry = group.representative;
-            const geometry = entry.get(Geometry);
-            this.warnWithoutWriter(geometry);
-            if (entry.get(Material).topology !== 'line-list') continue;
-            const indices = this.resources.bufferOf(geometry, 'indices');
-            if (indices?.subkind !== 'index') continue;
-            used.add(indices);
-            if (!this.edges.has(indices)) this.edges.set(indices, this.createEdges(indices));
+            this.warnWithoutWriter(group.representative.get(Geometry));
         }
-        for (const [indices, edge] of this.edges) {
-            if (used.has(indices)) continue;
-            this.destroyEdges(edge);
-            this.edges.delete(indices);
-        }
-    }
-
-    /** Buffer de índices de arestas (6 por triângulo, `uint32`) e o kernel que o preenche a partir dos triângulos. */
-    private createEdges(indices: IndexBufferSpec): EdgeIndex {
-        const triangles = Math.floor(indices.count / 3);
-        const n = this.edgeCounter++;
-        const buffer = this.core.create<IndexBufferSpec>({
-            kind: 'buffer',
-            subkind: 'index',
-            discriminator: `forward_edges:${n}`,
-            byteSize: Math.max(4, triangles * 6 * 4),
-            count: triangles * 6,
-            format: 'uint32',
-        });
-        const params = this.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: `forward_edge_params:${n}`,
-            byteSize: EdgeParamsSchema.stride,
-        });
-        this.core.write(
-            params,
-            EdgeParamsSchema.pack({
-                triangleCount: triangles,
-                indices16: indices.format === 'uint16' ? 1 : 0,
-            }),
-        );
-        const kernel = createComputeKernel(this.core, {
-            discriminator: `forward_edges:${n}`,
-            shader: edgesFromTriangles,
-            entryPoint: 'edges_from_triangles_main',
-            bindings: { edge_params: params, triangle_indices: indices, edge_indices: buffer },
-        });
-        return { buffer, params, kernel, triangles, pending: true };
-    }
-
-    private destroyEdges(edge: EdgeIndex): void {
-        destroyComputeKernel(this.core, edge.kernel);
-        this.core.destroy(edge.buffer);
-        this.core.destroy(edge.params);
     }
 
     /** Geometria com vértices escritos só pela GPU e sem escritor declarado: aviso único (desenhada com zeros). */
@@ -661,6 +604,17 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         console.warn(
             `[ForwardFlow] A geometria da entidade ${id ?? '?'} tem vértices escritos só pela GPU (upload 'never') e `
                 + 'nenhum estágio declara owns sobre eles: é desenhada sem conteúdo.',
+        );
+    }
+
+    /** Material de arame numa geometria sem arestas (`wireEdges`): aviso único, fora do desenho. */
+    private warnWithoutEdges(geometry: Geometry): void {
+        if (this.warnedWriter.has(geometry)) return;
+        this.warnedWriter.add(geometry);
+        const id = this.world.entityIdOfResource(geometry);
+        console.warn(
+            `[ForwardFlow] A geometria da entidade ${id ?? '?'} não declara arestas de arame (wireEdges): o material de `
+                + 'linhas não a desenha.',
         );
     }
 
@@ -684,7 +638,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
         const light = on ? lightSlot : NO_LIGHT_SLOT;
         const shadow = on ? shadowSlot : 0;
-        const key = `${cameraSlot}:${light}:${shadow}`;
+        // Tamanho do alvo em pixels: a espessura das linhas do arame é em pixels de tela.
+        const { width, height } = this.core.canvasSize() ?? { width: 1, height: 1 };
+        const key = `${cameraSlot}:${light}:${shadow}:${width}x${height}`;
         if (key === this.writtenFrame) return;
         this.core.write(
             this.frameParams,
@@ -693,6 +649,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 lightSlot: light,
                 shadowEnabled: on ? 1 : 0,
                 shadowSlot: shadow,
+                viewport: [width, height],
             }),
         );
         this.writtenFrame = key;

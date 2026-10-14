@@ -193,10 +193,14 @@ indireto.
 > **US4 e US5 (T036–T047)**: `pointCloud` verde (espiral de 10 000 pontos escrita por kernel, 0 escritas da CPU e 0
 > leituras); forward com topologia na chave do grupo, pipelines por topologia (linhas com índices de arestas gerados
 > por kernel; sprites de vértice com um pipeline por vertex buffer), draw sem índices e sombra por `castsShadow`.
-> **Decisão do usuário (2026-10-13)**: o `WireframeMaterial` mantém a aparência de sempre (triângulos, projeta sombra) —
-> desenhá-lo em linhas de 1 px piorou a qualidade; o suporte a `line-list` fica para materiais que o declararem
-> (testado com um material de linhas). Com isso as fixtures `render-*` mudam só pela caixa de `PointSpriteMaterial`
-> acrescentada à cena base (98 pixels na `forward`; até 443 nas de pós, que espalham os pixels) — commit próprio. A
+> **Arame (decisão do usuário, 2026-10-13)**: linhas de hardware (1 px, com as diagonais dos triângulos) pioraram a
+> qualidade; o `WireframeMaterial` foi refeito como no legado (`ThickWireframeShader`), na arquitetura atual: as arestas
+> são **da geometria**, em espaço de objeto (descritor `wireEdges`, índices `uint32` aos pares, alocado e deduplicado
+> pela C2) — de feição nas estáticas (vértices unidos por posição; sem as diagonais de faces planas) e topológicas na
+> `SurfaceGeometry` (deforma); o forward desenha um quad de `lineWidth` px por aresta (vertex pulling do vertex buffer
+> e das arestas, borda por `fwidth` + `smoothstep`, mistura alfa, sem escrita de profundidade); `ForwardFrameParams`
+> ganhou `viewport`. O kernel `edges_from_triangles` e as linhas de hardware saíram. As fixtures `render-*` mudam pelo
+> arame (12 arestas grossas no lugar da caixa preenchida) e pela caixa de `PointSpriteMaterial` — commit próprio. A
 > contagem indireta de pontos (R6) não foi feita: o desenho segue `activeCount` (CPU), suficiente para a FR-014/015.
 
 **Checkpoint**: topologia respeitada em forward e sombra; fixtures regravadas.

@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Geometry, type GeometryData } from './Geometry';
+import { triangleEdges } from './geometryContent';
 
 /** Dado de uma `SurfaceGeometry`. */
 export interface SurfaceGeometryData extends GeometryData {
@@ -90,7 +91,14 @@ export class SurfaceGeometry extends Geometry<SurfaceGeometryData> {
             vertices[v * 8 + 6] = uvs?.[v * 2] ?? 0;
             vertices[v * 8 + 7] = uvs?.[v * 2 + 1] ?? 0;
         }
-        this.data = { vertices, indices, adjacency, vertexCount: n, indexCount: indices.length };
+        this.data = {
+            vertices,
+            indices,
+            adjacency,
+            vertexCount: n,
+            indexCount: indices.length,
+            wireEdges: triangleEdges(indices),
+        };
     }
 
     /** Número de triângulos. */
@@ -128,6 +136,7 @@ export class SurfaceGeometry extends Geometry<SurfaceGeometryData> {
                 schema: SurfaceGeometry.adjacencySchema,
                 count: this.data.adjacency.length,
             },
+            ...this.wireDescriptors(),
         ];
     }
 }

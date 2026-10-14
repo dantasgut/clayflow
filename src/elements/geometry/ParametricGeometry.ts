@@ -49,7 +49,7 @@ export class ParametricGeometry extends Geometry<ParametricGeometryData> {
         const vSteps = (values.vSteps ?? 32) as number;
         // Mesma função (identidade) e mesma subdivisão → mesmos arrays.
         const key = `ParametricGeometry:fn${functionId(fn)}:${uSteps}x${vSteps}`;
-        const { vertices, indices } = sharedContent(key, () => {
+        const { vertices, indices, wireEdges } = sharedContent(key, () => {
             const sampled = sample(fn, uSteps, vSteps);
             return {
                 vertices: sampled.vertices,
@@ -63,6 +63,7 @@ export class ParametricGeometry extends Geometry<ParametricGeometryData> {
             indices,
             vertexCount: vertices.length / 8,
             indexCount: indices.length,
+            wireEdges,
         };
     }
 
@@ -76,6 +77,7 @@ export class ParametricGeometry extends Geometry<ParametricGeometryData> {
                 count: this.data.vertexCount,
             },
             { id: 'indices', role: 'index', count: this.data.indexCount },
+            ...this.wireDescriptors(),
         ];
     }
 

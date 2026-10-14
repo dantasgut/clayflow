@@ -11,6 +11,7 @@ import { World } from '../../world/World';
 import { StandardMaterial } from '../../../elements/material/StandardMaterial';
 import { fakeSceneCore } from '../helpers/fakeSceneCore';
 import { WireframeMaterial } from '../../../elements/material/WireframeMaterial';
+import { TintMaterial } from '../../../presentation/flows/__tests__/helpers/tintMaterial';
 import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { Camera } from '../../../elements/scene/Camera';
 import { Transform } from '../../../elements/scene/Transform';
@@ -61,15 +62,15 @@ describe('material em pool de storage', () => {
         expect(s.scene.resourceSystem.poolSlotOf(StandardMaterial.schema.name, id)).toBeDefined();
         const before = s.draws('ForwardFlow')[0]!;
         s.scene.world.remove(standard);
-        const wireframe = new BoxGeometry().add(new WireframeMaterial()).add(new Transform());
+        const wireframe = new BoxGeometry().add(new TintMaterial()).add(new Transform());
         const id2 = s.scene.world.insert(wireframe);
         s.step();
         expect(s.scene.resourceSystem.poolSlotOf(StandardMaterial.schema.name, id)).toBeUndefined();
-        expect(s.scene.resourceSystem.poolSlotOf(WireframeMaterial.schema.name, id2)).toBeDefined();
+        expect(s.scene.resourceSystem.poolSlotOf(TintMaterial.schema.name, id2)).toBeDefined();
         const [after] = s.draws('ForwardFlow');
         expect(after!.pipeline).not.toBe(before.pipeline);
         expect(after!.bindGroups.get(2)!.group.bindings[0]).toMatchObject({
-            buffer: s.scene.resourceSystem.poolBufferSpec(WireframeMaterial.schema.name),
+            buffer: s.scene.resourceSystem.poolBufferSpec(TintMaterial.schema.name),
         });
     });
 });

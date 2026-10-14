@@ -3,6 +3,7 @@ import { brdf } from '../gpu/shaders/math';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
 import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
 import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
+import wireSource from '../gpu/wgsl/wire.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
@@ -11,6 +12,7 @@ import { Light } from '../scene/Light';
 import { ShadowMap } from '../scene/ShadowMap';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
+import { WireframeMaterialSchema } from './WireframeMaterialSchema';
 
 /** Shader do desenho forward (vértice + fragmento), usado pelos materiais padrão. */
 export const forward = wgslModule({
@@ -63,5 +65,22 @@ export const pointSprite = wgslModule({
         PointSpriteMaterialSchema,
         ForwardFrameParamsSchema,
         Light.schema,
+    ],
+});
+
+/**
+ * Arame com espessura (spec 008): as arestas da geometria (`wireEdges`, espaço de objeto) viram quads de `lineWidth`
+ * pixels na tela, com borda suavizada — o desenho de `WireframeMaterial`.
+ */
+export const wire = wgslModule({
+    name: 'wire',
+    source: wireSource,
+    structs: [
+        Camera.matricesSchema,
+        Transform.worldSchema,
+        RenderableSchema,
+        RenderInstanceSchema,
+        WireframeMaterialSchema,
+        ForwardFrameParamsSchema,
     ],
 });

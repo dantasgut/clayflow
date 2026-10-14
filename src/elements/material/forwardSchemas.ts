@@ -13,6 +13,8 @@ export const ForwardFrameParamsSchema = new StructSchema(
         lightSlot: FieldType.u32,
         shadowEnabled: FieldType.f32,
         shadowSlot: FieldType.u32,
+        /** Tamanho do alvo em pixels (espessura de linhas do arame, spec 008). */
+        viewport: FieldType.vec2f,
     },
     { addressSpace: 'uniform' },
 );

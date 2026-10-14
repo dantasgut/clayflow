@@ -15,6 +15,11 @@ const MAX_UINT16_VERTICES = 65_535;
 export interface GeometryData {
     vertices?: Float32Array;
     indices?: Uint16Array | Uint32Array;
+    /**
+     * Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
+     * (de feição nas geometrias estáticas: sem as diagonais de faces planas).
+     */
+    wireEdges?: Uint32Array;
 }
 
 /**
@@ -45,6 +50,16 @@ export abstract class Geometry<TData extends GeometryData = GeometryData>
         if (!(vertices instanceof Float32Array)) return undefined;
         if (!(indices instanceof Uint16Array || indices instanceof Uint32Array)) return undefined;
         return contentKeyOf(vertices, indices);
+    }
+
+    /**
+     * Descritor das arestas de arame (`data.wireEdges`, índices `uint32` aos pares; spec 008): alocado e deduplicado pela
+     * C2 como os índices. Vazio sem arestas. Subclasses o acrescentam aos seus descritores.
+     */
+    protected wireDescriptors(): GPUDescriptor[] {
+        const edges = this.data.wireEdges;
+        if (edges === undefined || edges.length === 0) return [];
+        return [{ id: 'wireEdges', role: 'index', count: edges.length, indexFormat: 'uint32' }];
     }
 
     /** Número de vértices na geometria — usado para `pass.draw(count)`. */
