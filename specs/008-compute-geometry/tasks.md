@@ -50,7 +50,7 @@ quickstart.md
 > `PointCloudGeometry` com material e `Transform` entra num grupo e o draw é pulado (sem `vertices`/`indices`) — 0
 > draws. A diferença de imagem da topologia (T004) é medida na própria regravação das fixtures (T047).
 
-- [ ] T004 [P] Medir a diferença de imagem esperada da topologia: rodar o smoke `render` com a caixa de arame desenhada como linhas num build local descartável e registrar abaixo deste item quantos pixels mudam por cena (só a região da caixa) — base para a descrição do commit da T047; o build descartável não é comitado
+- [x] T004 [P] Medir a diferença de imagem esperada da topologia: rodar o smoke `render` com a caixa de arame desenhada como linhas num build local descartável e registrar abaixo deste item quantos pixels mudam por cena (só a região da caixa) — base para a descrição do commit da T047; o build descartável não é comitado
 
 **Checkpoint**: números de hoje e diferença de imagem esperada registrados.
 
@@ -166,9 +166,9 @@ indireto.
 
 **Independent Test**: smoke `pointCloud` com espiral de 10 000 pontos escrita por kernel.
 
-- [ ] T036 [P] [US4] Testes em `src/presentation/flows/__tests__/gpuGeometry.forward.test.ts`: geometria sem índices → `draw.vertices(vertexCount, instâncias)`; `PointCloudGeometry` com `activeCount` → contagem desenhada; com contagem indireta declarada pelo escritor → `draw.indirect`; geometria `'never'` fora da dedup; sombra idem
-- [ ] T037 [US4] `PointCloudGeometry` em `src/elements/geometry/PointCloudGeometry.ts`: `vertices` `role:'vertex'` `'never'` no layout de 32 B, `count: maxPoints`, `activeCount`, contagem indireta opcional (descritor `indirect` `'never'`); `ForwardFlow`/`ShadowFlow` com draw não indexado e indireto (`src/presentation/flows/`)
-- [ ] T038 [US4] Smoke `src/__smokes__/pointCloud.ts`: estágio de teste (no próprio smoke, declarado com `owns: [[PointCloudGeometry, 'vertices']]`) escreve uma espiral animada de 10 000 pontos por kernel; `PointSpriteMaterial`; referência e movimento; 0 envios da CPU para a geometria por quadro
+- [x] T036 [P] [US4] Testes em `src/presentation/flows/__tests__/gpuGeometry.forward.test.ts`: geometria sem índices → `draw.vertices(vertexCount, instâncias)`; `PointCloudGeometry` com `activeCount` → contagem desenhada; com contagem indireta declarada pelo escritor → `draw.indirect`; geometria `'never'` fora da dedup; sombra idem
+- [x] T037 [US4] `PointCloudGeometry` em `src/elements/geometry/PointCloudGeometry.ts`: `vertices` `role:'vertex'` `'never'` no layout de 32 B, `count: maxPoints`, `activeCount`, contagem indireta opcional (descritor `indirect` `'never'`); `ForwardFlow`/`ShadowFlow` com draw não indexado e indireto (`src/presentation/flows/`)
+- [x] T038 [US4] Smoke `src/__smokes__/pointCloud.ts`: estágio de teste (no próprio smoke, declarado com `owns: [[PointCloudGeometry, 'vertices']]`) escreve uma espiral animada de 10 000 pontos por kernel; `PointSpriteMaterial`; referência e movimento; 0 envios da CPU para a geometria por quadro
 
 **Checkpoint**: geometria produzida pela GPU desenhada pelo forward.
 
@@ -180,15 +180,24 @@ indireto.
 
 **Independent Test**: caixa com cada material; arestas, sprites, faces; grupos de draw por topologia.
 
-- [ ] T039 [P] [US5] Testes em `src/elements/material/__tests__/topology.test.ts`: `Material.topology` do descritor de pipeline; `castsShadow` padrão (triângulos `true`, linhas e pontos `false`) e opção no construtor
-- [ ] T040 [US5] Implementar `topology`/`castsShadow` em `src/elements/material/Material.ts` e nos três materiais
-- [ ] T041 [P] [US5] Testes de grupos em `src/presentation/flows/__tests__/RenderGroups.test.ts` e `ForwardFlow.perEntity.test.ts` (atualizar): chave com topologia; mesma geometria com dois materiais de topologia diferente → dois grupos; pipeline com a topologia do material e `cullMode` só em triângulos; sombra só de materiais com `castsShadow` (`[10, 10]` no caso standard + wireframe)
-- [ ] T042 [US5] Forward com topologia em `src/presentation/flows/ForwardFlow.ts`: chave, pipeline por topologia, `cullMode`; linhas com índice de arestas privado por geometria
-- [ ] T043 [P] [US5] Testes do kernel de arestas em `src/presentation/flows/__tests__/edgeIndices.test.ts`: índice de arestas criado na entrada do grupo de linhas (6·T índices `uint32`), um por chave de conteúdo, refeito no `resourceReady` da geometria, liberado com o último grupo
-- [ ] T044 [US5] Kernel `edges_from_triangles.wgsl` em `src/elements/gpu/wgsl/kernels/` e o despacho no `ForwardFlow` (fase do forward, antes do passe, só quando o índice é criado ou refeito)
-- [ ] T045 [US5] Sprites de vértice no forward: pipeline de sprite para `point-list` (sem vertex buffers, posição do vertex buffer da geometria lida como storage, `draw.vertices(6 · vertexCount, group.count)`, `vertex_index / 6` = vértice) em `src/presentation/flows/ForwardFlow.ts` e shader `point_sprite` (compartilhando o fragment do `particle_sprite`)
-- [ ] T046 [US5] `ShadowFlow` com `Material` no conjunto e grupos só de `castsShadow` em `src/presentation/flows/ShadowFlow.ts`
-- [ ] T047 [US5] Regravar as 10 fixtures `src/__smokes__/fixtures/render-*-apple-metal-3.png` com `npm run smoke -- render --record` num commit próprio; descrever no commit a diferença por cena (só a região da caixa de arame: faces → arestas; contagem de pixels da T004) e marcar para aprovação no PR; acrescentar ao smoke `render` uma caixa com `PointSpriteMaterial` (8 sprites)
+- [x] T039 [P] [US5] Testes em `src/elements/material/__tests__/topology.test.ts`: `Material.topology` do descritor de pipeline; `castsShadow` padrão (triângulos `true`, linhas e pontos `false`) e opção no construtor
+- [x] T040 [US5] Implementar `topology`/`castsShadow` em `src/elements/material/Material.ts` e nos três materiais
+- [x] T041 [P] [US5] Testes de grupos em `src/presentation/flows/__tests__/RenderGroups.test.ts` e `ForwardFlow.perEntity.test.ts` (atualizar): chave com topologia; mesma geometria com dois materiais de topologia diferente → dois grupos; pipeline com a topologia do material e `cullMode` só em triângulos; sombra só de materiais com `castsShadow` (`[10, 10]` no caso standard + wireframe)
+- [x] T042 [US5] Forward com topologia em `src/presentation/flows/ForwardFlow.ts`: chave, pipeline por topologia, `cullMode`; linhas com índice de arestas privado por geometria
+- [x] T043 [P] [US5] Testes do kernel de arestas em `src/presentation/flows/__tests__/edgeIndices.test.ts`: índice de arestas criado na entrada do grupo de linhas (6·T índices `uint32`), um por chave de conteúdo, refeito no `resourceReady` da geometria, liberado com o último grupo
+- [x] T044 [US5] Kernel `edges_from_triangles.wgsl` em `src/elements/gpu/wgsl/kernels/` e o despacho no `ForwardFlow` (fase do forward, antes do passe, só quando o índice é criado ou refeito)
+- [x] T045 [US5] Sprites de vértice no forward: pipeline de sprite para `point-list` (sem vertex buffers, posição do vertex buffer da geometria lida como storage, `draw.vertices(6 · vertexCount, group.count)`, `vertex_index / 6` = vértice) em `src/presentation/flows/ForwardFlow.ts` e shader `point_sprite` (compartilhando o fragment do `particle_sprite`)
+- [x] T046 [US5] `ShadowFlow` com `Material` no conjunto e grupos só de `castsShadow` em `src/presentation/flows/ShadowFlow.ts`
+- [x] T047 [US5] Regravar as 10 fixtures `src/__smokes__/fixtures/render-*-apple-metal-3.png` com `npm run smoke -- render --record` num commit próprio; descrever no commit a diferença por cena (só a região da caixa de arame: faces → arestas; contagem de pixels da T004) e marcar para aprovação no PR; acrescentar ao smoke `render` uma caixa com `PointSpriteMaterial` (8 sprites)
+
+> **US4 e US5 (T036–T047)**: `pointCloud` verde (espiral de 10 000 pontos escrita por kernel, 0 escritas da CPU e 0
+> leituras); forward com topologia na chave do grupo, pipelines por topologia (linhas com índices de arestas gerados
+> por kernel; sprites de vértice com um pipeline por vertex buffer), draw sem índices e sombra por `castsShadow`.
+> **Decisão do usuário (2026-10-13)**: o `WireframeMaterial` mantém a aparência de sempre (triângulos, projeta sombra) —
+> desenhá-lo em linhas de 1 px piorou a qualidade; o suporte a `line-list` fica para materiais que o declararem
+> (testado com um material de linhas). Com isso as fixtures `render-*` mudam só pela caixa de `PointSpriteMaterial`
+> acrescentada à cena base (98 pixels na `forward`; até 443 nas de pós, que espalham os pixels) — commit próprio. A
+> contagem indireta de pontos (R6) não foi feita: o desenho segue `activeCount` (CPU), suficiente para a FR-014/015.
 
 **Checkpoint**: topologia respeitada em forward e sombra; fixtures regravadas.
 

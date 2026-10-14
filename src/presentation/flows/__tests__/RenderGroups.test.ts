@@ -8,11 +8,13 @@ import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { SphereGeometry } from '../../../elements/geometry/SphereGeometry';
 import { StandardMaterial } from '../../../elements/material/StandardMaterial';
 import { WireframeMaterial } from '../../../elements/material/WireframeMaterial';
+import { PointSpriteMaterial } from '../../../elements/material/PointSpriteMaterial';
+import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Camera } from '../../../elements/scene/Camera';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
 import { Geometry } from '../../../elements/geometry/Geometry';
-import { registerStages, renderScene, type DrawCall } from './helpers/renderHarness';
+import { discOf, registerStages, renderScene, type DrawCall } from './helpers/renderHarness';
 
 async function scene() {
     const s = await renderScene();
@@ -24,6 +26,66 @@ async function scene() {
 
 const instances = (draws: readonly DrawCall[]) => draws.map((d) => d.instanceCount);
 const total = (draws: readonly DrawCall[]) => draws.reduce((n, d) => n + d.instanceCount, 0);
+
+/** Material de linhas (topologia `line-list`): as arestas da geometria. */
+class LineMaterial extends WireframeMaterial {
+    override getPipelineDescriptors(): readonly PipelineDescriptor[] {
+        return [
+            { ...super.getPipelineDescriptors()[0]!, id: 'pipeline_lines', topology: 'line-list' },
+        ];
+    }
+}
+
+describe('topologia do material (spec 008)', () => {
+    it('cada material desenha a sua topologia: triângulos, arestas e sprites; grupos por topologia', async () => {
+        const s = await scene();
+        s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
+        s.scene.world.insert(new BoxGeometry().add(new LineMaterial()).add(new Transform()));
+        s.scene.world.insert(new BoxGeometry().add(new PointSpriteMaterial()).add(new Transform()));
+        s.step();
+        const passes = s.step();
+        const forward = passes.find((p) => p.label === 'ForwardFlow')!;
+        const topologies = forward.draws.map((d) => [d.pipeline.primitive?.topology, d.indexCount]);
+        // Caixa: 36 índices de triângulo; arestas: 6 por triângulo (12 triângulos).
+        expect(topologies).toEqual([
+            ['triangle-list', 36],
+            ['line-list', 72],
+        ]);
+        expect(forward.draws[1]!.pipeline.primitive?.cullMode).toBe('none');
+        // Sprites: 6 vértices por vértice da caixa (24), sem vertex buffer.
+        expect(forward.vertexDraws.map((d) => [d.indexCount, d.instanceCount])).toEqual([[144, 1]]);
+        // Sombra: só a caixa de triângulos.
+        expect(instances(s.draws('ShadowFlow'))).toEqual([1]);
+    });
+
+    it('o índice de arestas é gerado por kernel uma vez por geometria e liberado com o último grupo de linhas', async () => {
+        const s = await scene();
+        const a = new BoxGeometry().add(new LineMaterial()).add(new Transform());
+        const b = new BoxGeometry()
+            .add(new LineMaterial())
+            .add(new Transform({ position: [2, 0, 0, 1] }));
+        s.scene.world.insert(a);
+        s.scene.world.insert(b);
+        s.step();
+        expect(s.computes().filter((c) => c === 'ForwardFlow.edges')).toHaveLength(1);
+        s.step();
+        expect(s.computes().filter((c) => c === 'ForwardFlow.edges')).toHaveLength(0);
+        s.resetCounts();
+        s.scene.world.remove(a);
+        s.scene.world.remove(b);
+        s.step();
+        expect(s.destroys().some((d) => discOf(d).startsWith('forward_edges'))).toBe(true);
+    });
+
+    it('castsShadow do material vale sobre a topologia', async () => {
+        const s = await scene();
+        const wire = new LineMaterial();
+        wire.castsShadow = true;
+        s.scene.world.insert(new BoxGeometry().add(wire).add(new Transform()));
+        s.step();
+        expect(instances(s.draws('ShadowFlow'))).toEqual([1]);
+    });
+});
 
 describe('desenho por grupo de instâncias (spec 007)', () => {
     it('forward: 2 geometrias × 2 shaders = 4 desenhos; sombra: 2 geometrias = 2 desenhos', async () => {

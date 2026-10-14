@@ -1,55 +1,82 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
-import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Geometry, type GeometryData } from './Geometry';
 
 /** Dado de uma `PointCloudGeometry`. */
 export interface PointCloudGeometryData extends GeometryData {
-    vertexCount: number;
-    indexCount: number;
-    maxParticles: number;
+    /** Pontos que cabem no buffer. */
+    maxPoints: number;
+    /** Pontos desenhados (os primeiros do buffer). */
+    activeCount: number;
+}
+
+/** Valores do construtor de uma `PointCloudGeometry`. */
+export interface PointCloudGeometryValues {
+    /** Capacidade de pontos. Default 1024. */
+    readonly maxPoints?: number;
+    /** Pontos desenhados. Default: todos. */
+    readonly activeCount?: number;
 }
 
 /**
- * Point cloud — array de pontos como geometry. Cada ponto tem position +
- * normal (para shading point-sprite). Usado por particle systems e
- * scientific visualization.
+ * Nuvem de pontos escrita pela GPU (spec 008, R6): um vertex buffer de `maxPoints` vértices (posição, normal, uv; o
+ * layout do forward) que **só a GPU escreve** (`upload: 'never'`) — por um estágio que declara a posse dele
+ * (`slot.entities({ owns: [[PointCloudGeometry, 'vertices']] })`). Com `PointSpriteMaterial` cada ponto vira um sprite;
+ * com material de triângulos ou linhas, os vértices são desenhados sem índices. Desenha os `activeCount` primeiros
+ * (mutável: o desenho segue o valor do quadro). Própria da entidade (fora da deduplicação).
  */
 export class PointCloudGeometry extends Geometry<PointCloudGeometryData> {
-    /** StructSchema do ponto (position + normal, 32 bytes). */
-    static readonly schema = new StructSchema('PointCloudPoint', {
-        position: FieldType.vec4f,
-        normal: FieldType.vec4f,
+    /** Layout do ponto (o do forward: posição, normal, uv; 32 bytes). */
+    static readonly vertexStruct = new StructSchema('PointCloudVertex', {
+        position: FieldType.vec3f,
+        normal: FieldType.vec3f,
+        uv: FieldType.vec2f,
     });
 
-    constructor(values: Record<string, unknown> = {}) {
+    /** @throws RangeError com capacidade não positiva ou `activeCount` fora de `[0, maxPoints]`. */
+    constructor(values: PointCloudGeometryValues = {}) {
         super();
-        const max = (values.maxParticles ?? 1024) as number;
-        this.data = { maxParticles: max, vertexCount: max, indexCount: 0 };
+        const maxPoints = values.maxPoints ?? 1024;
+        const activeCount = values.activeCount ?? maxPoints;
+        if (!Number.isInteger(maxPoints) || maxPoints < 1) {
+            throw new RangeError(
+                `PointCloudGeometry: maxPoints deve ser inteiro ≥ 1 (recebeu ${maxPoints}).`,
+            );
+        }
+        if (!Number.isInteger(activeCount) || activeCount < 0 || activeCount > maxPoints) {
+            throw new RangeError(
+                `PointCloudGeometry: activeCount ${activeCount} fora de [0, ${maxPoints}].`,
+            );
+        }
+        this.data = { maxPoints, activeCount };
     }
 
+    /** Vértices escritos só pela GPU. */
     override getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
-                id: 'points',
-                role: 'storage-rw',
-                schema: PointCloudGeometry.schema,
-                count: this.data.maxParticles,
+                id: 'vertices',
+                role: 'vertex',
+                schema: PointCloudGeometry.vertexStruct,
+                count: this.data.maxPoints,
+                upload: 'never',
             },
         ];
     }
 
-    override getPipelineDescriptors(): readonly PipelineDescriptor[] {
-        return [];
+    /** Pontos desenhados (`activeCount`). */
+    get vertexCount(): number {
+        return this.data.activeCount;
     }
 
-    /** Número de pontos no buffer (sempre = `maxParticles`). */
-    get vertexCount(): number {
-        return this.data.vertexCount;
-    }
-    /** Point clouds não usam index buffer — sempre 0. */
+    /** Sem índices. */
     get indexCount(): number {
         return 0;
+    }
+
+    /** Própria da entidade: fora da deduplicação por conteúdo. */
+    override get contentKey(): string | undefined {
+        return undefined;
     }
 }

@@ -1,7 +1,8 @@
 // Spec 005 — Smoke de imagem (FR-041): a imagem renderizada não muda com a migração dos shaders.
 //
 // Três cenas determinísticas cobrem todos os shaders de render: (1) `forward` — chão, caixa e esfera com
-// `StandardMaterial`, caixa com `WireframeMaterial`, luz direcional com sombra (forward + shadow_depth); (2) `post` — a
+// `StandardMaterial`, caixa com `WireframeMaterial` (arestas, spec 008), caixa com `PointSpriteMaterial` (sprites nos
+// vértices), luz direcional com sombra (forward + shadow_depth); (2) `post` — a
 // mesma cena com toda a cadeia de pós-processamento (bloom, blur, aberração cromática, color grading, FXAA, SSAO,
 // tone mapping, vinheta); (3) `ui` — a cena com painéis de UI por cima. Cada cena desenha um quadro por `app.step`, o
 // canvas é lido por um canvas 2D e os pixels comparados com a fixture PNG (igualdade exata).
@@ -20,6 +21,7 @@ import {
     DirectionalLight,
     Fxaa,
     PlaneGeometry,
+    PointSpriteMaterial,
     SphereGeometry,
     Ssao,
     StandardMaterial,
@@ -88,6 +90,12 @@ function baseScene(app: Application): void {
     wire.add(new WireframeMaterial({ color: [0.1, 0.9, 0.3, 1] }));
     wire.add(new Transform({ position: [0, 0.6, -1.2, 1] }));
     app.world.insert(wire);
+
+    // Spec 008: sprites nos vértices de uma caixa (8 cantos; cada canto tem 3 vértices sobrepostos).
+    const dots = new BoxGeometry({ size: [0.6, 0.6, 0.6] });
+    dots.add(new PointSpriteMaterial({ color: [0.95, 0.85, 0.2, 1], radius: 0.06 }));
+    dots.add(new Transform({ position: [1.6, 1.1, -1.0, 1] }));
+    app.world.insert(dots);
 }
 
 const SCENES: readonly RenderScene[] = [

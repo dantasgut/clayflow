@@ -2,6 +2,7 @@ import { wgslModule } from '../../scene/shaders/WgslModule';
 import { brdf } from '../gpu/shaders/math';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
 import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
+import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
@@ -43,5 +44,24 @@ export const particleSprite = wgslModule({
         PointSpriteMaterialSchema,
         ForwardFrameParamsSchema,
         ParticleDrawParamsSchema,
+    ],
+});
+
+/**
+ * Sprites nos vértices de uma geometria (spec 008): o desenho forward de `PointSpriteMaterial` — quad por vértice com a
+ * posição lida do vertex buffer da geometria como storage, entidade pela instância (registro `Renderable`).
+ */
+export const pointSprite = wgslModule({
+    name: 'point_sprite',
+    source: pointSpriteSource,
+    requires: [brdf],
+    structs: [
+        Camera.matricesSchema,
+        Transform.worldSchema,
+        RenderableSchema,
+        RenderInstanceSchema,
+        PointSpriteMaterialSchema,
+        ForwardFrameParamsSchema,
+        Light.schema,
     ],
 });

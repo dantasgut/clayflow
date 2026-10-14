@@ -14,7 +14,11 @@ export interface WireframeMaterialData {
     _pad1: number;
 }
 
-/** Material wireframe — desenha as edges das primitivas (topology line-list). */
+/**
+ * Material de cor sólida sem iluminação de rugosidade (`roughness` 1, `metallic` 0), desenhado como triângulos — a
+ * aparência que o motor sempre teve para ele. Para desenhar só as arestas, use um material com topologia `line-list`
+ * (o forward gera os índices de arestas na GPU, spec 008).
+ */
 export class WireframeMaterial extends Material<WireframeMaterialData> {
     /** StructSchema do WireframeMaterial (color + roughness + metallic). */
     static readonly schema = new StructSchema('WireframeMaterial', {
@@ -61,7 +65,7 @@ export class WireframeMaterial extends Material<WireframeMaterialData> {
                     'RenderInstance',
                     { name: WireframeMaterial.schema.name, as: 'StandardMaterial' },
                 ],
-                topology: 'line-list',
+                topology: 'triangle-list',
             },
         ];
     }

@@ -1,7 +1,7 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
-import { forward } from './shaders';
+import { pointSprite } from './shaders';
 import { Material } from './Material';
 
 /** Dado de um `PointSpriteMaterial` (layout de `PointSpriteMaterial.schema`). */
@@ -49,14 +49,14 @@ export class PointSpriteMaterial extends Material<PointSpriteMaterialData> {
             {
                 id: 'pipeline_pointsprite',
                 role: 'render',
-                shader: forward,
+                shader: pointSprite,
                 entryPoints: ['vs_main', 'fs_main'],
                 consumes: [
                     'CameraMatrices',
                     'WorldTransform',
                     'Renderable',
                     'RenderInstance',
-                    { name: PointSpriteMaterial.schema.name, as: 'StandardMaterial' },
+                    PointSpriteMaterial.schema.name,
                 ],
                 topology: 'point-list',
             },

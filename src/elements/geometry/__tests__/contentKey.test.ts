@@ -67,6 +67,6 @@ describe('chave de conteúdo das geometrias (spec 007)', () => {
     });
 
     it('nuvem de pontos não tem chave (dado produzido na GPU, sempre próprio)', () => {
-        expect(new PointCloudGeometry({ maxParticles: 16 }).contentKey).toBeUndefined();
+        expect(new PointCloudGeometry({ maxPoints: 16 }).contentKey).toBeUndefined();
     });
 });
