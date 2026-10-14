@@ -67,7 +67,8 @@ fn akinci_cohesion(r: f32, H: f32) -> f32 {
 }
 
 // Aceleração de tensão superficial de i por j: coesão (−γ mⱼ C(r) r̂) + curvatura (−γ (nᵢ − nⱼ)), com a correção
-// Kᵢⱼ = 2ρ₀ / (ρᵢ + ρⱼ) que reforça a borda (menos vizinhos) sem aglomerar. `xij` = xᵢ − xⱼ, `r` = |xij| > 0.
+// Kᵢⱼ = 2ρ₀ / (ρᵢ + ρⱼ) que reforça a borda (menos vizinhos) sem aglomerar — limitada a 2 (ρᵢ + ρⱼ ≥ ρ₀): entre
+// partículas soltas a densidade cai à auto-contribuição e o fator sem limite as arremessaria. `xij` = xᵢ − xⱼ, r > 0.
 fn akinci_pair_accel(
     xij: vec3f,
     r: f32,
@@ -80,9 +81,7 @@ fn akinci_pair_accel(
     n_i: vec3f,
     n_j: vec3f,
 ) -> vec3f {
-    let rho_sum = rho_i + rho_j;
-    if (rho_sum <= 0.0) { return vec3f(0.0); }
-    let k_ij = 2.0 * rho0 / rho_sum;
+    let k_ij = 2.0 * rho0 / max(rho_i + rho_j, rho0);
     let cohesion = -gamma * mass_j * akinci_cohesion(r, H) * (xij / r);
     let curvature = -gamma * (n_i - n_j);
     return k_ij * (cohesion + curvature);

@@ -1,5 +1,6 @@
-// Normais de superfície do SPH para a tensão superficial de Akinci (spec 030): nᵢ = H Σⱼ (m/ρⱼ) ∇W(xᵢ − xⱼ), com H = 2h
-// (suporte da spline cúbica). No miolo do fluido a soma se anula; na borda aponta para fora. Gravado só com coesão > 0.
+// Normais de superfície do SPH para a tensão superficial de Akinci (spec 030): nᵢ = H Σⱼ (m/ρ₀) ∇W(xᵢ − xⱼ), com H = 2h
+// (suporte da spline cúbica). No miolo do fluido a soma se anula; na borda aponta para fora. O volume é o de repouso
+// (m/ρ₀), não m/ρⱼ: numa partícula solta ρⱼ cai à auto-contribuição e a normal explodiria. Gravado só com coesão > 0.
 @group(0) @binding(0) var<uniform>             sph_params:     SPHSimParams;
 @group(1) @binding(0) var<storage, read_write> particles:      array<SPHParticle>;
 @group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
@@ -18,17 +19,15 @@ fn sph_normals_main(
     if (i >= sph_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 
     let h    = sph_params.h;
-    let mass = sph_params.particle_mass;
+    let volume = sph_params.particle_mass / sph_params.rest_density;
     let xi   = particles[i].pos.xyz;
     let nb_n = neighbor_count[i];
 
     var n = vec3f(0.0);
     for (var k: u32 = 0u; k < nb_n && k < sph_params.max_neighbors; k++) {
         let j     = neighbor_list[k * sph_params.neighbor_stride + i];
-        let rho_j = particles[j].pos.w;
-        if (rho_j <= 0.001) { continue; }
         let r_vec = xi - particles[j].pos.xyz;
-        n += (mass / rho_j) * grad_W_cubic(r_vec, length(r_vec), h);
+        n += grad_W_cubic(r_vec, length(r_vec), h);
     }
-    sph_normal[i] = vec4f(sph_params.support * n, 0.0);
+    sph_normal[i] = vec4f(sph_params.support * volume * n, 0.0);
 }

@@ -192,10 +192,10 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
      * isolada arredondada em 3 s, filete que se parte em gotas). Não é a tensão física de 0,072 N/m — nessa escala, ela
      * seria invisível.
      */
-    static readonly WATER_COHESION = 1;
+    static readonly WATER_COHESION = 3;
 
     /** Adesão de referência da água (calibrada pelo smoke `fluidBehavior`: menisco junto à parede). */
-    static readonly WATER_ADHESION = 1;
+    static readonly WATER_ADHESION = 8;
 
     /** Material padrão (usado quando o World não tem um). */
     static readonly defaults = new ParticleMaterial();
