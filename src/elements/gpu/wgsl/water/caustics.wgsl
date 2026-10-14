@@ -1,8 +1,8 @@
 // Cáusticas por fótons em espaço da luz (spec 017, research R7): um fóton por texel da superfície de água vista pela
 // luz é refratado pela normal da superfície, segue até o receptor (o mapa de sombra: fundo e objetos submersos) por
-// iteração de ponto fixo e deposita a energia transmitida (Fresnel × absorção no percurso) nos 4 texels vizinhos do
-// ponto de chegada, em ponto fixo (`atomicAdd`): a soma inteira não depende da ordem — imagem determinística. A
-// resolução converte para o fator de transmissão da luz (rgb) com um borrão em tenda 5×5. Espaço métrico da luz: NDC da
+// iteração de ponto fixo e deposita a energia transmitida (Fresnel × absorção no percurso) em volta do ponto de
+// chegada (B-spline quadrático 3×3), em ponto fixo (`atomicAdd`): a soma inteira não depende da ordem — imagem determinística. A
+// resolução converte para o fator de transmissão da luz (rgb) com um borrão em tenda 3×3. Espaço métrico da luz: NDC da
 // matriz da água (`WaterLightMatrix`, ajustada à água) dividido pela escala de cada eixo; os receptores vêm do mapa de
 // sombra da cena pela matriz dele. Structs `ShadowMatrix`, `WaterLightMatrix`, `FluidSurfaceMaterial` e
 // `CausticParams` gerados dos schemas.
@@ -50,10 +50,20 @@ fn caustic_receiver(xy: vec2f, m: mat4x4f, scale: vec3f) -> f32 {
     let c = s * vec4f(q, 1.0);
     let uv = vec2f(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
     if (any(uv < vec2f(0.0)) || any(uv >= vec2f(1.0))) { return 2.0 * CAUSTIC_NO_DEPTH; }
+    // Bilinear: o mapa de sombra da cena é grosso (centímetros) e, lido no texel mais próximo, um fundo inclinado em
+    // relação à luz vira degraus — que a refração transforma em estrias.
     let dims = vec2i(textureDimensions(caustic_shadow));
-    let t = clamp(vec2i(uv * vec2f(dims)), vec2i(0), dims - 1);
+    let f = uv * vec2f(dims) - 0.5;
+    let b = vec2i(floor(f));
+    let w = f - floor(f);
+    let hi = dims - 1;
+    let d00 = textureLoad(caustic_shadow, clamp(b, vec2i(0), hi), 0);
+    let d10 = textureLoad(caustic_shadow, clamp(b + vec2i(1, 0), vec2i(0), hi), 0);
+    let d01 = textureLoad(caustic_shadow, clamp(b + vec2i(0, 1), vec2i(0), hi), 0);
+    let d11 = textureLoad(caustic_shadow, clamp(b + vec2i(1, 1), vec2i(0), hi), 0);
+    let depth = mix(mix(d00, d10, w.x), mix(d01, d11, w.x), w.y);
     let sz = water_affine_scale(s).z;
-    return (textureLoad(caustic_shadow, t, 0) - c.z) / sz;
+    return (depth - c.z) / sz;
 }
 
 // Profundidade da água num texel (sem água: muito longe).
@@ -74,6 +84,11 @@ fn caustic_slope(t: vec2i, axis: vec2i, z: f32, texel: f32, limit: f32) -> f32 {
     if (okp) { return (zp - z) / texel; }
     if (okm) { return (z - zm) / texel; }
     return 0.0;
+}
+
+// Pesos do B-spline quadrático nos texels −1, 0, +1 para o deslocamento `d` ∈ [−½, ½] do centro do texel.
+fn caustic_bspline(d: f32) -> vec3f {
+    return vec3f(0.5 * (0.5 - d) * (0.5 - d), 0.75 - d * d, 0.5 * (0.5 + d) * (0.5 + d));
 }
 
 fn caustic_deposit(texel: vec2i, rgb: vec3f) {
@@ -131,16 +146,20 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     }
     let hit = xy0 + dir.xy * s;
     let transmit = exp(-material.absorption.rgb * s) * (1.0 - fresnel);
-    // Ponto de chegada em texels (contínuo) e depósito bilinear.
+    // Ponto de chegada em texels (contínuo) e depósito B-spline quadrático 3×3 (partição da unidade e suave: sem o
+    // batimento do depósito bilinear quando a densidade de fótons varia devagar).
     let hit_ndc = hit * scale.xy;
     let hit_uv = vec2f(hit_ndc.x * 0.5 + 0.5, 0.5 - hit_ndc.y * 0.5);
-    let f = hit_uv * vec2f(dims) - 0.5;
-    let base = vec2i(floor(f));
-    let w = f - floor(f);
-    caustic_deposit(base, transmit * (1.0 - w.x) * (1.0 - w.y));
-    caustic_deposit(base + vec2i(1, 0), transmit * w.x * (1.0 - w.y));
-    caustic_deposit(base + vec2i(0, 1), transmit * (1.0 - w.x) * w.y);
-    caustic_deposit(base + vec2i(1, 1), transmit * w.x * w.y);
+    let f = hit_uv * vec2f(dims);
+    let center = vec2i(floor(f));
+    let d = f - floor(f) - 0.5;
+    let wx = caustic_bspline(d.x);
+    let wy = caustic_bspline(d.y);
+    for (var j: i32 = 0; j < 3; j = j + 1) {
+        for (var i: i32 = 0; i < 3; i = i + 1) {
+            caustic_deposit(center + vec2i(i - 1, j - 1), transmit * (wx[i] * wy[j]));
+        }
+    }
 }
 
 fn caustic_sum(t: vec2i) -> vec3f {
@@ -157,11 +176,11 @@ fn caustic_resolve(@builtin(global_invocation_id) gid: vec3u) {
     let t = vec2i(gid.xy);
     if (t.x >= dims.x || t.y >= dims.y) { return; }
     var sum = vec3f(0.0);
-    for (var dy: i32 = -2; dy <= 2; dy = dy + 1) {
-        for (var dx: i32 = -2; dx <= 2; dx = dx + 1) {
-            let w = f32((3 - abs(dx)) * (3 - abs(dy)));
+    for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
+        for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
+            let w = f32((2 - abs(dx)) * (2 - abs(dy)));
             sum = sum + caustic_sum(t + vec2i(dx, dy)) * w;
         }
     }
-    textureStore(caustic_out, t, vec4f(sum / 81.0, 1.0));
+    textureStore(caustic_out, t, vec4f(sum / 16.0, 1.0));
 }

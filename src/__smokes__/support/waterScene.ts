@@ -75,18 +75,22 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
     floor(app);
     walls(app);
     if (options.box === true) {
-        const box = new BoxGeometry({ size: [0.24, 0.24, 0.24] });
+        const box = new BoxGeometry({ size: [2 * BOX_HALF, 2 * BOX_HALF, 2 * BOX_HALF] });
         box.add(
             new StandardMaterial({ albedo: [0.85, 0.55, 0.2, 1], roughness: 0.6, metallic: 0 }),
         );
-        box.add(new Transform({ position: [0.15, 0.12, 0, 1] }));
+        box.add(new Transform({ position: [...BOX_CENTER, 1] }));
         world.insert(box);
         world.insert(
-            new BoxCollider({ halfExtents: [0.12, 0.12, 0.12, 0], center: [0.15, 0.12, 0, 1] }),
+            new BoxCollider({
+                halfExtents: [BOX_HALF, BOX_HALF, BOX_HALF, 0],
+                center: [...BOX_CENTER, 1],
+            }),
         );
     }
     if (options.material === 'none') return undefined;
-    const position = options.layer !== undefined ? layer(options.layer) : dam(options.dam);
+    const position =
+        options.layer !== undefined ? layer(options.layer, options.box === true) : dam(options.dam);
     const body = new FluidBody({ algorithm: options.algorithm ?? 'SPH', position });
     body.add(
         options.material === 'sprites'
@@ -164,8 +168,12 @@ function dam(size: readonly [number, number, number] = [24, 48, 32]): number[] {
     return out;
 }
 
-/** Camada no fundo cobrindo o tanque (água parada depois de assentar). */
-function layer(height: number): number[] {
+/** Caixa submersa: centro e meio lado (m). */
+const BOX_CENTER: readonly [number, number, number] = [0.15, 0.12, 0];
+const BOX_HALF = 0.12;
+
+/** Camada no fundo cobrindo o tanque (água parada depois de assentar), fora da caixa quando há caixa. */
+function layer(height: number, box: boolean): number[] {
     const [hx, hz] = WATER_TANK;
     const s = WATER_SPACING;
     const nx = Math.floor((2 * hx) / s);
@@ -174,11 +182,14 @@ function layer(height: number): number[] {
     const out: number[] = [];
     for (let y = 0; y < height; y++)
         for (let z = 0; z < nz; z++)
-            for (let x = 0; x < nx; x++)
-                out.push(
+            for (let x = 0; x < nx; x++) {
+                const p = [
                     -hx + s * (x + 0.5) + (r() - 0.5) * s * 0.05,
                     s * (y + 0.5),
                     -hz + s * (z + 0.5) + (r() - 0.5) * s * 0.05,
-                );
+                ] as const;
+                const inside = p.every((v, k) => Math.abs(v - BOX_CENTER[k]!) < BOX_HALF + s * 0.5);
+                if (!box || !inside) out.push(...p);
+            }
     return out;
 }

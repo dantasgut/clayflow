@@ -113,7 +113,9 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     let cos_v = clamp(dot(n, v), 0.0, 1.0);
     let fresnel = clamp((f0 + (1.0 - f0) * pow(1.0 - cos_v, 5.0)) * material.reflectivity, 0.0, 1.0);
     let h = normalize(l + v);
-    let specular = pow(max(dot(n, h), 0.0), max(material.shininess, 1.0)) * shadow * (material.shininess + 8.0) / 64.0;
+    // Brilho da luz refletida: como a reflexão, escalado pela refletividade do material.
+    let specular = pow(max(dot(n, h), 0.0), max(material.shininess, 1.0)) * shadow
+        * (material.shininess + 8.0) / 64.0 * material.reflectivity;
     var color = mix(transmitted, material.ambient.rgb, fresnel) + vec3f(specular);
     if (!all(abs(color) < vec3f(1e30))) { color = material.color.rgb; }
     var out: CompositeOut;

@@ -39,8 +39,17 @@ export interface FluidSurfaceMaterialData {
 
 /** Opções do `FluidSurfaceMaterial`: os campos do dado, com `caustics` booleano. */
 export interface FluidSurfaceMaterialOptions extends Partial<
-    Omit<FluidSurfaceMaterialData, 'caustics' | '_pad0' | '_pad1'>
+    Omit<
+        FluidSurfaceMaterialData,
+        'caustics' | 'color' | 'absorption' | 'ambient' | '_pad0' | '_pad1'
+    >
 > {
+    /** Cor da dispersão interna, RGBA linear. */
+    readonly color?: readonly number[];
+    /** Absorção por metro (rgb). */
+    readonly absorption?: readonly number[];
+    /** Cor refletida, RGBA linear. */
+    readonly ambient?: readonly number[];
     /** Cáusticas ligadas. Padrão `true`. */
     readonly caustics?: boolean;
 }
