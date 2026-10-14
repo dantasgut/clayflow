@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-14
 
-**Status**: Planejada (2026-10-14) — FR-014/FR-015/FR-020 e dois casos de borda ajustados no plan (research R12, A3)
+**Status**: Implementada (2026-10-14) — T001–T032 concluídas, gate verde, baseline regravado; PBF com passo estável do material e `World.attach`/`detach` acrescentados. Planejada (2026-10-14) — FR-014/FR-015/FR-020 e dois casos de borda ajustados no plan (research R12, A3)
 
 **Input**: User description: "Superfície de fluido com cáusticas (spec 017, fase F5 do roadmap — `017-fluid-surfaces`).
 Implementar no lugar arquitetural certo (C1–C4, `architecture_resource_loaders.md` autoritativo), sem helpers nem atalhos

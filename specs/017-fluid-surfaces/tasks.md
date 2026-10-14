@@ -57,9 +57,9 @@ quickstart)
 - [x] T027 [P] Documento de arquitetura (superfície genérica, estágios, cáusticas no forward, `ensureAllocated` de textura) em `clay-engine-doc/docs/guides/architecture_resource_loaders.md`; guias de flows/materiais
 - [x] T028 [P] ROADMAP (017 entregue) e PENDENCIAS (P10 resolvida, notas da 017) em `specs/ROADMAP.md`, `specs/PENDENCIAS.md`
 - [x] T029 [P] JSDoc dos tipos novos e API regenerada (`npm run doc:api` ou equivalente); `doc:coverage` sem erros
-- [ ] T030 Smokes todos no fonte e com `--dist`; `bench:check` sem regressão; gate completo (format, lint, tsc, `typecheck:bench`, `test:coverage`, `build:lib`, `doc:coverage`); baseline regravado
+- [x] T030 Smokes todos no fonte e com `--dist`; `bench:check` sem regressão; gate completo (format, lint, tsc, `typecheck:bench`, `test:coverage`, `build:lib`, `doc:coverage`); baseline regravado
 - [x] T031 Vídeos dos resultados (barragem com água e cáusticas, tanque com caixa submersa, coexistência) no scratchpad, enviados ao usuário
-- [ ] T032 Spec marcada como implementada em `specs/017-fluid-surfaces/spec.md`
+- [x] T032 Spec marcada como implementada em `specs/017-fluid-surfaces/spec.md`
 
 ## Dependencies
 
