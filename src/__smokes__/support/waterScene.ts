@@ -126,6 +126,9 @@ function floor(app: Application): void {
     app.world.insert(new BoxCollider({ halfExtents: [2, 0.5, 2, 0], center: [0, -0.5, 0, 1] }));
 }
 
+/** Altura da borda visível do tanque (m). */
+const RIM = 0.1;
+
 /** Paredes do tanque: colisão e uma borda baixa visível (não esconde a água). */
 function walls(app: Application): void {
     const [hx, hz] = WATER_TANK;
@@ -140,11 +143,11 @@ function walls(app: Application): void {
         app.world.insert(
             new BoxCollider({ halfExtents: [ex, h, ez, 0], center: [x, h - 0.1, z, 1] }),
         );
-        const rim = new BoxGeometry({ size: [2 * ex, 0.06, 2 * ez] });
+        const rim = new BoxGeometry({ size: [2 * ex, RIM, 2 * ez] });
         rim.add(
             new StandardMaterial({ albedo: [0.55, 0.57, 0.6, 1], roughness: 0.8, metallic: 0 }),
         );
-        rim.add(new Transform({ position: [x, 0.03, z, 1] }));
+        rim.add(new Transform({ position: [x, RIM / 2, z, 1] }));
         app.world.insert(rim);
     }
 }

@@ -53,7 +53,10 @@ const PBF_S_CORR_K_AT_5CM = 1e-4;
 
 /** Opções do `PBFFlow`. */
 export interface PBFFlowOptions {
-    /** Substeps por passo de física (padrão 1). O passo vem do `Time` da cena. */
+    /**
+     * Mínimo de substeps por passo de física (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais (spec
+     * 017). O passo vem do `Time` da cena.
+     */
     readonly substeps?: number;
     /** Iterações de projeção de densidade por substep (padrão 4). */
     readonly solverIters?: number;
@@ -106,7 +109,9 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     protected readonly transitions: FlowTransitions<'running', TransitionContext<PBFSlots>>;
 
     private readonly core: EngineCore;
-    private readonly substeps: number;
+    private readonly minSubsteps: number;
+    /** Substeps do quadro corrente (pelo passo estável do material). */
+    private substeps = 1;
     private readonly solverIters: number;
     private readonly maxNeighbors: number;
     private readonly params: PerStepUniforms;
@@ -125,7 +130,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         super();
         this.core = ctx.core;
         const bodyType = ctx.bodyType ?? 'PBFSchema';
-        this.substeps = Math.max(1, options.substeps ?? 1);
+        this.minSubsteps = Math.max(1, options.substeps ?? 1);
         this.solverIters = Math.max(1, options.solverIters ?? 4);
         this.maxNeighbors = options.maxNeighbors ?? 64;
         this.params = new PerStepUniforms(ctx.core, {
@@ -310,6 +315,12 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             this.neighborKey = key;
             ctx.bind(this.neighborSources());
         }
+        // Substeps pelo passo estável do material (spec 017: abaixo de 5 cm o passo fixo explodia o fluido).
+        this.substeps = ParticleMaterial.substepsFor(
+            time.stepDt,
+            material.pbfStableDt,
+            this.minSubsteps,
+        );
         this.iterations = time.steps * this.substeps;
         if (this.iterations === 0) return;
         this.neighborSearch.prepare(

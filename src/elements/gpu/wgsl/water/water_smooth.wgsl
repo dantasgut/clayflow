@@ -48,6 +48,14 @@ fn water_smooth_depth(@builtin(global_invocation_id) gid: vec3u) {
     let sigma = radius_px * 0.5;
     let threshold = material.depthThreshold * r;
     let dir = select(vec2i(1, 0), vec2i(0, 1), water_smooth.direction == 1u);
+    // Inclinação local (diferença central entre vizinhos da mesma superfície): numa superfície rasante a profundidade
+    // muda muito por pixel, e o limiar acompanha o plano — senão os vizinhos seriam rejeitados e a suavização sumiria.
+    let zp = textureLoad(smooth_src, clamp(p + dir, vec2i(0), size - 1), 0).x;
+    let zm = textureLoad(smooth_src, clamp(p - dir, vec2i(0), size - 1), 0).x;
+    var slope = 0.0;
+    if (abs(zp - z) < threshold && abs(z - zm) < threshold) {
+        slope = min(0.5 * abs(zp - zm), threshold);
+    }
     var sum = z;
     var weight = 1.0;
     for (var k: i32 = 1; k <= taps; k = k + 1) {
@@ -60,8 +68,9 @@ fn water_smooth_depth(@builtin(global_invocation_id) gid: vec3u) {
             if (mq != m || zq >= WATER_NO_DEPTH) { continue; }
             // Faixa estreita: amostra atrás além do limiar é outra superfície (ignorada); à frente, grampeada ao
             // limiar — a borda não "puxa" o centro e lâminas finas não viram filetes.
-            if (zq > z + threshold) { continue; }
-            let zc = max(zq, z - threshold);
+            let allowed = threshold + slope * f32(offset);
+            if (zq > z + allowed) { continue; }
+            let zc = max(zq, z - allowed);
             sum = sum + zc * w_space;
             weight = weight + w_space;
         }
