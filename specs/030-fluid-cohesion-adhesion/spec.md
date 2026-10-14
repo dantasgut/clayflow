@@ -135,8 +135,9 @@ de fluido com coesão e adesão.
 
 - Partícula sem vizinhas (respingo isolado): coesão e curvatura não produzem força (sem divisão por zero, sem NaN).
 - Duas partículas quase coincidentes: a força de coesão é limitada (o núcleo repulsivo do modelo evita colapso).
-- Dois corpos de fluido com materiais diferentes se tocando: a coesão age só entre partículas do mesmo corpo; entre
-  corpos diferentes, nada muda em relação a hoje.
+- Dois corpos de fluido do mesmo solver se tocando: o material de partículas é um por cena, então são o mesmo líquido —
+  a coesão age entre eles como dentro de cada um (como a pressão já age hoje); fluidos de solvers diferentes não se
+  veem (acoplamento é 015/016).
 - Fluido sobre um collider que se move (corpo rígido dinâmico): a adesão age na pose atual do collider; não arrasta o
   corpo rígido (sem reação no rígido — acoplamento é 015/016).
 - Adesão muito alta: o fluido não atravessa a fronteira nem fica "colado" além do alcance de uma suavização (a adesão
@@ -154,7 +155,7 @@ de fluido com coesão e adesão.
 
 - **FR-001**: O material de partículas DEVE ter um parâmetro de coesão (tensão superficial) não negativo, padrão zero.
 - **FR-002**: O SPH DEVE aplicar, com coesão > 0, a tensão superficial de Akinci et al. 2013: força de coesão entre
-  partículas vizinhas do mesmo corpo (atração em média distância, repulsão em curta) e termo de curvatura pela normal de
+  partículas vizinhas do mesmo solver (atração em média distância, repulsão em curta) e termo de curvatura pela normal de
   superfície estimada, normalizados pela densidade.
 - **FR-003**: O PBF DEVE aplicar a mesma tensão superficial, com o mesmo significado do parâmetro, coerente com sua
   integração por posições (mesma gota converge para forma arredondada nos dois solvers pelos critérios da US1).
@@ -244,8 +245,8 @@ de fluido com coesão e adesão.
   valor de referência "água" documentado; a calibração exata fica no research do plan.
 - "Coesão de água" nos critérios é o valor de referência documentado para água na escala das cenas de teste
   (espaçamento de 2–5 cm), não a tensão superficial física de 0,072 N/m, que nessa escala seria invisível.
-- A coesão age só dentro de um mesmo corpo de fluido; coesão entre corpos diferentes e entre solvers é acoplamento
-  (015/016).
+- O material de partículas continua um por cena (recurso único, como hoje); "por material" nos requisitos é por cena.
+  Coesão entre solvers diferentes é acoplamento (015/016).
 - Colliders de malha não geram contato hoje (lacuna P2); não recebem adesão até ganharem contato.
 - A adesão não aplica reação nos corpos rígidos (acoplamento bidirecional é 015/016).
 - O desenho (sprites, água da 017) não muda; só a simulação.
