@@ -146,6 +146,8 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
     private readonly dummyLightMatrix: StorageBufferSpec;
     /** Parâmetros da caixa envolvente por corpo (vista da luz). */
     private readonly boundsParams = new Map<EntityId, UniformBufferSpec>();
+    /** Conteúdo escrito nos parâmetros de cada corpo (escrita só quando muda). */
+    private readonly boundsWritten = new Map<EntityId, string>();
     private boundsKernels:
         | {
               readonly sources: readonly unknown[];
@@ -421,17 +423,21 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
             if (poolKey === undefined) continue;
             this.bodies.set(id, { entity: id, body, material, poolKey });
         }
-        if (this.bodies.size > 0) this.allocate(ctx);
         this.drawsDirty = true;
     }
 
-    /** Aloca as texturas da vista no `WaterSurface` (sob demanda: só com água). */
-    private allocate(ctx: Ctx): void {
+    /**
+     * Aloca as texturas da vista no `WaterSurface` na primeira vez em que há o que produzir (sob demanda: sem água — ou,
+     * na vista da luz, sem luz que projete sombra —, nada é alocado).
+     */
+    private allocate(ctx: Ctx): WaterSurface {
         const water = ctx.bound.slots.water.resource as WaterSurface;
+        if (this.water === water) return water;
         this.water = water;
         for (const id of this.view === 'light' ? WATER_LIGHT_TEXTURES : WATER_VIEW_TEXTURES) {
             this.resources.ensureAllocated(water, id);
         }
+        return water;
     }
 
     /** Antes da gravação: pipelines, regiões, parâmetros e a cadeia de suavização (refeita quando uma fonte muda). */
@@ -440,13 +446,15 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         const shadowSlot = this.shadowSlot(ctx);
         const ready =
             this.bodies.size > 0
-            && this.water !== undefined
             && (this.view === 'camera'
                 ? slots.sceneDepth !== undefined
                 : shadowSlot !== undefined && slots.shadowMatrices !== undefined);
         this.active = ready;
-        this.water?.markProduced(this.view, ready);
-        if (!ready) return;
+        if (!ready) {
+            this.water?.markProduced(this.view, false);
+            return;
+        }
+        this.allocate(ctx).markProduced(this.view, true);
         ctx.bind({
             shadow_matrices: slots.shadowMatrices?.buffer ?? this.dummyShadowMatrices,
             water_light_matrix: this.lightMatrix(),
@@ -496,6 +504,7 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
             if (this.bodies.has(id)) continue;
             this.core.destroy(this.boundsParams.get(id)!);
             this.boundsParams.delete(id);
+            this.boundsWritten.delete(id);
         }
         const pools = bodies.map((d) => this.boundPools.get(d.poolKey));
         const params = bodies.map((drawn) => {
@@ -514,17 +523,19 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         bodies.forEach((drawn, i) => {
             const range = this.resources.poolRangeOf(drawn.poolKey, drawn.entity);
             const schema = drawn.body.particleSchema;
-            this.core.write(
-                params[i]!,
-                WaterBoundsParamsSchema.pack({
-                    first: range?.first ?? 0,
-                    count: drawn.body.count,
-                    strideVec4: schema.stride / 16,
-                    posOffsetVec4: schema.offsetOf('pos') / 16,
-                    shadowSlot,
-                    radius: this.radiusOf(ctx, drawn),
-                }),
-            );
+            const values = {
+                first: range?.first ?? 0,
+                count: drawn.body.count,
+                strideVec4: schema.stride / 16,
+                posOffsetVec4: schema.offsetOf('pos') / 16,
+                shadowSlot,
+                radius: this.radiusOf(ctx, drawn),
+            };
+            // Escritos quando mudam (o corpo entra, a faixa ou o mapa de sombra mudam), não por quadro.
+            const key = Object.values(values).join(':');
+            if (this.boundsWritten.get(drawn.entity) === key) return;
+            this.boundsWritten.set(drawn.entity, key);
+            this.core.write(params[i]!, WaterBoundsParamsSchema.pack(values));
         });
         if (bodies.length === 0) return;
         const sources = [bounds, matrix, shadows, ...pools, ...params];

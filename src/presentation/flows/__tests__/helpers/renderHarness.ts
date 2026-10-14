@@ -19,6 +19,10 @@ import { ParticleFlow } from '../../ParticleFlow';
 import { SoftSurfaceFlow } from '../../../../elements/physics/flows/SoftSurfaceFlow';
 import { PostFlow } from '../../PostFlow';
 import { ShadowFlow } from '../../ShadowFlow';
+import { WaterSurface } from '../../../app/WaterSurface';
+import { FluidSurfaceFlow } from '../../FluidSurfaceFlow';
+import { CausticsFlow } from '../../CausticsFlow';
+import { WaterFlow } from '../../WaterFlow';
 
 /** Bind group ligado num desenho, com os offsets dinâmicos. */
 export interface BoundGroup {
@@ -192,6 +196,9 @@ export async function renderScene(): Promise<{
                 body(pass);
             },
             copy: () => undefined,
+            copyTextureToTexture: (src: ResourceSpec, dst: ResourceSpec) => {
+                computes.push(`copy:${discOf(src)}→${discOf(dst)}`);
+            },
             clear: () => undefined,
         }) as unknown as Frame;
 
@@ -280,6 +287,11 @@ export interface StageOptions {
     readonly particles?: boolean;
     /** Vértices das superfícies de corpos moles (`SoftSurfaceFlow`, fase `transform`). */
     readonly softSurface?: boolean;
+    /**
+     * Estágios da água (spec 017): superfície vista pela luz e cáusticas (fase `shadow`), superfície vista pela câmera
+     * e composição (fase `forward`), com o `WaterSurface` da cena.
+     */
+    readonly water?: boolean;
 }
 
 /** Registra os estágios pedidos por factory, como `registerPresentationDefaults`, e devolve as instâncias. */
@@ -316,7 +328,10 @@ export function registerStages(
             : undefined;
     const output = options.forward;
     const frameTargets =
-        output !== undefined || options.post === true || options.particles === true
+        output !== undefined
+        || options.post === true
+        || options.particles === true
+        || options.water === true
             ? new FrameTargets()
             : undefined;
     if (frameTargets !== undefined) scene.world.insert(frameTargets);
@@ -339,6 +354,29 @@ export function registerStages(
             phase: 'forward',
             priority: -50,
         });
+    if (options.water === true) {
+        scene.world.insert(new WaterSurface());
+        scene.flows.register((ctx) => new FluidSurfaceFlow(ctx, { view: 'light' }), {
+            type: 'fluidLightSurface',
+            phase: 'shadow',
+            priority: -10,
+        });
+        scene.flows.register((ctx) => new CausticsFlow(ctx), {
+            type: 'caustics',
+            phase: 'shadow',
+            priority: -20,
+        });
+        scene.flows.register((ctx) => new FluidSurfaceFlow(ctx, { view: 'camera' }), {
+            type: 'fluidSurface',
+            phase: 'forward',
+            priority: -60,
+        });
+        scene.flows.register((ctx) => new WaterFlow(ctx), {
+            type: 'water',
+            phase: 'forward',
+            priority: -70,
+        });
+    }
     const post =
         options.post === true
             ? scene.flows.register((ctx) => new PostFlow(ctx), { type: 'post', phase: 'post' }).flow

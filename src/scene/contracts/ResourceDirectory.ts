@@ -34,7 +34,9 @@ export interface ResourceDirectory extends PoolDirectory {
     hasGpuWriter(resource: Resource, descId: string): boolean;
     /**
      * Aloca agora um descritor individual `allocation: 'onDemand'` de `resource` (se ainda não estiver) e devolve o
-     * buffer (spec 008). Chamado numa transição, fora da gravação.
+     * buffer (spec 008). Descritores de textura também (spec 017: a superfície de água só ocupa memória quando há
+     * água): alocados com o tamanho do canvas ou o declarado, e lidos por `textureOf`/`textureViewOf` — o retorno é
+     * `undefined` para eles. Chamado numa transição, fora da gravação.
      */
     ensureAllocated(resource: Resource, descId: string): AnyBufferSpec | undefined;
 }

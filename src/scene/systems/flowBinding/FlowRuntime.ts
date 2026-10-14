@@ -271,6 +271,46 @@ export class FlowRuntime {
         }
     }
 
+    /**
+     * Entidades recompostas (`World.attach`/`detach`): cada conjunto reavalia a entidade com os recursos de agora — ela
+     * entra, sai ou troca de entrada (saída e entrada no mesmo `entitiesChanged`, para o Flow refazer o que guardou
+     * dela).
+     */
+    entitiesRecomposed(ids: readonly EntityId[]): void {
+        for (const [name, set] of this.entitySets) {
+            const decl = this.flow.slots[name] as EntitiesSlot;
+            const groups = this.groupSets.get(name);
+            let changed = false;
+            for (const id of ids) {
+                const old = set.get(id);
+                const entry = this.entryFor(id, decl);
+                if (old === undefined && entry === undefined) continue;
+                if (old !== undefined) {
+                    set.delete(id);
+                    if (groups !== undefined) groups.remove(old);
+                }
+                if (entry !== undefined) {
+                    set.set(id, entry);
+                    this.entered(decl, entry, groups);
+                }
+                const changes = this.changesOf(name);
+                if (old !== undefined && entry !== undefined) {
+                    // Já entrou neste quadro: continua só como entrada (com os recursos novos).
+                    if (!changes.added.has(id)) {
+                        changes.removed.add(id);
+                        changes.added.add(id);
+                    }
+                } else if (old !== undefined) {
+                    if (!changes.added.delete(id)) changes.removed.add(id);
+                } else {
+                    changes.added.add(id);
+                }
+                changed = true;
+            }
+            if (changed) this.entityCaches.delete(name);
+        }
+    }
+
     /** A entrada entrou no conjunto: grupo de instâncias e posse da GPU declarados no slot. */
     private entered(decl: EntitiesSlot, entry: SetEntry, groups: EntityGroups | undefined): void {
         for (const [type, descId] of decl.owns ?? []) {

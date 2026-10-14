@@ -75,6 +75,12 @@ export class InteractionSystem {
             this.events.on('entitiesRemoved', (e) => {
                 for (const id of e.entityIds) this.untrack(id);
             }),
+            this.events.on('entitiesRecomposed', (e) => {
+                for (const id of e.entityIds) {
+                    this.untrack(id);
+                    this.track(id);
+                }
+            }),
         ];
     }
 

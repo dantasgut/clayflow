@@ -373,6 +373,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 for (const set of this.recordSets.values())
                     for (const id of e.entityIds) this.removeRecord(set, id);
             }),
+            // Composição trocada (`World.attach`/`detach`): o registro é refeito com os recursos de agora.
+            this.events.on('entitiesRecomposed', (e) => {
+                for (const set of this.recordSets.values())
+                    for (const id of e.entityIds) {
+                        this.removeRecord(set, id);
+                        this.addRecord(set, id);
+                    }
+            }),
             this.events.on('frameRecording', () => {
                 this.flushDirty();
                 this.binder.prepareFrame();
@@ -791,8 +799,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     /**
      * Aloca agora o descritor individual `descId` de `resource` se ainda não estiver alocado (descritores
-     * `allocation: 'onDemand'`; spec 008) e devolve o buffer. Chamado fora da gravação (numa transição). Resource fora
-     * da cena ou sem o descritor: `undefined`.
+     * `allocation: 'onDemand'`; spec 008) e devolve o buffer — ou `undefined` para textura (spec 017; lida por
+     * `textureOf`/`textureViewOf`; as `sizeFromCanvas` acompanham o canvas como as demais). Chamado fora da gravação
+     * (numa transição). Resource fora da cena ou sem o descritor: `undefined`.
      */
     ensureAllocated(resource: Resource, descId: string): AnyBufferSpec | undefined {
         if (trackedOf(resource)?.allocated !== true) return undefined;

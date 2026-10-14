@@ -28,6 +28,10 @@ export class FlowBinder {
                 for (const rt of this.runtimes.values())
                     if (rt.hasEntities) rt.entitiesRemoved(e.entityIds);
             }),
+            events.on('entitiesRecomposed', (e) => {
+                for (const rt of this.runtimes.values())
+                    if (rt.hasEntities) rt.entitiesRecomposed(e.entityIds);
+            }),
             events.on('poolReallocated', (e) => {
                 for (const rt of this.runtimes.values()) {
                     rt.dirty = true;
