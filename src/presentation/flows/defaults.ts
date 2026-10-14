@@ -12,6 +12,10 @@ import { CameraFlow } from '../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../elements/scene/flows/ShadowMatrixFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
+import { WaterSurface } from '../app/WaterSurface';
+import { FluidSurfaceFlow } from './FluidSurfaceFlow';
+import { CausticsFlow } from './CausticsFlow';
+import { WaterFlow } from './WaterFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -37,6 +41,14 @@ export interface PresentationDefaults {
     readonly forward: ForwardFlow;
     /** Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos. */
     readonly particles: ParticleFlow;
+    /** Superfície de água das partículas vista pela câmera (fase `forward`, depois dos sprites; spec 017). */
+    readonly fluidSurface: FluidSurfaceFlow;
+    /** Superfície de água das partículas vista pela luz que projeta sombra (fase `shadow`, depois do mapa). */
+    readonly fluidLightSurface: FluidSurfaceFlow;
+    /** Cáusticas da água em espaço da luz (fase `shadow`, depois da superfície vista pela luz). */
+    readonly caustics: CausticsFlow;
+    /** Composição óptica da água nos alvos da cena (fase `forward`, depois da superfície). */
+    readonly water: WaterFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
     readonly shadow: ShadowFlow;
     /** Post-processing chain (Bloom/Fxaa/etc. em ping-pong). */
@@ -52,6 +64,7 @@ interface RegisteredDefaults {
     readonly defaults: PresentationDefaults;
     readonly registrations: readonly FlowRegistration[];
     readonly frameTargets: FrameTargets;
+    readonly waterSurface: WaterSurface;
     readonly world: World;
     users: number;
 }
@@ -60,7 +73,8 @@ interface RegisteredDefaults {
 const DEFAULTS_BY_SCENE = new WeakMap<FlowRegistry, RegisteredDefaults>();
 
 /**
- * Registra por factory os estágios padrão da cena — Transform, Camera, ShadowMatrix, Shadow, Forward, Post, Debug e UI, mais os solvers
+ * Registra por factory os estágios padrão da cena — Transform, Camera, ShadowMatrix, Shadow, Forward, os da água, Post,
+ * Debug e UI, mais os solvers
  * padrão — e insere os alvos do quadro (`FrameTargets`: o render principal desenha neles, o pós-processamento os lê
  * pelo slot). **Uma vez por cena**: chamadas seguintes com o mesmo `FlowRegistry` devolvem os mesmos estágios e
  * contam mais um usuário (várias aplicações na mesma cena não duplicam estágios). Cada chamada deve ser pareada com
@@ -82,11 +96,15 @@ export function registerPresentationDefaults(
     }
     const frameTargets = new FrameTargets({ samples: options.samples ?? 4 });
     options.world.insert(frameTargets);
+    // Superfície de água (spec 017): texturas sob demanda, alocadas só quando entra água.
+    const waterSurface = new WaterSurface();
+    options.world.insert(waterSurface);
     const { defaults, registrations } = createPresentationDefaults(flows);
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
         registrations,
         frameTargets,
+        waterSurface,
         world: options.world,
         users: 1,
     });
@@ -104,6 +122,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
     for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
+    entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.frameTargets);
     return true;
 }
@@ -149,6 +168,26 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -50,
     });
+    // Água (spec 017): superfície vista pela luz e cáusticas depois do mapa de sombra; superfície vista pela câmera e
+    // composição depois dos opacos e dos sprites (lê a profundidade da cena), antes da depuração.
+    const fluidLightRegistration = flows.register(
+        (ctx) => new FluidSurfaceFlow(ctx, { view: 'light' }),
+        { type: 'fluidLightSurface', phase: 'shadow', priority: -10 },
+    );
+    const causticsRegistration = flows.register((ctx) => new CausticsFlow(ctx), {
+        type: 'caustics',
+        phase: 'shadow',
+        priority: -20,
+    });
+    const fluidRegistration = flows.register(
+        (ctx) => new FluidSurfaceFlow(ctx, { view: 'camera' }),
+        { type: 'fluidSurface', phase: 'forward', priority: -60 },
+    );
+    const waterRegistration = flows.register((ctx) => new WaterFlow(ctx), {
+        type: 'water',
+        phase: 'forward',
+        priority: -70,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -169,6 +208,10 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
             particles: particleRegistration.flow!,
+            fluidSurface: fluidRegistration.flow!,
+            fluidLightSurface: fluidLightRegistration.flow!,
+            caustics: causticsRegistration.flow!,
+            water: waterRegistration.flow!,
             post: postRegistration.flow!,
             ui: uiRegistration.flow!,
             debug: debugRegistration.flow!,
@@ -181,6 +224,10 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadowRegistration,
             forwardRegistration,
             particleRegistration,
+            fluidLightRegistration,
+            causticsRegistration,
+            fluidRegistration,
+            waterRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

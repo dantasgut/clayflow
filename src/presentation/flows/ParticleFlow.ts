@@ -23,6 +23,7 @@ import {
 import type { World } from '../../scene/world/World';
 import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
 import { Material } from '../../elements/material/Material';
+import { FluidSurfaceMaterial } from '../../elements/material/FluidSurfaceMaterial';
 import { PointSpriteMaterial } from '../../elements/material/PointSpriteMaterial';
 import {
     ForwardFrameParamsSchema,
@@ -84,7 +85,8 @@ interface DrawnBody {
  *
  * Desenha depois do forward, na cor e na profundidade da cena (`loadOp: 'load'`), com teste e escrita de profundidade:
  * partículas e geometrias se ocultam. Os parâmetros são escritos quando um corpo entra ou sai; os pools são religados
- * quando crescem (detectado em `framePrepare`). Corpos com outro material ficam fora, com aviso único.
+ * quando crescem (detectado em `framePrepare`). Corpos com `FluidSurfaceMaterial` são da superfície de água (spec 017);
+ * com outro material ficam fora, com aviso único.
  */
 export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
     readonly type = 'ParticleFlow';
@@ -232,12 +234,15 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             const body = entry.get(ParticleBody);
             // Corpo com superfície (malha): desenhado pelo forward como geometria, não como sprites.
             if (body instanceof SoftBody && body.surface !== undefined) continue;
-            if (!(entry.get(Material) instanceof PointSpriteMaterial)) {
+            const material = entry.get(Material);
+            // Água (spec 017): desenhada pelos estágios da superfície de água.
+            if (material instanceof FluidSurfaceMaterial) continue;
+            if (!(material instanceof PointSpriteMaterial)) {
                 if (!this.warned.has(id)) {
                     this.warned.add(id);
                     console.warn(
                         `[ParticleFlow] Corpo de partículas da entidade ${id} com material `
-                            + `'${entry.get(Material).constructor.name}': só PointSpriteMaterial é desenhado.`,
+                            + `'${material.constructor.name}': só PointSpriteMaterial é desenhado.`,
                     );
                 }
                 continue;
