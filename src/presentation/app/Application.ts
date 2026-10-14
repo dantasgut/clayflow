@@ -105,10 +105,10 @@ export interface ApplicationOptions {
  *      passes dentro de `core.record(...)` + `submit()`.
  *   4. `app.stop()` pausa o RAF; `app.dispose()` desfaz event listeners.
  *
- * Resize: por padrão (`autoResize: true` em browser) anexa um listener em
- * `window.resize` debounced 100ms que reconfigura o canvas + emite
- * `canvasReconfigured`: a C2 recria as texturas do tamanho do canvas e os Flows recriam os seus recursos privados
- * dependentes do tamanho numa transição.
+ * Resize: por padrão (`autoResize: true` em browser) o tamanho do canvas segue o tamanho exibido × DPR — sincronizado
+ * na criação e acompanhado por `ResizeObserver` no próprio canvas (o layout pode mudar sem a janela mudar; sem o
+ * observador, `window.resize`), debounced 100ms — reconfigura o canvas + emite `canvasReconfigured`: a C2 recria as
+ * texturas do tamanho do canvas e os Flows recriam os seus recursos privados dependentes do tamanho numa transição.
  */
 export class Application {
     /** World ECS-like — query/insert/remove de Resources. Atalho para `scene.world`. */
@@ -141,6 +141,7 @@ export class Application {
     private readonly resizeDebounceMs: number;
     private resizeTimer: ReturnType<typeof setTimeout> | null = null;
     private resizeListener: (() => void) | null = null;
+    private resizeObserver: ResizeObserver | null = null;
 
     private readonly memoryBudgetBytes: number | null = null;
     private memoryWarningEmitted = false;
@@ -169,10 +170,19 @@ export class Application {
 
         const autoResize = options.autoResize ?? typeof window !== 'undefined';
         if (autoResize && typeof window !== 'undefined') {
-            this.resizeListener = () => {
-                this.scheduleResize();
-            };
-            window.addEventListener('resize', this.resizeListener);
+            if (typeof ResizeObserver !== 'undefined') {
+                this.resizeObserver = new ResizeObserver(() => {
+                    this.scheduleResize();
+                });
+                this.resizeObserver.observe(this.canvas);
+            } else {
+                this.resizeListener = () => {
+                    this.scheduleResize();
+                };
+                window.addEventListener('resize', this.resizeListener);
+            }
+            // Tamanho exibido desde o primeiro quadro (o canvas nasce com 300×150 até alguém o ajustar).
+            this.handleResize();
         }
 
         if (options.memoryBudgetMB !== undefined) {
@@ -314,6 +324,8 @@ export class Application {
      * que Flows recriem suas textures size-dependent.
      */
     handleResize(): void {
+        // Fora do layout (sem tamanho exibido): mantém o tamanho atual.
+        if (this.canvas.clientWidth === 0 || this.canvas.clientHeight === 0) return;
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const newW = Math.max(1, Math.floor(this.canvas.clientWidth * dpr));
         const newH = Math.max(1, Math.floor(this.canvas.clientHeight * dpr));
@@ -352,6 +364,8 @@ export class Application {
             clearTimeout(this.resizeTimer);
             this.resizeTimer = null;
         }
+        this.resizeObserver?.disconnect();
+        this.resizeObserver = null;
         if (this.resizeListener !== null && typeof window !== 'undefined') {
             window.removeEventListener('resize', this.resizeListener);
             this.resizeListener = null;
