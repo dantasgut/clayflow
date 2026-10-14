@@ -250,6 +250,9 @@ aparência.
   recurso dele MUST ser alocado.
 - **FR-024**: A simulação MUST ser idêntica com ou sem superfície: as trajetórias das sete cenas de física iguais a 30,
   60 e 144 Hz.
+- **FR-031**: A óptica (refração, absorção, reflexão, especular) e as cáusticas MUST ser um estágio que consome uma
+  superfície de água genérica (profundidade, normal e espessura por pixel), independente de a superfície vir de
+  partículas; a água em grande escala da 029 (mar, lagos, rios por altura) MUST poder alimentá-lo sem refazer a cadeia.
 - **FR-025**: A superfície MUST funcionar em LDR com o MSAA da 008 ligado ou desligado, e o desenho MUST ser adaptável ao
   HDR da F4 sem refazer a cadeia.
 
@@ -314,6 +317,8 @@ Medidos na máquina de referência livre, no protocolo do benchmark, a 1280×720
 - A reflexão usa a cor de ambiente do material e os realces especulares; reflexão do ambiente real e do céu fica com
   IBL/reflexões da F4.
 - Render em LDR (8 bits por canal); o HDR da F4 recebe a mesma cadeia trocando o formato dos alvos.
+- A água de partículas com superfície contínua continua uma representação de primeira classe depois da 029: sozinha em
+  volumes locais e acoplada à água por altura onde a água quebra (decisão do usuário, 2026-10-14).
 - A superfície não é geometria de colisão nem é lida pela física; a simulação não muda.
 - Tensão superficial, espuma, spray e bolhas não fazem parte (simulação na F5/016, efeitos na F9).
 - O teto de 65 536 partículas por algoritmo (E4) continua.
@@ -328,3 +333,4 @@ Medidos na máquina de referência livre, no protocolo do benchmark, a 1280×720
 - Espuma, spray e bolhas como partículas emitidas (F9).
 - Espaços não euclidianos (F6).
 - Aumento do teto de partículas (E4).
+- Água em grande escala (mar por FFT, lagos, rios por águas rasas, cachoeiras, acoplamento com as partículas): F8/029.
