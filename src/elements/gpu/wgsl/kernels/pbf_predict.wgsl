@@ -40,7 +40,7 @@ fn pbf_predict_main(
         var v = p.vel.xyz;
         collider_set_adhesion(
             p.pos.xyz, &v, pbf_params.support, pbf_params.adhesion_accel, pbf_params.adhesion_tangential, dt,
-            pbf_params.bound_min,
+            fluid_adhesion_min(pbf_params.bound_min, pbf_params.open_bounds),
         );
         p.vel = vec4f(v, 0.0);
     }

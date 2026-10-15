@@ -164,6 +164,16 @@ function dropBodies(app: Application): { radius: number; half: number } {
     return { radius, half };
 }
 
+/** Domínio aberto dos fluidos sobre superfícies (spec 010): sem paredes; quem sai da caixa é retirado. */
+const OPEN_DOMAIN = {
+    bounds: 'open',
+    domainMin: [-2.5, -2, -2.5],
+    domainMax: [2.5, 2, 2.5],
+} as const;
+
+/** Partícula retirada do domínio aberto: parada muito abaixo da cena. */
+const RETIRED_BELOW = -1e6;
+
 /** Espaçamento da água do lago (o da 017). */
 const LAKE_SPACING = 0.025;
 const LAKE_W = 320;
@@ -215,9 +225,10 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
             // Água de referência (spec 030): coesão e adesão amortecem o escoamento e o lago assenta.
             cohesion: clayflow.ParticleMaterial.WATER_COHESION,
             adhesion: clayflow.ParticleMaterial.WATER_ADHESION,
-            // Domínio bem maior que o terreno: as paredes do domínio (com adesão) não seguram respingos no ar.
-            domainMin: [-3, -1.5, -3],
-            domainMax: [3, 1.5, 3],
+            // Domínio aberto (spec 010): sem paredes; a caixa só limita o cálculo, e o que sai do terreno é retirado.
+            bounds: 'open',
+            domainMin: [-1.5, -0.8, -1.5],
+            domainMax: [1.5, 1.5, 1.5],
         }),
     );
     insertValley(app, clayflow, { shape: LAKE_VALLEY, albedo: [0.86, 0.8, 0.66] });
@@ -544,13 +555,15 @@ const CASES: Record<string, Case> = {
                               }),
                     );
                 }
-            else
+            else {
+                app.world.insert(new clayflow.ParticleMaterial(OPEN_DOMAIN));
                 app.world.insert(
                     new clayflow.FluidBody({
                         algorithm: 'PBF',
                         position: block(216, spacing, [0.4, -0.2, 0.3], 11).flat(),
                     }).add(new clayflow.PointSpriteMaterial({ radius: spacing / 2 })),
                 );
+            }
             await settle(app);
             const frames = Math.round((steps * rate) / 60);
             let done = 0;
@@ -589,7 +602,8 @@ const CASES: Record<string, Case> = {
             });
             let below = 0;
             for (const p of fluid)
-                if (valleyHeight(p[0], p[2], f.lift) - p[1] > spacing / 2) below++;
+                if (p[1] >= RETIRED_BELOW && valleyHeight(p[0], p[2], f.lift) - p[1] > spacing / 2)
+                    below++;
             c.measure('60 Hz: corpos afundados', sunk);
             c.measure('60 Hz: corpos flutuando', floating);
             c.measure('60 Hz: partículas abaixo', below);
@@ -631,11 +645,17 @@ const CASES: Record<string, Case> = {
         const dry = await lakeScene('none', 1);
         let below = 0;
         let escaped = 0;
+        let retired = 0;
         for (const p of wet.particles) {
+            if (p[1] < RETIRED_BELOW) {
+                retired++;
+                continue;
+            }
             const h = valleyHeight(p[0], p[2], 0, LAKE_VALLEY);
             if (h - p[1] > LAKE_SPACING / 2) below++;
             if (p[1] < -LAKE_VALLEY.depth - LAKE_SPACING) escaped++;
         }
+        c.measure('retiradas (saíram do terreno)', retired);
         const variation = Math.max(...wet.levels) - Math.min(...wet.levels);
         c.measure('partículas', wet.particles.length);
         c.measure('abaixo da superfície', below);
@@ -810,7 +830,7 @@ const CASES: Record<string, Case> = {
             view(app);
             app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
             const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
-            app.world.insert(new clayflow.ParticleMaterial({ adhesion }));
+            app.world.insert(new clayflow.ParticleMaterial({ ...OPEN_DOMAIN, adhesion }));
             const R = 0.45;
             insertDistanceSurface(app, 'sphere', [R]);
             app.world.insert(
@@ -826,6 +846,7 @@ const CASES: Record<string, Case> = {
             let inside = 0;
             let clinging = 0;
             for (const p of pos) {
+                if (p[1] < RETIRED_BELOW) continue;
                 const d = Math.hypot(...p) - R;
                 if (d < -spacing / 2) inside++;
                 if (d < 2 * spacing) clinging++;
@@ -1238,6 +1259,7 @@ const CASES: Record<string, Case> = {
             view(app);
             app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
             insertValley(app, clayflow);
+            app.world.insert(new clayflow.ParticleMaterial(OPEN_DOMAIN));
             const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
             const start = block(512, spacing, [0.5, -0.2, -0.2], 7);
             app.world.insert(
@@ -1250,8 +1272,23 @@ const CASES: Record<string, Case> = {
             );
             await settle(app);
             run(app, 240);
-            const pos = await readPositions(app, FLUID_SCHEMA[algorithm]);
+            const all = await readPositions(app, FLUID_SCHEMA[algorithm]);
+            const vel = await readPositions(app, FLUID_SCHEMA[algorithm], 'vel');
             app.dispose();
+            // Retiradas (saíram do terreno e da caixa) ficam fora das medidas; paradas fora do terreno: presas no ar.
+            const pos = all.filter((p) => p[1] >= RETIRED_BELOW);
+            const stuck = all.filter(
+                (p, k) =>
+                    p[1] >= RETIRED_BELOW
+                    && Math.max(Math.abs(p[0]), Math.abs(p[2])) > VALLEY.half
+                    && Math.hypot(...vel[k]!) < 0.05,
+            ).length;
+            c.measure(`${algorithm}: retiradas`, all.length - pos.length);
+            c.measure(`${algorithm}: paradas fora do terreno`, stuck);
+            c.check(
+                stuck === 0,
+                `${algorithm}: ${stuck} partículas paradas fora do terreno (presas no ar)`,
+            );
             let below = 0;
             let worst = 0;
             const mean = [0, 0, 0];

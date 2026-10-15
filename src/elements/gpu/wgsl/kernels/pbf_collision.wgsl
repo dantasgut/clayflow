@@ -24,12 +24,23 @@ fn pbf_collision_main(
 
     // ── Bounds AABB ───────────────────────────────────────────────────────────
     // Usa bound_min como piso e assume domínio simétrico em y (apenas piso)
-    if (pos.y < bound_min.y) {
-        pos.y = bound_min.y;
-        vel.y = max(0.0, vel.y * -restitution);
+    if (pbf_params.open_bounds != 0u) {
+        // Domínio aberto (spec 010): quem sai da caixa é retirado.
+        if (fluid_outside(pos, bound_min, pbf_params.bound_max)) {
+            particles[i].pos = vec4f(pos.x, FLUID_RETIRED_Y, pos.z, particles[i].pos.w);
+            // A velocidade sai de (pos − posOld)/dt: a posição anterior vai junto, parada.
+            particles[i].posOld = vec4f(pos.x, FLUID_RETIRED_Y, pos.z, particles[i].posOld.w);
+            particles[i].vel = vec4f(0.0);
+            return;
+        }
+    } else {
+        if (pos.y < bound_min.y) {
+            pos.y = bound_min.y;
+            vel.y = max(0.0, vel.y * -restitution);
+        }
+        if (pos.x < bound_min.x) { pos.x = bound_min.x; vel.x = abs(vel.x) * restitution; }
+        if (pos.z < bound_min.z) { pos.z = bound_min.z; vel.z = abs(vel.z) * restitution; }
     }
-    if (pos.x < bound_min.x) { pos.x = bound_min.x; vel.x = abs(vel.x) * restitution; }
-    if (pos.z < bound_min.z) { pos.z = bound_min.z; vel.z = abs(vel.z) * restitution; }
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
     // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento).

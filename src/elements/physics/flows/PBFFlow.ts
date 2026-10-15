@@ -361,6 +361,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 restitution: material.restitution,
                 collision_radius: material.particleSpacing / 2,
                 bound_min: material.domainMin,
+                bound_max: material.domainMax,
+                open_bounds: material.openBounds ? 1 : 0,
                 particle_mass: material.particleMass,
                 mass_over_density: material.particleMass / material.restDensity,
                 cohesion_gamma: material.cohesionGamma(surface.cohesion),

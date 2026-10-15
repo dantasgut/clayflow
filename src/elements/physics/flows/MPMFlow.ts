@@ -303,6 +303,7 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
                 grid_z: this.grid.gridDim[2],
                 grid_origin: this.grid.origin,
                 cell_size: this.grid.cellSize,
+                open_bounds: material.openBounds ? 1 : 0,
                 material_id:
                     this.bodyType === 'MPMFluidSchema' ? MPM_MATERIAL_FLUID : MPM_MATERIAL_ELASTIC,
                 substep_count: substeps,

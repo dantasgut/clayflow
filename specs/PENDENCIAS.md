@@ -95,8 +95,11 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   está sob a água pelo texel mais próximo da profundidade da água vista pela luz — cada gota isolada marcava o chão com
   o quadrado do seu texel. Agora a cobertura é interpolada entre os 4 texels (como o PCF da sombra); dentro da água o
   resultado é o de antes, as bordas ficam suaves (fixtures `fluidSurface-*` regravadas: só pixels de borda da água).
-- As paredes do domínio do `ParticleMaterial` recebem adesão (030): respingos que chegam a elas ficam presos no ar. Nas
-  cenas abertas (lago), o domínio precisa ser bem maior que a área da água.
+- Domínio aberto (feedback do usuário: "se o objetivo é testar o terreno, precisamos de parede?"): os limites do domínio
+  do `ParticleMaterial` eram paredes (chão e lados mínimos, com adesão; bordas da grade no MPM) — respingos ficavam
+  presos no ar. `ParticleMaterial({ bounds: 'open' })`: a caixa só limita o cálculo; nada colide nem adere aos planos
+  do domínio, e a partícula que sai por baixo ou pelos lados é retirada (parada muito abaixo da cena, fora da grade de
+  vizinhos, do enquadramento da água e da imagem). Padrão `'walls'`: as cenas de antes, bit a bit.
 
 ### Notas da 030
 

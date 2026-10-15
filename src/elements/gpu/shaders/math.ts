@@ -10,6 +10,7 @@ import lcpSource from '../wgsl/math/lcp.wgsl?raw';
 import colliderSetSource from '../wgsl/math/collider_set.wgsl?raw';
 import surfaceColliderHitSource from '../wgsl/math/surface_collider_hit.wgsl?raw';
 import colliderHitSource from '../wgsl/math/collider_hit.wgsl?raw';
+import fluidBoundsSource from '../wgsl/math/fluid_bounds.wgsl?raw';
 import lcpStateSource from '../wgsl/math/lcp_state.wgsl?raw';
 import femSource from '../wgsl/math/fem.wgsl?raw';
 import noiseSource from '../wgsl/math/noise.wgsl?raw';
@@ -76,6 +77,9 @@ export const mpmMaterial = wgslModule({ name: 'mpm_material', source: mpmMateria
  * Consulta de um colisor de superfície (spec 010): altura ou distância com sinal da cópia do passo corrente; os
  * bindings (`collider_surfaces`, `collider_surface_field`, `collider_step`) são declarados por quem hospeda.
  */
+/** Limites do domínio dos fluidos (spec 010): domínio aberto — retirada de quem sai da caixa, sem adesão aos planos. */
+export const fluidBounds = wgslModule({ name: 'fluid_bounds', source: fluidBoundsSource });
+
 /** Fronteira genérica de colisão: `ColliderHit` (distância com sinal e normal de mundo). */
 export const colliderHit = wgslModule({ name: 'collider_hit', source: colliderHitSource });
 
@@ -89,7 +93,7 @@ export const surfaceColliderHit = wgslModule({
 export const colliderSet = wgslModule({
     name: 'collider_set',
     source: colliderSetSource,
-    requires: [quat, sdf, sphKernels, surfaceColliderHit],
+    requires: [quat, sdf, sphKernels, surfaceColliderHit, fluidBounds],
     structs: [
         ColliderSetCountsSchema,
         PlaneCollider.schema,

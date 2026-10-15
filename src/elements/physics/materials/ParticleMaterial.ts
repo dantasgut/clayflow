@@ -28,6 +28,12 @@ export interface ParticleMaterialOptions {
     /** Canto máximo do domínio simulado, em metros (default [2, 2, 2]). */
     readonly domainMax?: readonly [number, number, number];
     /**
+     * O que os limites do domínio são (spec 010): `'walls'` (default) — chão e paredes que seguram e aderem o fluido;
+     * `'open'` — só a caixa de cálculo: nada colide nem adere aos planos do domínio, o fluido colide apenas com os
+     * colliders da cena, e a partícula que sai da caixa é retirada (parada fora da cena, sem vizinhos nem desenho).
+     */
+    readonly bounds?: 'walls' | 'open';
+    /**
      * Coesão — tensão superficial de Akinci et al. 2013 (SPH e PBF), adimensional (default 0, desligada): 1 dá à
      * partícula de borda uma aceleração de coesão da ordem de g. Referência de água: `ParticleMaterial.WATER_COHESION`.
      */
@@ -246,7 +252,8 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
             restitution,
             youngModulus: positive('youngModulus', options.youngModulus ?? 5e4),
             poissonRatio: poisson,
-            domainMin: [...min, 0],
+            // w = 1: domínio aberto (spec 010).
+            domainMin: [...min, options.bounds === 'open' ? 1 : 0],
             domainMax: [...max, 0],
             _pad0: 0,
             _pad1: 0,
@@ -294,6 +301,11 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
     }
 
     /** Canto mínimo do domínio. */
+    /** Domínio aberto (`bounds: 'open'`, spec 010): sem paredes; o que sai da caixa é retirado. */
+    get openBounds(): boolean {
+        return this.data.domainMin[3] === 1;
+    }
+
     get domainMin(): [number, number, number] {
         const v = this.data.domainMin;
         return [v[0]!, v[1]!, v[2]!];

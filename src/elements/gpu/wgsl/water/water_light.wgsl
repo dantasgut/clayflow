@@ -42,7 +42,8 @@ fn water_bounds_accumulate(@builtin(global_invocation_id) gid3: vec3u, @builtin(
     let i = gid3.x + gid3.y * nwg.x * 64u;
     if (i >= bounds_params.count) { return; }
     let p = bounds_particles[(bounds_params.first + i) * bounds_params.strideVec4 + bounds_params.posOffsetVec4].xyz;
-    if (!all(abs(p) < vec3f(1e30))) { return; }
+    // Não finita, ou retirada do domínio aberto do fluido (spec 010: muito abaixo da cena), fica fora do enquadramento.
+    if (!all(abs(p) < vec3f(1e6))) { return; }
     let basis = water_light_basis(shadow_matrices[bounds_params.shadowSlot].lightViewProj);
     let q = transpose(basis) * p;
     let r = bounds_params.radius;

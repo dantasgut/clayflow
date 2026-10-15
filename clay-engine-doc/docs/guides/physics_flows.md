@@ -242,6 +242,11 @@ escala não uniforme aproxima a distância pela menor escala; até 16 superfíci
 rápidos que a espessura da grade podem atravessar, como com paredes finas. A folga (`margin`) é 0 por padrão — uma
 folga maior que a dos contatos entre corpos desestabiliza pilhas.
 
+Fluidos sobre terreno ou superfícies abertas usam o domínio aberto do material, sem paredes:
+`new ParticleMaterial({ bounds: 'open', domainMin, domainMax })` — a caixa do domínio só limita o cálculo (a grade de
+vizinhos); o fluido colide só com os colliders da cena, e a partícula que sai da caixa por baixo ou pelos lados é
+retirada. O padrão (`'walls'`) mantém o chão e as paredes do domínio, com adesão.
+
 ## Busca de vizinhança (SPH, PBF)
 
 Reconstruída a cada substep: célula de cada partícula viva, soma de prefixos, espalhamento, ordenação por índice dentro

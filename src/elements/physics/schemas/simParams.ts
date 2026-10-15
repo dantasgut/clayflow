@@ -90,6 +90,10 @@ export const MPMSimParamsSchema = new StructSchema(
         field_density: FieldType.f32,
         _field_pad0: FieldType.f32,
         _field_pad1: FieldType.f32,
+        /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
+        bound_max: FieldType.vec3f,
+        /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */
+        open_bounds: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -130,6 +134,10 @@ export const SPHSimParamsSchema = new StructSchema(
         field_density: FieldType.f32,
         _field_pad0: FieldType.f32,
         _field_pad1: FieldType.f32,
+        /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
+        bound_max: FieldType.vec3f,
+        /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */
+        open_bounds: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -171,6 +179,10 @@ export const PBFSimParamsSchema = new StructSchema(
         field_density: FieldType.f32,
         _field_pad0: FieldType.f32,
         _field_pad1: FieldType.f32,
+        /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
+        bound_max: FieldType.vec3f,
+        /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */
+        open_bounds: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

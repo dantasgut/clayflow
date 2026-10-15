@@ -55,13 +55,15 @@ fn mpm_grid_update_main(
     let iz = u32(idx / (gx * gy));
     let iy = u32((idx / gx) % gy);
 
-    // ── Condições de contorno (slip-wall) ─────────────────────────────────────
-    if (ix < MPM_BOUNDARY && v_i.x < 0.0) { v_i.x = 0.0; }
-    if (iy < MPM_BOUNDARY && v_i.y < 0.0) { v_i.y = 0.0; }
-    if (iz < MPM_BOUNDARY && v_i.z < 0.0) { v_i.z = 0.0; }
-    if (ix > gx - MPM_BOUNDARY - 1u && v_i.x > 0.0) { v_i.x = 0.0; }
-    if (iy > gy - MPM_BOUNDARY - 1u && v_i.y > 0.0) { v_i.y = 0.0; }
-    if (iz > mpm_params.grid_z - MPM_BOUNDARY - 1u && v_i.z > 0.0) { v_i.z = 0.0; }
+    // ── Condições de contorno (slip-wall); domínio aberto: sem paredes (spec 010) ───────────────────────────────
+    if (mpm_params.open_bounds == 0u) {
+        if (ix < MPM_BOUNDARY && v_i.x < 0.0) { v_i.x = 0.0; }
+        if (iy < MPM_BOUNDARY && v_i.y < 0.0) { v_i.y = 0.0; }
+        if (iz < MPM_BOUNDARY && v_i.z < 0.0) { v_i.z = 0.0; }
+        if (ix > gx - MPM_BOUNDARY - 1u && v_i.x > 0.0) { v_i.x = 0.0; }
+        if (iy > gy - MPM_BOUNDARY - 1u && v_i.y > 0.0) { v_i.y = 0.0; }
+        if (iz > mpm_params.grid_z - MPM_BOUNDARY - 1u && v_i.z > 0.0) { v_i.z = 0.0; }
+    }
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
     let node_world = vec3f(f32(ix), f32(iy), f32(iz)) * mpm_params.cell_size + mpm_params.grid_origin;

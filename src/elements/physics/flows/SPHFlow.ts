@@ -319,6 +319,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: material.restitution,
                 bound_min: material.domainMin,
+                bound_max: material.domainMax,
+                open_bounds: material.openBounds ? 1 : 0,
                 particle_mass: material.particleMass,
                 inv_particle_mass: 1 / material.particleMass,
                 cohesion_gamma: material.cohesionGamma(surface.cohesion),
