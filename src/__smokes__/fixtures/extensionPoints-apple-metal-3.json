@@ -1,0 +1,38 @@
+{
+  "profile": "apple-metal-3",
+  "cases": {
+    "orbit": {
+      "worlds": "693a78ef"
+    },
+    "fisheye": {
+      "perspective": "827a9a22",
+      "fisheye": "9663f861"
+    },
+    "swap": {},
+    "fields": {},
+    "builtinFields": {},
+    "ring": {
+      "ring": "18815c61"
+    },
+    "emitters": {
+      "spiral": "a471ec46"
+    },
+    "surfaces": {
+      "sphere": "a51e8b55",
+      "terrain": "63cc43f8"
+    },
+    "space": {
+      "twist": "4525cce6"
+    },
+    "material": {
+      "plain": "9aacc53d",
+      "checker": "5c9c354d"
+    },
+    "errors": {},
+    "rates": {
+      "field": "176507e5",
+      "emit": "d643d7e9",
+      "surface": "a4bf2e05"
+    }
+  }
+}

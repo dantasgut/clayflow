@@ -1,12 +1,13 @@
 import { gridScatter, motionAt, type Placement } from '../../core/rng';
 import type { SceneImplementation } from '../../core/types';
 import type { ThreeHandle } from '../../engines/three';
-import { countOf, INSTANCES_EXTENT, isMoving } from './scene';
+import { bobOf, countOf, functionsOf, INSTANCES_EXTENT, isMoving } from './scene';
 
 let placements: Placement[] = [];
 let mesh: ThreeHandle['THREE']['InstancedMesh']['prototype'] | null = null;
 let dummy: ThreeHandle['THREE']['Object3D']['prototype'] | null = null;
 let moving = false;
+let functions = 0;
 let t = 0;
 
 function place(
@@ -26,13 +27,14 @@ const impl: SceneImplementation<ThreeHandle> = {
     setup({ engine, variant, rng }) {
         const { THREE } = engine;
         moving = isMoving(variant.params);
+        functions = functionsOf(variant.params);
         placements = gridScatter(rng, countOf(variant.params), INSTANCES_EXTENT);
         mesh = new THREE.InstancedMesh(
             new THREE.BoxGeometry(1, 1, 1),
             new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0 }),
             placements.length,
         );
-        if (moving) mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        if (moving || functions > 0) mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         dummy = new THREE.Object3D();
         const color = new THREE.Color();
         placements.forEach((p, i) => {
@@ -45,7 +47,20 @@ const impl: SceneImplementation<ThreeHandle> = {
         engine.scene.add(mesh);
     },
     update(dt) {
-        if (!moving || mesh === null || dummy === null) return;
+        if (mesh === null || dummy === null) return;
+        if (functions > 0) {
+            // A mesma conta das funções do clayflow, na CPU (o que um usuário de Three faria).
+            t += dt;
+            for (let i = 0; i < placements.length; i++) {
+                const p = placements[i] as Placement;
+                const y = p.position[1] + bobOf(i % functions, i, t);
+                place(dummy, [p.position[0], y, p.position[2]], p.rotation, p.scale);
+                mesh.setMatrixAt(i, dummy.matrix);
+            }
+            mesh.instanceMatrix.needsUpdate = true;
+            return;
+        }
+        if (!moving) return;
         t += dt;
         for (let i = 0; i < placements.length; i++) {
             const p = placements[i] as Placement;

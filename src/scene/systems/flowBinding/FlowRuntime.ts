@@ -5,6 +5,7 @@ import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
 import { consumesName, type PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
+import { scenePointsIn, type PointImplementation } from '../../shaders/WgslPoint';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
@@ -38,6 +39,7 @@ import type { LayoutInferencer, InferredEntry } from '../LayoutInferencer';
 import type { ResourceDirectory } from '../../contracts/ResourceDirectory';
 import { EntityGroups, type GroupMember, type InstanceListHost } from './EntityGroups';
 import { PipelineState } from './PipelineState';
+import type { ScenePoints } from './ScenePoints';
 import { normalizeSource } from './sources';
 
 /** O que o runtime de um Flow usa da C2 (implementado pelo `ResourceSystem`). */
@@ -57,6 +59,8 @@ export interface FlowRuntimeHost {
     readonly consumers: ConsumerResolverRegistry;
     readonly events: EventBus;
     readonly inferencer: LayoutInferencer;
+    /** Funções dos pontos de cena (spec 009), compostas nos pipelines que contêm o ponto. */
+    readonly scenePoints: ScenePoints;
 }
 
 /**
@@ -84,6 +88,17 @@ export class FlowRuntime {
         { readonly added: Set<EntityId>; readonly removed: Set<EntityId> }
     >();
     private readonly compiledQueue: string[] = [];
+    /** Pipelines rejeitados pelo compilador (`verify`), a anunciar no próximo `reconcile`. */
+    private readonly rejectedQueue: string[] = [];
+    /** Descritor de cada pipeline como o Flow o declarou (antes das funções de cena). */
+    private readonly baseDescriptors = new Map<string, PipelineDescriptor>();
+    /**
+     * Pipelines refeitos com as funções de cena novas (spec 009), compilando: trocam o atual quando prontos; rejeitados,
+     * são descartados (o atual continua).
+     */
+    private readonly nextStates = new Map<string, PipelineState>();
+    private readonly swapQueue: string[] = [];
+    private readonly nextRejected: string[] = [];
     /** Identidade dos slots opcionais na última resolução. */
     private readonly slotIdentity = new Map<string, unknown>();
     /** Slots opcionais que mudaram na última resolução. */
@@ -201,6 +216,40 @@ export class FlowRuntime {
         }
         for (const state of [...this.pipelineStates.values()]) {
             state.refresh(this.lookup, this.onReplaced);
+        }
+        for (const next of this.nextStates.values()) next.refresh(this.lookup, this.onReplaced);
+        while (this.nextRejected.length > 0) {
+            const id = this.nextRejected.shift()!;
+            const next = this.nextStates.get(id);
+            if (next?.rejected == null) continue;
+            announceRejection(this.host.events, next, next.descriptor.extensions ?? []);
+            next.release();
+            this.nextStates.delete(id);
+        }
+        while (this.swapQueue.length > 0) {
+            const id = this.swapQueue.shift()!;
+            const next = this.nextStates.get(id);
+            if (next?.ready !== true) continue;
+            this.pipelineStates.get(id)?.release();
+            this.pipelineStates.set(id, next);
+            this.nextStates.delete(id);
+        }
+        while (this.rejectedQueue.length > 0) {
+            const id = this.rejectedQueue.shift()!;
+            const state = this.pipelineStates.get(id);
+            if (state?.rejected == null) continue;
+            announceRejection(this.host.events, state, state.descriptor.extensions ?? []);
+            const base = this.baseDescriptors.get(id);
+            if (base !== undefined && base !== state.descriptor && base.verify !== true) {
+                // Só as funções de cena compostas pela C2 foram rejeitadas: o pipeline volta ao pronto, sem envolver o
+                // Flow (que não pediu conferência).
+                state.release();
+                const fallback = this.createState(id, base, state.declared);
+                this.pipelineStates.set(id, fallback);
+                fallback.refresh(this.lookup, this.onReplaced);
+                continue;
+            }
+            this.deliverDomain({ type: 'pipelineRejected', pipeline: id });
         }
         while (this.compiledQueue.length > 0) {
             const id = this.compiledQueue.shift()!;
@@ -425,6 +474,8 @@ export class FlowRuntime {
         }
         for (const state of this.pipelineStates.values()) state.release();
         this.pipelineStates.clear();
+        for (const state of this.nextStates.values()) state.release();
+        this.nextStates.clear();
         for (const groups of this.groupSets.values()) groups.dispose();
         this.groupSets.clear();
         for (const [name, decl] of Object.entries(this.flow.slots)) {
@@ -457,8 +508,25 @@ export class FlowRuntime {
     private prepare(descriptor: PipelineDescriptor, declared: boolean): PipelineState {
         const existing = this.pipelineStates.get(descriptor.id);
         if (existing !== undefined) return existing;
-        const state = new PipelineState(
-            descriptor.id,
+        this.baseDescriptors.set(descriptor.id, descriptor);
+        const state = this.createState(descriptor.id, this.withScene(descriptor), declared);
+        this.checkConsumes(descriptor);
+        this.pipelineStates.set(descriptor.id, state);
+        if (this.flow.lifecycle === 'preparing' || this.flow.lifecycle === 'ready') {
+            state.refresh(this.lookup, this.onReplaced);
+        }
+        this.dirty = true;
+        return state;
+    }
+
+    /** Estado de pipeline com os avisos de compilação e de rejeição deste runtime. */
+    private createState(
+        id: string,
+        descriptor: PipelineDescriptor,
+        declared: boolean,
+    ): PipelineState {
+        return new PipelineState(
+            id,
             descriptor,
             declared,
             this.flow.type,
@@ -469,14 +537,11 @@ export class FlowRuntime {
                 this.compiledQueue.push(s.id);
                 this.dirty = true;
             },
+            (s) => {
+                this.rejectedQueue.push(s.id);
+                this.dirty = true;
+            },
         );
-        this.checkConsumes(descriptor);
-        this.pipelineStates.set(descriptor.id, state);
-        if (this.flow.lifecycle === 'preparing' || this.flow.lifecycle === 'ready') {
-            state.refresh(this.lookup, this.onReplaced);
-        }
-        this.dirty = true;
-        return state;
     }
 
     private releasePipeline(id: string): void {
@@ -484,6 +549,68 @@ export class FlowRuntime {
         if (state === undefined) return;
         state.release();
         this.pipelineStates.delete(id);
+        this.nextStates.get(id)?.release();
+        this.nextStates.delete(id);
+        this.baseDescriptors.delete(id);
+    }
+
+    /** O descritor com as funções de cena dos pontos que o shader contém (conferido pelo compilador, com elas). */
+    private withScene(descriptor: PipelineDescriptor): PipelineDescriptor {
+        const bound = this.host.scenePoints.bind(descriptor.shader, (fns, message) => {
+            // A composição não monta neste kernel (ex.: símbolo da função em conflito com o do solver): a cena anuncia,
+            // e o pipeline segue com o pronto.
+            for (const fn of fns) {
+                this.host.events.emit('extensionRejected', {
+                    point: fn.point.name,
+                    resource: fn,
+                    revision: fn.revision,
+                    message,
+                    line: 0,
+                    pipeline: descriptor.id,
+                });
+            }
+        });
+        if (bound.extensions.length === 0) return descriptor;
+        return {
+            ...descriptor,
+            shader: bound.shader,
+            verify: true,
+            extensions: [...(descriptor.extensions ?? []), ...bound.extensions],
+        };
+    }
+
+    /**
+     * As funções de cena mudaram (spec 009): cada pipeline cujo shader contém um ponto de cena é preparado de novo com
+     * as funções atuais e troca o atual quando compila (rejeitado, o atual continua).
+     */
+    sceneChanged(): void {
+        for (const [id, state] of this.pipelineStates) {
+            const base = this.baseDescriptors.get(id);
+            if (base === undefined || scenePointsIn(base.shader).length === 0) continue;
+            const descriptor = this.withScene(base);
+            const target = this.nextStates.get(id) ?? state;
+            if (descriptor.shader === target.descriptor.shader) continue;
+            this.nextStates.get(id)?.release();
+            const next = new PipelineState(
+                id,
+                descriptor,
+                state.declared,
+                this.flow.type,
+                this.host.core,
+                this.host.inferencer,
+                () => this.host.core.canvasFormat,
+                (s) => {
+                    this.swapQueue.push(s.id);
+                    this.dirty = true;
+                },
+                (s) => {
+                    this.nextRejected.push(s.id);
+                    this.dirty = true;
+                },
+            );
+            this.nextStates.set(id, next);
+            this.dirty = true;
+        }
     }
 
     /** Todo nome de `consumes` precisa de resolver (FR-012). */
@@ -503,6 +630,13 @@ export class FlowRuntime {
         group: number,
         state: PipelineState,
     ): ResolvedSource | undefined => {
+        // Global de ponto de cena (spec 009): o pool dos registros, ou o substituto zerado.
+        const base = this.baseDescriptors.get(state.id);
+        const global =
+            base === undefined
+                ? undefined
+                : this.host.scenePoints.globalSource(base.shader, entry.name);
+        if (global !== undefined) return global;
         // Privado do pipeline (`pipeline:variável`) vence o privado do Flow (`variável`).
         const priv =
             this.privates.get(`${state.id}:${entry.name}`) ?? this.privates.get(entry.name);
@@ -831,4 +965,40 @@ class SetEntry implements GroupMember {
 function hasSchema(resource: Resource, schema: Schema): boolean {
     if ((resource.constructor as { schema?: Schema }).schema === schema) return true;
     return resource.getDescriptors().some((d) => d.schema === schema);
+}
+
+/** Revisão já anunciada por função (uma rejeição por revisão, ainda que vários pipelines a usem). */
+const announced = new WeakMap<PointImplementation, number>();
+
+/**
+ * Anuncia `extensionRejected` para cada função cujo módulo contém um erro do compilador, com a linha traduzida para o
+ * código do usuário; erro fora das funções é atribuído à primeira (o shader só tem código de fora nelas).
+ */
+function announceRejection(
+    events: EventBus,
+    state: PipelineState,
+    functions: readonly PointImplementation[],
+): void {
+    for (const error of state.rejected ?? []) {
+        let owner: PointImplementation | undefined;
+        let line = 0;
+        for (const fn of functions) {
+            const range = state.composed.ranges.get(fn.module.name);
+            if (range === undefined || error.line < range.first || error.line > range.last)
+                continue;
+            owner = fn;
+            line = Math.max(0, fn.codeLine(error.line - range.first + 1));
+        }
+        owner ??= functions[0];
+        if (owner === undefined || announced.get(owner) === owner.revision) continue;
+        announced.set(owner, owner.revision);
+        events.emit('extensionRejected', {
+            point: owner.point.name,
+            resource: owner,
+            revision: owner.revision,
+            message: error.message,
+            line,
+            pipeline: state.id,
+        });
+    }
 }

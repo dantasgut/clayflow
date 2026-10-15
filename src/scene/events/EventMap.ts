@@ -2,6 +2,7 @@ import type { Resource } from '../contracts/Resource';
 import type { Schema } from '../descriptors/Schema';
 import type { Flow } from '../flows/Flow';
 import type { BoundFlow } from '../flows/FlowBinding';
+import type { PointImplementation } from '../shaders/WgslPoint';
 import type { EntityId } from '../world/EntityId';
 import type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 import type { ChangedEvent } from './ChangedEvent';
@@ -71,6 +72,26 @@ export interface CanvasReconfiguredPayload {
     readonly width: number;
     readonly height: number;
     readonly format: GPUTextureFormat;
+}
+
+/**
+ * Payload do evento `extensionRejected` (spec 009) — o compilador rejeitou o código de uma função de ponto de extensão.
+ * O estágio continua com o código anterior (ou com a implementação pronta, se não havia anterior). Anunciado uma vez
+ * por revisão do código de cada função.
+ */
+export interface ExtensionRejectedPayload {
+    /** Nome do ponto (`transform`, `field`, …). */
+    readonly point: string;
+    /** A função rejeitada (a `ExtensionFunction`). */
+    readonly resource: PointImplementation;
+    /** Revisão do código rejeitado. */
+    readonly revision: number;
+    /** Mensagem do compilador. */
+    readonly message: string;
+    /** Linha no código do usuário (0 quando o erro cai fora dele). */
+    readonly line: number;
+    /** Pipeline em que o erro apareceu. */
+    readonly pipeline: string;
 }
 
 /**
@@ -212,6 +233,8 @@ export interface EventMap {
     poolReallocated: PoolReallocatedEvent;
     /** A C2 recriou um bind group de um pipeline de Flow porque uma fonte foi recriada. */
     bindGroupReplaced: BindGroupReplacedEvent;
+    /** O compilador rejeitou o código de uma função de ponto de extensão (spec 009). */
+    extensionRejected: ExtensionRejectedPayload;
     /** `Application.step()`/`GameLoop` emitem a cada quadro, depois de `time.advance()`. */
     frameTick: FrameTickEvent;
     /** `Time` emite quando o teto de passos por quadro descarta tempo de física. */

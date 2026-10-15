@@ -6,7 +6,7 @@
 
 # Class: Time
 
-Defined in: [scene/time/Time.ts:52](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L52)
+Defined in: [scene/time/Time.ts:52](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L52)
 
 Relógio da cena (C2): um por World, criado por `createScene` e inserido no World. É a única fonte de tempo dos
 estágios — os Flows de física leem `steps`/`stepDt` daqui (consulta pelo schema `Time`), nunca da aplicação.
@@ -35,7 +35,7 @@ Mudanças de `scale`/`physicsScale`/`fixedDt` valem a partir do próximo `advanc
 
 > **new Time**(`events?`): `Time`
 
-Defined in: [scene/time/Time.ts:83](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L83)
+Defined in: [scene/time/Time.ts:91](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L91)
 
 #### Parameters
 
@@ -59,7 +59,7 @@ Barramento onde `timeDropped` é emitido (o da cena). Opcional em testes.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [scene/time/Time.ts:61](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L61)
+Defined in: [scene/time/Time.ts:61](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L61)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -73,7 +73,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [scene/time/Time.ts:54](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L54)
+Defined in: [scene/time/Time.ts:54](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L54)
 
 Schema do uniform de GPU: `dt`, `elapsed`, `stepDt` (f32) e `steps` (u32).
 
@@ -85,7 +85,7 @@ Schema do uniform de GPU: `dt`, `elapsed`, `stepDt` (f32) e `steps` (u32).
 
 > **get** **accumulator**(): `number`
 
-Defined in: [scene/time/Time.ts:117](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L117)
+Defined in: [scene/time/Time.ts:143](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L143)
 
 Resto de tempo de física para o próximo quadro (s); em `[0, fixedDt)` após `advance`.
 
@@ -101,7 +101,7 @@ Resto de tempo de física para o próximo quadro (s); em `[0, fixedDt)` após `a
 
 > **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L138)
+Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L138)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -122,7 +122,7 @@ readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -135,7 +135,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -165,7 +165,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** **droppedTime**(): `number`
 
-Defined in: [scene/time/Time.ts:113](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L113)
+Defined in: [scene/time/Time.ts:139](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L139)
 
 Tempo de física descartado pelo teto de passos, acumulado (s).
 
@@ -181,7 +181,7 @@ Tempo de física descartado pelo teto de passos, acumulado (s).
 
 > **get** **dt**(): `number`
 
-Defined in: [scene/time/Time.ts:93](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L93)
+Defined in: [scene/time/Time.ts:101](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L101)
 
 Duração efetiva do último quadro (s): `realDt × scale`.
 
@@ -197,7 +197,7 @@ Duração efetiva do último quadro (s): `realDt × scale`.
 
 > **get** **elapsed**(): `number`
 
-Defined in: [scene/time/Time.ts:97](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L97)
+Defined in: [scene/time/Time.ts:105](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L105)
 
 Soma dos `dt` efetivos (s).
 
@@ -213,7 +213,7 @@ Soma dos `dt` efetivos (s).
 
 > **get** **fixedDt**(): `number` \| `undefined`
 
-Defined in: [scene/time/Time.ts:140](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L140)
+Defined in: [scene/time/Time.ts:166](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L166)
 
 Passo fixo da física (s, > 0). `undefined` = passo variável. Default 1/60.
 
@@ -225,7 +225,7 @@ Passo fixo da física (s, > 0). `undefined` = passo variável. Default 1/60.
 
 > **set** **fixedDt**(`value`): `void`
 
-Defined in: [scene/time/Time.ts:144](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L144)
+Defined in: [scene/time/Time.ts:170](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L170)
 
 Define o passo fixo (s, > 0) ou `undefined` (passo variável, zera o acumulador).
 
@@ -251,7 +251,7 @@ RangeError se ≤ 0.
 
 > **get** **frame**(): `number`
 
-Defined in: [scene/time/Time.ts:101](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L101)
+Defined in: [scene/time/Time.ts:109](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L109)
 
 Quadros avançados.
 
@@ -267,7 +267,7 @@ Quadros avançados.
 
 > **get** **maxFrameDt**(): `number`
 
-Defined in: [scene/time/Time.ts:162](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L162)
+Defined in: [scene/time/Time.ts:188](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L188)
 
 Teto da duração real de um quadro (s, > 0). Default 0,25.
 
@@ -279,7 +279,7 @@ Teto da duração real de um quadro (s, > 0). Default 0,25.
 
 > **set** **maxFrameDt**(`value`): `void`
 
-Defined in: [scene/time/Time.ts:166](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L166)
+Defined in: [scene/time/Time.ts:192](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L192)
 
 Define o teto da duração real do quadro (s, > 0).
 
@@ -305,7 +305,7 @@ RangeError se ≤ 0.
 
 > **get** **maxStepsPerFrame**(): `number`
 
-Defined in: [scene/time/Time.ts:150](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L150)
+Defined in: [scene/time/Time.ts:176](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L176)
 
 Teto de passos de física por quadro (inteiro ≥ 1). Default 4.
 
@@ -317,7 +317,7 @@ Teto de passos de física por quadro (inteiro ≥ 1). Default 4.
 
 > **set** **maxStepsPerFrame**(`value`): `void`
 
-Defined in: [scene/time/Time.ts:154](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L154)
+Defined in: [scene/time/Time.ts:180](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L180)
 
 Define o teto de passos por quadro (inteiro ≥ 1).
 
@@ -343,7 +343,7 @@ RangeError se inválido.
 
 > **get** **physicsScale**(): `number`
 
-Defined in: [scene/time/Time.ts:131](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L131)
+Defined in: [scene/time/Time.ts:157](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L157)
 
 Multiplicador só da física (≥ 0), aplicado sobre `scale`.
 
@@ -355,7 +355,7 @@ Multiplicador só da física (≥ 0), aplicado sobre `scale`.
 
 > **set** **physicsScale**(`value`): `void`
 
-Defined in: [scene/time/Time.ts:135](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L135)
+Defined in: [scene/time/Time.ts:161](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L161)
 
 Define o multiplicador da física (≥ 0).
 
@@ -381,7 +381,7 @@ RangeError se negativo ou não finito.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -402,7 +402,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **realDt**(): `number`
 
-Defined in: [scene/time/Time.ts:89](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L89)
+Defined in: [scene/time/Time.ts:97](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L97)
 
 Duração real do último quadro (s), já limitada a `maxFrameDt`.
 
@@ -418,7 +418,7 @@ Duração real do último quadro (s), já limitada a `maxFrameDt`.
 
 > **get** **scale**(): `number`
 
-Defined in: [scene/time/Time.ts:122](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L122)
+Defined in: [scene/time/Time.ts:148](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L148)
 
 Velocidade global (≥ 0). 0 pausa tudo que depende de `dt`.
 
@@ -430,7 +430,7 @@ Velocidade global (≥ 0). 0 pausa tudo que depende de `dt`.
 
 > **set** **scale**(`value`): `void`
 
-Defined in: [scene/time/Time.ts:126](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L126)
+Defined in: [scene/time/Time.ts:152](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L152)
 
 Define a velocidade global (≥ 0); vale a partir do próximo `advance`.
 
@@ -450,13 +450,31 @@ RangeError se negativa ou não finita.
 
 ***
 
+### simulated
+
+#### Get Signature
+
+> **get** **simulated**(): `number`
+
+Defined in: [scene/time/Time.ts:125](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L125)
+
+Tempo simulado (s): a soma dos passos da física dados até aqui. Com passo fixo, é `passos × fixedDt` desde a
+última troca de passo — a mesma sequência de valores a qualquer taxa de quadros. É o tempo que as funções dos
+pontos de extensão recebem (spec 009); pausado, não anda.
+
+##### Returns
+
+`number`
+
+***
+
 ### stepDt
 
 #### Get Signature
 
 > **get** **stepDt**(): `number`
 
-Defined in: [scene/time/Time.ts:109](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L109)
+Defined in: [scene/time/Time.ts:117](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L117)
 
 Duração de cada passo de física do quadro corrente (s).
 
@@ -472,7 +490,7 @@ Duração de cada passo de física do quadro corrente (s).
 
 > **get** **steps**(): `number`
 
-Defined in: [scene/time/Time.ts:105](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L105)
+Defined in: [scene/time/Time.ts:113](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L113)
 
 Passos de física do quadro corrente.
 
@@ -486,7 +504,7 @@ Passos de física do quadro corrente.
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -511,7 +529,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **advance**(`realDt`): `void`
 
-Defined in: [scene/time/Time.ts:171](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L171)
+Defined in: [scene/time/Time.ts:197](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L197)
 
 Avança o relógio um quadro de duração real `realDt` (s, ≥ 0). Ver a regra na documentação da classe.
 
@@ -531,7 +549,7 @@ Avança o relógio um quadro de duração real `realDt` (s, ≥ 0). Ver a regra 
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L127)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -556,7 +574,7 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [scene/time/Time.ts:229](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L229)
+Defined in: [scene/time/Time.ts:269](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L269)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -577,7 +595,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [scene/time/Time.ts:233](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L233)
+Defined in: [scene/time/Time.ts:273](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L273)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -597,7 +615,7 @@ readonly `PipelineDescriptor`[]
 
 > **pause**(): `void`
 
-Defined in: [scene/time/Time.ts:204](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L204)
+Defined in: [scene/time/Time.ts:244](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L244)
 
 Pausa tudo (`scale = 0`), guardando a escala para `resume`.
 
@@ -611,7 +629,7 @@ Pausa tudo (`scale = 0`), guardando a escala para `resume`.
 
 > **pausePhysics**(): `void`
 
-Defined in: [scene/time/Time.ts:217](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L217)
+Defined in: [scene/time/Time.ts:257](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L257)
 
 Pausa só a física (`physicsScale = 0`); o desenho continua.
 
@@ -625,7 +643,7 @@ Pausa só a física (`physicsScale = 0`); o desenho continua.
 
 > **resume**(): `void`
 
-Defined in: [scene/time/Time.ts:211](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L211)
+Defined in: [scene/time/Time.ts:251](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L251)
 
 Restaura a escala anterior a `pause`.
 
@@ -639,10 +657,32 @@ Restaura a escala anterior a `pause`.
 
 > **resumePhysics**(): `void`
 
-Defined in: [scene/time/Time.ts:224](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/time/Time.ts#L224)
+Defined in: [scene/time/Time.ts:264](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L264)
 
 Restaura a escala da física anterior a `pausePhysics`.
 
 #### Returns
 
 `void`
+
+***
+
+### stepTime()
+
+> **stepTime**(`k`): `number`
+
+Defined in: [scene/time/Time.ts:133](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/time/Time.ts#L133)
+
+Tempo simulado no início do passo `k` (0 ≤ k < `steps`) deste quadro (s). Com passo fixo, conta passos inteiros
+desde a última troca de passo — o passo de mesma ordem global tem o mesmo tempo em qualquer taxa de quadros (os
+solvers o passam às funções dos campos, spec 009).
+
+#### Parameters
+
+##### k
+
+`number`
+
+#### Returns
+
+`number`

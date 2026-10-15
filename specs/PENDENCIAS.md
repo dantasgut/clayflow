@@ -13,18 +13,18 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 
 ## 1. Na API, sem simulação
 
-| #   | Pendência                                         | Estado atual (evidência)                                                                                                                                     | Fase     |
-| --- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| P1  | FEM sem solve elástico                            | `FEMFlow` roda só `fem_predict` e `fem_velocity_update` — integra gravidade (`elements/physics/shaders/fem.ts`). As funções de FEM já estão em `wgslLib.fem` | F5 (016) |
-| P2  | `MeshCollider` não gera contatos                  | `rb_narrowphase_mesh_main` não emite contato (`elements/gpu/wgsl/kernels/rb_narrowphase.wgsl`); fluidos também não colidem com malha                         | F5 (015) |
-| P3  | Campos de força ignorados                         | Só `GravityField` é consumido pelos solvers; `WindField`, `DragField`, `VortexField` e `BuoyancyField` alocam dados que nenhum Flow lê                       | F5 (016) |
-| P4  | `JointConstraint` e `SpringConstraint` sem solver | Nenhum Flow nem kernel os consome; só `DistanceConstraint` (XPBD) é resolvida                                                                                | F5 (015) |
-| P5  | `XPBDRigidSchema` sem Flow                        | Ausente de `DEFAULT_SOLVER_REGISTRATIONS` (`elements/physics/flows/defaultFlows.ts`); nenhum solver o simula                                                 | F5 (015) |
-| P6  | Emissores de partículas sem simulação             | `ComputeParticleEmitter` e `ScriptedParticleEmitter` só declaram descritores (spawn, update e idade não existem); formas `Point`/`Sphere`/`Cone` sem uso     | F9 (025) |
-| P7  | Sem acoplamento entre solvers                     | Cada solver reage só aos colliders do `ColliderSet`: fluido não empurra rígido, rígido não interage com macio, MPM e SPH/PBF não se veem                     | F5       |
-| P8  | Corpo rígido só com esfera e caixa                | `RigidBody` aceita `shape: 'sphere' \| 'box'` (`elements/physics/bodies/RigidBody.ts`); sem cápsula, convexo ou SDF                                          | F5 (015) |
-| P9  | Sem consultas espaciais                           | Não há raycast, shapecast nem character controller                                                                                                           | F5 (018) |
-| P10 | ~~Sem superfície de fluido~~ — resolvida na 017   | `FluidSurfaceMaterial`: água contínua em espaço de tela (`FluidSurfaceFlow`, `WaterFlow`) com cáusticas (`CausticsFlow`); a água por altura fica na 029      | F5 (017) |
+| #   | Pendência                                         | Estado atual (evidência)                                                                                                                                                                                           | Fase     |
+| --- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| P1  | FEM sem solve elástico                            | `FEMFlow` roda só `fem_predict` e `fem_velocity_update` — integra gravidade (`elements/physics/shaders/fem.ts`). As funções de FEM já estão em `wgslLib.fem`                                                       | F5 (016) |
+| P2  | `MeshCollider` não gera contatos                  | `rb_narrowphase_mesh_main` não emite contato (`elements/gpu/wgsl/kernels/rb_narrowphase.wgsl`); fluidos também não colidem com malha                                                                               | F5 (015) |
+| P3  | ~~Campos de força ignorados~~ — resolvida na 009  | Ponto `field`: os seis solvers e os emissores somam gravidade pontual, vento, vórtice, arrasto, empuxo e as `FieldFunction` do usuário (sem torque no rígido)                                                      | F3 (009) |
+| P4  | `JointConstraint` e `SpringConstraint` sem solver | Nenhum Flow nem kernel os consome; só `DistanceConstraint` (XPBD) é resolvida                                                                                                                                      | F5 (015) |
+| P5  | `XPBDRigidSchema` sem Flow                        | Ausente de `DEFAULT_SOLVER_REGISTRATIONS` (`elements/physics/flows/defaultFlows.ts`); nenhum solver o simula                                                                                                       | F5 (015) |
+| P6  | Emissores de partículas sem simulação — parcial   | 009: `ComputeParticleEmitter` simulado na GPU (`EmitterFlow`: criação por forma ou `EmitFunction`, campos, vida, nuvem de pontos); faltam o `ScriptedParticleEmitter` (CPU), ordenação, soft particles e flipbooks | F9 (025) |
+| P7  | Sem acoplamento entre solvers                     | Cada solver reage só aos colliders do `ColliderSet`: fluido não empurra rígido, rígido não interage com macio, MPM e SPH/PBF não se veem                                                                           | F5       |
+| P8  | Corpo rígido só com esfera e caixa                | `RigidBody` aceita `shape: 'sphere' \| 'box'` (`elements/physics/bodies/RigidBody.ts`); sem cápsula, convexo ou SDF                                                                                                | F5 (015) |
+| P9  | Sem consultas espaciais                           | Não há raycast, shapecast nem character controller                                                                                                                                                                 | F5 (018) |
+| P10 | ~~Sem superfície de fluido~~ — resolvida na 017   | `FluidSurfaceMaterial`: água contínua em espaço de tela (`FluidSurfaceFlow`, `WaterFlow`) com cáusticas (`CausticsFlow`); a água por altura fica na 029                                                            | F5 (017) |
 
 ## 2. Limites de escala
 
@@ -55,6 +55,21 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   intercalada, sem vetor local por partícula — `particles/64k` 17 → 74 fps (GPU 60 → 13 ms); trajetórias de SPH e PBF
   regravadas (ordem dos vizinhos).
 - MSAA 4× antecipado da F4/011.
+
+### Notas da 009
+
+- Pontos de extensão: `transform`, `camera`, `surface`, `space`, `field`, `material`, `emit` — funções WGSL do usuário
+  como Resources, compostas no lugar da pronta, validadas na criação e conferidas pelo compilador; sem funções, as
+  fixtures continuam bit a bit.
+- Limites: `space` deforma só as `ParametricSurface`, nas coordenadas locais (cena inteira, luz e sombra na 019);
+  projeção não linear da câmera é por vértice (triângulos grandes não se curvam) e só no forward de triângulos (os
+  sprites e o arame seguem a `viewProjection`); a função `material` só vale com `StandardMaterial`, e o modelo de luz
+  usa só a cor base e a emissão (Cook-Torrance na 011); campo no rígido sem torque; empuxo só em corpos com densidade
+  (fluidos de partículas e MPM).
+- Guardas de não finitos: infinitos são descartados; NaN depende do compilador (matemática rápida pode não
+  preservá-lo).
+- Funções de cena (`field`, `space`) recompilam os estágios que as usam a cada mudança do conjunto ou do código;
+  composição que não compila num kernel volta ao pronto daquele kernel.
 
 ### Notas da 030
 

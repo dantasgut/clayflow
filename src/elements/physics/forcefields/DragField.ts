@@ -1,7 +1,7 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
-import { ForceField } from './ForceField';
+import { FieldKind, ForceField, type FieldRecordValues } from './ForceField';
 
 /** Dado de um `DragField` (layout de `DragField.schema`). */
 export interface DragFieldData {
@@ -30,15 +30,20 @@ export class DragField extends ForceField<DragFieldData> {
 
     constructor(values: Partial<DragFieldData> = {}) {
         super();
-        this.data = {
+        this.data = this.withRecord({
             linearCoeff: values.linearCoeff ?? 0.1,
             quadraticCoeff: values.quadraticCoeff ?? 0.01,
             _pad0: 0,
             _pad1: 0,
-        };
+        });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'drag', role: 'uniform', schema: DragField.schema }];
+        return [ForceField.recordDescriptor];
+    }
+
+    /** Arrasto (spec 009): aceleração −(linear + quadrático · |v|) · v. */
+    protected fieldRecord(d: Readonly<DragFieldData>): FieldRecordValues {
+        return { kind: FieldKind.drag, a: [], b: [], s: [d.linearCoeff, d.quadraticCoeff, 0, 0] };
     }
 }

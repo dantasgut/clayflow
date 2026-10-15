@@ -1,5 +1,6 @@
 // Desenho forward. Structs `CameraMatrices`, `WorldTransform`, `Renderable`, `RenderInstance`, `StandardMaterial`,
-// `ForwardFrameParams`, `ShadowMap`, `ShadowMatrix` e `Light` gerados dos schemas.
+// `ForwardFrameParams`, `ShadowMap`, `ShadowMatrix` e `Light` gerados dos schemas. Projeção pelo ponto `camera_clip`
+// (pronta: `viewProjection`; spec 009); parâmetros de superfície pelo ponto `material_eval` (pronto: as constantes).
 // Matrizes das câmeras (produzidas na GPU pelo estágio de câmera); a ativa no `cameraSlot` dos parâmetros do quadro.
 @group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
 // Pool WorldTransform, o registro de desenho de cada entidade (`Renderable`) e a lista de instâncias dos grupos
@@ -38,6 +39,9 @@ struct VsOut {
     @location(0) world_normal: vec3<f32>,
     @location(1) world_position: vec3<f32>,
     @location(2) @interpolate(flat) material_slot: u32,
+    // uv da geometria e o slot da função `material` da entidade (spec 009).
+    @location(3) uv: vec2<f32>,
+    @location(4) @interpolate(flat) fn_slot: u32,
 }
 
 @vertex
@@ -46,10 +50,12 @@ fn vs_main(in: VsIn, @builtin(instance_index) instance: u32) -> VsOut {
     let r = renderables[instances[instance].renderable];
     let w = worlds[r.transformSlot];
     let world = w.world * vec4<f32>(in.position, 1.0);
-    out.clip_position = cameras[forward_frame.cameraSlot].viewProjection * world;
+    out.clip_position = camera_clip(forward_frame.cameraSlot, world);
     out.world_position = world.xyz;
     out.world_normal = w.normal * in.normal;
     out.material_slot = r.materialSlot;
+    out.uv = in.uv;
+    out.fn_slot = r.fnSlot;
     return out;
 }
 
@@ -57,6 +63,9 @@ fn vs_main(in: VsIn, @builtin(instance_index) instance: u32) -> VsOut {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let material = materials[in.material_slot];
     let n = normalize(in.world_normal);
+    // Parâmetros de superfície pelo ponto `material` (spec 009; pronto: as constantes do material, sem emissão).
+    let surface = material_eval(SurfaceSample(in.world_position, n, in.uv, forward_frame.time), material, in.fn_slot);
+    let albedo = surface.base_color;
     var light_dir = DEFAULT_LIGHT_DIR;
     if (forward_frame.lightSlot != 0xFFFFFFFFu) {
         light_dir = lights[forward_frame.lightSlot].direction.xyz;
@@ -70,10 +79,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     );
     if (forward_frame.causticsEnabled > 0.5) {
         let caustic = water_caustic_factor(in.world_position, water_light_matrix.viewProj);
-        let lit = (BRDF_AMBIENT + n_dot_l * BRDF_DIFFUSE * shadow_factor * caustic) * material.albedo.rgb;
-        return vec4<f32>(lit, material.albedo.a);
+        var lit = (BRDF_AMBIENT + n_dot_l * BRDF_DIFFUSE * shadow_factor * caustic) * albedo.rgb;
+        if (any(surface.emissive != vec3f(0.0))) { lit += surface.emissive; }
+        return vec4<f32>(lit, albedo.a);
     }
-    return vec4<f32>(lambert_lit(material.albedo.rgb, n_dot_l, shadow_factor), material.albedo.a);
+    var color = lambert_lit(albedo.rgb, n_dot_l, shadow_factor);
+    if (any(surface.emissive != vec3f(0.0))) { color += surface.emissive; }
+    return vec4<f32>(color, albedo.a);
 }
 
 // Transmissão da luz pela água no ponto: abaixo da superfície vista pela luz, o mapa de cáusticas (bilinear); acima

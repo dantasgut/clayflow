@@ -2,6 +2,7 @@ import type { Flow } from '../../flows/Flow';
 import type { RegisterOptions } from '../../flows/FlowRegistry';
 import type { Unsubscribe } from '../../events/EventBus';
 import { FlowRuntime, type FlowRuntimeHost } from './FlowRuntime';
+import { ScenePoints } from './ScenePoints';
 
 /**
  * Os Flows alocados pela C2 e a sua reação a eventos da cena: entidades (slots `entities`, entregues agregadas por
@@ -13,12 +14,16 @@ import { FlowRuntime, type FlowRuntimeHost } from './FlowRuntime';
 export class FlowBinder {
     private readonly runtimes = new Map<Flow, FlowRuntime>();
     private readonly subscriptions: Unsubscribe[];
+    private readonly host: FlowRuntimeHost;
 
-    constructor(private readonly host: FlowRuntimeHost) {
+    constructor(host: Omit<FlowRuntimeHost, 'scenePoints'>) {
+        const scenePoints = new ScenePoints(host.core, host.world, host.resources);
+        this.host = { ...host, scenePoints };
         const events = host.events;
         this.subscriptions = [
-            events.on('resourcesChanged', () => {
+            events.on('resourcesChanged', (e) => {
                 this.markAll();
+                if (scenePoints.resourcesChanged(e.added, e.removed)) this.sceneChanged();
             }),
             events.on('entitiesInserted', (e) => {
                 for (const rt of this.runtimes.values())
@@ -65,6 +70,7 @@ export class FlowBinder {
                 }
             }),
             events.on('poolWritten', (e) => {
+                if (scenePoints.poolWritten(e.schema.name)) this.sceneChanged();
                 for (const rt of this.runtimes.values()) {
                     rt.poolWritten(e.poolKey, e.schema.name, e.ranges, e.fields);
                     if (rt.listens(e.schema)) {
@@ -118,6 +124,12 @@ export class FlowBinder {
         for (const flow of [...this.runtimes.keys()]) this.release(flow);
         for (const off of this.subscriptions) off();
         this.subscriptions.length = 0;
+        this.host.scenePoints.dispose();
+    }
+
+    /** As funções de cena mudaram: cada runtime prepara de novo os pipelines com pontos de cena. */
+    private sceneChanged(): void {
+        for (const rt of this.runtimes.values()) rt.sceneChanged();
     }
 
     private markAll(): void {

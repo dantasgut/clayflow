@@ -6,7 +6,7 @@
 
 # Interface: ColorRangeCpu
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:25](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/GraphColorer.ts#L25)
+Defined in: [elements/gpu/compute/GraphColorer.ts:25](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/GraphColorer.ts#L25)
 
 Intervalo das arestas de uma cor em `edgesByColor`, lido para a CPU.
 
@@ -16,7 +16,7 @@ Intervalo das arestas de uma cor em `edgesByColor`, lido para a CPU.
 
 > `readonly` **count**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:29](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/GraphColorer.ts#L29)
+Defined in: [elements/gpu/compute/GraphColorer.ts:29](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/GraphColorer.ts#L29)
 
 Arestas da cor.
 
@@ -26,6 +26,6 @@ Arestas da cor.
 
 > `readonly` **offset**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:27](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/GraphColorer.ts#L27)
+Defined in: [elements/gpu/compute/GraphColorer.ts:27](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/GraphColorer.ts#L27)
 
 Primeira posição da cor em `edgesByColor`.

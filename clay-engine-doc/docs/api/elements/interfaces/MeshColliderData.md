@@ -6,7 +6,7 @@
 
 # Interface: MeshColliderData
 
-Defined in: [elements/physics/colliders/MeshCollider.ts:7](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/colliders/MeshCollider.ts#L7)
+Defined in: [elements/physics/colliders/MeshCollider.ts:7](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/colliders/MeshCollider.ts#L7)
 
 Dado de um `MeshCollider` (layout de `MeshCollider.schema` mais os triângulos, 9 floats cada).
 
@@ -16,7 +16,7 @@ Dado de um `MeshCollider` (layout de `MeshCollider.schema` mais os triângulos, 
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/colliders/MeshCollider.ts:13](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/colliders/MeshCollider.ts#L13)
+Defined in: [elements/physics/colliders/MeshCollider.ts:13](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/colliders/MeshCollider.ts#L13)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/colliders/MeshCollider.ts:15](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/colliders/MeshCollider.ts#L15)
+Defined in: [elements/physics/colliders/MeshCollider.ts:15](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/colliders/MeshCollider.ts#L15)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **firstTriangle**: `number`
 
-Defined in: [elements/physics/colliders/MeshCollider.ts:11](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/colliders/MeshCollider.ts#L11)
+Defined in: [elements/physics/colliders/MeshCollider.ts:11](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/colliders/MeshCollider.ts#L11)
 
 Primeiro triângulo.
 
@@ -46,7 +46,7 @@ Primeiro triângulo.
 
 > **triangleCount**: `number`
 
-Defined in: [elements/physics/colliders/MeshCollider.ts:9](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/colliders/MeshCollider.ts#L9)
+Defined in: [elements/physics/colliders/MeshCollider.ts:9](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/colliders/MeshCollider.ts#L9)
 
 Número de triângulos.
 
@@ -56,6 +56,6 @@ Número de triângulos.
 
 > **triangles**: readonly `number`[]
 
-Defined in: [elements/physics/colliders/MeshCollider.ts:17](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/colliders/MeshCollider.ts#L17)
+Defined in: [elements/physics/colliders/MeshCollider.ts:17](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/colliders/MeshCollider.ts#L17)
 
 Triângulos (índices de vértice).

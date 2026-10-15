@@ -2,6 +2,9 @@
 @group(0) @binding(0) var<uniform>             pbf_params: PBFSimParams;
 @group(1) @binding(0) var<storage, read_write> particles:  array<PBFParticle>;
 @group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
+// Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
+@group(1) @binding(2) var<storage, read>       field_records: array<FieldFnRecord>;
+@group(1) @binding(3) var<storage, read>       field_live:    array<u32>;
 // Grupo 2: conjunto de colliders (`collider_set.wgsl`), para a adesão (spec 030).
 
 @compute @workgroup_size(64)
@@ -23,7 +26,12 @@ fn pbf_predict_main(
     p.posOld = p.pos;
 
     // Semi-implicit Euler: vel first, then pos
+    let v_in = p.vel.xyz;
     p.vel = vec4f(p.vel.xyz + dt * g, 0.0);
+    // Campos (spec 009): termo à parte, só quando não são zero — sem campos, a mesma trajetória bit a bit.
+    let body = FieldBody(1.0 / pbf_params.particle_mass, pbf_params.field_density, pbf_params.mass_over_density, 0.0);
+    let field = field_accel(p.pos.xyz, v_in, pbf_params.field_time, body);
+    if (any(field != vec3f(0.0))) { p.vel = vec4f(p.vel.xyz + dt * field, 0.0); }
 
     // Adesão às fronteiras (spec 030): uma vez por iteração, junto da gravidade (a colisão roda N vezes no solver).
     if (pbf_params.adhesion_accel > 0.0) {

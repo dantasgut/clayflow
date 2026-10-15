@@ -6,7 +6,7 @@
 
 # Interface: PostProcessData
 
-Defined in: [presentation/resources/PostProcessEffect.ts:30](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/resources/PostProcessEffect.ts#L30)
+Defined in: [presentation/resources/PostProcessEffect.ts:30](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/resources/PostProcessEffect.ts#L30)
 
 Dado de um `PostProcessEffect`.
 
@@ -16,7 +16,7 @@ Dado de um `PostProcessEffect`.
 
 > **aux**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [presentation/resources/PostProcessEffect.ts:36](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/resources/PostProcessEffect.ts#L36)
+Defined in: [presentation/resources/PostProcessEffect.ts:36](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/resources/PostProcessEffect.ts#L36)
 
 Parâmetros auxiliares do efeito.
 
@@ -26,7 +26,7 @@ Parâmetros auxiliares do efeito.
 
 > **enabled**: `boolean`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:32](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/resources/PostProcessEffect.ts#L32)
+Defined in: [presentation/resources/PostProcessEffect.ts:32](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/resources/PostProcessEffect.ts#L32)
 
 Efeito ativo.
 
@@ -36,6 +36,6 @@ Efeito ativo.
 
 > **strength**: `number`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:34](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/resources/PostProcessEffect.ts#L34)
+Defined in: [presentation/resources/PostProcessEffect.ts:34](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/resources/PostProcessEffect.ts#L34)
 
 Intensidade do efeito.

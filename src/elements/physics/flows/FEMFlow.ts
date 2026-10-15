@@ -153,9 +153,11 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         const iterations = this.iterations(bound);
         if (iterations === 0) return;
         if (this.params.reserve(iterations)) ctx.bind({ fem_params: this.params.source() });
-        const stepDt = (bound.slots.time.resource as Time).stepDt;
-        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
-            .acceleration ?? [0, -9.81, 0, 0];
+        const time = bound.slots.time.resource as Time;
+        const stepDt = time.stepDt;
+        const accel = (
+            bound.slots.gravity?.resource as GravityField | undefined
+        )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         for (let i = 0; i < iterations; i++) {
             this.params.write(i, {
@@ -170,6 +172,11 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
                 restitution: 0.2,
                 node_count: count,
                 solve_iters: 4,
+                // Fim do substep i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).
+                field_time:
+                    time.stepTime(Math.floor(i / this.substeps))
+                    + ((i % this.substeps) + 1) * (stepDt / this.substeps),
+                field_density: 0,
             });
         }
         this.params.flush(iterations);

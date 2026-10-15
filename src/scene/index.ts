@@ -28,13 +28,17 @@ export type { SceneContext, CreateSceneOptions } from './SceneContext';
 
 export const engine = defaultScene.core;
 
-export { Entity, ResourceState } from './contracts/index';
+export { Entity, ResourceState, ExtensionFunction } from './contracts/index';
 export type {
     Resource,
     PoolDirectory,
     PoolBufferSpec,
     PoolInfo,
     ResourceDirectory,
+    ExtensionFunctionOptions,
+    ExtensionParamType,
+    ExtensionParamValue,
+    ExtensionParamsData,
 } from './contracts/index';
 
 export type {
@@ -75,6 +79,8 @@ export {
     Schema,
     StructSchema,
     TensorSchema,
+    extensionRecordSchema,
+    EXTENSION_PARAMS_CAPACITY,
 } from './descriptors/index';
 
 export { World, ReuseError } from './world/World';
@@ -140,7 +146,15 @@ export type {
     PreparedRender,
     TransitionContext,
 } from './flows/index';
-export { wgslModule, composeWgsl, WgslCompositionError } from './shaders/index';
+export {
+    wgslModule,
+    composeWgsl,
+    WgslCompositionError,
+    wgslPoint,
+    scenePointsIn,
+    POINT_PARAMS,
+    bindPoints,
+} from './shaders/index';
 export type {
     WgslModule,
     WgslModuleOptions,
@@ -148,6 +162,14 @@ export type {
     WgslCompositionErrorKind,
     WgslSymbol,
     WgslSymbolKind,
+    WgslPoint,
+    WgslPointOptions,
+    WgslPointSignature,
+    BindablePoint,
+    PointImplementation,
+    ScenePointEntry,
+    ScenePointOptions,
+    ScenePointGlobal,
 } from './shaders/index';
 export type { Phase } from './flows/index';
 
@@ -189,6 +211,7 @@ export type {
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
     EntitiesInsertedPayload,
+    ExtensionRejectedPayload,
     EntitiesRemovedPayload,
     ProfilerStatsPayload,
     EngineErrorPayload,

@@ -338,8 +338,9 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             this.iterations,
         );
         if (this.params.reserve(this.iterations)) ctx.bind({ pbf_params: this.params.source() });
-        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
-            .acceleration ?? [0, -9.81, 0, 0];
+        const accel = (
+            bound.slots.gravity?.resource as GravityField | undefined
+        )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         const spacingRatio = material.particleSpacing / 0.05;
         for (let i = 0; i < this.iterations; i++) {
@@ -366,6 +367,11 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 adhesion_accel: material.adhesionAccel(surface.adhesion),
                 adhesion_tangential: material.adhesionTangential(surface.adhesion),
                 support: material.pbfSmoothingLength,
+                // Fim da iteração i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).
+                field_time:
+                    time.stepTime(Math.floor(i / this.substeps))
+                    + ((i % this.substeps) + 1) * (time.stepDt / this.substeps),
+                field_density: material.restDensity,
             });
         }
         this.params.flush(this.iterations);

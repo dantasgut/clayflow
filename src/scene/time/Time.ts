@@ -75,6 +75,14 @@ export class Time extends Entity<TimeData> implements Resource {
         steps: 0,
         stepDt: 0,
         droppedTime: 0,
+        /** Tempo simulado: soma dos passos dados (com passo fixo, `passos × fixedDt` — exato e igual em qualquer taxa). */
+        simulated: 0,
+        /** Passos de mesmo `fixedDt` desde a última troca de passo (para `simulated` sem erro acumulado). */
+        fixedSteps: 0,
+        /** `simulated` no início da série de passos fixos atual. */
+        fixedBase: 0,
+        /** O `fixedDt` da série atual. */
+        fixedOf: 0,
     };
     private scaleBeforePause = 1;
     private physicsScaleBeforePause = 1;
@@ -108,6 +116,24 @@ export class Time extends Entity<TimeData> implements Resource {
     /** Duração de cada passo de física do quadro corrente (s). */
     get stepDt(): number {
         return this.clock.stepDt;
+    }
+    /**
+     * Tempo simulado (s): a soma dos passos da física dados até aqui. Com passo fixo, é `passos × fixedDt` desde a
+     * última troca de passo — a mesma sequência de valores a qualquer taxa de quadros. É o tempo que as funções dos
+     * pontos de extensão recebem (spec 009); pausado, não anda.
+     */
+    get simulated(): number {
+        return this.clock.simulated;
+    }
+    /**
+     * Tempo simulado no início do passo `k` (0 ≤ k < `steps`) deste quadro (s). Com passo fixo, conta passos inteiros
+     * desde a última troca de passo — o passo de mesma ordem global tem o mesmo tempo em qualquer taxa de quadros (os
+     * solvers o passam às funções dos campos, spec 009).
+     */
+    stepTime(k: number): number {
+        const c = this.clock;
+        if (c.fixedDt === undefined) return c.simulated - (c.steps - k) * c.stepDt;
+        return c.fixedBase + (c.fixedSteps - c.steps + k) * c.fixedDt;
     }
     /** Tempo de física descartado pelo teto de passos, acumulado (s). */
     get droppedTime(): number {
@@ -192,6 +218,20 @@ export class Time extends Entity<TimeData> implements Resource {
                 this.clock.droppedTime += dropped;
                 this.events?.emit('timeDropped', { dropped });
             }
+        }
+        const c = this.clock;
+        if (fixed === undefined) {
+            c.simulated += c.steps * c.stepDt;
+            c.fixedSteps = 0;
+            c.fixedBase = c.simulated;
+        } else {
+            if (c.fixedOf !== fixed) {
+                c.fixedOf = fixed;
+                c.fixedSteps = 0;
+                c.fixedBase = c.simulated;
+            }
+            c.fixedSteps += c.steps;
+            c.simulated = c.fixedBase + c.fixedSteps * fixed;
         }
         const data = this.data;
         data.dt = this.clock.dt;

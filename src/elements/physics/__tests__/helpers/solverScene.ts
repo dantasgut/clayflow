@@ -40,6 +40,7 @@ export async function solverScene(): Promise<{
     };
     const core = {
         create: vi.fn(<S>(spec: S) => created(spec) as S),
+        shaderMessages: vi.fn(() => Promise.resolve([])),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(created(spec) as S)),
         write: vi.fn((spec: ResourceSpec, data: ArrayBufferView, offset?: number) => {
             const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice();

@@ -6,7 +6,7 @@
 
 # Class: SphereEmitterShape
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:3](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/particles/shapes/SphereEmitterShape.ts#L3)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:3](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/shapes/SphereEmitterShape.ts#L3)
 
 Shape de emissão — define o volume de onde partículas spawnam e
 a direção inicial. Implementações: SphereEmitterShape (esfera),
@@ -22,7 +22,7 @@ ConeEmitterShape (cone direcional), etc.
 
 > **new SphereEmitterShape**(`radius?`, `center?`, `speed?`): `SphereEmitterShape`
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:4](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/particles/shapes/SphereEmitterShape.ts#L4)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:4](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/shapes/SphereEmitterShape.ts#L4)
 
 #### Parameters
 
@@ -44,11 +44,29 @@ readonly \[`number`, `number`, `number`\] = `...`
 
 ## Methods
 
+### gpu()
+
+> **gpu**(): [`EmitterShapeGpu`](../interfaces/EmitterShapeGpu.md)
+
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:31](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/shapes/SphereEmitterShape.ts#L31)
+
+Esfera na GPU: superfície do raio em torno do centro, velocidade radial.
+
+#### Returns
+
+[`EmitterShapeGpu`](../interfaces/EmitterShapeGpu.md)
+
+#### Implementation of
+
+[`EmitterShape`](../interfaces/EmitterShape.md).[`gpu`](../interfaces/EmitterShape.md#gpu)
+
+***
+
 ### sample()
 
 > **sample**(`rng`): [`SpawnSample`](../interfaces/SpawnSample.md)
 
-Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
+Defined in: [elements/particles/shapes/SphereEmitterShape.ts:10](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/shapes/SphereEmitterShape.ts#L10)
 
 Sampleia um novo spawn point. `rng` é uma função pseudo-random
 (default: Math.random). Retorna position + velocity para a partícula.

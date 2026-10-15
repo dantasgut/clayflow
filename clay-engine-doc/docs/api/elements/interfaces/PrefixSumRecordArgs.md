@@ -6,7 +6,7 @@
 
 # Interface: PrefixSumRecordArgs
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:35](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/PrefixSum.ts#L35)
+Defined in: [elements/gpu/compute/PrefixSum.ts:35](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/PrefixSum.ts#L35)
 
 Argumentos de `PrefixSum.record`.
 
@@ -16,7 +16,7 @@ Argumentos de `PrefixSum.record`.
 
 > `readonly` **count**: `number`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:41](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/PrefixSum.ts#L41)
+Defined in: [elements/gpu/compute/PrefixSum.ts:41](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/PrefixSum.ts#L41)
 
 Elementos (≤ `capacity`). `0` não grava nada.
 
@@ -26,7 +26,7 @@ Elementos (≤ `capacity`). `0` não grava nada.
 
 > `readonly` **dst**: `StorageBufferSpec`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:39](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/PrefixSum.ts#L39)
+Defined in: [elements/gpu/compute/PrefixSum.ts:39](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/PrefixSum.ts#L39)
 
 Saída `u32[count]`, preparada antes (`prepare`); pode ser o próprio `src` (no lugar).
 
@@ -36,7 +36,7 @@ Saída `u32[count]`, preparada antes (`prepare`); pode ser o próprio `src` (no 
 
 > `readonly` `optional` **mode?**: `"exclusive"` \| `"inclusive"`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:43](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/PrefixSum.ts#L43)
+Defined in: [elements/gpu/compute/PrefixSum.ts:43](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/PrefixSum.ts#L43)
 
 `exclusive` (padrão): `dst[i] = Σ_{j<i} src[j]`; `inclusive`: `Σ_{j≤i}`.
 
@@ -46,6 +46,6 @@ Defined in: [elements/gpu/compute/PrefixSum.ts:43](https://github.com/dantasgut/
 
 > `readonly` **src**: `StorageBufferSpec`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:37](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/PrefixSum.ts#L37)
+Defined in: [elements/gpu/compute/PrefixSum.ts:37](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/PrefixSum.ts#L37)
 
 Entrada `u32[count]`. Não é alterada quando difere de `dst`.

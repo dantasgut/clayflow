@@ -1,7 +1,7 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
-import { ForceField } from './ForceField';
+import { FieldKind, ForceField, type FieldRecordValues } from './ForceField';
 
 /** Dado de um `GravityField` (layout de `GravityField.schema`). */
 export interface GravityFieldData {
@@ -49,7 +49,7 @@ export class GravityField extends ForceField<GravityFieldData> {
 
     constructor(values: Partial<GravityFieldData> = {}) {
         super();
-        this.data = {
+        this.data = this.withRecord({
             sourceMode: values.sourceMode ?? 0,
             _pad0: 0,
             _pad1: 0,
@@ -60,10 +60,32 @@ export class GravityField extends ForceField<GravityFieldData> {
             gravitationalConstant: values.gravitationalConstant ?? 6.674e-11,
             _pad3: 0,
             _pad4: 0,
-        };
+        });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'gravity', role: 'uniform', schema: GravityField.schema }];
+        return [
+            { id: 'gravity', role: 'uniform', schema: GravityField.schema },
+            ForceField.recordDescriptor,
+        ];
+    }
+
+    /**
+     * Gravidade uniforme que os solvers somam (m/s²): `acceleration`, ou zero com fonte pontual (`sourceMode = 1`) —
+     * aí a atração vem do registro do campo (ponto `field`, spec 009).
+     */
+    uniformAcceleration(): readonly number[] {
+        return this.rawData.sourceMode === 1 ? [0, 0, 0, 0] : this.rawData.acceleration;
+    }
+
+    /** Fonte pontual (spec 009): atração G·M / r² para a posição da fonte; uniforme fica fora do laço. */
+    protected fieldRecord(d: Readonly<GravityFieldData>): FieldRecordValues {
+        if (d.sourceMode !== 1) return { kind: FieldKind.none, a: [], b: [], s: [] };
+        return {
+            kind: FieldKind.gravityPoint,
+            a: [...d.sourcePosition],
+            b: [],
+            s: [d.gravitationalConstant * d.sourceMass, 1e-4, 0, 0],
+        };
     }
 }

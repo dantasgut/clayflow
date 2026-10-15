@@ -6,7 +6,7 @@
 
 # Interface: PBFSlots
 
-Defined in: [elements/physics/flows/PBFFlow.ts:66](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L66)
+Defined in: [elements/physics/flows/PBFFlow.ts:66](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/PBFFlow.ts#L66)
 
 Slots do PBF.
 
@@ -24,7 +24,7 @@ Slots do PBF.
 
 > `readonly` **bodies**: `BodiesSlot`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:68](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L68)
+Defined in: [elements/physics/flows/PBFFlow.ts:68](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/PBFFlow.ts#L68)
 
 Pool de corpos do `bodyType` do registro.
 
@@ -34,7 +34,7 @@ Pool de corpos do `bodyType` do registro.
 
 > `readonly` **colliderPools**: `PoolsSlot`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:76](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L76)
+Defined in: [elements/physics/flows/PBFFlow.ts:76](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/PBFFlow.ts#L76)
 
 Pools de colliders e de corpos rígidos (cada um presente ou não).
 
@@ -44,7 +44,7 @@ Pools de colliders e de corpos rígidos (cada um presente ou não).
 
 > `readonly` **colliders**: `EntitiesSlot`
 
-Defined in: [elements/physics/flows/PBFFlow.ts:78](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L78)
+Defined in: [elements/physics/flows/PBFFlow.ts:78](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/PBFFlow.ts#L78)
 
 Entidades com collider (donos dos registros nos pools de collider).
 
@@ -54,7 +54,7 @@ Entidades com collider (donos dos registros nos pools de collider).
 
 > `readonly` **gravity**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/PBFFlow.ts:72](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L72)
+Defined in: [elements/physics/flows/PBFFlow.ts:72](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/PBFFlow.ts#L72)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
@@ -64,7 +64,7 @@ Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 > `readonly` **material**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/PBFFlow.ts:74](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L74)
+Defined in: [elements/physics/flows/PBFFlow.ts:74](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/PBFFlow.ts#L74)
 
 Material das partículas (opcional; padrões do solver).
 
@@ -74,6 +74,6 @@ Material das partículas (opcional; padrões do solver).
 
 > `readonly` **time**: `SingletonSlot`\<`false`\>
 
-Defined in: [elements/physics/flows/PBFFlow.ts:70](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/PBFFlow.ts#L70)
+Defined in: [elements/physics/flows/PBFFlow.ts:70](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/PBFFlow.ts#L70)
 
 Relógio da cena (passos fixos do quadro).

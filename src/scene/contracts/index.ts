@@ -5,3 +5,10 @@ export type { ResourceDirectory } from './ResourceDirectory';
 
 export type * from './gpu';
 export type { PoolDirectory, PoolBufferSpec, PoolInfo } from './PoolDirectory';
+export { ExtensionFunction } from './ExtensionFunction';
+export type {
+    ExtensionFunctionOptions,
+    ExtensionParamType,
+    ExtensionParamValue,
+    ExtensionParamsData,
+} from './ExtensionFunction';

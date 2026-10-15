@@ -159,7 +159,53 @@ pelo nome (`pipeline:variável`, depois `variável`) ou o nome de `consumes` cuj
 Uma entrada de `consumes` pode renomear o tipo lido: `{ name: WireframeMaterial.schema.name, as: 'StandardMaterial' }`
 liga o pool `WireframeMaterial` a um binding declarado como `StandardMaterial`.
 
+## Pontos de extensão (spec 009)
+
+O usuário escreve a matemática de um estágio numa função WGSL de assinatura fixa, anexada como Resource; o motor
+compõe a função no lugar da implementação pronta, valida na criação e confere a compilação antes de usar. `time` é o
+tempo simulado (s); `data` é o struct dos parâmetros declarados em `params` (alias do ponto, ex. `TransformFnParams`).
+
+| Ponto       | Função                                                                                   | Opcionais                                   | Onde                       | Pronta                              |
+| ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------- | ----------------------------------- |
+| `transform` | `transform_fn(slot: u32, t: Transform, data, time: f32) -> mat4x4f`                       | —                                           | entidade                   | TRS (`transform_local`)             |
+| `camera`    | `camera_fn(c: Camera, world: mat4x4f, aspect: f32, data, time: f32) -> CameraOut`         | `camera_project(view_pos: vec3f, data) -> vec4f` | câmera                | perspectiva/ortográfica             |
+| `surface`   | `surface_fn(u: f32, v: f32, time: f32, data) -> vec3f`                                    | `surface_du`, `surface_dv`                  | `ParametricSurface`        | plano, esfera, toro, terreno        |
+| `space`     | `space_fn(x: vec3f, time: f32, data) -> vec3f`                                            | `space_jacobian(x, time, data) -> mat3x3f`  | cena (superfícies)         | identidade                          |
+| `field`     | `field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data) -> vec3f`                 | —                                           | cena (todos os solvers)    | gravidade pontual, vento, vórtice, arrasto, empuxo |
+| `material`  | `material_fn(s: SurfaceSample, m: StandardMaterial, data) -> SurfaceParams`               | —                                           | entidade (`StandardMaterial`) | as constantes do material        |
+| `emit`      | `emit_fn(i: u32, time: f32, seed: u32, data) -> EmittedParticle`                          | —                                           | `ComputeParticleEmitter`   | ponto, esfera, cone                 |
+
+```ts
+const orbit = new TransformFunction({
+    params: { radius: 'f32', period: 'f32' },
+    values: { radius: 2, period: 4 },
+    code: /* wgsl */ `
+fn transform_fn(slot: u32, t: Transform, data: TransformFnParams, time: f32) -> mat4x4f {
+    let a = 6.2831853 * time / data.period + f32(slot) * 0.01;
+    var m = transform_local(t).world;
+    m[3] = vec4f(data.radius * cos(a), t.position.y, data.radius * sin(a), 1.0);
+    return m;
+}`,
+});
+app.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()).add(orbit));
+orbit.values.radius = 3; // quadro seguinte, sem recompilar
+orbit.setCode(outroCodigo); // vale quando compilar; erro → extensionRejected, a anterior continua
+app.events.on('extensionRejected', (e) => console.warn(e.point, e.line, e.message));
+```
+
+- **Erros.** Assinatura errada, símbolo do núcleo redefinido ou chamada sem definição: exceção na criação, com o
+  ponto e as assinaturas esperada e recebida. Erro de compilação: `extensionRejected` com a linha do código do
+  usuário; a cena continua com a função anterior (ou com a pronta).
+- **Não finito.** Matriz, partícula, ponto ou campo infinitos são descartados (mantém o anterior / não nasce / soma
+  zero). NaN depende da GPU: compiladores com matemática rápida podem não preservá-lo.
+- **Custos.** Um pipeline por código (não por entidade): entidades com o mesmo código formam um grupo. Funções de
+  cena recompilam os estágios que as usam uma vez por mudança.
+- **Uma instância por entidade** (reuso de instância é proibido); `values` diferentes por entidade.
+- **Laços sem fim** travam a GPU como em qualquer shader: o motor não os interrompe.
+
 ## Fora desta versão
 
-- Pontos de extensão matemáticos do usuário (`transform`, `surface`, `space`…) e módulos `parametric`, `space`,
-  `procedural`, `sampling`: fases posteriores do roadmap.
+- Malha adaptativa, métrica e curvatura das superfícies e colisor SDF derivado delas: spec 010.
+- Espaço aplicado à cena inteira (malhas, luz, sombra) e portais: spec 019.
+- Cook-Torrance com a rugosidade e a metalicidade da função `material`, texturas por mapa: specs 011 e 012.
+- Módulos `procedural` e `sampling` da biblioteca: fases posteriores do roadmap.

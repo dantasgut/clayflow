@@ -204,6 +204,7 @@ export async function renderScene(): Promise<{
 
     const core = {
         create: vi.fn(<S>(spec: S) => created(spec)),
+        shaderMessages: vi.fn(() => Promise.resolve([])),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(created(spec))),
         writeTexture: vi.fn(),
         write: vi.fn((spec: ResourceSpec) => {

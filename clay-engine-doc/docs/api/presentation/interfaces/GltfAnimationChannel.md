@@ -6,7 +6,7 @@
 
 # Interface: GltfAnimationChannel
 
-Defined in: [presentation/assets/GltfLoader.ts:101](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/assets/GltfLoader.ts#L101)
+Defined in: [presentation/assets/GltfLoader.ts:101](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L101)
 
 Channel de animation — liga um sampler a um (node, path) específico.
 Múltiplas channels formam uma `GltfAnimation` completa.
@@ -17,7 +17,7 @@ Múltiplas channels formam uma `GltfAnimation` completa.
 
 > `readonly` **samplerIndex**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:103](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/assets/GltfLoader.ts#L103)
+Defined in: [presentation/assets/GltfLoader.ts:103](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L103)
 
 Índice em `GltfAnimation.samplers`.
 
@@ -27,7 +27,7 @@ Defined in: [presentation/assets/GltfLoader.ts:103](https://github.com/dantasgut
 
 > `readonly` **targetNode**: `number`
 
-Defined in: [presentation/assets/GltfLoader.ts:105](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/assets/GltfLoader.ts#L105)
+Defined in: [presentation/assets/GltfLoader.ts:105](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L105)
 
 Índice em `GltfDocument.nodes` que será animado.
 
@@ -37,6 +37,6 @@ Defined in: [presentation/assets/GltfLoader.ts:105](https://github.com/dantasgut
 
 > `readonly` **targetPath**: [`GltfAnimationPath`](../type-aliases/GltfAnimationPath.md)
 
-Defined in: [presentation/assets/GltfLoader.ts:107](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/presentation/assets/GltfLoader.ts#L107)
+Defined in: [presentation/assets/GltfLoader.ts:107](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L107)
 
 Atributo do node alvo (translation/rotation/scale/weights).

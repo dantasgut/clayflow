@@ -2,6 +2,9 @@
 @group(0) @binding(0) var<uniform>             sph_params:     SPHSimParams;
 @group(1) @binding(0) var<storage, read_write> particles:      array<SPHParticle>;
 @group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
+// Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
+@group(1) @binding(2) var<storage, read>       field_records: array<FieldFnRecord>;
+@group(1) @binding(3) var<storage, read>       field_live:    array<u32>;
 @group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
 @group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
 @group(3) @binding(0) var<storage, read>       sph_normal:     array<vec4f>;  // normais (só com coesão > 0, spec 030)
@@ -87,6 +90,10 @@ fn sph_forces_main(
     if (rho_i > 0.001) { visc_acc = f_visc / rho_i; }
     var accel = g + f_press + visc_acc;
     if (surface) { accel += a_st; }
+    // Campos (spec 009): termo à parte, só quando não são zero — sem campos, a mesma trajetória bit a bit.
+    let body = FieldBody(sph_params.inv_particle_mass, sph_params.field_density, mass / sph_params.rest_density, 0.0);
+    let field = field_accel(xi, vi, sph_params.field_time, body);
+    if (any(field != vec3f(0.0))) { accel += field; }
 
     particles[i].force = vec4f(accel, 0.0);
     particles[i].color = vec4f(xsph_c * xsph_acc, 0.0);

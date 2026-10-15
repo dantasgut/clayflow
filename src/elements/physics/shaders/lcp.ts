@@ -1,4 +1,5 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
 import { lcp, lcpState, quat, sdf, xpbd } from '../../gpu/shaders/math';
 import rbPredictSource from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
 import rbNarrowphaseSource from '../../gpu/wgsl/kernels/rb_narrowphase.wgsl?raw';
@@ -31,8 +32,8 @@ import { RBContactSchema } from '../../physics/schemas/simState';
 export const rbPredict = wgslModule({
     name: 'rb_predict',
     source: rbPredictSource,
-    requires: [quat, lcp],
-    structs: [LCPSchema, RBSimParamsSchema],
+    requires: [quat, lcp, fieldPointTypes, fieldAccelReady],
+    structs: [LCPSchema, RBSimParamsSchema, FieldFnRecordSchema],
 });
 
 /** Narrowphase contra os 4 pools de collider (uma entrada por pool). */

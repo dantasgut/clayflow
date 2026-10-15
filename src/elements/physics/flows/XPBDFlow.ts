@@ -205,8 +205,9 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         if (this.params.reserve(iterations)) ctx.bind({ params: this.params.source() });
         const time = bound.slots.time.resource as Time;
         const dt = time.stepDt / this.substeps;
-        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
-            .acceleration ?? [0, -9.81, 0, 0];
+        const accel = (
+            bound.slots.gravity?.resource as GravityField | undefined
+        )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         const constraintCount = bound.slots.constraints?.count ?? 0;
         for (let i = 0; i < iterations; i++) {
@@ -218,6 +219,10 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                 particle_radius: 0.05,
                 particle_count: count,
                 constraint_count: constraintCount,
+                // Fim do substep i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).
+                field_time:
+                    time.stepTime(Math.floor(i / this.substeps)) + ((i % this.substeps) + 1) * dt,
+                field_density: 0,
             });
         }
         this.params.flush(iterations);

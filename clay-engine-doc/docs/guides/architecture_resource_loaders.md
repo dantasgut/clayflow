@@ -3053,6 +3053,38 @@ src/elements/
 >    Flow pelo nome (`pipeline:variável` ou `variável`), ou o nome de `consumes` cujo tipo é o do binding (o resolver
 >    registrado com esse nome devolve a fonte). Nenhum estágio cria layout nem bind group.
 >
+> **Pontos de extensão matemáticos (spec 009).** O nível N2: um estágio chama uma função de assinatura fixa que o
+> usuário pode escrever em WGSL, sem escrever Flow, pipeline nem bind group.
+>
+> 1. **Ponto.** `wgslPoint({ name, required, optional, paramsAlias, record, ready, hosts, scene? })` (C2,
+>    `scene/shaders`): a assinatura (`$P` = struct de parâmetros da função), o **módulo pronto** que os kernels exigem
+>    como qualquer módulo, o schema do registro de parâmetros (um pool por ponto) e os kernels hospedeiros. Os sete do
+>    motor (C3): `transform`, `camera` (+ `camera_project`), `surface` (+ `surface_du`/`surface_dv`), `space`
+>    (+ `space_jacobian`), `field`, `material`, `emit`.
+> 2. **Troca.** `bindPoints(entrada, Map<ponto, módulo>)` reescreve a árvore de `requires` com o módulo do usuário no
+>    lugar do pronto (memorizado); `composeWgsl` não muda — "um símbolo, uma definição" vale no pipeline final.
+>    Adaptadores (`camera_clip`, `material_eval` no forward; `surface_tangents`) são lugares com pronto e alternativa
+>    em arquivos distintos, nunca no mesmo pipeline.
+> 3. **Função.** `ExtensionFunction` (C2, `scene/contracts`; classes por ponto na C3: `TransformFunction`,
+>    `CameraFunction`, `SurfaceFunction`, `SpaceFunction`, `FieldFunction`, `MaterialFunction`, `EmitFunction`) é o
+>    Resource: código, parâmetros por nome e tipo (até 32 escalares) e valores. O módulo gerado traz o struct dos
+>    parâmetros (alias do ponto), o carregador `<função>_params(registro)` e o código; a validação na criação e em
+>    `setCode` (`point.check`) confere assinatura, símbolos e a montagem em cada kernel hospedeiro — erro síncrono
+>    (`WgslCompositionError` `point-signature`, `symbol-conflict`, `unresolved-reference`). Valores vão ao registro do
+>    pool do ponto (mudar vale no quadro seguinte, sem recompilar); código igual compartilha módulo e pipeline.
+> 4. **Compilação conferida.** `PipelineDescriptor.verify` (com `extensions`): a C2 confere o fonte pelo compilador
+>    (`EngineCore.shaderMessages`, na C1) antes de criar o módulo — o erro não chega ao device. Rejeitado: a cena
+>    anuncia `extensionRejected { point, resource, revision, message, line }` (linha no código do usuário, pelas
+>    `ranges` do `composeWgsl`), o Flow recebe `pipelineRejected` e segue com o pipeline anterior. `ExtensionPipelines`
+>    (C2) é o estado que os Flows mantêm para isso: um pipeline por código, ativo ao compilar.
+> 5. **Pontos de cena** (`field`, `space`): as funções inseridas na cena valem em todo pipeline cujo shader contém o
+>    ponto. `ScenePoints` (C2) acompanha as funções (inserção, remoção, revisão, slot do registro), compõe-as pelo
+>    `combine` do ponto (nomes com o hash) e o `FlowRuntime` troca o pronto em cada pipeline — prepara de novo e troca
+>    quando compila; composição que não compila num kernel volta ao pronto, sem envolver o Flow. Os globais do ponto
+>    (`field_records`/`field_live`, `space_records`) são ligados pela C2: o pool, ou um substituto zerado.
+> 6. **Tempo.** Toda função recebe o tempo simulado (`Time.simulated`/`stepTime(k)`: passos inteiros × passo fixo) —
+>    o mesmo estado a 30, 60 e 144 Hz.
+>
 > **O papel do `Schema` no fluxo de dados.** O schema **é o caminho** pelo qual valores TS chegam ao shader — e a
 > única declaração da memória:
 > ```

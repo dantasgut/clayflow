@@ -1,6 +1,12 @@
-import { wgslModule } from '../../scene/shaders/WgslModule';
-import { brdf } from '../gpu/shaders/math';
+import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import type { BindablePoint } from '../../scene/shaders/bindPoints';
+import { brdf, camera } from '../gpu/shaders/math';
+import { CameraFnRecordSchema } from '../scene/flows/CameraSchemas';
+import { cameraPointTypes } from '../scene/flows/shaders';
+import { forwardMaterialReady, materialPointTypes } from './point/shaders';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
+import forwardCameraReadySource from '../gpu/wgsl/forward_camera_ready.wgsl?raw';
+import forwardCameraFnSource from '../gpu/wgsl/forward_camera_fn.wgsl?raw';
 import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
 import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
@@ -33,11 +39,43 @@ import { StandardMaterialSchema } from './StandardMaterialSchema';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
 import { WireframeMaterialSchema } from './WireframeMaterialSchema';
 
+/** Projeção do forward pronta (spec 009): `camera_clip` = `viewProjection · mundo`. */
+export const forwardCameraReady = wgslModule({
+    name: 'forward_camera_ready',
+    source: forwardCameraReadySource,
+});
+
+/**
+ * Lugar da projeção no desenho forward (spec 009): `fn camera_clip(slot: u32, world: vec4f) -> vec4f`. A câmera ativa
+ * com `camera_project` troca o pronto pelo adaptador da função (`forwardCameraAdapter`).
+ */
+export const forwardCameraClip: BindablePoint = { name: 'camera_clip', ready: forwardCameraReady };
+
+const cameraAdapters = new WeakMap<WgslModule, WgslModule>();
+
+/**
+ * Adaptador da projeção de ponto de uma função `camera` (spec 009): `forward_camera_fn.wgsl` sobre o módulo da função
+ * — liga o pool `CameraFnRecord` e projeta `camera_project(vista · mundo, parâmetros da câmera ativa)`. Memorizado por
+ * módulo da função.
+ */
+export function forwardCameraAdapter(fnModule: WgslModule): WgslModule {
+    let adapter = cameraAdapters.get(fnModule);
+    if (adapter !== undefined) return adapter;
+    adapter = wgslModule({
+        name: 'forward_camera_fn',
+        source: forwardCameraFnSource,
+        requires: [cameraPointTypes, camera, fnModule],
+        structs: [Camera.schema, CameraFnRecordSchema],
+    });
+    cameraAdapters.set(fnModule, adapter);
+    return adapter;
+}
+
 /** Shader do desenho forward (vértice + fragmento), usado pelos materiais padrão. */
 export const forward = wgslModule({
     name: 'forward',
     source: forwardSource,
-    requires: [brdf],
+    requires: [brdf, forwardCameraReady, materialPointTypes, forwardMaterialReady],
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,

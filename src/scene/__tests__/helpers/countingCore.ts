@@ -89,6 +89,8 @@ export function countingCore(): {
             countCreate(spec);
             return Promise.resolve(spec);
         }),
+        /** Mensagens do compilador: nenhuma, salvo quando o teste troca a implementação. */
+        shaderMessages: vi.fn(() => Promise.resolve([])),
         write: vi.fn((spec: ResourceSpec) => {
             const d = disc(spec);
             writes.set(d, (writes.get(d) ?? 0) + 1);

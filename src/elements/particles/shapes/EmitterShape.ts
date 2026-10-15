@@ -20,4 +20,14 @@ export interface EmitterShape {
      * (default: Math.random). Retorna position + velocity para a partícula.
      */
     sample(rng: () => number): SpawnSample;
+    /** A forma para a emissão na GPU (`ComputeParticleEmitter`, spec 009): tipo e vetores lidos por `emit_fn_ready`. */
+    gpu(): EmitterShapeGpu;
+}
+
+/** Forma pronta na GPU (spec 009): 0 ponto, 1 esfera, 2 cone; `a`, `b`, `s` como em `emit_fn_ready.wgsl`. */
+export interface EmitterShapeGpu {
+    readonly kind: 0 | 1 | 2;
+    readonly a: readonly [number, number, number];
+    readonly b: readonly [number, number, number];
+    readonly s: readonly [number, number];
 }

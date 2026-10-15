@@ -2,6 +2,9 @@
 @group(0) @binding(0) var<uniform>             fem_params: FEMSimParams;
 @group(0) @binding(1) var<storage, read_write> nodes:      array<Particle>;
 @group(0) @binding(2) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
+// Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
+@group(0) @binding(3) var<storage, read>       field_records: array<FieldFnRecord>;
+@group(0) @binding(4) var<storage, read>       field_live:    array<u32>;
 
 @compute @workgroup_size(64)
 fn fem_predict_main(
@@ -21,8 +24,12 @@ fn fem_predict_main(
     }
 
     let dt  = fem_params.dt_sub;
-    let vel = nodes[i].vel.xyz + fem_params.gravity * dt;
+    var vel = nodes[i].vel.xyz + fem_params.gravity * dt;
     let pos = nodes[i].pos.xyz;
+    // Campos (spec 009): termo à parte, só quando não são zero — sem campos, a mesma trajetória bit a bit.
+    let body = FieldBody(inv_mass, fem_params.field_density, 0.0, 0.0);
+    let field = field_accel(pos, nodes[i].vel.xyz, fem_params.field_time, body);
+    if (any(field != vec3f(0.0))) { vel += field * dt; }
 
     nodes[i].vel  = vec4f(vel, nodes[i].vel.w);
     nodes[i].pred = vec4f(pos + vel * dt, nodes[i].pred.w);

@@ -20,8 +20,17 @@ export const ForwardFrameParamsSchema = new StructSchema(
          * pela luz; 0 deixa o fator em 1 exato (cenas sem água com cáusticas desenham como antes).
          */
         causticsEnabled: FieldType.f32,
+        /**
+         * Slot do registro de parâmetros da `CameraFunction` da câmera ativa (spec 009) — lido só pela variante do
+         * desenho com projeção de ponto (`camera_project`).
+         */
+        cameraFnSlot: FieldType.u32,
+        /** Tempo simulado (s) — a amostra de superfície das funções `material` (spec 009). */
+        time: FieldType.f32,
         /** Preenchimento do layout. */
-        _pad0: FieldType.f32,
+        _pad1: FieldType.u32,
+        _pad2: FieldType.u32,
+        _pad3: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

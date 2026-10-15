@@ -62,6 +62,28 @@ describe('composeWgsl — ordem e deduplicação', () => {
     });
 });
 
+describe('composeWgsl — linhas de cada módulo', () => {
+    it('ranges apontam para o texto de cada módulo no fonte montado (com structs no topo)', () => {
+        const schema = new StructSchema('RangeProbe', { a: FieldType.f32, b: FieldType.f32 });
+        const base = wgslModule({
+            name: 'range_base',
+            source: 'fn base_a() -> f32 {\n    return 1.0;\n}',
+            structs: [schema],
+        });
+        const top = mod(
+            'range_top',
+            'fn top_b() -> f32 {\n    return base_a();\n}\nfn top_c() {}',
+            [base],
+        );
+        const out = composeWgsl(top);
+        const lines = out.spec.source.split('\n');
+        for (const m of [base, top]) {
+            const r = out.ranges.get(m.name)!;
+            expect(lines.slice(r.first - 1, r.last).join('\n')).toBe(m.source);
+        }
+    });
+});
+
 describe('composeWgsl — erros', () => {
     it('ciclo com o caminho completo', () => {
         const a = wgslModule({ name: 'a', source: 'fn fa() {}' });
