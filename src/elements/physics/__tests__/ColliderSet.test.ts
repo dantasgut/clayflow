@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ColliderSet, NO_OWNER } from '../colliders/ColliderSet';
+import { BoxCollider } from '../colliders/BoxCollider';
 import { PlaneCollider } from '../colliders/PlaneCollider';
 import { SphereCollider } from '../colliders/SphereCollider';
+import { SurfaceCollider } from '../colliders/SurfaceCollider';
 import { RigidBody } from '../bodies/RigidBody';
 import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
 import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
@@ -74,7 +76,9 @@ describe('ColliderSet', () => {
         s.world.insert(new SphereCollider({ radius: 2 }));
         s.set.refresh();
         const counts = s.set.sources().collider_counts;
-        expect(lastU32(s.writes, counts as StorageBufferSpec)).toEqual([1, 0, 2, 0]);
+        expect(lastU32(s.writes, counts as StorageBufferSpec).slice(0, 8)).toEqual([
+            1, 0, 2, 0, 0, 0, 0, 0,
+        ]);
     });
 
     it('só reconstrói quando sujo; generation muda quando buffers mudam', () => {
@@ -108,6 +112,36 @@ describe('ColliderSet', () => {
         expect(s.writes.length).toBeGreaterThan(writes);
     });
 
+    it('superfícies (spec 010): contagem e campo pelo pool ou substituto', () => {
+        const s = setup();
+        s.world.insert(new SurfaceCollider({ mode: 'height', resolution: [4, 4] }));
+        s.set.refresh();
+        expect(s.set.surfaceCount).toBe(1);
+        const counts = s.set.sources().collider_counts;
+        const words = lastU32(s.writes, counts as StorageBufferSpec);
+        expect(words.slice(0, 8)).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
+        // Início do campo do colisor 0 (slot do pool de campo).
+        expect(words[8]).toBe(0);
+        expect(s.set.sources().collider_surface_field).toBe(s.set.fieldBuffer());
+    });
+
+    it('mapa de donos comum: caixas a partir de 0, esferas a partir do total de caixas (sphere_owner_base)', () => {
+        const s = setup();
+        s.world.insert(new BoxCollider({ halfExtents: [1, 1, 1, 0] }));
+        s.world.insert(new SphereCollider({ radius: 1 }));
+        s.world.insert(new SphereCollider({ radius: 2 }));
+        s.set.refresh();
+        const src = s.set.sources();
+        expect(lastU32(s.writes, src.collider_counts as StorageBufferSpec).slice(0, 8)).toEqual([
+            0, 1, 2, 0, 0, 1, 0, 0,
+        ]);
+        expect(lastU32(s.writes, src.collider_owners as StorageBufferSpec).slice(0, 3)).toEqual([
+            NO_OWNER,
+            NO_OWNER,
+            NO_OWNER,
+        ]);
+    });
+
     it('destroy libera mapas, buffers mínimos e contagens', () => {
         const s = setup();
         s.set.refresh();
@@ -124,15 +158,14 @@ describe('ColliderSet', () => {
         const src = s.set.sources();
         expect(Object.keys(src).sort()).toEqual([
             'collider_bodies',
-            'collider_box_owners',
             'collider_boxes',
             'collider_counts',
             'collider_mesh_owners',
             'collider_meshes',
-            'collider_plane_owners',
+            'collider_owners',
             'collider_planes',
-            'collider_sphere_owners',
             'collider_spheres',
+            'collider_surface_field',
         ]);
         expect(src.collider_meshes).toBe(s.set.pool('MeshCollider').buffer);
     });

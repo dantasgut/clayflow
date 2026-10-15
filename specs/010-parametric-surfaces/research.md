@@ -108,19 +108,25 @@ pela escala mínima (documentado).
 
 ### R3 Fronteira genérica: novo tipo `surface` (C3)
 
-- `collider_set.wgsl` ganha os bindings 10 (`collider_surfaces`), 11 (`collider_surface_field`) e 12
-  (`collider_step`), `surface_count` no `ColliderSetCountsSchema` (acréscimo) e um quarto laço, **depois** das esferas,
-  em `push_out`, `constrain` e `adhesion`. Sem superfícies o laço tem zero iterações e as contas existentes não mudam
-  (FR-006).
-- `fn collider_hit_surface(i: u32, p: vec3f) -> ColliderHit` vive num módulo próprio (`surfaceColliderHit`), exigido
-  por `colliderSet` e pelo narrowphase do LCP (os bindings são declarados por quem hospeda). Altura: bilinear, normal
-  por diferenças da grade, `dist = (p.y − h)·n.y` (local → mundo); fora da caixa xz não colide. Distância: trilinear,
-  normal pelo gradiente da grade; fora da caixa, distância à caixa (sem contato).
-- **Cursor de passo**: `collider_step` (`u32`, do `ColliderSet` de cada solver) é zerado na transição `framePrepare` e
-  incrementado por um kernel de uma thread no fim de cada passo do solver — só despachado com superfícies na cena. A
-  cópia lida é `min(collider_step, cópias − 1)`.
-- `ColliderSet` ganha o pool `SurfaceColliderSchema` e o de campo em `COLLIDER_POOLS`/`sources()`; vazio = buffer
-  substituto, como os outros.
+> Implementado com ajustes (limite de 10 storage buffers por estágio no perfil de referência — o `pbf_predict` com
+> campos e adesão chegou a 11): sem cursor de passo nem registro no grupo; donos de caixa e esfera num só mapa.
+
+- `collider_set.wgsl` ganha um binding (`collider_surface_field`, o pool do campo) e perde dois: os mapas de dono de
+  caixa e esfera viram um (`collider_owners`, esferas a partir de `sphere_owner_base`; o de plano nunca foi lido). O
+  `ColliderSetCountsSchema` ganha `surface_count`, `sphere_owner_base` e os inícios dos campos (`surface_first0..3`,
+  até 16 superfícies por estágio — aviso acima disso). Um quarto laço, **depois** das esferas, em `push_out`,
+  `constrain` e `adhesion`: sem superfícies, zero iterações e as contas existentes não mudam (FR-006 — fixtures
+  conferidas).
+- `fn collider_hit_surface(i: u32, p: vec3f) -> ColliderHit` vive num módulo próprio (`surfaceColliderHit`); o
+  hospedeiro declara o campo e `surface_collider_first(i)`. Modo, nós por eixo, floats por cópia e folga ficam no
+  cabeçalho da cópia 0 (escritos pela construção). Altura: bilinear, normal pela grade, `dist = (p.y − h)·n.y` (local
+  → mundo); fora da caixa xz não colide. Distância: trilinear, normal pelo gradiente da interpolação; fora da caixa,
+  sem contato.
+- **Cópia do passo pelo tempo**: o cabeçalho guarda o tempo de cada cópia (fim do passo); o kernel hospedeiro define
+  `collider_time` (variável privada do módulo) com o `field_time` dos seus parâmetros por iteração, e a consulta lê a
+  primeira cópia cujo tempo não é anterior a ele. Sem kernel nem buffer a mais.
+- `ColliderSet` ganha o pool `SurfaceCollider` em `COLLIDER_POOLS` e o do campo em `COLLIDER_DATA_POOLS`; vazio =
+  buffer substituto, como os outros.
 
 ### R4 Corpos rígidos (C3)
 
@@ -225,3 +231,25 @@ dentro do vale) no último segundo, partículas fora por baixo; imagem com fixtu
   regravado com a máquina livre.
 - Vídeos: terreno com corpos e a água formando lago (cáusticas); superfície deformando com malha adaptativa (wireframe);
   material por curvatura.
+
+## Partida
+
+Baseline regravado na 009 (`fe51e79`, máquina livre; o bench de partida desta spec foi interrompido porque o
+Vite servia a fonte em edição — os números do baseline são a partida):
+
+| Cena                    | CPU (ms) | GPU (ms) |
+| ----------------------- | -------- | -------- |
+| instances/10k           | 0.025    | 0.35     |
+| instances/100k          | 0.025    | 0.35     |
+| instances/1m            | 0.025    | 2.66     |
+| instances/10k-moving    | 2.945    | 0.31     |
+| instances/10k-functions | 0.035    | 0.28     |
+| unique-objects/1k       | 0.435    | 0.75     |
+| rigid-bodies/1k         | 0.200    | 2.09     |
+| rigid-bodies/10k        | 0.095    | 2.94     |
+| particles/4k            | 0.200    | 2.23     |
+| particles/64k           | 0.175    | 13.96    |
+| particles/4k-water      | 0.295    | 3.13     |
+| particles/64k-water     | 0.235    | 15.69    |
+| particles/4k-cohesion   | 0.205    | 2.24     |
+| particles/64k-cohesion  | 0.190    | 18.93    |

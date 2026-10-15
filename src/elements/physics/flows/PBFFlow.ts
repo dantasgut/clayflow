@@ -24,7 +24,7 @@ import {
 } from '../../gpu/NeighborSearchPipeline';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
-import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { ParticleMaterial, type SurfaceStep } from '../materials/ParticleMaterial';
 import { PBFSimParamsSchema } from '../schemas/simParams';
@@ -83,7 +83,7 @@ const slots: PBFSlots = {
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
     material: slot.singleton(ParticleMaterial.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOLS.map((s) => s.name), LCPSchema.name]),
+    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
     colliders: slot.entities({ all: [Collider] }),
 };
 

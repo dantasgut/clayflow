@@ -14,6 +14,7 @@ import { BoxCollider } from './BoxCollider';
 import { MeshCollider } from './MeshCollider';
 import { PlaneCollider } from './PlaneCollider';
 import { SphereCollider } from './SphereCollider';
+import { SurfaceCollider } from './SurfaceCollider';
 
 /** Pools de collider da Camada 3, na ordem em que os estágios os percorrem. */
 export const COLLIDER_POOLS = [
@@ -21,7 +22,17 @@ export const COLLIDER_POOLS = [
     BoxCollider.schema,
     SphereCollider.schema,
     MeshCollider.schema,
+    SurfaceCollider.schema,
 ] as const;
+
+/** Pools de dado dos colliders (campo das superfícies, spec 010): realocação religa como a dos registros. */
+export const COLLIDER_DATA_POOLS = [SurfaceCollider.cellSchema] as const;
+
+/** Chaves de todos os pools de collider (registros e dados), para os slots `slot.pools` dos estágios. */
+export const COLLIDER_POOL_KEYS: readonly string[] = [
+    ...COLLIDER_POOLS,
+    ...COLLIDER_DATA_POOLS,
+].map((s) => s.name);
 
 /** Slot de dono para collider sem corpo (estático: o centro é a posição de mundo). */
 export const NO_OWNER = 0xffffffff;
@@ -32,7 +43,20 @@ export const ColliderSetCountsSchema = new StructSchema('ColliderSetCounts', {
     box_count: FieldType.u32,
     sphere_count: FieldType.u32,
     mesh_count: FieldType.u32,
+    surface_count: FieldType.u32,
+    /** Início das esferas no mapa de donos comum (`collider_owners`: caixas, depois esferas). */
+    sphere_owner_base: FieldType.u32,
+    _pad0: FieldType.u32,
+    _pad1: FieldType.u32,
+    /** Início do campo de cada colisor de superfície no pool (até `MAX_SURFACE_COLLIDERS`, 4 por vetor). */
+    surface_first0: FieldType.vec4u,
+    surface_first1: FieldType.vec4u,
+    surface_first2: FieldType.vec4u,
+    surface_first3: FieldType.vec4u,
 });
+
+/** Colliders de superfície consultados por estágio (os inícios dos campos vão no uniforme de contagens). */
+export const MAX_SURFACE_COLLIDERS = 16;
 
 /** Visão de um pool de collider: buffer do pool, mapa de dono e contagem. */
 export interface ColliderPoolView {
@@ -87,8 +111,9 @@ interface OwnerBuffer {
  * removidas, pool realocado — `markDirty` + `refresh`), nunca no `dispatch`; `refresh()` devolve se alguma fonte
  * mudou e o Flow religa `sources()` (`ctx.bind`).
  *
- * Fontes do grupo de colliders (`sources()`, nomes do `collider_set.wgsl`): contagens, pools de plano, caixa, esfera e
- * malha, mapas de dono de cada um e o pool de corpos.
+ * Fontes do grupo de colliders (`sources()`, nomes do `collider_set.wgsl`): contagens, pools de plano, caixa, esfera,
+ * malha e superfície, o mapa de donos comum (caixas e esferas; o da malha à parte), o pool de corpos e o campo das
+ * superfícies. Os mapas por pool (`pool(key).owners`) continuam para a narrowphase do LCP.
  */
 export class ColliderSet {
     private readonly bodiesPoolKey: string;
@@ -97,8 +122,13 @@ export class ColliderSet {
     private readonly counts = new Map<string, number>();
     private readonly boundPools = new Map<string, PoolBufferSpec>();
     private countsBuffer: UniformBufferSpec | null = null;
+    /** Donos das caixas e das esferas num só mapa (`collider_owners`): um binding de storage a menos por estágio. */
+    private sharedOwners: OwnerBuffer | null = null;
+    private warnedSurfaces = false;
     /** Raio envolvente de cada collider de caixa e de esfera, por slot (para a broadphase). */
     private readonly radii = new Map<string, Float32Array>();
+    /** Donos por slot de cada pool (o que foi escrito no mapa do pool), para o mapa comum. */
+    private readonly ownerValues = new Map<string, Uint32Array>();
     private largeBuffer: { spec: StorageBufferSpec; capacity: number } | null = null;
     private shape: BroadphaseShape | null = null;
     private dirty = true;
@@ -125,6 +155,11 @@ export class ColliderSet {
         return n;
     }
 
+    /** Colliders de superfície (spec 010). */
+    get surfaceCount(): number {
+        return this.counts.get(SurfaceCollider.schema.name) ?? 0;
+    }
+
     /** Marca os mapas de dono para reconstrução no próximo `refresh()`. */
     markDirty(): void {
         this.dirty = true;
@@ -132,7 +167,11 @@ export class ColliderSet {
 
     /** Reação do estágio dono ao evento `poolReallocated`: só pools de collider e de corpos afetam o conjunto. */
     onPoolReallocated(poolKey: string): void {
-        if (poolKey === this.bodiesPoolKey || COLLIDER_POOLS.some((s) => s.name === poolKey)) {
+        if (
+            poolKey === this.bodiesPoolKey
+            || COLLIDER_POOLS.some((s) => s.name === poolKey)
+            || COLLIDER_DATA_POOLS.some((s) => s.name === poolKey)
+        ) {
             this.dirty = true;
         }
     }
@@ -144,8 +183,10 @@ export class ColliderSet {
     refresh(): boolean {
         const before = this.gen;
         for (const schema of COLLIDER_POOLS) this.trackPoolBuffer(schema);
+        this.trackDataBuffers();
         if (!this.dirty && this.countsBuffer !== null) return this.gen !== before;
         for (const schema of COLLIDER_POOLS) this.rebuildOwners(schema.name);
+        this.rebuildSharedOwners();
         this.writeCounts();
         this.rebuildBroadphase();
         this.dirty = false;
@@ -166,11 +207,10 @@ export class ColliderSet {
             collider_boxes: box.buffer,
             collider_spheres: sphere.buffer,
             collider_meshes: mesh.buffer,
-            collider_plane_owners: plane.owners,
-            collider_box_owners: box.owners,
-            collider_sphere_owners: sphere.owners,
+            collider_owners: this.sharedOwners!.spec,
             collider_mesh_owners: mesh.owners,
             collider_bodies: this.bodiesBuffer(),
+            collider_surface_field: this.fieldBuffer(),
         };
     }
 
@@ -200,11 +240,19 @@ export class ColliderSet {
         );
     }
 
+    /** Campo das superfícies (pool `SurfaceColliderCell`, ou buffer mínimo). */
+    fieldBuffer(): PoolBufferSpec {
+        const key = SurfaceCollider.cellSchema.name;
+        return this.resources.poolBufferSpec(key) ?? this.empty(key, 16);
+    }
+
     /** Libera os buffers próprios (mapas de dono, buffers mínimos, contagens). */
     destroy(): void {
         for (const o of this.owners.values()) this.core.destroy(o.spec);
         for (const e of this.empties.values()) this.core.destroy(e);
         if (this.countsBuffer !== null) this.core.destroy(this.countsBuffer);
+        if (this.sharedOwners !== null) this.core.destroy(this.sharedOwners.spec);
+        this.sharedOwners = null;
         if (this.largeBuffer !== null) this.core.destroy(this.largeBuffer.spec);
         this.largeBuffer = null;
         this.shape = null;
@@ -235,6 +283,16 @@ export class ColliderSet {
                 this.gen++;
                 this.dirty = true;
             }
+        }
+    }
+
+    /** Troca do buffer do campo das superfícies (realocação): religar. */
+    private trackDataBuffers(): void {
+        const key = SurfaceCollider.cellSchema.name;
+        const current = this.fieldBuffer();
+        if (this.boundPools.get(key) !== current) {
+            this.boundPools.set(key, current);
+            this.gen++;
         }
     }
 
@@ -281,8 +339,61 @@ export class ColliderSet {
             radii[slot] = this.boundingRadius(poolKey, id);
         }
         this.radii.set(poolKey, radii);
+        this.ownerValues.set(poolKey, owners);
         this.core.write(entry.spec, new Uint8Array(owners.buffer));
         this.counts.set(poolKey, count);
+    }
+
+    /** Início do campo de cada colisor de superfície, pelo slot do registro (4 por vetor do uniforme). */
+    private surfaceFirsts(): Record<string, number[]> {
+        const firsts = new Array<number>(MAX_SURFACE_COLLIDERS).fill(0);
+        const ids = this.world.queryBySchemaName(SurfaceCollider.schema.name);
+        if (ids.length > MAX_SURFACE_COLLIDERS && !this.warnedSurfaces) {
+            this.warnedSurfaces = true;
+            console.warn(
+                `ColliderSet: ${ids.length} colliders de superfície; só os ${MAX_SURFACE_COLLIDERS} primeiros colidem.`,
+            );
+        }
+        for (const id of ids) {
+            const slot = this.resources.poolSlotOf(SurfaceCollider.schema.name, id);
+            const first = this.resources.poolSlotOf(SurfaceCollider.cellSchema.name, id);
+            if (slot === undefined || first === undefined || slot >= MAX_SURFACE_COLLIDERS)
+                continue;
+            firsts[slot] = first;
+        }
+        return {
+            surface_first0: firsts.slice(0, 4),
+            surface_first1: firsts.slice(4, 8),
+            surface_first2: firsts.slice(8, 12),
+            surface_first3: firsts.slice(12, 16),
+        };
+    }
+
+    /** Mapa de donos comum do grupo de colliders: as caixas a partir de 0, as esferas a partir do total de caixas. */
+    private rebuildSharedOwners(): void {
+        const boxCount = this.counts.get(BoxCollider.schema.name) ?? 0;
+        const sphereCount = this.counts.get(SphereCollider.schema.name) ?? 0;
+        const capacity = Math.max(4, boxCount + sphereCount);
+        if (this.sharedOwners === null || this.sharedOwners.capacity < capacity) {
+            if (this.sharedOwners !== null) this.core.destroy(this.sharedOwners.spec);
+            this.sharedOwners = {
+                spec: this.core.create<StorageBufferSpec>({
+                    kind: 'buffer',
+                    subkind: 'storage',
+                    discriminator: `${this.options.discriminator}_owners_${capacity}`,
+                    byteSize: capacity * 4,
+                }),
+                capacity,
+            };
+            this.gen++;
+        }
+        const all = new Uint32Array(this.sharedOwners.capacity).fill(NO_OWNER);
+        all.set(this.ownerValues.get(BoxCollider.schema.name)?.subarray(0, boxCount) ?? []);
+        all.set(
+            this.ownerValues.get(SphereCollider.schema.name)?.subarray(0, sphereCount) ?? [],
+            boxCount,
+        );
+        this.core.write(this.sharedOwners.spec, new Uint8Array(all.buffer));
     }
 
     /** Raio da esfera envolvente do collider (caixa: meia-diagonal; esfera: o raio); 0 para outras formas. */
@@ -365,6 +476,14 @@ export class ColliderSet {
                 box_count: this.counts.get(BoxCollider.schema.name) ?? 0,
                 sphere_count: this.counts.get(SphereCollider.schema.name) ?? 0,
                 mesh_count: this.counts.get(MeshCollider.schema.name) ?? 0,
+                surface_count: Math.min(
+                    this.counts.get(SurfaceCollider.schema.name) ?? 0,
+                    MAX_SURFACE_COLLIDERS,
+                ),
+                sphere_owner_base: this.counts.get(BoxCollider.schema.name) ?? 0,
+                _pad0: 0,
+                _pad1: 0,
+                ...this.surfaceFirsts(),
             }),
         );
     }

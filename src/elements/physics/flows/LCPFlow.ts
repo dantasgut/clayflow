@@ -38,7 +38,7 @@ import { Transform } from '../../scene/Transform';
 import { RigidBody } from '../bodies/RigidBody';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
-import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { NarrowphaseParamsSchema, RBSimParamsSchema } from '../schemas/simParams';
 import {
@@ -154,7 +154,7 @@ function slotsOf(bodiesPoolKey: string): LCPSlots {
         bodies: slot.bodies(),
         time: slot.singleton(Time.schema),
         gravity: slot.singleton(GravityField.schema, { optional: true }),
-        colliderPools: slot.pools([...COLLIDER_POOLS.map((s) => s.name), bodiesPoolKey]),
+        colliderPools: slot.pools([...COLLIDER_POOL_KEYS, bodiesPoolKey]),
         colliders: slot.entities({ all: [Collider] }),
         poses: POSES_SLOT,
     };

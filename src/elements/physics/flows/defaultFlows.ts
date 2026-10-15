@@ -11,6 +11,8 @@ import { LCPFlow } from './LCPFlow';
 import { MPMFlow } from './MPMFlow';
 import { PBFFlow } from './PBFFlow';
 import { SPHFlow } from './SPHFlow';
+import { SurfaceColliderFlow } from './SurfaceColliderFlow';
+import { SurfaceCollider } from '../colliders/SurfaceCollider';
 import { XPBDFlow } from './XPBDFlow';
 
 /** Registro padrão de um solver: factory e opções (fase, tipo de corpo, prioridade). */
@@ -26,6 +28,16 @@ export interface SolverRegistration {
  * solver, registre outra factory com prioridade maior, ou `flows.override(bodyType, factory, opções)`.
  */
 export const DEFAULT_SOLVER_REGISTRATIONS: readonly SolverRegistration[] = [
+    {
+        // Campo dos colliders de superfície (spec 010): antes dos solvers, que o consultam no mesmo quadro.
+        factory: (ctx) => new SurfaceColliderFlow(ctx),
+        options: {
+            type: 'SurfaceColliderFlow',
+            phase: 'physics',
+            bodyType: SurfaceCollider.schema.name,
+            priority: 20,
+        },
+    },
     {
         factory: (ctx) => new LCPFlow(ctx),
         options: { type: 'LCPFlow', phase: 'physics', bodyType: LCPSchema.name, priority: 10 },

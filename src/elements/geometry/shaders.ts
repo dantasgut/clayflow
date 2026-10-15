@@ -6,6 +6,7 @@ import surfaceFnReadySource from '../gpu/wgsl/kernels/surface_fn_ready.wgsl?raw'
 import surfaceTangentsNumericSource from '../gpu/wgsl/kernels/surface_tangents_numeric.wgsl?raw';
 import surfaceTangentsAnalyticSource from '../gpu/wgsl/kernels/surface_tangents_analytic.wgsl?raw';
 import spaceReadySource from '../gpu/wgsl/kernels/space_ready.wgsl?raw';
+import surfaceAtSource from '../gpu/wgsl/kernels/surface_at.wgsl?raw';
 import surfaceEvalSource from '../gpu/wgsl/kernels/surface_eval.wgsl?raw';
 import { combineSpaceFunctions } from '../extension/combineSpace';
 import { SpaceFnRecordSchema, SurfaceFnRecordSchema, SurfaceParamsSchema } from './SurfaceSchemas';
@@ -39,12 +40,22 @@ export const surfaceTangentsAnalytic = wgslModule({
 /** Espaço pronto: identidade (sem custo). */
 export const spaceReady = wgslModule({ name: 'space_ready', source: spaceReadySource });
 
+/**
+ * Ponto da superfície em (u, v) — posição e normal com o espaço da cena (spec 010): o único código de avaliação, usado
+ * pela malha uniforme, pela adaptativa e pelo colisor.
+ */
+export const surfaceAt = wgslModule({
+    name: 'surface_at',
+    source: surfaceAtSource,
+    requires: [surfaceFnReady, surfaceTangentsNumeric, spaceReady],
+});
+
 /** Avaliação de uma superfície paramétrica na grade (posição, normal, uv), com o espaço da cena. */
 export const surfaceEval = wgslModule({
     name: 'surface_eval',
     source: surfaceEvalSource,
     // `noise` e `linalg` ficam à mão das funções do usuário.
-    requires: [noise, linalg, surfaceFnReady, surfaceTangentsNumeric, spaceReady],
+    requires: [noise, linalg, surfaceAt],
     structs: [SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema],
 });
 

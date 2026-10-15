@@ -391,12 +391,16 @@ genérica `ColliderHit` (distância + normal) — os colisores de fluido da 015/
 **Status (2026-10-14)**: CI da `develop` verde de novo (PR #43): dois ciclos de import (só de tipos) que o
 `check:circular` acusava desde a 006 saíram do código (`ResolvedSource` em arquivo próprio; `FlowRuntime` depende de
 `FlowResourceHost`, não do `ResourceSystem`). `npm run ci` repete localmente os passos do workflow e é o gate local.
-F3/009 implementada (`feature/009-math-extension-points`; aguarda PR): pontos de extensão matemáticos —
+F3/009 integrada à `develop` (PR #44): pontos de extensão matemáticos —
 `transform`, `camera` (projeção de ponto no forward), `surface` (`ParametricSurface` na GPU), `space` (sobre as
 superfícies), `field` (campos prontos e do usuário em todos os solvers; antecipa a P3 da F5/016), `material` (variantes
 do forward por função) e `emit` (`EmitterFlow` na GPU; antecipa a parte de simulação da F9/025). Mecanismo na C2:
 `WgslPoint`/`bindPoints`, `ExtensionFunction`, pipelines conferidos pelo compilador (`EngineCore.shaderMessages`,
 `extensionRejected`) e pontos de cena (`ScenePoints`). Sem funções, todas as fixtures bit a bit.
+
+**Status (2026-10-15)**: F3/010 em andamento (`feature/010-parametric-surfaces`): colisor derivado da superfície
+(altura e distância com sinal, na GPU, por passo), geometria diferencial no material, malha adaptativa com desenho
+indireto, normais da geometria paramétrica de CPU.
 
 ## 7. Adoção pelo MorphSociety (no repositório do jogo)
 
