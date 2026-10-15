@@ -9,6 +9,7 @@ import forwardCameraReadySource from '../gpu/wgsl/forward_camera_ready.wgsl?raw'
 import forwardCameraFnSource from '../gpu/wgsl/forward_camera_fn.wgsl?raw';
 import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
 import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
+import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
 import waterViewSource from '../gpu/wgsl/water/water_view.wgsl?raw';
 import waterSpheresSource from '../gpu/wgsl/water/water_spheres.wgsl?raw';
@@ -34,9 +35,11 @@ import {
 } from './forwardSchemas';
 import { FluidSurfaceMaterialSchema } from './FluidSurfaceMaterialSchema';
 import { Light } from '../scene/Light';
+import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
 import { ShadowMap } from '../scene/ShadowMap';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
+import { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
 import { WireframeMaterialSchema } from './WireframeMaterialSchema';
 
 /** Projeção do forward pronta (spec 009): `camera_clip` = `viewProjection · mundo`. */
@@ -87,6 +90,7 @@ export const forward = wgslModule({
         ShadowMap.matrixSchema,
         Light.schema,
         WaterLightMatrixSchema,
+        SurfaceDiffSchema,
     ],
 });
 
@@ -121,6 +125,22 @@ export const pointSprite = wgslModule({
         RenderableSchema,
         RenderInstanceSchema,
         PointSpriteMaterialSchema,
+        ForwardFrameParamsSchema,
+        Light.schema,
+    ],
+});
+
+/** Partículas secundárias de um fluido (spec 010): gotículas, espuma e bolhas sobre a nuvem de pontos. */
+export const diffuseSprite = wgslModule({
+    name: 'diffuse_sprite',
+    source: diffuseSpriteSource,
+    requires: [brdf],
+    structs: [
+        Camera.matricesSchema,
+        Transform.worldSchema,
+        RenderableSchema,
+        RenderInstanceSchema,
+        DiffuseMaterialSchema,
         ForwardFrameParamsSchema,
         Light.schema,
     ],

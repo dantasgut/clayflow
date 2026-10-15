@@ -6,7 +6,7 @@
 
 # Interface: PlaneGeometryData
 
-Defined in: [elements/geometry/PlaneGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/PlaneGeometry.ts#L8)
+Defined in: [elements/geometry/PlaneGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/PlaneGeometry.ts#L8)
 
 Dado de uma `PlaneGeometry`.
 
@@ -20,7 +20,7 @@ Dado de uma `PlaneGeometry`.
 
 > **indexCount**: `number`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/PlaneGeometry.ts#L12)
+Defined in: [elements/geometry/PlaneGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/PlaneGeometry.ts#L12)
 
 Número de índices.
 
@@ -30,7 +30,7 @@ Número de índices.
 
 > `optional` **indices?**: `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/Geometry.ts#L19)
+Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L19)
 
 Índices de triângulo.
 
@@ -44,7 +44,7 @@ Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clay
 
 > **size**: readonly `number`[]
 
-Defined in: [elements/geometry/PlaneGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/PlaneGeometry.ts#L14)
+Defined in: [elements/geometry/PlaneGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/PlaneGeometry.ts#L14)
 
 Tamanho.
 
@@ -54,7 +54,7 @@ Tamanho.
 
 > **vertexCount**: `number`
 
-Defined in: [elements/geometry/PlaneGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/PlaneGeometry.ts#L10)
+Defined in: [elements/geometry/PlaneGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/PlaneGeometry.ts#L10)
 
 Número de vértices.
 
@@ -64,7 +64,7 @@ Número de vértices.
 
 > `optional` **vertices?**: `Float32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/Geometry.ts#L17)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L17)
 
 Vértices intercalados (posição, normal, uv).
 
@@ -78,7 +78,7 @@ Vértices intercalados (posição, normal, uv).
 
 > `optional` **wireEdges?**: `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/Geometry.ts#L24)
+Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L24)
 
 Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
 (de feição nas geometrias estáticas: sem as diagonais de faces planas).

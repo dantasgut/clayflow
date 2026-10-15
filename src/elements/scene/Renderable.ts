@@ -3,6 +3,7 @@ import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Material } from '../material/Material';
 import { MaterialFunction } from '../extension/MaterialFunction';
+import { ParametricSurface } from '../geometry/ParametricSurface';
 import { Transform } from './Transform';
 
 /**
@@ -15,6 +16,11 @@ export const RenderableSchema = new StructSchema('Renderable', {
     materialSlot: FieldType.u32,
     /** Slot do registro da `MaterialFunction` da entidade (spec 009); `RECORD_NONE` sem função. */
     fnSlot: FieldType.u32,
+    /**
+     * Primeiro slot da geometria diferencial da superfície (pool `SurfaceDiff`, spec 010; o vértice i lê
+     * `diffSlot + i`); `RECORD_NONE` sem ela.
+     */
+    diffSlot: FieldType.u32,
 });
 
 /**
@@ -37,5 +43,6 @@ export const renderableRecord: EntityRecordDeclaration = {
         transformSlot: [Transform, 'world'],
         materialSlot: [Material, 'material'],
         fnSlot: [MaterialFunction, 'params', { optional: true }],
+        diffSlot: [ParametricSurface, 'diff', { optional: true }],
     },
 };

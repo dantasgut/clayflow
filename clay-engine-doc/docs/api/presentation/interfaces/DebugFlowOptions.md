@@ -6,7 +6,7 @@
 
 # Interface: DebugFlowOptions
 
-Defined in: [presentation/flows/DebugFlow.ts:23](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/DebugFlow.ts#L23)
+Defined in: [presentation/flows/DebugFlow.ts:23](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L23)
 
 Opções do `DebugFlow`.
 
@@ -16,7 +16,7 @@ Opções do `DebugFlow`.
 
 > `readonly` `optional` **avgWindow?**: `number`
 
-Defined in: [presentation/flows/DebugFlow.ts:27](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/DebugFlow.ts#L27)
+Defined in: [presentation/flows/DebugFlow.ts:27](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L27)
 
 Window de rolling average para frame time (default: 60).
 
@@ -26,7 +26,7 @@ Window de rolling average para frame time (default: 60).
 
 > `readonly` `optional` **emitStats?**: `boolean`
 
-Defined in: [presentation/flows/DebugFlow.ts:25](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/DebugFlow.ts#L25)
+Defined in: [presentation/flows/DebugFlow.ts:25](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L25)
 
 Emite `profilerStats` ao fim de cada frame quando enabled (default: true).
 
@@ -36,6 +36,6 @@ Emite `profilerStats` ao fim de cada frame quando enabled (default: true).
 
 > `readonly` `optional` **toggleKey?**: `string`
 
-Defined in: [presentation/flows/DebugFlow.ts:29](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/DebugFlow.ts#L29)
+Defined in: [presentation/flows/DebugFlow.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L29)
 
 Tecla que toggla o overlay (default: 'F1').

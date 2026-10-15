@@ -9,6 +9,8 @@ fn sph_collision_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
+    // Tempo da iteração: escolhe a cópia do passo nos colliders de superfície (spec 010).
+    collider_time = sph_params.field_time;
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
@@ -24,14 +26,22 @@ fn sph_collision_main(
     if (sph_params.adhesion_accel > 0.0) {
         collider_set_adhesion(
             pos, &vel, sph_params.support, sph_params.adhesion_accel, sph_params.adhesion_tangential,
-            sph_params.dt, bound_min,
+            sph_params.dt, fluid_adhesion_min(bound_min, sph_params.open_bounds),
         );
     }
 
-    // ── Bounds AABB (piso + laterais) ────────────────────────────────────────
-    if (pos.y < bound_min.y) { pos.y = bound_min.y; vel.y = max(0.0, vel.y * -restitution); }
-    if (pos.x < bound_min.x) { pos.x = bound_min.x; vel.x = abs(vel.x) * restitution; }
-    if (pos.z < bound_min.z) { pos.z = bound_min.z; vel.z = abs(vel.z) * restitution; }
+    // ── Bounds AABB (piso + laterais); domínio aberto: quem sai da caixa é retirado (spec 010) ───────────────────
+    if (sph_params.open_bounds != 0u) {
+        if (fluid_outside(pos, bound_min, sph_params.bound_max)) {
+            particles[i].pos = vec4f(pos.x, FLUID_RETIRED_Y, pos.z, particles[i].pos.w);
+            particles[i].vel = vec4f(0.0, 0.0, 0.0, particles[i].vel.w);
+            return;
+        }
+    } else {
+        if (pos.y < bound_min.y) { pos.y = bound_min.y; vel.y = max(0.0, vel.y * -restitution); }
+        if (pos.x < bound_min.x) { pos.x = bound_min.x; vel.x = abs(vel.x) * restitution; }
+        if (pos.z < bound_min.z) { pos.z = bound_min.z; vel.z = abs(vel.z) * restitution; }
+    }
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
     // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento).

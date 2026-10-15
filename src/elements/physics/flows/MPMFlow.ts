@@ -20,7 +20,7 @@ import {
 import { Time } from '../../../scene/time/Time';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
-import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { MPMSimParamsSchema } from '../schemas/simParams';
@@ -61,7 +61,7 @@ const slots: MPMSlots = {
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
     material: slot.singleton(ParticleMaterial.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOLS.map((s) => s.name), LCPSchema.name]),
+    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
     colliders: slot.entities({ all: [Collider] }),
 };
 
@@ -303,6 +303,7 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
                 grid_z: this.grid.gridDim[2],
                 grid_origin: this.grid.origin,
                 cell_size: this.grid.cellSize,
+                open_bounds: material.openBounds ? 1 : 0,
                 material_id:
                     this.bodyType === 'MPMFluidSchema' ? MPM_MATERIAL_FLUID : MPM_MATERIAL_ELASTIC,
                 substep_count: substeps,

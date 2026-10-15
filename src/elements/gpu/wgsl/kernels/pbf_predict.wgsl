@@ -12,6 +12,8 @@ fn pbf_predict_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
+    // Tempo da iteração: escolhe a cópia do passo nos colliders de superfície (spec 010).
+    collider_time = pbf_params.field_time;
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
     let i = gid.x;
@@ -38,7 +40,7 @@ fn pbf_predict_main(
         var v = p.vel.xyz;
         collider_set_adhesion(
             p.pos.xyz, &v, pbf_params.support, pbf_params.adhesion_accel, pbf_params.adhesion_tangential, dt,
-            pbf_params.bound_min,
+            fluid_adhesion_min(pbf_params.bound_min, pbf_params.open_bounds),
         );
         p.vel = vec4f(v, 0.0);
     }

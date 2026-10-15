@@ -6,7 +6,7 @@
 
 # Class: SPHFlow
 
-Defined in: [elements/physics/flows/SPHFlow.ts:87](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L87)
+Defined in: [elements/physics/flows/SPHFlow.ts:87](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L87)
 
 SPHFlow — fluidos por Smoothed Particle Hydrodynamics fracamente compressível (Tait). O quadro executa
 `time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticleMaterial` (CFL 0,4 h/c); cada
@@ -28,7 +28,7 @@ Recursos privados — parâmetros por iteração, busca de vizinhança (recriada
 
 > **new SPHFlow**(`ctx`, `options?`): `SPHFlow`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:114](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L114)
+Defined in: [elements/physics/flows/SPHFlow.ts:114](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L114)
 
 #### Parameters
 
@@ -54,7 +54,7 @@ Defined in: [elements/physics/flows/SPHFlow.ts:114](https://github.com/dantasgut
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:91](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L91)
+Defined in: [elements/physics/flows/SPHFlow.ts:91](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L91)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -68,7 +68,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"running"`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:92](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L92)
+Defined in: [elements/physics/flows/SPHFlow.ts:92](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L92)
 
 Estado inicial do algoritmo.
 
@@ -82,7 +82,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -96,7 +96,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/SPHFlow.ts:90](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L90)
+Defined in: [elements/physics/flows/SPHFlow.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L90)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -110,7 +110,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`SPHSlots`](../interfaces/SPHSlots.md)
 
-Defined in: [elements/physics/flows/SPHFlow.ts:89](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L89)
+Defined in: [elements/physics/flows/SPHFlow.ts:89](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L89)
 
 Slots consumidos, por nome.
 
@@ -124,7 +124,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"running"`, `TransitionContext`\<[`SPHSlots`](../interfaces/SPHSlots.md)\>\>
 
-Defined in: [elements/physics/flows/SPHFlow.ts:93](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L93)
+Defined in: [elements/physics/flows/SPHFlow.ts:93](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L93)
 
 Tabela de transições (estado × evento).
 
@@ -138,7 +138,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"SPHFlow"` = `'SPHFlow'`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:88](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L88)
+Defined in: [elements/physics/flows/SPHFlow.ts:88](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L88)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -154,7 +154,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -174,7 +174,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -192,7 +192,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:195](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L195)
+Defined in: [elements/physics/flows/SPHFlow.ts:195](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L195)
 
 Grava as iterações do quadro (decididas em `framePrepare`).
 
@@ -220,7 +220,7 @@ Grava as iterações do quadro (decididas em `framePrepare`).
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:227](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L227)
+Defined in: [elements/physics/flows/SPHFlow.ts:227](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L227)
 
 Libera parâmetros, colliders e a busca de vizinhança.
 

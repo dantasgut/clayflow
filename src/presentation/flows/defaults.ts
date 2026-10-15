@@ -17,6 +17,7 @@ import { FluidSurfaceFlow } from './FluidSurfaceFlow';
 import { CausticsFlow } from './CausticsFlow';
 import { WaterFlow } from './WaterFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
+import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
@@ -212,6 +213,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'physics',
         priority: -100,
     });
+    // Partículas secundárias dos fluidos (spec 010: spray, espuma, bolhas) depois dos solvers, antes dos emissores.
+    const diffuseRegistration = flows.register((ctx) => new DiffuseFlow(ctx), {
+        type: 'diffuse',
+        phase: 'physics',
+        priority: -50,
+    });
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
@@ -247,6 +254,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             debugRegistration,
             uiRegistration,
             emitterRegistration,
+            diffuseRegistration,
             ...solvers,
         ],
     };

@@ -6,7 +6,7 @@
 
 # Class: EmitterFlow
 
-Defined in: [elements/particles/EmitterFlow.ts:78](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L78)
+Defined in: [elements/particles/EmitterFlow.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L90)
 
 EmitterFlow — partículas de `ComputeParticleEmitter` inteiras na GPU (spec 009). A cada passo da física: a CPU
 conta as partículas a criar (`rate × stepDt` acumulado, sem leitura de volta — a mesma sequência em qualquer taxa de
@@ -25,7 +25,7 @@ criação compila; rejeitada, segue a anterior.
 
 > **new EmitterFlow**(`ctx`): `EmitterFlow`
 
-Defined in: [elements/particles/EmitterFlow.ts:92](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L92)
+Defined in: [elements/particles/EmitterFlow.ts:107](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L107)
 
 #### Parameters
 
@@ -47,7 +47,7 @@ Defined in: [elements/particles/EmitterFlow.ts:92](https://github.com/dantasgut/
 
 > `readonly` **bindings**: `BindingSources` = `{}`
 
-Defined in: [scene/flows/Flow.ts:67](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L67)
+Defined in: [scene/flows/Flow.ts:67](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L67)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -61,7 +61,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [elements/particles/EmitterFlow.ts:82](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L82)
+Defined in: [elements/particles/EmitterFlow.ts:94](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L94)
 
 Estado inicial do algoritmo.
 
@@ -75,7 +75,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: `StructSchema`[]
 
-Defined in: [elements/particles/EmitterFlow.ts:81](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L81)
+Defined in: [elements/particles/EmitterFlow.ts:93](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L93)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -89,7 +89,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L65)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L65)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -103,7 +103,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`EmitterSlots`](../interfaces/EmitterSlots.md)
 
-Defined in: [elements/particles/EmitterFlow.ts:80](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L80)
+Defined in: [elements/particles/EmitterFlow.ts:92](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L92)
 
 Slots consumidos, por nome.
 
@@ -117,7 +117,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `Ctx`\>
 
-Defined in: [elements/particles/EmitterFlow.ts:83](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L83)
+Defined in: [elements/particles/EmitterFlow.ts:95](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L95)
 
 Tabela de transições (estado × evento).
 
@@ -131,7 +131,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"EmitterFlow"` = `'EmitterFlow'`
 
-Defined in: [elements/particles/EmitterFlow.ts:79](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L79)
+Defined in: [elements/particles/EmitterFlow.ts:91](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L91)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -147,7 +147,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -167,7 +167,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -185,7 +185,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/particles/EmitterFlow.ts:149](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L149)
+Defined in: [elements/particles/EmitterFlow.ts:172](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L172)
 
 Por passo do quadro e por emissor: criação (se há partículas a criar) e atualização.
 
@@ -213,7 +213,7 @@ Por passo do quadro e por emissor: criação (se há partículas a criar) e atua
 
 > **dispose**(): `void`
 
-Defined in: [elements/particles/EmitterFlow.ts:179](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/EmitterFlow.ts#L179)
+Defined in: [elements/particles/EmitterFlow.ts:211](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/EmitterFlow.ts#L211)
 
 Libera os parâmetros dos emissores e o substituto.
 

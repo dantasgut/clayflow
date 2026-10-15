@@ -6,7 +6,7 @@
 
 # Class: WireframeMaterial
 
-Defined in: [elements/material/WireframeMaterial.ts:26](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/WireframeMaterial.ts#L26)
+Defined in: [elements/material/WireframeMaterial.ts:26](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/WireframeMaterial.ts#L26)
 
 Material de arame (spec 008; o desenho do legado na arquitetura atual): desenha as **arestas da geometria** (descritor
 `wireEdges`, em espaço de objeto — as de feição, sem as diagonais de faces planas) como linhas de `lineWidth` pixels,
@@ -22,7 +22,7 @@ com borda suavizada. Sem iluminação e sem sombra (`castsShadow` falso por padr
 
 > **new WireframeMaterial**(`values?`): `WireframeMaterial`
 
-Defined in: [elements/material/WireframeMaterial.ts:30](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/WireframeMaterial.ts#L30)
+Defined in: [elements/material/WireframeMaterial.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/WireframeMaterial.ts#L30)
 
 #### Parameters
 
@@ -44,7 +44,7 @@ Defined in: [elements/material/WireframeMaterial.ts:30](https://github.com/danta
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/material/Material.ts:15](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/Material.ts#L15)
+Defined in: [elements/material/Material.ts:15](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L15)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -58,7 +58,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema` = `WireframeMaterialSchema`
 
-Defined in: [elements/material/WireframeMaterial.ts:28](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/WireframeMaterial.ts#L28)
+Defined in: [elements/material/WireframeMaterial.ts:28](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/WireframeMaterial.ts#L28)
 
 StructSchema do WireframeMaterial (cor + espessura em pixels).
 
@@ -70,7 +70,7 @@ StructSchema do WireframeMaterial (cor + espessura em pixels).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L138)
+Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -91,7 +91,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **castsShadow**(): `boolean`
 
-Defined in: [elements/material/Material.ts:30](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/Material.ts#L30)
+Defined in: [elements/material/Material.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L30)
 
 Projeta sombra? Padrão: só triângulos (linhas e sprites não projetam). Atribuir antes de inserir na cena: a
 escolha entra nos grupos de desenho na inserção.
@@ -104,7 +104,7 @@ escolha entra nos grupos de desenho na inserção.
 
 > **set** **castsShadow**(`value`): `void`
 
-Defined in: [elements/material/Material.ts:35](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/Material.ts#L35)
+Defined in: [elements/material/Material.ts:35](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L35)
 
 Define se o material projeta sombra (vale sobre o padrão da topologia).
 
@@ -130,7 +130,7 @@ Define se o material projeta sombra (vale sobre o padrão da topologia).
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -143,7 +143,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -169,7 +169,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -190,7 +190,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **topology**(): `GPUPrimitiveTopology`
 
-Defined in: [elements/material/Material.ts:22](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/Material.ts#L22)
+Defined in: [elements/material/Material.ts:22](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L22)
 
 Topologia do desenho: a do descritor de pipeline do material (padrão `'triangle-list'`).
 
@@ -208,7 +208,7 @@ Topologia do desenho: a do descritor de pipeline do material (padrão `'triangle
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -233,7 +233,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -258,7 +258,7 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/material/WireframeMaterial.ts:41](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/WireframeMaterial.ts#L41)
+Defined in: [elements/material/WireframeMaterial.ts:41](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/WireframeMaterial.ts#L41)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -279,7 +279,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/material/WireframeMaterial.ts:52](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/material/WireframeMaterial.ts#L52)
+Defined in: [elements/material/WireframeMaterial.ts:52](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/WireframeMaterial.ts#L52)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.

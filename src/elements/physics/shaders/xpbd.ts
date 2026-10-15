@@ -1,9 +1,10 @@
 import { poolLive } from '../../gpu/compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
-import { xpbd } from '../../gpu/shaders/math';
+import { colliderSet, xpbd } from '../../gpu/shaders/math';
 import predictSource from '../../gpu/wgsl/kernels/predict.wgsl?raw';
 import velocityUpdateSource from '../../gpu/wgsl/kernels/velocity_update.wgsl?raw';
 import distanceSolveSource from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw';
+import xpbdCollideSource from '../../gpu/wgsl/kernels/xpbd_collide.wgsl?raw';
 import { DistanceConstraint } from '../../physics/constraints/DistanceConstraint';
 import { XPBDSoftSchema } from '../../physics/bodies/schemas/XPBDSoftSchema';
 import { SimParamsSchema } from '../../physics/schemas/simParams';
@@ -17,6 +18,14 @@ export const xpbdPredict = wgslModule({
     source: predictSource,
     requires: [poolLive, fieldPointTypes, fieldAccelReady],
     structs: [SimParamsSchema, XPBDSoftSchema, FieldFnRecordSchema],
+});
+
+/** Colisão das partículas com os colliders (spec 010; só com colliders na cena). */
+export const xpbdCollide = wgslModule({
+    name: 'xpbd_collide',
+    source: xpbdCollideSource,
+    requires: [poolLive, colliderSet],
+    structs: [SimParamsSchema, XPBDSoftSchema],
 });
 
 /** Velocidade a partir de `pred − pos` e avanço de `pos`. */

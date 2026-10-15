@@ -6,7 +6,7 @@
 
 # Interface: VortexFieldData
 
-Defined in: [elements/physics/forcefields/VortexField.ts:7](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/VortexField.ts#L7)
+Defined in: [elements/physics/forcefields/VortexField.ts:7](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/VortexField.ts#L7)
 
 Dado de um `VortexField` (layout de `VortexField.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `VortexField` (layout de `VortexField.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/forcefields/VortexField.ts:17](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/VortexField.ts#L17)
+Defined in: [elements/physics/forcefields/VortexField.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/VortexField.ts#L17)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/forcefields/VortexField.ts:19](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/VortexField.ts#L19)
+Defined in: [elements/physics/forcefields/VortexField.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/VortexField.ts#L19)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **axis**: readonly `number`[]
 
-Defined in: [elements/physics/forcefields/VortexField.ts:9](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/VortexField.ts#L9)
+Defined in: [elements/physics/forcefields/VortexField.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/VortexField.ts#L9)
 
 Eixo de rotação.
 
@@ -46,7 +46,7 @@ Eixo de rotação.
 
 > **center**: readonly `number`[]
 
-Defined in: [elements/physics/forcefields/VortexField.ts:11](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/VortexField.ts#L11)
+Defined in: [elements/physics/forcefields/VortexField.ts:11](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/VortexField.ts#L11)
 
 Centro (local ao corpo dono, ou de mundo sem dono).
 
@@ -56,7 +56,7 @@ Centro (local ao corpo dono, ou de mundo sem dono).
 
 > **falloff**: `number`
 
-Defined in: [elements/physics/forcefields/VortexField.ts:15](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/VortexField.ts#L15)
+Defined in: [elements/physics/forcefields/VortexField.ts:15](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/VortexField.ts#L15)
 
 Decaimento com a distância.
 
@@ -66,6 +66,6 @@ Decaimento com a distância.
 
 > **magnitude**: `number`
 
-Defined in: [elements/physics/forcefields/VortexField.ts:13](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/VortexField.ts#L13)
+Defined in: [elements/physics/forcefields/VortexField.ts:13](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/VortexField.ts#L13)
 
 Intensidade.

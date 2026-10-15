@@ -169,7 +169,7 @@ tempo simulado (s); `data` é o struct dos parâmetros declarados em `params` (a
 | ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------- | ----------------------------------- |
 | `transform` | `transform_fn(slot: u32, t: Transform, data, time: f32) -> mat4x4f`                       | —                                           | entidade                   | TRS (`transform_local`)             |
 | `camera`    | `camera_fn(c: Camera, world: mat4x4f, aspect: f32, data, time: f32) -> CameraOut`         | `camera_project(view_pos: vec3f, data) -> vec4f` | câmera                | perspectiva/ortográfica             |
-| `surface`   | `surface_fn(u: f32, v: f32, time: f32, data) -> vec3f`                                    | `surface_du`, `surface_dv`                  | `ParametricSurface`        | plano, esfera, toro, terreno        |
+| `surface`   | `surface_fn(u: f32, v: f32, time: f32, data) -> vec3f`                                    | `surface_du`, `surface_dv`; `surface_duu`, `surface_duv`, `surface_dvv` (spec 010) | `ParametricSurface`        | plano, esfera, toro, terreno        |
 | `space`     | `space_fn(x: vec3f, time: f32, data) -> vec3f`                                            | `space_jacobian(x, time, data) -> mat3x3f`  | cena (superfícies)         | identidade                          |
 | `field`     | `field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data) -> vec3f`                 | —                                           | cena (todos os solvers)    | gravidade pontual, vento, vórtice, arrasto, empuxo |
 | `material`  | `material_fn(s: SurfaceSample, m: StandardMaterial, data) -> SurfaceParams`               | —                                           | entidade (`StandardMaterial`) | as constantes do material        |
@@ -203,9 +203,34 @@ app.events.on('extensionRejected', (e) => console.warn(e.point, e.line, e.messag
 - **Uma instância por entidade** (reuso de instância é proibido); `values` diferentes por entidade.
 - **Laços sem fim** travam a GPU como em qualquer shader: o motor não os interrompe.
 
+## Superfícies: geometria diferencial e malha adaptativa (spec 010)
+
+`new ParametricSurface({ differential: true })` grava, por vértice, a primeira forma (E, F, G), a segunda (L, M, N),
+as curvaturas gaussiana, média e principais (sinal convexo positivo: esfera com a normal para fora tem H = 1/r) e a
+direção principal de k₁. O material as recebe no `SurfaceSample`:
+
+```wgsl
+struct SurfaceSample {
+    world_position: vec3f, normal: vec3f, uv: vec2f, time: f32,
+    metric: vec3f,     // E, F, G
+    curvature: vec4f,  // K, H, k1, k2
+    principal: vec3f,  // direção de k1 (mundo); 0 em umbílicos
+}
+```
+
+As derivadas vêm, nesta ordem: do mapa composto com o espaço da cena (com `SpaceFunction`), das cinco derivadas
+analíticas da função (`surface_du` … `surface_dvv`), das prontas (plano, esfera e toro analíticos), ou de diferenças
+centrais. Em geometrias sem os dados (outras malhas), os campos são zero.
+
+`adaptive: { patches, maxLevel, budget, tolerance, screen, periodic, refreshDistance }` troca a grade uniforme por uma
+malha refinada por retalho — mais triângulos onde a superfície curva mais (erro de corda abaixo de `tolerance`) e onde
+ocupa mais da tela (`screen` = fração da altura da imagem por segmento), com teto `budget` — sem frestas entre níveis,
+gerada e contada na GPU e desenhada com desenho indireto. É refeita quando a superfície muda ou anima, ou quando a
+câmera anda mais que `refreshDistance`. Sem `indirect-first-instance` no device, fica no nível máximo (evento
+`adaptiveUnavailable`).
+
 ## Fora desta versão
 
-- Malha adaptativa, métrica e curvatura das superfícies e colisor SDF derivado delas: spec 010.
 - Espaço aplicado à cena inteira (malhas, luz, sombra) e portais: spec 019.
 - Cook-Torrance com a rugosidade e a metalicidade da função `material`, texturas por mapa: specs 011 e 012.
 - Módulos `procedural` e `sampling` da biblioteca: fases posteriores do roadmap.

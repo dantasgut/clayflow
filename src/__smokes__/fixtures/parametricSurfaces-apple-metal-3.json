@@ -1,0 +1,55 @@
+{
+  "profile": "apple-metal-3",
+  "cases": {
+    "field": {
+      "field": "44856561"
+    },
+    "fluids": {
+      "SPH": "3794194a",
+      "PBF": "448b25b2",
+      "MPM": "63e248b8"
+    },
+    "bodies": {
+      "bodies": "64022acd"
+    },
+    "solvers": {
+      "XPBD": "bda531a2",
+      "FEM": "6c6d0534",
+      "emissor": "ed9a3218"
+    },
+    "animated": {
+      "bodies": "fd7ffe97",
+      "fluid": "c7629cbd"
+    },
+    "lake": {
+      "particles": "d9f97a77",
+      "image": "d32a5d24"
+    },
+    "distanceField": {
+      "field": "e632fb2e"
+    },
+    "torusBodies": {
+      "bodies": "1ecc3367"
+    },
+    "sphereFluid": {
+      "sem adesão": "604aa6d3",
+      "com adesão": "480730b3"
+    },
+    "curvature": {
+      "esfera (analítica)": "b1800ad2",
+      "esfera (numérica)": "844061b5",
+      "toro (analítica)": "1c7ba68f",
+      "toro (numérica)": "bd78c174"
+    },
+    "curvatureMaterial": {
+      "image": "35dc903c"
+    },
+    "adaptive": {
+      "terrain": "693ee014",
+      "sphere": "ad43f19e"
+    },
+    "cpuNormals": {
+      "normals": "b5e549ca"
+    }
+  }
+}

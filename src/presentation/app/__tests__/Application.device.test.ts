@@ -9,7 +9,7 @@ vi.mock('../../flows/defaults', () => ({
 }));
 
 describe('Application — dispositivo', () => {
-    it('options.device chega ao core.initialize junto com canvas e canvasOptions', async () => {
+    it('options.device chega ao core.initialize junto com canvas e canvasOptions (com indirect-first-instance, spec 010)', async () => {
         const { core } = fakeSceneCore();
         const canvas = document.createElement('canvas');
         await Application.create({
@@ -22,7 +22,10 @@ describe('Application — dispositivo', () => {
         expect(core.initialize).toHaveBeenCalledWith(
             canvas,
             { alphaMode: 'premultiplied' },
-            { powerPreference: 'high-performance', optionalFeatures: ['shader-f16'] },
+            {
+                powerPreference: 'high-performance',
+                optionalFeatures: ['shader-f16', 'indirect-first-instance'],
+            },
         );
     });
 

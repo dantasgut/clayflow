@@ -1,6 +1,6 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
-import { lcp, lcpState, quat, sdf, xpbd } from '../../gpu/shaders/math';
+import { lcp, lcpState, quat, sdf, surfaceColliderHit, xpbd } from '../../gpu/shaders/math';
 import rbPredictSource from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
 import rbNarrowphaseSource from '../../gpu/wgsl/kernels/rb_narrowphase.wgsl?raw';
 import rbBuildLcpSource from '../../gpu/wgsl/kernels/rb_build_lcp.wgsl?raw';
@@ -22,6 +22,7 @@ import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
 import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { SphereCollider } from '../../physics/colliders/SphereCollider';
 import { MeshCollider } from '../../physics/colliders/MeshCollider';
+import { SurfaceCollider } from '../../physics/colliders/SurfaceCollider';
 import { LCPSchema } from '../../physics/bodies/schemas/LCPSchema';
 import { RBSimParamsSchema, NarrowphaseParamsSchema } from '../../physics/schemas/simParams';
 import { RBContactSchema } from '../../physics/schemas/simState';
@@ -40,7 +41,7 @@ export const rbPredict = wgslModule({
 export const rbNarrowphase = wgslModule({
     name: 'rb_narrowphase',
     source: rbNarrowphaseSource,
-    requires: [lcpState, atomicAlloc, quat, lcp, sdf],
+    requires: [lcpState, atomicAlloc, quat, lcp, sdf, surfaceColliderHit],
     structs: [
         LCPSchema,
         RBSimParamsSchema,
@@ -50,6 +51,7 @@ export const rbNarrowphase = wgslModule({
         BoxCollider.schema,
         SphereCollider.schema,
         MeshCollider.schema,
+        SurfaceCollider.schema,
         NarrowphaseParamsSchema,
     ],
 });

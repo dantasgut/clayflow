@@ -11,7 +11,9 @@ import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
     slot,
     type BodiesSlot,
+    type EntitiesSlot,
     type PoolSlot,
+    type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
 } from '../../../scene/flows/slots';
@@ -19,7 +21,10 @@ import { Time } from '../../../scene/time/Time';
 import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { GravityField } from '../forcefields/GravityField';
 import { SimParamsSchema } from '../schemas/simParams';
-import { xpbdDistanceSolve, xpbdPredict, xpbdVelocityUpdate } from '../shaders/xpbd';
+import { xpbdCollide, xpbdDistanceSolve, xpbdPredict, xpbdVelocityUpdate } from '../shaders/xpbd';
+import { Collider } from '../colliders/Collider';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
+import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Opções do `XPBDFlow`. */
@@ -42,6 +47,10 @@ export interface XPBDSlots extends SlotMap {
     readonly constraints: PoolSlot<true>;
     /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
     readonly gravity: SingletonSlot<true>;
+    /** Pools dos colliders e dos corpos donos (spec 010: as partículas colidem com os colliders). */
+    readonly colliderPools: PoolsSlot;
+    /** Entidades com collider. */
+    readonly colliders: EntitiesSlot;
 }
 
 function slotsOf(constraintPoolKey: string): XPBDSlots {
@@ -50,6 +59,8 @@ function slotsOf(constraintPoolKey: string): XPBDSlots {
         time: slot.singleton(Time.schema),
         constraints: slot.pool(constraintPoolKey, { optional: true }),
         gravity: slot.singleton(GravityField.schema, { optional: true }),
+        colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+        colliders: slot.entities({ all: [Collider] }),
     };
 }
 
@@ -81,6 +92,9 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
     private readonly solverIters: number;
     private readonly params: PerStepUniforms;
     private readonly distance: PipelineDescriptor;
+    private readonly colliderSet: ColliderSet;
+    /** Colliders na cena no quadro: grava o passe de colisão (spec 010). */
+    private collide = false;
 
     constructor(ctx: FlowContext, options: XPBDFlowOptions = {}) {
         super();
@@ -96,12 +110,22 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         });
         this.params.reserve(this.substeps);
         this.bindings = { params: this.params.source() };
+        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+            discriminator: 'xpbd_colliders',
+        });
         this.pipelines = [
             {
                 id: 'xpbd_predict',
                 role: 'compute',
                 shader: xpbdPredict,
                 entryPoints: ['predict_main'],
+                consumes: [bodyType, `${bodyType}.live`],
+            },
+            {
+                id: 'xpbd_collide',
+                role: 'compute',
+                shader: xpbdCollide,
+                entryPoints: ['xpbd_collide_main'],
                 consumes: [bodyType, `${bodyType}.live`],
             },
             {
@@ -123,6 +147,8 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
             to: 'running' as const,
             run: (_e: unknown, c: Ctx) => {
                 this.prepareConstraints(c);
+                this.colliderSet.markDirty();
+                this.syncColliders(c);
             },
         };
         this.transitions = {
@@ -133,10 +159,26 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
                 // O bitset de vivos das restrições é recriado com o pool: religado.
-                poolReallocated: constraints,
+                poolReallocated: {
+                    to: 'running',
+                    run: (e, c) => {
+                        if (e.type === 'poolReallocated')
+                            this.colliderSet.onPoolReallocated(e.poolKey);
+                        constraints.run(e, c);
+                    },
+                },
+                // Entidades com collider entram/saem em massa: só marca; a reconstrução é uma por quadro.
+                entitiesChanged: {
+                    to: 'running',
+                    run: () => {
+                        this.colliderSet.markDirty();
+                    },
+                },
                 framePrepare: {
                     to: 'running',
                     run: (_e, c) => {
+                        this.syncColliders(c);
+                        this.collide = this.colliderSet.totalCount > 0;
                         this.writeParams(c);
                     },
                 },
@@ -151,6 +193,7 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         if (iterations === 0 || count === 0) return;
         const predict = bound.compute('xpbd_predict');
         const velocity = bound.compute('xpbd_velocity_update');
+        const collide = bound.compute('xpbd_collide');
         const prepared = bound.pipelines.get(DISTANCE);
         const distance = prepared?.role === 'compute' && prepared.ready ? prepared : undefined;
         const solve = distance !== undefined && (bound.slots.constraints?.count ?? 0) > 0;
@@ -170,6 +213,14 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                     });
                 }
             }
+            if (this.collide)
+                frame.compute('XPBDFlow.collide', (pass) => {
+                    pass.bind.setPipeline(collide.spec);
+                    collide.groups.forEach((bg, g) =>
+                        pass.bind.setBindGroup(g, bg, collide.dynamic[g] ? offset : undefined),
+                    );
+                    pass.dispatch.invocations(count, 64);
+                });
             frame.compute('XPBDFlow.velocity_update', (pass) => {
                 pass.bind.setPipeline(velocity.spec).setBindGroup(0, velocity.groups[0]!, offset);
                 pass.dispatch.invocations(count, 64);
@@ -177,9 +228,15 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         }
     }
 
-    /** Libera os parâmetros por iteração. */
+    /** Libera os parâmetros por iteração e o conjunto de colliders. */
     override dispose(): void {
         this.params.dispose();
+        this.colliderSet.destroy();
+    }
+
+    /** Reconstrói os mapas de dono dos colliders se sujos e religa as fontes que mudaram. */
+    private syncColliders(ctx: Ctx): void {
+        if (this.colliderSet.refresh()) ctx.bind(this.colliderSet.sources());
     }
 
     private iterations(bound: BoundFlow<XPBDSlots>): number {

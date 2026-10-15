@@ -6,7 +6,7 @@
 
 # Class: TextureLoader
 
-Defined in: [presentation/assets/TextureLoader.ts:19](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/TextureLoader.ts#L19)
+Defined in: [presentation/assets/TextureLoader.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/assets/TextureLoader.ts#L19)
 
 TextureLoader carrega imagens (PNG, JPG, WebP, HDR) via fetch +
 `createImageBitmap`. Decodificação é assíncrona e off-main-thread
@@ -28,7 +28,7 @@ TextureLoader carrega imagens (PNG, JPG, WebP, HDR) via fetch +
 
 > **load**(`url`): `Promise`\<[`LoadedTexture`](../interfaces/LoadedTexture.md)\>
 
-Defined in: [presentation/assets/TextureLoader.ts:21](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/TextureLoader.ts#L21)
+Defined in: [presentation/assets/TextureLoader.ts:21](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/assets/TextureLoader.ts#L21)
 
 Carrega uma textura via fetch. Lança se URL não responde ou format não suportado.
 

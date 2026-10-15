@@ -6,7 +6,7 @@
 
 # Interface: Heightmap
 
-Defined in: [presentation/assets/HeightmapLoader.ts:6](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/HeightmapLoader.ts#L6)
+Defined in: [presentation/assets/HeightmapLoader.ts:6](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/assets/HeightmapLoader.ts#L6)
 
 Heightmap carregado — array de alturas normalizadas (0..1) em layout
 row-major `heights[y*width + x]`. Apps usam para gerar terrain meshes
@@ -18,7 +18,7 @@ via `ParametricGeometry` ou displacement mapping.
 
 > `readonly` **height**: `number`
 
-Defined in: [presentation/assets/HeightmapLoader.ts:10](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/HeightmapLoader.ts#L10)
+Defined in: [presentation/assets/HeightmapLoader.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/assets/HeightmapLoader.ts#L10)
 
 Altura em texels.
 
@@ -28,7 +28,7 @@ Altura em texels.
 
 > `readonly` **heights**: `Float32Array`
 
-Defined in: [presentation/assets/HeightmapLoader.ts:12](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/HeightmapLoader.ts#L12)
+Defined in: [presentation/assets/HeightmapLoader.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/assets/HeightmapLoader.ts#L12)
 
 Float32Array com width × height alturas (canal R do PNG, normalizado 0..1).
 
@@ -38,6 +38,6 @@ Float32Array com width × height alturas (canal R do PNG, normalizado 0..1).
 
 > `readonly` **width**: `number`
 
-Defined in: [presentation/assets/HeightmapLoader.ts:8](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/HeightmapLoader.ts#L8)
+Defined in: [presentation/assets/HeightmapLoader.ts:8](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/assets/HeightmapLoader.ts#L8)
 
 Largura em texels.

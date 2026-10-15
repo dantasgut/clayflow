@@ -38,7 +38,7 @@ import { Transform } from '../../scene/Transform';
 import { RigidBody } from '../bodies/RigidBody';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
-import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { NarrowphaseParamsSchema, RBSimParamsSchema } from '../schemas/simParams';
 import {
@@ -101,6 +101,12 @@ const SHAPE_POOLS: readonly ShapePool[] = [
         pipeline: 'lcp_narrowphase_mesh',
         entryPoint: 'rb_narrowphase_mesh_main',
     },
+    // Por último: a faixa das superfícies vem depois das existentes na linha de contatos (ids de par inalterados).
+    {
+        poolKey: 'SurfaceCollider',
+        pipeline: 'lcp_narrowphase_surface',
+        entryPoint: 'rb_narrowphase_surface_main',
+    },
 ];
 
 /** Variável do pool de cada forma na narrowphase. */
@@ -109,6 +115,7 @@ const SHAPE_VARIABLE: Readonly<Record<string, string>> = {
     BoxCollider: 'boxes',
     SphereCollider: 'spheres',
     MeshCollider: 'meshes',
+    SurfaceCollider: 'surfaces',
 };
 
 /** Opções do `LCPFlow`. */
@@ -154,7 +161,7 @@ function slotsOf(bodiesPoolKey: string): LCPSlots {
         bodies: slot.bodies(),
         time: slot.singleton(Time.schema),
         gravity: slot.singleton(GravityField.schema, { optional: true }),
-        colliderPools: slot.pools([...COLLIDER_POOLS.map((s) => s.name), bodiesPoolKey]),
+        colliderPools: slot.pools([...COLLIDER_POOL_KEYS, bodiesPoolKey]),
         colliders: slot.entities({ all: [Collider] }),
         poses: POSES_SLOT,
     };
@@ -604,6 +611,15 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                         subOffset,
                         NarrowphaseDispatchSchema.offsetOf('sphere_x'),
                     );
+                // Superfícies (spec 010): contra todos os corpos, como os planos.
+                const surfaces = work.poolCounts.get('SurfaceCollider') ?? 0;
+                if (surfaces > 0)
+                    run(
+                        'LCPFlow.narrowphase.SurfaceCollider',
+                        bound.compute('lcp_narrowphase_surface'),
+                        subOffset,
+                        bodyCount * surfaces,
+                    );
                 // Fase 2 — AssembleA
                 run('LCPFlow.buildLcp', build, subOffset, this.contactsCapacity);
                 // Fase 3 — warm start + K iterações Jacobi (contatos em paralelo, depois corpos em paralelo)
@@ -670,6 +686,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         sources.box_owners = this.colliderSet.pool('BoxCollider').owners;
         sources.sphere_owners = this.colliderSet.pool('SphereCollider').owners;
         sources.large = this.colliderSet.broadphase().large;
+        sources.collider_surface_field = this.colliderSet.fieldBuffer();
         ctx.bind(sources);
     }
 

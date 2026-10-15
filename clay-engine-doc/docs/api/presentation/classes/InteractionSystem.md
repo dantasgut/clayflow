@@ -6,7 +6,7 @@
 
 # Class: InteractionSystem
 
-Defined in: [presentation/input/InteractionSystem.ts:38](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L38)
+Defined in: [presentation/input/InteractionSystem.ts:38](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L38)
 
 InteractionSystem (spec 007) — liga os dispositivos (teclado, ponteiro, toque, gamepad) ao `Input` da cena e, a cada
 `frameTick`, chama `tick(input, dt, transform)` de cada controller do World (componente da entidade da câmera) com o
@@ -22,7 +22,7 @@ Criado pela `Application` (um por cena).
 
 > **new InteractionSystem**(`options`, `events`, `world`, `input`): `InteractionSystem`
 
-Defined in: [presentation/input/InteractionSystem.ts:50](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L50)
+Defined in: [presentation/input/InteractionSystem.ts:50](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L50)
 
 #### Parameters
 
@@ -54,7 +54,7 @@ Defined in: [presentation/input/InteractionSystem.ts:50](https://github.com/dant
 
 > `readonly` **gamepad**: [`GamepadDevice`](GamepadDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:46](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L46)
+Defined in: [presentation/input/InteractionSystem.ts:46](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L46)
 
 GamepadDevice — polling-based (Gamepad API não dispatch events).
 
@@ -64,7 +64,7 @@ GamepadDevice — polling-based (Gamepad API não dispatch events).
 
 > `readonly` **input**: [`Input`](Input.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:55](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L55)
+Defined in: [presentation/input/InteractionSystem.ts:55](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L55)
 
 `Input` da cena (inserido no World pela `Application`).
 
@@ -74,7 +74,7 @@ Defined in: [presentation/input/InteractionSystem.ts:55](https://github.com/dant
 
 > `readonly` **keyboard**: [`KeyboardDevice`](KeyboardDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:40](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L40)
+Defined in: [presentation/input/InteractionSystem.ts:40](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L40)
 
 KeyboardDevice — captura keydown/keyup no `window`.
 
@@ -84,7 +84,7 @@ KeyboardDevice — captura keydown/keyup no `window`.
 
 > `readonly` **pointer**: [`PointerDevice`](PointerDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:42](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L42)
+Defined in: [presentation/input/InteractionSystem.ts:42](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L42)
 
 PointerDevice — captura pointer events no canvas (mouse, pen).
 
@@ -94,7 +94,7 @@ PointerDevice — captura pointer events no canvas (mouse, pen).
 
 > `readonly` **touch**: [`TouchDevice`](TouchDevice.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:44](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L44)
+Defined in: [presentation/input/InteractionSystem.ts:44](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L44)
 
 TouchDevice — captura touch events (multi-touch + pinch).
 
@@ -104,7 +104,7 @@ TouchDevice — captura touch events (multi-touch + pinch).
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:88](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L88)
+Defined in: [presentation/input/InteractionSystem.ts:88](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L88)
 
 Registra DOM event listeners (e reativa a atualização por quadro depois de um `detach`).
 
@@ -118,7 +118,7 @@ Registra DOM event listeners (e reativa a atualização por quadro depois de um 
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:96](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L96)
+Defined in: [presentation/input/InteractionSystem.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L96)
 
 Remove os ouvintes de DOM e as inscrições no barramento. Chamar antes de descartar o InteractionSystem.
 
@@ -132,7 +132,7 @@ Remove os ouvintes de DOM e as inscrições no barramento. Chamar antes de desca
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:105](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InteractionSystem.ts#L105)
+Defined in: [presentation/input/InteractionSystem.ts:105](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L105)
 
 Descarte: `detach` e descarte dos controllers da cena (ouvintes de DOM deles).
 

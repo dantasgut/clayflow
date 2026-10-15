@@ -18,6 +18,7 @@ import { instancesScene } from '../scenes/instances/scene';
 import { pointLightsScene } from '../scenes/point-lights/scene';
 import { rigidBodiesScene } from '../scenes/rigid-bodies/scene';
 import { particlesScene } from '../scenes/particles/scene';
+import { surfacesScene } from '../scenes/surfaces/scene';
 import { skinnedCharactersScene } from '../scenes/skinned-characters/scene';
 import { uniqueObjectsScene } from '../scenes/unique-objects/scene';
 import { ENGINES, isUnsupported, type SceneDefinition } from './types';
@@ -72,6 +73,7 @@ export const CATALOG: readonly SceneDefinition[] = validateCatalog([
     skinnedCharactersScene,
     rigidBodiesScene,
     particlesScene,
+    surfacesScene,
 ]);
 
 /** Busca uma cena pelo id. */

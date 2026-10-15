@@ -1,7 +1,7 @@
 import { poolLive } from '../../gpu/compute/shaders';
 import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
-import { colliderSet, mat, mpmMaterial, mpmWeights } from '../../gpu/shaders/math';
+import { colliderSet, fluidBounds, mat, mpmMaterial, mpmWeights } from '../../gpu/shaders/math';
 import mpmClearGridSource from '../../gpu/wgsl/kernels/mpm_clear_grid.wgsl?raw';
 import mpmP2GSource from '../../gpu/wgsl/kernels/mpm_p2g.wgsl?raw';
 import mpmGridUpdateSource from '../../gpu/wgsl/kernels/mpm_grid_update.wgsl?raw';
@@ -25,7 +25,7 @@ export const mpmClearGrid = wgslModule({
 export const mpmP2G = wgslModule({
     name: 'mpm_p2g',
     source: mpmP2GSource,
-    requires: [poolLive, mat, mpmWeights, mpmMaterial],
+    requires: [poolLive, mat, mpmWeights, mpmMaterial, fluidBounds],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema, MPMFluidSchema],
 });
 
@@ -41,7 +41,7 @@ export const mpmGridUpdate = wgslModule({
 export const mpmG2P = wgslModule({
     name: 'mpm_g2p',
     source: mpmG2PSource,
-    requires: [poolLive, mat, mpmWeights, mpmMaterial],
+    requires: [poolLive, mat, mpmWeights, mpmMaterial, fluidBounds],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema, MPMFluidSchema],
 });
 

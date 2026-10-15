@@ -227,7 +227,16 @@ export class Application {
         }
         const scene: SceneContext = options.scene ?? defaultScene;
         const ownsScene = options.scene !== undefined;
-        await scene.initialize(options.canvas, options.canvasOptions, options.device);
+        // Desenho indireto com primeira instância (malha adaptativa das superfícies, spec 010): pedido quando o
+        // adaptador tem; sem ela, a superfície adaptativa usa a grade de mesma precisão máxima.
+        const device: DeviceOptions = {
+            ...options.device,
+            optionalFeatures: [
+                ...(options.device?.optionalFeatures ?? []),
+                'indirect-first-instance',
+            ],
+        };
+        await scene.initialize(options.canvas, options.canvasOptions, device);
         for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
         options.consumers?.(scene.consumers);
         const defaults = registerPresentationDefaults(scene.flows, {

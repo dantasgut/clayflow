@@ -12,3 +12,5 @@ export { SPHFlow } from './SPHFlow';
 export type { SPHFlowOptions, SPHSlots } from './SPHFlow';
 export { SoftSurfaceFlow } from './SoftSurfaceFlow';
 export type { SoftSurfaceSlots } from './SoftSurfaceFlow';
+export { SurfaceColliderFlow } from './SurfaceColliderFlow';
+export type { SurfaceColliderSlots } from './SurfaceColliderFlow';

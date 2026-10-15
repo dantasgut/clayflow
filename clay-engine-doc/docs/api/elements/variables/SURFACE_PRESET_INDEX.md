@@ -8,6 +8,6 @@
 
 > `const` **SURFACE\_PRESET\_INDEX**: `Record`\<[`SurfacePreset`](../type-aliases/SurfacePreset.md), `number`\>
 
-Defined in: [elements/geometry/ParametricSurface.ts:52](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L52)
+Defined in: [elements/geometry/ParametricSurface.ts:115](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L115)
 
 Índice da superfície pronta no shader (`surface_fn_ready.wgsl`).

@@ -8,7 +8,7 @@
 
 > `const` **renderableRecord**: `EntityRecordDeclaration`
 
-Defined in: [elements/scene/Renderable.ts:34](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Renderable.ts#L34)
+Defined in: [elements/scene/Renderable.ts:40](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Renderable.ts#L40)
 
 Declaração do registro `Renderable` para `slot.entities({ all: [Geometry, Material, Transform], record })`: a C2
 preenche `transformSlot` com o slot do descritor `world` do `Transform` e `materialSlot` com o do descritor

@@ -6,7 +6,7 @@
 
 # Interface: DistanceConstraintValues
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:28](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/DistanceConstraint.ts#L28)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:28](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L28)
 
 Valores do construtor do `DistanceConstraint`.
 
@@ -16,7 +16,7 @@ Valores do construtor do `DistanceConstraint`.
 
 > `readonly` **a**: [`ParticleRef`](ParticleRef.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:30](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/DistanceConstraint.ts#L30)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L30)
 
 Primeira partícula.
 
@@ -26,7 +26,7 @@ Primeira partícula.
 
 > `readonly` **b**: [`ParticleRef`](ParticleRef.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:32](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/DistanceConstraint.ts#L32)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:32](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L32)
 
 Segunda partícula.
 
@@ -36,7 +36,7 @@ Segunda partícula.
 
 > `readonly` `optional` **compliance?**: `number`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:36](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/DistanceConstraint.ts#L36)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:36](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L36)
 
 Compliance (m/N; 0 = rígida). Default 0.
 
@@ -46,6 +46,6 @@ Compliance (m/N; 0 = rígida). Default 0.
 
 > `readonly` `optional` **restLength?**: `number`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:34](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/DistanceConstraint.ts#L34)
+Defined in: [elements/physics/constraints/DistanceConstraint.ts:34](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L34)
 
 Comprimento de repouso (m). Default 1.

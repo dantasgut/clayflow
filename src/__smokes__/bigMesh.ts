@@ -97,7 +97,9 @@ async function main(): Promise<void> {
             }),
         ),
     );
-    app.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], intensity: 1 }));
+    // Luz de frente para o plano (z = 0, normal −z para a câmera em z = −6): com as normais por derivadas da função
+    // (spec 010) o plano é iluminado por inteiro; antes passava só pela normal fixa [0, 1, 0].
+    app.world.insert(new DirectionalLight({ direction: [0, 0, 1, 0], intensity: 1 }));
     const surface = new ParametricGeometry({
         uSteps: 300,
         vSteps: 300,

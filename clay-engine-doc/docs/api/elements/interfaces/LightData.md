@@ -6,7 +6,7 @@
 
 # Interface: LightData
 
-Defined in: [elements/scene/Light.ts:10](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L10)
+Defined in: [elements/scene/Light.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L10)
 
 Dado de uma luz (layout de `Light.schema`, comum a todos os tipos).
 
@@ -16,7 +16,7 @@ Dado de uma luz (layout de `Light.schema`, comum a todos os tipos).
 
 > **castShadow**: `number`
 
-Defined in: [elements/scene/Light.ts:14](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L14)
+Defined in: [elements/scene/Light.ts:14](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L14)
 
 Projeta sombra (1/0 no layout; booleano nos valores).
 
@@ -26,7 +26,7 @@ Projeta sombra (1/0 no layout; booleano nos valores).
 
 > **color**: `number`[]
 
-Defined in: [elements/scene/Light.ts:24](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L24)
+Defined in: [elements/scene/Light.ts:24](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L24)
 
 Cor RGBA linear.
 
@@ -36,7 +36,7 @@ Cor RGBA linear.
 
 > **direction**: `number`[]
 
-Defined in: [elements/scene/Light.ts:22](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L22)
+Defined in: [elements/scene/Light.ts:22](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L22)
 
 Direção.
 
@@ -46,7 +46,7 @@ Direção.
 
 > **intensity**: `number`
 
-Defined in: [elements/scene/Light.ts:16](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L16)
+Defined in: [elements/scene/Light.ts:16](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L16)
 
 Intensidade.
 
@@ -56,7 +56,7 @@ Intensidade.
 
 > **kind**: `number`
 
-Defined in: [elements/scene/Light.ts:12](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L12)
+Defined in: [elements/scene/Light.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L12)
 
 Tipo (código numérico do layout).
 
@@ -66,7 +66,7 @@ Tipo (código numérico do layout).
 
 > **position**: `number`[]
 
-Defined in: [elements/scene/Light.ts:20](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L20)
+Defined in: [elements/scene/Light.ts:20](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L20)
 
 Posição.
 
@@ -76,6 +76,6 @@ Posição.
 
 > **range**: `number`
 
-Defined in: [elements/scene/Light.ts:18](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Light.ts#L18)
+Defined in: [elements/scene/Light.ts:18](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/Light.ts#L18)
 
 Alcance (luzes pontuais).

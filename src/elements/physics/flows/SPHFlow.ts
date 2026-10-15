@@ -24,7 +24,7 @@ import {
 } from '../../gpu/NeighborSearchPipeline';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
-import { COLLIDER_POOLS, ColliderSet } from '../colliders/ColliderSet';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { ParticleMaterial, TAIT_GAMMA, type SurfaceStep } from '../materials/ParticleMaterial';
 import { SPHSimParamsSchema } from '../schemas/simParams';
@@ -67,7 +67,7 @@ const slots: SPHSlots = {
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
     material: slot.singleton(ParticleMaterial.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOLS.map((s) => s.name), LCPSchema.name]),
+    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
     colliders: slot.entities({ all: [Collider] }),
 };
 
@@ -319,6 +319,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: material.restitution,
                 bound_min: material.domainMin,
+                bound_max: material.domainMax,
+                open_bounds: material.openBounds ? 1 : 0,
                 particle_mass: material.particleMass,
                 inv_particle_mass: 1 / material.particleMass,
                 cohesion_gamma: material.cohesionGamma(surface.cohesion),

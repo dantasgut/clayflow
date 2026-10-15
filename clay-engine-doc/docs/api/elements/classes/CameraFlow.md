@@ -6,7 +6,7 @@
 
 # Class: CameraFlow
 
-Defined in: [elements/scene/flows/CameraFlow.ts:83](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L83)
+Defined in: [elements/scene/flows/CameraFlow.ts:83](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L83)
 
 Estágio de câmera (spec 007, research R10) — produz, na GPU, view, projection, viewProjection e a posição de cada
 câmera a partir dos seus parâmetros (`Camera`) e da matriz de mundo do seu `Transform` (`WorldTransform`, composta
@@ -26,7 +26,7 @@ sem `Transform` na entidade é erro (nomeia a entidade).
 
 > **new CameraFlow**(`ctx`): `CameraFlow`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:146](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L146)
+Defined in: [elements/scene/flows/CameraFlow.ts:146](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L146)
 
 #### Parameters
 
@@ -48,7 +48,7 @@ Defined in: [elements/scene/flows/CameraFlow.ts:146](https://github.com/dantasgu
 
 > `readonly` **bindings**: `object`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:102](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L102)
+Defined in: [elements/scene/flows/CameraFlow.ts:102](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L102)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -80,7 +80,7 @@ Parâmetros do estágio (`CameraComposeParams`).
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:110](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L110)
+Defined in: [elements/scene/flows/CameraFlow.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L110)
 
 Estado inicial do algoritmo.
 
@@ -94,7 +94,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: `StructSchema`[]
 
-Defined in: [elements/scene/flows/CameraFlow.ts:101](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L101)
+Defined in: [elements/scene/flows/CameraFlow.ts:101](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L101)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -108,7 +108,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/flows/CameraFlow.ts:86](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L86)
+Defined in: [elements/scene/flows/CameraFlow.ts:86](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L86)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -122,7 +122,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`CameraSlots`](../interfaces/CameraSlots.md)
 
-Defined in: [elements/scene/flows/CameraFlow.ts:85](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L85)
+Defined in: [elements/scene/flows/CameraFlow.ts:85](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L85)
 
 Slots consumidos, por nome.
 
@@ -136,7 +136,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `Ctx`\>
 
-Defined in: [elements/scene/flows/CameraFlow.ts:111](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L111)
+Defined in: [elements/scene/flows/CameraFlow.ts:111](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L111)
 
 Tabela de transições (estado × evento).
 
@@ -150,7 +150,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"CameraFlow"` = `'CameraFlow'`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L84)
+Defined in: [elements/scene/flows/CameraFlow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L84)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -166,7 +166,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -186,7 +186,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -204,7 +204,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:222](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L222)
+Defined in: [elements/scene/flows/CameraFlow.ts:222](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L222)
 
 Grava a composição das câmeras vivas.
 
@@ -232,7 +232,7 @@ Grava a composição das câmeras vivas.
 
 > **dispose**(): `void`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:248](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L248)
+Defined in: [elements/scene/flows/CameraFlow.ts:248](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/CameraFlow.ts#L248)
 
 Libera o uniform de parâmetros e as listas das funções.
 
