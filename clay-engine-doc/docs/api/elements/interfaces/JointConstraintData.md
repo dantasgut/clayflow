@@ -6,7 +6,7 @@
 
 # Interface: JointConstraintData
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L7)
+Defined in: [elements/physics/constraints/JointConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L7)
 
 Dado de um `JointConstraint` (layout de `JointConstraint.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `JointConstraint` (layout de `JointConstraint.schema`).
 
 > **anchorA**: `number`[]
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:17](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L17)
+Defined in: [elements/physics/constraints/JointConstraint.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L17)
 
 Ancoragem no primeiro corpo.
 
@@ -26,7 +26,7 @@ Ancoragem no primeiro corpo.
 
 > **anchorB**: `number`[]
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:19](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L19)
+Defined in: [elements/physics/constraints/JointConstraint.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L19)
 
 Ancoragem no segundo corpo.
 
@@ -36,7 +36,7 @@ Ancoragem no segundo corpo.
 
 > **bodyA**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L9)
+Defined in: [elements/physics/constraints/JointConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L9)
 
 Primeiro corpo.
 
@@ -46,7 +46,7 @@ Primeiro corpo.
 
 > **bodyB**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L11)
+Defined in: [elements/physics/constraints/JointConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L11)
 
 Segundo corpo.
 
@@ -56,7 +56,7 @@ Segundo corpo.
 
 > **color**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L15)
+Defined in: [elements/physics/constraints/JointConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L15)
 
 Cor RGBA linear.
 
@@ -66,7 +66,7 @@ Cor RGBA linear.
 
 > **kind**: `number`
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L13)
+Defined in: [elements/physics/constraints/JointConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L13)
 
 Tipo (código numérico do layout).
 
@@ -76,6 +76,6 @@ Tipo (código numérico do layout).
 
 > **limits**: `number`[]
 
-Defined in: [elements/physics/constraints/JointConstraint.ts:21](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/JointConstraint.ts#L21)
+Defined in: [elements/physics/constraints/JointConstraint.ts:21](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/JointConstraint.ts#L21)
 
 Limites da junta.

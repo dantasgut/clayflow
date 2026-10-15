@@ -1934,6 +1934,7 @@ Cada solver física estende `Flow` com seus slots e estados. Slots são referên
 | `MPMFlow`   | `particles` (FluidBody/SoftBody:MPM), `grid` (EulerianGrid), `forceFields`    | P2G → GridUpdate → G2P → ParticleAdvect                | plasticidade/fluido viscoso |
 | `SPHFlow`   | `particles` (FluidBody:SPH), `neighbors` (NeighborSearchGrid), `forceFields`  | NeighborSearch → Density → Forces → Integrate          | fluido lagrangiano |
 | `PBFFlow`   | `particles` (FluidBody:PBF), `neighbors` (NeighborSearchGrid), `forceFields`  | PredictPosition → FindNeighbors → SolveIncompressibility×N → UpdateVelocity | fluido incompressível |
+| `DiffuseFlow` | `diffuse` (DiffuseParticles), partículas do `source` (FluidBody), `diffuse_colliders` | Neighbors → Normals → Potential → Spawn → Head → Update → Collide | spray, espuma e bolhas (fase physics, prioridade −50) |
 
 > **Pool key e roteamento.** O FlowDescriptor `{ algorithm, bodyType }` declarado pelo Resource determina a pool key `${schema.name}:${algorithm}` (ex.: `RigidBody:LCP`, `RigidBody:XPBD`, `SoftBody:XPBD`). FlowRegistry resolve qual Flow ativar para cada pool. Um mesmo `XPBDFlow` pode processar `RigidBody:XPBD` e `SoftBody:XPBD` em frames distintos — o slot `bodies` recebe o pool correspondente; o algoritmo XPBD é generic-over-body.
 
@@ -2043,6 +2044,7 @@ A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescript
 | `SpringConstraint`, `JointConstraint` | mola, junta | — | schemas sem Flow (F5) |
 | `PlaneCollider`, `BoxCollider`, `SphereCollider`, `MeshCollider` | colliders tipados | `ColliderSet` (LCP e fluidos) | atual |
 | `ParticleMaterial` | material das partículas (um por World) | fluidos | atual |
+| `DiffuseParticleSchema` | partícula secundária (posição e tipo; velocidade e vida), só GPU | `DiffuseFlow` | atual |
 | `Light` | luz unificada (kind discriminado) | forward (`lights[lightSlot]`: direção da luz que ilumina), `ShadowMatrixFlow` | atual (cor e intensidade no sombreamento: F4) |
 
 **Políticas comuns:**

@@ -174,6 +174,28 @@ const OPEN_DOMAIN = {
 /** Partícula retirada do domínio aberto: parada muito abaixo da cena. */
 const RETIRED_BELOW = -1e6;
 
+/** Partículas secundárias vivas por tipo e as abaixo do vale do lago (lidas de volta, só no smoke). */
+async function countDiffuse(
+    app: Application,
+    diffuse: clayflow.DiffuseParticles,
+): Promise<{ alive: number; spray: number; foam: number; bubble: number; below: number }> {
+    const spec = app.resources.bufferOf(diffuse, 'particles');
+    if (spec === undefined) throw new Error('partículas secundárias sem buffer');
+    const f = await readBuffer(app, spec, 'diffuse');
+    const out = { alive: 0, spray: 0, foam: 0, bubble: 0, below: 0 };
+    for (let i = 0; i < f.length / 8; i++) {
+        if (!(f[i * 8 + 7]! > 0)) continue;
+        out.alive++;
+        const kind = f[i * 8 + 3]!;
+        if (kind < 0.5) out.spray++;
+        else if (kind < 1.5) out.foam++;
+        else out.bubble++;
+        const [x, y, z] = [f[i * 8]!, f[i * 8 + 1]!, f[i * 8 + 2]!];
+        if (y < valleyHeight(x, z, 0, LAKE_VALLEY) - LAKE_SPACING) out.below++;
+    }
+    return out;
+}
+
 /** Espaçamento da água do lago (o da 017). */
 const LAKE_SPACING = 0.025;
 const LAKE_W = 320;
@@ -184,6 +206,7 @@ const LAKE_H = 200;
  * `FluidSurfaceMaterial`: refração, absorção e cáusticas) solta na encosta. `water: 'none'` monta o vale seco.
  */
 async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
+    let diffuse: clayflow.DiffuseParticles | undefined;
     const canvas = document.createElement('canvas');
     canvas.width = LAKE_W;
     canvas.height = LAKE_H;
@@ -221,10 +244,9 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
     app.world.insert(
         new clayflow.ParticleMaterial({
+            // Água física (spec 010): tensão superficial, ângulo de contato e viscosidade reais na escala do espaçamento.
+            ...clayflow.ParticleMaterial.WATER,
             particleSpacing: LAKE_SPACING,
-            // Água de referência (spec 030): coesão e adesão amortecem o escoamento e o lago assenta.
-            cohesion: clayflow.ParticleMaterial.WATER_COHESION,
-            adhesion: clayflow.ParticleMaterial.WATER_ADHESION,
             // Domínio aberto (spec 010): sem paredes; a caixa só limita o cálculo, e o que sai do terreno é retirado.
             bounds: 'open',
             domainMin: [-1.5, -0.8, -1.5],
@@ -243,19 +265,30 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
                         0.02 + LAKE_SPACING * (y + 0.5),
                         -0.2 + LAKE_SPACING * (z + 0.5) + (r() - 0.5) * LAKE_SPACING * 0.1,
                     );
-        app.world.insert(
-            new clayflow.FluidBody({ algorithm: 'PBF', position }).add(
-                new clayflow.FluidSurfaceMaterial({ caustics: water === 'caustics' }),
-            ),
+        const body = new clayflow.FluidBody({ algorithm: 'PBF', position }).add(
+            new clayflow.FluidSurfaceMaterial({ caustics: water === 'caustics' }),
         );
+        app.world.insert(body);
+        // Spray, espuma e bolhas do respingo (spec 010).
+        diffuse = new clayflow.DiffuseParticles({ source: body, maxParticles: 32_768 });
+        app.world.insert(diffuse);
     }
     await settle(app);
     const levels: number[] = [];
+    const sprayPeak = { alive: 0, spray: 0, foam: 0, bubble: 0 };
     let image: ImageData | undefined;
     for (let i = 0; i < steps; i++) {
         app.step(1 / 60);
         // Captura antes de qualquer leitura de volta (a espera apresenta e limpa o canvas).
         if (i === steps - 1) image = capture(canvas);
+        // Pico de cada tipo de partícula secundária nos 2 primeiros segundos (o respingo).
+        if (diffuse !== undefined && i < 120 && i % 10 === 9) {
+            const now = await countDiffuse(app, diffuse);
+            sprayPeak.alive = Math.max(sprayPeak.alive, now.alive);
+            sprayPeak.spray = Math.max(sprayPeak.spray, now.spray);
+            sprayPeak.foam = Math.max(sprayPeak.foam, now.foam);
+            sprayPeak.bubble = Math.max(sprayPeak.bubble, now.bubble);
+        }
         // Nível do lago no último segundo, a cada 0,25 s: média das 10 % mais altas perto do centro.
         if (water !== 'none' && i >= steps - 60 && (steps - 1 - i) % 15 === 0) {
             const pts = await readPositions(app, clayflow.PBFSchema);
@@ -268,9 +301,10 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
         }
     }
     const particles = water === 'none' ? [] : await readPositions(app, clayflow.PBFSchema);
+    const sprayEnd = diffuse === undefined ? undefined : await countDiffuse(app, diffuse);
     app.dispose();
     canvas.remove();
-    return { image: image!, particles, levels };
+    return { image: image!, particles, levels, sprayPeak, sprayEnd };
 }
 
 /** Toro de teste (raios do anel e do tubo) e a distância com sinal analítica. */
@@ -633,13 +667,13 @@ const CASES: Record<string, Case> = {
     },
 
     /**
-     * Água no terreno (SC-002a): a barragem escorre pela encosta e forma um lago no vale em 6 s — nenhuma partícula
+     * Água no terreno (SC-002a): a barragem escorre pela encosta e forma um lago no vale em 10 s (água física) — nenhuma partícula
      * abaixo da superfície nem escapando por baixo do terreno, nível estável no último segundo (≤ 1 espaçamento), e a
      * imagem com a superfície da água e as cáusticas no fundo do vale (fixture).
      */
     async lake() {
         const c = collector();
-        const steps = 360;
+        const steps = 600;
         const wet = await lakeScene('caustics', steps);
         const plain = await lakeScene('plain', steps);
         const dry = await lakeScene('none', 1);
@@ -656,6 +690,22 @@ const CASES: Record<string, Case> = {
             if (p[1] < -LAKE_VALLEY.depth - LAKE_SPACING) escaped++;
         }
         c.measure('retiradas (saíram do terreno)', retired);
+        // Partículas secundárias: o respingo gera spray, espuma e bolhas; com a água parada, quase nenhuma sobra viva;
+        // nenhuma abaixo do terreno (o spray que bate no chão se desfaz).
+        const peak = wet.sprayPeak;
+        const end = wet.sprayEnd!;
+        c.measure('secundárias no respingo (vivas)', peak.alive);
+        c.measure('spray no respingo', peak.spray);
+        c.measure('espuma no respingo', peak.foam);
+        c.measure('bolhas no respingo', peak.bubble);
+        c.measure('secundárias vivas no fim', end.alive);
+        c.measure('secundárias abaixo do terreno', end.below);
+        c.check(peak.spray > 0 && peak.foam > 0, 'o respingo não gerou spray e espuma');
+        c.check(
+            end.alive <= 0.1 * Math.max(1, peak.alive),
+            `${end.alive} secundárias vivas com a água parada`,
+        );
+        c.check(end.below === 0, `${end.below} secundárias abaixo do terreno`);
         const variation = Math.max(...wet.levels) - Math.min(...wet.levels);
         c.measure('partículas', wet.particles.length);
         c.measure('abaixo da superfície', below);

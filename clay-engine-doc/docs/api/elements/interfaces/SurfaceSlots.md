@@ -6,7 +6,7 @@
 
 # Interface: SurfaceSlots
 
-Defined in: [elements/geometry/SurfaceFlow.ts:71](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L71)
+Defined in: [elements/geometry/SurfaceFlow.ts:71](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L71)
 
 Slots do estágio das superfícies paramétricas.
 
@@ -24,7 +24,7 @@ Slots do estágio das superfícies paramétricas.
 
 > `readonly` **camera**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/geometry/SurfaceFlow.ts:85](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L85)
+Defined in: [elements/geometry/SurfaceFlow.ts:85](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L85)
 
 Câmera ativa (malha adaptativa: distância).
 
@@ -34,7 +34,7 @@ Câmera ativa (malha adaptativa: distância).
 
 > `readonly` **cameras**: `PoolSlot`\<`true`\>
 
-Defined in: [elements/geometry/SurfaceFlow.ts:87](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L87)
+Defined in: [elements/geometry/SurfaceFlow.ts:87](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L87)
 
 Matrizes das câmeras (só GPU).
 
@@ -44,7 +44,7 @@ Matrizes das câmeras (só GPU).
 
 > `readonly` **diffs**: `PoolSlot`\<`true`\>
 
-Defined in: [elements/geometry/SurfaceFlow.ts:83](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L83)
+Defined in: [elements/geometry/SurfaceFlow.ts:83](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L83)
 
 Pool da geometria diferencial (existe com superfícies `differential`).
 
@@ -54,7 +54,7 @@ Pool da geometria diferencial (existe com superfícies `differential`).
 
 > `readonly` **fnRecords**: `PoolSlot`\<`true`\>
 
-Defined in: [elements/geometry/SurfaceFlow.ts:77](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L77)
+Defined in: [elements/geometry/SurfaceFlow.ts:77](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L77)
 
 Pool dos registros das `SurfaceFunction` (opcional).
 
@@ -64,7 +64,7 @@ Pool dos registros das `SurfaceFunction` (opcional).
 
 > `readonly` **functions**: `EntitiesSlot`
 
-Defined in: [elements/geometry/SurfaceFlow.ts:75](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L75)
+Defined in: [elements/geometry/SurfaceFlow.ts:75](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L75)
 
 Superfícies com `SurfaceFunction`.
 
@@ -74,7 +74,7 @@ Superfícies com `SurfaceFunction`.
 
 > `readonly` **spaceRecords**: `PoolSlot`\<`true`\>
 
-Defined in: [elements/geometry/SurfaceFlow.ts:79](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L79)
+Defined in: [elements/geometry/SurfaceFlow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L79)
 
 Pool dos registros das `SpaceFunction` (existe com espaço na cena: avaliação a cada quadro).
 
@@ -84,7 +84,7 @@ Pool dos registros das `SpaceFunction` (existe com espaço na cena: avaliação 
 
 > `readonly` **surfaces**: `EntitiesSlot`
 
-Defined in: [elements/geometry/SurfaceFlow.ts:73](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L73)
+Defined in: [elements/geometry/SurfaceFlow.ts:73](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L73)
 
 Superfícies paramétricas (o estágio escreve os vértices).
 
@@ -94,7 +94,7 @@ Superfícies paramétricas (o estágio escreve os vértices).
 
 > `readonly` **time**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/geometry/SurfaceFlow.ts:81](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L81)
+Defined in: [elements/geometry/SurfaceFlow.ts:81](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L81)
 
 Relógio da cena (opcional; sem ele, tempo 0).
 
@@ -104,6 +104,6 @@ Relógio da cena (opcional; sem ele, tempo 0).
 
 > `readonly` **worlds**: `PoolSlot`\<`true`\>
 
-Defined in: [elements/geometry/SurfaceFlow.ts:89](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/SurfaceFlow.ts#L89)
+Defined in: [elements/geometry/SurfaceFlow.ts:89](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/SurfaceFlow.ts#L89)
 
 Matrizes de mundo (malha adaptativa: a superfície na cena).

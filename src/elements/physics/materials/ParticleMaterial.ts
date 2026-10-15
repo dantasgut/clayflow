@@ -45,6 +45,15 @@ export interface ParticleMaterialOptions {
     readonly adhesion?: number;
     /** Suavização de velocidade XSPH do SPH e do PBF (default 0.05). */
     readonly xsph?: number;
+    /**
+     * Tensão superficial física γ em N/m (spec 010; água: 0,072). Com ela, coesão e adesão vêm da física na escala do
+     * espaçamento — a coesão é γ/(ρ₀ s²) em múltiplos de g, a adesão a coesão × (1 + cos θ) (Young–Dupré) e o arrasto
+     * tangencial na parede o viscoso μ/(ρ₀ s²) — em vez dos valores adimensionais `cohesion`/`adhesion`, que ignoram a
+     * escala (exclusivos com ela). Ver `ParticleMaterial.WATER`.
+     */
+    readonly surfaceTension?: number;
+    /** Ângulo de contato θ com as fronteiras sólidas, em graus (spec 010; default 90 — nem molha nem repele). */
+    readonly contactAngle?: number;
 }
 
 /** Aceleração de referência das escalas de coesão e adesão (m/s²). */
@@ -206,6 +215,21 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
     /** Material padrão (usado quando o World não tem um). */
     static readonly defaults = new ParticleMaterial();
 
+    /**
+     * Água física (spec 010): densidade 1000 kg/m³, viscosidade dinâmica 0,001 Pa·s, tensão superficial 0,072 N/m e
+     * ângulo de contato de 30° (molha). Coesão e adesão saem na escala do espaçamento — a 2,5 cm, ~0,01 g e ~0,02 g;
+     * a milímetros, dominam. Uso: `new ParticleMaterial({ ...ParticleMaterial.WATER, particleSpacing })`.
+     */
+    static readonly WATER = {
+        restDensity: 1000,
+        viscosity: 0.001,
+        surfaceTension: 0.072,
+        contactAngle: 30,
+    } as const;
+
+    /** Arrasto tangencial físico na parede (1/s), com `surfaceTension`; `undefined` no modo adimensional. */
+    private readonly wallDrag: number | undefined;
+
     /** Material do World, ou o padrão. */
     static of(world: World): ParticleMaterial {
         return (
@@ -241,12 +265,37 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
         if (!(viscosity >= 0)) {
             throw new RangeError(`ParticleMaterial: viscosity deve ser ≥ 0 (recebeu ${viscosity})`);
         }
+        const restDensity = positive('restDensity', options.restDensity ?? 1000);
+        const spacing = positive('particleSpacing', options.particleSpacing ?? 0.05);
+        let cohesion = nonNegative('cohesion', options.cohesion ?? 0);
+        let adhesion = nonNegative('adhesion', options.adhesion ?? 0);
+        this.wallDrag = undefined;
+        if (options.surfaceTension !== undefined) {
+            if (options.cohesion !== undefined || options.adhesion !== undefined) {
+                throw new RangeError(
+                    'ParticleMaterial: surfaceTension (física) e cohesion/adhesion (adimensionais) são exclusivas',
+                );
+            }
+            const gamma = nonNegative('surfaceTension', options.surfaceTension);
+            const theta = options.contactAngle ?? 90;
+            if (!(theta >= 0 && theta <= 180)) {
+                throw new RangeError(
+                    `ParticleMaterial: contactAngle deve estar em [0, 180] graus (recebeu ${theta})`,
+                );
+            }
+            // Coesão física por massa na escala do espaçamento, em múltiplos de g; adesão por Young–Dupré.
+            cohesion = gamma / (restDensity * spacing * spacing * G0);
+            adhesion = cohesion * (1 + Math.cos((theta * Math.PI) / 180));
+            this.wallDrag = viscosity / (restDensity * spacing * spacing);
+        } else if (options.contactAngle !== undefined) {
+            throw new RangeError('ParticleMaterial: contactAngle só vale com surfaceTension');
+        }
         this.data = {
-            cohesion: nonNegative('cohesion', options.cohesion ?? 0),
-            adhesion: nonNegative('adhesion', options.adhesion ?? 0),
+            cohesion,
+            adhesion,
             xsph: nonNegative('xsph', options.xsph ?? 0.05),
-            restDensity: positive('restDensity', options.restDensity ?? 1000),
-            particleSpacing: positive('particleSpacing', options.particleSpacing ?? 0.05),
+            restDensity,
+            particleSpacing: spacing,
             viscosity,
             speedOfSound: positive('speedOfSound', options.speedOfSound ?? 10),
             restitution,
@@ -403,8 +452,12 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
         return (adhesion * G0) / ADHESION_HALF_SPACE;
     }
 
-    /** Arrasto tangencial da adesão (1/s) no contato: `adesão · √(g/s)`. */
+    /**
+     * Arrasto tangencial da adesão (1/s) no contato: `adesão · √(g/s)` no modo adimensional; com `surfaceTension`, o
+     * viscoso da parede μ/(ρ₀ s²) (spec 010).
+     */
     adhesionTangential(adhesion = this.adhesion): number {
+        if (this.wallDrag !== undefined) return adhesion > 0 ? this.wallDrag : 0;
         return adhesion * Math.sqrt(G0 / this.particleSpacing);
     }
 

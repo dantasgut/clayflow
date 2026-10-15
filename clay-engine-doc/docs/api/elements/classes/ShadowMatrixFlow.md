@@ -6,7 +6,7 @@
 
 # Class: ShadowMatrixFlow
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:50](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L50)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:50](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L50)
 
 Estágio da matriz de sombra (spec 007, research R11) — produz, na GPU, a matriz luz-vista-projeção de cada
 `DirectionalLight` que projeta sombra a partir da direção dela (pool `Light`), no pool `ShadowMatrix` (segundo
@@ -25,7 +25,7 @@ Fase `transform`, depois do `CameraFlow`. Roda todo quadro com luzes que projeta
 
 > **new ShadowMatrixFlow**(`ctx`): `ShadowMatrixFlow`
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:79](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L79)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L79)
 
 #### Parameters
 
@@ -47,7 +47,7 @@ Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:79](https://github.com/dan
 
 > `readonly` **bindings**: `object`
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:67](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L67)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:67](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L67)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -67,7 +67,7 @@ Parâmetros do estágio (`ShadowMatrixParams`).
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:71](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L71)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:71](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L71)
 
 Estado inicial do algoritmo.
 
@@ -81,7 +81,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -95,7 +95,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:53](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L53)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:53](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L53)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -109,7 +109,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`ShadowMatrixSlots`](../interfaces/ShadowMatrixSlots.md)
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:52](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L52)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:52](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L52)
 
 Slots consumidos, por nome.
 
@@ -123,7 +123,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `Ctx`\>
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:72](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L72)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:72](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L72)
 
 Tabela de transições (estado × evento).
 
@@ -137,7 +137,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"ShadowMatrixFlow"` = `'ShadowMatrixFlow'`
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:51](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L51)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:51](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L51)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -153,7 +153,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -173,7 +173,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -191,7 +191,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:108](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L108)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:108](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L108)
 
 Grava o cálculo das matrizes das luzes vivas.
 
@@ -219,7 +219,7 @@ Grava o cálculo das matrizes das luzes vivas.
 
 > **dispose**(): `void`
 
-Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:118](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/ShadowMatrixFlow.ts#L118)
+Defined in: [elements/scene/flows/ShadowMatrixFlow.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/ShadowMatrixFlow.ts#L118)
 
 Libera o uniform de parâmetros.
 

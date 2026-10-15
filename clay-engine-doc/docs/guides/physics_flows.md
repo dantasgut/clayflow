@@ -247,6 +247,30 @@ Fluidos sobre terreno ou superfícies abertas usam o domínio aberto do material
 vizinhos); o fluido colide só com os colliders da cena, e a partícula que sai da caixa por baixo ou pelos lados é
 retirada. O padrão (`'walls'`) mantém o chão e as paredes do domínio, com adesão.
 
+**Água com parâmetros físicos (spec 010).** Em vez de `cohesion`/`adhesion` adimensionais, o material aceita a tensão
+superficial e o ângulo de contato reais: `surfaceTension` (N/m) e `contactAngle` (graus, padrão 90). A coesão vira
+γ/(ρ s² g), a adesão coesão·(1 + cos θ) e a parede ganha o arrasto tangencial μ/(ρ s²) da viscosidade. As duas formas são
+exclusivas. `ParticleMaterial.WATER` traz a água (ρ 1000, μ 0,001 Pa·s, γ 0,072 N/m, θ 30°):
+
+```typescript
+app.world.insert(new ParticleMaterial({ ...ParticleMaterial.WATER, particleSpacing: 0.0125, bounds: 'open', domainMin, domainMax }));
+```
+
+**Partículas secundárias (spray, espuma, bolhas).** `DiffuseParticles` (Ihmsen et al. 2012) gera, onde o fluido
+aprisiona ar, forma cristas e tem energia, partículas leves classificadas pela vizinhança do fluido: spray (balístico,
+com arrasto do ar; o que bate num sólido se desfaz), espuma (levada pela superfície, se dissolve) e bolhas (empuxo e
+arrasto para o fluido). Tudo na GPU pelo `DiffuseFlow` (fase physics), determinístico; a entidade já traz a nuvem de
+pontos, o `DiffuseMaterial` e o `Transform`:
+
+```typescript
+const agua = new FluidBody({ algorithm: 'PBF', position });
+app.world.insert(agua);
+app.world.insert(new DiffuseParticles({ source: agua, maxParticles: 32_768 }));
+```
+
+A geração lê o fluido no fim de cada quadro: a quantidade de spray varia um pouco com a taxa de quadros; a dinâmica do
+fluido continua a mesma a 30/60/144 Hz.
+
 ## Busca de vizinhança (SPH, PBF)
 
 Reconstruída a cada substep: célula de cada partícula viva, soma de prefixos, espalhamento, ordenação por índice dentro

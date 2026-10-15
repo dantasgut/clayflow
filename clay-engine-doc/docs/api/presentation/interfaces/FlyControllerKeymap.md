@@ -6,7 +6,7 @@
 
 # Interface: FlyControllerKeymap
 
-Defined in: [presentation/input/controllers/FlyController.ts:7](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/controllers/FlyController.ts#L7)
+Defined in: [presentation/input/controllers/FlyController.ts:7](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L7)
 
 Teclas de cada direção do FlyController (`KeyboardEvent.code`).
 
@@ -16,7 +16,7 @@ Teclas de cada direção do FlyController (`KeyboardEvent.code`).
 
 > `readonly` `optional` **back?**: readonly `string`[]
 
-Defined in: [presentation/input/controllers/FlyController.ts:11](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/controllers/FlyController.ts#L11)
+Defined in: [presentation/input/controllers/FlyController.ts:11](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L11)
 
 Teclas para trás.
 
@@ -26,7 +26,7 @@ Teclas para trás.
 
 > `readonly` `optional` **down?**: readonly `string`[]
 
-Defined in: [presentation/input/controllers/FlyController.ts:19](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/controllers/FlyController.ts#L19)
+Defined in: [presentation/input/controllers/FlyController.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L19)
 
 Teclas para descer.
 
@@ -36,7 +36,7 @@ Teclas para descer.
 
 > `readonly` `optional` **forward?**: readonly `string`[]
 
-Defined in: [presentation/input/controllers/FlyController.ts:9](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/controllers/FlyController.ts#L9)
+Defined in: [presentation/input/controllers/FlyController.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L9)
 
 Teclas (`KeyboardEvent.code`) para frente.
 
@@ -46,7 +46,7 @@ Teclas (`KeyboardEvent.code`) para frente.
 
 > `readonly` `optional` **left?**: readonly `string`[]
 
-Defined in: [presentation/input/controllers/FlyController.ts:13](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/controllers/FlyController.ts#L13)
+Defined in: [presentation/input/controllers/FlyController.ts:13](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L13)
 
 Teclas para a esquerda.
 
@@ -56,7 +56,7 @@ Teclas para a esquerda.
 
 > `readonly` `optional` **right?**: readonly `string`[]
 
-Defined in: [presentation/input/controllers/FlyController.ts:15](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/controllers/FlyController.ts#L15)
+Defined in: [presentation/input/controllers/FlyController.ts:15](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L15)
 
 Teclas para a direita.
 
@@ -66,6 +66,6 @@ Teclas para a direita.
 
 > `readonly` `optional` **up?**: readonly `string`[]
 
-Defined in: [presentation/input/controllers/FlyController.ts:17](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/controllers/FlyController.ts#L17)
+Defined in: [presentation/input/controllers/FlyController.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L17)
 
 Teclas para subir.

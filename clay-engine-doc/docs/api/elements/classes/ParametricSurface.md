@@ -6,7 +6,7 @@
 
 # Class: ParametricSurface
 
-Defined in: [elements/geometry/ParametricSurface.ts:130](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L130)
+Defined in: [elements/geometry/ParametricSurface.ts:130](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L130)
 
 Superfície paramétrica avaliada na GPU (spec 009): uma grade u × v cujos vértices (posição, normal, uv) o
 `SurfaceFlow` escreve a partir da função `surface` da entidade (`SurfaceFunction`) ou da superfície pronta
@@ -25,7 +25,7 @@ cria outra geometria (os índices são da construção); domínio, pronta e par�
 
 > **new ParametricSurface**(`options?`): `ParametricSurface`
 
-Defined in: [elements/geometry/ParametricSurface.ts:139](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L139)
+Defined in: [elements/geometry/ParametricSurface.ts:139](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L139)
 
 #### Parameters
 
@@ -47,7 +47,7 @@ Defined in: [elements/geometry/ParametricSurface.ts:139](https://github.com/dant
 
 > `readonly` **adaptive**: [`AdaptiveConfig`](../interfaces/AdaptiveConfig.md) \| `undefined`
 
-Defined in: [elements/geometry/ParametricSurface.ts:137](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L137)
+Defined in: [elements/geometry/ParametricSurface.ts:137](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L137)
 
 Malha adaptativa (valores efetivos), ou `undefined` na uniforme.
 
@@ -57,7 +57,7 @@ Malha adaptativa (valores efetivos), ou `undefined` na uniforme.
 
 > `readonly` **differential**: `boolean`
 
-Defined in: [elements/geometry/ParametricSurface.ts:135](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L135)
+Defined in: [elements/geometry/ParametricSurface.ts:135](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L135)
 
 Tem geometria diferencial por vértice (pool `SurfaceDiff`).
 
@@ -67,7 +67,7 @@ Tem geometria diferencial por vértice (pool `SurfaceDiff`).
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/geometry/Geometry.ts:36](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/Geometry.ts#L36)
+Defined in: [elements/geometry/Geometry.ts:36](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L36)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -81,7 +81,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **vertexStruct**: `StructSchema` = `SurfaceGeometry.vertexStruct`
 
-Defined in: [elements/geometry/ParametricSurface.ts:132](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L132)
+Defined in: [elements/geometry/ParametricSurface.ts:132](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L132)
 
 Vértice (posição, normal, uv) — o mesmo das superfícies dos corpos moles.
 
@@ -93,7 +93,7 @@ Vértice (posição, normal, uv) — o mesmo das superfícies dos corpos moles.
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L138)
+Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -114,7 +114,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **contentKey**(): `string` \| `undefined`
 
-Defined in: [elements/geometry/ParametricSurface.ts:287](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L287)
+Defined in: [elements/geometry/ParametricSurface.ts:287](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L287)
 
 Vértices escritos na GPU, próprios de cada superfície: sem deduplicação por conteúdo.
 
@@ -134,7 +134,7 @@ Vértices escritos na GPU, próprios de cada superfície: sem deduplicação por
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -147,7 +147,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -173,7 +173,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** **indexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:277](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L277)
+Defined in: [elements/geometry/ParametricSurface.ts:277](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L277)
 
 Número de índices (0 = sem index buffer, draw não-indexed).
 
@@ -193,7 +193,7 @@ Número de índices (0 = sem index buffer, draw não-indexed).
 
 > **get** **indexFormat**(): `GPUIndexFormat`
 
-Defined in: [elements/geometry/ParametricSurface.ts:282](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L282)
+Defined in: [elements/geometry/ParametricSurface.ts:282](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L282)
 
 Índices de 32 bits (a grade uniforme e a adaptativa).
 
@@ -213,7 +213,7 @@ Defined in: [elements/geometry/ParametricSurface.ts:282](https://github.com/dant
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -234,7 +234,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **vertexCount**(): `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:273](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L273)
+Defined in: [elements/geometry/ParametricSurface.ts:273](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L273)
 
 Número de vértices na geometria — usado para `pass.draw(count)`.
 
@@ -252,7 +252,7 @@ Número de vértices na geometria — usado para `pass.draw(count)`.
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -277,7 +277,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -302,7 +302,7 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/geometry/ParametricSurface.ts:203](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L203)
+Defined in: [elements/geometry/ParametricSurface.ts:203](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L203)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -323,7 +323,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:40](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/Geometry.ts#L40)
+Defined in: [elements/geometry/Geometry.ts:40](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L40)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -343,7 +343,7 @@ readonly `PipelineDescriptor`[]
 
 > `protected` **wireDescriptors**(): `GPUDescriptor`[]
 
-Defined in: [elements/geometry/Geometry.ts:61](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/Geometry.ts#L61)
+Defined in: [elements/geometry/Geometry.ts:61](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L61)
 
 Descritor das arestas de arame (`data.wireEdges`, índices `uint32` aos pares; spec 008): alocado e deduplicado pela
 C2 como os índices. Vazio sem arestas. Subclasses o acrescentam aos seus descritores.
@@ -362,7 +362,7 @@ C2 como os índices. Vazio sem arestas. Subclasses o acrescentam aos seus descri
 
 > `protected` `static` **indexArray**(`indices`, `vertexCount`): `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:90](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/Geometry.ts#L90)
+Defined in: [elements/geometry/Geometry.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L90)
 
 Array de índices no menor formato que endereça `vertexCount` vértices: `Uint16Array` até 65 535 vértices,
 `Uint32Array` acima.

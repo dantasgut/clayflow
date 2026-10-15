@@ -6,7 +6,7 @@
 
 # Interface: ShadowSlots
 
-Defined in: [presentation/flows/ShadowFlow.ts:44](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/ShadowFlow.ts#L44)
+Defined in: [presentation/flows/ShadowFlow.ts:44](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L44)
 
 Slots do estágio de sombra.
 
@@ -24,7 +24,7 @@ Slots do estágio de sombra.
 
 > `readonly` **caster**: `SingletonSlot`\<`false`\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:46](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/ShadowFlow.ts#L46)
+Defined in: [presentation/flows/ShadowFlow.ts:46](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L46)
 
 `ShadowMap` da primeira `DirectionalLight` que projeta sombra.
 
@@ -34,7 +34,7 @@ Defined in: [presentation/flows/ShadowFlow.ts:46](https://github.com/dantasgut/c
 
 > `readonly` **casters**: `EntitiesSlot`
 
-Defined in: [presentation/flows/ShadowFlow.ts:52](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/ShadowFlow.ts#L52)
+Defined in: [presentation/flows/ShadowFlow.ts:52](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L52)
 
 Entidades desenhadas no mapa (geometria + transform), em grupos por (geometria, orientação) mantidos pela C2.
 
@@ -44,7 +44,7 @@ Entidades desenhadas no mapa (geometria + transform), em grupos por (geometria, 
 
 > `readonly` **matrices**: `PoolSlot`\<`false`\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:50](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/ShadowFlow.ts#L50)
+Defined in: [presentation/flows/ShadowFlow.ts:50](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L50)
 
 Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU pelo `ShadowMatrixFlow`).
 
@@ -54,7 +54,7 @@ Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU pelo `S
 
 > `readonly` **target**: `TargetSlot`
 
-Defined in: [presentation/flows/ShadowFlow.ts:54](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/ShadowFlow.ts#L54)
+Defined in: [presentation/flows/ShadowFlow.ts:54](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L54)
 
 Alvo só de profundidade: a textura `depth` do `ShadowMap` do caster.
 
@@ -64,6 +64,6 @@ Alvo só de profundidade: a textura `depth` do `ShadowMap` do caster.
 
 > `readonly` **world**: `PoolSlot`\<`false`\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:48](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/ShadowFlow.ts#L48)
+Defined in: [presentation/flows/ShadowFlow.ts:48](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L48)
 
 Pool `WorldTransform` (matriz de mundo pelo slot da entidade).

@@ -6,7 +6,7 @@
 
 # Interface: ParticleEmitterData
 
-Defined in: [elements/particles/ParticleEmitter.ts:27](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/ParticleEmitter.ts#L27)
+Defined in: [elements/particles/ParticleEmitter.ts:27](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/ParticleEmitter.ts#L27)
 
 Dado de um `ParticleEmitter`.
 
@@ -16,7 +16,7 @@ Dado de um `ParticleEmitter`.
 
 > **lifetime**: `number`
 
-Defined in: [elements/particles/ParticleEmitter.ts:33](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/ParticleEmitter.ts#L33)
+Defined in: [elements/particles/ParticleEmitter.ts:33](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/ParticleEmitter.ts#L33)
 
 Vida de cada partícula (s).
 
@@ -26,7 +26,7 @@ Vida de cada partícula (s).
 
 > **maxParticles**: `number`
 
-Defined in: [elements/particles/ParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/ParticleEmitter.ts#L29)
+Defined in: [elements/particles/ParticleEmitter.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/ParticleEmitter.ts#L29)
 
 Capacidade de partículas.
 
@@ -36,7 +36,7 @@ Capacidade de partículas.
 
 > **rate**: `number`
 
-Defined in: [elements/particles/ParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/ParticleEmitter.ts#L31)
+Defined in: [elements/particles/ParticleEmitter.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/ParticleEmitter.ts#L31)
 
 Partículas emitidas por segundo.
 
@@ -46,7 +46,7 @@ Partículas emitidas por segundo.
 
 > **seed**: `number`
 
-Defined in: [elements/particles/ParticleEmitter.ts:37](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/ParticleEmitter.ts#L37)
+Defined in: [elements/particles/ParticleEmitter.ts:37](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/ParticleEmitter.ts#L37)
 
 Semente do sorteio da emissão na GPU.
 
@@ -56,6 +56,6 @@ Semente do sorteio da emissão na GPU.
 
 > **shape**: [`EmitterShape`](EmitterShape.md) \| `undefined`
 
-Defined in: [elements/particles/ParticleEmitter.ts:35](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/ParticleEmitter.ts#L35)
+Defined in: [elements/particles/ParticleEmitter.ts:35](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/ParticleEmitter.ts#L35)
 
 Forma de emissão.

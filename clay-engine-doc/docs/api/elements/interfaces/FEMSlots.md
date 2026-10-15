@@ -6,7 +6,7 @@
 
 # Interface: FEMSlots
 
-Defined in: [elements/physics/flows/FEMFlow.ts:41](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/FEMFlow.ts#L41)
+Defined in: [elements/physics/flows/FEMFlow.ts:41](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L41)
 
 Slots do FEM.
 
@@ -24,7 +24,7 @@ Slots do FEM.
 
 > `readonly` **bodies**: `BodiesSlot`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:43](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/FEMFlow.ts#L43)
+Defined in: [elements/physics/flows/FEMFlow.ts:43](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L43)
 
 Pool de corpos do `bodyType` do registro.
 
@@ -34,7 +34,7 @@ Pool de corpos do `bodyType` do registro.
 
 > `readonly` **colliderPools**: `PoolsSlot`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:49](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/FEMFlow.ts#L49)
+Defined in: [elements/physics/flows/FEMFlow.ts:49](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L49)
 
 Pools dos colliders e dos corpos donos (spec 010: os nós colidem com os colliders).
 
@@ -44,7 +44,7 @@ Pools dos colliders e dos corpos donos (spec 010: os nós colidem com os collide
 
 > `readonly` **colliders**: `EntitiesSlot`
 
-Defined in: [elements/physics/flows/FEMFlow.ts:51](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/FEMFlow.ts#L51)
+Defined in: [elements/physics/flows/FEMFlow.ts:51](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L51)
 
 Entidades com collider.
 
@@ -54,7 +54,7 @@ Entidades com collider.
 
 > `readonly` **gravity**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/physics/flows/FEMFlow.ts:47](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/FEMFlow.ts#L47)
+Defined in: [elements/physics/flows/FEMFlow.ts:47](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L47)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
@@ -64,6 +64,6 @@ Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 > `readonly` **time**: `SingletonSlot`\<`false`\>
 
-Defined in: [elements/physics/flows/FEMFlow.ts:45](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/FEMFlow.ts#L45)
+Defined in: [elements/physics/flows/FEMFlow.ts:45](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L45)
 
 Relógio da cena (passos fixos do quadro).

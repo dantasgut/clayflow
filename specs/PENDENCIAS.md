@@ -100,6 +100,13 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   presos no ar. `ParticleMaterial({ bounds: 'open' })`: a caixa só limita o cálculo; nada colide nem adere aos planos
   do domínio, e a partícula que sai por baixo ou pelos lados é retirada (parada muito abaixo da cena, fora da grade de
   vizinhos, do enquadramento da água e da imagem). Padrão `'walls'`: as cenas de antes, bit a bit.
+- Hidrodinâmica do respingo (feedback do usuário: "a hidrodinâmica do espirro e as gotas escorrendo estão imprecisas";
+  "não quero apenas renderização"): a água de referência da 030 (coesão 3, adesão 8, adimensionais) é ~250–350× mais
+  grudenta que a água real a 2,5 cm. `ParticleMaterial({ surfaceTension, contactAngle })` deriva coesão = γ/(ρ s² g),
+  adesão = coesão·(1 + cos θ) e o arrasto tangencial na parede μ/(ρ s²); `ParticleMaterial.WATER` traz os valores da
+  água. O detalhe menor que o espaçamento vem das partículas secundárias (`DiffuseParticles`, Ihmsen et al. 2012):
+  spray balístico com arrasto do ar, espuma levada pela superfície, bolhas com empuxo. Limite: a geração lê o estado do
+  fluido no fim do quadro, então a quantidade de spray depende um pouco da taxa de quadros (a dinâmica do fluido não).
 
 ### Notas da 030
 

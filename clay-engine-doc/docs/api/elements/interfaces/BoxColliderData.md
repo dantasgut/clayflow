@@ -6,7 +6,7 @@
 
 # Interface: BoxColliderData
 
-Defined in: [elements/physics/colliders/BoxCollider.ts:7](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/BoxCollider.ts#L7)
+Defined in: [elements/physics/colliders/BoxCollider.ts:7](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/BoxCollider.ts#L7)
 
 Dado de um `BoxCollider` (layout de `BoxCollider.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `BoxCollider` (layout de `BoxCollider.schema`).
 
 > **center**: `number`[]
 
-Defined in: [elements/physics/colliders/BoxCollider.ts:11](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/BoxCollider.ts#L11)
+Defined in: [elements/physics/colliders/BoxCollider.ts:11](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/BoxCollider.ts#L11)
 
 Centro (local ao corpo dono, ou de mundo sem dono).
 
@@ -26,6 +26,6 @@ Centro (local ao corpo dono, ou de mundo sem dono).
 
 > **halfExtents**: `number`[]
 
-Defined in: [elements/physics/colliders/BoxCollider.ts:9](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/BoxCollider.ts#L9)
+Defined in: [elements/physics/colliders/BoxCollider.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/BoxCollider.ts#L9)
 
 Meia-extensão por eixo.

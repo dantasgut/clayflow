@@ -6,7 +6,7 @@
 
 # Interface: SurfaceColliderData
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:51](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L51)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:51](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L51)
 
 Dado de um `SurfaceCollider` (layout de `SurfaceCollider.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `SurfaceCollider` (layout de `SurfaceCollider.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:71](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L71)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:71](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L71)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:73](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L73)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:73](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L73)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **\_pad2**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:75](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L75)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:75](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L75)
 
 Preenchimento do layout.
 
@@ -46,7 +46,7 @@ Preenchimento do layout.
 
 > **band**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:67](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L67)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:67](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L67)
 
 Células de folga (distância).
 
@@ -56,7 +56,7 @@ Células de folga (distância).
 
 > **copies**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:63](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L63)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:63](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L63)
 
 Cópias alocadas.
 
@@ -66,7 +66,7 @@ Cópias alocadas.
 
 > **copy\_stride**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:65](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L65)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:65](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L65)
 
 Floats por cópia (cabeçalho + células).
 
@@ -76,7 +76,7 @@ Floats por cópia (cabeçalho + células).
 
 > **first**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:61](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L61)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:61](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L61)
 
 Primeiro slot do campo (índice local 0, resolvido pela C2).
 
@@ -86,7 +86,7 @@ Primeiro slot do campo (índice local 0, resolvido pela C2).
 
 > **margin**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:69](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L69)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:69](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L69)
 
 Folga de contato (m).
 
@@ -96,7 +96,7 @@ Folga de contato (m).
 
 > **mode**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:53](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L53)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:53](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L53)
 
 Modo (`SURFACE_COLLIDER_MODE_INDEX`).
 
@@ -106,7 +106,7 @@ Modo (`SURFACE_COLLIDER_MODE_INDEX`).
 
 > **nx**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:55](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L55)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:55](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L55)
 
 Células em x.
 
@@ -116,7 +116,7 @@ Células em x.
 
 > **ny**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:57](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L57)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:57](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L57)
 
 Células em y (1 no modo altura).
 
@@ -126,6 +126,6 @@ Células em y (1 no modo altura).
 
 > **nz**: `number`
 
-Defined in: [elements/physics/colliders/SurfaceCollider.ts:59](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/colliders/SurfaceCollider.ts#L59)
+Defined in: [elements/physics/colliders/SurfaceCollider.ts:59](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/SurfaceCollider.ts#L59)
 
 Células em z.

@@ -6,7 +6,7 @@
 
 # Class: WaterSurface
 
-Defined in: [presentation/app/WaterSurface.ts:34](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L34)
+Defined in: [presentation/app/WaterSurface.ts:34](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L34)
 
 Superfície de água da cena (Camada 4, spec 017): as texturas que os estágios da água compartilham — a superfície
 genérica (profundidade linear suavizada, espessura e material por pixel) nas vistas da câmera e da luz, a cópia da
@@ -33,7 +33,7 @@ são recriadas pela C2 com ele. Uma por cena, inserida pelos estágios padrão.
 
 > **new WaterSurface**(`options?`): `WaterSurface`
 
-Defined in: [presentation/app/WaterSurface.ts:42](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L42)
+Defined in: [presentation/app/WaterSurface.ts:42](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L42)
 
 #### Parameters
 
@@ -55,7 +55,7 @@ Defined in: [presentation/app/WaterSurface.ts:42](https://github.com/dantasgut/c
 
 > `readonly` **lightSize**: `number`
 
-Defined in: [presentation/app/WaterSurface.ts:40](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L40)
+Defined in: [presentation/app/WaterSurface.ts:40](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L40)
 
 Resolução da vista da luz e das cáusticas.
 
@@ -65,7 +65,7 @@ Resolução da vista da luz e das cáusticas.
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [presentation/app/WaterSurface.ts:38](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L38)
+Defined in: [presentation/app/WaterSurface.ts:38](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L38)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -79,7 +79,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [presentation/app/WaterSurface.ts:36](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L36)
+Defined in: [presentation/app/WaterSurface.ts:36](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L36)
 
 Identidade da superfície na cena (o World indexa pelo schema da classe); sem dados de GPU próprios.
 
@@ -91,7 +91,7 @@ Identidade da superfície na cena (o World indexa pelo schema da classe); sem da
 
 > **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L138)
+Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -112,7 +112,7 @@ readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -125,7 +125,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -155,7 +155,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -174,7 +174,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -199,7 +199,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -224,7 +224,7 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [presentation/app/WaterSurface.ts:69](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L69)
+Defined in: [presentation/app/WaterSurface.ts:69](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L69)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -245,7 +245,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [presentation/app/WaterSurface.ts:144](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L144)
+Defined in: [presentation/app/WaterSurface.ts:144](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L144)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -265,7 +265,7 @@ readonly `PipelineDescriptor`[]
 
 > **isProduced**(`view`): `boolean`
 
-Defined in: [presentation/app/WaterSurface.ts:65](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L65)
+Defined in: [presentation/app/WaterSurface.ts:65](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L65)
 
 A superfície da `view` foi produzida neste quadro?
 
@@ -285,7 +285,7 @@ A superfície da `view` foi produzida neste quadro?
 
 > **markProduced**(`view`, `produced`): `void`
 
-Defined in: [presentation/app/WaterSurface.ts:60](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/app/WaterSurface.ts#L60)
+Defined in: [presentation/app/WaterSurface.ts:60](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/app/WaterSurface.ts#L60)
 
 Um produtor declara se escreveu a superfície da `view` neste quadro (em `framePrepare`, antes da gravação). Os
 consumidores (`WaterFlow`, `CausticsFlow`, o forward) só gravam com a vista produzida.

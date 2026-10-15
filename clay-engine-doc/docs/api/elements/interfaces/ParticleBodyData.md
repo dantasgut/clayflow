@@ -6,7 +6,7 @@
 
 # Interface: ParticleBodyData
 
-Defined in: [elements/physics/bodies/ParticleBody.ts:10](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/bodies/ParticleBody.ts#L10)
+Defined in: [elements/physics/bodies/ParticleBody.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/ParticleBody.ts#L10)
 
 Dado de um `ParticleBody`: as partículas por campo (descritor `body`, uma faixa de `count` slots).
 
@@ -20,6 +20,6 @@ Dado de um `ParticleBody`: as partículas por campo (descritor `body`, uma faixa
 
 > **body**: [`ParticleFields`](../type-aliases/ParticleFields.md)
 
-Defined in: [elements/physics/bodies/ParticleBody.ts:12](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/bodies/ParticleBody.ts#L12)
+Defined in: [elements/physics/bodies/ParticleBody.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/ParticleBody.ts#L12)
 
 Partículas por campo.

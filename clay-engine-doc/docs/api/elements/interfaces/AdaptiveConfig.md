@@ -6,7 +6,7 @@
 
 # Interface: AdaptiveConfig
 
-Defined in: [elements/geometry/ParametricSurface.ts:56](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L56)
+Defined in: [elements/geometry/ParametricSurface.ts:56](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L56)
 
 Malha adaptativa resolvida (valores efetivos).
 
@@ -16,7 +16,7 @@ Malha adaptativa resolvida (valores efetivos).
 
 > `readonly` **budget**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:62](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L62)
+Defined in: [elements/geometry/ParametricSurface.ts:62](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L62)
 
 Teto de triângulos.
 
@@ -26,7 +26,7 @@ Teto de triângulos.
 
 > `readonly` **edgeIndexCapacity**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:78](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L78)
+Defined in: [elements/geometry/ParametricSurface.ts:78](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L78)
 
 Índices de arestas do arame com todos os retalhos no nível máximo (capacidade).
 
@@ -36,7 +36,7 @@ Defined in: [elements/geometry/ParametricSurface.ts:78](https://github.com/danta
 
 > `readonly` **indexCapacity**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:76](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L76)
+Defined in: [elements/geometry/ParametricSurface.ts:76](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L76)
 
 Índices com todos os retalhos no nível máximo (capacidade).
 
@@ -46,7 +46,7 @@ Defined in: [elements/geometry/ParametricSurface.ts:76](https://github.com/danta
 
 > `readonly` **maxLevel**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:60](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L60)
+Defined in: [elements/geometry/ParametricSurface.ts:60](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L60)
 
 Nível máximo.
 
@@ -56,7 +56,7 @@ Nível máximo.
 
 > `readonly` **patches**: readonly \[`number`, `number`\]
 
-Defined in: [elements/geometry/ParametricSurface.ts:58](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L58)
+Defined in: [elements/geometry/ParametricSurface.ts:58](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L58)
 
 Retalhos em u e v.
 
@@ -66,7 +66,7 @@ Retalhos em u e v.
 
 > `readonly` **periodic**: readonly \[`boolean`, `boolean`\]
 
-Defined in: [elements/geometry/ParametricSurface.ts:68](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L68)
+Defined in: [elements/geometry/ParametricSurface.ts:68](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L68)
 
 Domínio periódico em u e v.
 
@@ -76,7 +76,7 @@ Domínio periódico em u e v.
 
 > `readonly` **refreshDistance**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:70](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L70)
+Defined in: [elements/geometry/ParametricSurface.ts:70](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L70)
 
 Deslocamento da câmera que refaz a malha (m).
 
@@ -86,7 +86,7 @@ Deslocamento da câmera que refaz a malha (m).
 
 > `readonly` **screen**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:66](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L66)
+Defined in: [elements/geometry/ParametricSurface.ts:66](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L66)
 
 Fração da altura da imagem por segmento.
 
@@ -96,7 +96,7 @@ Fração da altura da imagem por segmento.
 
 > `readonly` **side**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:72](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L72)
+Defined in: [elements/geometry/ParametricSurface.ts:72](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L72)
 
 Vértices por lado de um retalho no nível máximo (2^L + 1).
 
@@ -106,7 +106,7 @@ Vértices por lado de um retalho no nível máximo (2^L + 1).
 
 > `readonly` **tolerance**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:64](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L64)
+Defined in: [elements/geometry/ParametricSurface.ts:64](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L64)
 
 Erro de corda tolerado (m).
 
@@ -116,6 +116,6 @@ Erro de corda tolerado (m).
 
 > `readonly` **vertexCapacity**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:74](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L74)
+Defined in: [elements/geometry/ParametricSurface.ts:74](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricSurface.ts#L74)
 
 Vértices com todos os retalhos no nível máximo (capacidade).

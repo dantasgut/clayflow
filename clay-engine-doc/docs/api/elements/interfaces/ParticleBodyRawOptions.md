@@ -6,7 +6,7 @@
 
 # Interface: ParticleBodyRawOptions
 
-Defined in: [elements/physics/bodies/ParticleBody.ts:16](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/bodies/ParticleBody.ts#L16)
+Defined in: [elements/physics/bodies/ParticleBody.ts:16](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/ParticleBody.ts#L16)
 
 Opções cruas de um corpo de partículas: schema do struct de GPU, contagem e dado por campo.
 
@@ -16,7 +16,7 @@ Opções cruas de um corpo de partículas: schema do struct de GPU, contagem e d
 
 > `readonly` **count**: `number`
 
-Defined in: [elements/physics/bodies/ParticleBody.ts:20](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/bodies/ParticleBody.ts#L20)
+Defined in: [elements/physics/bodies/ParticleBody.ts:20](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/ParticleBody.ts#L20)
 
 Número de partículas.
 
@@ -26,7 +26,7 @@ Número de partículas.
 
 > `readonly` `optional` **data?**: [`ParticleFields`](../type-aliases/ParticleFields.md)
 
-Defined in: [elements/physics/bodies/ParticleBody.ts:22](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/bodies/ParticleBody.ts#L22)
+Defined in: [elements/physics/bodies/ParticleBody.ts:22](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/ParticleBody.ts#L22)
 
 Dado por campo do schema (`fieldElements(tipo)` números por partícula); campos ausentes ficam com zero.
 
@@ -36,6 +36,6 @@ Dado por campo do schema (`fieldElements(tipo)` números por partícula); campos
 
 > `readonly` **schema**: `StructSchema`
 
-Defined in: [elements/physics/bodies/ParticleBody.ts:18](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/bodies/ParticleBody.ts#L18)
+Defined in: [elements/physics/bodies/ParticleBody.ts:18](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/ParticleBody.ts#L18)
 
 Schema do struct da partícula (layout de GPU) — define o pool e o estágio que simula.

@@ -60,6 +60,8 @@ contracts/surfaces, quickstart)
 - [ ] T033 Bench: variantes `particles/64k-terrain` e `instances/surface-adaptive` em `bench/scenes/`; `bench:check` sem regressão; baseline regravado com a máquina livre
 - [x] T034 Smokes todos no fonte e com `--dist`; `npm run ci` verde
 - [x] T035 Vídeos (terreno com corpos e água formando lago com cáusticas; superfície deformando com malha adaptativa em wireframe; material por curvatura) no scratchpad, enviados ao usuário
+- [x] T037 Água física: `ParticleMaterial` com `surfaceTension` (N/m) e `contactAngle` (°) e `ParticleMaterial.WATER`, em `src/elements/physics/materials/ParticleMaterial.ts`
+- [x] T038 Partículas secundárias (Ihmsen 2012): `DiffuseParticles`, `DiffuseFlow` e `DiffuseMaterial` em `src/elements/particles/` e `src/elements/material/`; kernels em `src/elements/gpu/wgsl/diffuse/`; smoke do lago com spray/espuma a 10 s
 - [x] T036 Spec marcada como implementada em `specs/010-parametric-surfaces/spec.md`
 
 ## Dependencies

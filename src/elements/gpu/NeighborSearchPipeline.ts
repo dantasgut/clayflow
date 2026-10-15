@@ -362,6 +362,35 @@ export class NeighborSearchPipeline {
     }
 
     /**
+     * Grade da última reconstrução (spec 010, partículas secundárias): `cellStart[c]` e `cellCount[c]` dão a faixa da
+     * célula `c` em `sortedParticles` (índices das partículas, em ordem dentro da célula); origem, dimensões e aresta da
+     * célula para achar a célula de um ponto qualquer. Null antes de `allocate`.
+     */
+    get grid(): {
+        readonly cellStart: StorageBufferSpec;
+        readonly cellCount: StorageBufferSpec;
+        readonly sortedParticles: StorageBufferSpec;
+        readonly origin: readonly [number, number, number];
+        readonly gridDim: readonly [number, number, number];
+        readonly cellSize: number;
+    } | null {
+        if (
+            this.cellStartBuffer === null
+            || this.cellCountBuffer === null
+            || this.sortedParticlesBuffer === null
+        )
+            return null;
+        return {
+            cellStart: this.cellStartBuffer,
+            cellCount: this.cellCountBuffer,
+            sortedParticles: this.sortedParticlesBuffer,
+            origin: this.origin,
+            gridDim: this.gridDim,
+            cellSize: this.cellSize,
+        };
+    }
+
+    /**
      * Buffer de contadores — `neighborCount[p]` é o número de vizinhos
      * encontrados para a partícula p (≤ maxNeighbors).
      */

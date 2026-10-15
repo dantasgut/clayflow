@@ -8,7 +8,7 @@
 
 > `const` **FieldKind**: `object`
 
-Defined in: [elements/physics/forcefields/ForceField.ts:9](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/ForceField.ts#L9)
+Defined in: [elements/physics/forcefields/ForceField.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/ForceField.ts#L9)
 
 Tipo de campo pronto no registro comum (`kind` do `FieldFnRecord`; 0 = fora do laço).
 

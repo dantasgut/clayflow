@@ -8,6 +8,6 @@
 
 > **FluidBodyOptions** = [`FluidBodyDomainOptions`](../interfaces/FluidBodyDomainOptions.md) \| [`FluidBodyRawOptions`](FluidBodyRawOptions.md)
 
-Defined in: [elements/physics/bodies/FluidBody.ts:44](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/bodies/FluidBody.ts#L44)
+Defined in: [elements/physics/bodies/FluidBody.ts:44](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/FluidBody.ts#L44)
 
 União aceita pelo construtor do FluidBody: vocabulário de domínio ou struct cru.
