@@ -29,7 +29,7 @@ import { ConsumerResolverRegistry } from '../consumers/ConsumerResolverRegistry'
 import { PoolResolver } from '../consumers/strategies/PoolResolver';
 import { PoolLiveResolver } from '../consumers/strategies/PoolLiveResolver';
 import type { Flow } from '../flows/Flow';
-import type { EntityRecordDeclaration, ResourceType } from '../flows/slots';
+import { RECORD_NONE, type EntityRecordDeclaration, type ResourceType } from '../flows/slots';
 import type { FlowAllocator, RegisterOptions } from '../flows/FlowRegistry';
 import { FlowBinder } from './flowBinding/FlowBinder';
 import { LayoutInferencer } from './LayoutInferencer';
@@ -438,13 +438,13 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             existing.users++;
             return;
         }
-        for (const [field, [type]] of Object.entries(declaration.fields)) {
+        for (const [field, [type, , opts]] of Object.entries(declaration.fields)) {
             if (!declaration.schema.fields.has(field)) {
                 throw new Error(
                     `ResourceSystem: registro '${key}': campo '${field}' fora do schema.`,
                 );
             }
-            if (!all.includes(type)) {
+            if (opts?.optional !== true && !all.includes(type)) {
                 throw new Error(
                     `ResourceSystem: registro '${key}': o tipo do campo '${field}' não está no conjunto (all).`,
                 );
@@ -2026,8 +2026,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const resources = this.world.resourcesOf(id);
         if (!set.all.every((type) => resources.some((r) => r instanceof type))) return undefined;
         const values: Record<string, number> = {};
-        for (const [field, [type, descId]] of Object.entries(set.declaration.fields)) {
+        for (const [field, [type, descId, opts]] of Object.entries(set.declaration.fields)) {
             const resource = resources.find((r) => r instanceof type);
+            if (resource === undefined && opts?.optional === true) {
+                values[field] = RECORD_NONE;
+                continue;
+            }
             const desc = resource
                 ?.getDescriptors()
                 .find((d) => d.id === descId && d.storage === 'pool' && d.schema !== undefined);
@@ -2322,6 +2326,9 @@ function sameRecordDeclaration(
         && set.all.length === all.length
         && set.all.every((t) => all.includes(t))
         && a.length === Object.keys(b).length
-        && a.every(([k, [t, d]]) => b[k]?.[0] === t && b[k][1] === d)
+        && a.every(
+            ([k, [t, d, o]]) =>
+                b[k]?.[0] === t && b[k][1] === d && b[k][2]?.optional === o?.optional,
+        )
     );
 }

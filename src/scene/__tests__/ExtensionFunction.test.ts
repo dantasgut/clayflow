@@ -1,29 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import {
-    ExtensionFunction,
-    ExtensionParamsSchema,
-    type ExtensionFunctionOptions,
-} from '../contracts/ExtensionFunction';
+import { ExtensionFunction, type ExtensionFunctionOptions } from '../contracts/ExtensionFunction';
+import { extensionRecordSchema } from '../descriptors/ExtensionRecord';
 import { bindPoints } from '../shaders/bindPoints';
 import { composeWgsl } from '../shaders/composeWgsl';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
 import { wgslModule } from '../shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../shaders/WgslPoint';
 
+const record = extensionRecordSchema('ProbeFnRecord');
 const ready = wgslModule({
     name: 'probe_ready',
     source: [
         'struct ProbeFnParams { _unused: u32 }',
-        'fn probe_fn_params(r: ExtensionParams) -> ProbeFnParams { return ProbeFnParams(0u); }',
+        'fn probe_fn_params(r: ProbeFnRecord) -> ProbeFnParams { return ProbeFnParams(0u); }',
         'fn probe_fn(x: f32, data: ProbeFnParams) -> f32 { return x; }',
     ].join('\n'),
-    structs: [ExtensionParamsSchema],
+    structs: [record],
 });
 const kernel = wgslModule({
     name: 'probe_kernel',
     source: [
         '@group(0) @binding(0) var<storage, read_write> out: array<f32>;',
-        '@group(0) @binding(1) var<storage, read> params: array<ExtensionParams>;',
+        '@group(0) @binding(1) var<storage, read> params: array<ProbeFnRecord>;',
         '@compute @workgroup_size(1) fn main() { out[0] = probe_fn(out[0], probe_fn_params(params[0])); }',
     ].join('\n'),
     requires: [ready],
@@ -32,6 +30,7 @@ const point = wgslPoint({
     name: 'probe',
     required: { name: 'probe_fn', params: ['f32', POINT_PARAMS], returns: 'f32' },
     paramsAlias: 'ProbeFnParams',
+    record,
     ready,
     hosts: () => [kernel],
 });
@@ -88,7 +87,7 @@ describe('ExtensionFunction', () => {
             fn.values.k = Number.NaN;
         }).toThrow(/finito/);
         expect(fn.getDescriptors()).toEqual([
-            { id: 'params', role: 'storage-ro', schema: ExtensionParamsSchema, storage: 'pool' },
+            { id: 'params', role: 'storage-ro', schema: record, storage: 'pool' },
         ]);
     });
 
@@ -136,7 +135,7 @@ describe('ExtensionFunction', () => {
         expect(a.module.source).toContain(`fn ${a.functionName}(x: f32, data: ProbeFnParams_`);
         const sum = wgslModule({
             name: 'probe_sum',
-            source: `fn probe_sum(x: f32, r: ExtensionParams) -> f32 { return ${a.functionName}(x, ${a.loaderName}(r)) + ${b.functionName}(x, ${b.loaderName}(r)); }`,
+            source: `fn probe_sum(x: f32, r: ProbeFnRecord) -> f32 { return ${a.functionName}(x, ${a.loaderName}(r)) + ${b.functionName}(x, ${b.loaderName}(r)); }`,
             requires: [a.module, b.module],
         });
         expect(() => composeWgsl(sum)).not.toThrow();

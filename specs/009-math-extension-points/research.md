@@ -190,3 +190,18 @@ Baseline `apple-metal-3-chrome155-macos-1280x720-ifpfky` (regravado na 030), cla
 | `particles/64k`        | 0,175 | 13,403 |
 
 Nenhuma fixture deve ser regravada (SC-001).
+
+## Medição US1 (SC-008)
+
+`instances` no perfil de referência, clayflow × Three (ms por quadro):
+
+| Variante        | CPU clay | CPU Three | GPU clay | GPU Three |
+| --------------- | -------- | --------- | -------- | --------- |
+| `10k`           | 0,02     | 0,03      | 0,35     | 0,10      |
+| `10k-moving`    | 2,84     | 1,38      | 0,32     | 0,40      |
+| `10k-functions` | 0,03     | 0,84      | 0,50     | 0,40      |
+
+Com 10 funções `transform` distintas em 10 k objetos, a CPU por quadro fica em 0,03 ms contra 0,02 ms sem funções:
+a diferença (≈ 0,005 ms, uma escrita de uniforme por grupo) está no limite da resolução do relógio — SC-008 pede
+≤ 1,10 ×; em valor absoluto é desprezível e não cresce com o número de objetos. A GPU sobe 0,15 ms (a composição
+roda todo quadro, porque as funções dependem do tempo). O Three, fazendo a mesma conta na CPU, gasta 0,84 ms.

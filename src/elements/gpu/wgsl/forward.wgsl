@@ -1,5 +1,6 @@
 // Desenho forward. Structs `CameraMatrices`, `WorldTransform`, `Renderable`, `RenderInstance`, `StandardMaterial`,
-// `ForwardFrameParams`, `ShadowMap`, `ShadowMatrix` e `Light` gerados dos schemas.
+// `ForwardFrameParams`, `ShadowMap`, `ShadowMatrix` e `Light` gerados dos schemas. Projeção pelo ponto `camera_clip`
+// (pronta: `viewProjection`; spec 009).
 // Matrizes das câmeras (produzidas na GPU pelo estágio de câmera); a ativa no `cameraSlot` dos parâmetros do quadro.
 @group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
 // Pool WorldTransform, o registro de desenho de cada entidade (`Renderable`) e a lista de instâncias dos grupos
@@ -46,7 +47,7 @@ fn vs_main(in: VsIn, @builtin(instance_index) instance: u32) -> VsOut {
     let r = renderables[instances[instance].renderable];
     let w = worlds[r.transformSlot];
     let world = w.world * vec4<f32>(in.position, 1.0);
-    out.clip_position = cameras[forward_frame.cameraSlot].viewProjection * world;
+    out.clip_position = camera_clip(forward_frame.cameraSlot, world);
     out.world_position = world.xyz;
     out.world_normal = w.normal * in.normal;
     out.material_slot = r.materialSlot;

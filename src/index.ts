@@ -87,11 +87,11 @@ export {
     composeWgsl,
     WgslCompositionError,
     wgslPoint,
+    extensionRecordSchema,
+    EXTENSION_PARAMS_CAPACITY,
     POINT_PARAMS,
     bindPoints,
     ExtensionFunction,
-    ExtensionParamsSchema,
-    EXTENSION_PARAMS_CAPACITY,
 } from './scene/index';
 
 export type {

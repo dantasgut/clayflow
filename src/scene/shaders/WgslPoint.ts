@@ -1,3 +1,4 @@
+import type { StructSchema } from '../descriptors/StructSchema';
 import { bindPoints } from './bindPoints';
 import { composeWgsl } from './composeWgsl';
 import { stripWgslComments } from './scanWgslSymbols';
@@ -27,6 +28,8 @@ export interface WgslPointOptions {
     readonly optional?: readonly WgslPointSignature[];
     /** Alias do struct de parâmetros que os kernels usam (ex.: `TransformFnParams`). */
     readonly paramsAlias: string;
+    /** Schema do registro de parâmetros do ponto (`extensionRecordSchema`; um pool por ponto). */
+    readonly record: StructSchema;
     /** Implementação pronta: o módulo que os kernels exigem e que uma função do usuário substitui. */
     readonly ready: WgslModule;
     /** Módulos de entrada (kernels) que usam o ponto — a validação monta cada um com a função do usuário. */
@@ -47,6 +50,8 @@ export interface WgslPoint {
     readonly optional: readonly WgslPointSignature[];
     /** Alias do struct de parâmetros. */
     readonly paramsAlias: string;
+    /** Schema do registro de parâmetros. */
+    readonly record: StructSchema;
     /** Implementação pronta. */
     readonly ready: WgslModule;
     /** Kernels que usam o ponto. */
@@ -148,6 +153,7 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
         required: options.required,
         optional,
         paramsAlias: options.paramsAlias,
+        record: options.record,
         ready: options.ready,
         hosts,
         check(module: WgslModule, paramsStruct: string): void {

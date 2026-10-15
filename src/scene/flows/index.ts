@@ -4,7 +4,7 @@ export { RenderFlow } from './RenderFlow';
 export type { RenderSlotMap } from './RenderFlow';
 export type { Phase } from './Phase';
 export { PHASE_ORDER } from './Phase';
-export { slot } from './slots';
+export { slot, RECORD_NONE } from './slots';
 export type {
     SlotDeclaration,
     SlotMap,

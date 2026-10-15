@@ -11,13 +11,16 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
  * Exceções explícitas: entradas de estágio de render com o mesmo nome em pipelines distintos (cada arquivo é a entrada
- * de um pipeline próprio, nunca montados juntos) e os structs de E/S de vértice locais a cada entrada.
+ * de um pipeline próprio, nunca montados juntos), os structs de E/S de vértice locais a cada entrada e os lugares de
+ * ponto de extensão com pronto e adaptador em arquivos distintos (spec 009).
  */
 const ALLOWED: Readonly<Record<string, string>> = {
     vs_main: 'entrada de vértice de cada pipeline de render',
     fs_main: 'entrada de fragmento de cada pipeline de render',
     VsIn: 'entrada de vértice, local a cada pipeline de render',
     VsOut: 'saída do vértice, local a cada pipeline de render',
+    camera_clip:
+        'lugar da projeção do forward (spec 009): o pronto e o adaptador da função de câmera nunca entram no mesmo pipeline — bindPoints troca um pelo outro',
 };
 
 function wgslFiles(dir: string): string[] {

@@ -1,4 +1,5 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
+import { extensionRecordSchema } from '../../../scene/descriptors/ExtensionRecord';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /** Parâmetros do estágio de transformação: número de `Transform`s no pool. */
@@ -18,5 +19,18 @@ export const TransformLinkSchema = new StructSchema('TransformLink', {
 export const TransformLevelSchema = new StructSchema(
     'TransformLevel',
     { first: FieldType.u32, count: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32 },
+    { addressSpace: 'uniform' },
+);
+
+/** Registro de parâmetros das funções do ponto `transform` (spec 009; um pool para todas as `TransformFunction`). */
+export const TransformFnRecordSchema = extensionRecordSchema('TransformFnRecord');
+
+/**
+ * Trecho de um grupo de função na lista de pares (slot do Transform, slot do registro) e o tempo simulado — uma região
+ * por grupo, com offset dinâmico (spec 009).
+ */
+export const TransformFnGroupSchema = new StructSchema(
+    'TransformFnGroup',
+    { first: FieldType.u32, count: FieldType.u32, time: FieldType.f32, _pad0: FieldType.u32 },
     { addressSpace: 'uniform' },
 );

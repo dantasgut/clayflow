@@ -58,9 +58,18 @@ export interface SingletonSlot<O extends boolean = boolean> {
 export interface EntityRecordDeclaration {
     /** Schema do registro (um campo `u32` por entrada de `fields`); o nome é a chave do pool. */
     readonly schema: StructSchema;
-    /** Campo → [classe do Resource da entidade, id do descritor em pool cujo slot vai no campo]. */
-    readonly fields: Readonly<Record<string, readonly [ResourceType, string]>>;
+    /**
+     * Campo → [classe do Resource da entidade, id do descritor em pool cujo slot vai no campo]. Com o terceiro
+     * elemento `{ optional: true }`, o tipo não precisa estar em `all`: entidade sem o Resource tem `RECORD_NONE` no
+     * campo (spec 009 — ex.: o registro da função `material` da entidade, quando há).
+     */
+    readonly fields: Readonly<
+        Record<string, readonly [ResourceType, string, { readonly optional: true }?]>
+    >;
 }
+
+/** Valor de um campo opcional de registro de entidade sem o Resource (`0xFFFFFFFF`). */
+export const RECORD_NONE = 0xffffffff;
 
 /**
  * Grupos de instâncias de um conjunto `entities` (spec 007): a C2 agrupa as entradas pela chave que o estágio dá (ex.:

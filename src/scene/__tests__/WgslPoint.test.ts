@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { extensionRecordSchema } from '../descriptors/ExtensionRecord';
 import { bindPoints } from '../shaders/bindPoints';
 import { composeWgsl } from '../shaders/composeWgsl';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
@@ -18,6 +19,7 @@ function errorOf(f: () => unknown): WgslCompositionError {
 const mod = (name: string, source: string, requires: WgslModule[] = []): WgslModule =>
     wgslModule({ name, source, requires });
 
+const record = extensionRecordSchema('ProbeFnRecord');
 const core = mod('probe_core', 'fn core_scale(x: f32) -> f32 { return 2.0 * x; }');
 const ready = mod(
     'probe_ready',
@@ -35,6 +37,7 @@ const point = wgslPoint({
     required: { name: 'probe_fn', params: ['f32', POINT_PARAMS, 'f32'], returns: 'f32' },
     optional: [{ name: 'probe_du', params: ['f32'], returns: 'f32' }],
     paramsAlias: 'ProbeFnParams',
+    record,
     ready,
     hosts: () => [kernel],
 });

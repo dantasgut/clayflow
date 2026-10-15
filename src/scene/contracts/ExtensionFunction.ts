@@ -1,35 +1,11 @@
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
-import { FieldType } from '../descriptors/FieldType';
+import { EXTENSION_PARAMS_CAPACITY } from '../descriptors/ExtensionRecord';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
-import { StructSchema } from '../descriptors/StructSchema';
 import { wgslModule, type WgslModule } from '../shaders/WgslModule';
 import type { PointImplementation, WgslPoint } from '../shaders/WgslPoint';
 import { Entity } from './Entity';
 import type { Resource } from './Resource';
 import { ResourceState } from './ResourceState';
-
-/** Escalares de um registro de parâmetros (8 × `vec4u`). */
-export const EXTENSION_PARAMS_CAPACITY = 32;
-
-/**
- * Registro de parâmetros de uma função de ponto (spec 009), comum a todas: 32 escalares crus (bits de `f32`, `u32` ou
- * `i32`) e a revisão do código. Um pool só para todas as funções da cena — qualquer estágio liga o pool sem conhecer o
- * struct do usuário; o carregador gerado (`<função>_params`) monta o struct a partir do registro.
- */
-export const ExtensionParamsSchema = new StructSchema('ExtensionParams', {
-    v0: FieldType.vec4u,
-    v1: FieldType.vec4u,
-    v2: FieldType.vec4u,
-    v3: FieldType.vec4u,
-    v4: FieldType.vec4u,
-    v5: FieldType.vec4u,
-    v6: FieldType.vec4u,
-    v7: FieldType.vec4u,
-    revision: FieldType.u32,
-    _pad0: FieldType.u32,
-    _pad1: FieldType.u32,
-    _pad2: FieldType.u32,
-});
 
 /** Tipo de um parâmetro de função de ponto. */
 export type ExtensionParamType =
@@ -61,7 +37,7 @@ export interface ExtensionFunctionOptions {
     readonly requires?: readonly WgslModule[];
 }
 
-/** Dado de uma função de ponto (layout de `ExtensionParamsSchema`). */
+/** Dado de uma função de ponto (layout de `extensionRecordSchema`). */
 export interface ExtensionParamsData {
     v0: number[];
     v1: number[];
@@ -93,6 +69,12 @@ const SCALAR: Record<ExtensionParamType, ['f' | 'u' | 'i', number]> = {
 };
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Módulos já gerados e validados, por ponto, hash (ponto, parâmetros, código, módulos exigidos) e variante: instâncias
+ * com o mesmo código compartilham o módulo (e portanto o shader montado) e a validação roda uma vez.
+ */
+const built = new Map<string, { readonly module: WgslModule; readonly prefix: number }>();
 
 /** FNV-1a de 32 bits em hexadecimal. */
 function fnv(text: string): string {
@@ -131,21 +113,18 @@ function fromBits(kind: 'f' | 'u' | 'i', raw: number): number {
  * Função de um ponto de extensão (spec 009): Resource com o código WGSL do usuário para o ponto `point`, os
  * parâmetros declarados por nome e tipo e os seus valores. O código é validado na criação e em `setCode`
  * (`point.check`: assinatura, símbolos, montagem em cada kernel do ponto) — erro síncrono nomeando o ponto. Os
- * parâmetros vivem no pool `ExtensionParams` (um registro por função); mudar `values` vale no quadro seguinte sem
+ * parâmetros vivem no pool do ponto (`point.record`, um registro por função); mudar `values` vale no quadro seguinte sem
  * recompilar. `setCode` troca o código: a revisão sobe, o estágio dono compila o módulo novo e só troca quando ele
  * compila (erro de compilação: evento `extensionRejected`, e o módulo anterior continua).
  *
  * O módulo gerado contém o struct dos parâmetros (`<alias>`: o alias do ponto, ex. `TransformFnParams`), o carregador
- * `<função>_params(r: ExtensionParams) -> <alias>` e o código. Pontos com várias funções no mesmo shader (`field`)
+ * `<função>_params(r: <registro do ponto>) -> <alias>` e o código. Pontos com várias funções no mesmo shader (`field`)
  * recebem nomes com sufixo do hash (`renamed`).
  */
 export abstract class ExtensionFunction
     extends Entity<ExtensionParamsData>
     implements Resource, PointImplementation
 {
-    /** Schema do registro de parâmetros. */
-    static readonly schema = ExtensionParamsSchema;
-
     state: ResourceState = ResourceState.Uninitialized;
     /** Ponto de extensão. */
     readonly point: WgslPoint;
@@ -192,7 +171,7 @@ export abstract class ExtensionFunction
             );
         }
         this.#slots = Object.freeze(slots);
-        const data = ExtensionParamsSchema.applyDefaults({}) as unknown as ExtensionParamsData;
+        const data = point.record.applyDefaults({}) as unknown as ExtensionParamsData;
         for (let k = 0; k < 8; k++)
             (data as unknown as Record<string, number[]>)[`v${k}`] = [0, 0, 0, 0];
         this.data = data;
@@ -256,9 +235,7 @@ export abstract class ExtensionFunction
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [
-            { id: 'params', role: 'storage-ro', schema: ExtensionParamsSchema, storage: 'pool' },
-        ];
+        return [{ id: 'params', role: 'storage-ro', schema: this.point.record, storage: 'pool' }];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
@@ -270,7 +247,15 @@ export abstract class ExtensionFunction
         const sig = Object.entries(this.params)
             .map(([n, t]) => `${n}:${t}`)
             .join(',');
-        const hash = fnv(`${point.name}|${sig}|${code}`);
+        const requires = this.requires.map((m) => m.name).join(',');
+        const hash = fnv(`${point.name}|${sig}|${requires}|${code}`);
+        const cacheKey = `${point.name}|${hash}|${this.renamed ? 'renamed' : 'plain'}`;
+        const cached = built.get(cacheKey);
+        if (cached?.module.requires.every((m, k) => m === this.requires[k]) === true) {
+            this.#prefixLines = cached.prefix;
+            this.#hash = hash;
+            return cached.module;
+        }
         const struct = `${point.paramsAlias}_${hash}`;
         const fields =
             this.#slots.length === 0
@@ -299,7 +284,7 @@ export abstract class ExtensionFunction
                 ...fields,
                 '}',
                 `alias ${alias} = ${struct};`,
-                `fn ${loader}(r: ExtensionParams) -> ${struct} {`,
+                `fn ${loader}(r: ${point.record.wgslName}) -> ${struct} {`,
                 `    return ${struct}(${args.join(', ')});`,
                 '}',
             ];
@@ -315,7 +300,7 @@ export abstract class ExtensionFunction
                 name: `${point.name}_fn_${hash}`,
                 source: `${prefix.join('\n')}\n${body}`,
                 requires: this.requires,
-                structs: [ExtensionParamsSchema],
+                structs: [point.record],
             });
             return { module, prefix: prefix.length };
         };
@@ -324,6 +309,7 @@ export abstract class ExtensionFunction
         const plain = make(false);
         point.check(plain.module, struct);
         const { module, prefix } = this.renamed ? make(true) : plain;
+        built.set(cacheKey, { module, prefix });
         this.#prefixLines = prefix;
         this.#hash = hash;
         return module;

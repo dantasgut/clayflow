@@ -28,13 +28,7 @@ export type { SceneContext, CreateSceneOptions } from './SceneContext';
 
 export const engine = defaultScene.core;
 
-export {
-    Entity,
-    ResourceState,
-    ExtensionFunction,
-    ExtensionParamsSchema,
-    EXTENSION_PARAMS_CAPACITY,
-} from './contracts/index';
+export { Entity, ResourceState, ExtensionFunction } from './contracts/index';
 export type {
     Resource,
     PoolDirectory,
@@ -85,6 +79,8 @@ export {
     Schema,
     StructSchema,
     TensorSchema,
+    extensionRecordSchema,
+    EXTENSION_PARAMS_CAPACITY,
 } from './descriptors/index';
 
 export { World, ReuseError } from './world/World';

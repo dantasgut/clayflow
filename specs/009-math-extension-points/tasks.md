@@ -23,12 +23,12 @@ contracts/extension-points, quickstart)
 
 ## Phase 3: US1 — transform e camera (P1)
 
-- [ ] T011 [US1] Ponto `transform` (WgslPoint sobre `transform_local`), `TransformFunction` e exports em `src/elements/extension/TransformFunction.ts`, `src/elements/extension/points.ts`, `src/elements/extension/index.ts`, `src/elements/index.ts`
-- [ ] T012 [US1] `TransformFlow`: `time` em `TransformParams`; grupos por função (`EntityGroups`); kernel `transform_compose_fn` (lista de slots do grupo, normal pela inversa transposta, matriz não finita mantém a anterior); `transform_link` depois dos grupos; troca de código e rejeição pelas transições em `src/elements/scene/flows/TransformFlow.ts`, `TransformParams.ts`, `shaders.ts`, `src/elements/gpu/wgsl/kernels/transform_compose_fn.wgsl`; testes em `src/elements/scene/__tests__/TransformFlow.test.ts`
-- [ ] T013 [US1] Ponto `camera` (+ `camera_project` opcional), `CameraFunction`; `CameraFlow` com despacho de `camera_fn` para câmeras com função e `time` nos parâmetros em `src/elements/extension/CameraFunction.ts`, `src/elements/scene/flows/CameraFlow.ts`, `CameraSchemas.ts`, `src/elements/gpu/wgsl/kernels/camera_compose_fn.wgsl`; testes em `src/elements/scene/__tests__/Camera.test.ts`
-- [ ] T014 [US1] Forward: ponto `cameraProject` (pronto `viewProjection * world`) no `vs_main`; variante quando a câmera ativa tem `camera_project` em `src/elements/gpu/wgsl/forward.wgsl`, `src/elements/material/shaders.ts` e o `ForwardFlow`
-- [ ] T015 [US1] Casos do smoke: 100 objetos em órbita + parados com TRS (SC-002, 30/60/144 Hz), olho de peixe (SC-003), parâmetros mudados em execução, cena sem funções idêntica em `src/__smokes__/extensionPoints.ts`
-- [ ] T016 [US1] Variante `instances 10k-functions` (10 funções distintas) em `bench/scenes/instances/scene.ts`, `clayflow.ts`, `three.ts`; medir SC-008 e registrar em `research.md`
+- [x] T011 [US1] Ponto `transform` (WgslPoint sobre `transform_local`), `TransformFunction` e exports em `src/elements/extension/TransformFunction.ts`, `src/elements/extension/points.ts`, `src/elements/extension/index.ts`, `src/elements/index.ts`
+- [x] T012 [US1] `TransformFlow`: `time` em `TransformParams`; grupos por função (`EntityGroups`); kernel `transform_compose_fn` (lista de slots do grupo, normal pela inversa transposta, matriz não finita mantém a anterior); `transform_link` depois dos grupos; troca de código e rejeição pelas transições em `src/elements/scene/flows/TransformFlow.ts`, `TransformParams.ts`, `shaders.ts`, `src/elements/gpu/wgsl/kernels/transform_compose_fn.wgsl`; testes em `src/elements/scene/__tests__/TransformFlow.test.ts`
+- [x] T013 [US1] Ponto `camera` (+ `camera_project` opcional), `CameraFunction`; `CameraFlow` com despacho de `camera_fn` para câmeras com função e `time` nos parâmetros em `src/elements/extension/CameraFunction.ts`, `src/elements/scene/flows/CameraFlow.ts`, `CameraSchemas.ts`, `src/elements/gpu/wgsl/kernels/camera_compose_fn.wgsl`; testes em `src/elements/scene/__tests__/Camera.test.ts`
+- [x] T014 [US1] Forward: ponto `cameraProject` (pronto `viewProjection * world`) no `vs_main`; variante quando a câmera ativa tem `camera_project` em `src/elements/gpu/wgsl/forward.wgsl`, `src/elements/material/shaders.ts` e o `ForwardFlow`
+- [x] T015 [US1] Casos do smoke: 100 objetos em órbita + parados com TRS (SC-002, 30/60/144 Hz), olho de peixe (SC-003), parâmetros mudados em execução, cena sem funções idêntica em `src/__smokes__/extensionPoints.ts`
+- [x] T016 [US1] Variante `instances 10k-functions` (10 funções distintas) em `bench/scenes/instances/scene.ts`, `clayflow.ts`, `three.ts`; medir SC-008 e registrar em `research.md`
 
 ## Phase 4: US2 — field e emit (P1)
 
