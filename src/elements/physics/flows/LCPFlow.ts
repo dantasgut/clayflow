@@ -814,13 +814,24 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         if (this.ensureContacts(bodyCount, totalCol)) ctx.bind(this.contactSources());
         if (this.ensureBodyBuffers(bodyCount)) ctx.bind(this.bodySources());
         const stepDt = time.stepDt;
-        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
-            .acceleration ?? [0, -9.81, 0, 0];
+        const accel = (
+            bound.slots.gravity?.resource as GravityField | undefined
+        )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         // Carimbo de cada substep: a paridade escolhe a região da tabela de warm start que ele grava.
         const stamps: number[] = [];
         for (let step = 0; step < steps; step++) {
             const base = step * perStep;
-            this.writeParams(base, bodyCount, totalCol, stepDt, stepDt, accel, this.contactStamp);
+            const start = time.stepTime(step);
+            this.writeParams(
+                base,
+                bodyCount,
+                totalCol,
+                stepDt,
+                stepDt,
+                accel,
+                this.contactStamp,
+                start,
+            );
             for (let k = 0; k < this.substeps; k++) {
                 this.contactStamp++;
                 stamps.push(this.contactStamp);
@@ -832,6 +843,8 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                     stepDt,
                     accel,
                     this.contactStamp,
+                    // Fim do substep k: o mesmo tempo em qualquer taxa (spec 009).
+                    start + (k + 1) * (stepDt / this.substeps),
                 );
             }
         }
@@ -966,6 +979,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         stepDt: number,
         accel: readonly number[],
         stamp: number,
+        fieldTime: number,
     ): void {
         this.params.write(region, {
             gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0, iterationDt],
@@ -985,6 +999,8 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             warm_capacity: this.warmCapacity,
             baumgarte_beta: 0.2,
             warm_start_factor: 1.0,
+            field_time: fieldTime,
+            field_density: 0,
         });
     }
 

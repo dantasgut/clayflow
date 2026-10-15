@@ -1,6 +1,9 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/mpm_grid_update.wgsl.ts
 @group(0) @binding(0) var<uniform>             mpm_params: MPMSimParams;
 @group(1) @binding(0) var<storage, read_write> grid:       array<MPMGridNode>;
+// Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
+@group(1) @binding(1) var<storage, read>       field_records: array<FieldFnRecord>;
+@group(1) @binding(2) var<storage, read>       field_live:    array<u32>;
 // Grupo 2: conjunto de colliders (`collider_set.wgsl`).
 
 const MPM_BOUNDARY: u32 = 3u;
@@ -32,6 +35,16 @@ fn mpm_grid_update_main(
 
     // Aplica gravidade
     v_i += mpm_params.gravity * mpm_params.dt_sub;
+
+    // Campos (spec 009) na posição do nó: termo à parte, só quando não são zero — sem campos, bit a bit.
+    let field_node = vec3f(
+        f32(idx % mpm_params.grid_x),
+        f32((idx / mpm_params.grid_x) % mpm_params.grid_y),
+        f32(idx / (mpm_params.grid_x * mpm_params.grid_y)),
+    ) * mpm_params.cell_size + mpm_params.grid_origin;
+    let field_body = FieldBody(1.0 / m_i, mpm_params.field_density, 0.0, 0.0);
+    let field = field_accel(field_node, v_i, mpm_params.field_time, field_body);
+    if (any(field != vec3f(0.0))) { v_i += field * mpm_params.dt_sub; }
 
     // ── Coordenadas do nó na grade ────────────────────────────────────────────
     let gx = mpm_params.grid_x;

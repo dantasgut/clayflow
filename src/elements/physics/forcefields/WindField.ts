@@ -1,7 +1,7 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
-import { ForceField } from './ForceField';
+import { FieldKind, ForceField, type FieldRecordValues } from './ForceField';
 
 /** Dado de um `WindField` (layout de `WindField.schema`). */
 export interface WindFieldData {
@@ -33,16 +33,29 @@ export class WindField extends ForceField<WindFieldData> {
 
     constructor(values: Partial<WindFieldData> = {}) {
         super();
-        this.data = {
+        this.data = this.withRecord({
             direction: values.direction ?? [1, 0, 0, 0],
             magnitude: values.magnitude ?? 1.0,
             turbulence: values.turbulence ?? 0.0,
             _pad0: 0,
             _pad1: 0,
-        };
+        });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'wind', role: 'uniform', schema: WindField.schema }];
+        return [ForceField.recordDescriptor];
+    }
+
+    /** Vento (spec 009): aceleração na direção (normalizada) vezes a intensidade, com rajadas pela turbulência. */
+    protected fieldRecord(d: Readonly<WindFieldData>): FieldRecordValues {
+        const [x = 0, y = 0, z = 0] = d.direction;
+        const len = Math.hypot(x, y, z) || 1;
+        const m = d.magnitude / len;
+        return {
+            kind: FieldKind.wind,
+            a: [x * m, y * m, z * m, 0],
+            b: [],
+            s: [d.turbulence, 0.25, 0, 0],
+        };
     }
 }

@@ -298,8 +298,9 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             this.iterations,
         );
         if (this.params.reserve(this.iterations)) ctx.bind({ sph_params: this.params.source() });
-        const accel = (bound.slots.gravity?.resource as GravityField | undefined)?.data
-            .acceleration ?? [0, -9.81, 0, 0];
+        const accel = (
+            bound.slots.gravity?.resource as GravityField | undefined
+        )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         for (let i = 0; i < this.iterations; i++) {
             this.params.write(i, {
@@ -324,6 +325,11 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 adhesion_accel: material.adhesionAccel(surface.adhesion),
                 adhesion_tangential: material.adhesionTangential(surface.adhesion),
                 support: 2 * material.sphSmoothingLength,
+                // Fim da iteração i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).
+                field_time:
+                    time.stepTime(Math.floor(i / substeps))
+                    + ((i % substeps) + 1) * (time.stepDt / substeps),
+                field_density: material.restDensity,
             });
         }
         this.params.flush(this.iterations);

@@ -1,4 +1,5 @@
 import { poolLive } from '../../gpu/compute/shaders';
+import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { colliderSet, sphKernels } from '../../gpu/shaders/math';
 import pbfPredictSource from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
@@ -18,8 +19,8 @@ import { PBFSimParamsSchema } from '../../physics/schemas/simParams';
 export const pbfPredict = wgslModule({
     name: 'pbf_predict',
     source: pbfPredictSource,
-    requires: [poolLive, colliderSet],
-    structs: [PBFSimParamsSchema, PBFSchema],
+    requires: [poolLive, colliderSet, fieldPointTypes, fieldAccelReady],
+    structs: [PBFSimParamsSchema, PBFSchema, FieldFnRecordSchema],
 });
 
 /** Densidade e λ (restrição unilateral). */

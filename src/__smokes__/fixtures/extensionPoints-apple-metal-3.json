@@ -8,6 +8,11 @@
       "perspective": "827a9a22",
       "fisheye": "9663f861"
     },
-    "swap": {}
+    "swap": {},
+    "fields": {},
+    "builtinFields": {},
+    "ring": {
+      "ring": "18815c61"
+    }
   }
 }

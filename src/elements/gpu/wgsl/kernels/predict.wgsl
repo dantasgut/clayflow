@@ -2,6 +2,9 @@
 @group(0) @binding(0) var<uniform>             params:    SimParams;
 @group(0) @binding(1) var<storage, read_write> particles: array<Particle>;
 @group(0) @binding(2) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
+// Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
+@group(0) @binding(3) var<storage, read>       field_records: array<FieldFnRecord>;
+@group(0) @binding(4) var<storage, read>       field_live:    array<u32>;
 
 @compute @workgroup_size(64)
 fn predict_main(
@@ -20,8 +23,12 @@ fn predict_main(
         return;
     }
 
-    // 1. Integra gravidade → velocidade (replica XPBDSoftBodySolver)
-    let vel = particles[i].vel.xyz + params.gravity * params.dt;
+    // 1. Integra gravidade → velocidade (a conta de antes, intacta) e os campos, num termo à parte só quando não são
+    // zero — sem campos, a mesma trajetória bit a bit (spec 009).
+    var vel = particles[i].vel.xyz + params.gravity * params.dt;
+    let body = FieldBody(inv_mass, params.field_density, 0.0, 0.0);
+    let field = field_accel(particles[i].pos.xyz, particles[i].vel.xyz, params.field_time, body);
+    if (any(field != vec3f(0.0))) { vel += field * params.dt; }
 
     // 2. Predição de posição (replica SoftBodyPredictStage)
     let pred = particles[i].pos.xyz + vel * params.dt;

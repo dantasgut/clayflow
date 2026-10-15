@@ -7,6 +7,7 @@ import distanceSolveSource from '../../gpu/wgsl/kernels/distance_solve.wgsl?raw'
 import { DistanceConstraint } from '../../physics/constraints/DistanceConstraint';
 import { XPBDSoftSchema } from '../../physics/bodies/schemas/XPBDSoftSchema';
 import { SimParamsSchema } from '../../physics/schemas/simParams';
+import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
 
 // Kernels do XPBD de partículas.
 
@@ -14,8 +15,8 @@ import { SimParamsSchema } from '../../physics/schemas/simParams';
 export const xpbdPredict = wgslModule({
     name: 'xpbd_predict',
     source: predictSource,
-    requires: [poolLive],
-    structs: [SimParamsSchema, XPBDSoftSchema],
+    requires: [poolLive, fieldPointTypes, fieldAccelReady],
+    structs: [SimParamsSchema, XPBDSoftSchema, FieldFnRecordSchema],
 });
 
 /** Velocidade a partir de `pred − pos` e avanço de `pos`. */

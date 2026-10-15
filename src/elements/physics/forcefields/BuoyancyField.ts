@@ -1,7 +1,7 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
-import { ForceField } from './ForceField';
+import { FieldKind, ForceField, type FieldRecordValues } from './ForceField';
 
 /** Dado de um `BuoyancyField` (layout de `BuoyancyField.schema`). */
 export interface BuoyancyFieldData {
@@ -31,15 +31,25 @@ export class BuoyancyField extends ForceField<BuoyancyFieldData> {
 
     constructor(values: Partial<BuoyancyFieldData> = {}) {
         super();
-        this.data = {
+        this.data = this.withRecord({
             fluidDensity: values.fluidDensity ?? 1000.0,
             fluidLevel: values.fluidLevel ?? 0.0,
             gravity: values.gravity ?? 9.81,
             _pad: 0,
-        };
+        });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'buoyancy', role: 'uniform', schema: BuoyancyField.schema }];
+        return [ForceField.recordDescriptor];
+    }
+
+    /** Empuxo (spec 009): abaixo do nível, aceleração para cima g · ρ_meio / ρ_corpo (corpos com densidade). */
+    protected fieldRecord(d: Readonly<BuoyancyFieldData>): FieldRecordValues {
+        return {
+            kind: FieldKind.buoyancy,
+            a: [],
+            b: [],
+            s: [d.fluidDensity, d.fluidLevel, d.gravity, 0],
+        };
     }
 }

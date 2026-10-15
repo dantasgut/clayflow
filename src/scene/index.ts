@@ -151,6 +151,7 @@ export {
     composeWgsl,
     WgslCompositionError,
     wgslPoint,
+    scenePointsIn,
     POINT_PARAMS,
     bindPoints,
 } from './shaders/index';
@@ -166,6 +167,9 @@ export type {
     WgslPointSignature,
     BindablePoint,
     PointImplementation,
+    ScenePointEntry,
+    ScenePointOptions,
+    ScenePointGlobal,
 } from './shaders/index';
 export type { Phase } from './flows/index';
 

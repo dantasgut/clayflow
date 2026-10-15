@@ -1,4 +1,4 @@
-export { ForceField } from './ForceField';
+export { ForceField, FieldKind, type FieldRecordValues } from './ForceField';
 export { GravityField, type GravityFieldData } from './GravityField';
 export { WindField, type WindFieldData } from './WindField';
 export { VortexField, type VortexFieldData } from './VortexField';

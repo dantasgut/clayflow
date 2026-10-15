@@ -1,0 +1,59 @@
+// Campos de força prontos (spec 009): soma, na posição `x` e velocidade `v`, as acelerações dos campos vivos do pool
+// `FieldFnRecord` cujo tipo (`kind`) é de campo pronto — os registros das funções do usuário têm tipo 0 e ficam de
+// fora. Registro: v0 = a, v1 = b, v2 = s (bits de f32).
+//   1 gravidade de fonte pontual: a = posição da fonte, s.x = G·M, s.y = suavização (m²)
+//   2 vento:     a = direção · intensidade, s.x = turbulência, s.y = escala espacial do ruído (1/m)
+//   3 vórtice:   a = eixo (unitário), b = centro, s.x = intensidade (m/s²), s.y = decaimento (1/m)
+//   4 arrasto:   s.x = coeficiente linear (1/s), s.y = quadrático (1/m)
+//   5 empuxo:    s.x = densidade do meio, s.y = nível da superfície (y), s.z = gravidade (m/s²)
+// A gravidade uniforme continua nos parâmetros de cada solver (soma exata com estes termos).
+// Requer: structs FieldFnRecord; field_point_types; noise; pool_live; globais `field_records` e `field_live` do kernel.
+
+const FIELD_GRAVITY_POINT: u32 = 1u;
+const FIELD_WIND: u32 = 2u;
+const FIELD_VORTEX: u32 = 3u;
+const FIELD_DRAG: u32 = 4u;
+const FIELD_BUOYANCY: u32 = 5u;
+
+fn field_builtin(x: vec3f, v: vec3f, time: f32, body: FieldBody) -> vec3f {
+    var acc = vec3f(0.0);
+    let n = arrayLength(&field_records);
+    for (var k = 0u; k < n; k++) {
+        if (!pool_live(field_live[k >> 5u], k)) { continue; }
+        let r = field_records[k];
+        let kind = r.kind;
+        if (kind == 0u) { continue; }
+        let a = bitcast<vec4f>(r.v0);
+        let b = bitcast<vec4f>(r.v1);
+        let s = bitcast<vec4f>(r.v2);
+        switch kind {
+            case FIELD_GRAVITY_POINT: {
+                let d = a.xyz - x;
+                let r2 = max(dot(d, d), max(s.y, 1e-8));
+                acc += s.x * d * inverseSqrt(r2) / r2;
+            }
+            case FIELD_WIND: {
+                let gust = value_noise3(x * s.y + vec3f(time * 0.7, time * 0.3, -time * 0.5));
+                acc += a.xyz * (1.0 + s.x * gust);
+            }
+            case FIELD_VORTEX: {
+                let rel = x - b.xyz;
+                let radial = rel - a.xyz * dot(rel, a.xyz);
+                let d = length(radial);
+                if (d > 1e-6) {
+                    acc += cross(a.xyz, radial / d) * s.x * exp(-s.y * d);
+                }
+            }
+            case FIELD_DRAG: {
+                acc -= (s.x + s.y * length(v)) * v;
+            }
+            case FIELD_BUOYANCY: {
+                if (x.y < s.y && body.density > 0.0) {
+                    acc += vec3f(0.0, s.z * s.x / body.density, 0.0);
+                }
+            }
+            default: {}
+        }
+    }
+    return acc;
+}

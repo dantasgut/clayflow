@@ -26,9 +26,16 @@ import {
     Transform,
     TransformFunction,
 } from 'clayflow';
+import * as clayflow from 'clayflow';
 import type { EntityId } from 'clayflow';
 import {
     capture,
+    readPool,
+    meanOf,
+    PUSH_CODE,
+    RING_CODE,
+    solverBodies,
+    type FieldSolver,
     FISHEYE_CODE,
     ORBIT_CODE,
     readWorlds,
@@ -127,6 +134,16 @@ async function orbitScene(rate: number, steps: number) {
     return { app, moving, still };
 }
 
+/** Dois nós XPBD ligados (1 cm), a partir de `p` em x. */
+function xpbdPair(p: readonly [number, number, number]) {
+    return new clayflow.SoftBody({
+        algorithm: 'XPBD',
+        position: [p[0], p[1], p[2], p[0] + 0.01, p[1], p[2]],
+        mass: [0.1, 0.1],
+        edges: { a: [0], b: [1], restLength: [0.01], compliance: 1e-6 },
+    });
+}
+
 const CASES: Record<string, Case> = {
     /** SC-002: posição pela equação (≤ 1e-4 × raio), parados no TRS, mesma matriz a 30/60/144 Hz; valores em execução. */
     async orbit() {
@@ -216,6 +233,155 @@ const CASES: Record<string, Case> = {
             app.resources.poolBufferSpec('WorldTransform') === worldsBefore,
             'a troca realocou o pool de matrizes',
         );
+        app.dispose();
+        return c.result();
+    },
+
+    /**
+     * SC-004: o mesmo campo dá a mesma aceleração (≤ 1 %) em todos os solvers — vento pronto e uma função do usuário
+     * (aceleração constante em z), sem gravidade; velocidade média depois de 0,1 s = a · t.
+     */
+    async fields() {
+        const c = collector();
+        const solvers: FieldSolver[] = [
+            'lcp',
+            'xpbd',
+            'fem',
+            'mpm-soft',
+            'mpm-fluid',
+            'sph',
+            'pbf',
+        ];
+        const T = 6;
+        for (const solver of solvers) {
+            const app = await createApp();
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, 0, 0, 0] }));
+            app.world.insert(new clayflow.WindField({ direction: [1, 0, 0, 0], magnitude: 2 }));
+            app.world.insert(
+                new clayflow.FieldFunction({
+                    code: PUSH_CODE,
+                    params: { a: 'f32' },
+                    values: { a: 1.5 },
+                }),
+            );
+            const schema = solverBodies(app, solver, clayflow);
+            await settle(app);
+            for (let k = 0; k < T; k++) app.step(1 / 60);
+            const v = await meanOf(app, schema, 'vel');
+            // O FEM multiplica a velocidade por 0,95 a cada passo (amortecimento do solver): v = a·dt·Σ 0,95^k.
+            const t =
+                solver === 'fem'
+                    ? Array.from({ length: T }, (_, k) => 0.95 ** (k + 1) / 60).reduce(
+                          (a, b) => a + b,
+                          0,
+                      )
+                    : T / 60;
+            const ex = c.measure(`${solver}: vento / esperado`, v[0] / (2 * t));
+            const ez = c.measure(`${solver}: função / esperado`, v[2] / (1.5 * t));
+            c.check(Math.abs(ex - 1) <= 0.01, `${solver}: vento fora de 1 % (${ex})`);
+            c.check(Math.abs(ez - 1) <= 0.01, `${solver}: função do usuário fora de 1 % (${ez})`);
+            app.dispose();
+        }
+        return c.result();
+    },
+
+    /** Vórtice (giro em torno do eixo), arrasto (velocidade terminal), empuxo (o mais leve sobe). */
+    async builtinFields() {
+        const c = collector();
+        {
+            // Vórtice em y, sem gravidade: corpo a 1 m do eixo ganha velocidade tangencial a·t, a = m·e^(−f·d).
+            const app = await createApp();
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, 0, 0, 0] }));
+            app.world.insert(
+                new clayflow.VortexField({
+                    axis: [0, 1, 0, 0],
+                    center: [0, 0, 0, 1],
+                    magnitude: 3,
+                    falloff: 0.5,
+                }),
+            );
+            app.world.insert(xpbdPair([1, 1, 0]));
+            await settle(app);
+            for (let k = 0; k < 6; k++) app.step(1 / 60);
+            const v = await meanOf(app, clayflow.XPBDSoftSchema, 'vel');
+            const expected = 3 * Math.exp(-0.5 * 1.005) * 0.1;
+            // Tangente de y × (1, 0, 0) = (0, 0, −1).
+            const ratio = c.measure('vórtice: −vz / esperado', -v[2] / expected);
+            c.check(Math.abs(ratio - 1) <= 0.02, `vórtice fora (${ratio})`);
+            app.dispose();
+        }
+        {
+            // Arrasto linear com vento: v → a/c (1 − e^(−c·t)).
+            const app = await createApp();
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, 0, 0, 0] }));
+            app.world.insert(new clayflow.WindField({ direction: [1, 0, 0, 0], magnitude: 2 }));
+            app.world.insert(new clayflow.DragField({ linearCoeff: 1, quadraticCoeff: 0 }));
+            app.world.insert(xpbdPair([0, 1, 0]));
+            await settle(app);
+            for (let k = 0; k < 180; k++) app.step(1 / 60);
+            const v = await meanOf(app, clayflow.XPBDSoftSchema, 'vel');
+            // O XPBD amortece 0,05/s por conta própria: coeficiente efetivo 1,05.
+            const expected = (2 / 1.05) * (1 - Math.exp(-1.05 * 3));
+            const ratio = c.measure('arrasto: v / esperado', v[0] / expected);
+            c.check(Math.abs(ratio - 1) <= 0.02, `arrasto fora (${ratio})`);
+            app.dispose();
+        }
+        {
+            // Empuxo: meio com o dobro da densidade do fluido SPH — sobe com g · (2 − 1) contra a gravidade.
+            const app = await createApp();
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, -9.81, 0, 0] }));
+            app.world.insert(
+                new clayflow.BuoyancyField({ fluidDensity: 2000, fluidLevel: 5, gravity: 9.81 }),
+            );
+            solverBodies(app, 'fem', clayflow);
+            const sph = solverBodies(app, 'sph', clayflow);
+            await settle(app);
+            for (let k = 0; k < 6; k++) app.step(1 / 60);
+            const fluid = await meanOf(app, sph, 'vel');
+            const node = await meanOf(app, clayflow.FEMSchema, 'vel');
+            const up = c.measure('empuxo: vy do fluido / g·t', fluid[1] / (9.81 * 0.1));
+            c.check(Math.abs(up - 1) <= 0.03, `empuxo no fluido fora (${up})`);
+            // FEM sem densidade: o empuxo não age (cai com a gravidade).
+            c.check(node[1] < 0, `nó sem densidade subiu (${node[1]})`);
+            app.dispose();
+        }
+        return c.result();
+    },
+
+    /** Campo do usuário: atração para um anel com arrasto — ≥ 90 % dos nós a menos de 0,1 m do anel em 5 s. */
+    async ring() {
+        const c = collector();
+        const app = await createApp();
+        app.world.insert(new clayflow.GravityField({ acceleration: [0, 0, 0, 0] }));
+        app.world.insert(new clayflow.DragField({ linearCoeff: 2, quadraticCoeff: 0 }));
+        app.world.insert(
+            new clayflow.FieldFunction({
+                code: RING_CODE,
+                params: { radius: 'f32', y: 'f32', k: 'f32' },
+                values: { radius: 1, y: 1, k: 6 },
+            }),
+        );
+        const r = (i: number): number => ((i * 9301 + 49297) % 233280) / 233280;
+        const position: number[] = [];
+        for (let i = 0; i < 64; i++)
+            position.push(r(3 * i) * 4 - 2, r(3 * i + 1) * 2, r(3 * i + 2) * 4 - 2);
+        app.world.insert(new clayflow.SoftBody({ algorithm: 'FEM', position, mass: 0.05 }));
+        await settle(app);
+        for (let k = 0; k < 300; k++) app.step(1 / 60);
+        const bytes = await readPool(app, clayflow.FEMSchema.name);
+        const f = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+        const stride = clayflow.FEMSchema.stride / 4;
+        const at = clayflow.FEMSchema.offsetOf('pos') / 4;
+        let near = 0;
+        for (let e = 0; e < 64; e++) {
+            const x = f[e * stride + at]!;
+            const y = f[e * stride + at + 1]!;
+            const z = f[e * stride + at + 2]!;
+            if (Math.hypot(Math.hypot(x, z) - 1, y - 1) < 0.1) near++;
+        }
+        const share = c.measure('anel: fração a < 0,1 m', near / 64);
+        c.check(share >= 0.9, `só ${(share * 100).toFixed(0)} % no anel`);
+        c.hash('ring', bytes);
         app.dispose();
         return c.result();
     },

@@ -1,7 +1,11 @@
 // Apoio do smoke dos pontos de extensão (spec 009): leitura de pools de volta (só no smoke), espera das compilações
 // assíncronas (quadros de duração 0: a cena reconcilia sem avançar o tempo), captura de pixels e as funções WGSL dos
 // exemplos.
-import type { Application, EntityId, StagingBufferSpec } from 'clayflow';
+import type * as Clayflow from 'clayflow';
+import type { Application, EntityId, StagingBufferSpec, StructSchema } from 'clayflow';
+
+/** O módulo `clayflow` (os smokes importam o barril público). */
+type ClayflowLib = typeof Clayflow;
 
 /** Lê um pool inteiro de volta (bytes). */
 export async function readPool(app: Application, poolKey: string): Promise<Uint8Array> {
@@ -98,4 +102,105 @@ fn camera_project(view_pos: vec3f, data: CameraFnParams) -> vec4f {
     let p = camera_perspective(data.fov, data.aspect, data.near, data.far) * vec4f(view_pos, 1.0);
     let z = select(1.0, p.z / p.w, p.w > 1e-6);
     return vec4f(dir.x * r / data.aspect, dir.y * r, z, 1.0);
+}`;
+
+/** Solvers do caso dos campos (spec 009, SC-004). */
+export type FieldSolver = 'lcp' | 'xpbd' | 'fem' | 'mpm-soft' | 'mpm-fluid' | 'sph' | 'pbf';
+
+/** Corpos livres de um solver, longe de paredes, e o schema do pool que guarda `vel`. */
+export function solverBodies(
+    app: Application,
+    solver: FieldSolver,
+    lib: ClayflowLib,
+): StructSchema {
+    const { FluidBody, RigidBody, SoftBody } = lib;
+    const spacing = lib.ParticleMaterial.defaults.particleSpacing;
+    const cube = (n: number, s: number, c: readonly [number, number, number]): number[] => {
+        const side = Math.round(Math.cbrt(n));
+        const out: number[] = [];
+        for (let i = 0; i < n; i++) {
+            const x = i % side;
+            const y = Math.floor(i / (side * side));
+            const z = Math.floor(i / side) % side;
+            out.push(
+                c[0] + (x - (side - 1) / 2) * s,
+                c[1] + (y - (side - 1) / 2) * s,
+                c[2] + (z - (side - 1) / 2) * s,
+            );
+        }
+        return out;
+    };
+    switch (solver) {
+        case 'lcp':
+            app.world.insert(
+                new RigidBody({ shape: 'sphere', radius: 0.1, mass: 1, position: [0, 1, 0] }),
+            );
+            return lib.LCPSchema;
+        case 'xpbd':
+            app.world.insert(
+                new SoftBody({
+                    algorithm: 'XPBD',
+                    position: [0, 1, 0, 0.1, 1, 0],
+                    mass: [0.1, 0.1],
+                    edges: { a: [0], b: [1], restLength: [0.1], compliance: 1e-6 },
+                }),
+            );
+            return lib.XPBDSoftSchema;
+        case 'fem':
+            app.world.insert(
+                new SoftBody({ algorithm: 'FEM', position: cube(27, 0.1, [0, 1, 0]), mass: 0.05 }),
+            );
+            return lib.FEMSchema;
+        case 'mpm-soft':
+            app.world.insert(
+                new SoftBody({ algorithm: 'MPM', position: cube(64, spacing, [0, 0.5, 0]) }),
+            );
+            return lib.MPMSoftSchema;
+        case 'mpm-fluid':
+            app.world.insert(
+                new FluidBody({ algorithm: 'MPM', position: cube(64, spacing, [0, 0.5, 0]) }),
+            );
+            return lib.MPMFluidSchema;
+        case 'sph':
+            app.world.insert(
+                new FluidBody({ algorithm: 'SPH', position: cube(125, spacing, [0, 0.5, 0]) }),
+            );
+            return lib.SPHSchema;
+        case 'pbf':
+            app.world.insert(
+                new FluidBody({ algorithm: 'PBF', position: cube(125, spacing, [0, 0.5, 0]) }),
+            );
+            return lib.PBFSchema;
+    }
+}
+
+/** Média de um campo `vec4f` (xyz) de todos os elementos vivos do pool `schema`. */
+export async function meanOf(
+    app: Application,
+    schema: StructSchema,
+    field: string,
+): Promise<[number, number, number]> {
+    const bytes = await readPool(app, schema.name);
+    const count = app.resources.poolCount(schema.name);
+    const f = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    const stride = schema.stride / 4;
+    const at = schema.offsetOf(field) / 4;
+    const sum = [0, 0, 0];
+    for (let e = 0; e < count; e++) for (let k = 0; k < 3; k++) sum[k]! += f[e * stride + at + k]!;
+    return [sum[0]! / count, sum[1]! / count, sum[2]! / count];
+}
+
+/** Aceleração constante (0, 0, data.a) — a função do usuário mais simples, para conferir a soma em cada solver. */
+export const PUSH_CODE = /* wgsl */ `
+fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams) -> vec3f {
+    return vec3f(0.0, 0.0, data.a);
+}`;
+
+/** Atração para um anel horizontal de raio `radius` na altura `y` (mola radial e vertical de rigidez `k`). */
+export const RING_CODE = /* wgsl */ `
+fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams) -> vec3f {
+    let d = vec3f(x.x, 0.0, x.z);
+    let r = max(length(d), 1e-4);
+    let radial = -d / r * (r - data.radius);
+    return (radial + vec3f(0.0, data.y - x.y, 0.0)) * data.k;
 }`;

@@ -1,7 +1,7 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
-import { ForceField } from './ForceField';
+import { FieldKind, ForceField, type FieldRecordValues } from './ForceField';
 
 /** Dado de um `VortexField` (layout de `VortexField.schema`). */
 export interface VortexFieldData {
@@ -36,17 +36,29 @@ export class VortexField extends ForceField<VortexFieldData> {
 
     constructor(values: Partial<VortexFieldData> = {}) {
         super();
-        this.data = {
+        this.data = this.withRecord({
             axis: values.axis ?? [0, 1, 0, 0],
             center: values.center ?? [0, 0, 0, 1],
             magnitude: values.magnitude ?? 1.0,
             falloff: values.falloff ?? 1.0,
             _pad0: 0,
             _pad1: 0,
-        };
+        });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'vortex', role: 'uniform', schema: VortexField.schema }];
+        return [ForceField.recordDescriptor];
+    }
+
+    /** Vórtice (spec 009): aceleração tangencial em torno do eixo, decaindo com a distância a ele. */
+    protected fieldRecord(d: Readonly<VortexFieldData>): FieldRecordValues {
+        const [x = 0, y = 1, z = 0] = d.axis;
+        const len = Math.hypot(x, y, z) || 1;
+        return {
+            kind: FieldKind.vortex,
+            a: [x / len, y / len, z / len, 0],
+            b: [...d.center],
+            s: [d.magnitude, d.falloff, 0, 0],
+        };
     }
 }

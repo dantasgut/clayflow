@@ -34,6 +34,42 @@ export interface WgslPointOptions {
     readonly ready: WgslModule;
     /** Módulos de entrada (kernels) que usam o ponto — a validação monta cada um com a função do usuário. */
     readonly hosts?: () => readonly WgslModule[];
+    /**
+     * Ponto de cena (ex.: `field`, `space`): as funções inseridas na cena valem para todo pipeline cujo shader contém o
+     * ponto — a C2 compõe as funções (`combine`) e troca o pronto em cada pipeline (spec 009).
+     */
+    readonly scene?: ScenePointOptions;
+}
+
+/** Uma função de ponto de cena composta: a implementação e o slot do seu registro de parâmetros. */
+export interface ScenePointEntry {
+    /** A função. */
+    readonly impl: PointImplementation;
+    /** Slot do registro de parâmetros da função no pool do ponto. */
+    readonly slot: number;
+}
+
+/** Variável global de ponto de cena: um pool e a parte dele ligada. */
+export interface ScenePointGlobal {
+    /** Schema do pool. */
+    readonly pool: StructSchema;
+    /** Registros (default) ou o bitset dos slots vivos. */
+    readonly part?: 'records' | 'live';
+}
+
+/** O que faz de um ponto um ponto de cena. */
+export interface ScenePointOptions {
+    /**
+     * Variáveis globais que os kernels do ponto declaram e a C2 liga (nome → pool e parte): os registros do pool
+     * (`'records'`) ou o bitset dos slots vivos (`'live'`), quando o pool existe; senão, um substituto zerado (nenhum
+     * registro vivo).
+     */
+    readonly globals: Readonly<Record<string, ScenePointGlobal>>;
+    /**
+     * Módulo que toma o lugar do pronto com as funções da cena (as implementações são renomeadas com o hash para
+     * conviverem no mesmo shader). Chamado só com ao menos uma função.
+     */
+    combine(entries: readonly ScenePointEntry[]): WgslModule;
 }
 
 /**
@@ -56,6 +92,8 @@ export interface WgslPoint {
     readonly ready: WgslModule;
     /** Kernels que usam o ponto. */
     readonly hosts: () => readonly WgslModule[];
+    /** Ponto de cena (funções compostas para a cena inteira); `undefined` nos pontos por entidade. */
+    readonly scene: ScenePointOptions | undefined;
     /**
      * Valida a implementação `module` (struct de parâmetros `paramsStruct`): a função obrigatória existe com a
      * assinatura; as opcionais definidas têm a assinatura; cada kernel monta com ela (sem símbolo em conflito nem
@@ -78,6 +116,10 @@ export interface PointImplementation {
     readonly module: WgslModule;
     /** Revisão do código. */
     readonly revision: number;
+    /** Nome da função obrigatória no módulo (com o sufixo do hash nos pontos de cena). */
+    readonly functionName: string;
+    /** Nome do carregador de parâmetros no módulo. */
+    readonly loaderName: string;
     /** Linha no código do usuário de uma linha do módulo (≤ 0: trecho gerado). */
     codeLine(moduleLine: number): number;
 }
@@ -135,6 +177,24 @@ function parseFunctions(source: string): Map<string, ParsedFn> {
 const show = (s: WgslPointSignature): string =>
     `fn ${s.name}(${s.params.join(', ')})${s.returns === '' ? '' : ` -> ${s.returns}`}`;
 
+/** Pontos de cena pelo módulo pronto (os kernels exigem o pronto; a C2 acha o ponto pela árvore do shader). */
+const sceneByReady = new WeakMap<WgslModule, WgslPoint>();
+
+/** Os pontos de cena cujo módulo pronto está na árvore de `shader`. */
+export function scenePointsIn(shader: WgslModule): readonly WgslPoint[] {
+    const out: WgslPoint[] = [];
+    const seen = new Set<WgslModule>();
+    const walk = (m: WgslModule): void => {
+        if (seen.has(m)) return;
+        seen.add(m);
+        const p = sceneByReady.get(m);
+        if (p !== undefined) out.push(p);
+        m.requires.forEach(walk);
+    };
+    walk(shader);
+    return out;
+}
+
 /** Cria um ponto de extensão. */
 export function wgslPoint(options: WgslPointOptions): WgslPoint {
     const optional = Object.freeze([...(options.optional ?? [])]);
@@ -156,6 +216,7 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
         record: options.record,
         ready: options.ready,
         hosts,
+        scene: options.scene,
         check(module: WgslModule, paramsStruct: string): void {
             const fns = parseFunctions(module.source);
             for (const sig of [options.required, ...optional]) {
@@ -177,12 +238,31 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
                     );
                 }
             }
-            for (const host of hosts()) composeWgsl(bindPoints(host, new Map([[point, module]])));
+            // Ponto de cena: os kernels recebem a composição das funções (aqui, só esta), não a função crua.
+            const impl =
+                options.scene === undefined
+                    ? module
+                    : options.scene.combine([
+                          {
+                              impl: {
+                                  point,
+                                  module,
+                                  revision: 0,
+                                  functionName: options.required.name,
+                                  loaderName: `${options.required.name}_params`,
+                                  codeLine: (line) => line,
+                              },
+                              slot: 0,
+                          },
+                      ]);
+            for (const host of hosts()) composeWgsl(bindPoints(host, new Map([[point, impl]])));
         },
         optionalIn(module: WgslModule): readonly WgslPointSignature[] {
             const fns = parseFunctions(module.source);
             return optional.filter((s) => fns.has(s.name));
         },
     };
-    return Object.freeze(point);
+    const frozen = Object.freeze(point);
+    if (options.scene !== undefined) sceneByReady.set(options.ready, frozen);
+    return frozen;
 }

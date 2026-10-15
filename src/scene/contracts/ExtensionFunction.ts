@@ -48,7 +48,7 @@ export interface ExtensionParamsData {
     v6: number[];
     v7: number[];
     revision: number;
-    _pad0: number;
+    kind: number;
     _pad1: number;
     _pad2: number;
 }
@@ -134,7 +134,7 @@ export abstract class ExtensionFunction
     readonly values: Record<string, ExtensionParamValue>;
     /** Módulos do núcleo que o código usa. */
     readonly requires: readonly WgslModule[];
-    /** Renomeia a função, o alias e o carregador com o hash (várias funções no mesmo shader). */
+    /** Renomeia a função, o alias e o carregador com o hash (ponto de cena: várias funções no mesmo shader). */
     readonly renamed: boolean;
 
     #code: string;
@@ -143,9 +143,11 @@ export abstract class ExtensionFunction
     #hash = '';
     readonly #slots: readonly ParamSlot[];
 
-    protected constructor(point: WgslPoint, options: ExtensionFunctionOptions, renamed = false) {
+    protected constructor(point: WgslPoint, options: ExtensionFunctionOptions) {
         super();
         this.point = point;
+        // Pontos de cena compõem várias funções no mesmo shader: nomes com o sufixo do hash.
+        const renamed = point.scene !== undefined;
         this.params = Object.freeze({ ...(options.params ?? {}) });
         this.requires = Object.freeze([...(options.requires ?? [])]);
         this.renamed = renamed;

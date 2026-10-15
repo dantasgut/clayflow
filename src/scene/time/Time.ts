@@ -125,6 +125,16 @@ export class Time extends Entity<TimeData> implements Resource {
     get simulated(): number {
         return this.clock.simulated;
     }
+    /**
+     * Tempo simulado no início do passo `k` (0 ≤ k < `steps`) deste quadro (s). Com passo fixo, conta passos inteiros
+     * desde a última troca de passo — o passo de mesma ordem global tem o mesmo tempo em qualquer taxa de quadros (os
+     * solvers o passam às funções dos campos, spec 009).
+     */
+    stepTime(k: number): number {
+        const c = this.clock;
+        if (c.fixedDt === undefined) return c.simulated - (c.steps - k) * c.stepDt;
+        return c.fixedBase + (c.fixedSteps - c.steps + k) * c.fixedDt;
+    }
     /** Tempo de física descartado pelo teto de passos, acumulado (s). */
     get droppedTime(): number {
         return this.clock.droppedTime;

@@ -1,4 +1,5 @@
 import { poolLive } from '../../gpu/compute/shaders';
+import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import femPredictSource from '../../gpu/wgsl/kernels/fem_predict.wgsl?raw';
 import femVelocityUpdateSource from '../../gpu/wgsl/kernels/fem_velocity_update.wgsl?raw';
@@ -11,8 +12,8 @@ import { FEMSimParamsSchema } from '../../physics/schemas/simParams';
 export const femPredict = wgslModule({
     name: 'fem_predict',
     source: femPredictSource,
-    requires: [poolLive],
-    structs: [FEMSimParamsSchema, XPBDSoftSchema],
+    requires: [poolLive, fieldPointTypes, fieldAccelReady],
+    structs: [FEMSimParamsSchema, XPBDSoftSchema, FieldFnRecordSchema],
 });
 
 /** Velocidade e avanço dos nós. */

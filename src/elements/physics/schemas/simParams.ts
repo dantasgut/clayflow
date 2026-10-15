@@ -18,6 +18,12 @@ export const SimParamsSchema = new StructSchema(
         collider_count: FieldType.u32,
         shape_stiffness: FieldType.f32,
         collision_radius: FieldType.f32,
+        /** Tempo simulado do passo (s) — o que as funções dos campos recebem (spec 009). */
+        field_time: FieldType.f32,
+        /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
+        field_density: FieldType.f32,
+        _field_pad0: FieldType.f32,
+        _field_pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
@@ -44,6 +50,12 @@ export const FEMSimParamsSchema = new StructSchema(
         _fsp_pad1: FieldType.u32,
         _fsp_pad2: FieldType.u32,
         _fsp_pad3: FieldType.u32,
+        /** Tempo simulado do passo (s) — o que as funções dos campos recebem (spec 009). */
+        field_time: FieldType.f32,
+        /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
+        field_density: FieldType.f32,
+        _field_pad0: FieldType.f32,
+        _field_pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
@@ -72,6 +84,12 @@ export const MPMSimParamsSchema = new StructSchema(
         material_id: FieldType.u32,
         substep_count: FieldType.u32,
         inv_dx: FieldType.f32,
+        /** Tempo simulado do passo (s) — o que as funções dos campos recebem (spec 009). */
+        field_time: FieldType.f32,
+        /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
+        field_density: FieldType.f32,
+        _field_pad0: FieldType.f32,
+        _field_pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
@@ -106,6 +124,12 @@ export const SPHSimParamsSchema = new StructSchema(
         adhesion_tangential: FieldType.f32,
         /** Suporte H da vizinhança (2h no SPH, h no PBF): alcance da coesão e da adesão (spec 030). */
         support: FieldType.f32,
+        /** Tempo simulado do passo (s) — o que as funções dos campos recebem (spec 009). */
+        field_time: FieldType.f32,
+        /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
+        field_density: FieldType.f32,
+        _field_pad0: FieldType.f32,
+        _field_pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
@@ -141,6 +165,12 @@ export const PBFSimParamsSchema = new StructSchema(
         adhesion_tangential: FieldType.f32,
         /** Suporte H da vizinhança (2h no SPH, h no PBF): alcance da coesão e da adesão (spec 030). */
         support: FieldType.f32,
+        /** Tempo simulado do passo (s) — o que as funções dos campos recebem (spec 009). */
+        field_time: FieldType.f32,
+        /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
+        field_density: FieldType.f32,
+        _field_pad0: FieldType.f32,
+        _field_pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );
@@ -166,6 +196,12 @@ export const RBSimParamsSchema = new StructSchema(
         warm_capacity: FieldType.u32,
         baumgarte_beta: FieldType.f32,
         warm_start_factor: FieldType.f32,
+        /** Tempo simulado do passo (s) — o que as funções dos campos recebem (spec 009). */
+        field_time: FieldType.f32,
+        /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
+        field_density: FieldType.f32,
+        _field_pad0: FieldType.f32,
+        _field_pad1: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );

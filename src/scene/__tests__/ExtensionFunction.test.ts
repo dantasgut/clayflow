@@ -35,9 +35,19 @@ const point = wgslPoint({
     hosts: () => [kernel],
 });
 
+/** O mesmo ponto como ponto de cena (funções renomeadas com o hash). */
+const scenePoint = wgslPoint({
+    name: 'probe',
+    required: { name: 'probe_fn', params: ['f32', POINT_PARAMS], returns: 'f32' },
+    paramsAlias: 'ProbeFnParams',
+    record,
+    ready: wgslModule({ ...ready, name: 'probe_scene_ready' }),
+    scene: { globals: {}, combine: () => ready },
+});
+
 class ProbeFunction extends ExtensionFunction {
-    constructor(options: ExtensionFunctionOptions, renamed = false) {
-        super(point, options, renamed);
+    constructor(options: ExtensionFunctionOptions, scene = false) {
+        super(scene ? scenePoint : point, options);
     }
 }
 

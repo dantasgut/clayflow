@@ -1,4 +1,5 @@
 import { poolLive } from '../../gpu/compute/shaders';
+import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { colliderSet, sphKernels } from '../../gpu/shaders/math';
 import sphDensitySource from '../../gpu/wgsl/kernels/sph_density.wgsl?raw';
@@ -40,8 +41,8 @@ export const sphNormals = wgslModule({
 export const sphForces = wgslModule({
     name: 'sph_forces',
     source: sphForcesSource,
-    requires: [poolLive, sphKernels],
-    structs: [SPHSimParamsSchema, SPHSchema],
+    requires: [poolLive, sphKernels, fieldPointTypes, fieldAccelReady],
+    structs: [SPHSimParamsSchema, SPHSchema, FieldFnRecordSchema],
 });
 
 /** Integração. */
