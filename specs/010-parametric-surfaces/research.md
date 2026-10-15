@@ -253,3 +253,16 @@ Vite servia a fonte em edição — os números do baseline são a partida):
 | particles/64k-water     | 0.235    | 15.69    |
 | particles/4k-cohesion   | 0.205    | 2.24     |
 | particles/64k-cohesion  | 0.190    | 18.93    |
+
+## Medidas da implementação
+
+- Smoke `parametricSurfaces` (fonte e `--dist`): campo de alturas a 8e-7 m da fórmula; 50 corpos no vale — 0 abaixo,
+  100 % em repouso; SPH/PBF/MPM sem partícula abaixo; XPBD/FEM/emissor sem nada abaixo; terreno animado com o mesmo
+  estado a 30/60/144 Hz; lago (água da 017) com nível variando 0,3 mm no último segundo, 0 partículas abaixo ou
+  escapando, cáusticas na imagem; distância do toro a 1,5 mm da analítica (célula de 4 cm), 0 nós com sinal errado;
+  curvaturas com erro de 7e-7 (analíticas) e 0,2 % / 0,08 % (numéricas, esfera / toro); malha adaptativa com 38 % da
+  uniforme, densidade 3,4× perto da câmera e 0 frestas na esfera; normais da CPU a 0,18° da radial.
+- Bench: `surfaces/wave-uniform` 0,49 ms e `wave-adaptive` 0,54 ms de GPU (onda de 257² reavaliada por quadro);
+  `particles/64k` 14,01 ms (partida 13,96) e `64k-terrain` 14,44 ms. Regressões apontadas pelo `bench:check` completo
+  não se repetiram isoladas (`instances/10k-functions` 0,27 ms contra 0,28 de partida); o baseline fica para uma
+  rodada com a máquina livre.

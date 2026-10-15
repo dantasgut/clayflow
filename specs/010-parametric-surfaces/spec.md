@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-15
 
-**Status**: Draft
+**Status**: Implementada (2026-10-15)
 
 **Input**: User description: "Superfícies paramétricas completas (spec 010, fase F3 do roadmap —
 `010-parametric-surfaces`). Fecha a F3 sobre o que a 009 entregou (ParametricSurface avaliada na GPU por

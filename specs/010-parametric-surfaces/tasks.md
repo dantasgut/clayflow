@@ -53,14 +53,14 @@ contracts/surfaces, quickstart)
 
 ## Phase 7: Polish
 
-- [ ] T029 [P] Arquitetura: tipo `surface` na fronteira, campo em pool, construção por passo e cursor, diferencial em pool, desenho indireto composto por passe em `clay-engine-doc/docs/guides/architecture_resource_loaders.md`
-- [ ] T030 [P] Guias de física (colisor de superfície, XPBD/FEM/emissor colidindo) e de superfícies/shaders (`SurfaceSample` novo, segundas derivadas, adaptativa) em `clay-engine-doc/docs/guides/`
-- [ ] T031 [P] ROADMAP (F3 fechada; próximo: F4 pela 011) e PENDENCIAS (P2 parcial: superfície colide, `MeshCollider` segue sem contato; escala não uniforme e atraso de um quadro do `Transform` animado) em `specs/ROADMAP.md`, `specs/PENDENCIAS.md`
-- [ ] T032 [P] JSDoc das APIs novas e API regenerada; `doc:coverage` sem erros
+- [x] T029 [P] Arquitetura: tipo `surface` na fronteira, campo em pool, construção por passo e cursor, diferencial em pool, desenho indireto composto por passe em `clay-engine-doc/docs/guides/architecture_resource_loaders.md`
+- [x] T030 [P] Guias de física (colisor de superfície, XPBD/FEM/emissor colidindo) e de superfícies/shaders (`SurfaceSample` novo, segundas derivadas, adaptativa) em `clay-engine-doc/docs/guides/`
+- [x] T031 [P] ROADMAP (F3 fechada; próximo: F4 pela 011) e PENDENCIAS (P2 parcial: superfície colide, `MeshCollider` segue sem contato; escala não uniforme e atraso de um quadro do `Transform` animado) em `specs/ROADMAP.md`, `specs/PENDENCIAS.md`
+- [x] T032 [P] JSDoc das APIs novas e API regenerada; `doc:coverage` sem erros
 - [ ] T033 Bench: variantes `particles/64k-terrain` e `instances/surface-adaptive` em `bench/scenes/`; `bench:check` sem regressão; baseline regravado com a máquina livre
-- [ ] T034 Smokes todos no fonte e com `--dist`; `npm run ci` verde
-- [ ] T035 Vídeos (terreno com corpos e água formando lago com cáusticas; superfície deformando com malha adaptativa em wireframe; material por curvatura) no scratchpad, enviados ao usuário
-- [ ] T036 Spec marcada como implementada em `specs/010-parametric-surfaces/spec.md`
+- [x] T034 Smokes todos no fonte e com `--dist`; `npm run ci` verde
+- [x] T035 Vídeos (terreno com corpos e água formando lago com cáusticas; superfície deformando com malha adaptativa em wireframe; material por curvatura) no scratchpad, enviados ao usuário
+- [x] T036 Spec marcada como implementada em `specs/010-parametric-surfaces/spec.md`
 
 ## Dependencies
 
