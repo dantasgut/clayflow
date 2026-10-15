@@ -8,6 +8,6 @@
 
 > **SurfacePreset** = `"plane"` \| `"sphere"` \| `"torus"` \| `"terrain"`
 
-Defined in: [elements/geometry/ParametricSurface.ts:7](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L7)
+Defined in: [elements/geometry/ParametricSurface.ts:8](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L8)
 
 Superfície pronta (spec 009): plano, esfera, toro ou terreno por ruído.

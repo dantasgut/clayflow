@@ -6,7 +6,7 @@
 
 # Interface: GravityFieldData
 
-Defined in: [elements/physics/forcefields/GravityField.ts:7](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L7)
+Defined in: [elements/physics/forcefields/GravityField.ts:7](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L7)
 
 Dado de um `GravityField` (layout de `GravityField.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `GravityField` (layout de `GravityField.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:11](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L11)
+Defined in: [elements/physics/forcefields/GravityField.ts:11](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L11)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:13](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L13)
+Defined in: [elements/physics/forcefields/GravityField.ts:13](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L13)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **\_pad2**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:15](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L15)
+Defined in: [elements/physics/forcefields/GravityField.ts:15](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L15)
 
 Preenchimento do layout.
 
@@ -46,7 +46,7 @@ Preenchimento do layout.
 
 > **\_pad3**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:25](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L25)
+Defined in: [elements/physics/forcefields/GravityField.ts:25](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L25)
 
 Preenchimento do layout.
 
@@ -56,7 +56,7 @@ Preenchimento do layout.
 
 > **\_pad4**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:27](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L27)
+Defined in: [elements/physics/forcefields/GravityField.ts:27](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L27)
 
 Preenchimento do layout.
 
@@ -66,7 +66,7 @@ Preenchimento do layout.
 
 > **acceleration**: readonly `number`[]
 
-Defined in: [elements/physics/forcefields/GravityField.ts:17](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L17)
+Defined in: [elements/physics/forcefields/GravityField.ts:17](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L17)
 
 Aceleração (m/s²).
 
@@ -76,7 +76,7 @@ Aceleração (m/s²).
 
 > **gravitationalConstant**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:23](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L23)
+Defined in: [elements/physics/forcefields/GravityField.ts:23](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L23)
 
 Constante gravitacional G.
 
@@ -86,7 +86,7 @@ Constante gravitacional G.
 
 > **sourceMass**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:21](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L21)
+Defined in: [elements/physics/forcefields/GravityField.ts:21](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L21)
 
 Massa da fonte pontual.
 
@@ -96,7 +96,7 @@ Massa da fonte pontual.
 
 > **sourceMode**: `number`
 
-Defined in: [elements/physics/forcefields/GravityField.ts:9](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L9)
+Defined in: [elements/physics/forcefields/GravityField.ts:9](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L9)
 
 Modo da fonte: 0 uniforme, 1 pontual.
 
@@ -106,6 +106,6 @@ Modo da fonte: 0 uniforme, 1 pontual.
 
 > **sourcePosition**: readonly `number`[]
 
-Defined in: [elements/physics/forcefields/GravityField.ts:19](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/GravityField.ts#L19)
+Defined in: [elements/physics/forcefields/GravityField.ts:19](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/forcefields/GravityField.ts#L19)
 
 Posição da fonte pontual.

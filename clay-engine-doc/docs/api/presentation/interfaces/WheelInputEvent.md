@@ -6,7 +6,7 @@
 
 # Interface: WheelInputEvent
 
-Defined in: [presentation/input/InputEvents.ts:27](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InputEvents.ts#L27)
+Defined in: [presentation/input/InputEvents.ts:27](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/InputEvents.ts#L27)
 
 Roda do mouse (positivo = rolar para baixo, como `WheelEvent.deltaY`).
 
@@ -16,6 +16,6 @@ Roda do mouse (positivo = rolar para baixo, como `WheelEvent.deltaY`).
 
 > `readonly` **delta**: `number`
 
-Defined in: [presentation/input/InputEvents.ts:29](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/input/InputEvents.ts#L29)
+Defined in: [presentation/input/InputEvents.ts:29](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/input/InputEvents.ts#L29)
 
 Rolagem vertical (`WheelEvent.deltaY`).

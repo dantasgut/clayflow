@@ -17,6 +17,14 @@ export {
     type ParametricSurfaceData,
     type ParametricSurfaceOptions,
     type SurfacePreset,
+    type AdaptiveOptions,
+    type AdaptiveConfig,
 } from './ParametricSurface';
 export { SurfaceFlow, type SurfaceSlots } from './SurfaceFlow';
-export { SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema } from './SurfaceSchemas';
+export {
+    SurfaceParamsSchema,
+    SurfaceFnRecordSchema,
+    SpaceFnRecordSchema,
+    SurfaceDiffSchema,
+    SurfaceAdaptParamsSchema,
+} from './SurfaceSchemas';

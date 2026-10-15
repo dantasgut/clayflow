@@ -6,7 +6,7 @@
 
 # Interface: ReduceOptions
 
-Defined in: [elements/gpu/compute/Reduce.ts:25](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/Reduce.ts#L25)
+Defined in: [elements/gpu/compute/Reduce.ts:25](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/gpu/compute/Reduce.ts#L25)
 
 Opções de `Reduce`.
 
@@ -16,7 +16,7 @@ Opções de `Reduce`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/Reduce.ts:29](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/Reduce.ts#L29)
+Defined in: [elements/gpu/compute/Reduce.ts:29](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/gpu/compute/Reduce.ts#L29)
 
 Maior `count` aceito por `record`.
 
@@ -26,7 +26,7 @@ Maior `count` aceito por `record`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/Reduce.ts:27](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/Reduce.ts#L27)
+Defined in: [elements/gpu/compute/Reduce.ts:27](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/gpu/compute/Reduce.ts#L27)
 
 Prefixo único dos recursos da instância.
 
@@ -36,7 +36,7 @@ Prefixo único dos recursos da instância.
 
 > `readonly` **op**: [`ReduceOpName`](../type-aliases/ReduceOpName.md)
 
-Defined in: [elements/gpu/compute/Reduce.ts:31](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/Reduce.ts#L31)
+Defined in: [elements/gpu/compute/Reduce.ts:31](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/gpu/compute/Reduce.ts#L31)
 
 Operação.
 
@@ -46,6 +46,6 @@ Operação.
 
 > `readonly` **type**: [`ReduceType`](../type-aliases/ReduceType.md)
 
-Defined in: [elements/gpu/compute/Reduce.ts:33](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/Reduce.ts#L33)
+Defined in: [elements/gpu/compute/Reduce.ts:33](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/gpu/compute/Reduce.ts#L33)
 
 Tipo dos elementos.

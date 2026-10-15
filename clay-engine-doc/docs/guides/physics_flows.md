@@ -216,6 +216,32 @@ física, vida `lifetime`, anel de `maxParticles`; a criação é a forma (`Point
 partículas integram gravidade e campos e são desenhadas pela `PointCloudGeometry` da entidade (`maxPoints =
 maxParticles`) com um material de pontos.
 
+## Superfícies colidíveis (spec 010)
+
+Uma `ParametricSurface` com `SurfaceCollider` vira colisor para todos os solvers e emissores: corpos rígidos (contato
+por canto da caixa ou no centro da esfera, atrito e restituição do corpo), SPH, PBF e MPM (empurrão para fora e
+adesão da 030), XPBD, FEM e emissores (que antes não colidiam com nada; agora colidem com todos os colliders). O campo
+é construído na GPU a partir da mesma função que desenha a superfície, com o espaço da cena e a transformação da
+entidade:
+
+- `mode: 'height'` (padrão) — terreno: altura sobre o plano xz local (fora da área do terreno, nada colide; dobras
+  ficam com a altura máxima);
+- `mode: 'distance'` — superfície geral (toro, esfera, tubo): distância com sinal numa grade 3D em volta da
+  superfície, dentro = lado oposto ao da normal.
+
+```ts
+const terrain = new ParametricSurface({ preset: 'terrain', resolution: [128, 128] });
+app.world.insert(terrain.add(new SurfaceCollider({ mode: 'height' })).add(new StandardMaterial()).add(new Transform()));
+const torus = new ParametricSurface({ preset: 'torus', params: [0.6, 0.25] });
+app.world.insert(torus.add(new SurfaceCollider({ mode: 'distance', resolution: 64 })).add(new StandardMaterial()).add(new Transform()));
+```
+
+Superfície que anima (`animated`, espaço na cena ou `TransformFunction`) tem uma cópia do campo por passo fixo do
+quadro: a mesma trajetória a 30, 60 e 144 Hz. Limites: `Transform` animado por função entra com um quadro de atraso;
+escala não uniforme aproxima a distância pela menor escala; até 16 superfícies colidíveis por estágio; corpos mais
+rápidos que a espessura da grade podem atravessar, como com paredes finas. A folga (`margin`) é 0 por padrão — uma
+folga maior que a dos contatos entre corpos desestabiliza pilhas.
+
 ## Busca de vizinhança (SPH, PBF)
 
 Reconstruída a cada substep: célula de cada partícula viva, soma de prefixos, espalhamento, ordenação por índice dentro

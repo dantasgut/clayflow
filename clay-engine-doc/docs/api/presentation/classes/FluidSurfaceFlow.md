@@ -6,7 +6,7 @@
 
 # Class: FluidSurfaceFlow
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:129](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L129)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:129](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L129)
 
 FluidSurfaceFlow — produtor da superfície de água a partir das partículas (spec 017, research R2–R4 e R6): desenha os
 corpos de partículas com `FluidSurfaceMaterial` como esferas lidas direto do pool do corpo (um desenho por corpo,
@@ -31,7 +31,7 @@ escreve a mesma superfície.
 
 > **new FluidSurfaceFlow**(`ctx`, `options?`): `FluidSurfaceFlow`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:182](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L182)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:182](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L182)
 
 #### Parameters
 
@@ -57,7 +57,7 @@ Defined in: [presentation/flows/FluidSurfaceFlow.ts:182](https://github.com/dant
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:132](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L132)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:132](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L132)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -71,7 +71,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:133](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L133)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:133](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L133)
 
 Estado inicial do algoritmo.
 
@@ -85,7 +85,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -99,7 +99,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L65)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L65)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -113,7 +113,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`FluidSurfaceSlots`](../interfaces/FluidSurfaceSlots.md)
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:131](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L131)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:131](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L131)
 
 Slots consumidos, por nome.
 
@@ -127,7 +127,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `Ctx`\>
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:134](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L134)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:134](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L134)
 
 Tabela de transições (estado × evento).
 
@@ -141,7 +141,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"FluidSurfaceFlow"` = `'FluidSurfaceFlow'`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:130](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L130)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:130](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L130)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -155,7 +155,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > `readonly` **view**: [`WaterView`](../type-aliases/WaterView.md)
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:137](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L137)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:137](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L137)
 
 Vista produzida.
 
@@ -167,7 +167,7 @@ Vista produzida.
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -187,7 +187,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -205,7 +205,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:287](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L287)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:287](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L287)
 
 Grava os passes das esferas e a suavização da vista.
 
@@ -233,7 +233,7 @@ Grava os passes das esferas e a suavização da vista.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/FluidSurfaceFlow.ts:376](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/FluidSurfaceFlow.ts#L376)
+Defined in: [presentation/flows/FluidSurfaceFlow.ts:376](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/FluidSurfaceFlow.ts#L376)
 
 Libera os recursos privados.
 

@@ -6,7 +6,7 @@
 
 # Interface: CameraSlots
 
-Defined in: [elements/scene/flows/CameraFlow.ts:35](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L35)
+Defined in: [elements/scene/flows/CameraFlow.ts:35](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L35)
 
 Slots do estágio de câmera.
 
@@ -24,7 +24,7 @@ Slots do estágio de câmera.
 
 > `readonly` **cameras**: `EntitiesSlot`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:45](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L45)
+Defined in: [elements/scene/flows/CameraFlow.ts:45](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L45)
 
 Toda entidade com `Camera` (a falta do `Transform` é erro).
 
@@ -34,7 +34,7 @@ Toda entidade com `Camera` (a falta do `Transform` é erro).
 
 > `readonly` **fnRecords**: `PoolSlot`\<`true`\>
 
-Defined in: [elements/scene/flows/CameraFlow.ts:49](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L49)
+Defined in: [elements/scene/flows/CameraFlow.ts:49](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L49)
 
 Pool dos registros de parâmetros das `CameraFunction` (existe com alguma função na cena).
 
@@ -44,7 +44,7 @@ Pool dos registros de parâmetros das `CameraFunction` (existe com alguma funç�
 
 > `readonly` **functions**: `EntitiesSlot`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:47](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L47)
+Defined in: [elements/scene/flows/CameraFlow.ts:47](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L47)
 
 Câmeras com `CameraFunction` (spec 009).
 
@@ -54,7 +54,7 @@ Câmeras com `CameraFunction` (spec 009).
 
 > `readonly` **matrices**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/CameraFlow.ts:39](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L39)
+Defined in: [elements/scene/flows/CameraFlow.ts:39](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L39)
 
 Pool das matrizes (`CameraMatrices`, saída).
 
@@ -64,7 +64,7 @@ Pool das matrizes (`CameraMatrices`, saída).
 
 > `readonly` **params**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/CameraFlow.ts:37](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L37)
+Defined in: [elements/scene/flows/CameraFlow.ts:37](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L37)
 
 Pool dos parâmetros (`Camera`): o estágio espera a primeira câmera.
 
@@ -74,7 +74,7 @@ Pool dos parâmetros (`Camera`): o estágio espera a primeira câmera.
 
 > `readonly` **time**: `SingletonSlot`\<`true`\>
 
-Defined in: [elements/scene/flows/CameraFlow.ts:51](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L51)
+Defined in: [elements/scene/flows/CameraFlow.ts:51](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L51)
 
 Relógio da cena (tempo simulado das funções; sem relógio, 0).
 
@@ -84,7 +84,7 @@ Relógio da cena (tempo simulado das funções; sem relógio, 0).
 
 > `readonly` **views**: `EntitiesSlot`
 
-Defined in: [elements/scene/flows/CameraFlow.ts:43](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L43)
+Defined in: [elements/scene/flows/CameraFlow.ts:43](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L43)
 
 Câmeras com `Transform`: registro `CameraRecord` e a lista das vivas (grupo único).
 
@@ -94,6 +94,6 @@ Câmeras com `Transform`: registro `CameraRecord` e a lista das vivas (grupo ún
 
 > `readonly` **worlds**: `PoolSlot`\<`false`\>
 
-Defined in: [elements/scene/flows/CameraFlow.ts:41](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/flows/CameraFlow.ts#L41)
+Defined in: [elements/scene/flows/CameraFlow.ts:41](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/scene/flows/CameraFlow.ts#L41)
 
 Pool `WorldTransform` (matriz de mundo da câmera).

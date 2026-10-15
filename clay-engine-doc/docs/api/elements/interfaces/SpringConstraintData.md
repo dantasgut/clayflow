@@ -6,7 +6,7 @@
 
 # Interface: SpringConstraintData
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L7)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:7](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L7)
 
 Dado de um `SpringConstraint` (layout de `SpringConstraint.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `SpringConstraint` (layout de `SpringConstraint.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:21](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L21)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:21](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L21)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:23](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L23)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:23](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L23)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **bodyA**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L9)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:9](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L9)
 
 Primeiro corpo.
 
@@ -46,7 +46,7 @@ Primeiro corpo.
 
 > **bodyB**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L11)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:11](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L11)
 
 Segundo corpo.
 
@@ -56,7 +56,7 @@ Segundo corpo.
 
 > **color**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:19](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L19)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:19](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L19)
 
 Cor RGBA linear.
 
@@ -66,7 +66,7 @@ Cor RGBA linear.
 
 > **damping**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L15)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:15](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L15)
 
 Amortecimento.
 
@@ -76,7 +76,7 @@ Amortecimento.
 
 > **restLength**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:17](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L17)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:17](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L17)
 
 Comprimento de repouso.
 
@@ -86,6 +86,6 @@ Comprimento de repouso.
 
 > **stiffness**: `number`
 
-Defined in: [elements/physics/constraints/SpringConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/constraints/SpringConstraint.ts#L13)
+Defined in: [elements/physics/constraints/SpringConstraint.ts:13](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/constraints/SpringConstraint.ts#L13)
 
 Rigidez.

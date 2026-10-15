@@ -8,7 +8,7 @@
 
 > **registerPresentationDefaults**(`flows`, `options`): [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/flows/defaults.ts:90](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/flows/defaults.ts#L90)
+Defined in: [presentation/flows/defaults.ts:90](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/flows/defaults.ts#L90)
 
 Registra por factory os estágios padrão da cena — Transform, Camera, ShadowMatrix, Shadow, Forward, os da água, Post,
 Debug e UI, mais os solvers

@@ -6,7 +6,7 @@
 
 # Interface: PointCloudGeometryValues
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:15](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/PointCloudGeometry.ts#L15)
+Defined in: [elements/geometry/PointCloudGeometry.ts:15](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/PointCloudGeometry.ts#L15)
 
 Valores do construtor de uma `PointCloudGeometry`.
 
@@ -16,7 +16,7 @@ Valores do construtor de uma `PointCloudGeometry`.
 
 > `readonly` `optional` **activeCount?**: `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/PointCloudGeometry.ts#L19)
+Defined in: [elements/geometry/PointCloudGeometry.ts:19](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/PointCloudGeometry.ts#L19)
 
 Pontos desenhados. Default: todos.
 
@@ -26,6 +26,6 @@ Pontos desenhados. Default: todos.
 
 > `readonly` `optional` **maxPoints?**: `number`
 
-Defined in: [elements/geometry/PointCloudGeometry.ts:17](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/PointCloudGeometry.ts#L17)
+Defined in: [elements/geometry/PointCloudGeometry.ts:17](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/PointCloudGeometry.ts#L17)
 
 Capacidade de pontos. Default 1024.

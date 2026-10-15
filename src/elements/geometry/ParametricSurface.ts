@@ -54,31 +54,47 @@ export interface AdaptiveOptions {
 
 /** Malha adaptativa resolvida (valores efetivos). */
 export interface AdaptiveConfig {
+    /** Retalhos em u e v. */
     readonly patches: readonly [number, number];
+    /** Nível máximo. */
     readonly maxLevel: number;
+    /** Teto de triângulos. */
     readonly budget: number;
+    /** Erro de corda tolerado (m). */
     readonly tolerance: number;
+    /** Fração da altura da imagem por segmento. */
     readonly screen: number;
+    /** Domínio periódico em u e v. */
     readonly periodic: readonly [boolean, boolean];
+    /** Deslocamento da câmera que refaz a malha (m). */
     readonly refreshDistance: number;
     /** Vértices por lado de um retalho no nível máximo (2^L + 1). */
     readonly side: number;
-    /** Capacidades (nível máximo em todos os retalhos). */
+    /** Vértices com todos os retalhos no nível máximo (capacidade). */
     readonly vertexCapacity: number;
+    /** Índices com todos os retalhos no nível máximo (capacidade). */
     readonly indexCapacity: number;
+    /** Índices de arestas do arame com todos os retalhos no nível máximo (capacidade). */
     readonly edgeIndexCapacity: number;
 }
 
 /** Dado de uma `ParametricSurface`. */
 export interface ParametricSurfaceData extends GeometryData {
+    /** Vértices em u e em v (na adaptativa, os da grade uniforme de mesma precisão máxima). */
     resolution: [number, number];
+    /** Domínio [u0, u1, v0, v1]. */
     domain: [number, number, number, number];
+    /** Superfície pronta (sem `SurfaceFunction`). */
     preset: SurfacePreset;
+    /** Valores da pronta. */
     params: number[];
+    /** Reavalia a cada quadro. */
     animated: boolean;
     /** Índices fixos da grade uniforme (ausentes na adaptativa: escritos pela GPU). */
     indices?: Uint32Array;
+    /** Vértices (na adaptativa, a capacidade). */
     vertexCount: number;
+    /** Índices (na adaptativa, a capacidade). */
     indexCount: number;
 }
 

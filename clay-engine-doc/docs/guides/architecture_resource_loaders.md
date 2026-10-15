@@ -3085,6 +3085,36 @@ src/elements/
 > 6. **Tempo.** Toda função recebe o tempo simulado (`Time.simulated`/`stepTime(k)`: passos inteiros × passo fixo) —
 >    o mesmo estado a 30, 60 e 144 Hz.
 >
+> **Superfícies paramétricas completas (spec 010).** A `ParametricSurface` deixa de ser só desenho:
+>
+> 1. **Um código de avaliação.** `surface_at` (posição e normal com o espaço da cena) e o jato `surface_jet` (lugar
+>    substituível: numérico, analítico com `surface_du…surface_dvv`, das prontas, ou do mapa composto com o espaço)
+>    servem à malha uniforme, à adaptativa e ao colisor — o que se desenha é o que colide.
+> 2. **Colisor como Resource.** `SurfaceCollider` declara dois pools: o registro (modo altura ou distância, grade,
+>    início do campo por `slotRefs`) e o **campo** (`upload: 'never'`, slots contíguos com cópias × (cabeçalho +
+>    nós)). O `SurfaceColliderFlow` (fase `physics`, antes dos solvers) constrói o campo na GPU: altura por
+>    rasterização com `atomicMax`, distância por semeadura exata e *jump flooding*, com atômicos de ordem total — o
+>    campo não depende da ordem das threads. Superfície que anima tem **uma cópia por passo fixo** (cada Flow de
+>    física roda os seus passos sozinho): a consulta escolhe a cópia pelo tempo da iteração (`collider_time`, o
+>    `field_time` dos parâmetros do solver), sem buffer nem kernel a mais.
+> 3. **Fronteira genérica.** O tipo `surface` entra no `ColliderSet` e no `collider_set.wgsl` como um quarto laço
+>    depois das esferas (sem superfícies, zero iterações e as contas de antes); `collider_hit_surface` devolve o mesmo
+>    `ColliderHit` dos outros (adesão da 030 inclusive). O LCP tem a variante `rb_narrowphase_surface` (corpos ×
+>    superfícies, como os planos), com a faixa de pares no fim da linha de contatos. XPBD, FEM e emissor passaram a
+>    colidir com todos os colliders (passes só com colliders na cena). Limite de 10 storage buffers por estágio no
+>    perfil de referência: os donos de caixa e esfera viraram um mapa só e os inícios dos campos vão no uniforme de
+>    contagens (até 16 superfícies por estágio).
+> 4. **Geometria diferencial no material.** Pool `SurfaceDiff` por vértice (métrica, segunda forma, curvaturas,
+>    direção principal), lido no `vs_main` do forward pelo `diffSlot` do `Renderable` (`RECORD_NONE` sem ela — campo
+>    opcional de registro também quando o Resource existe sem o descritor); `SurfaceSample` ganhou `metric`,
+>    `curvature` e `principal`. O vértice continua com 32 bytes.
+> 5. **Malha adaptativa e desenho indireto.** Níveis por retalho (curvatura e câmera), orçamento, prefixos e emissão
+>    na GPU; arestas sem frestas por colapso sobre o vértice par do vizinho (mesmo `(u, v)` diádico ⇒ mesmo ponto). A
+>    geometria declara um descritor `indirect` (contagem dos índices e dos vértices do arame); forward e sombra copiam
+>    a contagem para os seus argumentos (com o `first` do grupo de cada passe) antes do passe e desenham com
+>    `indexedIndirect`. Pedimos `indirect-first-instance` quando o adaptador tem; sem ela, nível máximo e
+>    `adaptiveUnavailable`.
+>
 > **O papel do `Schema` no fluxo de dados.** O schema **é o caminho** pelo qual valores TS chegam ao shader — e a
 > única declaração da memória:
 > ```

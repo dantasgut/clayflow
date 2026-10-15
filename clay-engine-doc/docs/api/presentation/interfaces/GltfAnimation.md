@@ -6,7 +6,7 @@
 
 # Interface: GltfAnimation
 
-Defined in: [presentation/assets/GltfLoader.ts:114](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L114)
+Defined in: [presentation/assets/GltfLoader.ts:114](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/assets/GltfLoader.ts#L114)
 
 Animation completa — coleção de samplers + channels que, quando avaliados
 num tempo `t`, transformam nodes da scene.
@@ -17,7 +17,7 @@ num tempo `t`, transformam nodes da scene.
 
 > `readonly` **channels**: readonly [`GltfAnimationChannel`](GltfAnimationChannel.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:120](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L120)
+Defined in: [presentation/assets/GltfLoader.ts:120](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/assets/GltfLoader.ts#L120)
 
 Channels que mapeiam samplers para (node, path) específicos.
 
@@ -27,7 +27,7 @@ Channels que mapeiam samplers para (node, path) específicos.
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [presentation/assets/GltfLoader.ts:116](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L116)
+Defined in: [presentation/assets/GltfLoader.ts:116](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/assets/GltfLoader.ts#L116)
 
 Nome legível (debug).
 
@@ -37,6 +37,6 @@ Nome legível (debug).
 
 > `readonly` **samplers**: readonly [`GltfAnimationSampler`](GltfAnimationSampler.md)[]
 
-Defined in: [presentation/assets/GltfLoader.ts:118](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/presentation/assets/GltfLoader.ts#L118)
+Defined in: [presentation/assets/GltfLoader.ts:118](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/presentation/assets/GltfLoader.ts#L118)
 
 Samplers compartilhados entre channels (input/output/interpolation).

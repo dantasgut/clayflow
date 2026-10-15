@@ -13,18 +13,18 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 
 ## 1. Na API, sem simulação
 
-| #   | Pendência                                         | Estado atual (evidência)                                                                                                                                                                                           | Fase     |
-| --- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| P1  | FEM sem solve elástico                            | `FEMFlow` roda só `fem_predict` e `fem_velocity_update` — integra gravidade (`elements/physics/shaders/fem.ts`). As funções de FEM já estão em `wgslLib.fem`                                                       | F5 (016) |
-| P2  | `MeshCollider` não gera contatos                  | `rb_narrowphase_mesh_main` não emite contato (`elements/gpu/wgsl/kernels/rb_narrowphase.wgsl`); fluidos também não colidem com malha                                                                               | F5 (015) |
-| P3  | ~~Campos de força ignorados~~ — resolvida na 009  | Ponto `field`: os seis solvers e os emissores somam gravidade pontual, vento, vórtice, arrasto, empuxo e as `FieldFunction` do usuário (sem torque no rígido)                                                      | F3 (009) |
-| P4  | `JointConstraint` e `SpringConstraint` sem solver | Nenhum Flow nem kernel os consome; só `DistanceConstraint` (XPBD) é resolvida                                                                                                                                      | F5 (015) |
-| P5  | `XPBDRigidSchema` sem Flow                        | Ausente de `DEFAULT_SOLVER_REGISTRATIONS` (`elements/physics/flows/defaultFlows.ts`); nenhum solver o simula                                                                                                       | F5 (015) |
-| P6  | Emissores de partículas sem simulação — parcial   | 009: `ComputeParticleEmitter` simulado na GPU (`EmitterFlow`: criação por forma ou `EmitFunction`, campos, vida, nuvem de pontos); faltam o `ScriptedParticleEmitter` (CPU), ordenação, soft particles e flipbooks | F9 (025) |
-| P7  | Sem acoplamento entre solvers                     | Cada solver reage só aos colliders do `ColliderSet`: fluido não empurra rígido, rígido não interage com macio, MPM e SPH/PBF não se veem                                                                           | F5       |
-| P8  | Corpo rígido só com esfera e caixa                | `RigidBody` aceita `shape: 'sphere' \| 'box'` (`elements/physics/bodies/RigidBody.ts`); sem cápsula, convexo ou SDF                                                                                                | F5 (015) |
-| P9  | Sem consultas espaciais                           | Não há raycast, shapecast nem character controller                                                                                                                                                                 | F5 (018) |
-| P10 | ~~Sem superfície de fluido~~ — resolvida na 017   | `FluidSurfaceMaterial`: água contínua em espaço de tela (`FluidSurfaceFlow`, `WaterFlow`) com cáusticas (`CausticsFlow`); a água por altura fica na 029                                                            | F5 (017) |
+| #   | Pendência                                         | Estado atual (evidência)                                                                                                                                                                                                          | Fase     |
+| --- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| P1  | FEM sem solve elástico                            | `FEMFlow` roda só `fem_predict` e `fem_velocity_update` — integra gravidade (`elements/physics/shaders/fem.ts`). As funções de FEM já estão em `wgslLib.fem`                                                                      | F5 (016) |
+| P2  | `MeshCollider` não gera contatos — parcial        | 010: superfícies paramétricas colidem (`SurfaceCollider`: altura ou distância com sinal, todos os solvers e emissores); `rb_narrowphase_mesh_main` ainda não emite contato com malha arbitrária, e os fluidos não colidem com ela | F5 (015) |
+| P3  | ~~Campos de força ignorados~~ — resolvida na 009  | Ponto `field`: os seis solvers e os emissores somam gravidade pontual, vento, vórtice, arrasto, empuxo e as `FieldFunction` do usuário (sem torque no rígido)                                                                     | F3 (009) |
+| P4  | `JointConstraint` e `SpringConstraint` sem solver | Nenhum Flow nem kernel os consome; só `DistanceConstraint` (XPBD) é resolvida                                                                                                                                                     | F5 (015) |
+| P5  | `XPBDRigidSchema` sem Flow                        | Ausente de `DEFAULT_SOLVER_REGISTRATIONS` (`elements/physics/flows/defaultFlows.ts`); nenhum solver o simula                                                                                                                      | F5 (015) |
+| P6  | Emissores de partículas sem simulação — parcial   | 009: `ComputeParticleEmitter` simulado na GPU (`EmitterFlow`: criação por forma ou `EmitFunction`, campos, vida, nuvem de pontos); faltam o `ScriptedParticleEmitter` (CPU), ordenação, soft particles e flipbooks                | F9 (025) |
+| P7  | Sem acoplamento entre solvers                     | Cada solver reage só aos colliders do `ColliderSet`: fluido não empurra rígido, rígido não interage com macio, MPM e SPH/PBF não se veem                                                                                          | F5       |
+| P8  | Corpo rígido só com esfera e caixa                | `RigidBody` aceita `shape: 'sphere' \| 'box'` (`elements/physics/bodies/RigidBody.ts`); sem cápsula, convexo ou SDF                                                                                                               | F5 (015) |
+| P9  | Sem consultas espaciais                           | Não há raycast, shapecast nem character controller                                                                                                                                                                                | F5 (018) |
+| P10 | ~~Sem superfície de fluido~~ — resolvida na 017   | `FluidSurfaceMaterial`: água contínua em espaço de tela (`FluidSurfaceFlow`, `WaterFlow`) com cáusticas (`CausticsFlow`); a água por altura fica na 029                                                                           | F5 (017) |
 
 ## 2. Limites de escala
 
@@ -70,6 +70,27 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   preservá-lo).
 - Funções de cena (`field`, `space`) recompilam os estágios que as usam a cada mudança do conjunto ou do código;
   composição que não compila num kernel volta ao pronto daquele kernel.
+
+### Notas da 010
+
+- Superfícies paramétricas completas: colisor derivado da superfície (`SurfaceCollider`, altura ou distância com
+  sinal, construído na GPU por passo fixo — mesmo estado a 30/60/144 Hz), geometria diferencial no material
+  (`SurfaceSample.metric`/`curvature`/`principal`), malha adaptativa sem frestas com desenho indireto e normais da
+  `ParametricGeometry` de CPU por derivadas. Sem superfícies colidíveis, todas as fixtures bit a bit.
+- XPBD, FEM e emissores passaram a colidir com os colliders (antes não colidiam com nada).
+- Limites: `Transform` animado por função entra no colisor com um quadro de atraso (o mundo vem do quadro anterior);
+  escala não uniforme aproxima a distância pela menor escala; até 16 superfícies colidíveis por estágio (inícios dos
+  campos no uniforme de contagens); a superfície não recebe impulso (unilateral); corpos mais rápidos que a grade
+  podem atravessar, como com paredes finas; dobras no modo altura ficam com a altura máxima; quadros com mais passos
+  que as cópias do colisor (`steps`, padrão 4) repetem a última.
+- Limite de 10 storage buffers por estágio no perfil de referência: os donos de caixa e esfera do grupo de colliders
+  viraram um mapa só.
+- Folga de contato padrão 0: uma folga de 1 cm deixava os corpos pairando sobre a superfície e se apertando entre si
+  (pilha mista de esferas e caixas explodia no vale).
+- Malha adaptativa: sem `indirect-first-instance`, nível máximo (evento `adaptiveUnavailable`); costura dos domínios
+  periódicos com a precisão de sen/cos de 2π (sub-micrométrica).
+- A cena do lago mostrou que, sem coesão, respingos passam por cima da borda do terreno (fisicamente coerente); com a
+  água de referência (030) o lago assenta.
 
 ### Notas da 030
 

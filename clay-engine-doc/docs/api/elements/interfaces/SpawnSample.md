@@ -6,7 +6,7 @@
 
 # Interface: SpawnSample
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:5](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/shapes/EmitterShape.ts#L5)
+Defined in: [elements/particles/shapes/EmitterShape.ts:5](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/shapes/EmitterShape.ts#L5)
 
 Sample retornado por `EmitterShape.sample()` — posição + velocidade
 iniciais para uma partícula recém-spawned.
@@ -17,7 +17,7 @@ iniciais para uma partícula recém-spawned.
 
 > `readonly` **position**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/shapes/EmitterShape.ts#L7)
+Defined in: [elements/particles/shapes/EmitterShape.ts:7](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/shapes/EmitterShape.ts#L7)
 
 Posição inicial em world coords.
 
@@ -27,6 +27,6 @@ Posição inicial em world coords.
 
 > `readonly` **velocity**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:9](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/particles/shapes/EmitterShape.ts#L9)
+Defined in: [elements/particles/shapes/EmitterShape.ts:9](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/particles/shapes/EmitterShape.ts#L9)
 
 Velocidade inicial em world units / segundo.

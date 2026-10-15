@@ -6,7 +6,7 @@
 
 # Interface: ParametricSurfaceData
 
-Defined in: [elements/geometry/ParametricSurface.ts:27](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L27)
+Defined in: [elements/geometry/ParametricSurface.ts:82](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L82)
 
 Dado de uma `ParametricSurface`.
 
@@ -20,7 +20,9 @@ Dado de uma `ParametricSurface`.
 
 > **animated**: `boolean`
 
-Defined in: [elements/geometry/ParametricSurface.ts:32](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L32)
+Defined in: [elements/geometry/ParametricSurface.ts:92](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L92)
+
+Reavalia a cada quadro.
 
 ***
 
@@ -28,7 +30,9 @@ Defined in: [elements/geometry/ParametricSurface.ts:32](https://github.com/danta
 
 > **domain**: \[`number`, `number`, `number`, `number`\]
 
-Defined in: [elements/geometry/ParametricSurface.ts:29](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L29)
+Defined in: [elements/geometry/ParametricSurface.ts:86](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L86)
+
+Domínio [u0, u1, v0, v1].
 
 ***
 
@@ -36,17 +40,19 @@ Defined in: [elements/geometry/ParametricSurface.ts:29](https://github.com/danta
 
 > **indexCount**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:35](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L35)
+Defined in: [elements/geometry/ParametricSurface.ts:98](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L98)
+
+Índices (na adaptativa, a capacidade).
 
 ***
 
-### indices
+### indices?
 
-> **indices**: `Uint32Array`
+> `optional` **indices?**: `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/ParametricSurface.ts:33](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L33)
+Defined in: [elements/geometry/ParametricSurface.ts:94](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L94)
 
-Índices de triângulo.
+Índices fixos da grade uniforme (ausentes na adaptativa: escritos pela GPU).
 
 #### Overrides
 
@@ -58,7 +64,9 @@ Defined in: [elements/geometry/ParametricSurface.ts:33](https://github.com/danta
 
 > **params**: `number`[]
 
-Defined in: [elements/geometry/ParametricSurface.ts:31](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L31)
+Defined in: [elements/geometry/ParametricSurface.ts:90](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L90)
+
+Valores da pronta.
 
 ***
 
@@ -66,7 +74,9 @@ Defined in: [elements/geometry/ParametricSurface.ts:31](https://github.com/danta
 
 > **preset**: [`SurfacePreset`](../type-aliases/SurfacePreset.md)
 
-Defined in: [elements/geometry/ParametricSurface.ts:30](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L30)
+Defined in: [elements/geometry/ParametricSurface.ts:88](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L88)
+
+Superfície pronta (sem `SurfaceFunction`).
 
 ***
 
@@ -74,7 +84,9 @@ Defined in: [elements/geometry/ParametricSurface.ts:30](https://github.com/danta
 
 > **resolution**: \[`number`, `number`\]
 
-Defined in: [elements/geometry/ParametricSurface.ts:28](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L28)
+Defined in: [elements/geometry/ParametricSurface.ts:84](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L84)
+
+Vértices em u e em v (na adaptativa, os da grade uniforme de mesma precisão máxima).
 
 ***
 
@@ -82,7 +94,9 @@ Defined in: [elements/geometry/ParametricSurface.ts:28](https://github.com/danta
 
 > **vertexCount**: `number`
 
-Defined in: [elements/geometry/ParametricSurface.ts:34](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/ParametricSurface.ts#L34)
+Defined in: [elements/geometry/ParametricSurface.ts:96](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/ParametricSurface.ts#L96)
+
+Vértices (na adaptativa, a capacidade).
 
 ***
 
@@ -90,7 +104,7 @@ Defined in: [elements/geometry/ParametricSurface.ts:34](https://github.com/danta
 
 > `optional` **vertices?**: `Float32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/Geometry.ts#L17)
+Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/Geometry.ts#L17)
 
 Vértices intercalados (posição, normal, uv).
 
@@ -104,7 +118,7 @@ Vértices intercalados (posição, normal, uv).
 
 > `optional` **wireEdges?**: `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/geometry/Geometry.ts#L24)
+Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/geometry/Geometry.ts#L24)
 
 Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
 (de feição nas geometrias estáticas: sem as diagonais de faces planas).

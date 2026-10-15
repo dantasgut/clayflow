@@ -6,7 +6,7 @@
 
 # Class: MPMFlow
 
-Defined in: [elements/physics/flows/MPMFlow.ts:83](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L83)
+Defined in: [elements/physics/flows/MPMFlow.ts:83](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L83)
 
 MPMFlow — corpos por Material Point Method (MLS-MPM: limpa grade → P2G → atualização da grade → G2P → colisão):
 fluido fracamente compressível (`MPMFluidSchema`) ou sólido neo-Hookean (`MPMSoftSchema`), conforme o `bodyType` do
@@ -30,7 +30,7 @@ religados em transições (`framePrepare` para grade e parâmetros; entidades/po
 
 > **new MPMFlow**(`ctx`, `options?`): `MPMFlow`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:102](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L102)
+Defined in: [elements/physics/flows/MPMFlow.ts:102](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L102)
 
 #### Parameters
 
@@ -56,7 +56,7 @@ Defined in: [elements/physics/flows/MPMFlow.ts:102](https://github.com/dantasgut
 
 > `readonly` **bindings**: `BindingSources`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:87](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L87)
+Defined in: [elements/physics/flows/MPMFlow.ts:87](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L87)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -70,7 +70,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"running"`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:88](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L88)
+Defined in: [elements/physics/flows/MPMFlow.ts:88](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L88)
 
 Estado inicial do algoritmo.
 
@@ -84,7 +84,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -98,7 +98,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/flows/MPMFlow.ts:86](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L86)
+Defined in: [elements/physics/flows/MPMFlow.ts:86](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L86)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -112,7 +112,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`MPMSlots`](../interfaces/MPMSlots.md)
 
-Defined in: [elements/physics/flows/MPMFlow.ts:85](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L85)
+Defined in: [elements/physics/flows/MPMFlow.ts:85](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L85)
 
 Slots consumidos, por nome.
 
@@ -126,7 +126,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"running"`, `TransitionContext`\<[`MPMSlots`](../interfaces/MPMSlots.md)\>\>
 
-Defined in: [elements/physics/flows/MPMFlow.ts:89](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L89)
+Defined in: [elements/physics/flows/MPMFlow.ts:89](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L89)
 
 Tabela de transições (estado × evento).
 
@@ -140,7 +140,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"MPMFlow"` = `'MPMFlow'`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L84)
+Defined in: [elements/physics/flows/MPMFlow.ts:84](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L84)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -156,7 +156,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -176,7 +176,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -194,7 +194,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:191](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L191)
+Defined in: [elements/physics/flows/MPMFlow.ts:191](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L191)
 
 Grava as iterações do quadro (decididas em `framePrepare`).
 
@@ -222,7 +222,7 @@ Grava as iterações do quadro (decididas em `framePrepare`).
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/MPMFlow.ts:226](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/MPMFlow.ts#L226)
+Defined in: [elements/physics/flows/MPMFlow.ts:226](https://github.com/dantasgut/clayflow/blob/578e874c02e0ea7a21451e81f9bd44b18ded2074/src/elements/physics/flows/MPMFlow.ts#L226)
 
 Libera parâmetros, grade e colliders.
 
