@@ -30,6 +30,7 @@ import * as clayflow from 'clayflow';
 import type { EntityId } from 'clayflow';
 import {
     capture,
+    SPIRAL_EMIT_CODE,
     readPool,
     meanOf,
     PUSH_CODE,
@@ -383,6 +384,118 @@ const CASES: Record<string, Case> = {
         c.check(share >= 0.9, `só ${(share * 100).toFixed(0)} % no anel`);
         c.hash('ring', bytes);
         app.dispose();
+        return c.result();
+    },
+
+    /**
+     * SC-005: emissor em cone (1 000/s, vida 2 s) — vivas em regime = taxa × vida ± 1 %; toda partícula nasce dentro
+     * do cone (sem gravidade, a velocidade não muda). Emissor do usuário (espiral pelo índice): posições pela função.
+     */
+    async emitters() {
+        const c = collector();
+        const read = async (app: Application, emitter: clayflow.ComputeParticleEmitter) => {
+            const spec = app.resources.bufferOf(emitter, 'particles');
+            if (spec === undefined) throw new Error('emissor sem buffer de partículas');
+            const staging = app.core.create<clayflow.StagingBufferSpec>({
+                kind: 'buffer',
+                subkind: 'staging',
+                discriminator: `emitter_readback_${spec.byteSize}`,
+                byteSize: spec.byteSize,
+            });
+            app.core.record('emitter-readback', (frame) => {
+                frame.copy(spec, staging, spec.byteSize);
+            });
+            app.core.submit();
+            const bytes = new Uint8Array(await app.core.readback(staging));
+            app.core.destroy(staging);
+            return bytes;
+        };
+        {
+            const app = await createApp();
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, 0, 0, 0] }));
+            const half = Math.PI / 8;
+            const emitter = new clayflow.ComputeParticleEmitter({
+                maxParticles: 4096,
+                rate: 1000,
+                lifetime: 2,
+                shape: new clayflow.ConeEmitterShape([0, 0, 0], [0, 1, 0], half, 2),
+            });
+            app.world.insert(
+                emitter
+                    .add(new clayflow.PointCloudGeometry({ maxPoints: 4096 }))
+                    .add(new clayflow.PointSpriteMaterial())
+                    .add(new Transform()),
+            );
+            await settle(app);
+            for (let k = 0; k < 300; k++) app.step(1 / 60);
+            const bytes = await read(app, emitter);
+            const f = new Float32Array(bytes.buffer);
+            let alive = 0;
+            let outside = 0;
+            for (let i = 0; i < 4096; i++) {
+                const o = i * 16;
+                if (!(f[o + 9]! > 0)) continue;
+                alive++;
+                const v = [f[o + 4]!, f[o + 5]!, f[o + 6]!];
+                const cos = v[1]! / Math.hypot(...v);
+                if (cos < Math.cos(half) - 1e-5) outside++;
+            }
+            c.measure('cone: vivas', alive);
+            c.check(
+                Math.abs(alive / 2000 - 1) <= 0.01,
+                `cone: ${alive} vivas (esperado 2000 ± 1 %)`,
+            );
+            c.check(outside === 0, `cone: ${outside} partículas fora do cone`);
+            app.dispose();
+        }
+        {
+            const app = await createApp();
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, 0, 0, 0] }));
+            const emitter = new clayflow.ComputeParticleEmitter({
+                maxParticles: 512,
+                rate: 60,
+                lifetime: 100,
+            });
+            app.world.insert(
+                emitter
+                    .add(new clayflow.PointCloudGeometry({ maxPoints: 512 }))
+                    .add(new clayflow.PointSpriteMaterial())
+                    .add(new Transform())
+                    .add(
+                        new clayflow.EmitFunction({
+                            code: SPIRAL_EMIT_CODE,
+                            params: { radius: 'f32' },
+                            values: { radius: 0.5 },
+                        }),
+                    ),
+            );
+            await settle(app);
+            for (let k = 0; k < 120; k++) app.step(1 / 60);
+            const bytes = await read(app, emitter);
+            const f = new Float32Array(bytes.buffer);
+            let worst = 0;
+            let alive = 0;
+            for (let i = 0; i < 512; i++) {
+                const o = i * 16;
+                if (!(f[o + 9]! > 0)) continue;
+                alive++;
+                const a = i * 0.1;
+                worst = Math.max(
+                    worst,
+                    Math.hypot(
+                        f[o]! - 0.5 * Math.cos(a),
+                        f[o + 1]! - i * 0.01,
+                        f[o + 2]! - 0.5 * Math.sin(a),
+                    ),
+                );
+            }
+            c.measure('espiral: vivas', alive);
+            c.measure('espiral: erro máximo (m)', worst);
+            c.check(alive === 120, `espiral: ${alive} vivas (esperado 120)`);
+            c.check(worst <= 1e-5, `espiral fora da função (${worst})`);
+            c.hash('spiral', bytes);
+            app.dispose();
+        }
         return c.result();
     },
 

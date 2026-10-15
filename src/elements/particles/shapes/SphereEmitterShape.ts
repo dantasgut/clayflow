@@ -1,4 +1,4 @@
-import type { EmitterShape, SpawnSample } from './EmitterShape';
+import type { EmitterShape, EmitterShapeGpu, SpawnSample } from './EmitterShape';
 
 export class SphereEmitterShape implements EmitterShape {
     constructor(
@@ -25,5 +25,10 @@ export class SphereEmitterShape implements EmitterShape {
             ] as const,
             velocity: [dx * this.speed, dy * this.speed, dz * this.speed] as const,
         };
+    }
+
+    /** Esfera na GPU: superfície do raio em torno do centro, velocidade radial. */
+    gpu(): EmitterShapeGpu {
+        return { kind: 1, a: this.center, b: [0, 0, 0], s: [this.radius, this.speed] };
     }
 }

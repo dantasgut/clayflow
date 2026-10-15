@@ -204,3 +204,15 @@ fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams)
     let radial = -d / r * (r - data.radius);
     return (radial + vec3f(0.0, data.y - x.y, 0.0)) * data.k;
 }`;
+
+/** Emissor em espiral: a partícula i nasce em (r·cos 0,1i, 0,01i, r·sin 0,1i), parada, com vida longa. */
+export const SPIRAL_EMIT_CODE = /* wgsl */ `
+fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle {
+    let a = f32(i) * 0.1;
+    var p: EmittedParticle;
+    p.position = vec3f(data.radius * cos(a), f32(i) * 0.01, data.radius * sin(a));
+    p.velocity = vec3f(0.0);
+    p.life = 100.0;
+    p.color = vec4f(0.2, 0.6, 1.0, 1.0);
+    return p;
+}`;

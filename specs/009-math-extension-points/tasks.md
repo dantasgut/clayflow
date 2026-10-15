@@ -36,9 +36,9 @@ contracts/extension-points, quickstart)
 - [x] T018 [US2] Ponto `field` e módulo `fieldAccel` (pronto sem campos = `vec3f(0)`; com campos: laço no pool + funções do usuário somadas por função gerada; vento com turbulência pelo `noise`); `FieldBody`; `FieldFunction` em `src/elements/extension/FieldFunction.ts`, `src/elements/gpu/wgsl/math/field_accel.wgsl`
 - [x] T019 [US2] Solvers: `v += (g + field_accel(...)) · dt` em `predict`, `fem_predict`, `pbf_predict`, `sph_forces`, `mpm_grid_update`, `rb_predict` e os Flows `LCPFlow`, `XPBDFlow`, `FEMFlow`, `MPMFlow`, `SPHFlow`, `PBFFlow` (slot do pool de campos, `time`, recompilação ao entrar função do usuário) em `src/elements/physics/flows/` e `src/elements/gpu/wgsl/kernels/`; testes de parâmetros
 - [x] T020 [US2] Verificar: `trajectories`, `particles`, `fluidSurface`, `fluidBehavior`, `contactSet`, `softSurface` idênticos sem campos
-- [ ] T021 [US2] Ponto `emit`, prontas ponto/esfera/cone em WGSL, `EmitFunction`; `ComputeParticleEmitter` com taxa, vida, capacidade e semente em `src/elements/extension/EmitFunction.ts`, `src/elements/particles/ComputeParticleEmitter.ts`
-- [ ] T022 [US2] `EmitterFlow`: acumulador na CPU, anel na GPU, kernels `emit_spawn`, `emit_update` (campos + gravidade, idade, morte), `emit_vertex_write` para `PointCloudGeometry` + `PointSpriteMaterial` em `src/elements/particles/EmitterFlow.ts`, `src/elements/gpu/wgsl/kernels/emit_*.wgsl`, registro em `defaultFlows`; testes do acumulador e da contagem
-- [ ] T023 [US2] Casos do smoke: vento em todos os solvers (SC-004), vórtice/arrasto/empuxo, campo do usuário (anel), emissor em cone (SC-005), emissor espiral do usuário em `src/__smokes__/extensionPoints.ts`
+- [x] T021 [US2] Ponto `emit`, prontas ponto/esfera/cone em WGSL, `EmitFunction`; `ComputeParticleEmitter` com taxa, vida, capacidade e semente em `src/elements/extension/EmitFunction.ts`, `src/elements/particles/ComputeParticleEmitter.ts`
+- [x] T022 [US2] `EmitterFlow`: acumulador na CPU, anel na GPU, kernels `emit_spawn`, `emit_update` (campos + gravidade, idade, morte), `emit_vertex_write` para `PointCloudGeometry` + `PointSpriteMaterial` em `src/elements/particles/EmitterFlow.ts`, `src/elements/gpu/wgsl/kernels/emit_*.wgsl`, registro em `defaultFlows`; testes do acumulador e da contagem
+- [x] T023 [US2] Casos do smoke: vento em todos os solvers (SC-004), vórtice/arrasto/empuxo, campo do usuário (anel), emissor em cone (SC-005), emissor espiral do usuário em `src/__smokes__/extensionPoints.ts`
 
 ## Phase 5: US3 — surface, space e material (P2)
 

@@ -13,6 +13,9 @@
     "builtinFields": {},
     "ring": {
       "ring": "18815c61"
+    },
+    "emitters": {
+      "spiral": "a471ec46"
     }
   }
 }

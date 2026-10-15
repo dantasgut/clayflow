@@ -16,6 +16,7 @@ import { WaterSurface } from '../app/WaterSurface';
 import { FluidSurfaceFlow } from './FluidSurfaceFlow';
 import { CausticsFlow } from './CausticsFlow';
 import { WaterFlow } from './WaterFlow';
+import { EmitterFlow } from '../../elements/particles/EmitterFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -198,6 +199,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         priority: -100,
     });
     const uiRegistration = flows.register((ctx) => new UIFlow(ctx), { type: 'ui', phase: 'ui' });
+    // Emissores de partículas na GPU (spec 009) depois dos solvers: integram os mesmos campos.
+    const emitterRegistration = flows.register((ctx) => new EmitterFlow(ctx), {
+        type: 'emitters',
+        phase: 'physics',
+        priority: -100,
+    });
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
@@ -231,6 +238,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             postRegistration,
             debugRegistration,
             uiRegistration,
+            emitterRegistration,
             ...solvers,
         ],
     };

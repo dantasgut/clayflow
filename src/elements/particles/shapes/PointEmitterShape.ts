@@ -1,4 +1,4 @@
-import type { EmitterShape, SpawnSample } from './EmitterShape';
+import type { EmitterShape, EmitterShapeGpu, SpawnSample } from './EmitterShape';
 
 export class PointEmitterShape implements EmitterShape {
     constructor(
@@ -8,5 +8,10 @@ export class PointEmitterShape implements EmitterShape {
 
     sample(_rng: () => number): SpawnSample {
         return { position: this.position, velocity: this.velocity };
+    }
+
+    /** Ponto na GPU: posição e velocidade fixas. */
+    gpu(): EmitterShapeGpu {
+        return { kind: 0, a: this.position, b: this.velocity, s: [0, 0] };
     }
 }

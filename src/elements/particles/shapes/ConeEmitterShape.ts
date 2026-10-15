@@ -1,4 +1,4 @@
-import type { EmitterShape, SpawnSample } from './EmitterShape';
+import type { EmitterShape, EmitterShapeGpu, SpawnSample } from './EmitterShape';
 
 export class ConeEmitterShape implements EmitterShape {
     constructor(
@@ -26,5 +26,10 @@ export class ConeEmitterShape implements EmitterShape {
             position: [ox, oy, oz] as const,
             velocity: [dx * speed + dirx, dy * speed + diry, dz * speed + dirz] as const,
         };
+    }
+
+    /** Cone na GPU: do vértice, dentro do meio-ângulo em torno da direção, com a velocidade dada. */
+    gpu(): EmitterShapeGpu {
+        return { kind: 2, a: this.origin, b: this.direction, s: [this.halfAngle, this.speed] };
     }
 }

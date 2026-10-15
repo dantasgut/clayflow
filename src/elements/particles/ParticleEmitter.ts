@@ -19,6 +19,8 @@ export interface ParticleEmitterOptions {
     readonly lifetime?: number;
     /** Shape de emissão (sphere, cone, box, point). Default: ponto na origem. */
     readonly shape?: EmitterShape;
+    /** Semente do sorteio da emissão na GPU (padrão 1). */
+    readonly seed?: number;
 }
 
 /** Dado de um `ParticleEmitter`. */
@@ -31,6 +33,8 @@ export interface ParticleEmitterData {
     lifetime: number;
     /** Forma de emissão. */
     shape: EmitterShape | undefined;
+    /** Semente do sorteio da emissão na GPU. */
+    seed: number;
 }
 
 /**
@@ -48,6 +52,7 @@ export abstract class ParticleEmitter extends Entity<ParticleEmitterData> implem
             rate: options.rate ?? 100,
             lifetime: options.lifetime ?? 2.0,
             shape: options.shape,
+            seed: options.seed ?? 1,
         };
     }
 
