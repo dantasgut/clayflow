@@ -63,7 +63,11 @@ fica abaixo da superfície e que os corpos repousam sobre ela.
    partícula fica abaixo da superfície, e o centróide do fluido desce para a região mais baixa (vale) do terreno.
 3. **Given** um terreno que anima (altura que sobe e desce no tempo), **When** um corpo repousa sobre ele, **Then** o
    corpo acompanha a superfície (não a atravessa nem fica flutuando além da folga).
-4. **Given** uma cena sem superfícies colidíveis, **When** corre, **Then** as trajetórias são idênticas, bit a bit, às
+4. **Given** água (o fluido de partículas com a superfície contínua da 017: refração, absorção e cáusticas) solta
+   sobre o terreno colidível, **When** corre 6 s, **Then** a água escorre pelas encostas e forma um lago no vale: nenhuma
+   partícula abaixo da superfície, o nível do lago fica estável (sem vazar pelo terreno) e a superfície da água e as
+   cáusticas aparecem sobre o fundo do vale.
+5. **Given** uma cena sem superfícies colidíveis, **When** corre, **Then** as trajetórias são idênticas, bit a bit, às
    atuais.
 
 ---
@@ -219,6 +223,9 @@ ela e a superfície da GPU fica clara (uma delas é o caminho recomendado; a out
 - **SC-001**: Terreno: 50 corpos rígidos em 6 s — nenhum abaixo da superfície além da folga, ≥ 95 % em repouso.
 - **SC-002**: Fluidos (SPH, PBF, MPM) no terreno: nenhuma partícula abaixo da superfície; o centróide termina no vale
   (abaixo da altura média do terreno na área).
+- **SC-002a**: Água no terreno: lago no vale em 6 s — nenhuma partícula abaixo da superfície, nível do lago estável
+  (variação ≤ 1 espaçamento no último segundo), 0 partículas escapando por baixo do terreno; a imagem mostra a
+  superfície da água e as cáusticas no fundo do vale.
 - **SC-003**: Superfície geral (toro, esfera): nenhuma penetração de corpos além da folga; nenhuma partícula de fluido
   com distância negativa além de meio espaçamento.
 - **SC-004**: Curvaturas: esfera (K = 1/r², H = 1/r) com erro ≤ 1 %; toro com erro ≤ 2 %; sem valores não finitos.
@@ -229,7 +236,7 @@ ela e a superfície da GPU fica clara (uma delas é o caminho recomendado; a out
   CPU, listadas).
 - **SC-008**: 30/60/144 Hz: mesmo estado com terreno colidível animado.
 - **SC-009**: `bench:check` sem regressão; smokes no fonte e com `--dist`; `npm run ci` verde.
-- **SC-010**: Vídeos (terreno colidível com corpos e fluido; superfície deformando com malha adaptativa; material por
+- **SC-010**: Vídeos (terreno colidível com corpos e água formando um lago, com superfície e cáusticas; superfície deformando com malha adaptativa; material por
   curvatura) enviados ao usuário.
 
 ## Assumptions
