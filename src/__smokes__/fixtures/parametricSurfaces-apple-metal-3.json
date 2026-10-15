@@ -47,6 +47,9 @@
     "adaptive": {
       "terrain": "693ee014",
       "sphere": "ad43f19e"
+    },
+    "cpuNormals": {
+      "normals": "b5e549ca"
     }
   }
 }

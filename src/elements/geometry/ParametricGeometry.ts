@@ -33,8 +33,10 @@ export interface ParametricGeometryData extends GeometryData {
  * (sphere, torus, möbius, etc.) sem pré-computar mesh data.
  *
  * Subdivisão é controlada por `uSteps × vSteps` (default 32×32 = 1024 quads).
- * Normais são placeholder (always [0, 1, 0]) — apps que precisam de
- * shading correto devem post-processar com derivada cross-product.
+ * Normais por diferenças centrais da própria função (spec 010): `normalize(∂f/∂v × ∂f/∂u)`, o lado da frente dos
+ * triângulos (enrolamento `a, c, b`); uma só lateral nas bordas do domínio e recuo para dentro em pontos degenerados
+ * (polos). Para superfícies avaliadas na GPU (derivadas analíticas, animação, geometria diferencial), prefira a
+ * `ParametricSurface`.
  */
 export class ParametricGeometry extends Geometry<ParametricGeometryData> {
     /** Vertex layout: position (vec3) + normal (vec3) + uv (vec2). */
@@ -108,7 +110,8 @@ function sample(
             const u = j / uSteps,
                 v = i / vSteps;
             const [x, y, z] = fn(u, v);
-            verts.push(x, y, z, 0, 1, 0, u, v);
+            const [nx, ny, nz] = normalAt(fn, u, v);
+            verts.push(x, y, z, nx, ny, nz, u, v);
         }
     }
     const idx: number[] = [];
@@ -123,4 +126,44 @@ function sample(
         }
     }
     return { vertices: new Float32Array(verts), indices: idx };
+}
+
+/** Passo das diferenças em (u, v) ∈ [0, 1]². */
+const H = 1e-4;
+
+/** Derivada de `fn` na direção `axis` (0 = u, 1 = v): central, ou de uma só lateral na borda do domínio. */
+function derivative(fn: ParametricFunction, u: number, v: number, axis: 0 | 1): number[] {
+    const at = (t: number): readonly [number, number, number] => (axis === 0 ? fn(t, v) : fn(u, t));
+    const t = axis === 0 ? u : v;
+    const lo = Math.max(0, t - H);
+    const hi = Math.min(1, t + H);
+    const a = at(lo);
+    const b = at(hi);
+    return [0, 1, 2].map((k) => (b[k]! - a[k]!) / (hi - lo));
+}
+
+/**
+ * Normal do lado da frente em (u, v): `normalize(∂f/∂v × ∂f/∂u)`. Ponto degenerado (polo: uma derivada some) usa as
+ * derivadas de um pouco para dentro do domínio em v e depois em u; sem nenhuma, `[0, 1, 0]`.
+ */
+function normalAt(fn: ParametricFunction, u: number, v: number): [number, number, number] {
+    const tries: [number, number][] = [
+        [u, v],
+        [u, v < 0.5 ? v + 1e-3 : v - 1e-3],
+        [u < 0.5 ? u + 1e-3 : u - 1e-3, v],
+    ];
+    for (const [pu, pv] of tries) {
+        const du = derivative(fn, pu, pv, 0);
+        const dv = derivative(fn, pu, pv, 1);
+        const n = [
+            dv[1]! * du[2]! - dv[2]! * du[1]!,
+            dv[2]! * du[0]! - dv[0]! * du[2]!,
+            dv[0]! * du[1]! - dv[1]! * du[0]!,
+        ];
+        const len = Math.hypot(n[0]!, n[1]!, n[2]!);
+        const scale = Math.hypot(...du) * Math.hypot(...dv);
+        if (Number.isFinite(len) && len > 1e-9 * Math.max(scale, 1e-30))
+            return [n[0]! / len, n[1]! / len, n[2]! / len];
+    }
+    return [0, 1, 0];
 }

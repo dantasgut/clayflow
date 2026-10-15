@@ -1206,6 +1206,29 @@ const CASES: Record<string, Case> = {
         return c.result();
     },
 
+    /** Normais da geometria paramétrica de CPU a ≤ 1° da analítica na esfera (SC-006). */
+    async cpuNormals() {
+        const c = collector();
+        const sphere = (u: number, v: number): [number, number, number] => {
+            const a = 2 * Math.PI * u;
+            const b = Math.PI * v;
+            return [Math.sin(b) * Math.cos(a), Math.cos(b), -Math.sin(b) * Math.sin(a)];
+        };
+        const g = new clayflow.ParametricGeometry({ fn: sphere, uSteps: 64, vSteps: 32 });
+        const v = g.data.vertices!;
+        let worst = 0;
+        for (let i = 0; i < g.vertexCount; i++) {
+            const p = [v[i * 8]!, v[i * 8 + 1]!, v[i * 8 + 2]!];
+            const n = [v[i * 8 + 3]!, v[i * 8 + 4]!, v[i * 8 + 5]!];
+            const dot = (p[0]! * n[0]! + p[1]! * n[1]! + p[2]! * n[2]!) / Math.hypot(...p);
+            worst = Math.max(worst, (Math.acos(Math.min(1, Math.max(-1, dot))) * 180) / Math.PI);
+        }
+        const deg = c.measure('maior desvio da radial (graus)', worst);
+        c.check(deg <= 1, `normais a ${deg}° da radial`);
+        c.hash('normals', new Uint8Array(v.buffer));
+        return c.result();
+    },
+
     /** SPH, PBF e MPM sobre o vale: nenhuma partícula abaixo, centróide no vale (SC-002). */
     async fluids() {
         const c = collector();

@@ -48,8 +48,8 @@ contracts/surfaces, quickstart)
 
 ## Phase 6: US4 — geometria de CPU (P3)
 
-- [ ] T027 [US4] Normais por diferenças centrais da função (`h = 1e-4`, recuo em bordas e polos, lado da frente do enrolamento) em `src/elements/geometry/ParametricGeometry.ts`; testes em `src/elements/geometry/__tests__/ParametricGeometry.test.ts`
-- [ ] T028 [US4] Smoke `bigMesh` com a luz de frente para o plano (critério igual) em `src/__smokes__/bigMesh.ts`; caso `cpu-normals` (esfera ≤ 1° da radial — SC-006); fixtures afetadas listadas (esperado: nenhuma)
+- [x] T027 [US4] Normais por diferenças centrais da função (`h = 1e-4`, recuo em bordas e polos, lado da frente do enrolamento) em `src/elements/geometry/ParametricGeometry.ts`; testes em `src/elements/geometry/__tests__/ParametricGeometry.test.ts`
+- [x] T028 [US4] Smoke `bigMesh` com a luz de frente para o plano (critério igual) em `src/__smokes__/bigMesh.ts`; caso `cpu-normals` (esfera ≤ 1° da radial — SC-006); fixtures afetadas listadas (esperado: nenhuma)
 
 ## Phase 7: Polish
 
