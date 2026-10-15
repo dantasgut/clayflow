@@ -20,7 +20,7 @@ import {
     Transform,
 } from 'clayflow';
 import * as clayflow from 'clayflow';
-import { settle } from './support/extensionScenes';
+import { readBuffer, settle } from './support/extensionScenes';
 import { gpuProfile, readJsonFixture, recording, writeJsonFixture } from './support/fixtures';
 import { hashBytes } from './support/fluidMeasures';
 import { block } from './support/particleScenes';
@@ -225,6 +225,81 @@ const CASES: Record<string, Case> = {
             'valores não finitos',
         );
         c.hash('bodies', bytesOf(pos));
+        return c.result();
+    },
+
+    /** XPBD, FEM e emissor — que antes não colidiam com nada — sobre o vale: nada abaixo da superfície (FR-004). */
+    async solvers() {
+        const c = collector();
+        const app = await createApp();
+        view(app);
+        app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+        insertValley(app, clayflow);
+        // Corrente XPBD de 16 nós solta na horizontal; bloco FEM de 27 nós; emissor em cone para cima.
+        const n = 16;
+        const links = Array.from({ length: n - 1 }, (_, i) => i);
+        app.world.insert(
+            new clayflow.SoftBody({
+                algorithm: 'XPBD',
+                position: Array.from({ length: n }, (_, i) => [-0.75 + i * 0.1, 0.2, 0.3]).flat(),
+                mass: 0.1,
+                edges: {
+                    a: links,
+                    b: links.map((i) => i + 1),
+                    restLength: links.map(() => 0.1),
+                    compliance: 1e-6,
+                },
+            }),
+        );
+        app.world.insert(
+            new clayflow.SoftBody({
+                algorithm: 'FEM',
+                position: block(27, 0.1, [-0.1, 0.1, -0.4], 3).flat(),
+                mass: 0.05,
+            }),
+        );
+        const emitter = new clayflow.ComputeParticleEmitter({
+            maxParticles: 512,
+            rate: 200,
+            lifetime: 10,
+            shape: new clayflow.ConeEmitterShape([0.4, 0.3, -0.2], [0, 1, 0], 0.4, 1.5),
+        });
+        app.world.insert(
+            emitter
+                .add(new clayflow.PointCloudGeometry({ maxPoints: 512 }))
+                .add(new clayflow.PointSpriteMaterial())
+                .add(new Transform()),
+        );
+        await settle(app);
+        run(app, 240);
+        const xpbd = await readPositions(app, clayflow.XPBDSoftSchema);
+        const fem = await readPositions(app, clayflow.FEMSchema);
+        const spec = app.resources.bufferOf(emitter, 'particles');
+        if (spec === undefined) throw new Error('emissor sem partículas');
+        const raw = await readBuffer(app, spec, 'emitter');
+        app.dispose();
+        const emitted: [number, number, number][] = [];
+        for (let i = 0; i < raw.length / 16; i++)
+            if (raw[i * 16 + 9]! > 0)
+                emitted.push([raw[i * 16]!, raw[i * 16 + 1]!, raw[i * 16 + 2]!]);
+        for (const [name, pts, radius] of [
+            ['XPBD', xpbd, 0.05],
+            ['FEM', fem, 0.05],
+            ['emissor', emitted, 0],
+        ] as const) {
+            let below = 0;
+            for (const p of pts)
+                if (p[1] - valleyHeight(p[0], p[2]) < radius - CONTACT_SLOP) below++;
+            c.measure(`${name}: elementos`, pts.length);
+            c.measure(`${name}: abaixo da superfície`, below);
+            c.check(pts.length > 0, `${name}: nenhum elemento`);
+            c.check(below === 0, `${name}: ${below} abaixo da superfície`);
+            c.check(
+                pts.every((p) => p.every(Number.isFinite)),
+                `${name}: valores não finitos`,
+            );
+            c.hash(name, bytesOf(pts));
+        }
         return c.result();
     },
 

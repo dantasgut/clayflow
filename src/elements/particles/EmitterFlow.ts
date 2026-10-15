@@ -8,6 +8,7 @@ import {
     slot,
     type EntitiesSlot,
     type PoolSlot,
+    type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
 } from '../../scene/flows/slots';
@@ -19,9 +20,12 @@ import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { EmitFunction } from '../extension/EmitFunction';
 import { PointCloudGeometry } from '../geometry/PointCloudGeometry';
 import { GravityField } from '../physics/forcefields/GravityField';
+import { LCPSchema } from '../physics/bodies/schemas/LCPSchema';
+import { Collider } from '../physics/colliders/Collider';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
 import { ComputeParticleEmitter } from './ComputeParticleEmitter';
 import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
-import { emitPoint, emitSpawn, emitUpdate } from './shaders';
+import { emitCollide, emitPoint, emitSpawn, emitUpdate } from './shaders';
 
 const WORKGROUP_SIZE = 64;
 
@@ -37,6 +41,10 @@ export interface EmitterSlots extends SlotMap {
     readonly gravity: SingletonSlot<true>;
     /** Relógio da cena. */
     readonly time: SingletonSlot<false>;
+    /** Pools dos colliders e dos corpos donos (spec 010: as partículas colidem com os colliders). */
+    readonly colliderPools: PoolsSlot;
+    /** Entidades com collider. */
+    readonly colliders: EntitiesSlot;
 }
 
 const slots: EmitterSlots = {
@@ -48,6 +56,8 @@ const slots: EmitterSlots = {
     fnRecords: slot.pool(EmitFnRecordSchema.name, { optional: true }),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
     time: slot.singleton(Time.schema),
+    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+    colliders: slot.entities({ all: [Collider] }),
 };
 
 type Ctx = TransitionContext<EmitterSlots>;
@@ -65,6 +75,8 @@ interface EmitterState {
     spawnActive: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
     spawnPending: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
     readonly updateId: string;
+    /** Pipeline da colisão com os colliders (spec 010). */
+    readonly collideId: string;
 }
 
 /**
@@ -88,6 +100,9 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
     /** Substituto do pool de registros das funções (emissores sem `EmitFunction`). */
     private readonly dummyRecords: StorageBufferSpec;
     private dirty = true;
+    private readonly colliderSet: ColliderSet;
+    /** Colliders na cena no quadro: grava a colisão depois de cada passo (spec 010). */
+    private collide = false;
 
     constructor(ctx: FlowContext) {
         super();
@@ -99,10 +114,16 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
             discriminator: 'emit_fn_records_dummy',
             byteSize: EmitFnRecordSchema.stride,
         });
+        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+            discriminator: 'emit_colliders',
+        });
         const changed = {
             to: 'idle' as const,
-            run: (): void => {
+            run: (e: { type: string; poolKey?: string }): void => {
                 this.dirty = true;
+                this.colliderSet.markDirty();
+                if (e.type === 'poolReallocated' && e.poolKey !== undefined)
+                    this.colliderSet.onPoolReallocated(e.poolKey);
             },
         };
         this.transitions = {
@@ -137,6 +158,8 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 framePrepare: {
                     to: 'idle',
                     run: (_e, c) => {
+                        if (this.colliderSet.refresh()) c.bind(this.colliderSet.sources());
+                        this.collide = this.colliderSet.totalCount > 0;
                         this.sync(c);
                         this.writeSteps(c);
                     },
@@ -171,6 +194,15 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                     );
                     pass.dispatch.invocations(capacity, WORKGROUP_SIZE);
                 });
+                const collide = this.collide ? bound.pipelines.get(st.collideId) : undefined;
+                if (collide?.role === 'compute' && collide.ready)
+                    frame.compute('EmitterFlow.collide', (pass) => {
+                        pass.bind.setPipeline(collide.spec);
+                        collide.groups.forEach((bg, g) =>
+                            pass.bind.setBindGroup(g, bg, collide.dynamic[g] ? offset : undefined),
+                        );
+                        pass.dispatch.invocations(capacity, WORKGROUP_SIZE);
+                    });
             });
         }
     }
@@ -180,6 +212,7 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
         for (const st of this.states.values()) st.params.dispose();
         this.states.clear();
         this.core.destroy(this.dummyRecords);
+        this.colliderSet.destroy();
     }
 
     /**
@@ -213,6 +246,7 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                     spawnActive: undefined,
                     spawnPending: undefined,
                     updateId: `emit_update:${id}`,
+                    collideId: `emit_collide:${id}`,
                 };
                 st.params.reserve(1);
                 this.states.set(id, st);
@@ -230,6 +264,18 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 role: 'compute',
                 shader: emitUpdate,
                 entryPoints: ['emit_update_main'],
+                consumes: [],
+            });
+            ctx.bind({
+                [`${st.collideId}:emit_params`]: params,
+                [`${st.collideId}:emit_particles`]: particles,
+                [`${st.collideId}:emit_vertices`]: vertices,
+            });
+            ctx.prepare({
+                id: st.collideId,
+                role: 'compute',
+                shader: emitCollide,
+                entryPoints: ['emit_collide_main'],
                 consumes: [],
             });
             const fn = functions.entry(id)?.get(EmitFunction);
@@ -270,7 +316,7 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
-            for (const pid of [st.updateId, st.spawnActive?.id, st.spawnPending?.id])
+            for (const pid of [st.updateId, st.collideId, st.spawnActive?.id, st.spawnPending?.id])
                 if (pid !== undefined) ctx.release(pid);
             st.params.dispose();
             this.states.delete(id);
@@ -297,7 +343,12 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
             const hasFn = functions.entry(st.id) !== undefined && record !== undefined;
             if (st.params.reserve(Math.max(1, steps))) {
                 const params = st.params.source();
-                for (const pid of [st.spawnActive?.id, st.spawnPending?.id, st.updateId])
+                for (const pid of [
+                    st.spawnActive?.id,
+                    st.spawnPending?.id,
+                    st.updateId,
+                    st.collideId,
+                ])
                     if (pid !== undefined) ctx.bind({ [`${pid}:emit_params`]: params });
             }
             st.spawn = [];

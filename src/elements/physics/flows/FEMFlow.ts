@@ -11,13 +11,18 @@ import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
     slot,
     type BodiesSlot,
+    type EntitiesSlot,
+    type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
 } from '../../../scene/flows/slots';
 import { Time } from '../../../scene/time/Time';
 import { GravityField } from '../forcefields/GravityField';
 import { FEMSimParamsSchema } from '../schemas/simParams';
-import { femPredict, femVelocityUpdate } from '../shaders/fem';
+import { femCollide, femPredict, femVelocityUpdate } from '../shaders/fem';
+import { Collider } from '../colliders/Collider';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
+import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Opções do `FEMFlow`. */
@@ -40,12 +45,18 @@ export interface FEMSlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
     readonly gravity: SingletonSlot<true>;
+    /** Pools dos colliders e dos corpos donos (spec 010: os nós colidem com os colliders). */
+    readonly colliderPools: PoolsSlot;
+    /** Entidades com collider. */
+    readonly colliders: EntitiesSlot;
 }
 
 const slots: FEMSlots = {
     bodies: slot.bodies(),
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
+    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+    colliders: slot.entities({ all: [Collider] }),
 };
 
 type Ctx = TransitionContext<FEMSlots>;
@@ -66,20 +77,49 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<FEMSlots>> = {
         '*': {
-            slotsResolved: 'ignore',
-            slotChanged: 'ignore',
+            slotsResolved: {
+                to: 'running',
+                run: (_e, c) => {
+                    this.refreshColliders(c);
+                },
+            },
+            slotChanged: {
+                to: 'running',
+                run: (_e, c) => {
+                    this.refreshColliders(c);
+                },
+            },
+            // Entidades com collider entram/saem em massa: só marca; a reconstrução é uma por quadro.
+            entitiesChanged: {
+                to: 'running',
+                run: () => {
+                    this.colliderSet.markDirty();
+                },
+            },
             slotLost: 'ignore',
             pipelinesCompiled: 'ignore',
             bindGroupReplaced: 'ignore',
-            poolReallocated: 'ignore',
+            poolReallocated: {
+                to: 'running',
+                run: (e, c) => {
+                    if (e.type === 'poolReallocated') this.colliderSet.onPoolReallocated(e.poolKey);
+                    this.syncColliders(c);
+                },
+            },
             framePrepare: {
                 to: 'running',
                 run: (_e, c) => {
+                    this.syncColliders(c);
+                    this.collide = this.colliderSet.totalCount > 0;
                     this.writeParams(c);
                 },
             },
         },
     };
+
+    private readonly colliderSet: ColliderSet;
+    /** Colliders na cena no quadro: grava o passe de colisão (spec 010). */
+    private collide = false;
 
     private readonly substeps: number;
     private readonly mu: number;
@@ -100,12 +140,22 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         });
         this.params.reserve(this.substeps);
         this.bindings = { fem_params: this.params.source() };
+        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+            discriminator: 'fem_colliders',
+        });
         this.pipelines = [
             {
                 id: 'fem_predict',
                 role: 'compute',
                 shader: femPredict,
                 entryPoints: ['fem_predict_main'],
+                consumes: [bodyType, `${bodyType}.live`],
+            },
+            {
+                id: 'fem_collide',
+                role: 'compute',
+                shader: femCollide,
+                entryPoints: ['fem_collide_main'],
                 consumes: [bodyType, `${bodyType}.live`],
             },
             {
@@ -125,12 +175,21 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         if (iterations === 0 || count === 0) return;
         const predict = bound.compute('fem_predict');
         const velocity = bound.compute('fem_velocity_update');
+        const collide = bound.compute('fem_collide');
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
             frame.compute('FEMFlow.predict', (pass) => {
                 pass.bind.setPipeline(predict.spec).setBindGroup(0, predict.groups[0]!, offset);
                 pass.dispatch.invocations(count, 64);
             });
+            if (this.collide)
+                frame.compute('FEMFlow.collide', (pass) => {
+                    pass.bind.setPipeline(collide.spec);
+                    collide.groups.forEach((bg, g) =>
+                        pass.bind.setBindGroup(g, bg, collide.dynamic[g] ? offset : undefined),
+                    );
+                    pass.dispatch.invocations(count, 64);
+                });
             frame.compute('FEMFlow.velocity_update', (pass) => {
                 pass.bind.setPipeline(velocity.spec).setBindGroup(0, velocity.groups[0]!, offset);
                 pass.dispatch.invocations(count, 64);
@@ -138,9 +197,21 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         }
     }
 
-    /** Libera os parâmetros por iteração. */
+    /** Libera os parâmetros por iteração e o conjunto de colliders. */
     override dispose(): void {
         this.params.dispose();
+        this.colliderSet.destroy();
+    }
+
+    /** Mapas de dono e contagens dos colliders; religa as fontes do grupo de colliders. */
+    private refreshColliders(ctx: Ctx): void {
+        this.colliderSet.markDirty();
+        this.syncColliders(ctx);
+    }
+
+    /** Reconstrói os mapas de dono se sujos e religa as fontes que mudaram. */
+    private syncColliders(ctx: Ctx): void {
+        if (this.colliderSet.refresh()) ctx.bind(this.colliderSet.sources());
     }
 
     private iterations(bound: BoundFlow<FEMSlots>): number {
@@ -170,6 +241,8 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
                 alpha_d: 1.0 / Math.max(this.mu, 1e-6),
                 dt_frame: stepDt,
                 restitution: 0.2,
+                // Raio dos nós na colisão com os colliders (spec 010).
+                collision_radius: 0.05,
                 node_count: count,
                 solve_iters: 4,
                 // Fim do substep i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).

@@ -1,10 +1,11 @@
-import { noise } from '../gpu/shaders/math';
+import { colliderSet, noise } from '../gpu/shaders/math';
 import { wgslModule } from '../../scene/shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../../scene/shaders/WgslPoint';
 import emitPointTypesSource from '../gpu/wgsl/kernels/emit_point_types.wgsl?raw';
 import emitFnReadySource from '../gpu/wgsl/kernels/emit_fn_ready.wgsl?raw';
 import emitSpawnSource from '../gpu/wgsl/kernels/emit_spawn.wgsl?raw';
 import emitUpdateSource from '../gpu/wgsl/kernels/emit_update.wgsl?raw';
+import emitCollideSource from '../gpu/wgsl/kernels/emit_collide.wgsl?raw';
 import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import { ComputeParticleEmitter } from './ComputeParticleEmitter';
 import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
@@ -39,6 +40,14 @@ export const emitUpdate = wgslModule({
     source: emitUpdateSource,
     requires: [fieldPointTypes, fieldAccelReady],
     structs: [EmitterParamsSchema, ComputeParticleEmitter.schema, FieldFnRecordSchema],
+});
+
+/** Colisão das partículas vivas com os colliders, depois do passo (spec 010; só com colliders na cena). */
+export const emitCollide = wgslModule({
+    name: 'emit_collide',
+    source: emitCollideSource,
+    requires: [colliderSet],
+    structs: [EmitterParamsSchema, ComputeParticleEmitter.schema],
 });
 
 /**

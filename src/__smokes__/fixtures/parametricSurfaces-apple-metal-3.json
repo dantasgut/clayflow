@@ -11,6 +11,11 @@
     },
     "bodies": {
       "bodies": "64022acd"
+    },
+    "solvers": {
+      "XPBD": "bda531a2",
+      "FEM": "6c6d0534",
+      "emissor": "ed9a3218"
     }
   }
 }
