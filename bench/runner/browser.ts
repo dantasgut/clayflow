@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { chromium, type Browser } from 'playwright';
 
 /** Erro de ambiente: o runner termina cedo com exit 3 (`contracts/cli.md`). */
@@ -17,6 +18,20 @@ export const CHROME_ARGS = [
     '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows',
 ] as const;
+
+/**
+ * Vigia destacado: se este processo morrer sem fechar o navegador (SIGKILL, tempo esgotado do terminal — nenhum
+ * handler roda), mata o Chrome; o crashpad e os auxiliares saem com ele. Termina sozinho quando o Chrome fecha.
+ * Sem isso, cada execução interrompida deixava um Chrome inteiro órfão segurando memória e GPU.
+ */
+function watchOwner(chromePid: number | undefined): void {
+    if (chromePid === undefined || process.platform === 'win32') return;
+    const owner = process.pid;
+    const script =
+        `while kill -0 ${owner} 2>/dev/null && kill -0 ${chromePid} 2>/dev/null; do sleep 1; done; `
+        + `kill -0 ${owner} 2>/dev/null || kill -9 ${chromePid} 2>/dev/null`;
+    spawn('/bin/sh', ['-c', script], { detached: true, stdio: 'ignore' }).unref();
+}
 
 /** Navegador conectado + encerramento garantido do processo. */
 export interface LaunchedBrowser {
@@ -50,6 +65,7 @@ export async function launchBrowser(
                 + 'Instale o Google Chrome estável — o harness usa o Chrome da máquina (channel: chrome).',
         );
     }
+    watchOwner(server.process().pid);
     const browser = await chromium.connect(server.wsEndpoint());
     return {
         browser,
