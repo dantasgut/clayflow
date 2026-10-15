@@ -4,8 +4,12 @@
 //
 // Cada caso monta uma cena pequena, avança por passos fixos e lê de volta (só aqui, para medir) o que precisa:
 //   - campo: o campo de alturas do vale contra a fórmula (erro de construção);
+//   - corpos: 50 corpos rígidos sobre o vale — nenhum centro abaixo da superfície, ≥ 95 % em repouso (SC-001);
 //   - terreno com fluidos: SPH, PBF e MPM sobre o vale — nenhuma partícula abaixo da superfície, centróide no vale
-//     (SC-002).
+//     (SC-002);
+//   - solvers: XPBD, FEM e emissor (que antes não colidiam) sobre o vale;
+//   - terreno animado: corpos e fluido acompanham; mesmo estado a 30/60/144 Hz (SC-008);
+//   - lago: água da 017 forma um lago no vale, nível estável, superfície e cáusticas na imagem (SC-002a).
 // O estado de cada caso é comparado bit a bit (hash) com a fixture `parametricSurfaces-<perfil>.json`; `--record` roda
 // cada caso duas vezes (exige determinismo) e grava.
 //
@@ -20,12 +24,20 @@ import {
     Transform,
 } from 'clayflow';
 import * as clayflow from 'clayflow';
-import { readBuffer, settle } from './support/extensionScenes';
-import { gpuProfile, readJsonFixture, recording, writeJsonFixture } from './support/fixtures';
+import { capture, readBuffer, settle } from './support/extensionScenes';
+import {
+    gpuProfile,
+    readJsonFixture,
+    recording,
+    writeFixture,
+    writeJsonFixture,
+} from './support/fixtures';
+import { luminance, toPng } from './support/images';
 import { hashBytes } from './support/fluidMeasures';
-import { block } from './support/particleScenes';
+import { block, rng } from './support/particleScenes';
 import {
     insertValley,
+    LAKE_VALLEY,
     readField,
     readPositions,
     VALLEY,
@@ -37,6 +49,9 @@ function log(msg: string): void {
     const el = document.getElementById('log');
     if (el !== null) el.textContent += `${msg}\n`;
 }
+
+/** Perfil da GPU (nome das fixtures). */
+let profileName = 'unknown';
 
 /** Erros capturados dos estágios: qualquer um reprova o smoke. */
 const engineErrors: string[] = [];
@@ -146,6 +161,103 @@ function dropBodies(app: Application): { radius: number; half: number } {
         );
     }
     return { radius, half };
+}
+
+/** Espaçamento da água do lago (o da 017). */
+const LAKE_SPACING = 0.025;
+const LAKE_W = 320;
+const LAKE_H = 200;
+
+/**
+ * Cena do lago: o vale colidível (areia), luz com sombra, câmera de cima em ângulo e uma barragem de água (PBF com
+ * `FluidSurfaceMaterial`: refração, absorção e cáusticas) solta na encosta. `water: 'none'` monta o vale seco.
+ */
+async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
+    const canvas = document.createElement('canvas');
+    canvas.width = LAKE_W;
+    canvas.height = LAKE_H;
+    document.body.appendChild(canvas);
+    const app = await Application.create({
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+        captureErrors: true,
+    });
+    app.events.on('engineError', (e) => {
+        engineErrors.push(`${e.stage}/${e.filter}: ${e.message}`);
+    });
+    const eye: [number, number, number] = [0, 0.95, 1.25];
+    const target: [number, number, number] = [0, -0.2, 0];
+    app.world.insert(
+        new Camera({
+            fov: Math.PI / 4,
+            aspect: LAKE_W / LAKE_H,
+            aspectMode: 'fixed',
+            near: 0.05,
+            far: 20,
+        }).add(
+            new Transform({ position: [...eye, 1], rotation: Transform.lookRotation(eye, target) }),
+        ),
+    );
+    app.world.insert(
+        new DirectionalLight({
+            direction: [-0.25, -1, -0.35, 0],
+            color: [1, 1, 1, 1],
+            intensity: 1.2,
+            castShadow: true,
+        }),
+    );
+    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+    app.world.insert(
+        new clayflow.ParticleMaterial({
+            particleSpacing: LAKE_SPACING,
+            // Água de referência (spec 030): coesão e adesão amortecem o escoamento e o lago assenta.
+            cohesion: clayflow.ParticleMaterial.WATER_COHESION,
+            adhesion: clayflow.ParticleMaterial.WATER_ADHESION,
+            domainMin: [-1.1, -0.8, -1.1],
+            domainMax: [1.1, 1, 1.1],
+        }),
+    );
+    insertValley(app, clayflow, { shape: LAKE_VALLEY, albedo: [0.86, 0.8, 0.66] });
+    if (water !== 'none') {
+        const position: number[] = [];
+        const r = rng(29);
+        for (let y = 0; y < 24; y++)
+            for (let z = 0; z < 16; z++)
+                for (let x = 0; x < 16; x++)
+                    position.push(
+                        -0.45 + LAKE_SPACING * (x + 0.5) + (r() - 0.5) * LAKE_SPACING * 0.1,
+                        0.02 + LAKE_SPACING * (y + 0.5),
+                        -0.2 + LAKE_SPACING * (z + 0.5) + (r() - 0.5) * LAKE_SPACING * 0.1,
+                    );
+        app.world.insert(
+            new clayflow.FluidBody({ algorithm: 'PBF', position }).add(
+                new clayflow.FluidSurfaceMaterial({ caustics: water === 'caustics' }),
+            ),
+        );
+    }
+    await settle(app);
+    const levels: number[] = [];
+    let image: ImageData | undefined;
+    for (let i = 0; i < steps; i++) {
+        app.step(1 / 60);
+        // Captura antes de qualquer leitura de volta (a espera apresenta e limpa o canvas).
+        if (i === steps - 1) image = capture(canvas);
+        // Nível do lago no último segundo, a cada 0,25 s: média das 10 % mais altas perto do centro.
+        if (water !== 'none' && i >= steps - 60 && (steps - 1 - i) % 15 === 0) {
+            const pts = await readPositions(app, clayflow.PBFSchema);
+            const ys = pts
+                .filter((p) => Math.hypot(p[0], p[2]) < 0.3)
+                .map((p) => p[1])
+                .sort((a, b) => b - a);
+            const top = ys.slice(0, Math.max(1, Math.floor(ys.length / 10)));
+            levels.push(top.reduce((a, b) => a + b, 0) / top.length);
+        }
+    }
+    const particles = water === 'none' ? [] : await readPositions(app, clayflow.PBFSchema);
+    app.dispose();
+    canvas.remove();
+    return { image: image!, particles, levels };
 }
 
 const CASES: Record<string, Case> = {
@@ -415,6 +527,74 @@ const CASES: Record<string, Case> = {
         return c.result();
     },
 
+    /**
+     * Água no terreno (SC-002a): a barragem escorre pela encosta e forma um lago no vale em 6 s — nenhuma partícula
+     * abaixo da superfície nem escapando por baixo do terreno, nível estável no último segundo (≤ 1 espaçamento), e a
+     * imagem com a superfície da água e as cáusticas no fundo do vale (fixture).
+     */
+    async lake() {
+        const c = collector();
+        const steps = 360;
+        const wet = await lakeScene('caustics', steps);
+        const plain = await lakeScene('plain', steps);
+        const dry = await lakeScene('none', 1);
+        let below = 0;
+        let escaped = 0;
+        for (const p of wet.particles) {
+            const h = valleyHeight(p[0], p[2], 0, LAKE_VALLEY);
+            if (h - p[1] > LAKE_SPACING / 2) below++;
+            if (p[1] < -LAKE_VALLEY.depth - LAKE_SPACING) escaped++;
+        }
+        const variation = Math.max(...wet.levels) - Math.min(...wet.levels);
+        c.measure('partículas', wet.particles.length);
+        c.measure('abaixo da superfície', below);
+        c.measure('escapando por baixo', escaped);
+        c.measure('nível do lago (m)', wet.levels.at(-1)!);
+        c.measure('variação do nível no último segundo (m)', variation);
+        c.check(below === 0, `${below} partículas abaixo da superfície`);
+        c.check(escaped === 0, `${escaped} partículas escaparam por baixo do terreno`);
+        c.check(variation <= LAKE_SPACING, `nível variou ${variation} m no último segundo`);
+        c.check(
+            wet.levels.at(-1)! < 0 && wet.levels.at(-1)! > -LAKE_VALLEY.depth,
+            `nível ${wet.levels.at(-1)} fora do vale`,
+        );
+        // Água na imagem: pixels diferentes do vale seco; cáusticas: na água, regiões mais claras e mais escuras que a
+        // mesma água sem cáusticas (o mesmo estado: a física não depende do desenho).
+        let water = 0;
+        let brighter = 0;
+        let darker = 0;
+        for (let y = 0; y < LAKE_H; y++)
+            for (let x = 0; x < LAKE_W; x++) {
+                const i = (y * LAKE_W + x) * 4;
+                let differs = false;
+                for (let k = 0; k < 3; k++)
+                    if (Math.abs(wet.image.data[i + k]! - dry.image.data[i + k]!) > 6)
+                        differs = true;
+                if (!differs) continue;
+                water++;
+                const a = luminance(wet.image, x, y);
+                const b = luminance(plain.image, x, y);
+                if (a > b * 1.15 + 0.01) brighter++;
+                if (a < b * 0.9 - 0.01) darker++;
+            }
+        const total = LAKE_W * LAKE_H;
+        c.measure('água na imagem (%)', (100 * water) / total);
+        c.measure('cáusticas mais claras (% da água)', (100 * brighter) / Math.max(1, water));
+        c.measure('cáusticas mais escuras (% da água)', (100 * darker) / Math.max(1, water));
+        c.check(water > 0.03 * total, `água em só ${water} px`);
+        c.check(brighter > 0.02 * water, `cáusticas: só ${brighter} px mais claros na água`);
+        c.check(darker > 0.02 * water, `cáusticas: só ${darker} px mais escuros na água`);
+        c.hash('particles', bytesOf(wet.particles));
+        // A imagem entra no manifesto pelo hash (pixel a pixel); a PNG gravada é para ver.
+        c.hash('image', new Uint8Array(wet.image.data.buffer));
+        if (recording())
+            await writeFixture(
+                `parametricSurfaces-lake-${profileName}.png`,
+                await toPng(wet.image),
+            );
+        return c.result();
+    },
+
     /** SPH, PBF e MPM sobre o vale: nenhuma partícula abaixo, centróide no vale (SC-002). */
     async fluids() {
         const c = collector();
@@ -482,6 +662,7 @@ async function main(): Promise<void> {
     {
         const probe = await createApp();
         profile = gpuProfile(probe);
+        profileName = profile;
         probe.dispose();
     }
     for (const name of names) {

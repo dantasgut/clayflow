@@ -20,6 +20,10 @@
     "animated": {
       "bodies": "fd7ffe97",
       "fluid": "c7629cbd"
+    },
+    "lake": {
+      "particles": "c2fa144f",
+      "image": "ff8931bd"
     }
   }
 }

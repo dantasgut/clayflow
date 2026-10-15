@@ -20,23 +20,39 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
     return vec3f(v, h, u);
 }`;
 
+/** Forma do vale: profundidade, raio em que a altura volta a 0 e meia largura do domínio. */
+export interface ValleyShape {
+    readonly depth: number;
+    readonly r: number;
+    readonly half: number;
+}
+
 /** Parâmetros do vale de teste. */
-export const VALLEY = { depth: 0.8, r: 1.2, half: 1.6 } as const;
+export const VALLEY: ValleyShape = { depth: 0.8, r: 1.2, half: 1.6 };
+
+/** Vale do lago (escala da água da 017: espaçamento de 2,5 cm). */
+export const LAKE_VALLEY: ValleyShape = { depth: 0.3, r: 0.6, half: 1 };
 
 /** Altura do vale de teste em (x, z) (a mesma fórmula da função), com o deslocamento animado. */
-export function valleyHeight(x: number, z: number, lift = 0): number {
-    return (VALLEY.depth * (x * x + z * z)) / (VALLEY.r * VALLEY.r) - VALLEY.depth + lift;
+export function valleyHeight(x: number, z: number, lift = 0, shape: ValleyShape = VALLEY): number {
+    return (shape.depth * (x * x + z * z)) / (shape.r * shape.r) - shape.depth + lift;
 }
 
 /** Insere o vale colidível (malha 96², colisor de altura 128²) com material e `Transform`. */
 export function insertValley(
     app: Application,
     lib: ClayflowLib,
-    options: { animated?: { amp: number; omega: number }; resolution?: number } = {},
+    options: {
+        animated?: { amp: number; omega: number };
+        resolution?: number;
+        shape?: ValleyShape;
+        albedo?: readonly [number, number, number];
+    } = {},
 ): { id: EntityId; surface: Clayflow.ParametricSurface; collider: Clayflow.SurfaceCollider } {
     const { ParametricSurface, StandardMaterial, SurfaceCollider, SurfaceFunction, Transform } =
         lib;
-    const h = VALLEY.half;
+    const shape = options.shape ?? VALLEY;
+    const h = shape.half;
     const surface = new ParametricSurface({
         resolution: [96, 96],
         domain: [-h, h, -h, h],
@@ -47,14 +63,14 @@ export function insertValley(
             ? new SurfaceFunction({
                   code: VALLEY_CODE,
                   params: { depth: 'f32', r: 'f32' },
-                  values: { depth: VALLEY.depth, r: VALLEY.r },
+                  values: { depth: shape.depth, r: shape.r },
               })
             : new SurfaceFunction({
                   code: VALLEY_ANIMATED_CODE,
                   params: { depth: 'f32', r: 'f32', amp: 'f32', omega: 'f32' },
                   values: {
-                      depth: VALLEY.depth,
-                      r: VALLEY.r,
+                      depth: shape.depth,
+                      r: shape.r,
                       amp: options.animated.amp,
                       omega: options.animated.omega,
                   },
@@ -66,7 +82,7 @@ export function insertValley(
     const entity = surface
         .add(fn)
         .add(collider)
-        .add(new StandardMaterial({ albedo: [0.55, 0.5, 0.4, 1] }))
+        .add(new StandardMaterial({ albedo: [...(options.albedo ?? [0.55, 0.5, 0.4]), 1] }))
         .add(new Transform());
     return { id: app.world.insert(entity), surface, collider };
 }
