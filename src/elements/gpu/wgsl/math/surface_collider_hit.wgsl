@@ -50,6 +50,29 @@ fn surface_height_at(base: u32, nx: u32, ix: u32, iz: u32) -> f32 {
     return surface_field(base, SURFACE_COLLIDER_HEADER + ix + nx * iz);
 }
 
+// Gradiente da altura (∂h/∂x, ∂h/∂z) no nó, por diferenças centrais (de um lado na borda ou junto a nó sem altura).
+fn surface_height_gradient(base: u32, c: SurfaceColliderInfo, ix: u32, iz: u32, cell: vec2f) -> vec2f {
+    let h = surface_height_at(base, c.nx, ix, iz);
+    let x0 = select(ix, ix - 1u, ix > 0u);
+    let x1 = min(ix + 1u, c.nx - 1u);
+    let z0 = select(iz, iz - 1u, iz > 0u);
+    let z1 = min(iz + 1u, c.nz - 1u);
+    var hx0 = surface_height_at(base, c.nx, x0, iz);
+    var hx1 = surface_height_at(base, c.nx, x1, iz);
+    var hz0 = surface_height_at(base, c.nx, ix, z0);
+    var hz1 = surface_height_at(base, c.nx, ix, z1);
+    var dx = f32(x1 - x0);
+    var dz = f32(z1 - z0);
+    if (hx0 <= SURFACE_NO_HEIGHT) { hx0 = h; dx = f32(x1 - ix); }
+    if (hx1 <= SURFACE_NO_HEIGHT) { hx1 = h; dx = f32(ix - x0); }
+    if (hz0 <= SURFACE_NO_HEIGHT) { hz0 = h; dz = f32(z1 - iz); }
+    if (hz1 <= SURFACE_NO_HEIGHT) { hz1 = h; dz = f32(iz - z0); }
+    return vec2f(
+        select(0.0, (hx1 - hx0) / (dx * cell.x), dx > 0.0),
+        select(0.0, (hz1 - hz0) / (dz * cell.y), dz > 0.0),
+    );
+}
+
 // Distância no nó (ix, iy, iz) da cópia.
 fn surface_distance_at(base: u32, nx: u32, ny: u32, ix: u32, iy: u32, iz: u32) -> f32 {
     return surface_field(base, SURFACE_COLLIDER_HEADER + ix + nx * (iy + ny * iz));
@@ -118,11 +141,14 @@ fn collider_hit_surface(i: u32, p: vec3f) -> ColliderHit {
         let h11 = surface_height_at(base, c.nx, ix + 1u, iz + 1u);
         if (min(min(h00, h10), min(h01, h11)) <= SURFACE_NO_HEIGHT) { return surface_hit_far(); }
         let h = mix(mix(h00, h10, fx), mix(h01, h11, fx), fz);
-        let cell_x = extent.x / f32(c.nx - 1u);
-        let cell_z = extent.z / f32(c.nz - 1u);
-        let dhdx = mix(h10 - h00, h11 - h01, fz) / cell_x;
-        let dhdz = mix(h01 - h00, h11 - h10, fx) / cell_z;
-        nl = normalize(vec3f(-dhdx, 1.0, -dhdz));
+        // Normal contínua: gradiente nos nós por diferenças centrais (de um lado na borda), interpolado.
+        let cell = vec2f(extent.x / f32(c.nx - 1u), extent.z / f32(c.nz - 1u));
+        let g = mix(
+            mix(surface_height_gradient(base, c, ix, iz, cell), surface_height_gradient(base, c, ix + 1u, iz, cell), fx),
+            mix(surface_height_gradient(base, c, ix, iz + 1u, cell), surface_height_gradient(base, c, ix + 1u, iz + 1u, cell), fx),
+            fz,
+        );
+        nl = normalize(vec3f(-g.x, 1.0, -g.y));
         dl = (local.y - h) * nl.y;
     } else {
         let n = vec3f(f32(c.nx - 1u), f32(c.ny - 1u), f32(c.nz - 1u));

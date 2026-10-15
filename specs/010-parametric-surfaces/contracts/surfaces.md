@@ -7,7 +7,7 @@
 new SurfaceCollider({
   mode: 'height', // gráfico y = h(x, z) no espaço local; 'distance' para superfícies gerais
   resolution: [128, 128], // altura: [nx, nz]; distância: [n, n, n] (padrão 64³)
-  margin: 0.01, // folga de contato (m)
+  margin: 0, // folga de contato (m; padrão 0, como os outros colliders)
   band: 2, // células de folga em volta da caixa (distância)
 });
 

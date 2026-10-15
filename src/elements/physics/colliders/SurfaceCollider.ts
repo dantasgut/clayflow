@@ -31,7 +31,10 @@ export interface SurfaceColliderOptions {
      * todos os eixos.
      */
     readonly resolution?: number | readonly number[];
-    /** Folga de contato (m), somada ao raio de quem colide. Padrão 0,01. */
+    /**
+     * Folga de contato (m), somada ao raio de quem colide. Padrão 0, como os outros colliders: uma folga maior que a
+     * dos contatos entre corpos desestabiliza pilhas (os corpos pairam sobre a superfície e se apertam entre si).
+     */
     readonly margin?: number;
     /** Células de folga em volta da caixa da superfície (distância). Padrão 2. */
     readonly band?: number;
@@ -114,7 +117,7 @@ export class SurfaceCollider extends Collider<SurfaceColliderData> {
         if (!(mode in SURFACE_COLLIDER_MODE_INDEX))
             throw new RangeError(`SurfaceCollider: modo '${mode}' desconhecido.`);
         const [nx, ny, nz] = resolutionOf(mode, options.resolution);
-        const margin = options.margin ?? 0.01;
+        const margin = options.margin ?? 0;
         if (!(margin >= 0) || !Number.isFinite(margin))
             throw new RangeError(`SurfaceCollider: folga ${margin} inválida (≥ 0).`);
         const band = options.band ?? 2;

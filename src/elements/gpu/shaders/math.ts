@@ -9,6 +9,7 @@ import xpbdSource from '../wgsl/math/xpbd.wgsl?raw';
 import lcpSource from '../wgsl/math/lcp.wgsl?raw';
 import colliderSetSource from '../wgsl/math/collider_set.wgsl?raw';
 import surfaceColliderHitSource from '../wgsl/math/surface_collider_hit.wgsl?raw';
+import colliderHitSource from '../wgsl/math/collider_hit.wgsl?raw';
 import lcpStateSource from '../wgsl/math/lcp_state.wgsl?raw';
 import femSource from '../wgsl/math/fem.wgsl?raw';
 import noiseSource from '../wgsl/math/noise.wgsl?raw';
@@ -75,9 +76,13 @@ export const mpmMaterial = wgslModule({ name: 'mpm_material', source: mpmMateria
  * Consulta de um colisor de superfície (spec 010): altura ou distância com sinal da cópia do passo corrente; os
  * bindings (`collider_surfaces`, `collider_surface_field`, `collider_step`) são declarados por quem hospeda.
  */
+/** Fronteira genérica de colisão: `ColliderHit` (distância com sinal e normal de mundo). */
+export const colliderHit = wgslModule({ name: 'collider_hit', source: colliderHitSource });
+
 export const surfaceColliderHit = wgslModule({
     name: 'surface_collider_hit',
     source: surfaceColliderHitSource,
+    requires: [colliderHit],
 });
 
 /** Conjunto de colliders (grupo 2, com a malha): pose pelo corpo dono, SDF, push-out de partículas, restrição de nós. */

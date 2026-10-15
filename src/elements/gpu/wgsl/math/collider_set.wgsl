@@ -25,12 +25,6 @@ struct ColliderPose {
     rot: vec4f,
 }
 
-// Distância com sinal até a superfície (negativa dentro) e normal de mundo apontando para fora.
-struct ColliderHit {
-    dist:   f32,
-    normal: vec3f,
-}
-
 // Início do campo do colisor de superfície i no pool (até 16, no uniforme de contagens).
 fn surface_collider_first(i: u32) -> u32 {
     let firsts = array<vec4u, 4>(

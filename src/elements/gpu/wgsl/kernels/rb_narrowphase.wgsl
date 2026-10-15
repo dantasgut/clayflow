@@ -1,4 +1,4 @@
-// Narrowphase em 4 variantes, uma por pool de Collider da Camada 3.
+// Narrowphase em 5 variantes, uma por pool de Collider da Camada 3 (a de superfície, spec 010).
 // Cada variante reusa a mesma lógica matemática (SDF, gradiente, supressão,
 // predictive contact, warm-starting) mudando apenas o struct do pool de
 // collider lido e a função de SDF específica da shape.
@@ -343,6 +343,54 @@ fn narrowphase_body_vs_sphere(ctx: TestContext, sphere_center_world: vec3f, sphe
 @group(0) @binding(7) var<storage, read> spheres: array<SphereCollider>;
 @group(0) @binding(8) var<storage, read> meshes:  array<MeshCollider>;
 
+// Superfícies colidíveis (spec 010): registros (com o início do campo) e o pool do campo, consultados por
+// `collider_hit_surface` na cópia do passo do substep (`collider_time`).
+@group(0) @binding(14) var<storage, read> surfaces:               array<SurfaceCollider>;
+@group(0) @binding(15) var<storage, read> collider_surface_field: array<f32>;
+
+fn surface_collider_first(i: u32) -> u32 {
+    return surfaces[i].first;
+}
+
+// Corpo × superfície: como o plano, mas cada ponto de teste com a distância e a normal da superfície no ponto (cantos
+// da caixa em manifold; centro da esfera). A folga do colisor entra na distância.
+fn narrowphase_body_vs_surface(ctx: TestContext, i: u32) {
+    let world_cm = bodies[ctx.rb_i].pos_pred.xyz;
+    let margin = surfaces[i].margin;
+    if (ctx.body_shape_type == SHAPE_TYPE_BODY_BOX) {
+        let he = bodies[ctx.rb_i].body_shape.yzw;
+        var corners: array<vec3f, 8>;
+        box_corners_world(world_cm, bodies[ctx.rb_i].rot_pred, he, &corners);
+        var depths:  array<f32, 8>;
+        var normals: array<vec3f, 8>;
+        var sdfs:    array<f32, 8>;
+        var n_active = 0u;
+        for (var k: u32 = 0u; k < 8u; k++) {
+            let hit = collider_hit_surface(i, corners[k]);
+            sdfs[k] = hit.dist - margin;
+            normals[k] = hit.normal;
+            depths[k] = 1e30;
+            if (hit.dist >= 1e30) { continue; }
+            let cd = contact_depth(ctx, hit.normal, sdfs[k], corners[k] - world_cm);
+            if (cd.hit) {
+                depths[k] = cd.depth_eff;
+                n_active++;
+            }
+        }
+        if (n_active == 0u) { return; }
+        let weight = 1.0 / f32(n_active);
+        for (var k: u32 = 0u; k < 8u; k++) {
+            if (depths[k] >= 1e30) { continue; }
+            emit_contact(ctx, normals[k], sdfs[k], depths[k], corners[k], 0.0, k, weight);
+        }
+        return;
+    }
+    let radius = bodies[ctx.rb_i].body_shape.y;
+    let hit = collider_hit_surface(i, world_cm);
+    if (hit.dist >= 1e30) { return; }
+    emit_single(ctx, hit.normal, hit.dist - margin - radius, world_cm, vec3f(0.0), radius);
+}
+
 fn make_ctx(idx: u32) -> TestContext {
     return make_ctx_pair(idx / np_params.pool_count, idx % np_params.pool_count);
 }
@@ -415,6 +463,21 @@ fn rb_narrowphase_sphere_main(
         center_world = sph.center.xyz;
     }
     narrowphase_body_vs_sphere(ctx, center_world, sph.radius);
+}
+
+@compute @workgroup_size(64)
+fn rb_narrowphase_surface_main(
+    @builtin(global_invocation_id) gid3: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+) {
+    // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
+    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    if (idx >= rb_params.body_count * np_params.pool_count) { return; }
+    let ctx = make_ctx(idx);
+    if (!precheck_pair(ctx, 2u)) { return; }
+    // Tempo do fim do substep: a cópia do campo do passo (spec 010).
+    collider_time = rb_params.field_time;
+    narrowphase_body_vs_surface(ctx, idx % np_params.pool_count);
 }
 
 @compute @workgroup_size(64)

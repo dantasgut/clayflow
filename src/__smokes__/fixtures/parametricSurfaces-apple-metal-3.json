@@ -1,0 +1,16 @@
+{
+  "profile": "apple-metal-3",
+  "cases": {
+    "field": {
+      "field": "44856561"
+    },
+    "fluids": {
+      "SPH": "9db41a76",
+      "PBF": "448b25b2",
+      "MPM": "a1ed3671"
+    },
+    "bodies": {
+      "bodies": "64022acd"
+    }
+  }
+}
