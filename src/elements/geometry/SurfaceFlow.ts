@@ -16,14 +16,29 @@ import {
     type SingletonSlot,
     type SlotMap,
 } from '../../scene/flows/slots';
-import { bindPoints } from '../../scene/shaders/bindPoints';
+import { bindPoints, type BindablePoint } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import { Time } from '../../scene/time/Time';
 import type { EntityId } from '../../scene/world/EntityId';
 import { SurfaceFunction } from '../extension/SurfaceFunction';
 import { ParametricSurface, SURFACE_PRESET_INDEX } from './ParametricSurface';
-import { SpaceFnRecordSchema, SurfaceFnRecordSchema, SurfaceParamsSchema } from './SurfaceSchemas';
-import { surfaceEval, surfacePoint, surfaceTangents, surfaceTangentsAnalytic } from './shaders';
+import {
+    SpaceFnRecordSchema,
+    SurfaceDiffSchema,
+    SurfaceFnRecordSchema,
+    SurfaceParamsSchema,
+} from './SurfaceSchemas';
+import {
+    surfaceEval,
+    surfaceEvalDiff,
+    surfaceJet,
+    surfaceJetAnalytic,
+    surfaceJetMapped,
+    surfaceJetPreset,
+    surfacePoint,
+    surfaceTangents,
+    surfaceTangentsAnalytic,
+} from './shaders';
 
 const WORKGROUP_SIZE = 64;
 
@@ -39,6 +54,8 @@ export interface SurfaceSlots extends SlotMap {
     readonly spaceRecords: PoolSlot<true>;
     /** Relógio da cena (opcional; sem ele, tempo 0). */
     readonly time: SingletonSlot<true>;
+    /** Pool da geometria diferencial (existe com superfícies `differential`). */
+    readonly diffs: PoolSlot<true>;
 }
 
 const slots: SurfaceSlots = {
@@ -50,6 +67,7 @@ const slots: SurfaceSlots = {
     fnRecords: slot.pool(SurfaceFnRecordSchema.name, { optional: true }),
     spaceRecords: slot.pool(SpaceFnRecordSchema.name, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
+    diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
 };
 
 type Ctx = TransitionContext<SurfaceSlots>;
@@ -58,8 +76,8 @@ type Ctx = TransitionContext<SurfaceSlots>;
 interface SurfaceState {
     readonly id: EntityId;
     readonly params: UniformBufferSpec;
-    active: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
-    pending: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
+    active: { readonly id: string; readonly key: string } | undefined;
+    pending: { readonly id: string; readonly key: string } | undefined;
     /** Avaliar no próximo quadro. */
     stale: boolean;
     /** Avaliar neste quadro (decidido no `framePrepare`). */
@@ -184,7 +202,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { surfaces, functions, fnRecords } = ctx.bound.slots;
+        const { surfaces, functions, fnRecords, spaceRecords, diffs } = ctx.bound.slots;
         const present = new Set<EntityId>();
         for (const entry of surfaces.entries) {
             const id = entry.entityId;
@@ -211,11 +229,20 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             st.stale = true;
             const fn = functions.entry(id)?.get(SurfaceFunction);
             const module = fn?.module;
+            const surface = entry.get(ParametricSurface);
+            // Jato da geometria diferencial: do mapa com o espaço, analítico, das prontas ou numérico.
+            const jet = !surface.differential
+                ? undefined
+                : spaceRecords !== undefined
+                  ? surfaceJetMapped
+                  : fn === undefined
+                    ? surfaceJetPreset
+                    : fn.analytic2
+                      ? surfaceJetAnalytic
+                      : undefined;
+            const key = `${module?.name ?? 'preset'}|${surface.differential ? (jet?.name ?? 'numeric') : '-'}`;
             const known = st.pending ?? st.active;
-            const pipelineId =
-                known === undefined || known.module !== module
-                    ? `surface_eval:${id}:${module?.name ?? 'preset'}`
-                    : undefined;
+            const pipelineId = known?.key !== key ? `surface_eval:${id}:${key}` : undefined;
             const records = fnRecords?.buffer ?? this.dummyRecords;
             for (const pid of [st.active?.id, st.pending?.id, pipelineId]) {
                 if (pid === undefined) continue;
@@ -223,28 +250,30 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     [`${pid}:surface_params`]: st.params,
                     [`${pid}:surface_vertices`]: vertices,
                     [`${pid}:surface_fn_records`]: records,
+                    ...(surface.differential && diffs !== undefined
+                        ? { [`${pid}:surface_diff`]: diffs.buffer }
+                        : {}),
                 });
             }
             if (pipelineId === undefined) continue;
-            const impls = new Map([[surfacePoint, fn?.module ?? surfacePoint.ready]]);
-            const shader =
-                fn === undefined
-                    ? surfaceEval
-                    : bindPoints(
-                          surfaceEval,
-                          fn.analytic
-                              ? new Map([...impls, [surfaceTangents, surfaceTangentsAnalytic]])
-                              : impls,
-                      );
+            const base = surface.differential ? surfaceEvalDiff : surfaceEval;
+            const impls = new Map<BindablePoint, WgslModule>([
+                [surfacePoint, fn?.module ?? surfacePoint.ready],
+            ]);
+            if (fn?.analytic === true) impls.set(surfaceTangents, surfaceTangentsAnalytic);
+            if (jet !== undefined) impls.set(surfaceJet, jet);
+            const shader = fn === undefined && jet === undefined ? base : bindPoints(base, impls);
             const prepared = ctx.prepare({
                 id: pipelineId,
                 role: 'compute',
                 shader,
-                entryPoints: ['surface_eval_main'],
+                entryPoints: [
+                    surface.differential ? 'surface_eval_diff_main' : 'surface_eval_main',
+                ],
                 consumes: [],
                 ...(fn === undefined ? {} : { verify: true, extensions: [fn] }),
             });
-            const next = { id: pipelineId, module };
+            const next = { id: pipelineId, key };
             if (prepared.ready) {
                 if (st.active !== undefined && st.active.id !== pipelineId)
                     ctx.release(st.active.id);
@@ -263,7 +292,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
 
     /** Decide quem avalia neste quadro e escreve os parâmetros deles. */
     private writeParams(ctx: Ctx): void {
-        const { surfaces, functions, fnRecords, spaceRecords, time } = ctx.bound.slots;
+        const { surfaces, functions, fnRecords, spaceRecords, time, diffs } = ctx.bound.slots;
         const t = (time?.resource as Time | undefined)?.simulated ?? 0;
         const spaced = spaceRecords !== undefined;
         for (const st of this.states.values()) {
@@ -287,6 +316,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     v0,
                     v1,
                     time: t,
+                    diff_first: surface.differential ? (diffs?.slotOf(st.id) ?? 0) : 0,
                     h_u: Math.abs(u1 - u0) * 1e-3,
                     h_v: Math.abs(v1 - v0) * 1e-3,
                     preset_a: [

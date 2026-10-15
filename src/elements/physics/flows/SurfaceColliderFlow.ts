@@ -440,7 +440,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                     time: times[times.length - 1]!,
                     h_u: Math.abs(u1 - u0) * 1e-3,
                     h_v: Math.abs(v1 - v0) * 1e-3,
-                    _pad0: 0,
+                    diff_first: 0,
                     preset_a: [
                         d.params[0] ?? 0,
                         d.params[1] ?? 0,

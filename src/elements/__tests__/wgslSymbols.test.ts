@@ -25,6 +25,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'lugar dos parâmetros de superfície do forward (spec 009): o pronto e o adaptador da função material — bindPoints troca um pelo outro',
     surface_tangents:
         'lugar das tangentes da superfície (spec 009): numéricas (pronto) ou analíticas — bindPoints troca uma pela outra',
+    surface_jet:
+        'lugar do jato da superfície (spec 010): numérico (pronto), analítico, das prontas ou do mapa com o espaço — bindPoints troca um pelo outro',
     surface_collider_first:
         'início do campo de um colisor de superfície (spec 010), dado por quem hospeda a consulta: o grupo de colliders (uniforme de contagens) ou a narrowphase do LCP (registro) — nunca no mesmo pipeline',
 };

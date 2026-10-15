@@ -25,7 +25,7 @@ import {
 } from 'clayflow';
 import * as clayflow from 'clayflow';
 import type { EntityId } from 'clayflow';
-import { capture, readBuffer, settle } from './support/extensionScenes';
+import { capture, readBuffer, readPool, settle } from './support/extensionScenes';
 import {
     gpuProfile,
     readJsonFixture,
@@ -312,6 +312,28 @@ function insertDistanceSurface(
         .add(new clayflow.StandardMaterial({ albedo: [0.7, 0.45, 0.3, 1] }))
         .add(transform);
     return { id: app.world.insert(surface), collider };
+}
+
+/** Esfera do usuário sem derivadas (jato numérico). */
+const SPHERE_PLAIN_CODE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return data.r * vec3f(sin(v) * cos(u), cos(v), sin(v) * sin(u));
+}`;
+
+/** Toro do usuário sem derivadas (jato numérico; a mesma parametrização da pronta). */
+const TORUS_PLAIN_CODE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    let ring = data.big + data.small * cos(v);
+    return vec3f(ring * cos(u), -data.small * sin(v), ring * sin(u));
+}`;
+
+/** Geometria diferencial (16 floats por vértice) de uma superfície `differential`, lida do pool. */
+async function readDiff(app: Application, id: EntityId, count: number): Promise<Float32Array> {
+    const bytes = await readPool(app, 'SurfaceDiff');
+    const f = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    const first = app.resources.poolSlotOf('SurfaceDiff', id);
+    if (first === undefined) throw new Error('superfície sem geometria diferencial');
+    return f.slice(first * 16, (first + count) * 16);
 }
 
 const CASES: Record<string, Case> = {
@@ -805,6 +827,85 @@ const CASES: Record<string, Case> = {
             results['com adesão']! > results['sem adesão']!,
             `adesão sem efeito na superfície (${results['com adesão']} ≤ ${results['sem adesão']})`,
         );
+        return c.result();
+    },
+
+    /**
+     * Curvaturas contra as analíticas (SC-004): esfera K = 1/r², H = 1/r (erro ≤ 1 %); toro K = cos v / (r (R + r cos v)),
+     * H = (R + 2r cos v) / (2r (R + r cos v)) (erro ≤ 2 % do máximo); jato analítico (prontas) e numérico (função do
+     * usuário sem derivadas); nenhum valor não finito.
+     */
+    async curvature() {
+        const c = collector();
+        const r = 0.8;
+        const [R, t] = [1, 0.35];
+        const cases = [
+            { name: 'esfera (analítica)', kind: 'sphere', fn: undefined },
+            { name: 'esfera (numérica)', kind: 'sphere', fn: SPHERE_PLAIN_CODE },
+            { name: 'toro (analítica)', kind: 'torus', fn: undefined },
+            { name: 'toro (numérica)', kind: 'torus', fn: TORUS_PLAIN_CODE },
+        ] as const;
+        for (const k of cases) {
+            const app = await createApp();
+            const [nu, nv] = k.kind === 'sphere' ? [64, 33] : [96, 48];
+            const surface = new clayflow.ParametricSurface({
+                preset: k.kind,
+                params: k.kind === 'sphere' ? [r] : [R, t],
+                resolution: [nu, nv],
+                differential: true,
+            });
+            const entity = surface.add(new clayflow.StandardMaterial()).add(new Transform());
+            if (k.fn !== undefined)
+                entity.add(
+                    new clayflow.SurfaceFunction(
+                        k.kind === 'sphere'
+                            ? { code: k.fn, params: { r: 'f32' }, values: { r } }
+                            : {
+                                  code: k.fn,
+                                  params: { big: 'f32', small: 'f32' },
+                                  values: { big: R, small: t },
+                              },
+                    ),
+                );
+            const id = app.world.insert(entity);
+            await settle(app);
+            run(app, 1);
+            const d = await readDiff(app, id, nu * nv);
+            app.dispose();
+            const [v0, v1] = surface.data.domain.slice(2) as [number, number];
+            let errK = 0;
+            let errH = 0;
+            let maxK = 0;
+            let maxH = 0;
+            let nonFinite = 0;
+            for (let i = 0; i < nu * nv * 16; i++) if (!Number.isFinite(d[i]!)) nonFinite++;
+            for (let iv = 0; iv < nv; iv++) {
+                // Esfera: os polos (primeira e última linha) ficam de fora da medida (valem os do recuo).
+                if (k.kind === 'sphere' && (iv === 0 || iv === nv - 1)) continue;
+                const v = v0 + ((v1 - v0) * iv) / (nv - 1);
+                for (let iu = 0; iu < nu; iu++) {
+                    const o = (iv * nu + iu) * 16;
+                    const K = d[o + 8]!;
+                    const H = d[o + 9]!;
+                    const ring = R + t * Math.cos(v);
+                    const Kt = k.kind === 'sphere' ? 1 / (r * r) : Math.cos(v) / (t * ring);
+                    const Ht =
+                        k.kind === 'sphere' ? 1 / r : (R + 2 * t * Math.cos(v)) / (2 * t * ring);
+                    errK = Math.max(errK, Math.abs(K - Kt));
+                    errH = Math.max(errH, Math.abs(H - Ht));
+                    maxK = Math.max(maxK, Math.abs(Kt));
+                    maxH = Math.max(maxH, Math.abs(Ht));
+                }
+            }
+            const tol = k.kind === 'sphere' ? 0.01 : 0.02;
+            const relK = c.measure(`${k.name}: erro de K (relativo)`, errK / maxK);
+            const relH = c.measure(`${k.name}: erro de H (relativo)`, errH / maxH);
+            c.measure(`${k.name}: não finitos`, nonFinite);
+            c.check(relK <= tol, `${k.name}: K com erro ${relK}`);
+            c.check(relH <= tol, `${k.name}: H com erro ${relH}`);
+            c.check(nonFinite === 0, `${k.name}: ${nonFinite} valores não finitos`);
+            c.hash(k.name, new Uint8Array(d.buffer));
+        }
         return c.result();
     },
 

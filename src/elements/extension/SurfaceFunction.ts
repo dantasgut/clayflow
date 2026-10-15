@@ -34,4 +34,17 @@ export class SurfaceFunction extends ExtensionFunction {
             && this.optionalName('surface_dv') !== undefined
         );
     }
+
+    /**
+     * A função define as cinco derivadas (`surface_du`, `surface_dv`, `surface_duu`, `surface_duv`, `surface_dvv`): a
+     * geometria diferencial usa o jato analítico (spec 010); com só parte delas, as segundas vêm por diferenças.
+     */
+    get analytic2(): boolean {
+        return (
+            this.analytic
+            && this.optionalName('surface_duu') !== undefined
+            && this.optionalName('surface_duv') !== undefined
+            && this.optionalName('surface_dvv') !== undefined
+        );
+    }
 }

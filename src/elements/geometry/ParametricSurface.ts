@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { Geometry, type GeometryData } from './Geometry';
 import { triangleEdges } from './geometryContent';
 import { SurfaceGeometry } from './SurfaceGeometry';
+import { SurfaceDiffSchema } from './SurfaceSchemas';
 
 /** Superfície pronta (spec 009): plano, esfera, toro ou terreno por ruído. */
 export type SurfacePreset = 'plane' | 'sphere' | 'torus' | 'terrain';
@@ -21,6 +22,11 @@ export interface ParametricSurfaceOptions {
     readonly params?: readonly number[];
     /** A função depende do tempo: reavalia a cada quadro. Default false (reavalia quando algo muda). */
     readonly animated?: boolean;
+    /**
+     * Geometria diferencial por vértice (spec 010): métrica, segunda forma, curvaturas e direção principal no pool
+     * `SurfaceDiff`, lidas pelo material (`SurfaceSample`). Default false. Fixo da construção.
+     */
+    readonly differential?: boolean;
 }
 
 /** Dado de uma `ParametricSurface`. */
@@ -61,11 +67,15 @@ export const SURFACE_PRESET_INDEX: Record<SurfacePreset, number> = {
  * `SurfaceFlow` escreve a partir da função `surface` da entidade (`SurfaceFunction`) ou da superfície pronta
  * (`preset`), com o espaço da cena aplicado (`SpaceFunction`). Índices fixos da grade (dois triângulos por célula, face
  * da frente para o lado de du × dv). Desenhada pelo forward e pela sombra como qualquer geometria. Mudar a resolução
- * cria outra geometria (os índices são da construção); domínio, pronta e parâmetros podem mudar em execução.
+ * cria outra geometria (os índices são da construção); domínio, pronta e parâmetros podem mudar em execução. Com
+ * `differential` (spec 010), cada vértice tem também a geometria diferencial no pool `SurfaceDiff`.
  */
 export class ParametricSurface extends Geometry<ParametricSurfaceData> {
     /** Vértice (posição, normal, uv) — o mesmo das superfícies dos corpos moles. */
     static readonly vertexStruct = SurfaceGeometry.vertexStruct;
+
+    /** Tem geometria diferencial por vértice (pool `SurfaceDiff`). */
+    readonly differential: boolean;
 
     constructor(options: ParametricSurfaceOptions = {}) {
         super();
@@ -77,6 +87,7 @@ export class ParametricSurface extends Geometry<ParametricSurfaceData> {
                 );
             }
         }
+        this.differential = options.differential ?? false;
         const preset = options.preset ?? 'plane';
         const domain = options.domain ?? PRESET_DOMAIN[preset];
         if (
@@ -124,6 +135,19 @@ export class ParametricSurface extends Geometry<ParametricSurfaceData> {
             },
             { id: 'indices', role: 'index', count: this.data.indexCount },
             ...this.wireDescriptors(),
+            ...(this.differential
+                ? [
+                      {
+                          id: 'diff',
+                          role: 'storage-rw' as const,
+                          schema: SurfaceDiffSchema,
+                          storage: 'pool' as const,
+                          // Escrita só pelo `SurfaceFlow`, um registro por vértice.
+                          upload: 'never' as const,
+                          count: this.data.vertexCount,
+                      },
+                  ]
+                : []),
         ];
     }
 
