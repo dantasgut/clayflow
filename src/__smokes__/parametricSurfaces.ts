@@ -303,6 +303,118 @@ const CASES: Record<string, Case> = {
         return c.result();
     },
 
+    /**
+     * Terreno animado (o fundo sobe e desce): corpos e fluido acompanham sem atravessar nem flutuar, e o estado é o mesmo
+     * a 30, 60 e 144 Hz — o colisor tem uma cópia por passo (SC-008, FR-015).
+     */
+    async animated() {
+        const c = collector();
+        const amp = 0.2;
+        const omega = 3;
+        const steps = 180;
+        const states: Record<number, { bodies: Uint8Array; fluid: Uint8Array; built: number }> = {};
+        // Corpos e fluido em cenas separadas: o fluido colide com os colliders dos corpos, e cada solver roda todos os
+        // passos do quadro antes do seguinte (sem acoplamento por passo entre solvers — P7), o que difere entre taxas.
+        const scene = async (rate: number, kind: 'bodies' | 'fluid') => {
+            const app = await createApp();
+            view(app);
+            app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+            const { id, collider } = insertValley(app, clayflow, { animated: { amp, omega } });
+            if (kind === 'bodies')
+                for (let i = 0; i < 6; i++) {
+                    const x = ((i % 3) - 1) * 0.3;
+                    const z = (Math.floor(i / 3) - 0.5) * 0.4;
+                    const position: [number, number, number] = [x, valleyHeight(x, z) + 0.25, z];
+                    app.world.insert(
+                        i % 2 === 0
+                            ? new clayflow.RigidBody({
+                                  shape: 'sphere',
+                                  radius: 0.1,
+                                  mass: 1,
+                                  position,
+                              })
+                            : new clayflow.RigidBody({
+                                  shape: 'box',
+                                  halfExtents: [0.08, 0.08, 0.08],
+                                  mass: 1,
+                                  position,
+                              }),
+                    );
+                }
+            else
+                app.world.insert(
+                    new clayflow.FluidBody({
+                        algorithm: 'PBF',
+                        position: block(216, spacing, [0.4, -0.2, 0.3], 11).flat(),
+                    }).add(new clayflow.PointSpriteMaterial({ radius: spacing / 2 })),
+                );
+            await settle(app);
+            const frames = Math.round((steps * rate) / 60);
+            let done = 0;
+            for (let f = 0; f < frames; f++) {
+                app.step(1 / rate);
+                done += app.time.steps;
+            }
+            c.check(done === steps, `${rate} Hz: ${done} passos (esperado ${steps})`);
+            const points = await readPositions(
+                app,
+                kind === 'bodies' ? clayflow.LCPSchema : clayflow.PBFSchema,
+            );
+            const field = await readField(app, clayflow, id, collider);
+            const lift = amp * Math.sin(omega * app.time.simulated);
+            app.dispose();
+            return { points, built: field.built, lift };
+        };
+        const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
+        for (const rate of [30, 60, 144]) {
+            const b = await scene(rate, 'bodies');
+            const f = await scene(rate, 'fluid');
+            const bodies = b.points;
+            const fluid = f.points;
+            const lift = b.lift;
+            states[rate] = { bodies: bytesOf(bodies), fluid: bytesOf(fluid), built: b.built };
+            if (rate !== 60) continue;
+            let floating = 0;
+            let sunk = 0;
+            bodies.forEach((p, i) => {
+                const gap = p[1] - valleyHeight(p[0], p[2], lift);
+                // Esfera: centro a ≥ r (mais na encosta); caixa: entre a meia aresta e a meia diagonal.
+                const lo = i % 2 === 0 ? 0.1 : 0.08;
+                const hi = i % 2 === 0 ? 0.13 : 0.15;
+                if (gap < lo - CONTACT_SLOP) sunk++;
+                if (gap > hi + 0.05) floating++;
+            });
+            let below = 0;
+            for (const p of fluid)
+                if (valleyHeight(p[0], p[2], f.lift) - p[1] > spacing / 2) below++;
+            c.measure('60 Hz: corpos afundados', sunk);
+            c.measure('60 Hz: corpos flutuando', floating);
+            c.measure('60 Hz: partículas abaixo', below);
+            c.check(sunk === 0, `${sunk} corpos atravessaram o terreno animado`);
+            c.check(floating === 0, `${floating} corpos não acompanharam o terreno (flutuando)`);
+            c.check(below === 0, `${below} partículas abaixo do terreno animado`);
+            c.hash('bodies', states[rate].bodies);
+            c.hash('fluid', states[rate].fluid);
+        }
+        for (const rate of [30, 144]) {
+            const same = (a: Uint8Array, b: Uint8Array) => hashBytes(a) === hashBytes(b);
+            c.measure(`${rate} Hz: cópias no último quadro`, states[rate]!.built);
+            c.check(
+                same(states[rate]!.bodies, states[60]!.bodies),
+                `${rate} Hz: corpos diferem de 60 Hz`,
+            );
+            c.check(
+                same(states[rate]!.fluid, states[60]!.fluid),
+                `${rate} Hz: fluido difere de 60 Hz`,
+            );
+        }
+        c.check(
+            states[30]!.built === 2,
+            `30 Hz: ${states[30]!.built} cópias por quadro (esperado 2)`,
+        );
+        return c.result();
+    },
+
     /** SPH, PBF e MPM sobre o vale: nenhuma partícula abaixo, centróide no vale (SC-002). */
     async fluids() {
         const c = collector();

@@ -16,6 +16,10 @@
       "XPBD": "bda531a2",
       "FEM": "6c6d0534",
       "emissor": "ed9a3218"
+    },
+    "animated": {
+      "bodies": "fd7ffe97",
+      "fluid": "c7629cbd"
     }
   }
 }
