@@ -21,4 +21,5 @@ export type {
     DeviceLostHandler,
     MemoryUsageReport,
     MemoryUsageEntry,
+    ShaderMessage,
 } from './EngineCore';

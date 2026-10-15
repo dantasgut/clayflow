@@ -34,6 +34,7 @@ export type {
     TextureViewSpec,
     SamplerSpec,
     ShaderModuleSpec,
+    ShaderMessage,
     LayoutSpec,
     BindGroupSpec,
     PipelineSpec,

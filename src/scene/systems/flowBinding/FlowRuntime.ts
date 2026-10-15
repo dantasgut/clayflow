@@ -5,6 +5,7 @@ import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
 import { consumesName, type PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
+import type { PointImplementation } from '../../shaders/WgslPoint';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
@@ -84,6 +85,8 @@ export class FlowRuntime {
         { readonly added: Set<EntityId>; readonly removed: Set<EntityId> }
     >();
     private readonly compiledQueue: string[] = [];
+    /** Pipelines rejeitados pelo compilador (`verify`), a anunciar no próximo `reconcile`. */
+    private readonly rejectedQueue: string[] = [];
     /** Identidade dos slots opcionais na última resolução. */
     private readonly slotIdentity = new Map<string, unknown>();
     /** Slots opcionais que mudaram na última resolução. */
@@ -201,6 +204,13 @@ export class FlowRuntime {
         }
         for (const state of [...this.pipelineStates.values()]) {
             state.refresh(this.lookup, this.onReplaced);
+        }
+        while (this.rejectedQueue.length > 0) {
+            const id = this.rejectedQueue.shift()!;
+            const state = this.pipelineStates.get(id);
+            if (state?.rejected == null) continue;
+            announceRejection(this.host.events, state, state.descriptor.extensions ?? []);
+            this.deliverDomain({ type: 'pipelineRejected', pipeline: id });
         }
         while (this.compiledQueue.length > 0) {
             const id = this.compiledQueue.shift()!;
@@ -467,6 +477,10 @@ export class FlowRuntime {
             () => this.host.core.canvasFormat,
             (s) => {
                 this.compiledQueue.push(s.id);
+                this.dirty = true;
+            },
+            (s) => {
+                this.rejectedQueue.push(s.id);
                 this.dirty = true;
             },
         );
@@ -831,4 +845,40 @@ class SetEntry implements GroupMember {
 function hasSchema(resource: Resource, schema: Schema): boolean {
     if ((resource.constructor as { schema?: Schema }).schema === schema) return true;
     return resource.getDescriptors().some((d) => d.schema === schema);
+}
+
+/** Revisão já anunciada por função (uma rejeição por revisão, ainda que vários pipelines a usem). */
+const announced = new WeakMap<PointImplementation, number>();
+
+/**
+ * Anuncia `extensionRejected` para cada função cujo módulo contém um erro do compilador, com a linha traduzida para o
+ * código do usuário; erro fora das funções é atribuído à primeira (o shader só tem código de fora nelas).
+ */
+function announceRejection(
+    events: EventBus,
+    state: PipelineState,
+    functions: readonly PointImplementation[],
+): void {
+    for (const error of state.rejected ?? []) {
+        let owner: PointImplementation | undefined;
+        let line = 0;
+        for (const fn of functions) {
+            const range = state.composed.ranges.get(fn.module.name);
+            if (range === undefined || error.line < range.first || error.line > range.last)
+                continue;
+            owner = fn;
+            line = Math.max(0, fn.codeLine(error.line - range.first + 1));
+        }
+        owner ??= functions[0];
+        if (owner === undefined || announced.get(owner) === owner.revision) continue;
+        announced.set(owner, owner.revision);
+        events.emit('extensionRejected', {
+            point: owner.point.name,
+            resource: owner,
+            revision: owner.revision,
+            message: error.message,
+            line,
+            pipeline: state.id,
+        });
+    }
 }

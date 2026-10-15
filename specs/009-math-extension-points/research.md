@@ -175,3 +175,18 @@ Toda função recebe `time` = tempo da simulação em segundos (`Time`), escrito
 - Fixtures existentes: nenhuma regravada (SC-001).
 - Bench: variante `instances 10k-functions` (10 funções `transform` distintas em 10 k objetos) para SC-008.
 - Vídeos: órbita, olho de peixe, campos, emissores, homotopia, torção, xadrez.
+
+## Partida
+
+Baseline `apple-metal-3-chrome155-macos-1280x720-ifpfky` (regravado na 030), clayflow, ms por quadro:
+
+| Cena / variante        | CPU   | GPU    |
+| ---------------------- | ----- | ------ |
+| `instances/10k`        | 0,025 | 0,353  |
+| `instances/10k-moving` | 2,875 | 0,316  |
+| `rigid-bodies/1k`      | 0,190 | 1,992  |
+| `rigid-bodies/10k`     | 0,100 | 2,927  |
+| `particles/4k`         | 0,190 | 2,214  |
+| `particles/64k`        | 0,175 | 13,403 |
+
+Nenhuma fixture deve ser regravada (SC-001).

@@ -5,11 +5,13 @@ export type WgslCompositionErrorKind =
     | 'symbol-conflict'
     | 'struct-marker'
     | 'struct-conflict'
-    | 'unresolved-reference';
+    | 'unresolved-reference'
+    | 'point-signature'
+    | 'point-missing';
 
 /**
  * Erro da montagem de shaders por módulos (`wgslModule`/`composeWgsl`). `detail` traz os envolvidos: o caminho do
- * ciclo, os módulos com o mesmo nome, o símbolo e os seus donos, o marcador e o módulo, as chamadas sem definição.
+ * ciclo, os módulos com o mesmo nome, o símbolo e os seus donos, o marcador e o módulo, as chamadas sem definição, o ponto e a assinatura esperada e recebida.
  */
 export class WgslCompositionError extends Error {
     /** Motivo. */

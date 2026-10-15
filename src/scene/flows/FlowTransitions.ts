@@ -12,6 +12,8 @@ import type { EntityId } from '../world/EntityId';
  * - `slotLost`: um slot obrigatório deixou de existir (o Flow volta a `pending`).
  * - `slotChanged`: um slot opcional (ou um pool de `slot.pools`) apareceu, sumiu ou trocou de recurso.
  * - `pipelinesCompiled`: os pipelines declarados (ou um preparado em transição, `pipeline`) compilaram.
+ * - `pipelineRejected`: o compilador rejeitou o shader de um pipeline preparado com `verify` (código de fora); a
+ *   cena já anunciou `extensionRejected`. O Flow continua com o pipeline anterior.
  * - `bindGroupReplaced`: a C2 recriou um bind group de um pipeline do Flow (fonte recriada).
  * - `entitiesChanged`: entraram ou saíram entidades de um slot `entities` — um evento por slot por quadro, com as
  *   mudanças acumuladas desde o anterior, entregue antes de `framePrepare`.
@@ -46,6 +48,12 @@ export type FlowEvent =
           readonly type: 'pipelinesCompiled';
           /** Id do pipeline preparado em transição que compilou; ausente para os declarados (Flow pronto). */
           readonly pipeline?: string;
+      }
+    | {
+          /** Shader de um pipeline com `verify` rejeitado pelo compilador. */
+          readonly type: 'pipelineRejected';
+          /** Id do pipeline. */
+          readonly pipeline: string;
       }
     | {
           /** Bind group recriado pela C2. */

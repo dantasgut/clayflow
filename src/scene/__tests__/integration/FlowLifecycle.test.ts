@@ -8,7 +8,7 @@
  *   - `frameComplete` é emitido mesmo sem nenhum Flow pronto
  *   - fases executam em ordem fixa
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Frame } from '../../../core/contracts/Frame';
 import { Flow } from '../../flows/Flow';
 import type { TransitionContext } from '../../flows/FlowBinding';
@@ -16,6 +16,10 @@ import type { FlowTransitions } from '../../flows/FlowTransitions';
 import type { Phase } from '../../flows/Phase';
 import { slot } from '../../flows/slots';
 import { FlowBindingError } from '../../flows/FlowBindingError';
+import type { ExtensionRejectedPayload } from '../../events/EventMap';
+import { composeWgsl } from '../../shaders/composeWgsl';
+import { wgslModule } from '../../shaders/WgslModule';
+import type { PointImplementation } from '../../shaders/WgslPoint';
 import { createScene } from '../../SceneContext';
 import { countingCore } from '../helpers/countingCore';
 import {
@@ -26,6 +30,7 @@ import {
     probeParams,
     probePipeline,
     probeScene,
+    probeShader,
 } from '../helpers/probeFlow';
 
 const freeSlots = {};
@@ -182,6 +187,81 @@ describe('Integração — eventos da C2 com o Flow pronto', () => {
             s.events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 1 / 60, frame: 1 });
         }).toThrow(FlowBindingError);
         expect(counting.stats().creates.get('bindgroup') ?? 0).toBe(0);
+    });
+
+    it('pipeline com verify: compilador conferido antes; rejeitado não fica pronto, avisa o Flow e a cena uma vez', async () => {
+        const s = await probeScene();
+        const shaderMessages = vi.mocked(s.counting.core.shaderMessages);
+        const range = composeWgsl(probeShader).ranges.get('probe')!;
+        // Erro na 6ª linha do módulo (o código de fora começa na 2ª: `codeLine` desconta 1).
+        const errorLine = range.first + 5;
+        shaderMessages.mockResolvedValue([
+            { type: 'error', message: "unresolved identifier 'nada'", line: errorLine, column: 3 },
+        ]);
+        const impl = {
+            point: { name: 'probe' },
+            module: probeShader,
+            revision: 0,
+            codeLine: (line: number) => line - 1,
+        } as unknown as PointImplementation;
+        const reg = s.scene.flows.register(
+            () =>
+                new ProbeFlow(probeParams, {
+                    pipelines: [probePipeline({ verify: true, extensions: [impl] })],
+                    transitions: {
+                        '*': {
+                            slotsResolved: 'ignore',
+                            pipelinesCompiled: 'ignore',
+                            pipelineRejected: {
+                                to: 'idle',
+                                run: (e) =>
+                                    rejected.push(e.type === 'pipelineRejected' ? e.pipeline : ''),
+                            },
+                        },
+                    },
+                }),
+            { type: 'probe', phase: 'physics', bodyType: 'ProbeBody' },
+        );
+        const rejected: string[] = [];
+        const announced: ExtensionRejectedPayload[] = [];
+        s.scene.events.on('extensionRejected', (e) => announced.push(e));
+        s.scene.world.insert(new ProbeCam());
+        s.scene.world.insert(new ProbeBody());
+        s.frame();
+        await Promise.resolve();
+        await Promise.resolve();
+        s.frame();
+        s.frame();
+        expect(shaderMessages).toHaveBeenCalledTimes(1);
+        expect(reg.flow!.lifecycle).not.toBe('ready');
+        expect(rejected).toEqual(['main']);
+        expect(announced).toHaveLength(1);
+        expect(announced[0]).toMatchObject({
+            point: 'probe',
+            resource: impl,
+            revision: 0,
+            message: "unresolved identifier 'nada'",
+            line: 5,
+            pipeline: 'main',
+        });
+        expect(s.counting.stats().creates.get('pipeline/compute') ?? 0).toBe(0);
+    });
+
+    it('pipeline com verify aceito: compila em segundo plano e entra no quadro', async () => {
+        // Outro fonte: a conferência é memorizada por shader montado (o do teste anterior foi rejeitado).
+        const accepted = wgslModule({
+            ...probeShader,
+            name: 'probe_accepted',
+            source: `${probeShader.source}\n// aceito`,
+        });
+        const s = await probeReady({
+            pipelines: [probePipeline({ verify: true, shader: accepted })],
+        });
+        expect(s.probe.lifecycle).not.toBe('ready');
+        for (let i = 0; i < 4; i++) await Promise.resolve();
+        s.frame();
+        expect(s.probe.lifecycle).toBe('ready');
+        expect(s.probe.dispatched).toEqual([1]);
     });
 
     it('pipeline assíncrono: o Flow só entra no quadro depois de compilado', async () => {

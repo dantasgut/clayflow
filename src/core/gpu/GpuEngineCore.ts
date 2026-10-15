@@ -4,6 +4,7 @@ import type {
     DeviceLostInfo,
     EngineCore,
     FrameProfilingGranularity,
+    ShaderMessage,
 } from '../contracts/EngineCore';
 import type { DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
 import type { Frame } from '../contracts/Frame';
@@ -473,6 +474,24 @@ export class GpuEngineCore implements EngineCore {
             await ctx.device.popErrorScope().catch(() => null);
             throw e;
         }
+    }
+
+    async shaderMessages(spec: ShaderModuleSpec): Promise<readonly ShaderMessage[]> {
+        const ctx = this.requireContext();
+        ctx.device.pushErrorScope('validation');
+        const module = ctx.device.createShaderModule({ code: spec.source });
+        const info = await module.getCompilationInfo();
+        const scoped = await ctx.device.popErrorScope();
+        const messages: ShaderMessage[] = info.messages.map((m) => ({
+            type: m.type,
+            message: m.message,
+            line: m.lineNum,
+            column: m.linePos,
+        }));
+        if (scoped !== null && !messages.some((m) => m.type === 'error')) {
+            messages.push({ type: 'error', message: scoped.message, line: 0, column: 0 });
+        }
+        return messages;
     }
 
     shutdown(): void {

@@ -5,13 +5,14 @@ import type {
     EngineCore,
     LayoutSpec,
     RenderPipelineSpec,
+    ShaderMessage,
     ShaderModuleSpec,
 } from '../../../core/contracts/index';
 import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import { FlowBindingError } from '../../flows/FlowBindingError';
 import type { PreparedCompute, PreparedRender } from '../../flows/FlowBinding';
-import { composeWgsl } from '../../shaders/composeWgsl';
+import { composeWgsl, type ComposedShader } from '../../shaders/composeWgsl';
 import type { InferredEntry, InferredLayout, LayoutInferencer } from '../LayoutInferencer';
 import { bindingEntryOf, layoutEntryOf, sameLayoutEntry, sameSource } from './sources';
 
@@ -30,6 +31,14 @@ export type ReplacedListener = (
     newSpec: BindGroupSpec,
 ) => void;
 
+/** Shaders montados já conferidos pelo compilador (`verify`): conferidos uma vez, qualquer que seja o pipeline. */
+const verifying = new WeakMap<ShaderModuleSpec, Promise<readonly ShaderMessage[]>>();
+/** Resultado já conhecido da conferência (refazer o pipeline com as mesmas fontes não espera de novo). */
+const verified = new WeakMap<ShaderModuleSpec, readonly ShaderMessage[]>();
+
+/** Notificação de shader rejeitado pelo compilador (`descriptor.verify`). */
+export type RejectedListener = (state: PipelineState, errors: readonly ShaderMessage[]) => void;
+
 /**
  * Um pipeline de Flow preparado pela C2: shader montado, layout inferido, fontes resolvidas, layouts, pipeline e bind
  * groups criados. `refresh()` reavalia as fontes: fonte recriada → bind group recriado (o antigo é liberado);
@@ -39,6 +48,10 @@ export class PipelineState {
     readonly role: 'compute' | 'render';
     readonly layout: InferredLayout;
     private readonly composedShader: ShaderModuleSpec;
+    /** O shader montado (módulos e as suas linhas, para traduzir mensagens do compilador). */
+    readonly composed: ComposedShader;
+    /** Erros do compilador quando o shader foi rejeitado (`descriptor.verify`); `null` sem rejeição. */
+    rejected: readonly ShaderMessage[] | null = null;
     private shader: ShaderModuleSpec | null = null;
     private layoutSpecs: LayoutSpec[] = [];
     private layoutEntries: BindingLayoutEntry[][] = [];
@@ -47,6 +60,8 @@ export class PipelineState {
     private bindGroups: BindGroupSpec[] = [];
     private dynamicGroups: boolean[] = [];
     private compiled = false;
+    /** Layouts e bind groups criados (o pipeline pode ainda estar sendo conferido ou compilado, ou ter sido rejeitado). */
+    private built = false;
     private token = 0;
     /** Fontes ausentes na última tentativa (o pipeline espera). */
     waiting = true;
@@ -62,6 +77,8 @@ export class PipelineState {
         private readonly canvasFormat: () => GPUTextureFormat,
         /** Chamado quando uma compilação assíncrona conclui. */
         private readonly onCompiled: (state: PipelineState) => void,
+        /** Chamado quando o compilador rejeita o shader (`descriptor.verify`). */
+        private readonly onRejected: RejectedListener = () => undefined,
     ) {
         this.role = descriptor.role;
         if (this.role === 'compute' && descriptor.entryPoints.length !== 1) {
@@ -71,6 +88,7 @@ export class PipelineState {
             );
         }
         const composed = composeWgsl(descriptor.shader);
+        this.composed = composed;
         this.composedShader = composed.spec;
         this.layout = inferencer.infer(composed, descriptor.entryPoints);
     }
@@ -126,7 +144,7 @@ export class PipelineState {
         );
         const wasWaiting = this.waiting;
         this.waiting = false;
-        if (this.pipelineSpec === null || !this.sameLayout(entries)) {
+        if (!this.built || !this.sameLayout(entries)) {
             this.build(entries, next);
             return true;
         }
@@ -163,6 +181,8 @@ export class PipelineState {
         this.layoutEntries = [];
         this.sources = [];
         this.compiled = false;
+        this.built = false;
+        this.rejected = null;
         this.waiting = true;
     }
 
@@ -213,6 +233,7 @@ export class PipelineState {
     private build(entries: BindingLayoutEntry[][], sources: ResolvedSource[][]): void {
         this.release();
         this.waiting = false;
+        this.built = true;
         const token = this.token;
         this.layoutEntries = entries;
         this.sources = sources;
@@ -225,11 +246,46 @@ export class PipelineState {
         this.dynamicGroups = entries.map((list) =>
             list.some((e) => e.kind === 'buffer' && e.hasDynamicOffset === true),
         );
+        if (this.descriptor.verify === true) {
+            // Código de fora (funções de ponto de extensão): o compilador confere antes de criar o módulo — um erro não
+            // chega ao device, e o pipeline fica rejeitado até o Flow trocar o shader.
+            const done = (messages: readonly ShaderMessage[], async: boolean): void => {
+                const errors = messages.filter((m) => m.type === 'error');
+                if (errors.length > 0) {
+                    this.rejected = errors;
+                    this.onRejected(this, errors);
+                    return;
+                }
+                this.createPipeline(token, async);
+            };
+            this.compiled = false;
+            const known = verified.get(this.composedShader);
+            if (known !== undefined) done(known, false);
+            else {
+                let check = verifying.get(this.composedShader);
+                if (check === undefined) {
+                    const spec = this.composedShader;
+                    check = this.core.shaderMessages(spec).then((messages) => {
+                        verified.set(spec, messages);
+                        return messages;
+                    });
+                    verifying.set(spec, check);
+                }
+                void check.then((messages) => {
+                    if (token === this.token) done(messages, true);
+                });
+            }
+        } else this.createPipeline(token, this.descriptor.preferAsync === true);
+        this.bindGroups = sources.map((list, g) => this.createBindGroup(g, list));
+    }
+
+    /** Cria o módulo e o pipeline (síncrono, ou em segundo plano com `onCompiled` ao concluir). */
+    private createPipeline(token: number, async: boolean): void {
         this.shader = this.core.create<ShaderModuleSpec>({ ...this.composedShader });
         const spec =
             this.role === 'compute' ? this.computeSpec(this.shader) : this.renderSpec(this.shader);
         this.pipelineSpec = spec;
-        if (this.descriptor.preferAsync === true) {
+        if (async) {
             this.compiled = false;
             void this.core.createAsync(spec).then(() => {
                 if (token !== this.token) return;
@@ -240,7 +296,6 @@ export class PipelineState {
             this.core.create(spec);
             this.compiled = true;
         }
-        this.bindGroups = sources.map((list, g) => this.createBindGroup(g, list));
     }
 
     private createBindGroup(group: number, sources: readonly ResolvedSource[]): BindGroupSpec {

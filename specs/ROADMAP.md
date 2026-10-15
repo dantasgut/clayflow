@@ -384,10 +384,14 @@ decisão do usuário. Água contínua a partir das partículas (`FluidSurfaceMat
 superfície genérica (`WaterSurface`) — a 029 reusa. Capacidades novas: `World.attach`/`detach` (troca de material em
 corpo vivo) e `ensureAllocated` de textura. Defeito corrigido: passo estável do PBF derivado do material.
 
-**Status (2026-10-14)**: F5/017 integrada à `develop` (PR #41). F5/030 implementada (`feature/030-fluid-cohesion-adhesion`;
-aguarda PR; número fora da sequência, como a 029): coesão (tensão superficial de Akinci 2013) e adesão às fronteiras
+**Status (2026-10-14)**: F5/017 integrada à `develop` (PR #41). F5/030 integrada à `develop` (PR #42; número fora da sequência, como a 029): coesão (tensão superficial de Akinci 2013) e adesão às fronteiras
 no SPH e no PBF, XSPH do material e viscosidade no MPM fluido, tudo pelo `ParticleMaterial`. A adesão usa a fronteira
 genérica `ColliderHit` (distância + normal) — os colisores de fluido da 015/016 entram por ela.
+
+**Status (2026-10-14)**: CI da `develop` verde de novo (PR #43): dois ciclos de import (só de tipos) que o
+`check:circular` acusava desde a 006 saíram do código (`ResolvedSource` em arquivo próprio; `FlowRuntime` depende de
+`FlowResourceHost`, não do `ResourceSystem`). `npm run ci` repete localmente os passos do workflow e é o gate local.
+F3/009 em andamento (`feature/009-math-extension-points`).
 
 ## 7. Adoção pelo MorphSociety (no repositório do jogo)
 

@@ -3,8 +3,21 @@ import type { Frame } from './Frame';
 import type { FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
 import type { AnyBufferSpec, ResourceSpec } from './specs/ResourceSpec';
+import type { ShaderModuleSpec } from './specs/ShaderModuleSpec';
 import type { StagingBufferSpec } from './specs/StagingBufferSpec';
 import type { TextureSpec } from './specs/TextureSpec';
+
+/** Mensagem do compilador de shader (`GPUShaderModule.getCompilationInfo()`); linha e coluna a partir de 1. */
+export interface ShaderMessage {
+    /** Gravidade da mensagem. */
+    readonly type: 'error' | 'warning' | 'info';
+    /** Texto do compilador. */
+    readonly message: string;
+    /** Linha no fonte do shader (0 quando o compilador não informa). */
+    readonly line: number;
+    /** Coluna na linha (0 quando o compilador não informa). */
+    readonly column: number;
+}
 
 /**
  * Entry no relatório de memória GPU. Cada entry corresponde a um spec
@@ -240,6 +253,12 @@ export interface EngineCore {
      * em runtime via Application option.
      */
     withErrorScope<T>(filter: GPUErrorFilter, body: () => T | Promise<T>): Promise<T>;
+    /**
+     * Compila o fonte de `spec` à parte (sem registrar o módulo) e devolve as mensagens do compilador. Erros de
+     * validação ficam no escopo da chamada — não chegam ao device como erro não capturado. Quem aceita código de fora
+     * (funções de ponto de extensão) confere antes de criar o pipeline.
+     */
+    shaderMessages(spec: ShaderModuleSpec): Promise<readonly ShaderMessage[]>;
     /**
      * Destrói o GPU device + libera todos os recursos. Após shutdown, o core
      * volta a estado uninitialized — pode ser re-inicializado via `initialize()`.

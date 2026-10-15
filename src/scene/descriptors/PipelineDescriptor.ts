@@ -5,6 +5,7 @@ import type {
     VertexBufferLayout,
 } from '../../core/contracts/index';
 import type { WgslModule } from '../shaders/WgslModule';
+import type { PointImplementation } from '../shaders/WgslPoint';
 
 /** Entrada de `consumes`: o nome do resolver, ou o nome e o struct WGSL com que o shader lê o dado. */
 export type ConsumesEntry =
@@ -68,6 +69,14 @@ export interface PipelineDescriptor {
     readonly vertexBuffers?: readonly VertexBufferLayout[];
     /** Quando true, usa `core.createAsync` (compilação não-bloqueante). */
     readonly preferAsync?: boolean;
+    /**
+     * Shader com código de fora (funções de ponto de extensão, spec 009): o compilador confere o fonte antes de criar
+     * o módulo (`core.shaderMessages`) e o pipeline compila em segundo plano. Rejeitado, o pipeline não fica pronto,
+     * o Flow recebe `pipelineRejected` e a cena anuncia `extensionRejected` — nenhum erro chega ao device.
+     */
+    readonly verify?: boolean;
+    /** Funções de ponto compostas no shader (para traduzir a linha do erro e anunciar a rejeição de cada uma). */
+    readonly extensions?: readonly PointImplementation[];
     /**
      * Ajustes explícitos por variável WGSL; vencem a inferência (FR-013). Ex.: `{ params: { visibility:
      * GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT } }`.

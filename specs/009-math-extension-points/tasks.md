@@ -7,19 +7,19 @@ contracts/extension-points, quickstart)
 
 ## Phase 1: Setup
 
-- [ ] T001 Registrar os números de partida (`instances/10k` CPU/GPU, `particles/4k`, `rigid-bodies/1k`) em `specs/009-math-extension-points/research.md` (seção "Partida")
-- [ ] T002 Smoke `extensionPoints` com o arranjo comum (cenas pequenas, leitura de volta só no smoke, medidas impressas) e os casos registrados vazios em `src/__smokes__/extensionPoints.ts` e `src/__smokes__/support/extensionScenes.ts`
-- [ ] T003 [P] ROADMAP: 030 integrada (PR #42), bugfix de ciclos (PR #43), 009 em andamento; `npm run ci` citado como gate local em `specs/ROADMAP.md`
+- [x] T001 Registrar os números de partida (`instances/10k` CPU/GPU, `particles/4k`, `rigid-bodies/1k`) em `specs/009-math-extension-points/research.md` (seção "Partida")
+- [x] T002 Smoke `extensionPoints` com o arranjo comum (cenas pequenas, leitura de volta só no smoke, medidas impressas) e os casos registrados vazios em `src/__smokes__/extensionPoints.ts` e `src/__smokes__/support/extensionScenes.ts`
+- [x] T003 [P] ROADMAP: 030 integrada (PR #42), bugfix de ciclos (PR #43), 009 em andamento; `npm run ci` citado como gate local em `specs/ROADMAP.md`
 
 ## Phase 2: Foundational
 
-- [ ] T004 C1: `ShaderMessage` e `EngineCore.shaderMessages(spec)` (`getCompilationInfo`); `createAsync` rejeita com a mensagem do device (escopo de validação em volta da criação assíncrona) em `src/core/contracts/EngineCore.ts` e `src/core/gpu/GpuEngineCore.ts`; reexport do tipo em `src/scene/contracts/gpu`; `countingCore` dos testes atualizado
-- [ ] T005 C2: `ComposedShader.ranges` (módulo → linhas) em `src/scene/shaders/composeWgsl.ts`; testes em `src/scene/__tests__/composeWgsl.test.ts`
-- [ ] T006 C2: `WgslPoint` (nome, função, assinatura, opcionais, pronto) e `check(module)` (nome, tipos normalizados, conflitos) com `WgslCompositionError('point-signature')` em `src/scene/shaders/WgslPoint.ts`; testes em `src/scene/__tests__/WgslPoint.test.ts`
-- [ ] T007 C2: `bindPoints(entry, impls)` (árvore de `requires` com o pronto trocado, nome `entry@impl`, memorizado; erro se o ponto não está na árvore) em `src/scene/shaders/bindPoints.ts`; exports em `src/scene/shaders/index.ts`; testes em `src/scene/__tests__/bindPoints.test.ts`
-- [ ] T008 C2: `ExtensionFunction<P>` (ponto, `code`, `params`, `values`; schema gerado por hash; módulo do usuário; descritor do registro de parâmetros em pool; mutação de `code` × `values`) em `src/scene/contracts/ExtensionFunction.ts`; testes em `src/scene/__tests__/ExtensionFunction.test.ts`
-- [ ] T009 C2: evento `extensionRejected { point, resource, message, line }` em `src/scene/events/EventMap.ts`; `PipelineState`/`FlowRuntime`: preparar com `preferAsync` sob id novo e trocar só ao compilar; na falha, traduzir a linha por `ranges`, emitir o evento uma vez por versão e manter o anterior, em `src/scene/systems/flowBinding/PipelineState.ts` e `FlowRuntime.ts`; testes de transição em `src/scene/__tests__/`
-- [ ] T010 Verificar: todos os smokes com fixture idênticos sem regravar; `npm run ci` verde
+- [x] T004 C1: `ShaderMessage` e `EngineCore.shaderMessages(spec)` (`getCompilationInfo`); `createAsync` rejeita com a mensagem do device (escopo de validação em volta da criação assíncrona) em `src/core/contracts/EngineCore.ts` e `src/core/gpu/GpuEngineCore.ts`; reexport do tipo em `src/scene/contracts/gpu`; `countingCore` dos testes atualizado
+- [x] T005 C2: `ComposedShader.ranges` (módulo → linhas) em `src/scene/shaders/composeWgsl.ts`; testes em `src/scene/__tests__/composeWgsl.test.ts`
+- [x] T006 C2: `WgslPoint` (nome, função, assinatura, opcionais, pronto) e `check(module)` (nome, tipos normalizados, conflitos) com `WgslCompositionError('point-signature')` em `src/scene/shaders/WgslPoint.ts`; testes em `src/scene/__tests__/WgslPoint.test.ts`
+- [x] T007 C2: `bindPoints(entry, impls)` (árvore de `requires` com o pronto trocado, nome `entry@impl`, memorizado; erro se o ponto não está na árvore) em `src/scene/shaders/bindPoints.ts`; exports em `src/scene/shaders/index.ts`; testes em `src/scene/__tests__/bindPoints.test.ts`
+- [x] T008 C2: `ExtensionFunction<P>` (ponto, `code`, `params`, `values`; schema gerado por hash; módulo do usuário; descritor do registro de parâmetros em pool; mutação de `code` × `values`) em `src/scene/contracts/ExtensionFunction.ts`; testes em `src/scene/__tests__/ExtensionFunction.test.ts`
+- [x] T009 C2: evento `extensionRejected { point, resource, message, line }` em `src/scene/events/EventMap.ts`; `PipelineState`/`FlowRuntime`: preparar com `preferAsync` sob id novo e trocar só ao compilar; na falha, traduzir a linha por `ranges`, emitir o evento uma vez por versão e manter o anterior, em `src/scene/systems/flowBinding/PipelineState.ts` e `FlowRuntime.ts`; testes de transição em `src/scene/__tests__/`
+- [x] T010 Verificar: todos os smokes com fixture idênticos sem regravar; `npm run ci` verde
 
 ## Phase 3: US1 — transform e camera (P1)
 

@@ -9,6 +9,7 @@ export type {
     ResourceDirtyPayload,
     CanvasReconfiguredPayload,
     EntitiesInsertedPayload,
+    ExtensionRejectedPayload,
     EntitiesRemovedPayload,
     ProfilerStatsPayload,
     EngineErrorPayload,

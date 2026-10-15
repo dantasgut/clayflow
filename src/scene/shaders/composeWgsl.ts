@@ -13,6 +13,11 @@ export interface ComposedShader {
     readonly modules: readonly string[];
     /** Símbolo → dono (`módulo` ou `struct <wgslName>`). */
     readonly symbols: ReadonlyMap<string, string>;
+    /**
+     * Linhas de cada módulo no fonte montado (1 = primeira linha; intervalo fechado): traduz a linha de uma mensagem
+     * do compilador para a linha no fonte do módulo (`line − first + 1`).
+     */
+    readonly ranges: ReadonlyMap<string, { readonly first: number; readonly last: number }>;
 }
 
 const MARKER = /\{\{struct:([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
@@ -50,8 +55,19 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
     for (const m of order) for (const sym of m.symbols) define(sym.name, m.name);
 
     const parts: string[] = [];
-    if (schemas.length > 0) parts.push(schemas.map((s) => s.toWGSL()).join('\n\n'));
-    for (const m of order) parts.push(resolveMarkers(m, entry.name));
+    const ranges = new Map<string, { first: number; last: number }>();
+    let line = 1;
+    const push = (text: string): void => {
+        parts.push(text);
+        // Cada parte é seguida de uma linha em branco (`\n\n` na junção).
+        line += text.split('\n').length + 1;
+    };
+    if (schemas.length > 0) push(schemas.map((s) => s.toWGSL()).join('\n\n'));
+    for (const m of order) {
+        const text = resolveMarkers(m, entry.name);
+        ranges.set(m.name, { first: line, last: line + text.split('\n').length - 1 });
+        push(text);
+    }
     const source = `${parts.join('\n\n')}\n`;
     checkReferences(source, symbols, entry.name);
 
@@ -59,6 +75,7 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
         spec: Object.freeze({ kind: 'shader', discriminator: `wgsl:${entry.name}`, source }),
         modules: Object.freeze(order.map((m) => m.name)),
         symbols,
+        ranges,
     });
     composed.set(entry, result);
     return result;
