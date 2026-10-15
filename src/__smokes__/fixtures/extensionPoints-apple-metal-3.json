@@ -16,6 +16,23 @@
     },
     "emitters": {
       "spiral": "a471ec46"
+    },
+    "surfaces": {
+      "sphere": "a51e8b55",
+      "terrain": "63cc43f8"
+    },
+    "space": {
+      "twist": "4525cce6"
+    },
+    "material": {
+      "plain": "9aacc53d",
+      "checker": "5c9c354d"
+    },
+    "errors": {},
+    "rates": {
+      "field": "176507e5",
+      "emit": "d643d7e9",
+      "surface": "a4bf2e05"
     }
   }
 }

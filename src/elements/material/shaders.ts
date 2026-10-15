@@ -3,6 +3,7 @@ import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { brdf, camera } from '../gpu/shaders/math';
 import { CameraFnRecordSchema } from '../scene/flows/CameraSchemas';
 import { cameraPointTypes } from '../scene/flows/shaders';
+import { forwardMaterialReady, materialPointTypes } from './point/shaders';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
 import forwardCameraReadySource from '../gpu/wgsl/forward_camera_ready.wgsl?raw';
 import forwardCameraFnSource from '../gpu/wgsl/forward_camera_fn.wgsl?raw';
@@ -74,7 +75,7 @@ export function forwardCameraAdapter(fnModule: WgslModule): WgslModule {
 export const forward = wgslModule({
     name: 'forward',
     source: forwardSource,
-    requires: [brdf, forwardCameraReady],
+    requires: [brdf, forwardCameraReady, materialPointTypes, forwardMaterialReady],
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,

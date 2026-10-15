@@ -120,6 +120,8 @@ export interface PointImplementation {
     readonly functionName: string;
     /** Nome do carregador de parâmetros no módulo. */
     readonly loaderName: string;
+    /** Nome no módulo da função opcional `name` do ponto, se a implementação a define (sufixo do hash nos de cena). */
+    optionalName(name: string): string | undefined;
     /** Linha no código do usuário de uma linha do módulo (≤ 0: trecho gerado). */
     codeLine(moduleLine: number): number;
 }
@@ -250,6 +252,10 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
                                   revision: 0,
                                   functionName: options.required.name,
                                   loaderName: `${options.required.name}_params`,
+                                  optionalName: (name) =>
+                                      point.optionalIn(module).some((s) => s.name === name)
+                                          ? name
+                                          : undefined,
                                   codeLine: (line) => line,
                               },
                               slot: 0,

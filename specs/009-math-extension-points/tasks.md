@@ -42,17 +42,17 @@ contracts/extension-points, quickstart)
 
 ## Phase 5: US3 — surface, space e material (P2)
 
-- [ ] T024 [US3] Ponto `surface` (+ `surface_du`/`surface_dv`), prontas plano/esfera/toro/terreno, `SurfaceFunction`; `ParametricSurface` (resolução, domínio, fechamento, `animated`) em `src/elements/extension/SurfaceFunction.ts`, `src/elements/geometry/ParametricSurface.ts`
-- [ ] T025 [US3] `SurfaceFlow`: índices fixos, kernel `surface_eval` (posição, normal por derivadas analíticas ou diferenças centrais, uv), reavaliação por tempo/parâmetros, realocação só na resolução em `src/elements/geometry/SurfaceFlow.ts`, `src/elements/gpu/wgsl/kernels/surface_eval.wgsl`; testes da grade
-- [ ] T026 [US3] Ponto `space` (+ `space_jacobian`), `SpaceFunction` de cena aplicada no `surface_eval` (x' e J⁻ᵀn; J singular mantém n; ausente = sem chamada) em `src/elements/extension/SpaceFunction.ts` e `surface_eval.wgsl`
-- [ ] T027 [US3] Ponto `materialEval` (pronta: `albedo`, emissão 0), `SurfaceSample`/`SurfaceParams`, `uv` interpolado até o fragmento, emissão somada; `MaterialFunction` na chave do pipeline do grupo de desenho em `src/elements/extension/MaterialFunction.ts`, `src/elements/gpu/wgsl/forward.wgsl`, `src/elements/material/`
-- [ ] T028 [US3] Verificar: `render`, `softSurface`, `pointCloud`, `fluidSurface` idênticos
-- [ ] T029 [US3] Casos do smoke: esfera analítica × numérica (SC-006), homotopia esfera ↔ toro, terreno, torção `space` (Jacobiana fornecida × numérica), xadrez por uv em `src/__smokes__/extensionPoints.ts`
+- [x] T024 [US3] Ponto `surface` (+ `surface_du`/`surface_dv`), prontas plano/esfera/toro/terreno, `SurfaceFunction`; `ParametricSurface` (resolução, domínio, fechamento, `animated`) em `src/elements/extension/SurfaceFunction.ts`, `src/elements/geometry/ParametricSurface.ts`
+- [x] T025 [US3] `SurfaceFlow`: índices fixos, kernel `surface_eval` (posição, normal por derivadas analíticas ou diferenças centrais, uv), reavaliação por tempo/parâmetros, realocação só na resolução em `src/elements/geometry/SurfaceFlow.ts`, `src/elements/gpu/wgsl/kernels/surface_eval.wgsl`; testes da grade
+- [x] T026 [US3] Ponto `space` (+ `space_jacobian`), `SpaceFunction` de cena aplicada no `surface_eval` (x' e J⁻ᵀn; J singular mantém n; ausente = sem chamada) em `src/elements/extension/SpaceFunction.ts` e `surface_eval.wgsl`
+- [x] T027 [US3] Ponto `materialEval` (pronta: `albedo`, emissão 0), `SurfaceSample`/`SurfaceParams`, `uv` interpolado até o fragmento, emissão somada; `MaterialFunction` na chave do pipeline do grupo de desenho em `src/elements/extension/MaterialFunction.ts`, `src/elements/gpu/wgsl/forward.wgsl`, `src/elements/material/`
+- [x] T028 [US3] Verificar: `render`, `softSurface`, `pointCloud`, `fluidSurface` idênticos
+- [x] T029 [US3] Casos do smoke: esfera analítica × numérica (SC-006), homotopia esfera ↔ toro, terreno, torção `space` (Jacobiana fornecida × numérica), xadrez por uv em `src/__smokes__/extensionPoints.ts`
 
 ## Phase 6: US4 — troca e erros (P2)
 
-- [ ] T030 [US4] Casos do smoke: troca de órbita para espiral em execução (quadro seguinte, sem realocar), assinatura errada (erro síncrono), símbolo do núcleo redefinido, erro de compilação (`extensionRejected` com linha, cena continua), retorno não finito, em cada estágio (transform, camera, field, emit, surface, space, material) em `src/__smokes__/extensionPoints.ts`
-- [ ] T031 [US4] Mesma trajetória a 30/60/144 Hz com funções dependentes do tempo (transform, field, emit, surface)
+- [x] T030 [US4] Casos do smoke: troca de órbita para espiral em execução (quadro seguinte, sem realocar), assinatura errada (erro síncrono), símbolo do núcleo redefinido, erro de compilação (`extensionRejected` com linha, cena continua), retorno não finito, em cada estágio (transform, camera, field, emit, surface, space, material) em `src/__smokes__/extensionPoints.ts`
+- [x] T031 [US4] Mesma trajetória a 30/60/144 Hz com funções dependentes do tempo (transform, field, emit, surface)
 
 ## Phase 7: Polish
 

@@ -21,6 +21,10 @@ const ALLOWED: Readonly<Record<string, string>> = {
     VsOut: 'saída do vértice, local a cada pipeline de render',
     camera_clip:
         'lugar da projeção do forward (spec 009): o pronto e o adaptador da função de câmera nunca entram no mesmo pipeline — bindPoints troca um pelo outro',
+    material_eval:
+        'lugar dos parâmetros de superfície do forward (spec 009): o pronto e o adaptador da função material — bindPoints troca um pelo outro',
+    surface_tangents:
+        'lugar das tangentes da superfície (spec 009): numéricas (pronto) ou analíticas — bindPoints troca uma pela outra',
 };
 
 function wgslFiles(dir: string): string[] {

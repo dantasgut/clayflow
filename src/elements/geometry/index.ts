@@ -11,3 +11,12 @@ export { ParametricGeometry, type ParametricGeometryData } from './ParametricGeo
 export type { ParametricFunction } from './ParametricGeometry';
 export { ParametricSurfaceGeometry } from './ParametricSurfaceGeometry';
 export { SurfaceGeometry, type SurfaceGeometryData } from './SurfaceGeometry';
+export {
+    ParametricSurface,
+    SURFACE_PRESET_INDEX,
+    type ParametricSurfaceData,
+    type ParametricSurfaceOptions,
+    type SurfacePreset,
+} from './ParametricSurface';
+export { SurfaceFlow, type SurfaceSlots } from './SurfaceFlow';
+export { SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema } from './SurfaceSchemas';

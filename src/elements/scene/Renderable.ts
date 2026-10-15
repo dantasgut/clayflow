@@ -2,6 +2,7 @@ import type { EntityRecordDeclaration } from '../../scene/flows/slots';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Material } from '../material/Material';
+import { MaterialFunction } from '../extension/MaterialFunction';
 import { Transform } from './Transform';
 
 /**
@@ -12,6 +13,8 @@ import { Transform } from './Transform';
 export const RenderableSchema = new StructSchema('Renderable', {
     transformSlot: FieldType.u32,
     materialSlot: FieldType.u32,
+    /** Slot do registro da `MaterialFunction` da entidade (spec 009); `RECORD_NONE` sem função. */
+    fnSlot: FieldType.u32,
 });
 
 /**
@@ -33,5 +36,6 @@ export const renderableRecord: EntityRecordDeclaration = {
     fields: {
         transformSlot: [Transform, 'world'],
         materialSlot: [Material, 'material'],
+        fnSlot: [MaterialFunction, 'params', { optional: true }],
     },
 };

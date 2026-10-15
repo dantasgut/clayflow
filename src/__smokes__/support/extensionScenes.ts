@@ -216,3 +216,77 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle 
     p.color = vec4f(0.2, 0.6, 1.0, 1.0);
     return p;
 }`;
+
+/** Lê um buffer de GPU inteiro de volta (bytes) — vértices escritos por um estágio, partículas de um emissor. */
+export async function readBuffer(
+    app: Application,
+    spec: { readonly byteSize: number },
+    label: string,
+): Promise<Float32Array> {
+    const staging = app.core.create<StagingBufferSpec>({
+        kind: 'buffer',
+        subkind: 'staging',
+        discriminator: `extension_points_${label}_${spec.byteSize}`,
+        byteSize: spec.byteSize,
+    });
+    app.core.record('extension-points-buffer', (frame) => {
+        frame.copy(spec as Parameters<typeof frame.copy>[0], staging, spec.byteSize);
+    });
+    app.core.submit();
+    const out = new Float32Array(await app.core.readback(staging));
+    app.core.destroy(staging);
+    return out;
+}
+
+/** Esfera de raio `data.r` com as derivadas analíticas. */
+export const SPHERE_ANALYTIC_CODE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return data.r * vec3f(sin(v) * cos(u), cos(v), sin(v) * sin(u));
+}
+fn surface_du(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return data.r * vec3f(-sin(v) * sin(u), 0.0, sin(v) * cos(u));
+}
+fn surface_dv(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return data.r * vec3f(cos(v) * cos(u), -sin(v), cos(v) * sin(u));
+}`;
+
+/** Homotopia esfera ↔ toro: s = 0,5 + 0,5 · sen(time) mistura as duas (u ∈ [0, 2π], v ∈ [0, π]). */
+export const HOMOTOPY_CODE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    let s = 0.5 + 0.5 * sin(time * data.speed);
+    let sphere = vec3f(sin(v) * cos(u), cos(v), sin(v) * sin(u));
+    let w = 2.0 * v;
+    let ring = 1.0 + 0.35 * cos(w);
+    let torus = vec3f(ring * cos(u), -0.35 * sin(w), ring * sin(u));
+    return mix(sphere, torus, s);
+}`;
+
+/** Torção em torno de y: ângulo k · y. */
+export const TWIST_CODE = /* wgsl */ `
+fn space_fn(x: vec3f, time: f32, data: SpaceFnParams) -> vec3f {
+    let a = data.k * x.y;
+    return vec3f(x.x * cos(a) - x.z * sin(a), x.y, x.x * sin(a) + x.z * cos(a));
+}`;
+
+/** A mesma torção com a Jacobiana analítica. */
+export const TWIST_JACOBIAN_CODE = /* wgsl */ `${TWIST_CODE}
+fn space_jacobian(x: vec3f, time: f32, data: SpaceFnParams) -> mat3x3f {
+    let a = data.k * x.y;
+    let c = cos(a);
+    let s = sin(a);
+    // Colunas: ∂/∂x, ∂/∂y, ∂/∂z.
+    return mat3x3f(
+        vec3f(c, 0.0, s),
+        vec3f(data.k * (-x.x * s - x.z * c), 1.0, data.k * (x.x * c - x.z * s)),
+        vec3f(-s, 0.0, c),
+    );
+}`;
+
+/** Xadrez de 8 × 8 pelo uv da geometria: casas claras e escuras da cor do material. */
+export const CHECKER_CODE = /* wgsl */ `
+fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> SurfaceParams {
+    let cell = vec2i(floor(s.uv * data.cells));
+    let dark = ((cell.x + cell.y) & 1) == 1;
+    let color = select(m.albedo.rgb, m.albedo.rgb * 0.15, dark);
+    return SurfaceParams(vec4f(color, m.albedo.a), m.roughness, m.metallic, vec3f(0.0));
+}`;

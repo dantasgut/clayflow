@@ -17,6 +17,7 @@ import { FluidSurfaceFlow } from './FluidSurfaceFlow';
 import { CausticsFlow } from './CausticsFlow';
 import { WaterFlow } from './WaterFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
+import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -155,6 +156,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
         priority: -30,
     });
+    // Superfícies paramétricas (spec 009) na mesma fase, antes da sombra e do forward.
+    const surfaceRegistration = flows.register((ctx) => new SurfaceFlow(ctx), {
+        type: 'parametricSurface',
+        phase: 'transform',
+        priority: -40,
+    });
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
@@ -228,6 +235,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             cameraRegistration,
             shadowMatrixRegistration,
             softSurfaceRegistration,
+            surfaceRegistration,
             shadowRegistration,
             forwardRegistration,
             particleRegistration,

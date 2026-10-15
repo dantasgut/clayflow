@@ -30,6 +30,12 @@ import * as clayflow from 'clayflow';
 import type { EntityId } from 'clayflow';
 import {
     capture,
+    CHECKER_CODE,
+    HOMOTOPY_CODE,
+    readBuffer,
+    SPHERE_ANALYTIC_CODE,
+    TWIST_CODE,
+    TWIST_JACOBIAN_CODE,
     SPIRAL_EMIT_CODE,
     readPool,
     meanOf,
@@ -54,6 +60,8 @@ function log(msg: string): void {
 
 /** Erros capturados dos estágios: qualquer um reprova o smoke. */
 const engineErrors: string[] = [];
+/** Um caso de erro esperado está rodando (rejeições não reprovam). */
+let expectRejections = false;
 
 async function createApp(size = 64): Promise<Application> {
     const canvas = document.createElement('canvas');
@@ -68,6 +76,11 @@ async function createApp(size = 64): Promise<Application> {
     });
     app.events.on('engineError', (e) => {
         engineErrors.push(`${e.stage}/${e.filter}: ${e.message}`);
+    });
+    // Rejeições inesperadas reprovam (os casos de erro esperado tiram o ouvinte).
+    app.events.on('extensionRejected', (e) => {
+        if (!expectRejections)
+            engineErrors.push(`extensionRejected ${e.point}:${e.line}: ${e.message}`);
     });
     return app;
 }
@@ -89,6 +102,10 @@ function collector() {
     return {
         hash(label: string, bytes: Uint8Array): void {
             hashes[label] = hashBytes(bytes);
+        },
+        /** Registra um hash já calculado. */
+        hashValue(label: string, value: string): void {
+            hashes[label] = value;
         },
         measure(name: string, value: number): number {
             measures[name] = value;
@@ -495,6 +512,484 @@ const CASES: Record<string, Case> = {
             c.check(worst <= 1e-5, `espiral fora da função (${worst})`);
             c.hash('spiral', bytes);
             app.dispose();
+        }
+        return c.result();
+    },
+
+    /**
+     * SC-006: esfera de raio 1 em 64 × 32 — raio ≤ 1e-5 e normal radial ≤ 0,5°, pela pronta (diferenças centrais) e pela
+     * função com derivadas analíticas; homotopia esfera ↔ toro animada (finita e mudando); terreno por ruído.
+     */
+    async surfaces() {
+        const c = collector();
+        const evalSurface = async (
+            surface: clayflow.ParametricSurface,
+            fn?: clayflow.SurfaceFunction,
+            frames = 1,
+        ) => {
+            const app = await createApp();
+            const entity = surface.add(new StandardMaterial()).add(new Transform());
+            if (fn !== undefined) entity.add(fn);
+            app.world.insert(entity);
+            await settle(app);
+            const shots: Float32Array[] = [];
+            for (let k = 0; k < frames; k++) {
+                app.step(1 / 60);
+                const spec = app.resources.bufferOf(surface, 'vertices');
+                if (spec === undefined) throw new Error('superfície sem vértices');
+                shots.push(await readBuffer(app, spec, `surface_${k}`));
+                for (let j = 0; j < 20; j++) app.step(1 / 60);
+            }
+            app.dispose();
+            return shots;
+        };
+        const sphereErrors = (v: Float32Array, n: number) => {
+            let radius = 0;
+            let angle = 0;
+            let worstAt = '';
+            for (let i = 0; i < n; i++) {
+                const o = i * 8;
+                const p = [v[o]!, v[o + 1]!, v[o + 2]!];
+                const r = Math.hypot(...p);
+                radius = Math.max(radius, Math.abs(r - 1));
+                const dot = (p[0]! * v[o + 3]! + p[1]! * v[o + 4]! + p[2]! * v[o + 5]!) / r;
+                const deg = (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI;
+                if (!(deg <= angle)) {
+                    angle = deg;
+                    worstAt = `${i} p=${p.map((x) => x.toFixed(3)).join(',')} n=${[v[o + 3]!, v[o + 4]!, v[o + 5]!].map((x) => x.toFixed(3)).join(',')}`;
+                }
+            }
+            if (angle > 0.5) log(`pior normal: ${worstAt}`);
+            return { radius, angle };
+        };
+        const numeric = (
+            await evalSurface(
+                new clayflow.ParametricSurface({ preset: 'sphere', resolution: [64, 32] }),
+            )
+        )[0]!;
+        const analytic = (
+            await evalSurface(
+                new clayflow.ParametricSurface({
+                    resolution: [64, 32],
+                    domain: [0, 2 * Math.PI, 0, Math.PI],
+                }),
+                new clayflow.SurfaceFunction({
+                    code: SPHERE_ANALYTIC_CODE,
+                    params: { r: 'f32' },
+                    values: { r: 1 },
+                }),
+            )
+        )[0]!;
+        for (const [label, v] of [
+            ['numérica', numeric],
+            ['analítica', analytic],
+        ] as const) {
+            const e = sphereErrors(v, 64 * 32);
+            c.measure(`esfera ${label}: erro de raio`, e.radius);
+            c.measure(`esfera ${label}: ângulo da normal (°)`, e.angle);
+            c.check(e.radius <= 1e-5, `esfera ${label}: raio fora (${e.radius})`);
+            c.check(e.angle <= 0.5, `esfera ${label}: normal fora (${e.angle}°)`);
+        }
+        c.hash('sphere', new Uint8Array(numeric.buffer));
+        const homotopy = await evalSurface(
+            new clayflow.ParametricSurface({
+                resolution: [48, 24],
+                domain: [0, 2 * Math.PI, 0, Math.PI],
+                animated: true,
+            }),
+            new clayflow.SurfaceFunction({
+                code: HOMOTOPY_CODE,
+                params: { speed: 'f32' },
+                values: { speed: 3 },
+            }),
+            2,
+        );
+        const finite = homotopy.every((v) => v.every(Number.isFinite));
+        let moved = 0;
+        for (let i = 0; i < homotopy[0]!.length; i++)
+            moved = Math.max(moved, Math.abs(homotopy[0]![i]! - homotopy[1]![i]!));
+        c.measure('homotopia: maior mudança entre quadros', moved);
+        c.check(finite, 'homotopia com valores não finitos');
+        c.check(moved > 0.05, `homotopia parada (${moved})`);
+        const terrain = (
+            await evalSurface(
+                new clayflow.ParametricSurface({ preset: 'terrain', resolution: [64, 64] }),
+            )
+        )[0]!;
+        let top = 0;
+        let up = Infinity;
+        for (let i = 0; i < 64 * 64; i++) {
+            top = Math.max(top, Math.abs(terrain[i * 8 + 1]!));
+            up = Math.min(up, terrain[i * 8 + 4]!);
+        }
+        c.measure('terreno: maior altura', top);
+        c.check(top > 0.05 && top < 1.5, `terreno com altura ${top}`);
+        c.check(up > 0, `terreno com normal para baixo (${up})`);
+        c.hash('terrain', new Uint8Array(terrain.buffer));
+        return c.result();
+    },
+
+    /** Torção `space` sobre um cilindro: pontos torcidos e normais pela Jacobiana — fornecida × numérica ≤ 1°. */
+    async space() {
+        const c = collector();
+        const CYLINDER = `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return vec3f(cos(u), v, sin(u));
+}`;
+        const run = async (code: string) => {
+            const app = await createApp();
+            app.world.insert(
+                new clayflow.SpaceFunction({ code, params: { k: 'f32' }, values: { k: 1.2 } }),
+            );
+            const surface = new clayflow.ParametricSurface({
+                resolution: [32, 16],
+                domain: [0, 2 * Math.PI, -1, 1],
+            });
+            app.world.insert(
+                surface
+                    .add(new StandardMaterial())
+                    .add(new Transform())
+                    .add(new clayflow.SurfaceFunction({ code: CYLINDER })),
+            );
+            await settle(app);
+            app.step(1 / 60);
+            const spec = app.resources.bufferOf(surface, 'vertices');
+            if (spec === undefined) throw new Error('superfície sem vértices');
+            const v = await readBuffer(app, spec, 'space');
+            app.dispose();
+            return v;
+        };
+        const provided = await run(TWIST_JACOBIAN_CODE);
+        const numeric = await run(TWIST_CODE);
+        let worstPos = 0;
+        let worstAngle = 0;
+        for (let i = 0; i < 32 * 16; i++) {
+            const o = i * 8;
+            const iu = i % 32;
+            const iv = Math.floor(i / 32);
+            const u = (iu / 31) * 2 * Math.PI;
+            const y = -1 + (iv / 15) * 2;
+            const a = 1.2 * y;
+            const want = [
+                Math.cos(u) * Math.cos(a) - Math.sin(u) * Math.sin(a),
+                y,
+                Math.cos(u) * Math.sin(a) + Math.sin(u) * Math.cos(a),
+            ];
+            worstPos = Math.max(
+                worstPos,
+                Math.hypot(
+                    provided[o]! - want[0]!,
+                    provided[o + 1]! - want[1]!,
+                    provided[o + 2]! - want[2]!,
+                ),
+            );
+            const dot =
+                provided[o + 3]! * numeric[o + 3]!
+                + provided[o + 4]! * numeric[o + 4]!
+                + provided[o + 5]! * numeric[o + 5]!;
+            worstAngle = Math.max(worstAngle, (Math.acos(Math.min(1, dot)) * 180) / Math.PI);
+        }
+        c.measure('torção: erro de posição', worstPos);
+        c.measure('torção: Jacobiana fornecida × numérica (°)', worstAngle);
+        c.check(worstPos <= 1e-5, `torção fora da equação (${worstPos})`);
+        c.check(worstAngle <= 1, `normais divergem (${worstAngle}°)`);
+        c.hash('twist', new Uint8Array(provided.buffer));
+        return c.result();
+    },
+
+    /** Material xadrez por uv: as casas alternam claro e escuro; sem função, a cor uniforme do material. */
+    async material() {
+        const c = collector();
+        const shots: ImageData[] = [];
+        for (const checker of [false, true]) {
+            const app = await createApp(128);
+            app.world.insert(
+                new Camera({ fov: Math.PI / 3, near: 0.1, far: 50 }).add(
+                    new Transform({
+                        position: [0, 3, 0, 1],
+                        rotation: Transform.lookRotation([0, 3, 0], [0, 0, 0], [0, 0, -1]),
+                    }),
+                ),
+            );
+            app.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], intensity: 1 }));
+            const plane = new clayflow.ParametricSurface({
+                resolution: [2, 2],
+                domain: [-1, 1, -1, 1],
+            })
+                .add(new StandardMaterial({ albedo: [0.9, 0.2, 0.2, 1] }))
+                .add(new Transform());
+            if (checker)
+                plane.add(
+                    new clayflow.MaterialFunction({
+                        code: CHECKER_CODE,
+                        params: { cells: 'f32' },
+                        values: { cells: 8 },
+                    }),
+                );
+            app.world.insert(plane);
+            await settle(app);
+            app.step(1 / 60);
+            shots.push(capture(app.canvas));
+            c.hash(checker ? 'checker' : 'plain', shots.at(-1)!.data as unknown as Uint8Array);
+            app.dispose();
+        }
+        // Linha do meio: a cor (canal vermelho) muda de casa em casa com a função (na diagonal de um tabuleiro a casa
+        // não muda).
+        const lum = (img: ImageData, x: number, y: number): number =>
+            img.data[(y * img.width + x) * 4]!;
+        const changes = (img: ImageData): number => {
+            let n = 0;
+            let prev = -1;
+            for (let k = 20; k < 108; k++) {
+                const bright = lum(img, k, 61) > 60 ? 1 : 0;
+                if (prev >= 0 && bright !== prev) n++;
+                prev = bright;
+            }
+            return n;
+        };
+        const plain = c.measure('sem função: trocas na linha', changes(shots[0]!));
+        const checked = c.measure('xadrez: trocas na linha', changes(shots[1]!));
+        // Sem função: só as duas bordas do plano com o fundo; com o xadrez, as casas somam trocas.
+        c.check(plain <= 2, `sem função a cor varia (${plain})`);
+        c.check(checked >= plain + 4, `o xadrez não aparece (${checked} trocas)`);
+        return c.result();
+    },
+
+    /**
+     * SC-007: erros — assinatura errada e símbolo do núcleo redefinido falham na criação (com o ponto e a assinatura);
+     * erro de compilação em cada estágio é anunciado (`extensionRejected` com a linha do código do usuário) e a cena
+     * continua desenhando sem erro no device; retorno não finito mantém o TRS.
+     */
+    async errors() {
+        const c = collector();
+        const wrong = (f: () => unknown): string => {
+            try {
+                f();
+            } catch (e) {
+                return e instanceof Error ? e.message : String(e);
+            }
+            return '';
+        };
+        const signature = wrong(
+            () =>
+                new clayflow.TransformFunction({
+                    code: 'fn transform_fn(slot: u32) -> mat4x4f { return mat4x4f(); }',
+                }),
+        );
+        c.check(
+            signature.includes("ponto 'transform'") && signature.includes('esperada'),
+            `assinatura errada sem mensagem útil: ${signature}`,
+        );
+        const symbol = wrong(
+            () =>
+                new clayflow.TransformFunction({
+                    code: `fn transform_local(t: Transform) -> WorldTransform { var w: WorldTransform; return w; }
+fn transform_fn(slot: u32, t: Transform, data: TransformFnParams, time: f32) -> mat4x4f { return mat4x4f(); }`,
+                }),
+        );
+        c.check(symbol.includes('transform_local'), `símbolo redefinido sem o nome: ${symbol}`);
+
+        // Código que passa na assinatura e na montagem, mas não compila (tipo errado na 3ª linha do código).
+        const BAD = {
+            transform: `fn transform_fn(slot: u32, t: Transform, data: TransformFnParams, time: f32) -> mat4x4f {
+    var m = transform_local(t).world;
+    let k: f32 = 1u;
+    return m;
+}`,
+            camera: `fn camera_fn(c: Camera, world: mat4x4f, aspect: f32, data: CameraFnParams, time: f32) -> CameraOut {
+    var out: CameraOut;
+    let k: f32 = 1u;
+    return out;
+}`,
+            field: `fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams) -> vec3f {
+    var a = vec3f(0.0);
+    let k: f32 = 1u;
+    return a;
+}`,
+            emit: `fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle {
+    var p: EmittedParticle;
+    let k: f32 = 1u;
+    return p;
+}`,
+            surface: `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    var p = vec3f(u, 0.0, v);
+    let k: f32 = 1u;
+    return p;
+}`,
+            space: `fn space_fn(x: vec3f, time: f32, data: SpaceFnParams) -> vec3f {
+    var y = x;
+    let k: f32 = 1u;
+    return y;
+}`,
+            material: `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> SurfaceParams {
+    var p = SurfaceParams(m.albedo, 0.5, 0.0, vec3f(0.0));
+    let k: f32 = 1u;
+    return p;
+}`,
+        };
+        expectRejections = true;
+        const app = await createApp();
+        const rejected = new Map<string, number>();
+        app.events.on('extensionRejected', (e) => rejected.set(e.point, e.line));
+        app.world.insert(new Camera().add(new Transform({ position: [0, 1, 6, 1] })));
+        app.world.insert(
+            new Camera()
+                .add(new Transform())
+                .add(new clayflow.CameraFunction({ code: BAD.camera })),
+        );
+        const box = new Transform({ position: [1, 2, 3, 1] });
+        const boxId = app.world.insert(
+            new BoxGeometry()
+                .add(new StandardMaterial())
+                .add(box)
+                .add(new clayflow.TransformFunction({ code: BAD.transform }))
+                .add(new clayflow.MaterialFunction({ code: BAD.material })),
+        );
+        app.world.insert(new clayflow.FieldFunction({ code: BAD.field }));
+        app.world.insert(new clayflow.SpaceFunction({ code: BAD.space }));
+        solverBodies(app, 'sph', clayflow);
+        app.world.insert(
+            new clayflow.ComputeParticleEmitter({ maxParticles: 64, rate: 10 })
+                .add(new clayflow.PointCloudGeometry({ maxPoints: 64 }))
+                .add(new clayflow.PointSpriteMaterial())
+                .add(new Transform())
+                .add(new clayflow.EmitFunction({ code: BAD.emit })),
+        );
+        app.world.insert(
+            new clayflow.ParametricSurface({ preset: 'sphere', resolution: [8, 8] })
+                .add(new StandardMaterial())
+                .add(new Transform())
+                .add(new clayflow.SurfaceFunction({ code: BAD.surface })),
+        );
+        // Superfície pronta: o pipeline dela só tem o espaço da cena (o compilador para no primeiro erro de cada shader).
+        app.world.insert(
+            new clayflow.ParametricSurface({ preset: 'torus', resolution: [8, 8] })
+                .add(new StandardMaterial())
+                .add(new Transform()),
+        );
+        await settle(app, 800);
+        for (let k = 0; k < 10; k++) app.step(1 / 60);
+        for (const point of Object.keys(BAD)) {
+            c.check(rejected.has(point), `${point}: erro de compilação não anunciado`);
+            c.check(
+                rejected.get(point) === 3,
+                `${point}: linha ${rejected.get(point)} (esperada 3)`,
+            );
+        }
+        c.measure('estágios com rejeição anunciada', rejected.size);
+        // A caixa segue no TRS (a função foi rejeitada e não havia anterior).
+        const w = (await readWorlds(app, [boxId])).worlds[0]!;
+        c.check(
+            w[12] === 1 && w[13] === 2 && w[14] === 3,
+            `caixa fora do TRS (${w[12]}, ${w[13]}, ${w[14]})`,
+        );
+        app.dispose();
+        expectRejections = false;
+
+        // Retorno não finito: a matriz do TRS fica.
+        const nan = await createApp();
+        const id = nan.world.insert(
+            new BoxGeometry()
+                .add(new StandardMaterial())
+                .add(new Transform({ position: [4, 5, 6, 1] }))
+                .add(
+                    new clayflow.TransformFunction({
+                        code: `fn transform_fn(slot: u32, t: Transform, data: TransformFnParams, time: f32) -> mat4x4f {
+    let big = 1e30 + time;
+    var m = transform_local(t).world;
+    m[3] = vec4f(big * big, 0.0, 0.0, 1.0);
+    return m;
+}`,
+                    }),
+                ),
+        );
+        await settle(nan);
+        nan.step(1 / 60);
+        const m = (await readWorlds(nan, [id])).worlds[0]!;
+        c.check(
+            m[12] === 4 && m[13] === 5 && m[14] === 6,
+            `matriz não finita (infinita) entrou (${m[12]}, ${m[13]}, ${m[14]})`,
+        );
+        nan.dispose();
+        return c.result();
+    },
+
+    /**
+     * FR-010: funções dependentes do tempo dão o mesmo estado a 30, 60 e 144 Hz — campo do usuário (nós FEM), emissor
+     * do usuário e superfície animada.
+     */
+    async rates() {
+        const c = collector();
+        const GUST = `
+fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams) -> vec3f {
+    return vec3f(sin(3.0 * time), 0.0, cos(2.0 * time)) * data.a;
+}`;
+        const PULSE = `
+fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle {
+    var p: EmittedParticle;
+    p.position = vec3f(sin(time), 0.0, cos(time));
+    p.velocity = vec3f(emit_rand(i, seed, 0u) - 0.5, 1.0, emit_rand(i, seed, 1u) - 0.5);
+    p.life = 1.5;
+    p.color = vec4f(1.0);
+    return p;
+}`;
+        const states: Record<string, string[]> = { field: [], emit: [], surface: [] };
+        for (const rate of [60, 30, 144]) {
+            const app = await createApp();
+            app.world.insert(
+                new clayflow.FieldFunction({ code: GUST, params: { a: 'f32' }, values: { a: 2 } }),
+            );
+            solverBodies(app, 'fem', clayflow);
+            const emitter = new clayflow.ComputeParticleEmitter({
+                maxParticles: 256,
+                rate: 90,
+                lifetime: 1.5,
+            });
+            app.world.insert(
+                emitter
+                    .add(new clayflow.PointCloudGeometry({ maxPoints: 256 }))
+                    .add(new clayflow.PointSpriteMaterial())
+                    .add(new Transform())
+                    .add(new clayflow.EmitFunction({ code: PULSE })),
+            );
+            const surface = new clayflow.ParametricSurface({
+                resolution: [24, 12],
+                domain: [0, 2 * Math.PI, 0, Math.PI],
+                animated: true,
+            });
+            app.world.insert(
+                surface
+                    .add(new StandardMaterial())
+                    .add(new Transform())
+                    .add(
+                        new clayflow.SurfaceFunction({
+                            code: HOMOTOPY_CODE,
+                            params: { speed: 'f32' },
+                            values: { speed: 3 },
+                        }),
+                    ),
+            );
+            await settle(app);
+            for (let k = 0; k < rate; k++) app.step(1 / rate);
+            states.field!.push(hashBytes(await readPool(app, clayflow.FEMSchema.name)));
+            const particles = app.resources.bufferOf(emitter, 'particles')!;
+            states.emit!.push(
+                hashBytes(new Uint8Array((await readBuffer(app, particles, 'rates_emit')).buffer)),
+            );
+            const vertices = app.resources.bufferOf(surface, 'vertices')!;
+            states.surface!.push(
+                hashBytes(
+                    new Uint8Array((await readBuffer(app, vertices, 'rates_surface')).buffer),
+                ),
+            );
+            app.dispose();
+        }
+        for (const [name, hashes] of Object.entries(states)) {
+            c.check(
+                new Set(hashes).size === 1,
+                `${name}: estado muda com a taxa (${hashes.join(' ')})`,
+            );
+            c.hashValue(name, hashes[0]!);
         }
         return c.result();
     },

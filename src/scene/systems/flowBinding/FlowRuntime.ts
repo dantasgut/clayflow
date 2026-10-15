@@ -239,6 +239,16 @@ export class FlowRuntime {
             const state = this.pipelineStates.get(id);
             if (state?.rejected == null) continue;
             announceRejection(this.host.events, state, state.descriptor.extensions ?? []);
+            const base = this.baseDescriptors.get(id);
+            if (base !== undefined && base !== state.descriptor && base.verify !== true) {
+                // Só as funções de cena compostas pela C2 foram rejeitadas: o pipeline volta ao pronto, sem envolver o
+                // Flow (que não pediu conferência).
+                state.release();
+                const fallback = this.createState(id, base, state.declared);
+                this.pipelineStates.set(id, fallback);
+                fallback.refresh(this.lookup, this.onReplaced);
+                continue;
+            }
             this.deliverDomain({ type: 'pipelineRejected', pipeline: id });
         }
         while (this.compiledQueue.length > 0) {
@@ -499,9 +509,25 @@ export class FlowRuntime {
         const existing = this.pipelineStates.get(descriptor.id);
         if (existing !== undefined) return existing;
         this.baseDescriptors.set(descriptor.id, descriptor);
-        const state = new PipelineState(
-            descriptor.id,
-            this.withScene(descriptor),
+        const state = this.createState(descriptor.id, this.withScene(descriptor), declared);
+        this.checkConsumes(descriptor);
+        this.pipelineStates.set(descriptor.id, state);
+        if (this.flow.lifecycle === 'preparing' || this.flow.lifecycle === 'ready') {
+            state.refresh(this.lookup, this.onReplaced);
+        }
+        this.dirty = true;
+        return state;
+    }
+
+    /** Estado de pipeline com os avisos de compilação e de rejeição deste runtime. */
+    private createState(
+        id: string,
+        descriptor: PipelineDescriptor,
+        declared: boolean,
+    ): PipelineState {
+        return new PipelineState(
+            id,
+            descriptor,
             declared,
             this.flow.type,
             this.host.core,
@@ -516,13 +542,6 @@ export class FlowRuntime {
                 this.dirty = true;
             },
         );
-        this.checkConsumes(descriptor);
-        this.pipelineStates.set(descriptor.id, state);
-        if (this.flow.lifecycle === 'preparing' || this.flow.lifecycle === 'ready') {
-            state.refresh(this.lookup, this.onReplaced);
-        }
-        this.dirty = true;
-        return state;
     }
 
     private releasePipeline(id: string): void {

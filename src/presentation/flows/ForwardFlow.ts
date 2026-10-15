@@ -54,6 +54,12 @@ import { Time } from '../../scene/time/Time';
 import { CameraFunction } from '../../elements/extension/CameraFunction';
 import { CameraFnRecordSchema } from '../../elements/scene/flows/CameraSchemas';
 import { forwardCameraAdapter, forwardCameraClip } from '../../elements/material/shaders';
+import { MaterialFunction } from '../../elements/extension/MaterialFunction';
+import {
+    forwardMaterial,
+    forwardMaterialAdapter,
+    MaterialFnRecordSchema,
+} from '../../elements/material/point/shaders';
 
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
 
@@ -127,7 +133,15 @@ export function forwardGroupKey(entry: EntityEntry): string {
     const shader = material.getPipelineDescriptors()[0]?.id ?? '';
     const topology = material.topology;
     const face = topology !== 'triangle-list' ? '-' : entry.get(Transform).mirrored ? 'cw' : 'ccw';
-    return `${geometry}|${shader}|${topology}|${face}`;
+    // Função `material` (spec 009): outro pipeline — outro grupo, por código.
+    const fn = materialFunctionOf(entry);
+    const program = fn === undefined ? '' : `|${fn.module.name}`;
+    return `${geometry}|${shader}|${topology}|${face}${program}`;
+}
+
+/** A `MaterialFunction` da entidade, se tem. */
+function materialFunctionOf(entry: EntityEntry): MaterialFunction | undefined {
+    return entry.resources.find((r): r is MaterialFunction => r instanceof MaterialFunction);
 }
 
 function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
@@ -204,6 +218,7 @@ export interface ForwardFlowOptions {
 export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     readonly type = 'ForwardFlow';
     readonly slots: ForwardSlots;
+    override readonly listens = [MaterialFnRecordSchema];
     override readonly bindings: BindingSources;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<ForwardSlots>>;
@@ -274,6 +289,92 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     /** Descritor de cada pipeline de material de triângulos (base das variantes de projeção). */
     private readonly baseDescriptors = new Map<string, PipelineDescriptor>();
     /**
+     * Funções `material` (spec 009): para cada entidade de triângulos com `MaterialFunction`, as variantes do pipeline
+     * do material dela com o adaptador da função (as duas orientações), preparadas com conferência do compilador;
+     * variantes de códigos que ninguém usa mais são liberadas. O tempo simulado vai ao quadro enquanto há função.
+     */
+    private syncMaterialFunctions(ctx: Ctx): void {
+        if (!this.materialFnDirty) return;
+        this.materialFnDirty = false;
+        const used = new Set<string>();
+        let any = false;
+        for (const entry of ctx.bound.slots.renderables.entries) {
+            const fn = materialFunctionOf(entry);
+            if (fn === undefined) continue;
+            any = true;
+            const draw = this.materialDraw.get(entry.get(Material));
+            if (draw?.pipelines === undefined) {
+                // O pipeline do material ainda não foi preparado (pool por criar): tenta de novo no próximo quadro.
+                this.materialFnDirty = true;
+                continue;
+            }
+            const key = this.materialFnKey(draw.pipelines.ccw, fn);
+            used.add(key);
+            if (this.materialFnPipelines.has(key)) continue;
+            const variant = (baseId: string): string => {
+                const base = this.baseDescriptors.get(baseId)!;
+                const id = `${baseId}|material:${fn.module.name}`;
+                const descriptor: PipelineDescriptor = {
+                    ...base,
+                    id,
+                    shader: bindPoints(
+                        base.shader,
+                        new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
+                    ),
+                    consumes: [...base.consumes, MaterialFnRecordSchema.name],
+                    verify: true,
+                    extensions: [...(base.extensions ?? []), fn],
+                };
+                ctx.prepare(descriptor);
+                this.pipelineFamily.set(id, 'forward');
+                // Projeção de ponto da câmera ativa também sobre a variante da função.
+                this.baseDescriptors.set(id, descriptor);
+                this.prepareVariant(ctx, descriptor);
+                return id;
+            };
+            this.materialFnPipelines.set(key, {
+                ccw: variant(draw.pipelines.ccw),
+                cw: variant(draw.pipelines.cw),
+            });
+        }
+        for (const [key, ids] of [...this.materialFnPipelines]) {
+            if (used.has(key)) continue;
+            for (const id of [ids.ccw, ids.cw]) {
+                const projected = this.projection?.variants.get(id);
+                if (projected !== undefined) {
+                    ctx.release(projected);
+                    this.projection?.variants.delete(id);
+                }
+                ctx.release(id);
+                this.baseDescriptors.delete(id);
+            }
+            this.materialFnPipelines.delete(key);
+        }
+        this.usesTime = any;
+    }
+
+    private materialFnKey(baseCcw: string, fn: MaterialFunction): string {
+        return `${baseCcw}|${fn.module.name}`;
+    }
+
+    /** O pipeline da função `material` da entidade para o pipeline base `id`, se pronto. */
+    private materialFnPipelineOf(
+        bound: BoundFlow<ForwardSlots>,
+        entry: EntityEntry,
+        id: string,
+    ): string | undefined {
+        const fn = materialFunctionOf(entry);
+        if (fn === undefined) return undefined;
+        const draw = this.materialDraw.get(entry.get(Material));
+        if (draw?.pipelines === undefined) return undefined;
+        const ids = this.materialFnPipelines.get(this.materialFnKey(draw.pipelines.ccw, fn));
+        if (ids === undefined) return undefined;
+        const fnId = id === draw.pipelines.cw ? ids.cw : ids.ccw;
+        const prepared = bound.pipelines.get(fnId);
+        return prepared?.role === 'render' && prepared.ready ? fnId : undefined;
+    }
+
+    /**
      * Projeção de ponto da câmera ativa (spec 009): a função, o módulo dela e a variante de cada pipeline de material
      * (base → variante). Variante ainda compilando ou rejeitada: o desenho usa a base (projeção linear).
      */
@@ -288,7 +389,17 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     /** Slot do registro da função da câmera ativa (0 sem função). */
     private cameraFnSlot = 0;
     /** Há função `material` na cena: o tempo simulado vai aos parâmetros do quadro. */
-    private readonly usesTime = false;
+    private usesTime = false;
+    /**
+     * Pipelines das funções `material` (spec 009), por (pipeline base, código): as duas orientações; até compilar, as
+     * entidades com a função desenham com a base (as constantes do material).
+     */
+    private readonly materialFnPipelines = new Map<
+        string,
+        { readonly ccw: string; readonly cw: string }
+    >();
+    /** As funções `material` (conjunto ou código) mudaram desde a última sincronização. */
+    private materialFnDirty = true;
 
     constructor(ctx: FlowContext, options: ForwardFlowOptions = {}) {
         super();
@@ -400,6 +511,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         for (const id of e.removed) this.pendingMaterials.delete(id);
                         this.releaseGeometryPipelines(c, e.removed);
                         this.prepareMaterials(c, e.added);
+                        this.materialFnDirty = true;
+                    },
+                },
+                resourceReady: 'ignore',
+                // Registro de uma função `material`: valores (nada a fazer) ou código novo (revisão).
+                poolWritten: {
+                    to: 'idle',
+                    run: () => {
+                        this.materialFnDirty = true;
                     },
                 },
                 slotLost: 'ignore',
@@ -422,6 +542,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
                         this.bindCaustics(c);
+                        this.syncMaterialFunctions(c);
                         this.syncProjection(c);
                         this.writeFrameParams(c);
                     },
@@ -470,7 +591,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             : draw.pipelines.ccw
                         : this.geometryPipelineOf(entry);
                 if (id === undefined) continue;
-                const prepared = this.projected(bound, id) ?? bound.pipelines.get(id);
+                const fnId = this.materialFnPipelineOf(bound, entry, id);
+                const prepared =
+                    this.projected(bound, fnId ?? id) ?? bound.pipelines.get(fnId ?? id);
                 if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
                 // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).
                 const geometry = entry.get(Geometry);

@@ -74,7 +74,10 @@ const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Módulos já gerados e validados, por ponto, hash (ponto, parâmetros, código, módulos exigidos) e variante: instâncias
  * com o mesmo código compartilham o módulo (e portanto o shader montado) e a validação roda uma vez.
  */
-const built = new Map<string, { readonly module: WgslModule; readonly prefix: number }>();
+const built = new Map<
+    string,
+    { readonly module: WgslModule; readonly prefix: number; readonly optionals: Set<string> }
+>();
 
 /** FNV-1a de 32 bits em hexadecimal. */
 function fnv(text: string): string {
@@ -141,6 +144,8 @@ export abstract class ExtensionFunction
     #module: WgslModule;
     #prefixLines = 0;
     #hash = '';
+    /** Funções opcionais do ponto que o código atual define. */
+    #optionals = new Set<string>();
     readonly #slots: readonly ParamSlot[];
 
     protected constructor(point: WgslPoint, options: ExtensionFunctionOptions) {
@@ -214,6 +219,12 @@ export abstract class ExtensionFunction
             : this.point.required.name;
     }
 
+    /** Nome no módulo da função opcional `name`, se o código a define (com o sufixo do hash quando `renamed`). */
+    optionalName(name: string): string | undefined {
+        if (!this.#optionals.has(name)) return undefined;
+        return this.renamed ? `${name}_${this.#hash}` : name;
+    }
+
     /** Nome do carregador de parâmetros no módulo. */
     get loaderName(): string {
         const base = `${this.point.required.name}_params`;
@@ -254,6 +265,7 @@ export abstract class ExtensionFunction
         const cacheKey = `${point.name}|${hash}|${this.renamed ? 'renamed' : 'plain'}`;
         const cached = built.get(cacheKey);
         if (cached?.module.requires.every((m, k) => m === this.requires[k]) === true) {
+            this.#optionals = cached.optionals;
             this.#prefixLines = cached.prefix;
             this.#hash = hash;
             return cached.module;
@@ -290,14 +302,13 @@ export abstract class ExtensionFunction
                 `    return ${struct}(${args.join(', ')});`,
                 '}',
             ];
-            const body = renamed
-                ? code
-                      .replace(
-                          new RegExp(`\\b${point.required.name}\\b`, 'g'),
-                          `${point.required.name}${suffix}`,
-                      )
-                      .replace(new RegExp(`\\b${point.paramsAlias}\\b`, 'g'), alias)
-                : code;
+            let body = code;
+            if (renamed) {
+                // A função obrigatória, as opcionais e o alias com o sufixo: várias funções no mesmo shader.
+                for (const name of [point.required.name, ...point.optional.map((o) => o.name)])
+                    body = body.replace(new RegExp(`\\b${name}\\b`, 'g'), `${name}${suffix}`);
+                body = body.replace(new RegExp(`\\b${point.paramsAlias}\\b`, 'g'), alias);
+            }
             const module = wgslModule({
                 name: `${point.name}_fn_${hash}`,
                 source: `${prefix.join('\n')}\n${body}`,
@@ -310,8 +321,9 @@ export abstract class ExtensionFunction
         // várias funções do ponto entram no mesmo shader.
         const plain = make(false);
         point.check(plain.module, struct);
+        this.#optionals = new Set(point.optionalIn(plain.module).map((o) => o.name));
         const { module, prefix } = this.renamed ? make(true) : plain;
-        built.set(cacheKey, { module, prefix });
+        built.set(cacheKey, { module, prefix, optionals: this.#optionals });
         this.#prefixLines = prefix;
         this.#hash = hash;
         return module;
