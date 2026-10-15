@@ -60,8 +60,9 @@ export interface EntityRecordDeclaration {
     readonly schema: StructSchema;
     /**
      * Campo → [classe do Resource da entidade, id do descritor em pool cujo slot vai no campo]. Com o terceiro
-     * elemento `{ optional: true }`, o tipo não precisa estar em `all`: entidade sem o Resource tem `RECORD_NONE` no
-     * campo (spec 009 — ex.: o registro da função `material` da entidade, quando há).
+     * elemento `{ optional: true }`, o tipo não precisa estar em `all`: entidade sem o Resource — ou com o Resource sem
+     * o descritor (spec 010) — tem `RECORD_NONE` no campo (spec 009 — ex.: o registro da função `material` da entidade,
+     * quando há; a geometria diferencial da superfície, quando ela a declara).
      */
     readonly fields: Readonly<
         Record<string, readonly [ResourceType, string, { readonly optional: true }?]>

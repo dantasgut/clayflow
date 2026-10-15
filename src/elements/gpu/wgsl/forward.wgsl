@@ -8,6 +8,8 @@
 @group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
 @group(1) @binding(1) var<storage, read> renderables: array<Renderable>;
 @group(1) @binding(2) var<storage, read> instances: array<RenderInstance>;
+// Geometria diferencial das superfícies `differential` (spec 010), pelo `diffSlot` do registro + índice do vértice.
+@group(1) @binding(3) var<storage, read> surface_diff: array<SurfaceDiff>;
 // Pool do material do schema do pipeline, indexado pelo `materialSlot` do registro.
 @group(2) @binding(0) var<storage, read> materials: array<StandardMaterial>;
 // Parâmetros do quadro (slots da câmera, da luz e do mapa de sombra; sombra ligada), o mapa de sombra da luz (textura,
@@ -42,10 +44,18 @@ struct VsOut {
     // uv da geometria e o slot da função `material` da entidade (spec 009).
     @location(3) uv: vec2<f32>,
     @location(4) @interpolate(flat) fn_slot: u32,
+    // Geometria diferencial interpolada (spec 010): E, F, G; K, H, k1, k2; direção principal em mundo.
+    @location(5) metric: vec3<f32>,
+    @location(6) curvature: vec4<f32>,
+    @location(7) principal: vec3<f32>,
 }
 
 @vertex
-fn vs_main(in: VsIn, @builtin(instance_index) instance: u32) -> VsOut {
+fn vs_main(
+    in: VsIn,
+    @builtin(instance_index) instance: u32,
+    @builtin(vertex_index) vertex: u32,
+) -> VsOut {
     var out: VsOut;
     let r = renderables[instances[instance].renderable];
     let w = worlds[r.transformSlot];
@@ -56,6 +66,13 @@ fn vs_main(in: VsIn, @builtin(instance_index) instance: u32) -> VsOut {
     out.material_slot = r.materialSlot;
     out.uv = in.uv;
     out.fn_slot = r.fnSlot;
+    if (r.diffSlot != 0xFFFFFFFFu) {
+        let d = surface_diff[r.diffSlot + vertex];
+        out.metric = d.metric.xyz;
+        out.curvature = d.curvature;
+        let dir = mat3x3<f32>(w.world[0].xyz, w.world[1].xyz, w.world[2].xyz) * d.principal.xyz;
+        out.principal = select(vec3<f32>(0.0), normalize(dir), d.principal.w > 0.0 && dot(dir, dir) > 0.0);
+    }
     return out;
 }
 
@@ -64,7 +81,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let material = materials[in.material_slot];
     let n = normalize(in.world_normal);
     // Parâmetros de superfície pelo ponto `material` (spec 009; pronto: as constantes do material, sem emissão).
-    let surface = material_eval(SurfaceSample(in.world_position, n, in.uv, forward_frame.time), material, in.fn_slot);
+    let sample = SurfaceSample(
+        in.world_position,
+        n,
+        in.uv,
+        forward_frame.time,
+        in.metric,
+        in.curvature,
+        in.principal,
+    );
+    let surface = material_eval(sample, material, in.fn_slot);
     let albedo = surface.base_color;
     var light_dir = DEFAULT_LIGHT_DIR;
     if (forward_frame.lightSlot != 0xFFFFFFFFu) {

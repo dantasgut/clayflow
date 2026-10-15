@@ -7,7 +7,11 @@ import { StandardMaterial } from '../../material/StandardMaterial';
 import { Transform } from '../../scene/Transform';
 import { ParametricSurface } from '../ParametricSurface';
 import { SurfaceFlow } from '../SurfaceFlow';
-import { renderScene } from '../../../presentation/flows/__tests__/helpers/renderHarness';
+import {
+    registerStages,
+    renderScene,
+} from '../../../presentation/flows/__tests__/helpers/renderHarness';
+import { Camera } from '../../scene/Camera';
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -67,5 +71,41 @@ describe('SurfaceFlow (spec 009)', () => {
         expect(s.evals()).toBe(1);
         s.step();
         expect(s.evals()).toBe(1);
+    });
+});
+
+describe('geometria diferencial (spec 010)', () => {
+    it('differential declara o pool SurfaceDiff (um registro por vértice, só da GPU)', () => {
+        const plain = new ParametricSurface({ resolution: [4, 3] });
+        expect(plain.getDescriptors().some((d) => d.id === 'diff')).toBe(false);
+        const diff = new ParametricSurface({ resolution: [4, 3], differential: true });
+        expect(diff.getDescriptors().find((d) => d.id === 'diff')).toMatchObject({
+            storage: 'pool',
+            upload: 'never',
+            count: 12,
+        });
+    });
+
+    it('superfície com e sem geometria diferencial é desenhada (campo opcional do registro sem o descritor)', async () => {
+        for (const differential of [false, true]) {
+            const s = await renderScene();
+            registerStages(s.scene, { forward: 'scene' });
+            s.scene.flows.register((ctx) => new SurfaceFlow(ctx), {
+                type: 'surface',
+                phase: 'transform',
+                priority: -40,
+            });
+            s.scene.world.insert(new Camera().add(new Transform({ position: [0, 0, 3, 1] })));
+            const surface = new ParametricSurface({
+                preset: 'sphere',
+                resolution: [8, 6],
+                differential,
+            });
+            s.scene.world.insert(surface.add(new StandardMaterial()).add(new Transform()));
+            s.step();
+            expect(s.computes()).toContain('SurfaceFlow');
+            s.step();
+            expect(s.draws().some((d) => d.indexCount === surface.indexCount)).toBe(true);
+        }
     });
 });

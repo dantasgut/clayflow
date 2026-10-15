@@ -8,7 +8,15 @@
 
 @compute @workgroup_size(1)
 fn material_check_main() {
-    let s = SurfaceSample(material_check_out[0].xyz, material_check_out[1].xyz, material_check_out[2].xy, 0.0);
+    let s = SurfaceSample(
+        material_check_out[0].xyz,
+        material_check_out[1].xyz,
+        material_check_out[2].xy,
+        0.0,
+        vec3f(0.0),
+        vec4f(0.0),
+        vec3f(0.0),
+    );
     let p = material_fn(s, material_check_materials[0], material_fn_params(material_check_records[0]));
     material_check_out[3] = p.base_color + vec4f(p.emissive, p.roughness + p.metallic);
 }

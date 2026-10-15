@@ -34,6 +34,7 @@ import {
 } from './forwardSchemas';
 import { FluidSurfaceMaterialSchema } from './FluidSurfaceMaterialSchema';
 import { Light } from '../scene/Light';
+import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
 import { ShadowMap } from '../scene/ShadowMap';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
@@ -87,6 +88,7 @@ export const forward = wgslModule({
         ShadowMap.matrixSchema,
         Light.schema,
         WaterLightMatrixSchema,
+        SurfaceDiffSchema,
     ],
 });
 

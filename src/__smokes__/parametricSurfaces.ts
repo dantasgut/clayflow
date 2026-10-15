@@ -327,6 +327,14 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
     return vec3f(ring * cos(u), -data.small * sin(v), ring * sin(u));
 }`;
 
+/** Cor pela curvatura gaussiana: vermelho onde K > 0 (por fora do toro), azul onde K < 0 (por dentro). */
+const CURVATURE_COLOR_CODE = /* wgsl */ `
+fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> SurfaceParams {
+    let k = clamp(s.curvature.x * data.gain, -1.0, 1.0);
+    let color = mix(vec3f(0.85, 0.85, 0.85), select(vec3f(0.15, 0.3, 0.95), vec3f(0.95, 0.2, 0.15), k > 0.0), abs(k));
+    return SurfaceParams(vec4f(color, 1.0), m.roughness, m.metallic, vec3f(0.0));
+}`;
+
 /** Geometria diferencial (16 floats por vértice) de uma superfície `differential`, lida do pool. */
 async function readDiff(app: Application, id: EntityId, count: number): Promise<Float32Array> {
     const bytes = await readPool(app, 'SurfaceDiff');
@@ -906,6 +914,86 @@ const CASES: Record<string, Case> = {
             c.check(nonFinite === 0, `${k.name}: ${nonFinite} valores não finitos`);
             c.hash(k.name, new Uint8Array(d.buffer));
         }
+        return c.result();
+    },
+
+    /**
+     * Material por curvatura (US3-3): um toro com a cor pela curvatura gaussiana — a parte externa (K > 0) e a interna
+     * (K < 0) com cores diferentes na imagem; fixture.
+     */
+    async curvatureMaterial() {
+        const c = collector();
+        const W = 160;
+        const H = 120;
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        document.body.appendChild(canvas);
+        const app = await Application.create({
+            canvas,
+            scene: createScene(),
+            autoResize: false,
+            captureErrors: true,
+        });
+        app.events.on('engineError', (e) => {
+            engineErrors.push(`${e.stage}/${e.filter}: ${e.message}`);
+        });
+        const eye: [number, number, number] = [0, 1.6, 2.2];
+        app.world.insert(
+            new Camera({
+                fov: Math.PI / 4,
+                aspect: W / H,
+                aspectMode: 'fixed',
+                near: 0.05,
+                far: 20,
+            }).add(
+                new Transform({
+                    position: [...eye, 1],
+                    rotation: Transform.lookRotation(eye, [0, 0, 0]),
+                }),
+            ),
+        );
+        app.world.insert(new DirectionalLight({ direction: [-0.3, -1, -0.5, 0], intensity: 1.1 }));
+        const surface = new clayflow.ParametricSurface({
+            preset: 'torus',
+            params: [0.7, 0.3],
+            resolution: [96, 48],
+            differential: true,
+        });
+        app.world.insert(
+            surface
+                .add(new clayflow.StandardMaterial())
+                .add(new Transform())
+                .add(
+                    new clayflow.MaterialFunction({
+                        code: CURVATURE_COLOR_CODE,
+                        params: { gain: 'f32' },
+                        values: { gain: 1.5 },
+                    }),
+                ),
+        );
+        await settle(app);
+        app.step(1 / 60);
+        const image = capture(canvas);
+        app.dispose();
+        canvas.remove();
+        let red = 0;
+        let blue = 0;
+        for (let i = 0; i < image.data.length; i += 4) {
+            const [r, g, b] = [image.data[i]!, image.data[i + 1]!, image.data[i + 2]!];
+            if (r > 60 && r > 1.6 * g && r > 1.6 * b) red++;
+            if (b > 60 && b > 1.4 * r && b > 1.2 * g) blue++;
+        }
+        c.measure('pixels vermelhos (K > 0)', red);
+        c.measure('pixels azuis (K < 0)', blue);
+        c.check(red > 200, `só ${red} pixels da parte externa (K > 0)`);
+        c.check(blue > 100, `só ${blue} pixels da parte interna (K < 0)`);
+        c.hash('image', new Uint8Array(image.data.buffer));
+        if (recording())
+            await writeFixture(
+                `parametricSurfaces-curvature-${profileName}.png`,
+                await toPng(image),
+            );
         return c.result();
     },
 

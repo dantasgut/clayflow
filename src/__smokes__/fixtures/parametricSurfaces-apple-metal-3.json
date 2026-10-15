@@ -34,6 +34,15 @@
     "sphereFluid": {
       "sem adesão": "16fdf8ba",
       "com adesão": "f1392d4f"
+    },
+    "curvature": {
+      "esfera (analítica)": "b1800ad2",
+      "esfera (numérica)": "844061b5",
+      "toro (analítica)": "1c7ba68f",
+      "toro (numérica)": "bd78c174"
+    },
+    "curvatureMaterial": {
+      "image": "35dc903c"
     }
   }
 }

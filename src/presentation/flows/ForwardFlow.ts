@@ -34,6 +34,7 @@ import {
 } from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
+import { SurfaceDiffSchema } from '../../elements/geometry/SurfaceSchemas';
 import { Material } from '../../elements/material/Material';
 import {
     ForwardFrameParamsSchema,
@@ -112,6 +113,8 @@ export interface ForwardSlots extends SlotMap {
     readonly water: SingletonSlot<true>;
     /** Pool `Light` (direção da luz que ilumina pelo `lightSlot`; opcional). */
     readonly lights: PoolSlot<true>;
+    /** Pool da geometria diferencial das superfícies (spec 010; opcional). */
+    readonly diffs: PoolSlot<true>;
     /** Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`. */
     readonly target: TargetSlot;
     /** Câmeras com `CameraFunction` (projeção de ponto da câmera ativa, spec 009). */
@@ -170,6 +173,7 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
         shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
         water: slot.singleton(WaterSurface.schema, { optional: true }),
         lights: slot.pool(Light.schema.name, { optional: true }),
+        diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
         target: slot.target(
             output === 'scene'
                 ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth, samples }
@@ -234,6 +238,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly dummyShadowMaps: StorageBufferSpec;
     private readonly dummyShadowMatrices: StorageBufferSpec;
     private readonly dummyLights: StorageBufferSpec;
+    /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
+    private readonly dummyDiff: StorageBufferSpec;
     /** Substitutos das cáusticas (spec 017): fator 1 e "sem água" — só lidos com `causticsEnabled = 1`. */
     private readonly dummyCaustics: TextureSpec;
     private readonly dummyCausticsView: TextureViewSpec;
@@ -451,6 +457,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             discriminator: 'forward_lights_dummy',
             byteSize: Light.schema.stride,
         });
+        this.dummyDiff = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'forward_surface_diff_dummy',
+            byteSize: SurfaceDiffSchema.stride,
+        });
         const dummy = (name: string, format: GPUTextureFormat): [TextureSpec, TextureViewSpec] => {
             const texture = ctx.core.create<TextureSpec>({
                 kind: 'texture',
@@ -486,6 +498,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             shadow_maps: this.dummyShadowMaps,
             shadow_matrices: this.dummyShadowMatrices,
             lights: this.dummyLights,
+            surface_diff: this.dummyDiff,
         };
         const shadow = {
             to: 'idle' as const,
@@ -655,6 +668,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             this.dummyShadowMaps,
             this.dummyShadowMatrices,
             this.dummyLights,
+            this.dummyDiff,
             this.dummyCausticsView,
             this.dummyCaustics,
             this.dummyWaterDepthView,
@@ -702,6 +716,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             shadow_maps: slots.shadowMaps?.buffer ?? this.dummyShadowMaps,
             shadow_matrices: slots.shadowMatrices?.buffer ?? this.dummyShadowMatrices,
             lights: slots.lights?.buffer ?? this.dummyLights,
+            surface_diff: slots.diffs?.buffer ?? this.dummyDiff,
         });
     }
 

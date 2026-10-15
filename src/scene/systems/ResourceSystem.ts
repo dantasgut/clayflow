@@ -2021,7 +2021,10 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         clearBit(entry.writtenBits, slot);
     }
 
-    /** Campos do registro: o slot de pool do descritor nomeado do Resource de cada tipo; `undefined` se faltar algum. */
+    /**
+     * Campos do registro: o slot de pool do descritor nomeado do Resource de cada tipo; `undefined` se faltar algum. Campo
+     * opcional sem o Resource, ou com o Resource sem o descritor, vale `RECORD_NONE`.
+     */
     private recordValues(set: RecordSet, id: EntityId): Record<string, number> | undefined {
         const resources = this.world.resourcesOf(id);
         if (!set.all.every((type) => resources.some((r) => r instanceof type))) return undefined;
@@ -2035,6 +2038,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             const desc = resource
                 ?.getDescriptors()
                 .find((d) => d.id === descId && d.storage === 'pool' && d.schema !== undefined);
+            // Opcional também quando o Resource existe sem o descritor (spec 010: superfície sem geometria diferencial).
+            if (resource !== undefined && desc === undefined && opts?.optional === true) {
+                values[field] = RECORD_NONE;
+                continue;
+            }
             if (resource === undefined || desc?.schema === undefined) return undefined;
             const slot = this.pools
                 .get(this.computePoolKey(desc.schema, resource))
