@@ -24,6 +24,7 @@ import {
     Transform,
 } from 'clayflow';
 import * as clayflow from 'clayflow';
+import type { EntityId } from 'clayflow';
 import { capture, readBuffer, settle } from './support/extensionScenes';
 import {
     gpuProfile,
@@ -258,6 +259,59 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     app.dispose();
     canvas.remove();
     return { image: image!, particles, levels };
+}
+
+/** Toro de teste (raios do anel e do tubo) e a distância com sinal analítica. */
+const TORUS = { R: 0.6, r: 0.25 } as const;
+
+function torusDistance(p: readonly number[]): number {
+    const q = Math.hypot(p[0]!, p[2]!) - TORUS.R;
+    return Math.hypot(q, p[1]!) - TORUS.r;
+}
+
+/** Transformação do toro dos corpos (FR-005): translação, rotação de 15° em x e escala 1,2. */
+const TORUS_POSE = {
+    t: [0.2, 0.1, -0.1] as const,
+    angle: (15 * Math.PI) / 180,
+    s: 1.2,
+};
+
+/** Mundo ← local do toro posado. */
+function torusToWorld(p: readonly number[]): [number, number, number] {
+    const { t, angle, s } = TORUS_POSE;
+    const [x, y, z] = [p[0]! * s, p[1]! * s, p[2]! * s];
+    const c = Math.cos(angle);
+    const n = Math.sin(angle);
+    return [x + t[0], c * y - n * z + t[1], n * y + c * z + t[2]];
+}
+
+/** Distância com sinal (mundo) ao toro posado. */
+function posedTorusDistance(p: readonly number[]): number {
+    const { t, angle, s } = TORUS_POSE;
+    const [x, y, z] = [p[0]! - t[0], p[1]! - t[1], p[2]! - t[2]];
+    const c = Math.cos(angle);
+    const n = Math.sin(angle);
+    return torusDistance([x / s, (c * y + n * z) / s, (-n * y + c * z) / s]) * s;
+}
+
+/** Superfície pronta colidível pela distância (malha e campo). */
+function insertDistanceSurface(
+    app: Application,
+    preset: 'torus' | 'sphere',
+    params: number[],
+    resolution = 48,
+    transform: clayflow.Transform = new Transform(),
+): { id: EntityId; collider: clayflow.SurfaceCollider } {
+    const collider = new clayflow.SurfaceCollider({ mode: 'distance', resolution });
+    const surface = new clayflow.ParametricSurface({
+        preset,
+        params,
+        resolution: preset === 'torus' ? [96, 48] : [64, 32],
+    })
+        .add(collider)
+        .add(new clayflow.StandardMaterial({ albedo: [0.7, 0.45, 0.3, 1] }))
+        .add(transform);
+    return { id: app.world.insert(surface), collider };
 }
 
 const CASES: Record<string, Case> = {
@@ -592,6 +646,165 @@ const CASES: Record<string, Case> = {
                 `parametricSurfaces-lake-${profileName}.png`,
                 await toPng(wet.image),
             );
+        return c.result();
+    },
+
+    /** Campo de distância do toro contra a analítica: erro perto da superfície e sinal em todos os nós (US2). */
+    async distanceField() {
+        const c = collector();
+        const app = await createApp();
+        const { id, collider } = insertDistanceSurface(app, 'torus', [TORUS.R, TORUS.r]);
+        await settle(app);
+        run(app, 1);
+        const field = await readField(app, clayflow, id, collider);
+        app.dispose();
+        const n = collider.data.nx;
+        const cell = (field.hi[0]! - field.lo[0]!) / (n - 1);
+        let worstNear = 0;
+        let wrongSign = 0;
+        for (let iz = 0; iz < n; iz++)
+            for (let iy = 0; iy < n; iy++)
+                for (let ix = 0; ix < n; ix++) {
+                    const p = [ix, iy, iz].map(
+                        (k, a) => field.lo[a]! + (k * (field.hi[a]! - field.lo[a]!)) / (n - 1),
+                    );
+                    const d = field.values[ix + n * (iy + n * iz)]!;
+                    const t = torusDistance(p);
+                    if (Math.abs(t) < 3 * cell) worstNear = Math.max(worstNear, Math.abs(d - t));
+                    if (Math.abs(t) > cell && Math.sign(d) !== Math.sign(t)) wrongSign++;
+                }
+        c.measure('célula (m)', cell);
+        c.measure('erro perto da superfície (m)', worstNear);
+        c.measure('nós com sinal errado', wrongSign);
+        c.check(field.built === 1, `cópias ${field.built} (esperado 1)`);
+        c.check(
+            worstNear < 0.25 * cell,
+            `erro ${worstNear} m perto da superfície (célula ${cell})`,
+        );
+        c.check(wrongSign === 0, `${wrongSign} nós com o sinal errado`);
+        c.hash('field', new Uint8Array(field.values.buffer));
+        return c.result();
+    },
+
+    /** Corpos caindo sobre um toro colidível: nenhum centro dentro; os soltos no tubo escorregam (desviados), os do furo passam. */
+    async torusBodies() {
+        const c = collector();
+        const app = await createApp();
+        view(app);
+        app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+        const half15 = TORUS_POSE.angle / 2;
+        insertDistanceSurface(
+            app,
+            'torus',
+            [TORUS.R, TORUS.r],
+            48,
+            new Transform({
+                position: [...TORUS_POSE.t, 1],
+                rotation: [Math.sin(half15), 0, 0, Math.cos(half15)],
+                scale: [TORUS_POSE.s, TORUS_POSE.s, TORUS_POSE.s, 1],
+            }),
+        );
+        const radius = 0.08;
+        const half = 0.06;
+        for (let i = 0; i < 24; i++) {
+            const a = (i / 24) * 2 * Math.PI;
+            const rr = i % 3 === 0 ? 0.1 : TORUS.R + ((i % 3) - 1.5) * 0.08;
+            const position = torusToWorld([
+                rr * Math.cos(a),
+                0.5 + 0.08 * (i % 4),
+                rr * Math.sin(a),
+            ]);
+            app.world.insert(
+                i % 2 === 0
+                    ? new clayflow.RigidBody({ shape: 'sphere', radius, mass: 1, position })
+                    : new clayflow.RigidBody({
+                          shape: 'box',
+                          halfExtents: [half, half, half],
+                          mass: 1,
+                          position,
+                      }),
+            );
+        }
+        await settle(app);
+        run(app, 240);
+        const pos = await readPositions(app, clayflow.LCPSchema);
+        app.dispose();
+        let inside = 0;
+        let deflected = 0;
+        let overTube = 0;
+        let throughHole = 0;
+        pos.forEach((p, i) => {
+            const d = posedTorusDistance(p);
+            if (d < (i % 2 === 0 ? radius : half) - CONTACT_SLOP) inside++;
+            const start = i % 3 === 0 ? 0.1 : TORUS.R + ((i % 3) - 1.5) * 0.08;
+            const { t, angle, s: k } = TORUS_POSE;
+            const local = [p[0] - t[0], p[1] - t[1], p[2] - t[2]];
+            const cz = -Math.sin(angle) * local[1]! + Math.cos(angle) * local[2]!;
+            const end = Math.hypot(local[0]!, cz) / k;
+            if (i % 3 === 0) {
+                // Solto sobre o furo: passa abaixo do toro.
+                if (p[1] < TORUS_POSE.t[1] - TORUS.r * TORUS_POSE.s - 0.2) throughHole++;
+                return;
+            }
+            // Solto sobre o tubo: escorrega para dentro (furo) ou para fora — desviado pelo tubo.
+            overTube++;
+            if (Math.abs(end - start) > 0.1) deflected++;
+        });
+        c.measure('corpos dentro do toro', inside);
+        c.measure('soltos sobre o tubo e desviados', deflected);
+        c.measure('soltos sobre o tubo', overTube);
+        c.measure('soltos no furo que passaram por ele', throughHole);
+        c.check(inside === 0, `${inside} corpos dentro do toro`);
+        c.check(
+            deflected === overTube,
+            `${overTube - deflected} corpos soltos sobre o tubo não foram desviados`,
+        );
+        c.check(throughHole === 8, `só ${throughHole} de 8 corpos passaram pelo furo`);
+        c.hash('bodies', bytesOf(pos));
+        return c.result();
+    },
+
+    /** Fluido caindo numa esfera colidível: nenhuma partícula com distância < −½ espaçamento; escorre pela esfera. */
+    async sphereFluid() {
+        const c = collector();
+        const results: Record<string, number> = {};
+        for (const adhesion of [0, clayflow.ParticleMaterial.WATER_ADHESION]) {
+            const app = await createApp();
+            view(app);
+            app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+            const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
+            app.world.insert(new clayflow.ParticleMaterial({ adhesion }));
+            const R = 0.45;
+            insertDistanceSurface(app, 'sphere', [R]);
+            app.world.insert(
+                new clayflow.FluidBody({
+                    algorithm: 'PBF',
+                    position: block(512, spacing, [-0.15, 0.55, -0.15], 5).flat(),
+                }).add(new clayflow.PointSpriteMaterial({ radius: spacing / 2 })),
+            );
+            await settle(app);
+            run(app, 150);
+            const pos = await readPositions(app, clayflow.PBFSchema);
+            app.dispose();
+            let inside = 0;
+            let clinging = 0;
+            for (const p of pos) {
+                const d = Math.hypot(...p) - R;
+                if (d < -spacing / 2) inside++;
+                if (d < 2 * spacing) clinging++;
+            }
+            const tag = adhesion === 0 ? 'sem adesão' : 'com adesão';
+            c.measure(`${tag}: partículas dentro da esfera`, inside);
+            c.measure(`${tag}: partículas presas à esfera`, clinging);
+            c.check(inside === 0, `${tag}: ${inside} partículas dentro da esfera`);
+            results[tag] = clinging;
+            c.hash(tag, bytesOf(pos));
+        }
+        // A adesão (030) age na superfície como nos outros colliders: mais água presa à esfera.
+        c.check(
+            results['com adesão']! > results['sem adesão']!,
+            `adesão sem efeito na superfície (${results['com adesão']} ≤ ${results['sem adesão']})`,
+        );
         return c.result();
     },
 

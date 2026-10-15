@@ -33,8 +33,8 @@ contracts/surfaces, quickstart)
 
 ## Phase 4: US2 — superfície geral colidível (P1)
 
-- [ ] T018 [US2] Kernels do modo distância: caixa com banda, semeadura (distância exata ponto-triângulo; `atomicMin` dos bits e depois do id), jump flooding 3D em ping-pong (26 vizinhos, desempate pelo menor id), finalização (distância exata e sinal pela normal da face) em `src/elements/gpu/wgsl/kernels/surface_collider_{seed,jfa,finish}.wgsl`; `SurfaceColliderFlow` com as passadas; referência de CPU num teste pequeno
-- [ ] T019 [US2] Casos do smoke: `torus-bodies` (nenhum centro dentro além da folga; escorregam pelo furo ou repousam), `sphere-fluid` (nenhuma partícula com distância < −½ espaçamento), `adhesion` (adesão da 030 na superfície como num collider comum) — SC-003
+- [x] T018 [US2] Kernels do modo distância: caixa com banda, semeadura (distância exata ponto-triângulo; `atomicMin` dos bits e depois do id), jump flooding 3D em ping-pong (26 vizinhos, desempate pelo menor id), finalização (distância exata e sinal pela normal da face) em `src/elements/gpu/wgsl/kernels/surface_collider_{seed,jfa,finish}.wgsl`; `SurfaceColliderFlow` com as passadas; referência de CPU num teste pequeno
+- [x] T019 [US2] Casos do smoke: `torus-bodies` (nenhum centro dentro além da folga; escorregam pelo furo ou repousam), `sphere-fluid` (nenhuma partícula com distância < −½ espaçamento), `adhesion` (adesão da 030 na superfície como num collider comum) — SC-003
 
 ## Phase 5: US3 — geometria diferencial e malha adaptativa (P2)
 
