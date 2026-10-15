@@ -8,7 +8,7 @@
 
 > **reduceOp**(`op`, `type`): `WgslModule`
 
-Defined in: [elements/gpu/compute/shaders.ts:163](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/gpu/compute/shaders.ts#L163)
+Defined in: [elements/gpu/compute/shaders.ts:163](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/gpu/compute/shaders.ts#L163)
 
 Módulo de operação da redução (research R11): `alias ReduceT`, `const REDUCE_IDENTITY` e `fn reduce_op`. Memorizado
 por (operação, tipo): a mesma combinação é o mesmo módulo, logo o mesmo pipeline.

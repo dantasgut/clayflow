@@ -56,13 +56,13 @@ contracts/extension-points, quickstart)
 
 ## Phase 7: Polish
 
-- [ ] T032 [P] Arquitetura: pontos, `WgslPoint`/`bindPoints`, `ExtensionFunction`, troca e rejeição, diagnóstico na C1; corrigir "dedup por símbolo" (é por módulo, símbolo duplicado é erro) em `clay-engine-doc/docs/guides/architecture_resource_loaders.md`
-- [ ] T033 [P] Guia de shaders (pontos deixam de ser "fora desta versão"; assinaturas e exemplos) e guia de física (campos consumidos) em `clay-engine-doc/docs/guides/shaders.md` e no guia de física
-- [ ] T034 [P] ROADMAP (009 na F3; campos e emissor básico antecipados de F5/016 e F9/025) e PENDENCIAS (campos não consumidos resolvido; torque de campo em rígido, `space` em mundo para 019) em `specs/ROADMAP.md`, `specs/PENDENCIAS.md`
-- [ ] T035 [P] JSDoc das APIs novas e API regenerada; `doc:coverage` sem erros
-- [ ] T036 Smokes todos no fonte e com `--dist`; `bench:check` sem regressão; `npm run ci` verde; baseline regravado
-- [ ] T037 Vídeos (órbita, olho de peixe, campos, emissores, homotopia, torção, xadrez) no scratchpad, enviados ao usuário
-- [ ] T038 Spec marcada como implementada em `specs/009-math-extension-points/spec.md`
+- [x] T032 [P] Arquitetura: pontos, `WgslPoint`/`bindPoints`, `ExtensionFunction`, troca e rejeição, diagnóstico na C1; corrigir "dedup por símbolo" (é por módulo, símbolo duplicado é erro) em `clay-engine-doc/docs/guides/architecture_resource_loaders.md`
+- [x] T033 [P] Guia de shaders (pontos deixam de ser "fora desta versão"; assinaturas e exemplos) e guia de física (campos consumidos) em `clay-engine-doc/docs/guides/shaders.md` e no guia de física
+- [x] T034 [P] ROADMAP (009 na F3; campos e emissor básico antecipados de F5/016 e F9/025) e PENDENCIAS (campos não consumidos resolvido; torque de campo em rígido, `space` em mundo para 019) em `specs/ROADMAP.md`, `specs/PENDENCIAS.md`
+- [x] T035 [P] JSDoc das APIs novas e API regenerada; `doc:coverage` sem erros
+- [x] T036 Smokes todos no fonte e com `--dist`; `bench:check` sem regressão; `npm run ci` verde; baseline regravado
+- [x] T037 Vídeos (órbita, olho de peixe, campos, emissores, homotopia, torção, xadrez) no scratchpad, enviados ao usuário
+- [x] T038 Spec marcada como implementada em `specs/009-math-extension-points/spec.md`
 
 ## Dependencies
 

@@ -18,7 +18,8 @@ Tipos WGSL; `<P>` é o struct gerado dos parâmetros da função; `time` é o te
 2. O código pode definir funções auxiliares; nenhum símbolo pode colidir com os do núcleo presentes no pipeline
    (erro com o nome do símbolo).
 3. Retorno não finito: `transform` mantém a matriz anterior; `emit` não cria a partícula; `field` soma zero; `surface`
-   e `space` mantêm o vértice anterior; aviso único por função.
+   e `space` mantêm o vértice anterior. Infinitos são sempre descartados; NaN depende da GPU (compiladores com
+   matemática rápida podem não preservá-lo).
 4. Erro de assinatura ou símbolo: exceção síncrona na criação do Resource. Erro de compilação: evento
    `extensionRejected { point, resource, message, line }` (linha no código do usuário) e o pipeline anterior continua.
 5. Sem função, o estágio usa o pronto e produz exatamente o resultado de antes desta spec.

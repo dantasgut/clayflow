@@ -6,7 +6,7 @@
 
 # Class: WindField
 
-Defined in: [elements/physics/forcefields/WindField.ts:24](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/forcefields/WindField.ts#L24)
+Defined in: [elements/physics/forcefields/WindField.ts:24](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/WindField.ts#L24)
 
 Campo de vento — força direcional + turbulence noise sobre todos os
 physics bodies. Útil para folhas, panos, partículas atmosféricas.
@@ -21,7 +21,7 @@ physics bodies. Útil para folhas, panos, partículas atmosféricas.
 
 > **new WindField**(`values?`): `WindField`
 
-Defined in: [elements/physics/forcefields/WindField.ts:34](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/forcefields/WindField.ts#L34)
+Defined in: [elements/physics/forcefields/WindField.ts:34](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/WindField.ts#L34)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [elements/physics/forcefields/WindField.ts:34](https://github.com/da
 
 > **state**: `ResourceState` = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/forcefields/ForceField.ts:12](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/forcefields/ForceField.ts#L12)
+Defined in: [elements/physics/forcefields/ForceField.ts:43](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/ForceField.ts#L43)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -53,11 +53,25 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 ***
 
+### recordDescriptor
+
+> `protected` `readonly` `static` **recordDescriptor**: `GPUDescriptor`
+
+Defined in: [elements/physics/forcefields/ForceField.ts:46](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/ForceField.ts#L46)
+
+Descritor do registro no pool comum dos campos.
+
+#### Inherited from
+
+[`ForceField`](ForceField.md).[`recordDescriptor`](ForceField.md#recorddescriptor)
+
+***
+
 ### schema
 
 > `readonly` `static` **schema**: `StructSchema`
 
-Defined in: [elements/physics/forcefields/WindField.ts:26](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/forcefields/WindField.ts#L26)
+Defined in: [elements/physics/forcefields/WindField.ts:26](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/WindField.ts#L26)
 
 StructSchema do WindField (direction+magnitude+turbulence).
 
@@ -69,7 +83,7 @@ StructSchema do WindField (direction+magnitude+turbulence).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L138)
+Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L138)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -90,7 +104,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L90)
+Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L90)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -103,7 +117,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L96)
+Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L96)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -129,7 +143,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L110)
+Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L110)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -148,7 +162,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L118)
+Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L118)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -173,7 +187,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/contracts/Entity.ts#L127)
+Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/contracts/Entity.ts#L127)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -194,11 +208,35 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 ***
 
+### fieldRecord()
+
+> `protected` **fieldRecord**(`d`): [`FieldRecordValues`](../interfaces/FieldRecordValues.md)
+
+Defined in: [elements/physics/forcefields/WindField.ts:50](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/WindField.ts#L50)
+
+Vento (spec 009): aceleração na direção (normalizada) vezes a intensidade, com rajadas pela turbulência.
+
+#### Parameters
+
+##### d
+
+`Readonly`\<[`WindFieldData`](../interfaces/WindFieldData.md)\>
+
+#### Returns
+
+[`FieldRecordValues`](../interfaces/FieldRecordValues.md)
+
+#### Overrides
+
+[`ForceField`](ForceField.md).[`fieldRecord`](ForceField.md#fieldrecord)
+
+***
+
 ### getDescriptors()
 
 > **getDescriptors**(): readonly `GPUDescriptor`[]
 
-Defined in: [elements/physics/forcefields/WindField.ts:45](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/forcefields/WindField.ts#L45)
+Defined in: [elements/physics/forcefields/WindField.ts:45](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/WindField.ts#L45)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -219,7 +257,7 @@ readonly `GPUDescriptor`[]
 
 > **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
 
-Defined in: [elements/physics/forcefields/ForceField.ts:16](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/forcefields/ForceField.ts#L16)
+Defined in: [elements/physics/forcefields/ForceField.ts:55](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/ForceField.ts#L55)
 
 Pipelines GPU declaradas pelo resource (shader source + entry points
 + consumes). Útil para Materials que carregam shaders próprios.
@@ -232,3 +270,28 @@ readonly `PipelineDescriptor`[]
 #### Inherited from
 
 [`ForceField`](ForceField.md).[`getPipelineDescriptors`](ForceField.md#getpipelinedescriptors)
+
+***
+
+### withRecord()
+
+> `protected` **withRecord**(`data`): [`WindFieldData`](../interfaces/WindFieldData.md)
+
+Defined in: [elements/physics/forcefields/ForceField.ts:66](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/forcefields/ForceField.ts#L66)
+
+`data` com os campos do registro (`v0`–`v7`, `revision`, `kind`, preenchimentos) como getters derivados de
+`fieldRecord` — o envio do pool lê os valores atuais.
+
+#### Parameters
+
+##### data
+
+[`WindFieldData`](../interfaces/WindFieldData.md)
+
+#### Returns
+
+[`WindFieldData`](../interfaces/WindFieldData.md)
+
+#### Inherited from
+
+[`ForceField`](ForceField.md).[`withRecord`](ForceField.md#withrecord)

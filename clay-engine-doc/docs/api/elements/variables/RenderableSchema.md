@@ -8,7 +8,7 @@
 
 > `const` **RenderableSchema**: `StructSchema`
 
-Defined in: [elements/scene/Renderable.ts:12](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/scene/Renderable.ts#L12)
+Defined in: [elements/scene/Renderable.ts:13](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/scene/Renderable.ts#L13)
 
 Registro de desenho por entidade com Geometry + Material + Transform (pool `Renderable`): o slot da matriz de mundo
 (`WorldTransform`) e o do material no pool do seu schema. O slot do registro é o `firstInstance` do desenho; o

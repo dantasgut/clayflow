@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-14
 
-**Status**: Draft
+**Status**: Implementada (2026-10-14) — T001–T038 concluídas, `npm run ci` verde, 20 smokes (fonte e `--dist`), fixtures existentes bit a bit, baseline regravado; campos (F5/016) e emissor na GPU (F9/025) antecipados
 
 **Input**: User description: "Pontos de extensão matemáticos (spec 009, fase F3 do roadmap —
 `009-math-extension-points`). Conforme ROADMAP §4.3 e §4.4 (nível N2): cada estágio compute aceita uma função WGSL do

@@ -112,6 +112,11 @@ vértice; triângulos grandes não se curvam (malhas finas nas cenas de exemplo)
 
 ### R6 field (C3)
 
+> Implementado com um ajuste: o registro dos campos prontos é o mesmo pool das `FieldFunction` (`FieldFnRecord`, tipo
+> em `kind`, 0 nas funções) — um binding a menos por solver — e o laço confere o bitset de vivos (slots liberados não
+> são zerados). O termo do campo entra num `if` à parte (`if any(field != 0)`): somá-lo à expressão da gravidade mudava
+> a fusão em FMA e quebrava o bit a bit. A composição das funções de cena é da C2 (`ScenePoints`), não da C3.
+
 Duas partes, para manter a gravidade de hoje bit a bit:
 
 1. A **gravidade uniforme** continua no uniforme de cada solver (mesma conta).
@@ -205,3 +210,10 @@ Com 10 funções `transform` distintas em 10 k objetos, a CPU por quadro fica em
 a diferença (≈ 0,005 ms, uma escrita de uniforme por grupo) está no limite da resolução do relógio — SC-008 pede
 ≤ 1,10 ×; em valor absoluto é desprezível e não cresce com o número de objetos. A GPU sobe 0,15 ms (a composição
 roda todo quadro, porque as funções dependem do tempo). O Three, fazendo a mesma conta na CPU, gasta 0,84 ms.
+
+## Fechamento (T036)
+
+`bench:check` com a máquina livre: sem regressão de CPU ou GPU além da tolerância. As partículas sobem dentro dela
+(`particles/64k` GPU 13,40 → 14,14 ms, `64k-cohesion` 16,58 → 17,73 ms): cada passo percorre o laço de campos. O p95/p99
+do quadro de `64k-cohesion` (≈ 54 fps) oscila com o ritmo dos quadros. Baseline regravado. Uma primeira medição com
+outro processo pesado na máquina acusou regressões falsas em `instances` (100k/1m), desfeitas na repetição.

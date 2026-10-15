@@ -6,7 +6,7 @@
 
 # Class: SoftSurfaceFlow
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:65](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L65)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:65](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L65)
 
 SoftSurfaceFlow — vértices da superfície dos corpos moles na GPU (spec 008, research R5): a cada quadro, por corpo,
 `soft_face_normals` (normal de cada triângulo a partir das posições da faixa do corpo no pool de partículas) e
@@ -27,7 +27,7 @@ kernels são criados quando o corpo entra e recriados quando o pool de partícul
 
 > **new SoftSurfaceFlow**(`ctx`): `SoftSurfaceFlow`
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:78](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L78)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:78](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L78)
 
 #### Parameters
 
@@ -49,7 +49,7 @@ Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:78](https://github.com/da
 
 > `readonly` **bindings**: `BindingSources` = `{}`
 
-Defined in: [scene/flows/Flow.ts:67](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/flows/Flow.ts#L67)
+Defined in: [scene/flows/Flow.ts:67](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L67)
 
 Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
 
@@ -63,7 +63,7 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:68](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L68)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:68](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L68)
 
 Estado inicial do algoritmo.
 
@@ -77,7 +77,7 @@ Estado inicial do algoritmo.
 
 > `readonly` **listens**: readonly `Schema`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/flows/Flow.ts#L69)
+Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L69)
 
 Schemas cujos `resourceReady` o Flow recebe como evento.
 
@@ -91,7 +91,7 @@ Schemas cujos `resourceReady` o Flow recebe como evento.
 
 > `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/flows/Flow.ts#L65)
+Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L65)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
@@ -105,7 +105,7 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`SoftSurfaceSlots`](../interfaces/SoftSurfaceSlots.md)
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:67](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L67)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:67](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L67)
 
 Slots consumidos, por nome.
 
@@ -119,7 +119,7 @@ Slots consumidos, por nome.
 
 > `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `Ctx`\>
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:69](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L69)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:69](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L69)
 
 Tabela de transições (estado × evento).
 
@@ -133,7 +133,7 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"SoftSurfaceFlow"` = `'SoftSurfaceFlow'`
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:66](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L66)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:66](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L66)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
@@ -149,7 +149,7 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 > **get** **lifecycle**(): `FlowLifecycle`
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/flows/Flow.ts#L79)
+Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L79)
 
 Estado do ciclo de vida (só a C2 o muda).
 
@@ -169,7 +169,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/scene/flows/Flow.ts#L84)
+Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/scene/flows/Flow.ts#L84)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -187,7 +187,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `_bound`): `void`
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:121](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L121)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:121](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L121)
 
 Grava, por corpo, as normais de face e depois os vértices.
 
@@ -215,7 +215,7 @@ Grava, por corpo, as normais de face e depois os vértices.
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:140](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SoftSurfaceFlow.ts#L140)
+Defined in: [elements/physics/flows/SoftSurfaceFlow.ts:140](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SoftSurfaceFlow.ts#L140)
 
 Libera kernels, normais de face e parâmetros.
 

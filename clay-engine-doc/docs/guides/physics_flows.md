@@ -184,6 +184,38 @@ console.log(pose?.position); // a do último quadro enviado
 const poses = await app.resources.readAll(transforms); // um lote: uma cópia por faixa contígua e uma leitura
 ```
 
+## Campos de força e emissores (spec 009)
+
+Todo solver (rígido, XPBD, FEM, MPM, SPH, PBF) e todo emissor somam, a cada passo, a gravidade uniforme do
+`GravityField` e os **campos da cena** pelo ponto `field`: os prontos — `GravityField` com fonte pontual
+(`sourceMode: 1`, atração G·M/r²), `WindField` (direção × intensidade, rajadas pela turbulência), `VortexField`
+(giro em torno do eixo, decaindo com a distância), `DragField` (−(linear + quadrático·|v|)·v), `BuoyancyField`
+(abaixo do nível, g·ρ_meio/ρ_corpo para cima, nos corpos com densidade: fluidos de partículas e MPM) — e as
+`FieldFunction` do usuário (`fn field_fn(x, v, time, body, data) -> vec3f`). Os campos são acelerações (m/s²); o rígido
+recebe o campo no centro de massa, sem torque. Sem campos na cena, as trajetórias são as de antes, bit a bit.
+
+```ts
+app.world.insert(new WindField({ direction: [1, 0, 0, 0], magnitude: 2, turbulence: 0.3 }));
+app.world.insert(
+    new FieldFunction({
+        params: { radius: 'f32', k: 'f32' },
+        values: { radius: 1, k: 6 },
+        code: /* wgsl */ `
+fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams) -> vec3f {
+    let d = vec3f(x.x, 0.0, x.z);
+    let r = max(length(d), 1e-4);
+    return -d / r * (r - data.radius) * data.k;   // atrai para um anel
+}`,
+    }),
+);
+```
+
+`ComputeParticleEmitter` roda inteiro na GPU (`EmitterFlow`): `rate` partículas por segundo contadas por passo da
+física, vida `lifetime`, anel de `maxParticles`; a criação é a forma (`PointEmitterShape`, `SphereEmitterShape`,
+`ConeEmitterShape`) ou uma `EmitFunction` (`fn emit_fn(i, time, seed, data) -> EmittedParticle`, com `emit_rand`); as
+partículas integram gravidade e campos e são desenhadas pela `PointCloudGeometry` da entidade (`maxPoints =
+maxParticles`) com um material de pontos.
+
 ## Busca de vizinhança (SPH, PBF)
 
 Reconstruída a cada substep: célula de cada partícula viva, soma de prefixos, espalhamento, ordenação por índice dentro

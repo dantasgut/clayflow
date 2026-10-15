@@ -6,7 +6,7 @@
 
 # Interface: SPHFlowOptions
 
-Defined in: [elements/physics/flows/SPHFlow.ts:42](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SPHFlow.ts#L42)
+Defined in: [elements/physics/flows/SPHFlow.ts:42](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L42)
 
 Opções do `SPHFlow`.
 
@@ -16,7 +16,7 @@ Opções do `SPHFlow`.
 
 > `readonly` `optional` **maxNeighbors?**: `number`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:46](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SPHFlow.ts#L46)
+Defined in: [elements/physics/flows/SPHFlow.ts:46](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L46)
 
 Vizinhos guardados por partícula (padrão 128; o suporte 2h tem ~73 vizinhos em repouso).
 
@@ -26,6 +26,6 @@ Vizinhos guardados por partícula (padrão 128; o suporte 2h tem ~73 vizinhos em
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:44](https://github.com/dantasgut/clayflow/blob/4248630d571e37ebe4bb44d5532f082da6e048b0/src/elements/physics/flows/SPHFlow.ts#L44)
+Defined in: [elements/physics/flows/SPHFlow.ts:44](https://github.com/dantasgut/clayflow/blob/fe51e794a7bd29f3823c3a76721c37005dcd7e7a/src/elements/physics/flows/SPHFlow.ts#L44)
 
 Mínimo de substeps por passo (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais.
