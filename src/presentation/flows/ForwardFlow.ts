@@ -4,6 +4,7 @@ import type {
     EngineCore,
     Frame,
     IndexBufferSpec,
+    IndirectBufferSpec,
     RenderTarget,
     SamplerSpec,
     StorageBufferSpec,
@@ -290,6 +291,17 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private geometryCounter = 0;
     /** Número de cada vertex buffer com pipeline por geometria (nome estável dos pipelines). */
     private readonly geometryKeys = new Map<AnyBufferSpec, number>();
+    /**
+     * Argumentos do desenho indireto dos grupos cuja geometria tem registro indireto (malha adaptativa, spec 010): o
+     * `first`/`count` do grupo deste passe escritos pela CPU e a contagem copiada do registro da geometria (na GPU) antes
+     * do passe. Registro 0 (indexado) e 1 (byte 20: arame, não indexado).
+     */
+    private readonly indirectArgs = new Map<
+        string,
+        { readonly args: IndirectBufferSpec; readonly source: IndirectBufferSpec }
+    >();
+    /** O device tem `indirect-first-instance` (sem ela, a malha adaptativa vem no nível máximo e desenha direto). */
+    private indirectOn = false;
     /** Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda. */
     profileTimestamps = false;
     /** Descritor de cada pipeline de material de triângulos (base das variantes de projeção). */
@@ -557,6 +569,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         this.bindCaustics(c);
                         this.syncMaterialFunctions(c);
                         this.syncProjection(c);
+                        this.prepareIndirect(c);
                         this.writeFrameParams(c);
                     },
                 },
@@ -589,6 +602,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             ...(tsWrites !== undefined ? { timestampWrites: tsWrites } : {}),
         };
         const groups = bound.slots.renderables.groups;
+        // Contagens da malha adaptativa (produzidas na GPU) nos argumentos deste passe.
+        for (const { args, source } of this.indirectArgs.values()) {
+            frame.copy(source, args, 4, 0, 0);
+            frame.copy(source, args, 4, 20, 20);
+        }
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
             let family: Family | undefined;
             let current: PreparedRender | undefined;
@@ -640,16 +658,19 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
                     continue;
                 }
+                const indirect = this.indirectArgs.get(group.key)?.args;
                 if (edges?.subkind === 'index') {
                     // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
-                    pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
+                    if (indirect !== undefined) pass.draw.indirect(indirect, 20);
+                    else pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
                     continue;
                 }
                 pass.geometry.vertex(0, vertices);
                 const indices = this.resources.bufferOf(geometry, 'indices');
                 if (indices?.subkind === 'index') {
                     pass.geometry.index(indices);
-                    pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
+                    if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
+                    else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
                 } else {
                     // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
                     pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
@@ -658,8 +679,61 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         });
     }
 
+    /**
+     * Argumentos indiretos dos grupos com registro indireto na geometria (malha adaptativa, spec 010), com o `first` e o
+     * `count` do grupo neste passe; os de grupos que sumiram são liberados. Sem `indirect-first-instance`, nenhum (o
+     * desenho direto pela capacidade, que a superfície preenche no nível máximo).
+     */
+    private prepareIndirect(ctx: Ctx): void {
+        this.indirectOn = this.core.capabilities().features.includes('indirect-first-instance');
+        const used = new Set<string>();
+        if (this.indirectOn)
+            for (const group of ctx.bound.slots.renderables.groups) {
+                const source = this.resources.bufferOf(
+                    group.representative.get(Geometry),
+                    'indirect',
+                );
+                if (source?.subkind !== 'indirect') continue;
+                used.add(group.key);
+                let entry = this.indirectArgs.get(group.key);
+                if (entry?.source !== source) {
+                    if (entry !== undefined) this.core.destroy(entry.args);
+                    entry = {
+                        args: this.core.create<IndirectBufferSpec>({
+                            kind: 'buffer',
+                            subkind: 'indirect',
+                            discriminator: `forward_indirect:${group.key}:${this.indirectArgs.size}`,
+                            byteSize: 40,
+                        }),
+                        source,
+                    };
+                    this.indirectArgs.set(group.key, entry);
+                }
+                const words = new Uint32Array([
+                    0,
+                    group.count,
+                    0,
+                    0,
+                    group.first,
+                    0,
+                    group.count,
+                    0,
+                    group.first,
+                    0,
+                ]);
+                this.core.write(entry.args, new Uint8Array(words.buffer));
+            }
+        for (const [key, entry] of [...this.indirectArgs]) {
+            if (used.has(key)) continue;
+            this.core.destroy(entry.args);
+            this.indirectArgs.delete(key);
+        }
+    }
+
     /** Libera os recursos privados. */
     override dispose(): void {
+        for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
+        this.indirectArgs.clear();
         for (const spec of [
             this.frameParams,
             this.sampler,

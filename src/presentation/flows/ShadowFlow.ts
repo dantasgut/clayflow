@@ -1,4 +1,10 @@
-import type { EngineCore, Frame, RenderTarget, UniformBufferSpec } from '../../scene/contracts/gpu';
+import type {
+    EngineCore,
+    Frame,
+    IndirectBufferSpec,
+    RenderTarget,
+    UniformBufferSpec,
+} from '../../scene/contracts/gpu';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
@@ -148,6 +154,14 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
     private readonly params: UniformBufferSpec;
     /** Slot do caster gravado em `ShadowDepthParams` (-1 = ainda não gravado). */
     private writtenSlot = -1;
+    /**
+     * Argumentos do desenho indireto dos grupos com registro indireto na geometria (malha adaptativa, spec 010): o
+     * `first`/`count` do grupo deste passe e a contagem copiada da geometria antes do passe.
+     */
+    private readonly indirectArgs = new Map<
+        string,
+        { readonly args: IndirectBufferSpec; readonly source: IndirectBufferSpec }
+    >();
 
     constructor(ctx: FlowContext, options: ShadowFlowOptions = {}) {
         super();
@@ -179,6 +193,12 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                 poolReallocated: caster,
                 entitiesChanged: 'ignore',
                 canvasReconfigured: 'ignore',
+                framePrepare: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        this.prepareIndirect(c);
+                    },
+                },
             },
         };
     }
@@ -199,6 +219,8 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         const ccw = bound.render('shadow_depth:ccw');
         const cw = bound.render('shadow_depth:cw');
         const groups = bound.slots.casters.groups;
+        for (const { args, source } of this.indirectArgs.values())
+            frame.copy(source, args, 4, 0, 0);
         frame.render(target, 'ShadowFlow', (pass) => {
             if (groups.length === 0) return;
             // Grupos 0 (parâmetros + pool ShadowMatrix) e 1 (WorldTransform + instâncias) uma vez por passe.
@@ -223,7 +245,9 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                 const indices = this.resources.bufferOf(geometry, 'indices');
                 if (indices?.subkind === 'index') {
                     pass.geometry.index(indices);
-                    pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
+                    const indirect = this.indirectArgs.get(group.key)?.args;
+                    if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
+                    else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
                 } else {
                     // Geometria sem índices (ex.: escrita por um estágio): pela contagem de vértices.
                     pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
@@ -232,9 +256,51 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         });
     }
 
-    /** Libera o uniform de parâmetros. */
+    /** Libera o uniform de parâmetros e os argumentos indiretos. */
     override dispose(): void {
         this.core.destroy(this.params);
+        for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
+        this.indirectArgs.clear();
+    }
+
+    /**
+     * Argumentos indiretos dos grupos com registro indireto na geometria (malha adaptativa, spec 010); sem
+     * `indirect-first-instance`, nenhum (desenho direto pela capacidade, preenchida no nível máximo).
+     */
+    private prepareIndirect(ctx: Ctx): void {
+        const on = this.core.capabilities().features.includes('indirect-first-instance');
+        const used = new Set<string>();
+        if (on)
+            for (const group of ctx.bound.slots.casters.groups) {
+                if (group.key.startsWith(NO_SHADOW)) continue;
+                const source = this.resources.bufferOf(
+                    group.representative.get(Geometry),
+                    'indirect',
+                );
+                if (source?.subkind !== 'indirect') continue;
+                used.add(group.key);
+                let entry = this.indirectArgs.get(group.key);
+                if (entry?.source !== source) {
+                    if (entry !== undefined) this.core.destroy(entry.args);
+                    entry = {
+                        args: this.core.create<IndirectBufferSpec>({
+                            kind: 'buffer',
+                            subkind: 'indirect',
+                            discriminator: `shadow_indirect:${group.key}:${this.indirectArgs.size}`,
+                            byteSize: 20,
+                        }),
+                        source,
+                    };
+                    this.indirectArgs.set(group.key, entry);
+                }
+                const words = new Uint32Array([0, group.count, 0, 0, group.first]);
+                this.core.write(entry.args, new Uint8Array(words.buffer));
+            }
+        for (const [key, entry] of [...this.indirectArgs]) {
+            if (used.has(key)) continue;
+            this.core.destroy(entry.args);
+            this.indirectArgs.delete(key);
+        }
     }
 
     /** Slot do caster nos parâmetros do passe (escrito quando muda). */

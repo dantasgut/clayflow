@@ -43,6 +43,10 @@
     },
     "curvatureMaterial": {
       "image": "35dc903c"
+    },
+    "adaptive": {
+      "terrain": "693ee014",
+      "sphere": "ad43f19e"
     }
   }
 }

@@ -9,6 +9,9 @@ import spaceReadySource from '../gpu/wgsl/kernels/space_ready.wgsl?raw';
 import surfaceAtSource from '../gpu/wgsl/kernels/surface_at.wgsl?raw';
 import surfaceEvalSource from '../gpu/wgsl/kernels/surface_eval.wgsl?raw';
 import surfaceEvalDiffSource from '../gpu/wgsl/kernels/surface_eval_diff.wgsl?raw';
+import surfaceAdaptSource from '../gpu/wgsl/kernels/surface_adapt.wgsl?raw';
+import { Camera } from '../scene/Camera';
+import { Transform } from '../scene/Transform';
 import surfaceFormsSource from '../gpu/wgsl/kernels/surface_forms.wgsl?raw';
 import surfaceJetAnalyticSource from '../gpu/wgsl/kernels/surface_jet_analytic.wgsl?raw';
 import surfaceJetCommonSource from '../gpu/wgsl/kernels/surface_jet_common.wgsl?raw';
@@ -18,6 +21,7 @@ import surfaceJetPresetSource from '../gpu/wgsl/kernels/surface_jet_preset.wgsl?
 import { combineSpaceFunctions } from '../extension/combineSpace';
 import {
     SpaceFnRecordSchema,
+    SurfaceAdaptParamsSchema,
     SurfaceDiffSchema,
     SurfaceFnRecordSchema,
     SurfaceParamsSchema,
@@ -125,6 +129,22 @@ export const surfaceEvalDiff = wgslModule({
     structs: [SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema, SurfaceDiffSchema],
 });
 
+/** Malha adaptativa (spec 010): níveis por retalho, orçamento, prefixos e emissão sem frestas. */
+export const surfaceAdapt = wgslModule({
+    name: 'surface_adapt',
+    source: surfaceAdaptSource,
+    requires: [noise, linalg, surfaceAt, surfaceJetNumeric, surfaceForms],
+    structs: [
+        SurfaceParamsSchema,
+        SurfaceFnRecordSchema,
+        SpaceFnRecordSchema,
+        SurfaceDiffSchema,
+        SurfaceAdaptParamsSchema,
+        Camera.matricesSchema,
+        Transform.worldSchema,
+    ],
+});
+
 /**
  * Ponto `surface` (spec 009): `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f` e, opcionais,
  * as derivadas `surface_du`/`surface_dv` (mesma assinatura). Pronto: plano, esfera, toro, terreno por ruído.
@@ -148,7 +168,7 @@ export const surfacePoint = wgslPoint({
     paramsAlias: 'SurfaceFnParams',
     record: SurfaceFnRecordSchema,
     ready: surfaceFnReady,
-    hosts: () => [surfaceEval, surfaceEvalDiff],
+    hosts: () => [surfaceEval, surfaceEvalDiff, surfaceAdapt],
 });
 
 /**

@@ -41,6 +41,8 @@ export interface DrawCall {
     /** Instâncias do desenho (um grupo de instâncias desenha `instanceCount` entidades). */
     readonly instanceCount: number;
     readonly firstInstance: number | undefined;
+    /** Desenho indireto (spec 010): o buffer de argumentos e o offset; as contagens vêm dele. */
+    readonly indirect?: { readonly buffer: ResourceSpec; readonly offset: number };
 }
 
 /** Um passe de render gravado. */
@@ -67,7 +69,12 @@ export function discOf(spec: unknown): string {
  * resolvers da C3 e `step()` avançando um quadro (`frameTick`). Registre os estágios em `scene.flows` (factory).
  * Acessos por função: o objeto pode ser espalhado sem congelar os valores.
  */
-export async function renderScene(): Promise<{
+export async function renderScene(
+    options: {
+        /** Features do device (padrão nenhuma; ex.: `'indirect-first-instance'`). */
+        readonly features?: readonly GPUFeatureName[];
+    } = {},
+): Promise<{
     scene: SceneContext;
     core: EngineCore;
     /** Avança um quadro e devolve os passes de render gravados nele. */
@@ -139,6 +146,34 @@ export async function renderScene(): Promise<{
                         },
                     },
                     draw: {
+                        indexedIndirect: (buffer: ResourceSpec, offset = 0) => {
+                            draws.push({
+                                pass: label,
+                                pipeline: pipeline!,
+                                bindGroups: new Map(bound),
+                                vertex,
+                                index,
+                                indexCount: -1,
+                                instanceCount: -1,
+                                firstInstance: undefined,
+                                indirect: { buffer, offset },
+                            });
+                            return pass.draw;
+                        },
+                        indirect: (buffer: ResourceSpec, offset = 0) => {
+                            vertexDraws.push({
+                                pass: label,
+                                pipeline: pipeline!,
+                                bindGroups: new Map(bound),
+                                vertex,
+                                index: undefined,
+                                indexCount: -1,
+                                instanceCount: -1,
+                                firstInstance: undefined,
+                                indirect: { buffer, offset },
+                            });
+                            return pass.draw;
+                        },
                         indexed: (
                             count: number,
                             instances?: number,
@@ -195,7 +230,9 @@ export async function renderScene(): Promise<{
                 };
                 body(pass);
             },
-            copy: () => undefined,
+            copy: (src: ResourceSpec, dst: ResourceSpec) => {
+                computes.push(`copy:${discOf(src)}→${discOf(dst)}`);
+            },
             copyTextureToTexture: (src: ResourceSpec, dst: ResourceSpec) => {
                 computes.push(`copy:${discOf(src)}→${discOf(dst)}`);
             },
@@ -237,7 +274,10 @@ export async function renderScene(): Promise<{
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
-        capabilities: vi.fn(defaultCapabilities),
+        capabilities: vi.fn(() => ({
+            ...defaultCapabilities(),
+            features: [...(options.features ?? [])],
+        })),
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),
         onFrameRetired: vi.fn(() => () => undefined),

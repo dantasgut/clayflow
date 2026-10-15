@@ -335,6 +335,12 @@ fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) ->
     return SurfaceParams(vec4f(color, 1.0), m.roughness, m.metallic, vec3f(0.0));
 }`;
 
+/** Onda que se move (malha adaptativa animada): altura amp · sen(4u + 3t) · cos(3v). */
+const WAVE_CODE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return vec3f(v, data.amp * sin(4.0 * u + 3.0 * time) * cos(3.0 * v), u);
+}`;
+
 /** Geometria diferencial (16 floats por vértice) de uma superfície `differential`, lida do pool. */
 async function readDiff(app: Application, id: EntityId, count: number): Promise<Float32Array> {
     const bytes = await readPool(app, 'SurfaceDiff');
@@ -994,6 +1000,209 @@ const CASES: Record<string, Case> = {
                 `parametricSurfaces-curvature-${profileName}.png`,
                 await toPng(image),
             );
+        return c.result();
+    },
+
+    /**
+     * Malha adaptativa (SC-005): terreno visto de perto num canto — ≥ 2× triângulos por área perto do que longe, total
+     * ≤ 50 % da uniforme de mesma precisão máxima; esfera fechada adaptativa sem frestas (nenhum pixel do fundo dentro da
+     * silhueta da uniforme); superfície animada refeita a cada quadro sem leitura de volta; arame desenhado.
+     */
+    async adaptive() {
+        const c = collector();
+        // 1. Terreno: câmera baixa sobre o canto (−x, −z).
+        {
+            const app = await createApp(128);
+            const eye: [number, number, number] = [-1.4, 0.35, -1.4];
+            app.world.insert(
+                new Camera({ fov: Math.PI / 3, near: 0.02, far: 50 }).add(
+                    new Transform({
+                        position: [...eye, 1],
+                        rotation: Transform.lookRotation(eye, [1, -0.3, 1]),
+                    }),
+                ),
+            );
+            app.world.insert(new DirectionalLight({ direction: [-0.3, -1, -0.4, 0] }));
+            const surface = new clayflow.ParametricSurface({
+                preset: 'terrain',
+                domain: [-1.6, 1.6, -1.6, 1.6],
+                params: [0.25, 1.2, 4],
+                adaptive: { patches: [16, 16], maxLevel: 4, tolerance: 0.004, screen: 0.02 },
+            });
+            app.world.insert(surface.add(new clayflow.StandardMaterial()).add(new Transform()));
+            await settle(app);
+            app.step(1 / 60);
+            const draw = await readBuffer(
+                app,
+                app.resources.bufferOf(surface, 'indirect')!,
+                'adapt_draw',
+            );
+            const indexCount = new Uint32Array(draw.buffer)[0]!;
+            const vertices = await readBuffer(
+                app,
+                app.resources.bufferOf(surface, 'vertices')!,
+                'adapt_v',
+            );
+            const indices = new Uint32Array(
+                (await readBuffer(app, app.resources.bufferOf(surface, 'indices')!, 'adapt_i'))
+                    .buffer,
+            );
+            app.dispose();
+            const a = surface.adaptive!;
+            const capacity = a.indexCapacity;
+            // Triângulos não degenerados por área (em xz) perto (|x|,|z| no canto da câmera) e longe (canto oposto).
+            let near = 0;
+            let far = 0;
+            for (let t = 0; t + 2 < indexCount; t += 3) {
+                const p = [indices[t]!, indices[t + 1]!, indices[t + 2]!].map((v) => [
+                    vertices[v * 8]!,
+                    vertices[v * 8 + 2]!,
+                ]);
+                const area =
+                    Math.abs(
+                        (p[1]![0]! - p[0]![0]!) * (p[2]![1]! - p[0]![1]!)
+                            - (p[2]![0]! - p[0]![0]!) * (p[1]![1]! - p[0]![1]!),
+                    ) / 2;
+                if (area < 1e-10) continue;
+                const cx = (p[0]![0]! + p[1]![0]! + p[2]![0]!) / 3;
+                const cz = (p[0]![1]! + p[1]![1]! + p[2]![1]!) / 3;
+                if (cx < -0.8 && cz < -0.8) near++;
+                if (cx > 0.8 && cz > 0.8) far++;
+            }
+            c.measure('terreno: índices', indexCount);
+            const fraction = c.measure('terreno: fração da uniforme', indexCount / capacity);
+            const ratio = c.measure('terreno: densidade perto / longe', near / Math.max(1, far));
+            c.check(indexCount > 0, 'malha adaptativa vazia');
+            c.check(
+                fraction <= 0.5,
+                `malha adaptativa com ${(fraction * 100).toFixed(1)} % da uniforme`,
+            );
+            c.check(ratio >= 2, `densidade perto/longe ${ratio}`);
+            c.hash('terrain', new Uint8Array(indices.buffer, 0, indexCount * 4));
+        }
+        // 2. Esfera fechada: frestas contra a uniforme de mesma precisão máxima.
+        {
+            const shot = async (adaptive: boolean): Promise<ImageData> => {
+                const W = 160;
+                const H = 120;
+                const canvas = document.createElement('canvas');
+                canvas.width = W;
+                canvas.height = H;
+                document.body.appendChild(canvas);
+                const app = await Application.create({
+                    canvas,
+                    scene: createScene(),
+                    autoResize: false,
+                    captureErrors: true,
+                    antialias: false,
+                });
+                app.events.on('engineError', (e) => {
+                    engineErrors.push(`${e.stage}/${e.filter}: ${e.message}`);
+                });
+                const eye: [number, number, number] = [0.25, 0.3, 1.45];
+                app.world.insert(
+                    new Camera({
+                        fov: Math.PI / 3,
+                        aspect: W / H,
+                        aspectMode: 'fixed',
+                        near: 0.02,
+                        far: 20,
+                    }).add(
+                        new Transform({
+                            position: [...eye, 1],
+                            rotation: Transform.lookRotation(eye, [0, 0, 0]),
+                        }),
+                    ),
+                );
+                app.world.insert(new DirectionalLight({ direction: [-0.3, -1, -0.4, 0] }));
+                const surface = new clayflow.ParametricSurface({
+                    preset: 'sphere',
+                    params: [1],
+                    ...(adaptive
+                        ? { adaptive: { patches: [16, 8] as const, maxLevel: 4, screen: 0.03 } }
+                        : { resolution: [16 * 16 + 1, 8 * 16 + 1] as const }),
+                });
+                app.world.insert(
+                    surface
+                        .add(new clayflow.StandardMaterial({ albedo: [1, 1, 1, 1] }))
+                        .add(new Transform()),
+                );
+                await settle(app);
+                app.step(1 / 60);
+                const img = capture(canvas);
+                app.dispose();
+                canvas.remove();
+                return img;
+            };
+            const uniform = await shot(false);
+            const adaptive = await shot(true);
+            const W = uniform.width;
+            const H = uniform.height;
+            const bg = (img: ImageData, x: number, y: number): boolean => {
+                const i = (y * W + x) * 4;
+                return img.data[i]! + img.data[i + 1]! + img.data[i + 2]! < 30;
+            };
+            let cracks = 0;
+            let inside = 0;
+            for (let y = 1; y < H - 1; y++)
+                for (let x = 1; x < W - 1; x++) {
+                    // Dentro da silhueta da uniforme, longe da borda (vizinhos também cobertos).
+                    let covered = true;
+                    for (let dy = -1; dy <= 1 && covered; dy++)
+                        for (let dx = -1; dx <= 1; dx++)
+                            if (bg(uniform, x + dx, y + dy)) {
+                                covered = false;
+                                break;
+                            }
+                    if (!covered) continue;
+                    inside++;
+                    if (bg(adaptive, x, y)) cracks++;
+                }
+            c.measure('esfera: pixels dentro da silhueta', inside);
+            c.measure('esfera: frestas (pixels do fundo)', cracks);
+            c.check(inside > 1000, `silhueta pequena (${inside} px)`);
+            c.check(cracks === 0, `${cracks} pixels do fundo dentro da esfera adaptativa`);
+            c.hash('sphere', new Uint8Array(adaptive.data.buffer));
+        }
+        // 3. Superfície animada adaptativa com arame: refeita a cada quadro, sem erro.
+        {
+            const app = await createApp(96);
+            view(app);
+            const surface = new clayflow.ParametricSurface({
+                domain: [-1, 1, -1, 1],
+                animated: true,
+                adaptive: { patches: [8, 8], maxLevel: 4 },
+            });
+            app.world.insert(
+                surface
+                    .add(
+                        new clayflow.SurfaceFunction({
+                            code: WAVE_CODE,
+                            params: { amp: 'f32' },
+                            values: { amp: 0.15 },
+                        }),
+                    )
+                    .add(new clayflow.WireframeMaterial())
+                    .add(new Transform()),
+            );
+            await settle(app);
+            const counts: number[] = [];
+            for (let f = 0; f < 3; f++) {
+                run(app, 20);
+                const draw = await readBuffer(
+                    app,
+                    app.resources.bufferOf(surface, 'indirect')!,
+                    `wave_${f}`,
+                );
+                counts.push(new Uint32Array(draw.buffer)[0]!);
+            }
+            app.dispose();
+            counts.forEach((n, f) => c.measure(`onda: índices no quadro ${20 * (f + 1)}`, n));
+            c.check(
+                counts.every((n) => n > 0),
+                'onda adaptativa sem triângulos',
+            );
+        }
         return c.result();
     },
 

@@ -44,3 +44,31 @@ export const SurfaceParamsSchema = new StructSchema(
     },
     { addressSpace: 'uniform' },
 );
+
+/**
+ * Parâmetros da malha adaptativa (spec 010): retalhos, nível máximo, orçamento de triângulos, câmera ativa e
+ * transformação (slots nos pools), início da geometria diferencial, modo sem desenho indireto (todos no nível máximo),
+ * domínios periódicos, lado da grade do nível máximo (2^L + 1), tolerância de corda (m) e fração da tela por segmento.
+ */
+export const SurfaceAdaptParamsSchema = new StructSchema(
+    'SurfaceAdaptParams',
+    {
+        patches_u: FieldType.u32,
+        patches_v: FieldType.u32,
+        max_level: FieldType.u32,
+        budget: FieldType.u32,
+        camera_slot: FieldType.u32,
+        transform_slot: FieldType.u32,
+        diff_first: FieldType.u32,
+        force_max: FieldType.u32,
+        periodic_u: FieldType.u32,
+        periodic_v: FieldType.u32,
+        side: FieldType.u32,
+        _pad0: FieldType.u32,
+        tolerance: FieldType.f32,
+        screen: FieldType.f32,
+        _pad1: FieldType.f32,
+        _pad2: FieldType.f32,
+    },
+    { addressSpace: 'uniform' },
+);

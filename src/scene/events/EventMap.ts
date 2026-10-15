@@ -95,6 +95,18 @@ export interface ExtensionRejectedPayload {
 }
 
 /**
+ * Payload do evento `adaptiveUnavailable` (spec 010) — o device não tem o desenho indireto com primeira instância
+ * (`indirect-first-instance`): a malha adaptativa da superfície é gerada no nível máximo em todos os retalhos e desenhada
+ * pela contagem conhecida (a grade de mesma precisão máxima). Anunciado uma vez por superfície.
+ */
+export interface AdaptiveUnavailablePayload {
+    /** A superfície (a `ParametricSurface` com `adaptive`). */
+    readonly resource: Resource;
+    /** Motivo. */
+    readonly reason: string;
+}
+
+/**
  * Payload do evento `entitiesInserted` — emitido pelo World depois de `resourcesChanged` quando uma entidade raiz
  * é inserida. A C2 atualiza os slots de entidades dos Flows (`entitiesChanged`).
  */
@@ -235,6 +247,8 @@ export interface EventMap {
     bindGroupReplaced: BindGroupReplacedEvent;
     /** O compilador rejeitou o código de uma função de ponto de extensão (spec 009). */
     extensionRejected: ExtensionRejectedPayload;
+    /** A malha adaptativa de uma superfície ficou no nível máximo (sem desenho indireto no device; spec 010). */
+    adaptiveUnavailable: AdaptiveUnavailablePayload;
     /** `Application.step()`/`GameLoop` emitem a cada quadro, depois de `time.advance()`. */
     frameTick: FrameTickEvent;
     /** `Time` emite quando o teto de passos por quadro descarta tempo de física. */
