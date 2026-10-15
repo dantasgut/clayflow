@@ -57,7 +57,7 @@ contracts/surfaces, quickstart)
 - [x] T030 [P] Guias de física (colisor de superfície, XPBD/FEM/emissor colidindo) e de superfícies/shaders (`SurfaceSample` novo, segundas derivadas, adaptativa) em `clay-engine-doc/docs/guides/`
 - [x] T031 [P] ROADMAP (F3 fechada; próximo: F4 pela 011) e PENDENCIAS (P2 parcial: superfície colide, `MeshCollider` segue sem contato; escala não uniforme e atraso de um quadro do `Transform` animado) em `specs/ROADMAP.md`, `specs/PENDENCIAS.md`
 - [x] T032 [P] JSDoc das APIs novas e API regenerada; `doc:coverage` sem erros
-- [ ] T033 Bench: variantes `particles/64k-terrain` e `instances/surface-adaptive` em `bench/scenes/`; `bench:check` sem regressão; baseline regravado com a máquina livre
+- [x] T033 Bench: variantes `particles/64k-terrain` e `instances/surface-adaptive` em `bench/scenes/`; `bench:check` sem regressão; baseline regravado com a máquina livre — baseline de fe1f188; branch e `develop` empatam medidas lado a lado; o `bench:check` seguinte, mesmo código, oscilou ±12–16 % só em p95/p99 e centésimos de ms, nos dois sentidos (ruído)
 - [x] T034 Smokes todos no fonte e com `--dist`; `npm run ci` verde
 - [x] T035 Vídeos (terreno com corpos e água formando lago com cáusticas; superfície deformando com malha adaptativa em wireframe; material por curvatura) no scratchpad, enviados ao usuário
 - [x] T037 Água física: `ParticleMaterial` com `surfaceTension` (N/m) e `contactAngle` (°) e `ParticleMaterial.WATER`, em `src/elements/physics/materials/ParticleMaterial.ts`
