@@ -215,8 +215,9 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
             // Água de referência (spec 030): coesão e adesão amortecem o escoamento e o lago assenta.
             cohesion: clayflow.ParticleMaterial.WATER_COHESION,
             adhesion: clayflow.ParticleMaterial.WATER_ADHESION,
-            domainMin: [-1.1, -0.8, -1.1],
-            domainMax: [1.1, 1, 1.1],
+            // Domínio bem maior que o terreno: as paredes do domínio (com adesão) não seguram respingos no ar.
+            domainMin: [-3, -1.5, -3],
+            domainMax: [3, 1.5, 3],
         }),
     );
     insertValley(app, clayflow, { shape: LAKE_VALLEY, albedo: [0.86, 0.8, 0.66] });

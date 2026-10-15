@@ -91,6 +91,12 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   periódicos com a precisão de sen/cos de 2π (sub-micrométrica).
 - A cena do lago mostrou que, sem coesão, respingos passam por cima da borda do terreno (fisicamente coerente); com a
   água de referência (030) o lago assenta.
+- Defeito encontrado e corrigido (feedback do usuário: "respingos parecem artificiais"): o forward decidia se um ponto
+  está sob a água pelo texel mais próximo da profundidade da água vista pela luz — cada gota isolada marcava o chão com
+  o quadrado do seu texel. Agora a cobertura é interpolada entre os 4 texels (como o PCF da sombra); dentro da água o
+  resultado é o de antes, as bordas ficam suaves (fixtures `fluidSurface-*` regravadas: só pixels de borda da água).
+- As paredes do domínio do `ParticleMaterial` recebem adesão (030): respingos que chegam a elas ficam presos no ar. Nas
+  cenas abertas (lago), o domínio precisa ser bem maior que a área da água.
 
 ### Notas da 030
 
