@@ -16,6 +16,11 @@ export interface WgslPointSignature {
     readonly params: readonly string[];
     /** Tipo de retorno (`''` = sem retorno). */
     readonly returns: string;
+    /**
+     * Nomes dos parâmetros (spec 031: os argumentos que um grafo de nós lê pelo nome); padrão `a0`, `a1`… O parâmetro
+     * de `POINT_PARAMS` é sempre `data`.
+     */
+    readonly names?: readonly string[];
 }
 
 /** Opções de `wgslPoint`. */
@@ -30,6 +35,8 @@ export interface WgslPointOptions {
     readonly paramsAlias: string;
     /** Schema do registro de parâmetros do ponto (`extensionRecordSchema`; um pool por ponto). */
     readonly record: StructSchema;
+    /** Estágio em que a função é avaliada (spec 031: nós só de fragmento valem só em `fragment`). Padrão `compute`. */
+    readonly context?: 'fragment' | 'vertex' | 'compute';
     /** Implementação pronta: o módulo que os kernels exigem e que uma função do usuário substitui. */
     readonly ready: WgslModule;
     /** Módulos de entrada (kernels) que usam o ponto — a validação monta cada um com a função do usuário. */
@@ -94,6 +101,8 @@ export interface WgslPoint {
     readonly hosts: () => readonly WgslModule[];
     /** Ponto de cena (funções compostas para a cena inteira); `undefined` nos pontos por entidade. */
     readonly scene: ScenePointOptions | undefined;
+    /** Estágio em que a função é avaliada. */
+    readonly context: 'fragment' | 'vertex' | 'compute';
     /**
      * Valida a implementação `module` (struct de parâmetros `paramsStruct`): a função obrigatória existe com a
      * assinatura; as opcionais definidas têm a assinatura; cada kernel monta com ela (sem símbolo em conflito nem
@@ -154,7 +163,8 @@ export interface PointImplementation {
     codeLine(moduleLine: number): number;
 }
 
-interface ParsedFn {
+/** Assinatura lida de uma função WGSL: tipos dos parâmetros e retorno (sem espaços). */
+export interface ParsedFn {
     readonly params: readonly string[];
     readonly returns: string;
 }
@@ -165,7 +175,7 @@ const FN = /\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
 const norm = (type: string): string => type.replace(/\s+/g, '');
 
 /** Lê as funções de nível superior do fonte: tipos dos parâmetros e retorno. */
-function parseFunctions(source: string): Map<string, ParsedFn> {
+export function parseWgslFunctions(source: string): Map<string, ParsedFn> {
     const src = stripWgslComments(source);
     const out = new Map<string, ParsedFn>();
     for (const m of src.matchAll(FN)) {
@@ -247,8 +257,9 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
         ready: options.ready,
         hosts,
         scene: options.scene,
+        context: options.context ?? 'compute',
         check(module: WgslModule, paramsStruct: string): void {
-            const fns = parseFunctions(module.source);
+            const fns = parseWgslFunctions(module.source);
             for (const sig of [options.required, ...optional]) {
                 const fn = fns.get(sig.name);
                 if (fn === undefined) {
@@ -292,7 +303,7 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
             for (const host of hosts()) composeWgsl(bindPoints(host, new Map([[point, impl]])));
         },
         optionalIn(module: WgslModule): readonly WgslPointSignature[] {
-            const fns = parseFunctions(module.source);
+            const fns = parseWgslFunctions(module.source);
             return optional.filter((s) => fns.has(s.name));
         },
     };

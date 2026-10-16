@@ -124,21 +124,18 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                 role: 'compute',
                 shader: xpbdPredict,
                 entryPoints: ['predict_main'],
-                consumes: [],
             },
             {
                 id: 'xpbd_collide',
                 role: 'compute',
                 shader: xpbdCollide,
                 entryPoints: ['xpbd_collide_main'],
-                consumes: [],
             },
             {
                 id: 'xpbd_velocity_update',
                 role: 'compute',
                 shader: xpbdVelocityUpdate,
                 entryPoints: ['velocity_update_main'],
-                consumes: [],
             },
         ];
         this.distance = {
@@ -146,7 +143,6 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
             role: 'compute',
             shader: xpbdDistanceSolve,
             entryPoints: ['distance_solve_main'],
-            consumes: [],
         };
         const constraints = {
             to: 'running' as const,

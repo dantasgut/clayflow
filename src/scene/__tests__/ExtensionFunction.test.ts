@@ -6,6 +6,7 @@ import { composeWgsl } from '../shaders/composeWgsl';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
 import { wgslModule } from '../shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../shaders/WgslPoint';
+import { wgslResource } from '../shaders/WgslResource';
 
 const record = extensionRecordSchema('ProbeFnRecord');
 const ready = wgslModule({
@@ -17,14 +18,24 @@ const ready = wgslModule({
     ].join('\n'),
     structs: [record],
 });
+const outRes = wgslResource({
+    name: 'out',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'f32', array: true },
+    frequency: 'draw',
+    provider: 'private',
+});
+const paramsRes = wgslResource({
+    name: 'params',
+    binding: { storage: 'read' },
+    type: { schema: record, array: true },
+    frequency: 'draw',
+    provider: 'private',
+});
 const kernel = wgslModule({
     name: 'probe_kernel',
-    source: [
-        '@group(0) @binding(0) var<storage, read_write> out: array<f32>;',
-        '@group(0) @binding(1) var<storage, read> params: array<ProbeFnRecord>;',
-        '@compute @workgroup_size(1) fn main() { out[0] = probe_fn(out[0], probe_fn_params(params[0])); }',
-    ].join('\n'),
-    requires: [ready],
+    source: '@compute @workgroup_size(1) fn main() { out[0] = probe_fn(out[0], probe_fn_params(params[0])); }',
+    requires: [ready, outRes, paramsRes],
 });
 const point = wgslPoint({
     name: 'probe',

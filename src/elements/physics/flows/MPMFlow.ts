@@ -135,35 +135,30 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
                 role: 'compute',
                 shader: mpmClearGrid,
                 entryPoints: ['mpm_clear_grid_main'],
-                consumes: [],
             },
             {
                 id: 'mpm_p2g',
                 role: 'compute',
                 shader: mpmP2G,
                 entryPoints: ['mpm_p2g_main'],
-                consumes: [],
             },
             {
                 id: 'mpm_grid_update',
                 role: 'compute',
                 shader: mpmGridUpdate,
                 entryPoints: ['mpm_grid_update_main'],
-                consumes: [],
             },
             {
                 id: 'mpm_g2p',
                 role: 'compute',
                 shader: mpmG2P,
                 entryPoints: ['mpm_g2p_main'],
-                consumes: [],
             },
             {
                 id: 'mpm_particle_collision',
                 role: 'compute',
                 shader: mpmParticleCollision,
                 entryPoints: ['mpm_particle_collision_main'],
-                consumes: [],
             },
         ];
         const colliders = {

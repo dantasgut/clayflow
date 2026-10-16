@@ -93,7 +93,7 @@ type Ctx = TransitionContext<TransformSlots>;
  * sua intenção (posição, rotação, escala), com a convenção `M = T · R · S`. O resultado fica no pool
  * `WorldTransform` (mesmo slot do `Transform`), que os estágios de sombra e desenho leem por índice de instância.
  *
- * Slots: os pools `Transform` e `WorldTransform` (ligados por `consumes`) e as entidades com `Transform`. Reativo
+ * Slots: os pools `Transform` e `WorldTransform` (fornecedores `{ pool }` dos recursos) e as entidades com `Transform`. Reativo
  * pela tabela de transições: fica `stale` com `poolWritten` do pool `Transform`, entidades inseridas ou removidas,
  * pool realocado ou bind group substituído; em `stale`, `framePrepare` escreve a contagem (uma vez por quadro) e o
  * quadro grava a composição; `frameRecorded` volta a `clean` — numa cena parada não faz nada. Se o pool tem slots de
@@ -120,14 +120,12 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             role: 'compute',
             shader: transformCompose,
             entryPoints: ['transform_compose_main'],
-            consumes: [],
         },
         {
             id: 'transform_link',
             role: 'compute',
             shader: transformLink,
             entryPoints: ['transform_link_main'],
-            consumes: [],
         },
     ];
     /**
@@ -167,7 +165,6 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             role: 'compute',
             shader: bindPoints(transformComposeFn, new Map([[transformPoint, module]])),
             entryPoints: ['transform_compose_fn_main'],
-            consumes: [],
             verify: true,
             extensions: [fn],
         }),

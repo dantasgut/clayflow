@@ -147,7 +147,7 @@ export const atomicAlloc = wgslModule({
 
 /**
  * Slot vivo de um pool (spec 008): `pool_live(live[slot >> 5u], slot)` com o bitset de ocupação que a C2 mantém
- * (consumes `<chave do pool>.live`).
+ * (fornecedor `{ slot, part: 'live' }` ou o resolver `<chave do pool>.live`).
  */
 export const poolLive = wgslModule({ name: 'pool_live', source: poolLiveSource });
 

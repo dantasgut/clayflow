@@ -92,7 +92,6 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             role: 'compute',
             shader: cameraCompose,
             entryPoints: ['camera_compose_main'],
-            consumes: [],
         },
     ];
     override readonly listens = [CameraFnRecordSchema];
@@ -118,7 +117,6 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             role: 'compute',
             shader: bindPoints(cameraComposeFn, new Map([[cameraPoint, module]])),
             entryPoints: ['camera_compose_fn_main'],
-            consumes: [],
             verify: true,
             extensions: [fn],
         }),

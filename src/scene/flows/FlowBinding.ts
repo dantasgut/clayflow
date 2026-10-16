@@ -24,9 +24,7 @@ export type BindingSource = ResolvedSource | BindableBufferSpec | TextureViewSpe
  * `pipeline:variável` vale só para o pipeline de id `pipeline` e vence a anterior (ex.: a mesma variável `np_params`
  * com um buffer por variante de narrowphase).
  */
-export type BindingSources =
-    | Readonly<Record<string, BindingSource>>
-    | ReadonlyMap<BindingKey, BindingSource>;
+export type BindingSources = ReadonlyMap<BindingKey, BindingSource>;
 
 /**
  * Chave de um binding privado declarado (spec 031): o próprio recurso (vale para todos os pipelines do Flow) ou o
@@ -41,22 +39,14 @@ export type BindingKey =
           readonly resource: WgslResource;
       };
 
-/** Chave textual de um binding privado (`variável` ou `pipeline:variável`). */
-export function bindingKeyName(key: BindingKey): string {
+/** Uma chave de binding privado separada: o pipeline (`undefined` = todos) e o recurso (pela identidade). */
+export function bindingKeyParts(key: BindingKey): {
+    readonly pipeline: string | undefined;
+    readonly resource: WgslResource;
+} {
     return 'pipeline' in key && 'resource' in key && typeof key.pipeline === 'string'
-        ? `${key.pipeline}:${key.resource.name}`
-        : (key as WgslResource).name;
-}
-
-/** As fontes como pares (chave textual, fonte). */
-export function bindingEntries(sources: BindingSources): [string, BindingSource][] {
-    if (sources instanceof Map) {
-        return [...(sources as ReadonlyMap<BindingKey, BindingSource>)].map(([k, v]) => [
-            bindingKeyName(k),
-            v,
-        ]);
-    }
-    return Object.entries(sources as Readonly<Record<string, BindingSource>>);
+        ? { pipeline: key.pipeline, resource: key.resource }
+        : { pipeline: undefined, resource: key as WgslResource };
 }
 
 /** Um grupo do pipeline preparado: índice, bind group atual e se leva offset dinâmico. */

@@ -177,7 +177,6 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             role: 'compute',
             shader,
             entryPoints: [entry],
-            consumes: [],
         });
         this.pipelines = [
             compute('pbf_predict', pbfPredict, 'pbf_predict_main'),

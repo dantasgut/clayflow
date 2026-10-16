@@ -106,6 +106,7 @@ export const fieldPoint = wgslPoint({
         name: 'field_fn',
         params: ['vec3f', 'vec3f', 'f32', 'FieldBody', POINT_PARAMS],
         returns: 'vec3f',
+        names: ['x', 'v', 'time', 'body', 'data'],
     },
     paramsAlias: 'FieldFnParams',
     record: FieldFnRecordSchema,

@@ -47,11 +47,7 @@ export type {
     SlotRef,
     SlotRefTarget,
 } from './descriptors/GPUDescriptor';
-export type {
-    PipelineDescriptor,
-    PipelineDescriptorRole,
-    ConsumesEntry,
-} from './descriptors/PipelineDescriptor';
+export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';
 export type { FlowDescriptor } from './descriptors/FlowDescriptor';
 export type { TextureShape } from './descriptors/TextureShape';
 export type {
@@ -98,7 +94,13 @@ export {
     PHASE_ORDER,
     slot,
 } from './flows/index';
-export { createComputeKernel, destroyComputeKernel } from './flows/index';
+export {
+    createComputeKernel,
+    destroyComputeKernel,
+    sameBindGroup,
+    bindGroupsTo,
+    bindingKeyParts,
+} from './flows/index';
 export type {
     ComputeKernel,
     ComputeKernelOptions,
@@ -164,6 +166,7 @@ export {
     sharedConstant,
     NONE,
     WORKGROUP_SIZE,
+    instantiateModule,
 } from './shaders/index';
 export type {
     WgslModule,
@@ -180,6 +183,8 @@ export type {
     ScenePointEntry,
     ScenePointOptions,
     ScenePointGlobal,
+    ContributionPoint,
+    SceneContribution,
     ComposedBinding,
     WgslResource,
     WgslResourceOptions,
@@ -304,7 +309,6 @@ export type {
 export type { ResourceStateHandler } from './lifecycle/index';
 export type {
     WgslBinding,
-    WgslBindingInfo,
     WgslStage,
     InferredLayout,
     InferredGroup,

@@ -59,7 +59,6 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
             role: 'compute',
             shader: shadowMatrix,
             entryPoints: ['shadow_matrix_main'],
-            consumes: [],
         },
     ];
     /** Recurso privado: parâmetros do estágio (`ShadowMatrixParams`). */

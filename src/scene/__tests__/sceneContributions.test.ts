@@ -132,7 +132,6 @@ describe('contribuições de cena (spec 031, T042)', () => {
                                 source: '@compute @workgroup_size(1) fn gain_main() { let g = probe_gain(2.0); }',
                             }),
                             entryPoints: ['gain_main'],
-                            consumes: [],
                         },
                     ],
                 }),

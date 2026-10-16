@@ -8,7 +8,6 @@ export type WgslCompositionErrorKind =
     | 'unresolved-reference'
     | 'point-signature'
     | 'point-missing'
-    | 'mixed-bindings'
     | 'manual-binding'
     | 'limit-exceeded';
 

@@ -426,7 +426,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                             role: 'compute',
                             shader,
                             entryPoints: [`surface_adapt_${e}_main`],
-                            consumes: [],
                             ...extra,
                         }).ready,
                 ).every(Boolean);
@@ -438,7 +437,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     entryPoints: [
                         surface.differential ? 'surface_eval_diff_main' : 'surface_eval_main',
                     ],
-                    consumes: [],
                     ...extra,
                 }).ready;
             }

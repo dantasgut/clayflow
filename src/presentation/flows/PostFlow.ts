@@ -224,7 +224,6 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 'vs_fullscreen',
                 effect === null ? 'fs_passthrough' : effect.fragmentEntry,
             ],
-            consumes: [],
             topology: 'triangle-list',
             colorTargets: [{ format: this.core.canvasFormat }],
         };

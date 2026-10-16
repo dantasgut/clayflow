@@ -620,7 +620,6 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         const base: Omit<PipelineDescriptor, 'id' | 'entryPoints'> = {
             role: 'render',
             shader,
-            consumes: [],
             topology: 'triangle-list',
             cullMode: 'none',
         };

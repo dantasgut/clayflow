@@ -175,7 +175,6 @@ export type {
     ResolvedSource,
     BindableBufferSpec,
     SingletonResolverOptions,
-    ConsumesEntry,
     InferredLayout,
     InferredGroup,
     WgslStage,

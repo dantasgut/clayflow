@@ -392,7 +392,6 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             role: 'compute',
             shader,
             entryPoints: [entry],
-            consumes: [],
         });
         this.pipelines = [
             compute('lcp_predict', rbPredict, 'rb_predict_main'),
@@ -414,7 +413,6 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                 role: 'compute',
                 shader: rbPublishPose,
                 entryPoints: ['rb_publish_pose_main'],
-                consumes: [],
             },
         ];
         const colliders = {

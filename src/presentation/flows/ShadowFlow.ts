@@ -102,7 +102,6 @@ function depthPipeline(frontFace: GPUFrontFace, preferAsync: boolean): PipelineD
         role: 'render',
         shader: shadowDepth,
         entryPoints: ['vs_main'],
-        consumes: [],
         topology: 'triangle-list',
         cullMode: 'back',
         frontFace,

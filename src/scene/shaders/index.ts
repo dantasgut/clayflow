@@ -32,7 +32,10 @@ export type {
     ScenePointEntry,
     ScenePointOptions,
     ScenePointGlobal,
+    ContributionPoint,
+    SceneContribution,
 } from './WgslPoint';
+export { instantiateModule } from './instantiate';
 export { bindPoints } from './bindPoints';
 export type { BindablePoint } from './bindPoints';
 export { NONE, WORKGROUP_SIZE } from './engineConstants';

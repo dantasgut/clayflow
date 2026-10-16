@@ -151,7 +151,6 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             role: 'compute',
             shader,
             entryPoints: [entry],
-            consumes: [],
         });
         this.pipelines = [
             compute('sph_density', sphDensity, 'sph_density_main'),

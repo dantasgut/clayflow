@@ -5,7 +5,7 @@ import { ParticleMaterial } from './physics/materials/ParticleMaterial';
 import { ShadowCasterResolver } from './scene/shadowCaster';
 
 /**
- * Resolvers de `consumes` dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
+ * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
  * aplicação): `GravityField`, `ParticleMaterial` e o mapa de sombra que projeta (`ShadowCaster.depth`,
  * `ShadowCaster.sampler`, spec 031). Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
  * `Transform`, `Light`, `ShadowMap`, materiais, corpos, colliders, restrições) têm o `PoolResolver` registrado pela C2

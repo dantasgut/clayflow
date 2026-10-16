@@ -63,8 +63,8 @@ export abstract class Flow<TSlots extends SlotMap = SlotMap, S extends string = 
     abstract readonly slots: TSlots;
     /** Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto. */
     readonly pipelines: readonly PipelineDescriptor[] = [];
-    /** Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo). */
-    readonly bindings: BindingSources = {};
+    /** Bindings privados iniciais por recurso declarado (uniforms por passo, temporários do algoritmo). */
+    readonly bindings: BindingSources = new Map();
     /** Schemas cujos `resourceReady` o Flow recebe como evento. */
     readonly listens: readonly Schema[] = [];
     /** Estado inicial do algoritmo. */

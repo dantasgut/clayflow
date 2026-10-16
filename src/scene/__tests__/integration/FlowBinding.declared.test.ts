@@ -53,7 +53,7 @@ async function readyDeclared(bindings: ConstructorParameters<typeof ProbeFlow>[1
     s.scene.flows.register(
         () => {
             flow = new ProbeFlow(probeParams, {
-                pipelines: [probePipeline({ shader: declaredShader, consumes: [] })],
+                pipelines: [probePipeline({ shader: declaredShader })],
                 bindings: new Map([[params, probeParams]]),
                 ...bindings,
             });
@@ -92,7 +92,7 @@ const slotShader = wgslModule({
 describe('Flow com recursos declarados (spec 031, T010)', () => {
     it('fornecedor por slot do Flow: o pool do bodyType e o bitset de vivos', async () => {
         const { scene, flow } = await readyDeclared({
-            pipelines: [probePipeline({ shader: slotShader, consumes: [] })],
+            pipelines: [probePipeline({ shader: slotShader })],
         });
         const ready = vi.fn();
         scene.events.on('flowReady', ready);

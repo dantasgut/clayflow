@@ -254,6 +254,7 @@ export const surfacePoint = wgslPoint({
         name: 'surface_fn',
         params: ['f32', 'f32', 'f32', POINT_PARAMS],
         returns: 'vec3f',
+        names: ['u', 'v', 'time', 'data'],
     },
     optional: [
         { name: 'surface_du', params: ['f32', 'f32', 'f32', POINT_PARAMS], returns: 'vec3f' },
@@ -276,7 +277,12 @@ export const surfacePoint = wgslPoint({
  */
 export const spacePoint = wgslPoint({
     name: 'space',
-    required: { name: 'space_fn', params: ['vec3f', 'f32', POINT_PARAMS], returns: 'vec3f' },
+    required: {
+        name: 'space_fn',
+        params: ['vec3f', 'f32', POINT_PARAMS],
+        returns: 'vec3f',
+        names: ['x', 'time', 'data'],
+    },
     optional: [
         { name: 'space_jacobian', params: ['vec3f', 'f32', POINT_PARAMS], returns: 'mat3x3f' },
     ],

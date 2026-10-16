@@ -58,7 +58,6 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
                 role: 'render',
                 shader: ui,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: [],
                 topology: 'triangle-list',
                 colorTargets: [
                     {

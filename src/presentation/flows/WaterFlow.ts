@@ -180,7 +180,6 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
                 role: 'render',
                 shader: samples > 1 ? waterComposite.sceneMs : waterComposite.scene,
                 entryPoints: ['water_composite_vs', 'water_composite_fs'],
-                consumes: [],
                 topology: 'triangle-list',
                 cullMode: 'none',
                 colorTargets: [{ format: slots.target.format ?? this.core.canvasFormat }],

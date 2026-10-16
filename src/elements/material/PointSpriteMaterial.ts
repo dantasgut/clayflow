@@ -56,7 +56,6 @@ export class PointSpriteMaterial extends Material<PointSpriteMaterialData> {
                 role: 'render',
                 shader: pointSprite,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: [],
                 family: 'points',
                 topology: 'point-list',
             },

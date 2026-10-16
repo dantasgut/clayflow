@@ -103,9 +103,11 @@ export const materialPoint = wgslPoint({
         name: 'material_fn',
         params: ['SurfaceSample', 'StandardMaterial', POINT_PARAMS],
         returns: 'SurfaceParams',
+        names: ['s', 'm', 'data'],
     },
     paramsAlias: 'MaterialFnParams',
     record: MaterialFnRecordSchema,
+    context: 'fragment',
     ready: materialFnReady,
     hosts: () => [materialCheck],
 });

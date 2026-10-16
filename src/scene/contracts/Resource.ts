@@ -41,8 +41,8 @@ export interface Resource {
     getDescriptors(): readonly GPUDescriptor[];
 
     /**
-     * Pipelines GPU declaradas pelo resource (shader source + entry points
-     * + consumes). Útil para Materials que carregam shaders próprios.
+     * Pipelines GPU declaradas pelo resource (shader e entry points; recursos
+     * pelos módulos declarados). Útil para Materials que carregam shaders próprios.
      * Vazio para a maioria (Flows criam pipelines diretamente).
      */
     getPipelineDescriptors(): readonly PipelineDescriptor[];

@@ -1,12 +1,16 @@
-import type { ComposedShader } from '../shaders/composeWgsl';
+import type { ComposedBinding, ComposedShader } from '../shaders/composeWgsl';
 import { stripWgslComments } from '../shaders/scanWgslSymbols';
-import type { BindingFrequency, WgslResource } from '../shaders/WgslResource';
+import {
+    resourceTypeText,
+    type BindingFrequency,
+    type WgslResource,
+} from '../shaders/WgslResource';
 
 /** Estágio de shader de uma entrada (`@vertex`, `@fragment`, `@compute`). */
 export type WgslStage = 'vertex' | 'fragment' | 'compute';
 
 /**
- * Binding extraído do WGSL — um `@group(N) @binding(M) var…` declarado no fonte, com o tipo e os estágios cujas
+ * Binding de um recurso declarado (spec 031): grupo e ligação atribuídos pelo motor, com o tipo e os estágios cujas
  * entradas alcançam (por chamadas) uma função que cita a variável.
  */
 export interface WgslBinding {
@@ -24,12 +28,6 @@ export interface WgslBinding {
     readonly typeText: string;
     /** Estágios de todas as entradas do fonte que alcançam um uso da variável. */
     readonly stages: ReadonlySet<WgslStage>;
-}
-
-/** Resultado de `parseWGSL`. */
-export interface WgslBindingInfo {
-    /** Bindings na ordem do fonte. */
-    readonly bindings: readonly WgslBinding[];
 }
 
 /** Recurso de uma entrada de layout inferida do tipo WGSL. */
@@ -68,16 +66,16 @@ export type InferredResource =
 export interface InferredEntry {
     /** Índice do `@binding`. */
     readonly binding: number;
-    /** Nome da variável — chave dos bindings privados de um Flow. */
+    /** Nome da variável (mensagens; a fonte vem do recurso declarado, pela identidade). */
     readonly name: string;
-    /** Struct (ou elemento de `array<…>`) do binding — chave de `consumes`. */
+    /** Struct (ou elemento de `array<…>`) do binding. */
     readonly typeName: string;
     /** Bitmask `GPUShaderStage` dos estágios das entradas pedidas que usam o binding. */
     readonly visibility: number;
     /** Tipo de recurso do binding. */
     readonly resource: InferredResource;
-    /** Recurso declarado (spec 031) — ausente em ligações escritas à mão. */
-    readonly declared?: WgslResource;
+    /** Recurso declarado (spec 031). */
+    readonly declared: WgslResource;
 }
 
 /** Entradas de um `@group(N)`. Grupos sem binding usado ficam com `entries` vazio (o índice é preservado). */
@@ -104,8 +102,6 @@ export class LayoutInferenceError extends Error {
     override readonly name = 'LayoutInferenceError';
 }
 
-const BINDING_PATTERN =
-    /@group\s*\(\s*(\d+)\s*\)\s*@binding\s*\(\s*(\d+)\s*\)\s*var(?:\s*<\s*([a-z_]+)(?:\s*,\s*([a-z_]+))?\s*>)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^;]+);/g;
 const FN_PATTERN = /((?:@[A-Za-z_]+(?:\s*\([^)]*\))?\s*)*)\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
 const CALL_PATTERN = /(?<![@.\w])([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
 
@@ -124,26 +120,10 @@ interface FnInfo {
  * transitivas entre funções de módulo — uma função que cita a variável; usar a variável só numa função auxiliar
  * conta. É a base da ligação feita pela C2 (`flowBinding`): o estágio nunca escreve layouts à mão.
  *
- * Não é um parser completo de WGSL: varre declarações de módulo (`fn`, `var` com `@group/@binding`) com o fonte sem
- * comentários, e corpos de função pelo casamento de chaves.
+ * Os bindings vêm só das declarações de recursos do shader montado (`ComposedShader.bindings`, spec 031); do fonte
+ * (sem comentários) varre só as funções de módulo, e os corpos pelo casamento de chaves, para a visibilidade.
  */
 export class LayoutInferencer {
-    /** Bindings do fonte com os estágios de todas as entradas que os usam. */
-    parseWGSL(source: string): WgslBindingInfo {
-        const code = stripWgslComments(source);
-        const fns = collectFunctions(code);
-        const entries = [...fns.values()].filter((f) => f.stage !== undefined);
-        return {
-            bindings: collectBindings(code).map((b) => {
-                const stages = new Set<WgslStage>();
-                for (const e of entries) {
-                    if (reachesUse(e.name, b.name, fns)) stages.add(e.stage!);
-                }
-                return { ...b, stages };
-            }),
-        };
-    }
-
     /**
      * Layout das entradas `entryPoints` de um shader montado: só os bindings usados por elas, com visibilidade dos
      * estágios delas. Grupos sem uso entre 0 e o maior grupo usado aparecem vazios (o índice do `@group` é o índice
@@ -152,11 +132,8 @@ export class LayoutInferencer {
      * @throws LayoutInferenceError se uma entrada não é função de entrada do fonte, ou se o tipo de um binding usado
      *   não é ligável (ex.: `texture_external`).
      */
-    infer(shader: ComposedShader | string, entryPoints: readonly string[]): InferredLayout {
-        const source = typeof shader === 'string' ? shader : shader.spec.source;
-        const declared = new Map(
-            typeof shader === 'string' ? [] : shader.bindings.map((b) => [b.name, b] as const),
-        );
+    infer(shader: ComposedShader, entryPoints: readonly string[]): InferredLayout {
+        const source = shader.spec.source;
         const code = stripWgslComments(source);
         const fns = collectFunctions(code);
         for (const ep of entryPoints) {
@@ -168,7 +145,8 @@ export class LayoutInferencer {
         }
         const byGroup = new Map<number, InferredEntry[]>();
         let maxGroup = -1;
-        for (const b of collectBindings(code)) {
+        for (const decl of shader.bindings) {
+            const b = parsedOf(decl);
             let visibility = 0;
             for (const ep of entryPoints) {
                 if (reachesUse(ep, b.name, fns)) visibility |= STAGE_BIT[fns.get(ep)!.stage!];
@@ -181,7 +159,7 @@ export class LayoutInferencer {
                 typeName: typeNameOf(b.typeText),
                 visibility,
                 resource: resourceOf(b),
-                ...(declared.has(b.name) ? { declared: declared.get(b.name)!.resource } : {}),
+                declared: decl.resource,
             });
             byGroup.set(b.group, list);
             maxGroup = Math.max(maxGroup, b.group);
@@ -189,7 +167,7 @@ export class LayoutInferencer {
         const groups: InferredGroup[] = [];
         for (let g = 0; g <= maxGroup; g++) {
             const entries = (byGroup.get(g) ?? []).sort((a, b) => a.binding - b.binding);
-            const frequency = typeof shader === 'string' ? undefined : shader.groupFrequencies[g];
+            const frequency = shader.groupFrequencies[g];
             groups.push({ group: g, entries, ...(frequency !== undefined ? { frequency } : {}) });
         }
         const stages = new Map(entryPoints.map((ep) => [ep, fns.get(ep)!.stage!]));
@@ -199,22 +177,17 @@ export class LayoutInferencer {
 
 type ParsedBinding = Omit<WgslBinding, 'stages'>;
 
-function collectBindings(code: string): ParsedBinding[] {
-    const out: ParsedBinding[] = [];
-    for (const m of code.matchAll(BINDING_PATTERN)) {
-        const [, group, binding, space, access, name, typeText] = m;
-        out.push({
-            group: Number(group),
-            binding: Number(binding),
-            name: name!,
-            typeText: typeText!.trim(),
-            ...(space === 'uniform' || space === 'storage' ? { addressSpace: space } : {}),
-            ...(space === 'storage'
-                ? { access: (access ?? 'read') as NonNullable<WgslBinding['access']> }
-                : {}),
-        });
-    }
-    return out;
+/** O binding de um recurso declarado (spec 031), na forma que a inferência usa. */
+function parsedOf(b: ComposedBinding): ParsedBinding {
+    const kind = b.resource.resource.binding;
+    return {
+        group: b.group,
+        binding: b.binding,
+        name: b.name,
+        typeText: resourceTypeText(b.resource.resource),
+        ...('uniform' in kind ? { addressSpace: 'uniform' as const } : {}),
+        ...('storage' in kind ? { addressSpace: 'storage' as const, access: kind.storage } : {}),
+    };
 }
 
 function collectFunctions(code: string): Map<string, FnInfo> {

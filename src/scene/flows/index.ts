@@ -37,6 +37,7 @@ export type {
     FlowTransition,
     FlowTransitions,
 } from './FlowTransitions';
+export { sameBindGroup, bindGroupsTo, bindingKeyParts } from './FlowBinding';
 export type {
     BindingSource,
     BindingSources,

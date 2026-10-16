@@ -55,7 +55,6 @@ export class StandardMaterial extends Material<StandardMaterialData> {
                 role: 'render',
                 shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: [],
                 family: 'surface',
                 topology: 'triangle-list',
                 cullMode: 'back',

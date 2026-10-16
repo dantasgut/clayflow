@@ -56,7 +56,6 @@ export class WireframeMaterial extends Material<WireframeMaterialData> {
                 role: 'render',
                 shader: wire,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: [],
                 family: 'wire',
                 topology: 'line-list',
             },

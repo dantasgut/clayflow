@@ -185,13 +185,21 @@ describe('composeWgsl — ligações emitidas pelo motor (spec 031, T005)', () =
         expect(() => composeWgsl(e)).toThrow(WgslCompositionError);
     });
 
-    it('recurso declarado junto com ligação escrita à mão → mixed-bindings', () => {
-        const manual = wgslModule({
-            name: 'res_manual',
-            source: '@group(0) @binding(0) var<storage, read> legacy: array<f32>;\nfn g() -> f32 { return legacy[0]; }',
-        });
-        const e = wgslModule({ name: 'res_mixed', requires: [items, manual], source: 'fn f() {}' });
-        expect(() => composeWgsl(e)).toThrow(/ligações escritas à mão em res_manual/);
+    it('ligação escrita à mão num módulo → manual-binding (antes: mixed-bindings na montagem)', () => {
+        const source =
+            '@group(0) @binding(0) var<storage, read> legacy: array<f32>;\nfn g() -> f32 { return legacy[0]; }';
+        try {
+            wgslModule({ name: 'res_manual', source });
+            expect.unreachable();
+        } catch (err) {
+            expect(err).toBeInstanceOf(WgslCompositionError);
+            expect((err as WgslCompositionError).kind).toBe('manual-binding');
+            expect((err as WgslCompositionError).detail).toEqual(['res_manual']);
+        }
+        // Em comentário não conta.
+        expect(() =>
+            wgslModule({ name: 'res_commented', source: '// @group(0) @binding(0)\nfn g() {}' }),
+        ).not.toThrow();
     });
 
     it('módulo que usa um recurso sem requerê-lo (global implícito) → unresolved-reference', () => {

@@ -347,7 +347,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                     role: 'compute',
                     shader: surfaceColliderBuild,
                     entryPoints: [`${entryName}_main`],
-                    consumes: [],
                 });
             }
             if (pointsId !== undefined) {
@@ -366,7 +365,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                     role: 'compute',
                     shader,
                     entryPoints: ['scb_points_main'],
-                    consumes: [],
                     ...(fn === undefined ? {} : { verify: true, extensions: [fn] }),
                 });
                 const next = { id: pointsId, module };

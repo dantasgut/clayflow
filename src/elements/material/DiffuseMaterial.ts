@@ -69,7 +69,6 @@ export class DiffuseMaterial extends Material<DiffuseMaterialData> {
                 role: 'render',
                 shader: diffuseSprite,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: [],
                 family: 'points',
                 topology: 'point-list',
             },

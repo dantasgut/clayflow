@@ -116,6 +116,7 @@ export const emitPoint = wgslPoint({
         name: 'emit_fn',
         params: ['u32', 'f32', 'u32', POINT_PARAMS],
         returns: 'EmittedParticle',
+        names: ['i', 'time', 'seed', 'data'],
     },
     paramsAlias: 'EmitFnParams',
     record: EmitFnRecordSchema,

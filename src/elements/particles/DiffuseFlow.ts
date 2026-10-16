@@ -287,7 +287,6 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
                     role: 'compute',
                     shader,
                     entryPoints: [entry],
-                    consumes: [],
                 });
             };
             for (const e of SPAWN_ENTRIES) prepare(e, diffuseSpawn, `diffuse_${e}_main`);

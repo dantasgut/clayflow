@@ -267,7 +267,6 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 role: 'compute',
                 shader: emitUpdate,
                 entryPoints: ['emit_update_main'],
-                consumes: [],
             });
             ctx.bind(
                 at(st.collideId, [
@@ -281,7 +280,6 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 role: 'compute',
                 shader: emitCollide,
                 entryPoints: ['emit_collide_main'],
-                consumes: [],
             });
             const fn = functions.entry(id)?.get(EmitFunction);
             const module = fn?.module;
@@ -309,7 +307,6 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                             ? emitSpawn
                             : bindPoints(emitSpawn, new Map([[emitPoint, fn.module]])),
                     entryPoints: ['emit_spawn_main'],
-                    consumes: [],
                     ...(fn === undefined ? {} : { verify: true, extensions: [fn] }),
                 });
                 const next = { id: spawnId, module };

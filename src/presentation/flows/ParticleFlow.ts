@@ -298,7 +298,6 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             role: 'render',
             shader: particleSprite,
             entryPoints: ['vs_main', 'fs_main'],
-            consumes: [],
             topology: 'triangle-list',
             cullMode: 'none',
             colorTargets: [{ format }],

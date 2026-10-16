@@ -46,7 +46,6 @@ export interface ComposedShader {
     readonly groupFrequencies: readonly BindingFrequency[];
 }
 
-const MANUAL_BINDING = /@group\s*\(|@binding\s*\(/;
 const MARKER = /\{\{struct:([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
 const CALL = /(?<!@)\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
 
@@ -81,16 +80,6 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
     for (const s of schemas) define(s.wgslName, `struct ${s.wgslName}`);
     for (const m of order) for (const sym of m.symbols) define(sym.name, m.name);
     const resources = order.filter(isWgslResource);
-    const manual = order.filter(
-        (m) => !isWgslResource(m) && MANUAL_BINDING.test(stripWgslComments(m.source)),
-    );
-    if (resources.length > 0 && manual.length > 0) {
-        throw new WgslCompositionError(
-            'mixed-bindings',
-            `composeWgsl('${entry.name}'): recursos declarados (${resources.map((r) => r.name).join(', ')}) junto com ligações escritas à mão em ${manual.map((m) => m.name).join(', ')}`,
-            [...resources.map((r) => r.name), ...manual.map((m) => m.name)],
-        );
-    }
     const { bindings, groupFrequencies } = assignBindings(resources);
     checkResourceReferences(order, entry.name);
 
@@ -280,8 +269,7 @@ function closureOf(m: WgslModule, out = new Set<WgslModule>()): Set<WgslModule> 
  * por um módulo que não o requer é um global implícito do hospedeiro — `unresolved-reference`.
  */
 function checkResourceReferences(order: readonly WgslModule[], entryName: string): void {
-    // Só em shaders com recursos declarados: um shader inteiro com ligações escritas à mão (forma anterior à 031)
-    // declara as próprias variáveis.
+    // Sem recurso declarado, nenhuma referência a conferir (ligações à mão já são rejeitadas por `wgslModule`).
     if (!order.some(isWgslResource)) return;
     const known = declaredResourceNames();
     for (const m of order) {
