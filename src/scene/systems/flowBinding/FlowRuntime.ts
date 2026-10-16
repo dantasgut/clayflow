@@ -1,14 +1,21 @@
-import type { EngineCore, BindGroupSpec } from '../../../core/contracts/index';
+import type {
+    AnyBufferSpec,
+    BindGroupSpec,
+    EngineCore,
+    StorageBufferSpec,
+} from '../../../core/contracts/index';
 import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
 import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
-import { consumesName, type PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
+import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
-import { scenePointsIn, type PointImplementation } from '../../shaders/WgslPoint';
+import type { PointImplementation } from '../../shaders/WgslPoint';
+import type { WgslResource } from '../../shaders/WgslResource';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
+import { bindingKeyParts } from '../../flows/FlowBinding';
 import type {
     BindingSource,
     BindingSources,
@@ -48,6 +55,7 @@ export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
     releaseEntityRecords(declaration: EntityRecordDeclaration): void;
     acquireOwnership(owner: object, resource: Resource, descId: string): void;
     releaseOwnership(owner: object, resource: Resource, descId: string): void;
+    markProduced(owner: object, resource: Resource, descId: string, produced: boolean): void;
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined;
 }
 
@@ -73,7 +81,10 @@ export class FlowRuntime {
     /** Algo mudou desde o último `reconcile` (fontes, slots, compilação). */
     dirty = true;
     private readonly slotValues: Record<string, unknown> = {};
-    private readonly privates = new Map<string, BindingSource>();
+    /** Fontes privadas por recurso (todos os pipelines). */
+    private readonly privates = new Map<WgslResource, BindingSource>();
+    /** Fontes privadas por pipeline e recurso (vencem as de todos). */
+    private readonly pipelinePrivates = new Map<string, Map<WgslResource, BindingSource>>();
     private readonly pipelineStates = new Map<string, PipelineState>();
     private readonly entitySets = new Map<string, Map<EntityId, SetEntry>>();
     private readonly poolViews = new Map<string, BoundPool>();
@@ -119,7 +130,7 @@ export class FlowRuntime {
         readonly flow: Flow,
         readonly options: RegisterOptions,
     ) {
-        for (const [name, source] of Object.entries(flow.bindings)) this.privates.set(name, source);
+        if (flow.bindings !== undefined) this.storePrivates(flow.bindings);
         const pools = new Set<string>();
         for (const decl of Object.values(flow.slots)) {
             if (decl.kind === 'pool') pools.add(decl.poolKey);
@@ -165,6 +176,9 @@ export class FlowRuntime {
             prepare: (descriptor) => this.prepare(descriptor, false).asPrepared(),
             release: (id) => {
                 this.releasePipeline(id);
+            },
+            produced: (resource, descId, produced) => {
+                this.host.resources.markProduced(this.flow, resource, descId, produced);
             },
         };
     }
@@ -217,7 +231,11 @@ export class FlowRuntime {
         for (const state of [...this.pipelineStates.values()]) {
             state.refresh(this.lookup, this.onReplaced);
         }
-        for (const next of this.nextStates.values()) next.refresh(this.lookup, this.onReplaced);
+        for (const [id, next] of this.nextStates) {
+            next.refresh(this.lookup, this.onReplaced);
+            // Compilado de forma síncrona (sem conferência nem `preferAsync`): troca já neste reconcile.
+            if (next.ready && !this.swapQueue.includes(id)) this.swapQueue.push(id);
+        }
         while (this.nextRejected.length > 0) {
             const id = this.nextRejected.shift()!;
             const next = this.nextStates.get(id);
@@ -449,9 +467,11 @@ export class FlowRuntime {
         return changes;
     }
 
-    /** O Flow declara `schema` em `listens`? */
+    /** O Flow declara `schema` (ou uma família que o contém: os registros de um ponto) em `listens`? */
     listens(schema: Schema): boolean {
-        return this.flow.listens.includes(schema);
+        return this.flow.listens.some(
+            (l) => l === schema || ('isRecord' in l && l.isRecord(schema)),
+        );
     }
 
     /** O Flow escuta `resource` (algum descritor com schema de `listens`)? Devolve o schema, ou `undefined`. */
@@ -459,7 +479,7 @@ export class FlowRuntime {
         const listens = this.flow.listens;
         if (listens.length === 0) return undefined;
         for (const d of resource.getDescriptors()) {
-            if (d.schema !== undefined && listens.includes(d.schema)) return d.schema;
+            if (d.schema !== undefined && this.listens(d.schema)) return d.schema;
         }
         return undefined;
     }
@@ -501,8 +521,28 @@ export class FlowRuntime {
     }
 
     private bindPrivates(sources: BindingSources): void {
-        for (const [name, source] of Object.entries(sources)) this.privates.set(name, source);
+        this.storePrivates(sources);
         this.dirty = true;
+    }
+
+    private storePrivates(sources: BindingSources): void {
+        for (const [key, source] of sources) {
+            const { pipeline, resource } = bindingKeyParts(key);
+            if (resource.resource.provider !== 'private') {
+                throw new FlowBindingError(
+                    `fonte privada para '${resource.name}' no Flow '${this.flow.type}', mas o recurso tem fornecedor — troque o pool com 'pools' no descritor.`,
+                    { flow: this.flow.type, pipeline: pipeline ?? '', variable: resource.name },
+                );
+            }
+            if (pipeline === undefined) {
+                this.privates.set(resource, source);
+                continue;
+            }
+            let byResource = this.pipelinePrivates.get(pipeline);
+            if (byResource === undefined)
+                this.pipelinePrivates.set(pipeline, (byResource = new Map()));
+            byResource.set(resource, source);
+        }
     }
 
     private prepare(descriptor: PipelineDescriptor, declared: boolean): PipelineState {
@@ -510,7 +550,6 @@ export class FlowRuntime {
         if (existing !== undefined) return existing;
         this.baseDescriptors.set(descriptor.id, descriptor);
         const state = this.createState(descriptor.id, this.withScene(descriptor), declared);
-        this.checkConsumes(descriptor);
         this.pipelineStates.set(descriptor.id, state);
         if (this.flow.lifecycle === 'preparing' || this.flow.lifecycle === 'ready') {
             state.refresh(this.lookup, this.onReplaced);
@@ -570,7 +609,9 @@ export class FlowRuntime {
                 });
             }
         });
-        if (bound.extensions.length === 0) return descriptor;
+        if (bound.shader === descriptor.shader) return descriptor;
+        // Contribuições de cena (spec 031) são código do motor; funções do usuário pedem a conferência do compilador.
+        if (bound.extensions.length === 0) return { ...descriptor, shader: bound.shader };
         return {
             ...descriptor,
             shader: bound.shader,
@@ -580,13 +621,13 @@ export class FlowRuntime {
     }
 
     /**
-     * As funções de cena mudaram (spec 009): cada pipeline cujo shader contém um ponto de cena é preparado de novo com
-     * as funções atuais e troca o atual quando compila (rejeitado, o atual continua).
+     * As funções de cena (spec 009) ou as contribuições de cena (spec 031) mudaram: cada pipeline cujo shader muda com
+     * a composição atual é preparado de novo e troca o atual quando compila (rejeitado, o atual continua).
      */
     sceneChanged(): void {
         for (const [id, state] of this.pipelineStates) {
             const base = this.baseDescriptors.get(id);
-            if (base === undefined || scenePointsIn(base.shader).length === 0) continue;
+            if (base === undefined) continue;
             const descriptor = this.withScene(base);
             const target = this.nextStates.get(id) ?? state;
             if (descriptor.shader === target.descriptor.shader) continue;
@@ -613,69 +654,115 @@ export class FlowRuntime {
         }
     }
 
-    /** Todo nome de `consumes` precisa de resolver (FR-012). */
-    private checkConsumes(descriptor: PipelineDescriptor): void {
-        for (const name of descriptor.consumes.map(consumesName)) {
-            if (this.host.consumers.has(name)) continue;
-            throw new FlowBindingError(
-                `Flow '${this.flow.type}', pipeline '${descriptor.id}': consumes '${name}' sem resolver (disponíveis: ${this.host.consumers.names().join(', ') || 'nenhum'}).`,
-                { flow: this.flow.type, pipeline: descriptor.id, consumes: name },
-            );
-        }
-    }
-
-    /** Fonte de um binding: privado pelo nome → tipo em `consumes` → erro. */
+    /** Fonte de um binding: pelo fornecedor do recurso declarado (spec 031). */
     private readonly lookup = (
         entry: InferredEntry,
         group: number,
         state: PipelineState,
-    ): ResolvedSource | undefined => {
-        // Global de ponto de cena (spec 009): o pool dos registros, ou o substituto zerado.
-        const base = this.baseDescriptors.get(state.id);
-        const global =
-            base === undefined
+    ): ResolvedSource | undefined =>
+        this.declaredSource(entry, group, state, this.baseDescriptors.get(state.id));
+
+    /** Fonte de um recurso declarado (spec 031): pelo fornecedor da declaração. */
+    private declaredSource(
+        entry: InferredEntry,
+        group: number,
+        state: PipelineState,
+        base: PipelineDescriptor | undefined,
+    ): ResolvedSource | undefined {
+        const declared = entry.declared;
+        if (declared === undefined) {
+            throw new FlowBindingError(
+                `binding '${entry.name}' do pipeline '${state.id}' do Flow '${this.flow.type}' sem recurso declarado.`,
+                { flow: this.flow.type, pipeline: state.id, group, variable: entry.name },
+            );
+        }
+        const ctx = { world: this.host.world, resources: this.host.resources };
+        const poolOverride = state.descriptor.pools?.get(declared);
+        if (poolOverride !== undefined) {
+            return this.host.consumers.has(poolOverride)
+                ? this.host.consumers.resolve(poolOverride, ctx)
+                : undefined;
+        }
+        const provider = declared.resource.provider;
+        if (provider === 'private') {
+            const priv =
+                this.pipelinePrivates.get(state.id)?.get(declared) ?? this.privates.get(declared);
+            if (priv !== undefined) return normalizeSource(priv);
+            throw new FlowBindingError(
+                `recurso privado '${entry.name}' (@group(${group}) @binding(${entry.binding})) do pipeline '${state.id}' do Flow '${this.flow.type}' sem fonte: ligue-o com ctx.bind.`,
+                {
+                    flow: this.flow.type,
+                    pipeline: state.id,
+                    group,
+                    binding: entry.binding,
+                    variable: entry.name,
+                },
+            );
+        }
+        if ('scene' in provider) {
+            return base === undefined
                 ? undefined
                 : this.host.scenePoints.globalSource(base.shader, entry.name);
-        if (global !== undefined) return global;
-        // Privado do pipeline (`pipeline:variável`) vence o privado do Flow (`variável`).
-        const priv =
-            this.privates.get(`${state.id}:${entry.name}`) ?? this.privates.get(entry.name);
-        if (priv !== undefined) return normalizeSource(priv);
-        const consumes = state.descriptor.consumes;
-        // O tipo lido pelo shader: o `as` da entrada, ou o struct que o resolver preenche.
-        const candidates = consumes
-            .filter(
-                (c) =>
-                    (typeof c === 'string' ? this.host.consumers.get(c)?.typeName : c.as)
-                    === entry.typeName,
-            )
-            .map(consumesName);
-        const names = consumes.map(consumesName);
-        const where = `binding '${entry.name}' (@group(${group}) @binding(${entry.binding}), tipo '${entry.typeName}') do pipeline '${state.id}' do Flow '${this.flow.type}'`;
-        const details = {
-            flow: this.flow.type,
-            pipeline: state.id,
-            group,
-            binding: entry.binding,
-            variable: entry.name,
-        };
-        if (candidates.length === 0) {
+        }
+        if ('slot' in provider) return this.slotSource(provider, entry, state);
+        const name = 'pool' in provider ? provider.pool : provider.consumer;
+        // Pool ou resolver ainda ausente na cena: o pipeline espera.
+        if (!this.host.consumers.has(name)) return undefined;
+        return this.host.consumers.resolve(name, ctx);
+    }
+
+    /** Fonte de um recurso fornecido por um slot do Flow (spec 031). */
+    private slotSource(
+        provider: { readonly slot: string; readonly part?: string; readonly descriptor?: string },
+        entry: InferredEntry,
+        state: PipelineState,
+    ): ResolvedSource | undefined {
+        const decl = (this.flow.slots as Record<string, SlotDeclaration | undefined>)[
+            provider.slot
+        ];
+        if (decl === undefined) {
             throw new FlowBindingError(
-                `${where} sem fonte: nenhum binding privado '${entry.name}' e nenhum nome de consumes [${names.join(', ')}] com esse tipo.`,
-                details,
+                `recurso '${entry.name}' do pipeline '${state.id}' do Flow '${this.flow.type}' fornecido pelo slot '${provider.slot}', que o Flow não declara.`,
+                { flow: this.flow.type, pipeline: state.id, variable: entry.name },
             );
         }
-        if (candidates.length > 1) {
-            throw new FlowBindingError(
-                `${where}: consumes ambíguo — ${candidates.join(' e ')} fornecem o tipo '${entry.typeName}'.`,
-                { ...details, consumes: candidates[0]! },
-            );
+        const value = this.slotValues[provider.slot];
+        if (value === undefined) return undefined;
+        const buffer = (
+            b: StorageBufferSpec | AnyBufferSpec | undefined,
+        ): ResolvedSource | undefined =>
+            b === undefined ? undefined : normalizeSource(b as BindingSource);
+        switch (decl.kind) {
+            case 'pool':
+            case 'bodies': {
+                const pool = value as BoundPool;
+                return buffer(provider.part === 'live' ? pool.live : pool.buffer);
+            }
+            case 'entities': {
+                const set = value as BoundEntities;
+                const pool = provider.part === 'instances' ? set.instances : set.records;
+                return buffer(pool?.buffer);
+            }
+            case 'singleton': {
+                const single = value as BoundSingleton;
+                const d = provider.descriptor;
+                if (d === undefined) return undefined;
+                const b = single.bufferOf(d);
+                if (b !== undefined) return buffer(b);
+                const view = single.textureViewOf(d);
+                if (view !== undefined) return normalizeSource(view);
+                const sampler = single.samplerOf(d);
+                return sampler === undefined ? undefined : normalizeSource(sampler);
+            }
+            case 'texture':
+                return normalizeSource((value as BoundTexture).view);
+            default:
+                throw new FlowBindingError(
+                    `recurso '${entry.name}' do Flow '${this.flow.type}': o slot '${provider.slot}' (${decl.kind}) não fornece dado de shader.`,
+                    { flow: this.flow.type, pipeline: state.id, variable: entry.name },
+                );
         }
-        return this.host.consumers.resolve(candidates[0]!, {
-            world: this.host.world,
-            resources: this.host.resources,
-        });
-    };
+    }
 
     private readonly onReplaced = (
         state: PipelineState,

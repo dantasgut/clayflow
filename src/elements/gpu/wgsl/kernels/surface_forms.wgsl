@@ -4,10 +4,6 @@
 // Sv·b, autovetor do operador de forma; w = 0 em ponto umbílico). Jato degenerado ou não finito: tudo zero, `valid` 0.
 // Requer: struct `SurfaceDiff` (gerado do schema); surface_jet_common.
 
-fn surface_forms_finite(v: vec4f) -> bool {
-    return all(v == v) && all(abs(v) < vec4f(3.4e38));
-}
-
 fn surface_forms(j: SurfaceJet) -> SurfaceDiff {
     var out: SurfaceDiff;
     let E = dot(j.du, j.du);
@@ -38,8 +34,8 @@ fn surface_forms(j: SurfaceJet) -> SurfaceDiff {
     out.second = vec4f(L, M, N, 0.0);
     out.curvature = vec4f(K, H, k1, k2);
     out.principal = select(vec4f(dir / dl, 1.0), vec4f(0.0), umbilic);
-    if (!surface_forms_finite(out.metric) || !surface_forms_finite(out.second)
-        || !surface_forms_finite(out.curvature) || !surface_forms_finite(out.principal)) {
+    if (!finite4(out.metric) || !finite4(out.second)
+        || !finite4(out.curvature) || !finite4(out.principal)) {
         return SurfaceDiff();
     }
     return out;

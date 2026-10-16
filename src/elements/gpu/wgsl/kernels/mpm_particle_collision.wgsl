@@ -1,15 +1,12 @@
 // Salvaguarda das partículas MPM contra penetração em colliders (spec 005, R18), depois do G2P. A fronteira é imposta
 // na grade (`mpm_grid_update`, faixa de uma célula); aqui só a partícula que ainda assim ficou dentro de um collider
 // volta à superfície (raio 0 — projetar com raio maior moveria partículas sem atualizar o J e compactaria o fluido).
-@group(0) @binding(0) var<uniform>             mpm_params: MPMSimParams;
 
 // Células de borda da grade em que o G2P grampeia as partículas (as mesmas do `mpm_g2p`).
 const MPM_RETIRE_CELLS: u32 = 3u;
-@group(1) @binding(0) var<storage, read_write> particles:  array<MPMParticle>;
-@group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
-// Grupo 2: conjunto de colliders (`collider_set.wgsl`).
+// Conjunto de colliders: módulo `collider_set` (recursos `collider_*` declarados).
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn mpm_particle_collision_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
@@ -17,7 +14,7 @@ fn mpm_particle_collision_main(
     // Tempo da iteração: escolhe a cópia do passo nos colliders de superfície (spec 010).
     collider_time = mpm_params.field_time;
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let p = gid3.x + gid3.y * nwg.x * 64u;
+    let p = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (p >= mpm_params.particle_count || !pool_live(live[p >> 5u], p)) { return; }
 
     var pos = particles[p].pos.xyz;

@@ -17,9 +17,6 @@ import { emitPoint } from '../particles/shaders';
  * à entidade de um `ComputeParticleEmitter`, substitui a forma do emissor. Uma instância por emissor.
  */
 export class EmitFunction extends ExtensionFunction {
-    /** Registro de parâmetros das funções `emit` (um pool por ponto). */
-    static readonly schema = emitPoint.record;
-
     constructor(options: ExtensionFunctionOptions) {
         super(emitPoint, options);
     }

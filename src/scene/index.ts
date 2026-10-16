@@ -36,10 +36,81 @@ export type {
     PoolInfo,
     ResourceDirectory,
     ExtensionFunctionOptions,
+    ExtensionCodeOptions,
+    ExtensionGraphOptions,
     ExtensionParamType,
     ExtensionParamValue,
     ExtensionParamsData,
 } from './contracts/index';
+
+export {
+    defineNode,
+    structFields,
+    NodeGraph,
+    graphArgument,
+    NodeGraphError,
+    NodeRegistry,
+    defineSetNode,
+    setType,
+    setPointInput,
+    SetGraph,
+    GraphFlow,
+    SET_GROUP,
+    setDispatchOffset,
+    compileSetGraph,
+    SetCountSchema,
+    SET_COUNT_DISPATCH_OFFSET,
+    SET_COUNT_DRAW_OFFSET,
+    Subgraph,
+    subgraphOrigin,
+    toJSON,
+    fromJSON,
+    GRAPH_JSON_VERSION,
+} from './graph/index';
+export type {
+    NodeDefinition,
+    NodeDefinitionOptions,
+    NodeUse,
+    NodeParam,
+    NodeContext,
+    PortType,
+    NodeGraphOptions,
+    GraphNode,
+    GraphLink,
+    GraphArgument,
+    ResolvedNode,
+    NodeGraphErrorKind,
+    SetType,
+    PointTarget,
+    SetPointInput,
+    SetBuffer,
+    FusedPoint,
+    SetNodeContext,
+    SetNodeInstance,
+    CapacityContext,
+    SetCountRule,
+    SetNodeDefinitionOptions,
+    SetNodeDefinition,
+    SetNodeUse,
+    SetGraphData,
+    SetGraphOptions,
+    GraphFlowOptions,
+    GraphFlowSlots,
+    PlannedSet,
+    PlannedNode,
+    FusedPointPlan,
+    SetGraphPlan,
+    PointSubgraphOptions,
+    SetSubgraphOptions,
+    SetSubgraph,
+    SetSubgraphUse,
+    GraphJSON,
+    NodeJSON,
+    SubgraphJSON,
+    InlineNodeJSON,
+    AnyNodeDefinition,
+    FlatNode,
+} from './graph/index';
 
 export type {
     GPUDescriptor,
@@ -47,11 +118,7 @@ export type {
     SlotRef,
     SlotRefTarget,
 } from './descriptors/GPUDescriptor';
-export type {
-    PipelineDescriptor,
-    PipelineDescriptorRole,
-    ConsumesEntry,
-} from './descriptors/PipelineDescriptor';
+export type { PipelineDescriptor, PipelineDescriptorRole } from './descriptors/PipelineDescriptor';
 export type { FlowDescriptor } from './descriptors/FlowDescriptor';
 export type { TextureShape } from './descriptors/TextureShape';
 export type {
@@ -79,8 +146,6 @@ export {
     Schema,
     StructSchema,
     TensorSchema,
-    extensionRecordSchema,
-    EXTENSION_PARAMS_CAPACITY,
 } from './descriptors/index';
 
 export { World, ReuseError } from './world/World';
@@ -98,11 +163,19 @@ export {
     PHASE_ORDER,
     slot,
 } from './flows/index';
-export { createComputeKernel, destroyComputeKernel } from './flows/index';
+export {
+    createComputeKernel,
+    destroyComputeKernel,
+    sameBindGroup,
+    bindGroupsTo,
+    bindingKeyParts,
+} from './flows/index';
 export type {
     ComputeKernel,
     ComputeKernelOptions,
     FlowLifecycle,
+    Listened,
+    SchemaFamily,
     RenderSlotMap,
     RegisterOptions,
     FlowContext,
@@ -140,6 +213,9 @@ export type {
     FlowTransitions,
     BindingSource,
     BindingSources,
+    BindingKey,
+    PreparedGroup,
+    GroupOffsets,
     BoundFlow,
     PreparedPipeline,
     PreparedCompute,
@@ -154,6 +230,14 @@ export {
     scenePointsIn,
     POINT_PARAMS,
     bindPoints,
+    wgslResource,
+    isWgslResource,
+    resourceTypeText,
+    BINDING_FREQUENCIES,
+    sharedConstant,
+    NONE,
+    WORKGROUP_SIZE,
+    instantiateModule,
 } from './shaders/index';
 export type {
     WgslModule,
@@ -167,9 +251,23 @@ export type {
     WgslPointSignature,
     BindablePoint,
     PointImplementation,
+    PointRecord,
     ScenePointEntry,
     ScenePointOptions,
     ScenePointGlobal,
+    ContributionPoint,
+    SceneContribution,
+    ComposedBinding,
+    WgslResource,
+    WgslResourceOptions,
+    WgslResourceDeclaration,
+    WgslResourceType,
+    WgslBindingKind,
+    WgslTextureDimension,
+    BindingFrequency,
+    ResourceProvider,
+    SharedConstant,
+    SharedConstantType,
 } from './shaders/index';
 export type { Phase } from './flows/index';
 
@@ -283,7 +381,6 @@ export type {
 export type { ResourceStateHandler } from './lifecycle/index';
 export type {
     WgslBinding,
-    WgslBindingInfo,
     WgslStage,
     InferredLayout,
     InferredGroup,

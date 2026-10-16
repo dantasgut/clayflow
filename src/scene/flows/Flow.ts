@@ -18,6 +18,18 @@ import type { SlotMap } from './slots';
  */
 export type FlowLifecycle = 'pending' | 'preparing' | 'ready' | 'disposed';
 
+/**
+ * Família de schemas que um Flow escuta como um só: os registros tipados de todas as formas de um ponto de extensão
+ * (spec 031, R8 — o próprio `WgslPoint`), gerados quando as funções entram na cena.
+ */
+export interface SchemaFamily {
+    /** `schema` pertence à família? */
+    isRecord(schema: Schema): boolean;
+}
+
+/** O que um Flow escuta: um schema, ou uma família de schemas. */
+export type Listened = Schema | SchemaFamily;
+
 /** Acesso da C2 aos membros protegidos de um Flow (definido no bloco estático da classe). */
 interface FlowAccess {
     deliver(flow: Flow, event: FlowEvent, ctx: TransitionContext): void;
@@ -28,8 +40,8 @@ interface FlowAccess {
 let access: FlowAccess | undefined;
 
 /**
- * Unidade de trabalho do quadro (um estágio): declara o que consome (`slots`, `pipelines` com `consumes`, bindings
- * privados por nome) e grava comandos em `dispatch`. A Camada 2 resolve os slots, infere layouts do WGSL, cria
+ * Unidade de trabalho do quadro (um estágio): declara o que consome (`slots`, `pipelines` cujos shaders requerem
+ * recursos declarados, fontes privadas por recurso) e grava comandos em `dispatch`. A Camada 2 resolve os slots, infere layouts do WGSL, cria
  * pipelines e bind groups, mantém tudo atualizado e entrega o resultado (`BoundFlow`) a cada quadro. O Flow nunca
  * cria layout nem bind group de dado consumido.
  *
@@ -63,10 +75,13 @@ export abstract class Flow<TSlots extends SlotMap = SlotMap, S extends string = 
     abstract readonly slots: TSlots;
     /** Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto. */
     readonly pipelines: readonly PipelineDescriptor[] = [];
-    /** Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo). */
-    readonly bindings: BindingSources = {};
-    /** Schemas cujos `resourceReady` o Flow recebe como evento. */
-    readonly listens: readonly Schema[] = [];
+    /** Bindings privados iniciais por recurso declarado (uniforms por passo, temporários do algoritmo). */
+    readonly bindings: BindingSources = new Map();
+    /**
+     * Schemas (ou famílias de schemas: os registros de um ponto de extensão) cujos `resourceReady` e `poolWritten` o
+     * Flow recebe como evento.
+     */
+    readonly listens: readonly Listened[] = [];
     /** Estado inicial do algoritmo. */
     protected abstract readonly initialState: S;
     /** Tabela de transições (estado × evento). */

@@ -3,18 +3,12 @@
 // mirando a origem.
 // Requer: structs Light, ShadowMatrix, ShadowRecord, ShadowMatrixInstance, ShadowMatrixParams; camera.
 
-@group(0) @binding(0) var<storage, read>       lights:          array<Light>;
-@group(0) @binding(1) var<storage, read_write> shadow_matrices: array<ShadowMatrix>;
-@group(0) @binding(2) var<storage, read>       shadow_records:  array<ShadowRecord>;
-@group(0) @binding(3) var<storage, read>       shadow_list:     array<ShadowMatrixInstance>;
-@group(0) @binding(4) var<uniform>             shadow_params:   ShadowMatrixParams;
-
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn shadow_matrix_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= shadow_params.count) { return; }
     let r = shadow_records[shadow_list[shadow_params.first + i].record];
     let dir = lights[r.lightSlot].direction.xyz;

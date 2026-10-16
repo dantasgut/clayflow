@@ -20,9 +20,6 @@ import { surfacePoint } from '../geometry/shaders';
  * superfície. Uma instância por superfície.
  */
 export class SurfaceFunction extends ExtensionFunction {
-    /** Registro de parâmetros das funções `surface` (um pool por ponto). */
-    static readonly schema = surfacePoint.record;
-
     constructor(options: ExtensionFunctionOptions) {
         super(surfacePoint, options);
     }

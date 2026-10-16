@@ -5,17 +5,6 @@
 // determinísticos); (4) o topo avança pelo total.
 // Requer: structs DiffuseParams, DiffuseParticle; diffuse_common; pool_live.
 
-@group(0) @binding(0)  var<uniform>             diffuse_params:  DiffuseParams;
-@group(0) @binding(1)  var<storage, read>       fluid:           array<f32>;
-@group(0) @binding(2)  var<storage, read>       fluid_live:      array<u32>;
-@group(0) @binding(3)  var<storage, read>       neighbor_list:   array<u32>;
-@group(0) @binding(4)  var<storage, read>       neighbor_count:  array<u32>;
-@group(0) @binding(5)  var<storage, read_write> diffuse_normals: array<vec4f>;
-@group(0) @binding(6)  var<storage, read_write> diffuse_counts:  array<u32>;
-@group(0) @binding(7)  var<storage, read>       diffuse_offsets: array<u32>;
-@group(0) @binding(8)  var<storage, read_write> diffuse:         array<DiffuseParticle>;
-@group(0) @binding(9)  var<storage, read_write> diffuse_state:   array<u32>;
-
 const DIFFUSE_MAX_PER_PARTICLE: u32 = 16u;
 
 fn diffuse_alive(i: u32) -> bool {
@@ -24,9 +13,9 @@ fn diffuse_alive(i: u32) -> bool {
 }
 
 // Normal de superfície (para fora do fluido) e quão de superfície a partícula é (w: |Σ|, 0 no interior).
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn diffuse_normals_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= diffuse_params.fluid_count) { return; }
     if (!diffuse_alive(i)) {
         diffuse_normals[i] = vec4f(0.0);
@@ -45,9 +34,9 @@ fn diffuse_normals_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     diffuse_normals[i] = select(vec4f(0.0), vec4f(sum / len, len), len > 1e-6);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn diffuse_potential_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= diffuse_params.fluid_count) { return; }
     if (!diffuse_alive(i)) {
         diffuse_counts[i] = 0u;
@@ -93,9 +82,9 @@ fn diffuse_basis(d: vec3f) -> mat2x3f {
     return mat2x3f(e1, cross(d, e1));
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn diffuse_spawn_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= diffuse_params.fluid_count) { return; }
     let count = diffuse_counts[i];
     if (count == 0u) { return; }

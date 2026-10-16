@@ -6,8 +6,9 @@ const combined = new Map<string, WgslModule>();
 /**
  * Composição das funções `space` da cena (spec 009): `space_map` aplica as funções em sequência (ordem de inserção);
  * `space_normal` leva a normal pela inversa transposta da Jacobiana de cada uma — a fornecida (`space_jacobian`) ou por
- * diferenças centrais (passo 1e-3 · max(1, |x|)); Jacobiana singular (|det| < 1e-8) mantém a normal. Memorizada pelas
- * funções e slots.
+ * diferenças centrais (passo 1e-3 · max(1, |x|)); Jacobiana singular (|det| < 1e-8) mantém a normal. Os parâmetros de
+ * cada função vêm do seu registro, lido pelo carregador dela no pool da forma (registro tipado, spec 031 R8). Memorizada
+ * pelas funções e slots.
  *
  * @param base Módulos que a composição exige (`linalg`).
  */
@@ -23,7 +24,7 @@ export function combineSpaceFunctions(
         '// Espaço da cena (gerado; spec 009): as funções `space` em sequência.',
     ];
     entries.forEach((e, k) => {
-        const data = `${e.impl.loaderName}(space_records[${e.slot}u])`;
+        const data = `${e.impl.loaderName}(${e.slot}u)`;
         lines.push(
             `fn space_one_${k}(x: vec3f, time: f32) -> vec3f {`,
             `    return ${e.impl.functionName}(x, time, ${data});`,

@@ -2,7 +2,7 @@ import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contra
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
-    BindingSources,
+    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -17,6 +17,8 @@ import {
     type SingletonSlot,
     type SlotMap,
 } from '../../../scene/flows/slots';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { Time } from '../../../scene/time/Time';
 import {
     NEIGHBOR_SEARCH_MAX_PARTICLES,
@@ -35,6 +37,7 @@ import {
     sphIntegrate,
     sphNormals,
     sphPressure,
+    sphResources,
 } from '../shaders/sph';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
@@ -88,7 +91,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     readonly type = 'SPHFlow';
     readonly slots = slots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<SPHSlots>>;
 
@@ -114,7 +117,6 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     constructor(ctx: FlowContext, options: SPHFlowOptions = {}) {
         super();
         this.core = ctx.core;
-        const bodyType = ctx.bodyType ?? 'SPHSchema';
         this.minSubsteps = Math.max(1, options.substeps ?? 1);
         this.maxNeighbors = options.maxNeighbors ?? 128;
         this.params = new PerStepUniforms(ctx.core, {
@@ -134,12 +136,12 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         const grid = gridOf(ParticleMaterial.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
-        this.bindings = {
-            sph_params: this.params.source(),
-            sph_normal: this.normals,
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [sphResources.params, this.params.source()],
+            [sphResources.normal, this.normals],
+            [sphResources.normalRead, this.normals],
             ...this.neighborSources(),
-        };
-        const consumes = [bodyType, `${bodyType}.live`];
+        ]);
         const compute = (
             id: string,
             shader: PipelineDescriptor['shader'],
@@ -149,7 +151,6 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             role: 'compute',
             shader,
             entryPoints: [entry],
-            consumes,
         });
         this.pipelines = [
             compute('sph_density', sphDensity, 'sph_density_main'),
@@ -204,10 +205,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         const run = (label: string, p: PreparedCompute, offset: number[]): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
-                p.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(g, bg, p.dynamic[g] ? offset : undefined),
-                );
-                pass.dispatch.invocations(count, 64);
+                p.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
         };
         for (let i = 0; i < this.iterations; i++) {
@@ -249,11 +248,11 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         return ns;
     }
 
-    private neighborSources(): BindingSources {
-        return {
-            neighbor_list: this.neighborSearch.neighborList!,
-            neighbor_count: this.neighborSearch.neighborCount!,
-        };
+    private neighborSources(): Map<WgslResource, BindingSource> {
+        return new Map<WgslResource, BindingSource>([
+            [sphResources.neighborList, this.neighborSearch.neighborList!],
+            [sphResources.neighborCount, this.neighborSearch.neighborCount!],
+        ]);
     }
 
     /** Mapas de dono e contagens dos colliders; religa as fontes do grupo de colliders quando mudam. */
@@ -297,7 +296,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             bound.slots.bodies.live,
             this.iterations,
         );
-        if (this.params.reserve(this.iterations)) ctx.bind({ sph_params: this.params.source() });
+        if (this.params.reserve(this.iterations))
+            ctx.bind(new Map([[sphResources.params, this.params.source()]]));
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];

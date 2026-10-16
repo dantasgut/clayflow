@@ -2,7 +2,6 @@ export { LayoutInferencer } from './LayoutInferencer';
 export { LayoutInferenceError } from './LayoutInferencer';
 export type {
     WgslBinding,
-    WgslBindingInfo,
     WgslStage,
     InferredLayout,
     InferredGroup,

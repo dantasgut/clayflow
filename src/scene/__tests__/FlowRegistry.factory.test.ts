@@ -5,6 +5,7 @@ import {
     ProbeBody,
     ProbeCam,
     ProbeFlow,
+    probeBodiesResource,
     probeParams,
     probePipeline,
     probeScene,
@@ -212,16 +213,25 @@ describe('US3 — registro por factory e seleção pela C2', () => {
         });
         scene.flows.register(
             factory(fast, {
-                pipelines: [probePipeline({ consumes: ['ProbeCam', 'ProbeBody:FAST'] })],
+                // O recurso `bodies` (fornecedor declarado: pool ProbeBody) liga o pool do algoritmo neste pipeline.
+                pipelines: [
+                    probePipeline({ pools: new Map([[probeBodiesResource, 'ProbeBody:FAST']]) }),
+                ],
             }),
             { type: 'Fast', phase: 'physics', bodyType: 'ProbeBody:FAST' },
         );
+        const ready = vi.fn();
+        scene.events.on('flowReady', ready);
         scene.world.insert(new FastBody());
         expect(scene.resourceSystem.poolCount('ProbeBody:FAST')).toBe(1);
         expect(scene.resourceSystem.poolCount('ProbeBody')).toBe(0);
         expect(plain).toHaveLength(0);
         expect(fast).toHaveLength(1);
         expect(fast[0]!.lifecycle).toBe('ready');
+        const p = ready.mock.calls[0]![0].payload.bound.compute('main');
+        expect(p.groupsOf('stage')[0].spec.bindings[0]).toMatchObject({
+            buffer: scene.resourceSystem.poolInfo('ProbeBody:FAST')!.buffer,
+        });
     });
 
     it('último corpo removido: o Flow continua registrado e não despacha com contagem 0', async () => {

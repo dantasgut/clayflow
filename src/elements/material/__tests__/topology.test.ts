@@ -1,3 +1,4 @@
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 /**
  * Topologia e sombra do material (spec 008, US5): `topology` vem do descritor de pipeline; `castsShadow` é verdadeiro
  * só para triângulos, salvo atribuição.
@@ -28,7 +29,8 @@ describe('topologia do material (spec 008)', () => {
 
     it('PointSpriteMaterial tem struct próprio (sem alias de StandardMaterial)', () => {
         const desc = new PointSpriteMaterial().getPipelineDescriptors()[0]!;
-        expect(desc.consumes).toContain('PointSpriteMaterial');
-        expect(desc.consumes.some((c) => typeof c !== 'string')).toBe(false);
+        const materials = composeWgsl(desc.shader).bindings.find((b) => b.name === 'materials')!;
+        expect(materials.resource.resource.provider).toEqual({ pool: 'PointSpriteMaterial' });
+        expect(desc.pools).toBeUndefined();
     });
 });

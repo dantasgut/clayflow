@@ -184,7 +184,7 @@ describe('PrefixSum — gravação', () => {
         const rec = recordingFrame();
         scan.prepare(buffer('a'));
         scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 70_000 });
-        expect(rec.passes.map((p) => p.offsets[0]?.[0])).toEqual([0, 256, 512, 256, 0]);
+        expect(rec.passes.map((p) => p.offsets[1]?.[0])).toEqual([0, 256, 512, 256, 0]);
     });
 
     it('duas chamadas no mesmo quadro usam regiões distintas; quadro novo recomeça da região 0', () => {

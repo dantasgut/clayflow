@@ -18,18 +18,26 @@ import colorSource from '../wgsl/math/color.wgsl?raw';
 import brdfSource from '../wgsl/math/brdf.wgsl?raw';
 import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
 import cameraSource from '../wgsl/math/camera.wgsl?raw';
+import finiteSource from '../wgsl/math/finite.wgsl?raw';
 import { LCPSchema } from '../../physics/bodies/schemas/LCPSchema';
 import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
 import { MeshCollider } from '../../physics/colliders/MeshCollider';
 import { SphereCollider } from '../../physics/colliders/SphereCollider';
-import { ColliderSetCountsSchema } from '../../physics/colliders/ColliderSet';
+import {
+    ColliderSetCountsSchema,
+    colliderResources,
+} from '../../physics/colliders/colliderResources';
+import { NONE } from '../../../scene/shaders/engineConstants';
 import { RBSimParamsSchema } from '../../physics/schemas/simParams';
 import {
     RBBodyCorrectionSchema,
     RBBodyDeltaSchema,
     RBWarmEntrySchema,
 } from '../../physics/schemas/simState';
+
+/** Teste de valor finito (sem NaN nem ±∞) de `vec3f`/`vec4f` — o saneamento único das saídas de funções e grafos. */
+export const finite = wgslModule({ name: 'finite', source: finiteSource });
 
 /** Quaternions: produto, rotação de vetor (e inversa), normalização, integração, Δ de velocidade angular. */
 export const quat = wgslModule({ name: 'quat', source: quatSource });
@@ -50,7 +58,11 @@ export const sdf = wgslModule({ name: 'sdf', source: sdfSource });
 export const sphKernels = wgslModule({ name: 'sph_kernels', source: sphKernelsSource });
 
 /** Pesos B-spline quadráticos do MPM e índices de nó. */
-export const mpmWeights = wgslModule({ name: 'mpm_weights', source: mpmWeightsSource });
+export const mpmWeights = wgslModule({
+    name: 'mpm_weights',
+    source: mpmWeightsSource,
+    requires: [NONE.module],
+});
 
 /** XPBD: Δλ com compliance, correção de posição, massa generalizada de corpo rígido. */
 export const xpbd = wgslModule({ name: 'xpbd', source: xpbdSource });
@@ -86,14 +98,30 @@ export const colliderHit = wgslModule({ name: 'collider_hit', source: colliderHi
 export const surfaceColliderHit = wgslModule({
     name: 'surface_collider_hit',
     source: surfaceColliderHitSource,
-    requires: [colliderHit],
+    requires: [colliderHit, colliderResources.surfaceField],
 });
 
 /** Conjunto de colliders (grupo 2, com a malha): pose pelo corpo dono, SDF, push-out de partículas, restrição de nós. */
 export const colliderSet = wgslModule({
     name: 'collider_set',
     source: colliderSetSource,
-    requires: [quat, sdf, sphKernels, surfaceColliderHit, fluidBounds],
+    requires: [
+        quat,
+        sdf,
+        sphKernels,
+        surfaceColliderHit,
+        fluidBounds,
+        NONE.module,
+        colliderResources.counts,
+        colliderResources.planes,
+        colliderResources.boxes,
+        colliderResources.spheres,
+        colliderResources.owners,
+        colliderResources.bodies,
+        colliderResources.meshes,
+        colliderResources.meshOwners,
+        colliderResources.surfaceField,
+    ],
     structs: [
         ColliderSetCountsSchema,
         PlaneCollider.schema,

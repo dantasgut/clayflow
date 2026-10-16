@@ -123,6 +123,16 @@ export class FluidSurfaceMaterial extends Material<FluidSurfaceMaterialData> {
         return [];
     }
 
+    /** Família de desenho: a superfície de água (spec 017), desenhada pelos estágios da água (spec 031). */
+    override get family(): string {
+        return 'fluid-surface';
+    }
+
+    /** Desenha corpos de partículas (a superfície de água a partir deles). */
+    override get drawsParticles(): boolean {
+        return true;
+    }
+
     /** Topologia: pontos (o corpo é desenhado a partir das partículas). */
     override get topology(): GPUPrimitiveTopology {
         return 'point-list';

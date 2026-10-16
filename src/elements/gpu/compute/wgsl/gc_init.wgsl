@@ -1,10 +1,5 @@
 // Coloração de arestas (GraphColorer), preparação: arestas sem cor, grau de cada vértice e validação (laços e
 // índices fora de `gc.vertex_count` são contados no estado e recusados pela CPU antes das rodadas).
-@group(0) @binding(0) var<uniform>             gc:        GraphColorParams;
-@group(1) @binding(0) var<storage, read>       gc_edges:  array<vec2u>;
-@group(1) @binding(1) var<storage, read_write> gc_colors: array<u32>;
-@group(1) @binding(2) var<storage, read_write> gc_degree: array<atomic<u32>>;
-@group(1) @binding(3) var<storage, read_write> gc_status: GraphColorStatus;
 
 @compute @workgroup_size(256)
 fn gc_init_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {

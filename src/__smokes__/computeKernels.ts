@@ -14,6 +14,7 @@ import { Application, createScene } from 'clayflow';
 import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow';
 import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
 import { wgslModule } from '../scene/shaders/WgslModule';
+import { wgslResource } from '../scene/shaders/WgslResource';
 import { PrefixSum } from '../elements/gpu/compute/PrefixSum';
 import { RadixSort } from '../elements/gpu/compute/RadixSort';
 import { Compaction } from '../elements/gpu/compute/Compaction';
@@ -217,11 +218,25 @@ async function radixSort(): Promise<void> {
 
 // ── Compaction ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
+const ckValues = wgslResource({
+    name: 'ck_values',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+const ckThreshold = wgslResource({
+    name: 'ck_threshold',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+
 const keepPredicate = wgslModule({
     name: 'ck_keep_below',
+    requires: [ckValues, ckThreshold],
     source: `
-@group(1) @binding(0) var<storage, read> ck_values: array<u32>;
-@group(1) @binding(1) var<storage, read> ck_threshold: array<u32>;
 fn compact_keep(i: u32) -> bool { return ck_values[i] % 100u < ck_threshold[0]; }
 fn compact_value(i: u32) -> u32 { return i; }`,
 });
@@ -247,7 +262,10 @@ async function compaction(): Promise<void> {
             capacity: c.capacity,
             stable: c.stable,
             inputCapacity: n,
-            bindings: { ck_values: valuesBuf, ck_threshold: threshold },
+            bindings: new Map([
+                [ckValues, valuesBuf],
+                [ckThreshold, threshold],
+            ]),
         });
         const guard = 64;
         const out = upload(new Uint32Array(c.capacity + guard).fill(SENTINEL));
@@ -494,13 +512,31 @@ async function fixedPointSum(): Promise<void> {
     const values = Float32Array.from({ length: n }, () => (r() * 2 - 1) * 1e-3);
     // Empates exatos de arredondamento (k + 0,5) / scale e valores fora da faixa.
     values.set([0.5 / scale, 1.5 / scale, -2.5 / scale, 4096, -4096], 0);
+    const fpIn = wgslResource({
+        name: 'fp_in',
+        binding: { storage: 'read' },
+        type: { wgsl: 'f32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    });
+    const fpOut = wgslResource({
+        name: 'fp_out',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'i32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    });
+    const fpSum = wgslResource({
+        name: 'fp_sum',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<i32>', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    });
     const module = wgslModule({
         name: 'ck_fixed_sum',
-        requires: [fixedPoint],
+        requires: [fixedPoint, fpIn, fpOut, fpSum],
         source: `
-@group(0) @binding(0) var<storage, read> fp_in: array<f32>;
-@group(0) @binding(1) var<storage, read_write> fp_out: array<i32>;
-@group(0) @binding(2) var<storage, read_write> fp_sum: array<atomic<i32>>;
 @compute @workgroup_size(256)
 fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * 256u;
@@ -518,11 +554,16 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
         discriminator: 'ck_fixed_sum',
         shader: module,
         entryPoint: 'fp_main',
-        bindings: { fp_in: input, fp_out: out, fp_sum: sum },
+        bindings: new Map([
+            [fpIn, input],
+            [fpOut, out],
+            [fpSum, sum],
+        ]),
     });
     app.core.record('ck-fixed', (frame) => {
         frame.compute('ck.fixed', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind);
             pass.dispatch.invocations(n, 256);
         });
     });

@@ -1,3 +1,5 @@
+import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
+
 /**
  * Gancho da C2 no `data` de uma Entity inserida numa cena (interno do motor): a C2 põe aqui o estado reativo do
  * recurso, e o acessor `data` passa a devolver o proxy e a tratar a reatribuição.
@@ -18,6 +20,11 @@ export interface DataHook {
     replace(next: Record<string, unknown>): void;
     /** Avisa a mutação de um campo de topo (`undefined` = o dado inteiro). */
     dataChanged(field: string | undefined): void;
+    /**
+     * Os descritores em pool do Resource mudaram (os de antes em `previous`) junto com o dado (`next`): a C2 tira o
+     * Resource dos pools antigos e o põe nos atuais, com o dado novo (spec 031, R8).
+     */
+    redescribe(previous: readonly GPUDescriptor[], next: Record<string, unknown>): void;
 }
 
 /**
@@ -109,6 +116,21 @@ export abstract class Entity<TData extends object = Record<string, unknown>> {
      */
     protected get rawData(): Readonly<TData> {
         return (this[DATA_HOOK]?.raw ?? this.#data) as TData;
+    }
+
+    /**
+     * Troca o dado e os descritores em pool de uma vez — o Resource cujo layout depende do próprio dado (ex.: o registro
+     * tipado de uma função de ponto quando a forma dos parâmetros muda; spec 031, R8). `getDescriptors()` já devolve os
+     * novos; `previous` são os de antes. Fora da cena, só troca o dado; na cena, a C2 libera os slots nos pools antigos,
+     * ocupa os dos novos com `next` e recompõe a entidade (`entitiesRecomposed`: registros e conjuntos dos estágios).
+     */
+    protected redescribe(previous: readonly GPUDescriptor[], next: TData): void {
+        const hook = this[DATA_HOOK];
+        if (hook === undefined) {
+            this.#data = next;
+            return;
+        }
+        hook.redescribe(previous, next as Record<string, unknown>);
     }
 
     /**

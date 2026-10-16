@@ -6,9 +6,10 @@ title: Shaders — módulos WGSL e kernels genéricos
 # Shaders — módulos WGSL e kernels genéricos
 
 Todo shader do motor é montado a partir de **módulos WGSL** com dependências declaradas. Não há concatenação de texto,
-cópia de função entre arquivos nem struct escrito à mão: a matemática vive numa biblioteca (`wgslLib`), os structs são
-gerados dos `StructSchema` e os algoritmos paralelos comuns (soma de prefixos, ordenação, compactação, redução,
-coloração de grafo) são kernels prontos.
+cópia de função entre arquivos, struct escrito à mão nem ligação escrita à mão: a matemática vive numa biblioteca
+(`wgslLib`), os structs são gerados dos `StructSchema`, os recursos de GPU são declarados (`wgslResource`) e ligados
+pelo motor, as constantes compartilhadas com o TypeScript têm fonte única (`sharedConstant`) e os algoritmos paralelos
+comuns (soma de prefixos, ordenação, compactação, redução, coloração de grafo) são kernels prontos.
 
 ## Módulo
 
@@ -25,7 +26,8 @@ export const height = wgslModule({
 ```
 
 Um módulo é um valor imutável. Na criação, o fonte é varrido (`fn`, `struct`, `const`, `override`, `alias`, `var` de
-escopo de módulo): símbolo definido duas vezes no mesmo módulo é erro imediato.
+escopo de módulo): símbolo definido duas vezes no mesmo módulo é erro imediato, e `@group`/`@binding` escritos no fonte
+também (`manual-binding`) — recursos são declarados (ver "Recursos declarados").
 
 No motor, só os arquivos de módulo (`shaders.ts` de cada pacote, `elements/gpu/shaders/`, `elements/gpu/compute/`)
 importam `.wgsl` — o gate verifica.
@@ -37,8 +39,11 @@ importam `.wgsl` — o gate verifica.
 1. resolve `requires` em ordem topológica (dependências antes, irmãos na ordem declarada) e inclui cada módulo uma vez;
 2. gera no topo os structs dos schemas usados por todos os módulos, com os structs aninhados antes, cada `wgslName` uma
    vez;
-3. valida os marcadores `{{struct:Nome}}` (o struct precisa vir de um schema declarado) e os remove;
-4. confere que toda chamada de função é resolvida (builtin do WGSL ou símbolo de algum módulo).
+3. emite as linhas `@group(g) @binding(b) var…` dos recursos declarados alcançados, com grupo e ligação atribuídos
+   pelo motor;
+4. valida os marcadores `{{struct:Nome}}` (o struct precisa vir de um schema declarado) e os remove;
+5. confere que toda chamada de função é resolvida (builtin do WGSL ou símbolo de algum módulo) e que nenhum módulo usa
+   um recurso declarado que não alcança pelos seus `requires` (global implícito do hospedeiro).
 
 O resultado é memorizado por módulo de entrada: a mesma entrada devolve a mesma spec, e o `EngineCore` deduplica pelo
 hash — estágios que usam o mesmo módulo compartilham o objeto de GPU. Nada disso roda por quadro.
@@ -46,7 +51,8 @@ hash — estágios que usam o mesmo módulo compartilham o objeto de GPU. Nada d
 Quem consome:
 
 - `PipelineDescriptor.shader: WgslModule` (render e compute);
-- `createComputeKernel(core, { discriminator, shader, entryPoint, bindings | bindGroups })`;
+- `createComputeKernel(core, { discriminator, shader, entryPoint, bindings, constants? })` — `bindings` é um
+  `Map<BindingKey, BindingSource>` pela identidade do recurso;
 - efeitos de pós: `PostProcessEffect.fragmentModule?(): WgslModule` (sobre o módulo `effectsBase`).
 
 ### Erros de montagem
@@ -60,7 +66,9 @@ Quem consome:
 | `symbol-conflict`       | o mesmo símbolo definido por dois módulos (ou por um módulo e um struct gerado) |
 | `struct-marker`         | `{{struct:Nome}}` sem schema correspondente em `structs`                        |
 | `struct-conflict`       | dois schemas diferentes com o mesmo `wgslName`                                  |
-| `unresolved-reference`  | chamada a função que nenhum módulo define                                       |
+| `unresolved-reference`  | chamada a função que nenhum módulo define, ou recurso usado sem estar em `requires` |
+| `manual-binding`        | `@group`/`@binding` escrito no fonte de um módulo                               |
+| `limit-exceeded`        | layout acima de um limite do device (conferido na preparação do pipeline)       |
 
 ## Structs gerados
 
@@ -104,11 +112,14 @@ confere cada `offsetOf` dos schemas do motor.
 | `xpbd`        | Δλ com compliance, massa generalizada de corpo rígido                                                        |
 | `lcp`         | Delassus, viés, passos PGS (normal e atrito), `coulomb_clamp`, `combine_mu`                                  |
 | `fem`         | `compute_Ds`, `compute_F`, `compute_J`, gradientes hidrostático/desviador, Δλ                                |
-| `noise`       | `pcg_hash`, `hash2/3`, ruído de valor e de gradiente 2D/3D                                                   |
+| `noise`       | `pcg_hash`, `hash2/3`, ruído de valor e de gradiente 2D/3D (e as variantes por célula `*_cell`, base dos nós `noise.*` com semente) |
 | `color`       | `tonemap_exposure`, `gamma_encode`, `luminance` (BT.601)                                                     |
 | `brdf`        | `lambert_diffuse`, `lambert_lit`, `sample_shadow_pcf`                                                        |
 | `fixedPoint`  | `fixed_from_f32`, `fixed_to_f32`, `fixed_saturated` — somas atômicas de valores reais                        |
 | `atomicAlloc` | `atomic_alloc` e `ATOMIC_ALLOC_FULL` — posição numa lista compactada, com excedente contado                  |
+| `camera`      | `camera_perspective`, `camera_orthographic`, `camera_view` (da matriz de mundo), `camera_look_at`          |
+| `finite`      | `finite3`, `finite4`, `finite_mat4` — o teste único de não finitos das saídas de funções e grafos          |
+| `poolLive`    | `pool_live(word, slot)` — teste do bitset de slots vivos de um pool                                          |
 
 Cada função existe em um único módulo (o gate falha se um `fn`/`struct`/`const` aparece em dois `.wgsl`), e todo
 `.wgsl` é fonte de exatamente um módulo (sem órfãos). O smoke `shaderLibrary` compara valores de cada módulo na GPU com
@@ -120,7 +131,8 @@ Em `elements` (C3), para os estágios do motor e para quem escreve um algoritmo 
 capacidade e trabalham em duas fases: `prepare(...)` — fora da gravação (no construtor ou numa transição do Flow) —
 cria os kernels para os buffers do chamador e reserva as regiões de parâmetros de até `recordsPerFrame` gravações;
 `record(frame, …)` só grava (nenhuma criação no `dispatch`). Não despacham com contagem 0; o despacho linear cobre mais
-de 65 535 grupos. Os bindings internos usam `createComputeKernel` com fontes pelo nome da variável WGSL.
+de 65 535 grupos. Os bindings internos usam `createComputeKernel` com fontes pela identidade dos recursos
+declarados.
 
 ```ts
 const scan = new PrefixSum(core, { discriminator: 'cells', capacity: cellCount });
@@ -139,31 +151,79 @@ reduce.record(frame, { src: speeds, count: n, out: stats, outOffset: 0 });
 - **`PrefixSum`** — u32, exclusiva ou inclusiva, em vários níveis; `src` preservado quando difere de `dst`.
 - **`RadixSort`** — LSD estável de 4 bits por passe, chaves u32 com valores opcionais; termina no buffer do chamador.
 - **`Compaction`** — lista densa dos `i` aceitos por um predicado do consumidor (módulo com
-  `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32`, buffers no `@group(1)`); modo atômico (ordem
-  não garantida) ou `stable` (ordem da entrada); contador `AtomicAllocCounter` com aceitos e excedente.
+  `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32` que requer os recursos que lê; as fontes vão
+  em `bindings`, pelo objeto do recurso); modo atômico (ordem não garantida) ou `stable` (ordem da entrada); contador
+  `AtomicAllocCounter` com aceitos e excedente.
 - **`Reduce`** — sum/min/max × u32/i32/f32; soma de f32 com tolerância relativa `1e-5 × log2(N)` em relação à soma
   sequencial.
 - **`GraphColorer`** — coloração de arestas na GPU (arestas da mesma cor não compartilham vértice), ≤ 2Δ − 1 cores,
   com as arestas agrupadas por cor e os intervalos `{ offset, count }`. Assíncrona e com envios próprios: chamada na
   criação ou mudança de topologia, fora de um quadro.
+- **`CountToArgs`** (spec 031) — um kernel de uma invocação que lê a contagem de um registro `SetCount` escrita na GPU
+  e deriva no mesmo registro os argumentos de despacho e de desenho indiretos.
+
+**Contagem da GPU (spec 031).** Preparados com `counts` (registros `SetCount`), `PrefixSum`, `RadixSort`,
+`Compaction` e `Reduce` aceitam `count: { counts, index }` (`GpuCount`) no lugar de um número: a contagem é lida no
+próprio kernel e os passes despacham pelo argumento indireto do registro (derivado antes por `CountToArgs` com
+`workgroupSize: 256`) — nada volta à CPU. São os nós de conjunto `set.prefixSum`, `set.sort`, `set.compact` e
+`set.reduce` (ver [Grafos de nós](./node-graphs.md)).
 
 O smoke `computeKernels` valida todos contra a CPU (inclusive 4 M elementos) e registra os tempos.
 
-## Bindings: layout inferido e `consumes` (spec 006)
+## Recursos declarados e constantes (spec 031)
 
-O layout de um pipeline vem do WGSL montado: `LayoutInferencer.infer(shader, entryPoints)` devolve os grupos e
-bindings que as entradas usam, o tipo de cada recurso e a visibilidade (a união dos estágios das entradas que
-alcançam a variável, inclusive por funções auxiliares). Num Flow, a C2 liga cada binding a uma fonte — privado do Flow
-pelo nome (`pipeline:variável`, depois `variável`) ou o nome de `consumes` cujo tipo é o do binding (o
-`ConsumerResolver` desse nome devolve o buffer, a view ou o sampler) — e cria os bind groups; ver [Flows](./flows.md).
-Uma entrada de `consumes` pode renomear o tipo lido: `{ name: WireframeMaterial.schema.name, as: 'StandardMaterial' }`
-liga o pool `WireframeMaterial` a um binding declarado como `StandardMaterial`.
+Um módulo não escreve `@group/@binding`. Cada recurso de GPU que ele usa — buffer de pool, uniform, textura,
+amostrador — é um módulo `wgslResource` posto em `requires`, declarado uma vez e compartilhado por referência:
+
+```ts
+import { wgslResource, wgslModule, sharedConstant, WORKGROUP_SIZE } from 'clayflow';
+
+export const terrainParams = wgslResource({
+    name: 'terrain',                                   // nome da variável no WGSL
+    binding: { uniform: true },                        // storage: 'read' | 'read_write', texture, storageTexture, sampler
+    type: { schema: TerrainParams },                   // ou { wgsl: 'u32', array: true }
+    frequency: 'stage',                                // frame | stage | batch | draw → grupo
+    provider: 'private',                               // { pool } | { consumer } | { slot } | { scene } | 'private'
+});
+export const height = wgslModule({
+    name: 'height',
+    source: heightSource,                              // usa `terrain` e `WORKGROUP_SIZE`, sem declarar ligações
+    requires: [wgslLib.noise, WORKGROUP_SIZE.module, terrainParams],
+});
+```
+
+- **Grupo e ligação** são do motor: grupo = posto da frequência entre as presentes no shader (`frame` < `stage` <
+  `batch` < `draw`), ligação = ordem do nome. Pipelines com os mesmos recursos `frame`/`stage` compartilham esses
+  grupos.
+- **Layout**: `LayoutInferencer.infer(shader, entryPoints)` lê só as declarações (`ComposedShader.bindings`) e deriva a
+  visibilidade (a união dos estágios das entradas que alcançam a variável, inclusive por funções auxiliares).
+- **Fonte** pelo fornecedor: `{ pool: chave }` e `{ consumer: nome }` pelos `ConsumerResolver` da cena; `{ slot }`
+  pelo slot do Flow; `{ scene }` pelos pontos de cena; `'private'` pelo Flow (`bindings`/`ctx.bind`, num
+  `Map<BindingKey, BindingSource>` cuja chave é o recurso ou `{ pipeline, resource }`) ou pelo chamador de
+  `createComputeKernel`. Ver [Flows](./flows.md).
+- **Gravação** sem índices: `prepared.bindTo(pass.bind, offsetsPorFrequência)` ou `prepared.groupsOf(frequência)`.
+- **Limites do device** (grupos, ligações por grupo, storage/uniform/texturas/amostradores por estágio) conferidos na
+  preparação: `limit-exceeded` nomeando o pipeline e o limite.
+- **Constantes**: `sharedConstant(nome, valor, tipo)` dá o valor TS (`.value`) e um módulo `const` (`.module`) — fonte
+  única para os dois lados (`NONE`, `WORKGROUP_SIZE`, `SCAN_GROUP`, `DEFAULT_LIGHT_DIRECTION`…). Variantes de um mesmo
+  fonte usam `override` com `PipelineDescriptor.constants` / `createComputeKernel({ constants })`.
+- **Instâncias**: o mesmo código duas vezes no shader (contribuintes de um ponto de cena) tem os símbolos renomeados
+  por token (`instantiateModule`), nunca por substituição de texto.
+- **Pontos de cena do sombreamento**: o desenho chama `scene_light_direction()`, `light_visibility(p, n_dot_l)` e
+  `light_transmission(p, ambient, direct)`; a luz que projeta sombra e a água contribuem por
+  `getSceneContributions()`, e a C2 compõe as contribuições presentes em todo pipeline que contém o ponto. Os sprites
+  de corpos de partículas (`particle_sprite`) chamam `scene_any_light_direction()`: toda `DirectionalLight` e
+  `PointLight` contribui, e a função lê na GPU a primeira luz viva do pool `Light` (bitset `Light.live`) — sem slot de
+  luzes no estágio.
+
+O detalhe está em [Arquitetura — Contrato de shader estruturado](./architecture_resource_loaders.md).
 
 ## Pontos de extensão (spec 009)
 
-O usuário escreve a matemática de um estágio numa função WGSL de assinatura fixa, anexada como Resource; o motor
-compõe a função no lugar da implementação pronta, valida na criação e confere a compilação antes de usar. `time` é o
-tempo simulado (s); `data` é o struct dos parâmetros declarados em `params` (alias do ponto, ex. `TransformFnParams`).
+O usuário escreve a matemática de um estágio numa função WGSL de assinatura fixa — ou a monta como **grafo de nós**
+(spec 031, [Grafos de nós](./node-graphs.md)) —, anexada como Resource; o motor compõe a função no lugar da
+implementação pronta, valida na criação e confere a compilação antes de usar. `time` é o tempo simulado (s); `data` é
+o struct dos parâmetros declarados em `params` (alias do ponto, ex. `TransformFnParams`).
 
 | Ponto       | Função                                                                                   | Opcionais                                   | Onde                       | Pronta                              |
 | ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------- | ----------------------------------- |
@@ -193,13 +253,22 @@ orbit.setCode(outroCodigo); // vale quando compilar; erro → extensionRejected,
 app.events.on('extensionRejected', (e) => console.warn(e.point, e.line, e.message));
 ```
 
+- **Parâmetros tipados** (spec 031). `params` gera um registro por forma: o struct `<alias>_<hash>` com um campo por
+  parâmetro no tipo declarado (`f32`, `u32`, `i32` e os vetores `vec2`–`vec4` de cada um) e `revision`, num pool por
+  forma (`<ponto>:<hash>`) — sem teto de escalares e sem reinterpretação de bits. O módulo gerado traz o alias do
+  ponto, o carregador `<função>_params(slot)` e o código; `revision` é nome reservado.
+- **Por grafo.** `new MaterialFunction({ graph })` (e as outras seis) gera o código, os parâmetros (`nó_parâmetro`) e
+  os módulos pelo grafo; `values['nó_parâmetro']` muda valores sem recompilar; `setGraph(outro)` troca a topologia
+  (revisão +1, compila em transição, falha mantém o anterior); grafo sem saída usa a pronta (aviso único). `setCode`
+  vale só para funções de código; `setGraph`, só para funções de grafo.
 - **Erros.** Assinatura errada, símbolo do núcleo redefinido ou chamada sem definição: exceção na criação, com o
   ponto e as assinaturas esperada e recebida. Erro de compilação: `extensionRejected` com a linha do código do
   usuário; a cena continua com a função anterior (ou com a pronta).
 - **Não finito.** Matriz, partícula, ponto ou campo infinitos são descartados (mantém o anterior / não nasce / soma
   zero). NaN depende da GPU: compiladores com matemática rápida podem não preservá-lo.
 - **Custos.** Um pipeline por código (não por entidade): entidades com o mesmo código formam um grupo. Funções de
-  cena recompilam os estágios que as usam uma vez por mudança.
+  cena recompilam os estágios que as usam uma vez por mudança. Um pipeline com funções cujos pools somados excedem um
+  limite de storage do device é rejeitado (`extensionRejected`) e fica com a pronta.
 - **Uma instância por entidade** (reuso de instância é proibido); `values` diferentes por entidade.
 - **Laços sem fim** travam a GPU como em qualquer shader: o motor não os interrompe.
 

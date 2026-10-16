@@ -56,13 +56,7 @@ export class WireframeMaterial extends Material<WireframeMaterialData> {
                 role: 'render',
                 shader: wire,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: [
-                    'CameraMatrices',
-                    'WorldTransform',
-                    'Renderable',
-                    'RenderInstance',
-                    WireframeMaterial.schema.name,
-                ],
+                family: 'wire',
                 topology: 'line-list',
             },
         ];

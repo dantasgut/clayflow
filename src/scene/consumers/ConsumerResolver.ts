@@ -11,12 +11,11 @@ export interface ResolveContext {
 }
 
 /**
- * Estratégia que traduz um nome de `consumes` numa fonte de binding. `name` é o nome em `consumes` (nome do schema
- * ou chave do pool); `typeName` é o struct WGSL que a fonte preenche — um binding do shader cujo tipo (ou elemento de
- * `array<…>`) é `typeName` recebe a fonte deste resolver quando `name` está em `consumes`.
+ * Estratégia que fornece a fonte de um recurso declarado com fornecedor `{ pool: name }` ou `{ consumer: name }` (spec
+ * 031). `name` é o nome do fornecedor (nome do schema ou chave do pool); `typeName`, o struct WGSL que a fonte preenche.
  */
 export interface ConsumerResolver {
-    /** Nome em `consumes` (nome do schema ou chave do pool). */
+    /** Nome do fornecedor (nome do schema ou chave do pool). */
     readonly name: string;
     /** Struct WGSL que a fonte preenche (tipo do binding, ou do elemento de `array<…>`). */
     readonly typeName: string;

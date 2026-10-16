@@ -7,7 +7,7 @@ import {
     pcgHash,
     valueNoise2,
     valueNoise3,
-} from '../../../__smokes__/support/noiseReference';
+} from '../../nodes/reference/noise';
 
 // Referência em CPU do módulo WGSL `noise` (spec 005, R7). Os valores da GPU são comparados com ela no smoke
 // `shaderLibrary`; aqui ficam as propriedades da própria referência.

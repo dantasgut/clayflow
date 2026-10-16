@@ -72,7 +72,10 @@ export function countPasses(passes: readonly RecordedPass[], label: string): num
     return passes.filter((p) => p.label === label).length;
 }
 
-/** Primeiro offset dinâmico ligado no passe (região de parâmetros). */
+/**
+ * Primeiro offset dinâmico ligado no passe (região de parâmetros) — no grupo que o leva, qualquer que seja o índice
+ * (spec 031: o grupo vem da frequência do recurso).
+ */
 export function paramsOffset(pass: RecordedPass): number | undefined {
-    return pass.offsets[0]?.[0];
+    return pass.offsets.find((o) => o !== undefined)?.[0];
 }

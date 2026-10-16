@@ -109,18 +109,21 @@ describe('TransformFunction (spec 009)', () => {
         expect(s.fnDispatches()).toBe(2);
     });
 
-    it('grupo: pares (slot do Transform, slot do registro) e tempo simulado no uniforme do grupo', async () => {
+    it('grupo: pares TransformFnPair (slot do Transform, slot do registro no pool da forma) e tempo do grupo', async () => {
         const s = await scene();
-        const a = s.insert(orbit(1));
+        const fa = orbit(1);
+        const a = s.insert(fa);
         const b = s.insert(orbit(2));
         await s.settle();
         const pairs = s.lastWrite('transform_fn_pairs:');
         expect(pairs).toBeDefined();
         const u = new Uint32Array(pairs!.buffer, pairs!.byteOffset, pairs!.byteLength / 4);
         const slotOf = (id: EntityId) => s.scene.resourceSystem.poolSlotOf('Transform', id)!;
-        const recordOf = (id: EntityId) =>
-            s.scene.resourceSystem.poolSlotOf('TransformFnRecord', id)!;
+        // As duas funções têm a mesma forma: o mesmo pool (`transform:<hash>`), um registro cada.
+        expect(fa.record.name).toMatch(/^transform:[0-9a-f]{8}$/);
+        const recordOf = (id: EntityId) => s.scene.resourceSystem.poolSlotOf(fa.record.name, id)!;
         expect([...u]).toEqual([slotOf(a), recordOf(a), slotOf(b), recordOf(b)]);
+        expect(recordOf(a)).not.toBe(recordOf(b));
         const groups = s.lastWrite('transform_fn_groups');
         expect(groups).toBeDefined();
         const g = new DataView(groups!.buffer, groups!.byteOffset, groups!.byteLength);

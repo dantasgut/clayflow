@@ -24,6 +24,22 @@ export abstract class Material<TData extends object = Record<string, unknown>>
     }
 
     /**
+     * Família de desenho (spec 031): o estágio que desenha as entidades com este material escolhe por ela (`surface`,
+     * `points`, `wire`, `fluid-surface`…), sem conhecer outros tipos. Padrão: a do descritor de pipeline do material.
+     */
+    get family(): string | undefined {
+        return this.getPipelineDescriptors()[0]?.family;
+    }
+
+    /**
+     * O material desenha corpos de partículas (sprites, superfície de água)? Um corpo de partículas com material que
+     * não desenha corpos fica fora do desenho, com aviso. Padrão: não.
+     */
+    get drawsParticles(): boolean {
+        return false;
+    }
+
+    /**
      * Projeta sombra? Padrão: só triângulos (linhas e sprites não projetam). Atribuir antes de inserir na cena: a
      * escolha entra nos grupos de desenho na inserção.
      */

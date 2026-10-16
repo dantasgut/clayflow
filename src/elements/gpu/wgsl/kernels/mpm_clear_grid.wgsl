@@ -1,14 +1,12 @@
 // novo (não-portado) — clear da grid antes do P2G a cada substep
-@group(0) @binding(0) var<uniform>             mpm_params: MPMSimParams;
-@group(1) @binding(0) var<storage, read_write> grid:       array<MPMGridNode>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn mpm_clear_grid_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let idx = gid.x;
     let total = mpm_params.grid_x * mpm_params.grid_y * mpm_params.grid_z;
     if (idx >= total) { return; }

@@ -8,6 +8,8 @@ export type { PoolDirectory, PoolBufferSpec, PoolInfo } from './PoolDirectory';
 export { ExtensionFunction } from './ExtensionFunction';
 export type {
     ExtensionFunctionOptions,
+    ExtensionCodeOptions,
+    ExtensionGraphOptions,
     ExtensionParamType,
     ExtensionParamValue,
     ExtensionParamsData,

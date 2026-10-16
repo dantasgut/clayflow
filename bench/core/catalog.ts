@@ -21,6 +21,7 @@ import { particlesScene } from '../scenes/particles/scene';
 import { surfacesScene } from '../scenes/surfaces/scene';
 import { skinnedCharactersScene } from '../scenes/skinned-characters/scene';
 import { uniqueObjectsScene } from '../scenes/unique-objects/scene';
+import { graphGeometryScene } from '../scenes/graph-geometry/scene';
 import { ENGINES, isUnsupported, type SceneDefinition } from './types';
 
 const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -74,6 +75,7 @@ export const CATALOG: readonly SceneDefinition[] = validateCatalog([
     rigidBodiesScene,
     particlesScene,
     surfacesScene,
+    graphGeometryScene,
 ]);
 
 /** Busca uma cena pelo id. */

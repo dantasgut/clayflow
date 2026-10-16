@@ -18,9 +18,6 @@ import { transformPoint } from '../scene/flows/shaders';
  * despacho por código, não por entidade). Matriz com valor não finito mantém o TRS.
  */
 export class TransformFunction extends ExtensionFunction {
-    /** Registro de parâmetros das funções `transform` (um pool por ponto). */
-    static readonly schema = transformPoint.record;
-
     constructor(options: ExtensionFunctionOptions) {
         super(transformPoint, options);
     }

@@ -1,105 +1,160 @@
-import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
-import type { WgslModule } from '../shaders/WgslModule';
-import type { PointImplementation } from '../shaders/WgslPoint';
 import type { TransitionContext } from './FlowBinding';
 
-/** Compilação de uma função: o módulo em uso e o que aguarda compilar. */
-interface Compilation {
-    active: { readonly module: WgslModule; readonly id: string } | undefined;
-    pending: { readonly module: WgslModule; readonly id: string } | undefined;
+/**
+ * Variante de pipeline de um ponto: o que o estágio prepara para uma chave (função, entidade…) com o código de fora
+ * dela.
+ */
+export interface PipelineVariant {
+    /**
+     * O que distingue a variante (módulo da função, adaptadores, jato…): igual à que aguarda compilar — ou à ativa,
+     * sem nenhuma aguardando — nada é preparado.
+     */
+    readonly key: string;
+    /** Id principal: o que marca a compilação (`pipelinesCompiled`) e a rejeição da variante. */
+    readonly id: string;
+    /**
+     * Todos os pipelines da variante (com `id`), liberados juntos quando nenhuma chave a usa — ex.: as passadas de uma
+     * malha adaptativa, as duas orientações de face. Sem ele, só `id`.
+     */
+    readonly ids?: readonly string[];
+}
+
+/** Compilação de uma chave: a variante em uso e a que aguarda compilar. */
+interface Compilation<V extends PipelineVariant> {
+    active: V | undefined;
+    pending: V | undefined;
+}
+
+/** Pipelines de uma variante (`ids`, ou só o principal). */
+function family(v: PipelineVariant): readonly string[] {
+    return v.ids ?? [v.id];
 }
 
 /**
- * Pipelines das funções de ponto de um estágio (spec 009) — estado que o Flow mantém nas suas transições: cada função
- * presente tem o pipeline do seu módulo (id `<prefixo><módulo>`; funções com o mesmo código compartilham o pipeline),
- * preparado com `verify` (o compilador confere o código de fora antes de criar o módulo). O módulo novo — função nova
- * ou `setCode` — só passa a valer ao compilar (`pipelinesCompiled`); rejeitado (`pipelineRejected`), a função segue
- * com o anterior, ou com a implementação pronta se não havia anterior. Pipelines que nenhuma função usa são
- * liberados.
+ * Pipelines das funções de ponto de um estágio (spec 009) — o estado ativo/pendente que o Flow mantém nas suas
+ * transições, um só para todos os estágios que hospedam pontos. Cada chave (a função, ou a entidade que a carrega)
+ * tem a variante em uso e a que aguarda compilar; chaves com a mesma variante compartilham os pipelines. A variante
+ * nova — função nova, `setCode`, adaptadores trocados — só passa a valer ao compilar (`pipelinesCompiled` do id
+ * principal); rejeitada (`pipelineRejected` de qualquer pipeline dela), a chave segue com a anterior, ou com a
+ * implementação pronta se não havia anterior. Pipelines que nenhuma chave usa são liberados.
  *
- * O Flow chama `sync` no `framePrepare` quando as funções mudaram (entidades, revisão do código no `poolWritten` do
- * registro), e `compiled`/`rejected` nas transições dos eventos de pipeline.
+ * O Flow, ao sincronizar (`framePrepare` com as funções mudadas): para cada chave presente, liga as fontes privadas
+ * das variantes de `bindable` e chama `select`; ao fim, `retain` com as presentes. Nas transições dos eventos de
+ * pipeline, `compiled` e `rejected`. O desenho/despacho usa `active` (`undefined`: a implementação pronta, ou nada).
  */
-export class ExtensionPipelines<F extends PointImplementation> {
-    private readonly states = new Map<F, Compilation>();
+export class ExtensionPipelines<K, V extends PipelineVariant = PipelineVariant> {
+    private readonly states = new Map<K, Compilation<V>>();
+    /** Pipelines preparados por este estado (todos os das variantes selecionadas, ainda não liberados). */
+    private readonly owned = new Set<string>();
 
     /**
-     * @param prefix Prefixo dos ids de pipeline (ex.: `transform_fn:`); nenhum outro pipeline do Flow pode usá-lo.
-     * @param describe Descritor do pipeline de um módulo (com `verify` e `extensions`).
+     * @param released Chamado para cada pipeline liberado (o estágio esquece o que derivou dele — ex.: variantes de
+     * projeção sobre ele).
      */
-    constructor(
-        readonly prefix: string,
-        private readonly describe: (module: WgslModule, fn: F) => PipelineDescriptor,
-    ) {}
+    constructor(private readonly released?: (id: string, ctx: TransitionContext) => void) {}
 
-    /** Funções acompanhadas. */
+    /** Chaves acompanhadas. */
     get size(): number {
         return this.states.size;
     }
 
     /**
-     * Acompanha as funções presentes: prepara o pipeline de cada módulo novo, esquece as que saíram e libera os
-     * pipelines sem uso. Devolve `true` se o pipeline ativo de alguma função mudou.
+     * Variantes da chave cujas fontes privadas o estágio liga (antes de `select`, ou ao recriar uma fonte): a ativa, a
+     * que aguarda compilar e `next` se `select` vai prepará-la (a C2 resolve as fontes ao preparar). Sem repetição de
+     * id.
      */
-    sync(ctx: TransitionContext, present: Iterable<F>): boolean {
-        const now = new Set(present);
-        let changed = false;
-        for (const fn of [...this.states.keys()]) {
-            if (now.has(fn)) continue;
-            this.states.delete(fn);
-            changed = true;
+    bindable(k: K, next?: V): V[] {
+        const st = this.states.get(k);
+        const out: V[] = [];
+        const wanted = next !== undefined && this.wants(st, next) ? next : undefined;
+        for (const v of [st?.active, st?.pending, wanted]) {
+            if (v !== undefined && !out.some((o) => o.id === v.id)) out.push(v);
         }
-        for (const fn of now) {
-            let st = this.states.get(fn);
-            if (st === undefined)
-                this.states.set(fn, (st = { active: undefined, pending: undefined }));
-            const module = fn.module;
-            if (st.active?.module === module || st.pending?.module === module) continue;
-            const id = `${this.prefix}${module.name}`;
-            const prepared = ctx.prepare({ ...this.describe(module, fn), id });
-            if (prepared.ready) {
-                st.active = { module, id };
-                st.pending = undefined;
-                changed = true;
-            } else st.pending = { module, id };
-        }
-        this.releaseUnused(ctx);
-        return changed;
+        return out;
     }
 
-    /** O pipeline `id` compilou: as funções que o aguardavam passam a usá-lo. Devolve `true` se alguma mudou. */
-    compiled(id: string): boolean {
-        if (!id.startsWith(this.prefix)) return false;
-        let changed = false;
-        for (const st of this.states.values()) {
+    /**
+     * A chave quer a variante `next`: se ela difere da que aguarda (ou da ativa, sem nenhuma aguardando), `prepare`
+     * a prepara e devolve se já está pronta — pronta, passa a ativa; senão, aguarda compilar (a anterior continua).
+     * Pipelines que deixam de ser usados saem no `retain`. Devolve `true` se a ativa mudou.
+     */
+    select(k: K, next: V, prepare: (variant: V) => boolean): boolean {
+        let st = this.states.get(k);
+        if (st === undefined) this.states.set(k, (st = { active: undefined, pending: undefined }));
+        if (!this.wants(st, next)) return false;
+        for (const id of family(next)) this.owned.add(id);
+        if (prepare(next)) {
+            st.active = next;
+            st.pending = undefined;
+            return true;
+        }
+        st.pending = next;
+        return false;
+    }
+
+    /** Esquece as chaves que não estão em `present` e libera os pipelines sem uso. */
+    retain(ctx: TransitionContext, present: Iterable<K>): void {
+        const keep = new Set(present);
+        for (const k of [...this.states.keys()]) if (!keep.has(k)) this.states.delete(k);
+        this.releaseUnused(ctx);
+    }
+
+    /**
+     * Esquece a chave `k` já, liberando os pipelines dela que ninguém mais usa (o estágio refaz a chave do zero — ex.:
+     * colisor com outra forma).
+     */
+    forget(ctx: TransitionContext, k: K): void {
+        if (!this.states.delete(k)) return;
+        this.releaseUnused(ctx);
+    }
+
+    /**
+     * O pipeline `id` compilou: as chaves cuja variante o tem como principal e o aguardavam passam a usá-la (a
+     * anterior é liberada se ninguém mais a usa). Devolve as chaves que mudaram.
+     */
+    compiled(id: string, ctx: TransitionContext): K[] {
+        if (!this.owned.has(id)) return [];
+        const changed: K[] = [];
+        for (const [k, st] of this.states) {
             if (st.pending?.id !== id) continue;
             st.active = st.pending;
             st.pending = undefined;
-            changed = true;
+            changed.push(k);
         }
+        if (changed.length > 0) this.releaseUnused(ctx);
         return changed;
     }
 
-    /** O pipeline `id` foi rejeitado: as funções seguem com o ativo; o pipeline é liberado. */
+    /** O pipeline `id` foi rejeitado: as chaves cuja variante pendente o tem seguem com a ativa; o que sobra é liberado. */
     rejected(id: string, ctx: TransitionContext): void {
-        if (!id.startsWith(this.prefix)) return;
-        for (const st of this.states.values()) if (st.pending?.id === id) st.pending = undefined;
+        if (!this.owned.has(id)) return;
+        for (const st of this.states.values()) {
+            if (st.pending !== undefined && family(st.pending).includes(id)) st.pending = undefined;
+        }
         this.releaseUnused(ctx);
     }
 
-    /** Id do pipeline ativo da função; `undefined` enquanto nenhum compilou (o estágio usa a implementação pronta). */
-    active(fn: F): string | undefined {
-        return this.states.get(fn)?.active?.id;
+    /** Variante ativa da chave; `undefined` enquanto nenhuma compilou (o estágio usa a implementação pronta). */
+    active(k: K): V | undefined {
+        return this.states.get(k)?.active;
+    }
+
+    /** `next` difere da que aguarda compilar (ou da ativa, sem nenhuma aguardando)? */
+    private wants(st: Compilation<V> | undefined, next: V): boolean {
+        return (st?.pending ?? st?.active)?.key !== next.key;
     }
 
     private releaseUnused(ctx: TransitionContext): void {
         const used = new Set<string>();
         for (const st of this.states.values()) {
-            if (st.active !== undefined) used.add(st.active.id);
-            if (st.pending !== undefined) used.add(st.pending.id);
+            for (const v of [st.active, st.pending])
+                if (v !== undefined) for (const id of family(v)) used.add(id);
         }
-        for (const id of [...ctx.bound.pipelines.keys()]) {
-            if (id.startsWith(this.prefix) && !used.has(id)) ctx.release(id);
+        for (const id of [...this.owned]) {
+            if (used.has(id)) continue;
+            this.owned.delete(id);
+            ctx.release(id);
+            this.released?.(id, ctx);
         }
     }
 }

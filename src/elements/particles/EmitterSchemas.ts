@@ -1,9 +1,5 @@
-import { extensionRecordSchema } from '../../scene/descriptors/ExtensionRecord';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-
-/** Registro de parâmetros das funções do ponto `emit` (spec 009; um pool para todas as `EmitFunction`). */
-export const EmitFnRecordSchema = extensionRecordSchema('EmitFnRecord');
 
 /**
  * Parâmetros de um passo de um emissor (spec 009; uma região por passo, offset dinâmico): o anel (início, criadas no

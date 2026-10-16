@@ -3,13 +3,15 @@
 //   fn camera_fn(c: Camera, world: mat4x4f, aspect: f32, data: CameraFnParams, time: f32) -> CameraOut
 // e, opcional, a projeção de um ponto da vista para o clip (projeções não lineares, aplicada no desenho):
 //   fn camera_project(view_pos: vec3f, data: CameraFnParams) -> vec4f
-// Requer: structs Camera, CameraFnRecord; camera_point_types; camera.
+// O carregador `camera_fn_params(slot)` lê o registro tipado da função no pool da forma dela (spec 031); a pronta não
+// tem.
+// Requer: struct Camera; camera_point_types; camera.
 
 struct CameraFnParams {
     _unused: u32,
 }
 
-fn camera_fn_params(r: CameraFnRecord) -> CameraFnParams {
+fn camera_fn_params(slot: u32) -> CameraFnParams {
     return CameraFnParams(0u);
 }
 

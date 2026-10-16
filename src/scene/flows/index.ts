@@ -1,5 +1,5 @@
 export { Flow } from './Flow';
-export type { FlowLifecycle } from './Flow';
+export type { FlowLifecycle, Listened, SchemaFamily } from './Flow';
 export { RenderFlow } from './RenderFlow';
 export type { RenderSlotMap } from './RenderFlow';
 export type { Phase } from './Phase';
@@ -37,9 +37,13 @@ export type {
     FlowTransition,
     FlowTransitions,
 } from './FlowTransitions';
+export { sameBindGroup, bindGroupsTo, bindingKeyParts } from './FlowBinding';
 export type {
     BindingSource,
     BindingSources,
+    BindingKey,
+    PreparedGroup,
+    GroupOffsets,
     BoundFlow,
     PreparedPipeline,
     PreparedCompute,

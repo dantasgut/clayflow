@@ -34,7 +34,7 @@ export interface SceneContext {
     readonly executionSystem: ExecutionSystem;
     /** Inferência de layout a partir do WGSL montado (usada na preparação dos pipelines dos Flows). */
     readonly layoutInferencer: LayoutInferencer;
-    /** Resolvers de `consumes` da cena (fontes de binding por nome). */
+    /** Resolvers da cena: fontes dos recursos com fornecedor `{ pool }`/`{ consumer }`, por nome. */
     readonly consumers: ConsumerResolverRegistry;
     /**
      * Relógio da cena — um por World. Inserido no World em `initialize()` (o uniform precisa do device); os

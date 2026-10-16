@@ -1,23 +1,17 @@
 // Um passo das partículas de um emissor (spec 009): idade; a que passa da vida morre; as vivas integram gravidade e
 // campos (Euler semi-implícito); escreve o vértice de cada slot na nuvem de pontos do emissor — a morta vai para longe
 // da câmera (cortada pelo plano distante).
-// Requer: structs EmitterParams, ComputeParticle, FieldFnRecord; field_point_types; field_accel (ponto); globais
-// `field_records`/`field_live`.
-
-@group(0) @binding(0) var<uniform>             emit_params:    EmitterParams;
-@group(0) @binding(1) var<storage, read_write> emit_particles: array<ComputeParticle>;
-@group(0) @binding(2) var<storage, read_write> emit_vertices:  array<f32>;
-@group(0) @binding(3) var<storage, read>       field_records:  array<FieldFnRecord>;
-@group(0) @binding(4) var<storage, read>       field_live:     array<u32>;
+// Requer: structs EmitterParams, ComputeParticle; field_point_types; field_accel (ponto); recursos `emit_params`,
+// `emit_particles`, `emit_vertices` (os registros dos campos vêm do `field_builtin` e dos módulos das funções).
 
 const EMIT_FAR: f32 = 1.0e9;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn emit_update_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= emit_params.capacity) { return; }
     var q = emit_particles[i];
     var alive = q.ageAndLife.y > 0.0;
@@ -37,14 +31,14 @@ fn emit_update_main(
         }
         emit_particles[i] = q;
     }
-    let o = i * 8u;
+    let o = i;
     let p = select(vec3f(0.0, EMIT_FAR, 0.0), q.position.xyz, alive);
-    emit_vertices[o] = p.x;
-    emit_vertices[o + 1u] = p.y;
-    emit_vertices[o + 2u] = p.z;
-    emit_vertices[o + 3u] = 0.0;
-    emit_vertices[o + 4u] = 1.0;
-    emit_vertices[o + 5u] = 0.0;
-    emit_vertices[o + 6u] = q.params.x;
-    emit_vertices[o + 7u] = q.params.y;
+    emit_vertices[o].px = p.x;
+    emit_vertices[o].py = p.y;
+    emit_vertices[o].pz = p.z;
+    emit_vertices[o].nx = 0.0;
+    emit_vertices[o].ny = 1.0;
+    emit_vertices[o].nz = 0.0;
+    emit_vertices[o].u = q.params.x;
+    emit_vertices[o].v = q.params.y;
 }

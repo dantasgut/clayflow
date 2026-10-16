@@ -1,8 +1,4 @@
 // Quads de UI. Structs `UiQuad` e `ScreenParams` gerados dos schemas.
-@group(0) @binding(0) var<uniform>             screen: ScreenParams;
-@group(0) @binding(1) var<storage, read>       quads:  array<UiQuad>;
-@group(0) @binding(2) var                      atlas:  texture_2d<f32>;
-@group(0) @binding(3) var                      atlas_smp: sampler;
 
 struct VsOut {
     @builtin(position) clip_position: vec4<f32>,

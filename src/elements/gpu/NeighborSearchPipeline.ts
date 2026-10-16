@@ -1,3 +1,6 @@
+import type { WgslResource } from '../../scene/shaders/WgslResource';
+import type { BindingSource } from '../../scene/flows/FlowBinding';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { PoolBufferSpec } from '../../scene/contracts/PoolDirectory';
 import type { BoundPool } from '../../scene/flows/slots';
 import type {
@@ -11,7 +14,13 @@ import {
     destroyComputeKernel,
     type ComputeKernel,
 } from '../../scene/flows/createComputeKernel';
-import { nsAssignCount, nsFind, nsScatter, nsSortCells } from './shaders/neighborSearch';
+import {
+    neighborResources as R,
+    nsAssignCount,
+    nsFind,
+    nsScatter,
+    nsSortCells,
+} from './shaders/neighborSearch';
 import { NsSimParamsSchema } from './schemas';
 import { PrefixSum } from './compute/PrefixSum';
 
@@ -277,53 +286,53 @@ export class NeighborSearchPipeline {
             discriminator: `ns_assign:${this.disc}`,
             shader: nsAssignCount,
             entryPoint: 'ns_assign_count_main',
-            bindings: {
-                ns_params: nsParams,
-                particle_data: particlesBuffer,
-                live: liveBuffer,
-                cell_ids: this.cellIdsBuffer!,
-                cell_count: this.cellCountBuffer!,
-            },
+            bindings: new Map<WgslResource, BindingSource>([
+                [R.params, nsParams],
+                [R.particles, particlesBuffer],
+                [R.live, liveBuffer],
+                [R.cellIds, this.cellIdsBuffer!],
+                [R.cellCount, this.cellCountBuffer!],
+            ]),
         });
         this.scatterKernel ??= createComputeKernel(this.core, {
             discriminator: `ns_scatter:${this.disc}`,
             shader: nsScatter,
             entryPoint: 'ns_scatter_main',
-            bindings: {
-                ns_params: nsParams,
-                cell_ids: this.cellIdsBuffer!,
-                cell_cursor: this.cellCursorBuffer!,
-                sorted_particles: this.sortedParticlesBuffer!,
-            },
+            bindings: new Map<WgslResource, BindingSource>([
+                [R.params, nsParams],
+                [R.cellIdsRead, this.cellIdsBuffer!],
+                [R.cellCursor, this.cellCursorBuffer!],
+                [R.sortedParticles, this.sortedParticlesBuffer!],
+            ]),
         });
         this.sortCellsKernel ??= createComputeKernel(this.core, {
             discriminator: `ns_sort_cells:${this.disc}`,
             shader: nsSortCells,
             entryPoint: 'ns_sort_cells_main',
-            bindings: {
-                ns_params: nsParams,
-                cell_start: this.cellStartBuffer!,
-                cell_count_buf: this.cellCountBuffer!,
-                sorted_particles: this.sortedParticlesBuffer!,
-                particle_data: particlesBuffer,
-                sorted_positions: this.sortedPositionsBuffer!,
-            },
+            bindings: new Map<WgslResource, BindingSource>([
+                [R.params, nsParams],
+                [R.cellStart, this.cellStartBuffer!],
+                [R.cellCountRead, this.cellCountBuffer!],
+                [R.sortedParticles, this.sortedParticlesBuffer!],
+                [R.particles, particlesBuffer],
+                [R.sortedPositions, this.sortedPositionsBuffer!],
+            ]),
         });
         this.findKernel ??= createComputeKernel(this.core, {
             discriminator: `ns_find:${this.disc}`,
             shader: nsFind,
             entryPoint: 'ns_find_main',
-            bindings: {
-                ns_params: nsParams,
-                particle_data: particlesBuffer,
-                cell_start: this.cellStartBuffer!,
-                cell_count_buf: this.cellCountBuffer!,
-                sorted_particles: this.sortedParticlesBuffer!,
-                neighbor_list: this.neighborListBuffer!,
-                neighbor_count: this.neighborCountBuffer!,
-                live: liveBuffer,
-                sorted_positions: this.sortedPositionsBuffer!,
-            },
+            bindings: new Map<WgslResource, BindingSource>([
+                [R.params, nsParams],
+                [R.particles, particlesBuffer],
+                [R.cellStart, this.cellStartBuffer!],
+                [R.cellCountRead, this.cellCountBuffer!],
+                [R.sortedParticlesRead, this.sortedParticlesBuffer!],
+                [R.neighborList, this.neighborListBuffer!],
+                [R.neighborCount, this.neighborCountBuffer!],
+                [R.live, liveBuffer],
+                [R.sortedPositionsRead, this.sortedPositionsBuffer!],
+            ]),
         });
     }
 
@@ -433,8 +442,8 @@ export class NeighborSearchPipeline {
         const run = (label: string, k: ComputeKernel, invocations: number): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(k.pipeline);
-                k.bindGroups.forEach((bg, i) => pass.bind.setBindGroup(i, bg));
-                pass.dispatch.invocations(invocations, 64);
+                k.bindTo(pass.bind);
+                pass.dispatch.invocations(invocations, WORKGROUP_SIZE.value);
             });
         };
         run('NS.assign_count', assign, particleCount);

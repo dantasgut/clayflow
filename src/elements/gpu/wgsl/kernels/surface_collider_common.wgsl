@@ -3,7 +3,7 @@
 // de um triângulo da grade de amostragem e o ponto mais próximo de um triângulo.
 // Requer: struct `SurfaceBakeParams`; o uniforme `bake` do kernel.
 
-const SCB_NONE: u32 = 0xFFFFFFFFu;
+const SCB_NONE: u32 = NONE;
 
 // f32 → u32 com a mesma ordem (negativos invertidos).
 fn scb_order(f: f32) -> u32 {

@@ -7,7 +7,7 @@ import { sourceOfDescriptor } from './sourceOfDescriptor';
 
 /** Opções de `SingletonResolver`. */
 export interface SingletonResolverOptions {
-    /** Nome em `consumes`. Default: `schema.name`. */
+    /** Nome do resolver (fornecedor `{ consumer }` de um recurso). Default: `schema.name`. */
     readonly name?: string;
     /** Filtro do recurso (ex.: só luzes que projetam sombra). Default: o primeiro com o schema. */
     readonly select?: (resource: Resource) => boolean;
@@ -18,7 +18,7 @@ export interface SingletonResolverOptions {
  * `schema` (ex.: a câmera ativa, o `Time`, o `ParticleMaterial`). Trocar o recurso (remover o primeiro) muda a fonte.
  */
 export class SingletonResolver implements ConsumerResolver {
-    /** Nome em `consumes` (`options.name`, ou `schema.name`). */
+    /** Nome do resolver (`options.name`, ou `schema.name`). */
     readonly name: string;
     /** Struct WGSL do Resource (`schema.wgslName`). */
     readonly typeName: string;

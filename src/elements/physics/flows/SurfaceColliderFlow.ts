@@ -1,9 +1,15 @@
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
+import { surfaceResources } from '../../geometry/shaders';
+import { NONE as ENGINE_NONE } from '../../../scene/shaders/engineConstants';
 import type {
     EngineCore,
     Frame,
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../../scene/contracts/gpu';
+import { ExtensionPipelines, type PipelineVariant } from '../../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
     BoundFlow,
@@ -11,6 +17,7 @@ import type {
     TransitionContext,
 } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
+import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
     slot,
@@ -20,17 +27,13 @@ import {
     type SlotMap,
 } from '../../../scene/flows/slots';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
-import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import { Time } from '../../../scene/time/Time';
 import type { EntityId } from '../../../scene/world/EntityId';
+import { SpaceFunction } from '../../extension/SpaceFunction';
 import { SurfaceFunction } from '../../extension/SurfaceFunction';
 import { TransformFunction } from '../../extension/TransformFunction';
 import { ParametricSurface, SURFACE_PRESET_INDEX } from '../../geometry/ParametricSurface';
-import {
-    SpaceFnRecordSchema,
-    SurfaceFnRecordSchema,
-    SurfaceParamsSchema,
-} from '../../geometry/SurfaceSchemas';
+import { SurfaceParamsSchema } from '../../geometry/SurfaceSchemas';
 import { surfacePoint, surfaceTangents, surfaceTangentsAnalytic } from '../../geometry/shaders';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { Parent } from '../../scene/Parent';
@@ -40,10 +43,11 @@ import {
     SurfaceBakeParamsSchema,
     surfaceColliderBuild,
     surfaceColliderPoints,
+    surfaceBakeResources as B,
 } from '../shaders/surfaceCollider';
 
-const WORKGROUP = 64;
-const NONE = 0xffffffff;
+const WORKGROUP = ENGINE_WORKGROUP_SIZE.value;
+const NONE = ENGINE_NONE.value;
 
 /** Slots do estágio dos colliders de superfície. */
 export interface SurfaceColliderSlots extends SlotMap {
@@ -53,10 +57,8 @@ export interface SurfaceColliderSlots extends SlotMap {
     readonly functions: EntitiesSlot;
     /** Pool do campo (cabeçalho e valores de todos os colliders de superfície). */
     readonly fields: PoolSlot<false>;
-    /** Pool dos registros das `SurfaceFunction` (opcional). */
-    readonly fnRecords: PoolSlot<true>;
-    /** Pool dos registros das `SpaceFunction` (existe com espaço na cena: a superfície anima). */
-    readonly spaceRecords: PoolSlot<true>;
+    /** Funções `space` da cena (com alguma, a superfície anima). */
+    readonly spaces: EntitiesSlot;
     /** Pool das matrizes de mundo (transformação por função ou por hierarquia). */
     readonly worlds: PoolSlot<true>;
     /** Relógio da cena (opcional; sem ele, tempo 0 e uma cópia). */
@@ -67,8 +69,7 @@ const slots: SurfaceColliderSlots = {
     colliders: slot.entities({ all: [ParametricSurface, SurfaceCollider] }),
     functions: slot.entities({ all: [ParametricSurface, SurfaceCollider, SurfaceFunction] }),
     fields: slot.pool(SurfaceCollider.cellSchema.name),
-    fnRecords: slot.pool(SurfaceFnRecordSchema.name, { optional: true }),
-    spaceRecords: slot.pool(SpaceFnRecordSchema.name, { optional: true }),
+    spaces: slot.entities({ all: [SpaceFunction] }),
     worlds: slot.pool(Transform.worldSchema.name, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
 };
@@ -102,7 +103,7 @@ interface Shape {
     readonly jfa: readonly number[];
 }
 
-/** Estado de um colisor: forma, rascunho, parâmetros, pipelines e o que construir no quadro. */
+/** Estado de um colisor: forma, rascunho, parâmetros e o que construir no quadro (a amostragem fica em `pointPipelines`). */
 interface ColliderState {
     readonly id: EntityId;
     shape: Shape;
@@ -112,9 +113,6 @@ interface ColliderState {
     bounds: StorageBufferSpec;
     cells: StorageBufferSpec;
     ids: StorageBufferSpec;
-    /** Pipeline da amostragem em uso (pela função da entidade) e o que aguarda compilar. */
-    active: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
-    pending: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
     /** Construir no próximo quadro (entrou, mudou, campo realocado). */
     stale: boolean;
     /** Cópias a construir neste quadro (0: nada). */
@@ -138,26 +136,25 @@ interface ColliderState {
 export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     readonly type = 'SurfaceColliderFlow';
     readonly slots = slots;
-    override readonly listens = [SurfaceFnRecordSchema];
+    /** Os registros de todas as formas das funções `surface` (spec 031, R8). */
+    override readonly listens = [surfacePoint];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
+    /** Pools da C2: o slot do registro de cada função, no pool da forma dela. */
+    private readonly pools: PoolDirectory;
     private readonly states = new Map<EntityId, ColliderState>();
-    private readonly dummyRecords: StorageBufferSpec;
     private readonly dummyWorlds: StorageBufferSpec;
     private readonly warnedSteps = new Set<EntityId>();
+    /** Pipeline da amostragem de cada colisor (pela função da entidade, ou a pronta), ativo ao compilar. */
+    private readonly pointPipelines = new ExtensionPipelines<EntityId>();
     private dirty = true;
 
     constructor(ctx: FlowContext) {
         super();
         this.core = ctx.core;
-        this.dummyRecords = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'scb_fn_records_dummy',
-            byteSize: SurfaceFnRecordSchema.stride,
-        });
+        this.pools = ctx.resources;
         this.dummyWorlds = ctx.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
@@ -201,23 +198,19 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 bindGroupReplaced: 'ignore',
                 pipelinesCompiled: {
                     to: 'idle',
-                    run: (e) => {
+                    run: (e, c) => {
                         if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        for (const st of this.states.values()) {
-                            if (st.pending?.id !== e.pipeline) continue;
-                            st.active = st.pending;
-                            st.pending = undefined;
-                            st.stale = true;
+                        for (const id of this.pointPipelines.compiled(e.pipeline, c)) {
+                            const st = this.states.get(id);
+                            if (st !== undefined) st.stale = true;
                         }
                     },
                 },
                 pipelineRejected: {
                     to: 'idle',
                     run: (e, c) => {
-                        if (e.type !== 'pipelineRejected') return;
-                        for (const st of this.states.values())
-                            if (st.pending?.id === e.pipeline) st.pending = undefined;
-                        c.release(e.pipeline);
+                        if (e.type === 'pipelineRejected')
+                            this.pointPipelines.rejected(e.pipeline, c);
                     },
                 },
                 framePrepare: {
@@ -234,8 +227,9 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     /** Grava as passadas dos colliders a construir neste quadro. */
     dispatch(frame: Frame, bound: BoundFlow<SurfaceColliderSlots>): void {
         for (const st of this.states.values()) {
-            if (st.copies === 0 || st.active === undefined) continue;
-            const points = bound.pipelines.get(st.active.id);
+            const active = this.pointPipelines.active(st.id);
+            if (st.copies === 0 || active === undefined) continue;
+            const points = bound.pipelines.get(active.id);
             if (points?.role !== 'compute' || !points.ready) continue;
             const build = (entry: string): PreparedCompute | undefined => {
                 const p = bound.pipelines.get(buildId(st.id, entry));
@@ -247,13 +241,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             const run = (p: PreparedCompute, region: number, count: number): void => {
                 frame.compute('SurfaceColliderFlow', (pass) => {
                     pass.bind.setPipeline(p.spec);
-                    p.groups.forEach((bg, g) =>
-                        pass.bind.setBindGroup(
-                            g,
-                            bg,
-                            p.dynamic[g] ? [st.bake.offset(region)] : undefined,
-                        ),
-                    );
+                    p.bindTo(pass.bind, { draw: [st.bake.offset(region)] });
                     // As cópias ficam em sequência no índice linear.
                     pass.dispatch.invocations(count * st.copies, WORKGROUP);
                 });
@@ -283,7 +271,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     override dispose(): void {
         for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.core.destroy(this.dummyRecords);
         this.core.destroy(this.dummyWorlds);
     }
 
@@ -291,7 +278,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { colliders, functions, fnRecords, fields, worlds } = ctx.bound.slots;
+        const { colliders, functions, fields, worlds } = ctx.bound.slots;
         const present = new Set<EntityId>();
         for (const entry of colliders.entries) {
             const id = entry.entityId;
@@ -299,7 +286,8 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             const shape = shapeOf(entry.get(SurfaceCollider));
             let st = this.states.get(id);
             if (st !== undefined && st.shape.key !== shape.key) {
-                this.releasePipelines(ctx, st);
+                this.releaseBuild(ctx, st);
+                this.pointPipelines.forget(ctx, id);
                 this.destroyState(st);
                 this.states.delete(id);
                 st = undefined;
@@ -310,47 +298,35 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             }
             st.stale = true;
             const fn = functions.entry(id)?.get(SurfaceFunction);
-            const module = fn?.module;
-            const known = st.pending ?? st.active;
-            const pointsId =
-                known === undefined || known.module !== module
-                    ? `scb_points:${id}:${module?.name ?? 'preset'}`
-                    : undefined;
-            const shared = {
-                bake: st.bake.source(),
-                bake_points: st.points,
-                bake_bounds: st.bounds,
-            };
-            for (const pid of [st.active?.id, st.pending?.id, pointsId]) {
-                if (pid === undefined) continue;
-                ctx.bind(
-                    prefixed(pid, {
-                        ...shared,
-                        surface_params: st.surfaceParams,
-                        surface_fn_records: fnRecords?.buffer ?? this.dummyRecords,
-                    }),
-                );
+            const key = fn?.module.name ?? 'preset';
+            const next: PipelineVariant = { key, id: `scb_points:${id}:${key}` };
+            const shared: [WgslResource, BindingSource][] = [
+                [B.bake, st.bake.source()],
+                [B.points, st.points],
+                [B.bounds, st.bounds],
+            ];
+            for (const { id: pid } of this.pointPipelines.bindable(id, next)) {
+                ctx.bind(prefixed(pid, [...shared, [surfaceResources.params, st.surfaceParams]]));
             }
             for (const entryName of BUILD_ENTRIES[shape.mode]) {
                 const pid = buildId(id, entryName);
                 ctx.bind(
-                    prefixed(pid, {
+                    prefixed(pid, [
                         ...shared,
-                        bake_cells: st.cells,
-                        bake_ids: st.ids,
-                        bake_field: fields.buffer,
-                        bake_worlds: worlds?.buffer ?? this.dummyWorlds,
-                    }),
+                        [B.cells, st.cells],
+                        [B.ids, st.ids],
+                        [B.field, fields.buffer],
+                        [B.worlds, worlds?.buffer ?? this.dummyWorlds],
+                    ]),
                 );
                 ctx.prepare({
                     id: pid,
                     role: 'compute',
                     shader: surfaceColliderBuild,
                     entryPoints: [`${entryName}_main`],
-                    consumes: [],
                 });
             }
-            if (pointsId !== undefined) {
+            this.pointPipelines.select(id, next, ({ id: pointsId }) => {
                 const impls = new Map([[surfacePoint, fn?.module ?? surfacePoint.ready]]);
                 const shader =
                     fn === undefined
@@ -361,36 +337,29 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                                   ? new Map([...impls, [surfaceTangents, surfaceTangentsAnalytic]])
                                   : impls,
                           );
-                const prepared = ctx.prepare({
+                return ctx.prepare({
                     id: pointsId,
                     role: 'compute',
                     shader,
                     entryPoints: ['scb_points_main'],
-                    consumes: [],
                     ...(fn === undefined ? {} : { verify: true, extensions: [fn] }),
-                });
-                const next = { id: pointsId, module };
-                if (prepared.ready) {
-                    if (st.active !== undefined && st.active.id !== pointsId)
-                        ctx.release(st.active.id);
-                    st.active = next;
-                    st.pending = undefined;
-                } else st.pending = next;
-            }
+                }).ready;
+            });
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
-            this.releasePipelines(ctx, st);
+            this.releaseBuild(ctx, st);
             this.destroyState(st);
             this.states.delete(id);
         }
+        this.pointPipelines.retain(ctx, present);
     }
 
     /** Decide quem constrói neste quadro, quantas cópias e em que tempos, e escreve os parâmetros. */
     private plan(ctx: Ctx): void {
-        const { colliders, fnRecords, fields, spaceRecords, worlds, functions } = ctx.bound.slots;
+        const { colliders, fields, spaces, worlds, functions } = ctx.bound.slots;
         const time = ctx.bound.slots.time?.resource as Time | undefined;
-        const spaced = spaceRecords !== undefined;
+        const spaced = spaces.entries.length > 0;
         for (const st of this.states.values()) {
             st.copies = 0;
             const entry = colliders.entry(st.id);
@@ -424,8 +393,9 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             st.world = world?.m;
             const d = surface.data;
             const [u0, u1, v0, v1] = d.domain;
+            const fn = functions.entry(st.id)?.get(SurfaceFunction);
             const record =
-                functions.entry(st.id) !== undefined ? fnRecords?.slotOf(st.id) : undefined;
+                fn === undefined ? undefined : this.pools.poolSlotOf(fn.record.name, st.id);
             this.core.write(
                 st.surfaceParams,
                 SurfaceParamsSchema.pack({
@@ -523,19 +493,15 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 'ids',
                 shape.mode === 'distance' ? shape.copies * 2 * shape.cells * 4 : 16,
             ),
-            active: undefined,
-            pending: undefined,
             stale: true,
             copies: 0,
             world: undefined,
         };
     }
 
-    private releasePipelines(ctx: Ctx, st: ColliderState): void {
-        for (const pid of [st.active?.id, st.pending?.id]) if (pid !== undefined) ctx.release(pid);
+    /** Libera as passadas da construção do colisor (a amostragem é de `pointPipelines`). */
+    private releaseBuild(ctx: Ctx, st: ColliderState): void {
         for (const entry of BUILD_ENTRIES[st.shape.mode]) ctx.release(buildId(st.id, entry));
-        st.active = undefined;
-        st.pending = undefined;
     }
 
     private destroyState(st: ColliderState): void {
@@ -551,10 +517,12 @@ function buildId(id: EntityId, entry: string): string {
     return `${entry}:${id}`;
 }
 
-function prefixed(pid: string, sources: Record<string, unknown>): Record<string, never> {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(sources)) out[`${pid}:${k}`] = v;
-    return out as Record<string, never>;
+/** As fontes ligadas só no pipeline `pid`. */
+function prefixed(
+    pid: string,
+    sources: readonly (readonly [WgslResource, BindingSource])[],
+): Map<BindingKey, BindingSource> {
+    return new Map(sources.map(([resource, source]) => [{ pipeline: pid, resource }, source]));
 }
 
 /** Forma do colisor: amostragem, contagens, cópias e passos do jump flooding. */

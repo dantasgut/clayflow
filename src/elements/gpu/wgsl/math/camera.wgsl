@@ -1,5 +1,5 @@
 // Câmera (spec 007, research R10): projeções perspectiva e ortográfica e a vista a partir da matriz de mundo da
-// câmera. Convenção de clip z em [−1, 1] (a dos controllers e do bench antes da 007; a de [0, 1] do WebGPU é da F4).
+// câmera. Clip z em [0, 1], a convenção do WebGPU: o plano `near` vai a 0 e o `far` a 1.
 // Requer `mat`.
 
 // Perspectiva: campo de visão vertical `fov` (rad), razão `aspect`, planos `near`/`far`.
@@ -9,8 +9,8 @@ fn camera_perspective(fov: f32, aspect: f32, near: f32, far: f32) -> mat4x4f {
     return mat4x4f(
         vec4f(f / aspect, 0.0, 0.0, 0.0),
         vec4f(0.0, f, 0.0, 0.0),
-        vec4f(0.0, 0.0, (far + near) * nf, -1.0),
-        vec4f(0.0, 0.0, 2.0 * far * near * nf, 0.0),
+        vec4f(0.0, 0.0, far * nf, -1.0),
+        vec4f(0.0, 0.0, far * near * nf, 0.0),
     );
 }
 
@@ -20,8 +20,8 @@ fn camera_orthographic(height: f32, aspect: f32, near: f32, far: f32) -> mat4x4f
     return mat4x4f(
         vec4f(2.0 / (height * aspect), 0.0, 0.0, 0.0),
         vec4f(0.0, 2.0 / height, 0.0, 0.0),
-        vec4f(0.0, 0.0, 2.0 * nf, 0.0),
-        vec4f(0.0, 0.0, (far + near) * nf, 1.0),
+        vec4f(0.0, 0.0, nf, 0.0),
+        vec4f(0.0, 0.0, near * nf, 1.0),
     );
 }
 

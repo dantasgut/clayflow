@@ -56,15 +56,14 @@ export class PointSpriteMaterial extends Material<PointSpriteMaterialData> {
                 role: 'render',
                 shader: pointSprite,
                 entryPoints: ['vs_main', 'fs_main'],
-                consumes: [
-                    'CameraMatrices',
-                    'WorldTransform',
-                    'Renderable',
-                    'RenderInstance',
-                    PointSpriteMaterial.schema.name,
-                ],
+                family: 'points',
                 topology: 'point-list',
             },
         ];
+    }
+
+    /** Desenha corpos de partículas. */
+    override get drawsParticles(): boolean {
+        return true;
     }
 }

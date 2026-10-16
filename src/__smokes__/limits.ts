@@ -7,6 +7,8 @@
 //       devolve, para cada partícula, o mesmo conjunto de vizinhos de uma busca de referência na CPU.
 //
 // Para rodar: `npm run smoke -- limits` (servidor do bench). Resultado: `LIMITS SMOKE PASSED` ou `FAIL: …`.
+import { wgslResource, type WgslResource } from '../scene/shaders/WgslResource';
+import type { BindingSource } from '../scene/flows/FlowBinding';
 import {
     Application,
     createComputeKernel,
@@ -47,13 +49,32 @@ async function readBuffer(
     return data;
 }
 
+const markParams = wgslResource({
+    name: 'params',
+    binding: { uniform: true },
+    type: { wgsl: 'vec4u' },
+    frequency: 'stage',
+    provider: 'private',
+});
+const markMarks = wgslResource({
+    name: 'marks',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+const markCounter = wgslResource({
+    name: 'counter',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'atomic<u32>', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+
 const MARK_SHADER = wgslModule({
     name: 'limits_mark',
+    requires: [markParams, markMarks, markCounter],
     source: /* wgsl */ `
-@group(0) @binding(0) var<uniform>             params:  vec4u;
-@group(0) @binding(1) var<storage, read_write> marks:   array<u32>;
-@group(0) @binding(2) var<storage, read_write> counter: array<atomic<u32>>;
-
 @compute @workgroup_size(256)
 fn mark_main(
     @builtin(global_invocation_id) gid3: vec3u,
@@ -93,13 +114,18 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
         discriminator: 'limits_mark',
         shader: MARK_SHADER,
         entryPoint: 'mark_main',
-        bindings: { params, marks, counter },
+        bindings: new Map<WgslResource, BindingSource>([
+            [markParams, params],
+            [markMarks, marks],
+            [markCounter, counter],
+        ]),
     });
     app.core.record('limits-mark', (frame) => {
         frame.clear(marks);
         frame.clear(counter);
         frame.compute('limits.mark', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind);
             pass.dispatch.invocations(count, 256);
         });
     });

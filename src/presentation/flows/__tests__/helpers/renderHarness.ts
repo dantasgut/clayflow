@@ -10,6 +10,7 @@ import type {
 import { createScene, type SceneContext } from '../../../../scene/SceneContext';
 import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';
+import { WATER_CONSUMERS } from '../../../water/consumers';
 import { TransformFlow } from '../../../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixFlow';
@@ -286,6 +287,7 @@ export async function renderScene(
     const scene = createScene({ core });
     await scene.initialize();
     for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
+    for (const resolver of WATER_CONSUMERS) scene.consumers.registerDefault(resolver);
     let frame = 0;
     return {
         scene,

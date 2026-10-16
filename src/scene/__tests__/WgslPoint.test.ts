@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { extensionRecordSchema } from '../descriptors/ExtensionRecord';
 import { bindPoints } from '../shaders/bindPoints';
 import { composeWgsl } from '../shaders/composeWgsl';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
 import { wgslModule, type WgslModule } from '../shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../shaders/WgslPoint';
+import { wgslResource } from '../shaders/WgslResource';
 
 function errorOf(f: () => unknown): WgslCompositionError {
     try {
@@ -19,7 +19,6 @@ function errorOf(f: () => unknown): WgslCompositionError {
 const mod = (name: string, source: string, requires: WgslModule[] = []): WgslModule =>
     wgslModule({ name, source, requires });
 
-const record = extensionRecordSchema('ProbeFnRecord');
 const core = mod('probe_core', 'fn core_scale(x: f32) -> f32 { return 2.0 * x; }');
 const ready = mod(
     'probe_ready',
@@ -27,17 +26,30 @@ const ready = mod(
     [core],
 );
 const helper = mod('probe_helper', 'fn probe_helper_fn() -> f32 { return 1.0; }');
+const outRes = wgslResource({
+    name: 'out',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'f32', array: true },
+    frequency: 'draw',
+    provider: 'private',
+});
+const paramsRes = wgslResource({
+    name: 'params',
+    binding: { storage: 'read' },
+    type: { wgsl: 'ProbeFnParams', array: true },
+    frequency: 'draw',
+    provider: 'private',
+});
 const kernel = mod(
     'probe_kernel',
-    '@group(0) @binding(0) var<storage, read_write> out: array<f32>;\n@group(0) @binding(1) var<storage, read> params: array<ProbeFnParams>;\n@compute @workgroup_size(1) fn main() { out[0] = probe_fn(out[0], params[0], 0.0) + probe_helper_fn(); }',
-    [helper, ready],
+    '@compute @workgroup_size(1) fn main() { out[0] = probe_fn(out[0], params[0], 0.0) + probe_helper_fn(); }',
+    [helper, ready, outRes, paramsRes],
 );
 const point = wgslPoint({
     name: 'probe',
     required: { name: 'probe_fn', params: ['f32', POINT_PARAMS, 'f32'], returns: 'f32' },
     optional: [{ name: 'probe_du', params: ['f32'], returns: 'f32' }],
     paramsAlias: 'ProbeFnParams',
-    record,
     ready,
     hosts: () => [kernel],
 });

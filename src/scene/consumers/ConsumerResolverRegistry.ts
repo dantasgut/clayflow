@@ -1,14 +1,14 @@
 import type { ConsumerResolver, ResolveContext } from './ConsumerResolver';
 import type { ResolvedSource } from './ResolvedSource';
 
-/** Erro de resolução: nome de `consumes` sem resolver registrado. */
+/** Erro de resolução: fornecedor sem resolver registrado. */
 export class ConsumerResolutionError extends Error {
     /** Nome do erro (`'ConsumerResolutionError'`). */
     override readonly name = 'ConsumerResolutionError';
 }
 
 /**
- * Registro dos resolvers de `consumes` de uma cena. Um resolver por nome; `register` de um nome existente substitui
+ * Registro dos resolvers de uma cena (fornecedores `{ pool }`/`{ consumer }` dos recursos declarados). Um resolver por nome; `register` de um nome existente substitui
  * (aplicações podem trocar o padrão), `registerDefault` não substitui (usado pela C2 ao criar pools).
  */
 export class ConsumerResolverRegistry {

@@ -15,12 +15,12 @@ import type { TransitionContext } from '../../flows/FlowBinding';
 import type { FlowTransitions } from '../../flows/FlowTransitions';
 import type { Phase } from '../../flows/Phase';
 import { slot } from '../../flows/slots';
-import { FlowBindingError } from '../../flows/FlowBindingError';
 import type { ExtensionRejectedPayload } from '../../events/EventMap';
 import { composeWgsl } from '../../shaders/composeWgsl';
 import { wgslModule } from '../../shaders/WgslModule';
 import type { PointImplementation } from '../../shaders/WgslPoint';
 import { createScene } from '../../SceneContext';
+import { SingletonResolver } from '../../consumers/strategies/SingletonResolver';
 import { countingCore } from '../helpers/countingCore';
 import {
     ProbeBody,
@@ -172,21 +172,32 @@ describe('Integração — eventos da C2 com o Flow pronto', () => {
         );
     });
 
-    it('consumes sem resolver: falha na primeira tentativa de preparação, sem ligar binding vazio', async () => {
+    it('fornecedor sem resolver: o pipeline espera sem ligar binding vazio; registrado o resolver, fica pronto', async () => {
         const counting = countingCore();
         const s = createScene({ core: counting.core });
         await s.initialize();
-        s.flows.register(() => new ProbeFlow(probeParams), {
-            type: 'probe',
-            phase: 'physics',
-            bodyType: 'ProbeBody',
-        });
+        let flow: ProbeFlow | undefined;
+        s.flows.register(
+            () => {
+                flow = new ProbeFlow(probeParams);
+                return flow;
+            },
+            { type: 'probe', phase: 'physics', bodyType: 'ProbeBody' },
+        );
         s.world.insert(new ProbeCam());
+        // Sem o resolver 'ProbeCam' (a cena não o registra): nada de erro, nada de bind group.
         expect(() => {
             s.world.insert(new ProbeBody());
             s.events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 1 / 60, frame: 1 });
-        }).toThrow(FlowBindingError);
+        }).not.toThrow();
+        expect(flow!.lifecycle).not.toBe('ready');
+        expect(flow!.dispatched).toEqual([]);
         expect(counting.stats().creates.get('bindgroup') ?? 0).toBe(0);
+        s.consumers.register(new SingletonResolver(ProbeCamSchema, 'cam'));
+        s.world.insert(new ProbeBody());
+        s.events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 2 / 60, frame: 2 });
+        expect(flow!.lifecycle).toBe('ready');
+        expect(flow!.dispatched).toEqual([2]);
     });
 
     it('pipeline com verify: compilador conferido antes; rejeitado não fica pronto, avisa o Flow e a cena uma vez', async () => {

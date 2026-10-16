@@ -1,12 +1,5 @@
-import { extensionRecordSchema } from '../../scene/descriptors/ExtensionRecord';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-
-/** Registro de parâmetros das funções do ponto `surface` (spec 009). */
-export const SurfaceFnRecordSchema = extensionRecordSchema('SurfaceFnRecord');
-
-/** Registro de parâmetros das funções do ponto `space` (spec 009; ponto de cena). */
-export const SpaceFnRecordSchema = extensionRecordSchema('SpaceFnRecord');
 
 /**
  * Geometria diferencial por vértice (spec 010): primeira forma (E, F, G e o determinante EG − F²), segunda forma

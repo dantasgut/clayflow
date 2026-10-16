@@ -1,7 +1,7 @@
 // Partículas secundárias de um fluido — spray, espuma e bolhas (spec 010; Ihmsen et al. 2012, "Unified Spray, Foam and
 // Bubbles for Particle-Based Fluids"). Peças comuns: leitura das partículas do fluido no pool (layout pelo schema:
 // passo e deslocamentos em floats), o peso radial W(r) = 1 − r/h, números pseudoaleatórios determinísticos e o tipo.
-// Requer: struct `DiffuseParams`; o uniforme `diffuse_params` e o global `fluid` (array<f32>) do kernel.
+// Requer: struct `DiffuseParams`; os recursos `diffuse_params` e `fluid` (array<f32>).
 
 const DIFFUSE_SPRAY: f32 = 0.0;
 const DIFFUSE_FOAM: f32 = 1.0;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RigidBody } from '../bodies/RigidBody';
-import type { RecordedPass } from './helpers/recordingFrame';
+import { paramsOffset, type RecordedPass } from './helpers/recordingFrame';
 import { lcpScene } from './helpers/lcpScene';
 
 async function setup(substeps = 4) {
@@ -39,7 +39,7 @@ describe('LCPFlow — avanço governado pelo Time (slots)', () => {
         const { step, writes } = await setup(2);
         writes.length = 0;
         const passes = step(2 / 60);
-        const offsetOf = (p: RecordedPass): number => p.offsets[0]![0]!;
+        const offsetOf = (p: RecordedPass): number => paramsOffset(p)!;
         const sim = passes.filter((p) => p.label.startsWith('LCPFlow.'));
         // Por passo: região do passo (predict/commit) e uma região por substep — 3 regiões por passo.
         const expected = [

@@ -2,12 +2,6 @@
 // vértice já usado nesta cor é candidata; vence a de maior prioridade nos dois vértices (máximo atômico), recebe a
 // cor e marca os vértices (`gc_used[v] = cor + 1`). Sem candidatas, a cor está completa (emparelhamento maximal) e o
 // passe de avanço passa à próxima — por isso o número de cores fica ≤ 2Δ − 1.
-@group(0) @binding(0) var<uniform>             gc:        GraphColorParams;
-@group(1) @binding(0) var<storage, read>       gc_edges:  array<vec2u>;
-@group(1) @binding(1) var<storage, read_write> gc_colors: array<u32>;
-@group(1) @binding(2) var<storage, read_write> gc_vmax:   array<atomic<u32>>;
-@group(1) @binding(3) var<storage, read_write> gc_used:   array<atomic<u32>>;
-@group(1) @binding(4) var<storage, read_write> gc_status: GraphColorStatus;
 
 // Aresta sem cor cujos vértices ainda não foram usados na cor corrente.
 fn gc_is_candidate(e: u32, edge: vec2u, mark: u32) -> bool {

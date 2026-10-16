@@ -1,16 +1,12 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/mpm_p2g.wgsl.ts
-@group(0) @binding(0) var<uniform>             mpm_params: MPMSimParams;
-@group(1) @binding(0) var<storage, read_write> grid:       array<MPMGridNode>;
-@group(2) @binding(0) var<storage, read_write> particles:  array<MPMParticle>;
-@group(2) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn mpm_p2g_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let p = gid.x;
     if (p >= mpm_params.particle_count || !pool_live(live[p >> 5u], p)) { return; }
 
@@ -81,7 +77,7 @@ fn mpm_p2g_main(
     for (var b: u32 = 0u; b < 3u; b++) {
     for (var c: u32 = 0u; c < 3u; c++) {
         let node_idx = mpm_node_index(base, a, b, c, gx, gy, gz);
-        if (node_idx == 0xFFFFFFFFu) { continue; }
+        if (node_idx == NONE) { continue; }
 
         let w_ip   = mpm_weight_3d(&w, a, b, c);
         let grad_w = mpm_grad_3d(&w, &dw, a, b, c);

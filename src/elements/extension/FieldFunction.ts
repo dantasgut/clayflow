@@ -18,9 +18,6 @@ import { fieldPoint } from '../physics/shaders/fields';
  * vale a composição anterior. Resultado não finito não entra na soma.
  */
 export class FieldFunction extends ExtensionFunction {
-    /** Registro de parâmetros das funções `field` (o pool comum dos campos). */
-    static readonly schema = fieldPoint.record;
-
     constructor(options: ExtensionFunctionOptions) {
         super(fieldPoint, options);
     }

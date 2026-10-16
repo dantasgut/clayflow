@@ -9,11 +9,14 @@ import type {
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
-    BindingSources,
+    BindingKey,
+    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
 } from '../../../scene/flows/FlowBinding';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowEvent, FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
@@ -34,10 +37,12 @@ import {
     CandidatePairSchema,
     NarrowphaseDispatchSchema,
 } from '../schemas/broadphase';
+import { hashGridResources } from '../../gpu/compute/shaders';
 import { Transform } from '../../scene/Transform';
 import { RigidBody } from '../bodies/RigidBody';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
+import { colliderResources } from '../colliders/colliderResources';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { NarrowphaseParamsSchema, RBSimParamsSchema } from '../schemas/simParams';
@@ -48,6 +53,7 @@ import {
     RBWarmEntrySchema,
 } from '../schemas/simState';
 import {
+    lcpResources as R,
     rbBroadphase,
     rbBuildLcp,
     rbContactAccumulate,
@@ -109,14 +115,17 @@ const SHAPE_POOLS: readonly ShapePool[] = [
     },
 ];
 
-/** Variável do pool de cada forma na narrowphase. */
-const SHAPE_VARIABLE: Readonly<Record<string, string>> = {
-    PlaneCollider: 'planes',
-    BoxCollider: 'boxes',
-    SphereCollider: 'spheres',
-    MeshCollider: 'meshes',
-    SurfaceCollider: 'surfaces',
+/** Recurso do pool de cada forma na narrowphase. */
+const SHAPE_RESOURCE: Readonly<Record<string, WgslResource>> = {
+    PlaneCollider: R.planes,
+    BoxCollider: R.boxes,
+    SphereCollider: R.spheres,
+    MeshCollider: R.meshes,
+    SurfaceCollider: R.surfaces,
 };
+
+/** Fontes de ligação do Flow: por recurso (todos os pipelines) ou por recurso num pipeline. */
+type Sources = Map<BindingKey, BindingSource>;
 
 /** Opções do `LCPFlow`. */
 export interface LCPFlowOptions {
@@ -217,7 +226,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     readonly type = 'LCPFlow';
     readonly slots: LCPSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<LCPSlots>>;
 
@@ -342,17 +351,16 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             discriminator: 'lcp_publish_params',
             byteSize: PosePublishParamsSchema.stride,
         });
-        const privates: Record<
-            string,
-            StorageBufferSpec | UniformBufferSpec | ReturnType<PerStepUniforms['source']>
-        > = {
-            rb_params: this.params.source(),
-            contact_counter: this.counter,
-            publish: this.publishParams,
-            bp_params: this.bpParams,
-            pair_counts: this.pairCounts,
-            np_args: { kind: 'buffer', buffer: this.npArgs },
-        };
+        const privates: Sources = new Map<BindingKey, BindingSource>([
+            [R.params, this.params.source()],
+            [R.counterAlloc, this.counter],
+            [R.counter, this.counter],
+            [R.publish, this.publishParams],
+            [R.bpParams, this.bpParams],
+            [R.pairCounts, this.pairCounts],
+            [R.pairCountsRead, this.pairCounts],
+            [R.npArgs, { kind: 'buffer', buffer: this.npArgs }],
+        ]);
         for (const shape of SHAPE_POOLS) {
             const np = ctx.core.create<UniformBufferSpec>({
                 kind: 'buffer',
@@ -361,21 +369,20 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                 byteSize: NarrowphaseParamsSchema.stride,
             });
             this.npParams.set(shape.poolKey, np);
-            privates[`${shape.pipeline}:np_params`] = np;
+            privates.set({ pipeline: shape.pipeline, resource: R.npParams }, np);
         }
         this.ensureContacts(1, 1);
         this.ensureBodyBuffers(1);
         this.ensureProxies(1);
         this.ensurePairs(1);
         this.grid.prepare(this.proxies!, 0, 1);
-        this.bindings = {
+        this.bindings = new Map<BindingKey, BindingSource>([
             ...privates,
             ...this.contactSources(),
             ...this.bodySources(),
             ...this.broadphaseSources(),
             ...this.gridSources(),
-        };
-        const consumes = [this.bodiesPoolKey];
+        ]);
         const compute = (
             id: string,
             shader: PipelineDescriptor['shader'],
@@ -385,7 +392,6 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
             role: 'compute',
             shader,
             entryPoints: [entry],
-            consumes,
         });
         this.pipelines = [
             compute('lcp_predict', rbPredict, 'rb_predict_main'),
@@ -407,12 +413,6 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
                 role: 'compute',
                 shader: rbPublishPose,
                 entryPoints: ['rb_publish_pose_main'],
-                consumes: [
-                    this.bodiesPoolKey,
-                    rigidPoseRecord.schema.name,
-                    RigidPoseInstanceSchema.name,
-                    Transform.schema.name,
-                ],
             },
         ];
         const colliders = {
@@ -525,10 +525,8 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         ): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
-                p.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(g, bg, p.dynamic[g] ? offset : undefined),
-                );
-                pass.dispatch.invocations(invocations, 64);
+                p.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(invocations, WORKGROUP_SIZE.value);
             });
         };
         const runIndirect = (
@@ -539,9 +537,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         ): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
-                p.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(g, bg, p.dynamic[g] ? offset : undefined),
-                );
+                p.bindTo(pass.bind, { draw: offset });
                 pass.dispatch.workgroupsIndirect(this.npArgs, argsOffset);
             });
         };
@@ -677,16 +673,16 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
     /** Reconstrói os mapas de dono se sujos e religa as fontes que mudaram. */
     private syncColliders(ctx: Ctx): void {
         if (!this.colliderSet.refresh()) return;
-        const sources: Record<string, StorageBufferSpec | UniformBufferSpec> = {};
+        const sources: Sources = new Map();
         for (const shape of SHAPE_POOLS) {
             const pool = this.colliderSet.pool(shape.poolKey);
-            sources[SHAPE_VARIABLE[shape.poolKey]!] = pool.buffer;
-            sources[`${shape.pipeline}:body_owners`] = pool.owners;
+            sources.set(SHAPE_RESOURCE[shape.poolKey]!, pool.buffer);
+            sources.set({ pipeline: shape.pipeline, resource: R.bodyOwners }, pool.owners);
         }
-        sources.box_owners = this.colliderSet.pool('BoxCollider').owners;
-        sources.sphere_owners = this.colliderSet.pool('SphereCollider').owners;
-        sources.large = this.colliderSet.broadphase().large;
-        sources.collider_surface_field = this.colliderSet.fieldBuffer();
+        sources.set(R.boxOwners, this.colliderSet.pool('BoxCollider').owners);
+        sources.set(R.sphereOwners, this.colliderSet.pool('SphereCollider').owners);
+        sources.set(R.large, this.colliderSet.broadphase().large);
+        sources.set(colliderResources.surfaceField, this.colliderSet.fieldBuffer());
         ctx.bind(sources);
     }
 
@@ -705,16 +701,23 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         this.refreshColliders(ctx);
     }
 
-    private contactSources(): BindingSources {
-        return { contacts: this.contacts!, b_vec: this.bVec!, warm_table: this.warm! };
+    private contactSources(): Sources {
+        return new Map<BindingKey, BindingSource>([
+            [R.contacts, this.contacts!],
+            [R.contactsRead, this.contacts!],
+            [R.bVec, this.bVec!],
+            [R.bVecRead, this.bVec!],
+            [R.warmTable, this.warm!],
+        ]);
     }
 
-    private bodySources(): BindingSources {
-        return {
-            body_correction: this.bodyCorrection!,
-            body_delta: this.bodyDelta!,
-            body_split: this.bodySplit!,
-        };
+    private bodySources(): Sources {
+        return new Map<BindingKey, BindingSource>([
+            [R.bodyCorrection, this.bodyCorrection!],
+            [R.bodyDelta, this.bodyDelta!],
+            [R.bodySplitCount, this.bodySplit!],
+            [R.bodySplit, this.bodySplit!],
+        ]);
     }
 
     /** Lista compactada de contatos, bias e tabela de warm start para a capacidade; devolve se recriou. */
@@ -826,7 +829,7 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         // Regiões: por passo, uma para predict/commit (dt do passo) e uma por substep.
         const perStep = this.substeps + 1;
         const regions = steps * perStep;
-        if (this.params.reserve(regions)) ctx.bind({ rb_params: this.params.source() });
+        if (this.params.reserve(regions)) ctx.bind(new Map([[R.params, this.params.source()]]));
         // Buffers antes dos parâmetros: a capacidade da lista e da tabela entram em cada região.
         if (this.ensureContacts(bodyCount, totalCol)) ctx.bind(this.contactSources());
         if (this.ensureBodyBuffers(bodyCount)) ctx.bind(this.bodySources());
@@ -951,23 +954,23 @@ export class LCPFlow extends Flow<LCPSlots, 'running'> {
         return true;
     }
 
-    private broadphaseSources(): BindingSources {
-        return {
-            proxies: this.proxies!,
-            box_pairs: this.boxPairs!,
-            sphere_pairs: this.spherePairs!,
-            'lcp_narrowphase_box:pairs': this.boxPairs!,
-            'lcp_narrowphase_sphere:pairs': this.spherePairs!,
-        };
+    private broadphaseSources(): Sources {
+        return new Map<BindingKey, BindingSource>([
+            [R.proxies, this.proxies!],
+            [R.boxPairs, this.boxPairs!],
+            [R.spherePairs, this.spherePairs!],
+            [{ pipeline: 'lcp_narrowphase_box', resource: R.pairs }, this.boxPairs!],
+            [{ pipeline: 'lcp_narrowphase_sphere', resource: R.pairs }, this.spherePairs!],
+        ]);
     }
 
-    private gridSources(): BindingSources {
-        return {
-            grid: this.grid.params,
-            cell_start: this.grid.cellStart,
-            cell_count: this.grid.cellCount,
-            cell_items: this.grid.cellItems,
-        };
+    private gridSources(): Sources {
+        return new Map<BindingKey, BindingSource>([
+            [hashGridResources.grid, this.grid.params],
+            [R.cellStart, this.grid.cellStart],
+            [R.cellCount, this.grid.cellCount],
+            [R.cellItems, this.grid.cellItems],
+        ]);
     }
 
     /** Início e tamanho da lista de poses (o grupo único do slot `poses`), escritos quando mudam. */
