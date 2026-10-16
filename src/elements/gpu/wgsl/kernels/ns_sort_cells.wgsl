@@ -2,20 +2,14 @@
 // da célula variar entre execuções; ordenada, a busca percorre as células numa ordem fixa e a lista de vizinhos sai
 // determinística sem ordenar por partícula. Também copia as posições na mesma ordem. Uma invocação por célula, inserção no próprio segmento (poucas partículas
 // por célula).
-@group(0) @binding(0) var<uniform>             ns_params:        NsSimParams;
-@group(1) @binding(0) var<storage, read>       cell_start:       array<u32>;
-@group(1) @binding(1) var<storage, read>       cell_count_buf:   array<u32>;
-@group(1) @binding(2) var<storage, read_write> sorted_particles: array<u32>;
-@group(1) @binding(3) var<storage, read>       particle_data:    array<f32>;
 // Posições na ordem por célula, para a busca ler os candidatos em sequência.
-@group(1) @binding(4) var<storage, read_write> sorted_positions: array<vec4f>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn ns_sort_cells_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let cell = gid3.x + gid3.y * nwg.x * 64u;
+    let cell = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (cell >= ns_params.cell_count) { return; }
     let start = cell_start[cell];
     let count = cell_count_buf[cell];
