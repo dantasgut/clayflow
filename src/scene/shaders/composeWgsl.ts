@@ -4,6 +4,28 @@ import { stripWgslComments } from './scanWgslSymbols';
 import { WGSL_BUILTIN_CALLABLES } from './wgslBuiltins';
 import { WgslCompositionError } from './WgslCompositionError';
 import type { WgslModule } from './WgslModule';
+import {
+    BINDING_FREQUENCIES,
+    declaredResourceNames,
+    isWgslResource,
+    resourceDeclarationLine,
+    type BindingFrequency,
+    type WgslResource,
+} from './WgslResource';
+
+/** Ligação atribuída pelo motor a um recurso declarado (spec 031). */
+export interface ComposedBinding {
+    /** O recurso. */
+    readonly resource: WgslResource;
+    /** Nome da variável. */
+    readonly name: string;
+    /** Grupo (posto da frequência entre as presentes). */
+    readonly group: number;
+    /** Ligação dentro do grupo (ordem do nome). */
+    readonly binding: number;
+    /** Frequência do recurso. */
+    readonly frequency: BindingFrequency;
+}
 
 /** Resultado da montagem de um shader a partir de um módulo de entrada. */
 export interface ComposedShader {
@@ -18,8 +40,13 @@ export interface ComposedShader {
      * do compilador para a linha no fonte do módulo (`line − first + 1`).
      */
     readonly ranges: ReadonlyMap<string, { readonly first: number; readonly last: number }>;
+    /** Ligações dos recursos declarados (spec 031), em ordem de grupo e ligação; vazio em shaders sem recursos. */
+    readonly bindings: readonly ComposedBinding[];
+    /** Frequência de cada grupo emitido (índice = grupo). */
+    readonly groupFrequencies: readonly BindingFrequency[];
 }
 
+const MANUAL_BINDING = /@group\s*\(|@binding\s*\(/;
 const MARKER = /\{\{struct:([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
 const CALL = /(?<!@)\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
 
@@ -53,6 +80,19 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
     };
     for (const s of schemas) define(s.wgslName, `struct ${s.wgslName}`);
     for (const m of order) for (const sym of m.symbols) define(sym.name, m.name);
+    const resources = order.filter(isWgslResource);
+    const manual = order.filter(
+        (m) => !isWgslResource(m) && MANUAL_BINDING.test(stripWgslComments(m.source)),
+    );
+    if (resources.length > 0 && manual.length > 0) {
+        throw new WgslCompositionError(
+            'mixed-bindings',
+            `composeWgsl('${entry.name}'): recursos declarados (${resources.map((r) => r.name).join(', ')}) junto com ligações escritas à mão em ${manual.map((m) => m.name).join(', ')}`,
+            [...resources.map((r) => r.name), ...manual.map((m) => m.name)],
+        );
+    }
+    const { bindings, groupFrequencies } = assignBindings(resources);
+    checkResourceReferences(order, entry.name);
 
     const parts: string[] = [];
     const ranges = new Map<string, { first: number; last: number }>();
@@ -63,7 +103,17 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
         line += text.split('\n').length + 1;
     };
     if (schemas.length > 0) push(schemas.map((s) => s.toWGSL()).join('\n\n'));
+    if (bindings.length > 0) {
+        push(
+            bindings
+                .map((b) =>
+                    resourceDeclarationLine(b.name, b.resource.resource, b.group, b.binding),
+                )
+                .join('\n'),
+        );
+    }
     for (const m of order) {
+        if (isWgslResource(m)) continue;
         const text = resolveMarkers(m, entry.name);
         ranges.set(m.name, { first: line, last: line + text.split('\n').length - 1 });
         push(text);
@@ -76,6 +126,8 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
         modules: Object.freeze(order.map((m) => m.name)),
         symbols,
         ranges,
+        bindings: Object.freeze(bindings),
+        groupFrequencies: Object.freeze(groupFrequencies),
     });
     composed.set(entry, result);
     return result;
@@ -188,5 +240,69 @@ function checkReferences(
             `composeWgsl('${entryName}'): chamada a '${names.join("', '")}' sem definição — falta um módulo em requires?`,
             names,
         );
+    }
+}
+
+/** Grupo = posto da frequência entre as presentes; ligação = ordem do nome dentro do grupo. Determinístico. */
+function assignBindings(resources: readonly WgslResource[]): {
+    bindings: ComposedBinding[];
+    groupFrequencies: BindingFrequency[];
+} {
+    const present = BINDING_FREQUENCIES.filter((f) =>
+        resources.some((r) => r.resource.frequency === f),
+    );
+    const bindings: ComposedBinding[] = [];
+    present.forEach((frequency, group) => {
+        const names = resources
+            .filter((r) => r.resource.frequency === frequency)
+            .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+        names.forEach((resource, binding) => {
+            bindings.push({ resource, name: resource.name, group, binding, frequency });
+        });
+    });
+    return { bindings, groupFrequencies: present };
+}
+
+const LOCAL_DECLARATION =
+    /\b(?:let|var|const)\s+([A-Za-z_][A-Za-z0-9_]*)|(?<![.\w@])([A-Za-z_][A-Za-z0-9_]*)\s*:(?!:)/g;
+const IDENT_TOKEN = /(?<![.\w@])[A-Za-z_][A-Za-z0-9_]*\b/g;
+
+/** Módulos alcançados por `m` (ele e as dependências transitivas). */
+function closureOf(m: WgslModule, out = new Set<WgslModule>()): Set<WgslModule> {
+    if (out.has(m)) return out;
+    out.add(m);
+    for (const dep of m.requires) closureOf(dep, out);
+    return out;
+}
+
+/**
+ * Um módulo só usa os recursos declarados que alcança pelas suas dependências (spec 031, FR-002): um recurso usado
+ * por um módulo que não o requer é um global implícito do hospedeiro — `unresolved-reference`.
+ */
+function checkResourceReferences(order: readonly WgslModule[], entryName: string): void {
+    const known = declaredResourceNames();
+    if (known.size === 0) return;
+    for (const m of order) {
+        if (isWgslResource(m) || m.source.length === 0) continue;
+        const reachNames = new Set<string>();
+        for (const r of closureOf(m)) if (isWgslResource(r)) reachNames.add(r.name);
+        const code = stripWgslComments(m.source);
+        // Nomes declarados no próprio módulo (parâmetros, campos, `let`/`var`/`const` locais e de módulo) sombreiam.
+        const local = new Set<string>(m.symbols.map((sym) => sym.name));
+        for (const d of code.matchAll(LOCAL_DECLARATION)) local.add(d[1] ?? d[2]!);
+        const missing = new Set<string>();
+        for (const match of code.matchAll(IDENT_TOKEN)) {
+            const name = match[0];
+            if (local.has(name) || reachNames.has(name) || !known.has(name)) continue;
+            missing.add(name);
+        }
+        if (missing.size > 0) {
+            const names = [...missing];
+            throw new WgslCompositionError(
+                'unresolved-reference',
+                `composeWgsl('${entryName}'): o módulo '${m.name}' usa '${names.join("', '")}' sem requerer o recurso — global implícito do hospedeiro`,
+                [m.name, ...names],
+            );
+        }
     }
 }

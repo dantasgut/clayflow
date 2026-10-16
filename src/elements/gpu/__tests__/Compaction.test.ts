@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Compaction } from '../compute/Compaction';
 import { compactionModules } from '../compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
@@ -14,10 +15,18 @@ const buffer = (discriminator: string): StorageBufferSpec => ({
     byteSize: 1 << 16,
 });
 
+const testValues = wgslResource({
+    name: 'test_values',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+
 const predicate = wgslModule({
     name: 'test_even',
+    requires: [testValues],
     source: `
-@group(1) @binding(0) var<storage, read> test_values: array<u32>;
 fn compact_keep(i: u32) -> bool { return (test_values[i] & 1u) == 0u; }
 fn compact_value(i: u32) -> u32 { return i; }`,
 });
@@ -31,7 +40,7 @@ function setup(options: { stable?: boolean; inputCapacity?: number } = {}) {
         discriminator: 'cp',
         predicate,
         capacity: 100,
-        bindings: { test_values: buffer('values') },
+        bindings: new Map([[testValues, buffer('values')]]),
         ...options,
     });
     return { core, compaction };
@@ -67,7 +76,7 @@ describe('Compaction', () => {
         expect(rec.sequence).toEqual(['clear:ctr', 'pass:Compaction.atomic']);
         expect(rec.passes[0]!.dispatches[0]).toEqual([1000, 256]);
         // grupo 0 com offset dinâmico; grupo 1 com os buffers do predicado.
-        expect(rec.passes[0]!.offsets).toEqual([[0], undefined]);
+        expect(rec.passes[0]!.offsets).toEqual([undefined, [0]]);
     });
 
     it('modo estável: flags, soma de prefixos (PrefixSum) e espalhamento', () => {

@@ -1,3 +1,4 @@
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { EngineCore, Frame, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
@@ -29,7 +30,7 @@ import {
 } from './CameraSchemas';
 import { cameraCompose, cameraComposeFn, cameraPoint } from './shaders';
 
-const WORKGROUP_SIZE = 64;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
 /** Slots do estágio de câmera. */
 export interface CameraSlots extends SlotMap {

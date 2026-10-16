@@ -1,3 +1,5 @@
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
@@ -7,7 +9,7 @@ import {
 import { FrameUniforms } from './FrameUniforms';
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
 import { RadixParamsSchema } from './schemas';
-import { radixHistogram, radixScatter } from './shaders';
+import { radixHistogram, radixScatter, radixResources } from './shaders';
 
 /** Bits por passe (dígitos de 16 valores). */
 const DIGIT_BITS = 4;
@@ -210,27 +212,33 @@ export class RadixSort {
     ): PassKernels {
         const radix = this.params.source();
         const hist = this.hist!;
+        const r = radixResources;
         const histogram = createComputeKernel(this.core, {
             discriminator: `${this.disc}:radix_histogram`,
             shader: radixHistogram,
             entryPoint: 'radix_histogram_main',
-            bindings: { radix, keys: inKeys, hist },
+            bindings: new Map<WgslResource, BindingSource>([
+                [r.radix, radix],
+                [r.keys, inKeys],
+                [r.histWrite, hist],
+            ]),
         });
         const scatter = createComputeKernel(this.core, {
             discriminator: `${this.disc}:radix_scatter${valuePair === undefined ? '' : '_kv'}`,
             shader: radixScatter,
             entryPoint: valuePair === undefined ? 'radix_scatter_main' : 'radix_scatter_kv_main',
-            bindings:
-                valuePair === undefined
-                    ? { radix, keys_in: inKeys, keys_out: outKeys, hist }
-                    : {
-                          radix,
-                          keys_in: inKeys,
-                          keys_out: outKeys,
-                          hist,
-                          values_in: valuePair[0],
-                          values_out: valuePair[1],
-                      },
+            bindings: new Map<WgslResource, BindingSource>([
+                [r.radix, radix],
+                [r.keysIn, inKeys],
+                [r.keysOut, outKeys],
+                [r.histRead, hist],
+                ...(valuePair === undefined
+                    ? []
+                    : ([
+                          [r.valuesIn, valuePair[0]],
+                          [r.valuesOut, valuePair[1]],
+                      ] as [WgslResource, BindingSource][])),
+            ]),
         });
         return { histogram, scatter };
     }
@@ -243,10 +251,8 @@ export class RadixSort {
         count: number,
     ): void {
         frame.compute(label, (pass) => {
-            pass.bind
-                .setPipeline(kernel.pipeline)
-                .setBindGroup(0, kernel.bindGroups[0]!, [offset])
-                .setBindGroup(1, kernel.bindGroups[1]!);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind, { draw: [offset] });
             pass.dispatch.invocations(count, SCAN_GROUP);
         });
     }

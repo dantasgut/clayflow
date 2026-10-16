@@ -1,5 +1,6 @@
 import type { ComposedShader } from '../shaders/composeWgsl';
 import { stripWgslComments } from '../shaders/scanWgslSymbols';
+import type { BindingFrequency, WgslResource } from '../shaders/WgslResource';
 
 /** Estágio de shader de uma entrada (`@vertex`, `@fragment`, `@compute`). */
 export type WgslStage = 'vertex' | 'fragment' | 'compute';
@@ -75,6 +76,8 @@ export interface InferredEntry {
     readonly visibility: number;
     /** Tipo de recurso do binding. */
     readonly resource: InferredResource;
+    /** Recurso declarado (spec 031) — ausente em ligações escritas à mão. */
+    readonly declared?: WgslResource;
 }
 
 /** Entradas de um `@group(N)`. Grupos sem binding usado ficam com `entries` vazio (o índice é preservado). */
@@ -83,6 +86,8 @@ export interface InferredGroup {
     readonly group: number;
     /** Entradas usadas pelas entradas pedidas, em ordem de binding. */
     readonly entries: readonly InferredEntry[];
+    /** Frequência do grupo (recursos declarados, spec 031). */
+    readonly frequency?: BindingFrequency;
 }
 
 /** Layout de um pipeline: um grupo por índice de 0 até o maior grupo usado. */
@@ -149,6 +154,9 @@ export class LayoutInferencer {
      */
     infer(shader: ComposedShader | string, entryPoints: readonly string[]): InferredLayout {
         const source = typeof shader === 'string' ? shader : shader.spec.source;
+        const declared = new Map(
+            typeof shader === 'string' ? [] : shader.bindings.map((b) => [b.name, b] as const),
+        );
         const code = stripWgslComments(source);
         const fns = collectFunctions(code);
         for (const ep of entryPoints) {
@@ -173,6 +181,7 @@ export class LayoutInferencer {
                 typeName: typeNameOf(b.typeText),
                 visibility,
                 resource: resourceOf(b),
+                ...(declared.has(b.name) ? { declared: declared.get(b.name)!.resource } : {}),
             });
             byGroup.set(b.group, list);
             maxGroup = Math.max(maxGroup, b.group);
@@ -180,7 +189,8 @@ export class LayoutInferencer {
         const groups: InferredGroup[] = [];
         for (let g = 0; g <= maxGroup; g++) {
             const entries = (byGroup.get(g) ?? []).sort((a, b) => a.binding - b.binding);
-            groups.push({ group: g, entries });
+            const frequency = typeof shader === 'string' ? undefined : shader.groupFrequencies[g];
+            groups.push({ group: g, entries, ...(frequency !== undefined ? { frequency } : {}) });
         }
         const stages = new Map(entryPoints.map((ep) => [ep, fns.get(ep)!.stage!]));
         return { groups, stages };

@@ -1,3 +1,6 @@
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { SCAN_GROUP as SCAN_GROUP_CONSTANT } from '../shaders/constants';
 import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
@@ -6,10 +9,10 @@ import {
 } from '../../../scene/flows/createComputeKernel';
 import { FrameUniforms } from './FrameUniforms';
 import { ScanLevelSchema } from './schemas';
-import { scanCombine, scanLocal, scanTop } from './shaders';
+import { scanCombine, scanLocal, scanResources, scanTop } from './shaders';
 
 /** Elementos por grupo da soma de prefixos (tamanho do workgroup dos kernels de scan). */
-export const SCAN_GROUP = 256;
+export const SCAN_GROUP = SCAN_GROUP_CONSTANT.value;
 
 /**
  * Contagens de cada nível da soma de prefixos para `count` elementos: `n_0 = count`, `n_{l+1} = ⌈n_l / 256⌉`, até um
@@ -203,12 +206,24 @@ export class PrefixSum {
         const shader =
             kind === 'scan_local' ? scanLocal : kind === 'scan_top' ? scanTop : scanCombine;
         const level = this.params.source();
+        const r = scanResources;
         const bindings =
             kind === 'scan_top'
-                ? { level, values }
+                ? new Map<WgslResource, BindingSource>([
+                      [r.level, level],
+                      [r.values, values],
+                  ])
                 : kind === 'scan_local'
-                  ? { level, values, group_sums: above! }
-                  : { level, values, group_prefix: above! };
+                  ? new Map<WgslResource, BindingSource>([
+                        [r.level, level],
+                        [r.values, values],
+                        [r.groupSums, above!],
+                    ])
+                  : new Map<WgslResource, BindingSource>([
+                        [r.level, level],
+                        [r.values, values],
+                        [r.groupPrefix, above!],
+                    ]);
         return createComputeKernel(this.core, {
             discriminator: `${this.disc}:${kind}`,
             shader,
@@ -226,10 +241,8 @@ export class PrefixSum {
         count: number | null,
     ): void {
         frame.compute(label, (pass) => {
-            pass.bind
-                .setPipeline(kernel.pipeline)
-                .setBindGroup(0, kernel.bindGroups[0]!, [offset])
-                .setBindGroup(1, kernel.bindGroups[1]!);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind, { draw: [offset] });
             if (count === null) pass.dispatch.workgroups(1);
             else pass.dispatch.invocations(count, SCAN_GROUP);
         });

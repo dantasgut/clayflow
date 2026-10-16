@@ -1,3 +1,4 @@
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type {
     EngineCore,
     Frame,
@@ -35,7 +36,7 @@ import {
     TransformParamsSchema,
 } from './TransformParams';
 
-const WORKGROUP_SIZE = 64;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
 /** Slots do estágio de transformação. */
 export interface TransformSlots extends SlotMap {

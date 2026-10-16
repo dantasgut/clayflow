@@ -1,3 +1,4 @@
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { EngineCore, Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../scene/flows/Flow';
@@ -27,7 +28,7 @@ import { ComputeParticleEmitter } from './ComputeParticleEmitter';
 import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
 import { emitCollide, emitPoint, emitSpawn, emitUpdate } from './shaders';
 
-const WORKGROUP_SIZE = 64;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
 /** Slots do estágio dos emissores. */
 export interface EmitterSlots extends SlotMap {

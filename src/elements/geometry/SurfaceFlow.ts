@@ -1,3 +1,5 @@
+import { NONE as ENGINE_NONE } from '../../scene/shaders/engineConstants';
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type {
     AnyBufferSpec,
     EngineCore,
@@ -52,8 +54,8 @@ import {
     surfaceTangentsAnalytic,
 } from './shaders';
 
-const WORKGROUP_SIZE = 64;
-const NONE = 0xffffffff;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
+const NONE = ENGINE_NONE.value;
 
 /** A câmera andou mais que `limit` (ou mudou o campo de visão) desde a última geração? */
 function cameraMoved(

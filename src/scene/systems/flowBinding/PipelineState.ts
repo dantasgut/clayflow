@@ -1,4 +1,6 @@
 import type {
+    Binder,
+    PipelineSpec,
     BindGroupSpec,
     BindingLayoutEntry,
     ComputePipelineSpec,
@@ -11,9 +13,17 @@ import type {
 import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import { FlowBindingError } from '../../flows/FlowBindingError';
-import type { PreparedCompute, PreparedRender } from '../../flows/FlowBinding';
+import {
+    bindGroupsTo,
+    type GroupOffsets,
+    type PreparedCompute,
+    type PreparedGroup,
+    type PreparedRender,
+} from '../../flows/FlowBinding';
+import type { BindingFrequency } from '../../shaders/WgslResource';
 import { composeWgsl, type ComposedShader } from '../../shaders/composeWgsl';
 import type { InferredEntry, InferredLayout, LayoutInferencer } from '../LayoutInferencer';
+import { checkLayoutLimits } from './limits';
 import { bindingEntryOf, layoutEntryOf, sameLayoutEntry, sameSource } from './sources';
 
 /** Resolução da fonte de um binding: a fonte, `undefined` (ainda ausente na cena) ou erro estrutural (lança). */
@@ -108,6 +118,40 @@ export class PipelineState {
 
     get dynamic(): readonly boolean[] {
         return this.dynamicGroups;
+    }
+
+    /** Grupos da frequência (spec 031). */
+    groupsOf(frequency: BindingFrequency): readonly PreparedGroup[] {
+        const out: PreparedGroup[] = [];
+        for (const g of this.layout.groups) {
+            if (g.frequency !== frequency) continue;
+            const spec = this.bindGroups[g.group];
+            if (spec === undefined) continue;
+            out.push({ index: g.group, spec, dynamic: this.dynamicGroups[g.group] === true });
+        }
+        return out;
+    }
+
+    /** Grava todos os grupos (spec 031). */
+    bindTo<P extends PipelineSpec>(binder: Binder<P>, offsets?: GroupOffsets): void {
+        bindGroupsTo(
+            binder,
+            this.layout.groups.flatMap((g) => {
+                const spec = this.bindGroups[g.group];
+                return spec === undefined
+                    ? []
+                    : [
+                          {
+                              index: g.group,
+                              spec,
+                              dynamic: this.dynamicGroups[g.group] === true,
+                              ...(g.frequency !== undefined ? { frequency: g.frequency } : {}),
+                          },
+                      ];
+            }),
+            offsets,
+            `Flow '${this.flowType}', pipeline '${this.id}'`,
+        );
     }
 
     get ready(): boolean {
@@ -231,6 +275,11 @@ export class PipelineState {
     }
 
     private build(entries: BindingLayoutEntry[][], sources: ResolvedSource[][]): void {
+        checkLayoutLimits(
+            `Flow '${this.flowType}', pipeline '${this.id}'`,
+            entries,
+            this.core.capabilities().limits,
+        );
         this.release();
         this.waiting = false;
         this.built = true;
@@ -316,6 +365,9 @@ export class PipelineState {
             layouts: this.layoutSpecs,
             shader,
             entryPoint: this.descriptor.entryPoints[0]!,
+            ...(this.descriptor.constants !== undefined
+                ? { constants: this.descriptor.constants }
+                : {}),
         };
     }
 
@@ -338,6 +390,7 @@ export class PipelineState {
                 shader,
                 entryPoint: vertexEntry,
                 ...(d.vertexBuffers !== undefined ? { buffers: d.vertexBuffers } : {}),
+                ...(d.constants !== undefined ? { constants: d.constants } : {}),
             },
             ...(fragmentEntry !== undefined
                 ? {
@@ -345,6 +398,7 @@ export class PipelineState {
                           shader,
                           entryPoint: fragmentEntry,
                           targets: d.colorTargets ?? [{ format: this.canvasFormat() }],
+                          ...(d.constants !== undefined ? { constants: d.constants } : {}),
                       },
                   }
                 : {}),

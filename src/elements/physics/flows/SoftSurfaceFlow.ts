@@ -1,3 +1,4 @@
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type {
     AnyBufferSpec,
     EngineCore,
@@ -23,7 +24,7 @@ import { SoftBody } from '../bodies/SoftBody';
 import { SoftSurfaceParamsSchema } from '../schemas/softSurface';
 import { softFaceNormals, softVertexWrite } from '../shaders/softSurface';
 
-const WORKGROUP_SIZE = 64;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
 /** Slots do estágio de superfície de corpos moles. */
 export interface SoftSurfaceSlots extends SlotMap {

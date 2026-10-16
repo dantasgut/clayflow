@@ -1,3 +1,4 @@
+import { WATER_NO_DEPTH } from '../water/constants';
 import { Entity } from '../../scene/contracts/Entity';
 import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
@@ -17,7 +18,7 @@ export interface WaterSurfaceOptions {
 const PhotonSchema = new StructSchema('WaterPhoton', { value: FieldType.u32 });
 
 /** Valor de profundidade linear que marca "sem água" nas texturas de profundidade da superfície. */
-export const NO_WATER_DEPTH = 1e9;
+export const NO_WATER_DEPTH = WATER_NO_DEPTH.value;
 
 /**
  * Superfície de água da cena (Camada 4, spec 017): as texturas que os estágios da água compartilham — a superfície

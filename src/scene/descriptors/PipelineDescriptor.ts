@@ -67,6 +67,13 @@ export interface PipelineDescriptor {
     readonly colorTargets?: readonly ColorTargetSpec[];
     /** Vertex buffer layouts (apenas render). Default: derivado de consumes. */
     readonly vertexBuffers?: readonly VertexBufferLayout[];
+    /** Constantes `override` do shader (spec 031): variantes sem remendo de texto. */
+    readonly constants?: Readonly<Record<string, number>>;
+    /**
+     * Família de desenho (spec 031): como as entidades com este pipeline são desenhadas (`surface`, `points`, `wire`,
+     * `particle-sprite`, `fluid-surface`) — os estágios selecionam por ela, não pelo tipo de outros Resources.
+     */
+    readonly family?: string;
     /** Quando true, usa `core.createAsync` (compilação não-bloqueante). */
     readonly preferAsync?: boolean;
     /**

@@ -1,3 +1,4 @@
+import { NONE } from '../../scene/shaders/engineConstants';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
@@ -36,7 +37,7 @@ export const ForwardFrameParamsSchema = new StructSchema(
 );
 
 /** `lightSlot` sem luz que ilumina: o forward usa a direção padrão. */
-export const NO_LIGHT_SLOT = 0xffffffff;
+export const NO_LIGHT_SLOT = NONE.value;
 
 /**
  * Desenho de um corpo de partículas em sprites (spec 008, uma região por corpo, com offset dinâmico): o primeiro slot da

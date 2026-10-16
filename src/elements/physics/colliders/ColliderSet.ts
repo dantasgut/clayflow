@@ -1,3 +1,5 @@
+import { NONE } from '../../../scene/shaders/engineConstants';
+import { MAX_SURFACE_COLLIDERS as MAX_SURFACE_COLLIDERS_CONSTANT } from '../../gpu/shaders/constants';
 import type { PoolBufferSpec } from '../../../scene/contracts/PoolDirectory';
 import type {
     EngineCore,
@@ -5,7 +7,9 @@ import type {
     UniformBufferSpec,
 } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
-import type { BindingSources } from '../../../scene/flows/FlowBinding';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+
+type NamedSources = Readonly<Record<string, BindingSource>>;
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import type { World } from '../../../scene/world/World';
@@ -35,7 +39,7 @@ export const COLLIDER_POOL_KEYS: readonly string[] = [
 ].map((s) => s.name);
 
 /** Slot de dono para collider sem corpo (estático: o centro é a posição de mundo). */
-export const NO_OWNER = 0xffffffff;
+export const NO_OWNER = NONE.value;
 
 /** Contagens dos pools ligados no grupo de colliders (`ColliderSetCounts` no WGSL). */
 export const ColliderSetCountsSchema = new StructSchema('ColliderSetCounts', {
@@ -56,7 +60,7 @@ export const ColliderSetCountsSchema = new StructSchema('ColliderSetCounts', {
 });
 
 /** Colliders de superfície consultados por estágio (os inícios dos campos vão no uniforme de contagens). */
-export const MAX_SURFACE_COLLIDERS = 16;
+export const MAX_SURFACE_COLLIDERS = MAX_SURFACE_COLLIDERS_CONSTANT.value;
 
 /** Visão de um pool de collider: buffer do pool, mapa de dono e contagem. */
 export interface ColliderPoolView {
@@ -194,7 +198,7 @@ export class ColliderSet {
     }
 
     /** Fontes do grupo de colliders pelos nomes do `collider_set.wgsl` (válidas depois de `refresh()`). */
-    sources(): BindingSources {
+    sources(): NamedSources {
         if (this.countsBuffer === null)
             throw new Error('ColliderSet: refresh() antes de sources()');
         const plane = this.pool(PlaneCollider.schema.name);

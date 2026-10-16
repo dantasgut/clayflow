@@ -40,6 +40,9 @@ export type {
 export type {
     BindingSource,
     BindingSources,
+    BindingKey,
+    PreparedGroup,
+    GroupOffsets,
     BoundFlow,
     PreparedPipeline,
     PreparedCompute,

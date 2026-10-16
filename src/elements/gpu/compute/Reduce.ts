@@ -1,3 +1,5 @@
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
@@ -7,7 +9,7 @@ import {
 import { FrameUniforms } from './FrameUniforms';
 import { SCAN_GROUP } from './PrefixSum';
 import { ReduceLevelSchema } from './schemas';
-import { reduceKernel, type ReduceOpName, type ReduceType } from './shaders';
+import { reduceKernel, type ReduceOpName, type ReduceType, reduceResources } from './shaders';
 
 /**
  * Contagens de cada nível da redução para `count` elementos: `n_0 = count`, `n_{l+1} = ⌈n_l / 256⌉`, até 1. Sempre há
@@ -147,10 +149,8 @@ export class Reduce {
         for (let k = 0; k < passes; k++) {
             const kernel = k === passes - 1 ? pair.toOut[k]! : pair.toPartial[k]!;
             frame.compute('Reduce', (pass) => {
-                pass.bind
-                    .setPipeline(kernel.pipeline)
-                    .setBindGroup(0, kernel.bindGroups[0]!, [offsets[k]!])
-                    .setBindGroup(1, kernel.bindGroups[1]!);
+                pass.bind.setPipeline(kernel.pipeline);
+                kernel.bindTo(pass.bind, { draw: [offsets[k]!] });
                 pass.dispatch.invocations(counts[k]!, SCAN_GROUP);
             });
         }
@@ -181,7 +181,11 @@ export class Reduce {
             discriminator: `${this.disc}:reduce`,
             shader: this.shader,
             entryPoint: 'reduce_main',
-            bindings: { reduce_level: this.params.source(), reduce_in: input, reduce_out: output },
+            bindings: new Map<WgslResource, BindingSource>([
+                [reduceResources.level, this.params.source()],
+                [reduceResources.input, input],
+                [reduceResources.output, output],
+            ]),
         });
     }
 

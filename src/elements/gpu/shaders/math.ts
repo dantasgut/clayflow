@@ -18,6 +18,7 @@ import colorSource from '../wgsl/math/color.wgsl?raw';
 import brdfSource from '../wgsl/math/brdf.wgsl?raw';
 import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
 import cameraSource from '../wgsl/math/camera.wgsl?raw';
+import finiteSource from '../wgsl/math/finite.wgsl?raw';
 import { LCPSchema } from '../../physics/bodies/schemas/LCPSchema';
 import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
@@ -30,6 +31,9 @@ import {
     RBBodyDeltaSchema,
     RBWarmEntrySchema,
 } from '../../physics/schemas/simState';
+
+/** Teste de valor finito (sem NaN nem ±∞) de `vec3f`/`vec4f` — o saneamento único das saídas de funções e grafos. */
+export const finite = wgslModule({ name: 'finite', source: finiteSource });
 
 /** Quaternions: produto, rotação de vetor (e inversa), normalização, integração, Δ de velocidade angular. */
 export const quat = wgslModule({ name: 'quat', source: quatSource });

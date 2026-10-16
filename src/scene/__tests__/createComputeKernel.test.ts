@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createComputeKernel, destroyComputeKernel } from '../flows/createComputeKernel';
 import { fakeResourceCore } from './helpers/fakeResourceCore';
+import { defaultCapabilities } from './helpers/defaultCapabilities';
 import { wgslModule } from '../shaders/WgslModule';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
 import type { EngineCore, StorageBufferSpec, UniformBufferSpec } from '../../core/contracts/index';
@@ -27,6 +28,7 @@ function recordingCore(): {
             asyncCreates.push(entry(spec));
             return Promise.resolve(spec);
         }),
+        capabilities: vi.fn(defaultCapabilities),
     } as unknown as EngineCore;
     return { core, creates, asyncCreates };
 }

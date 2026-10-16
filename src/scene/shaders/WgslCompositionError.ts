@@ -7,7 +7,10 @@ export type WgslCompositionErrorKind =
     | 'struct-conflict'
     | 'unresolved-reference'
     | 'point-signature'
-    | 'point-missing';
+    | 'point-missing'
+    | 'mixed-bindings'
+    | 'manual-binding'
+    | 'limit-exceeded';
 
 /**
  * Erro da montagem de shaders por módulos (`wgslModule`/`composeWgsl`). `detail` traz os envolvidos: o caminho do

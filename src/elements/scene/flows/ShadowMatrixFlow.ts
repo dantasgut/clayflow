@@ -1,3 +1,4 @@
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { EngineCore, Frame, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
@@ -15,7 +16,7 @@ import {
 } from './ShadowMatrixSchemas';
 import { shadowMatrix } from './shaders';
 
-const WORKGROUP_SIZE = 64;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
 /** Slots do estágio da matriz de sombra. */
 export interface ShadowMatrixSlots extends SlotMap {

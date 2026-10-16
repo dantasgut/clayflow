@@ -5,7 +5,8 @@ import type {
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../../scene/contracts/gpu';
-import type { BindingSources } from '../../../scene/flows/FlowBinding';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
@@ -15,7 +16,7 @@ import { PrefixSum, SCAN_GROUP } from './PrefixSum';
 import { RadixSort } from './RadixSort';
 import { Reduce } from './Reduce';
 import { ColorRangeSchema, GraphColorParamsSchema, GraphColorStatusSchema } from './schemas';
-import { gcGroup, gcInit, gcRound } from './shaders';
+import { gcGroup, gcInit, gcRound, graphColorResources as R } from './shaders';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
 
 /** Subpassos gravados entre duas leituras do estado. */
@@ -291,13 +292,18 @@ export class GraphColorer {
                 max_colors: 0,
             }),
         );
-        const init = this.kernel('gc_init', gcInit, 'gc_init_main', {
-            gc: b.params,
-            gc_edges: edges,
-            gc_colors: b.colors,
-            gc_degree: vertex.degree,
-            gc_status: status,
-        });
+        const init = this.kernel(
+            'gc_init',
+            gcInit,
+            'gc_init_main',
+            new Map<WgslResource, BindingSource>([
+                [R.gc, b.params],
+                [R.edges, edges],
+                [R.colors, b.colors],
+                [R.degree, vertex.degree],
+                [R.status, status],
+            ]),
+        );
         if (vertexCount > 0) vertex.reduce.prepare(vertex.degree, status);
         this.submit('GraphColorer.init', (frame) => {
             frame.clear(status);
@@ -327,19 +333,22 @@ export class GraphColorer {
         const maxColors = this.maxColorsOption ?? defaultMaxColors(validated.maxDegree);
 
         // Subpassos por cor até não restar aresta sem cor.
-        const round: BindingSources = {
-            gc: b.params,
-            gc_edges: edges,
-            gc_colors: b.colors,
-            gc_vmax: vertex.vmax,
-            gc_used: vertex.used,
-            gc_status: status,
-        };
+        const round = new Map<WgslResource, BindingSource>([
+            [R.gc, b.params],
+            [R.edges, edges],
+            [R.colors, b.colors],
+            [R.vmax, vertex.vmax],
+            [R.used, vertex.used],
+            [R.status, status],
+        ]);
         const priority = this.kernel('gc_priority', gcRound, 'gc_priority_main', round);
         const assign = this.kernel('gc_assign', gcRound, 'gc_assign_main', round);
-        const advance = this.kernel('gc_advance', gcRound, 'gc_advance_main', {
-            gc_status: status,
-        });
+        const advance = this.kernel(
+            'gc_advance',
+            gcRound,
+            'gc_advance_main',
+            new Map<WgslResource, BindingSource>([[R.status, status]]),
+        );
         const counters = GraphColorStatusSchema.offsetOf('candidates');
         const counterBytes = GraphColorStatusSchema.offsetOf('loops') - counters;
         let state = validated;
@@ -365,23 +374,38 @@ export class GraphColorer {
         const colorCount = state.colorCount;
 
         // Agrupamento: ordenação por cor (estável por índice), contagens e intervalos.
-        const sortInit = this.kernel('gc_sort_init', gcGroup, 'gc_sort_init_main', {
-            gc: b.params,
-            gc_colors: b.colors,
-            gc_keys: b.keys,
-            gc_values: b.values,
-        });
-        const countColors = this.kernel('gc_count', gcGroup, 'gc_count_main', {
-            gc: b.params,
-            gc_colors: b.colors,
-            gc_counts: b.counts,
-        });
-        const buildRanges = this.kernel('gc_ranges', gcGroup, 'gc_ranges_main', {
-            gc_counts: b.counts,
-            gc_offsets: b.offsets,
-            gc_ranges: b.ranges,
-            gc_status: status,
-        });
+        const sortInit = this.kernel(
+            'gc_sort_init',
+            gcGroup,
+            'gc_sort_init_main',
+            new Map<WgslResource, BindingSource>([
+                [R.gc, b.params],
+                [R.colorsRead, b.colors],
+                [R.keys, b.keys],
+                [R.values, b.values],
+            ]),
+        );
+        const countColors = this.kernel(
+            'gc_count',
+            gcGroup,
+            'gc_count_main',
+            new Map<WgslResource, BindingSource>([
+                [R.gc, b.params],
+                [R.colorsRead, b.colors],
+                [R.counts, b.counts],
+            ]),
+        );
+        const buildRanges = this.kernel(
+            'gc_ranges',
+            gcGroup,
+            'gc_ranges_main',
+            new Map<WgslResource, BindingSource>([
+                [R.counts, b.counts],
+                [R.offsets, b.offsets],
+                [R.ranges, b.ranges],
+                [R.status, status],
+            ]),
+        );
         this.sort.prepare(b.keys, b.values);
         this.scan.prepare(b.offsets);
         const rangesBytes = colorCount * ColorRangeSchema.stride;
@@ -482,7 +506,7 @@ export class GraphColorer {
         name: string,
         shader: WgslModule,
         entryPoint: string,
-        bindings: BindingSources,
+        bindings: ReadonlyMap<WgslResource, BindingSource>,
     ): ComputeKernel {
         const kernel = createComputeKernel(this.core, {
             discriminator: `${this.disc}:${name}`,
@@ -503,7 +527,7 @@ export class GraphColorer {
     ): void {
         frame.compute(label, (pass) => {
             pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindGroups.forEach((bg, i) => pass.bind.setBindGroup(i, bg));
+            kernel.bindTo(pass.bind);
             if (count === null) pass.dispatch.workgroups(1);
             else pass.dispatch.invocations(count, SCAN_GROUP);
         });

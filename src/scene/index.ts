@@ -140,6 +140,9 @@ export type {
     FlowTransitions,
     BindingSource,
     BindingSources,
+    BindingKey,
+    PreparedGroup,
+    GroupOffsets,
     BoundFlow,
     PreparedPipeline,
     PreparedCompute,
@@ -154,6 +157,13 @@ export {
     scenePointsIn,
     POINT_PARAMS,
     bindPoints,
+    wgslResource,
+    isWgslResource,
+    resourceTypeText,
+    BINDING_FREQUENCIES,
+    sharedConstant,
+    NONE,
+    WORKGROUP_SIZE,
 } from './shaders/index';
 export type {
     WgslModule,
@@ -170,6 +180,17 @@ export type {
     ScenePointEntry,
     ScenePointOptions,
     ScenePointGlobal,
+    ComposedBinding,
+    WgslResource,
+    WgslResourceOptions,
+    WgslResourceDeclaration,
+    WgslResourceType,
+    WgslBindingKind,
+    WgslTextureDimension,
+    BindingFrequency,
+    ResourceProvider,
+    SharedConstant,
+    SharedConstantType,
 } from './shaders/index';
 export type { Phase } from './flows/index';
 

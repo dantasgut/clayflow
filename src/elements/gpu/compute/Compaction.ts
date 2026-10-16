@@ -1,5 +1,5 @@
 import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
-import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
@@ -9,15 +9,15 @@ import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import { FrameUniforms } from './FrameUniforms';
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
 import { CompactParamsSchema } from './schemas';
-import { compactionModules } from './shaders';
+import { compactionModules, compactResources } from './shaders';
 
 /** Opções de `Compaction`. */
 export interface CompactionOptions {
     /** Prefixo único dos recursos da instância. */
     readonly discriminator: string;
     /**
-     * Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32`, e
-     * declara no `@group(1)` os buffers que lê (fontes em `bindings`, pelo nome da variável).
+     * Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32` e requer
+     * os recursos que lê (spec 031; fontes em `bindings`, pelo objeto do recurso).
      */
     readonly predicate: WgslModule;
     /** Tamanho máximo da saída (elementos u32). */
@@ -26,8 +26,8 @@ export interface CompactionOptions {
     readonly stable?: boolean;
     /** Maior `count` de entrada — obrigatório com `stable` (dimensiona as flags e a soma de prefixos). */
     readonly inputCapacity?: number;
-    /** Fontes dos buffers lidos pelo predicado, pelo nome da variável WGSL. */
-    readonly bindings?: Readonly<Record<string, BindingSource>>;
+    /** Fontes dos recursos privados lidos pelo predicado. */
+    readonly bindings?: ReadonlyMap<BindingKey, BindingSource>;
 }
 
 /** Argumentos de `Compaction.record`. */
@@ -61,7 +61,7 @@ export class Compaction {
     private readonly capacity: number;
     private readonly stable: boolean;
     private readonly inputCapacity: number;
-    private readonly bindings: Readonly<Record<string, BindingSource>>;
+    private readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     private readonly modules: ReturnType<typeof compactionModules>;
     private readonly params: FrameUniforms;
     private readonly scan: PrefixSum | null;
@@ -87,7 +87,7 @@ export class Compaction {
         this.disc = options.discriminator;
         this.capacity = options.capacity;
         this.inputCapacity = inputCapacity;
-        this.bindings = options.bindings ?? {};
+        this.bindings = options.bindings ?? new Map();
         this.modules = compactionModules(options.predicate);
         this.params = new FrameUniforms(core, {
             discriminator: `${this.disc}:compact`,
@@ -165,6 +165,7 @@ export class Compaction {
 
     private createKernels(out: StorageBufferSpec, counter: StorageBufferSpec): BoundKernels {
         const compact = this.params.source();
+        const r = compactResources;
         if (!this.stable) {
             return {
                 counter,
@@ -172,12 +173,12 @@ export class Compaction {
                     discriminator: `${this.disc}:compact_atomic`,
                     shader: this.modules.atomic,
                     entryPoint: 'compact_atomic_main',
-                    bindings: {
+                    bindings: new Map<BindingKey, BindingSource>([
                         ...this.bindings,
-                        compact,
-                        compact_out: out,
-                        compact_counter: counter,
-                    },
+                        [r.compact, compact],
+                        [r.out, out],
+                        [r.counter, counter],
+                    ]),
                 }),
             };
         }
@@ -188,19 +189,23 @@ export class Compaction {
                 discriminator: `${this.disc}:compact_flags`,
                 shader: this.modules.flags,
                 entryPoint: 'compact_flags_main',
-                bindings: { ...this.bindings, compact, compact_flags: flags },
+                bindings: new Map<BindingKey, BindingSource>([
+                    ...this.bindings,
+                    [r.compact, compact],
+                    [r.flags, flags],
+                ]),
             }),
             scatter: createComputeKernel(this.core, {
                 discriminator: `${this.disc}:compact_scatter`,
                 shader: this.modules.scatter,
                 entryPoint: 'compact_scatter_main',
-                bindings: {
+                bindings: new Map<BindingKey, BindingSource>([
                     ...this.bindings,
-                    compact,
-                    compact_out: out,
-                    compact_counter: counter,
-                    compact_positions: flags,
-                },
+                    [r.compact, compact],
+                    [r.out, out],
+                    [r.counter, counter],
+                    [r.positions, flags],
+                ]),
             }),
         };
     }
@@ -213,8 +218,8 @@ export class Compaction {
         count: number,
     ): void {
         frame.compute(label, (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroups[0]!, [offset]);
-            if (kernel.bindGroups[1] !== undefined) pass.bind.setBindGroup(1, kernel.bindGroups[1]);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind, { draw: [offset] });
             pass.dispatch.invocations(count, SCAN_GROUP);
         });
     }

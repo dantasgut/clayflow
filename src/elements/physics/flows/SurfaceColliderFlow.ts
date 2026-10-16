@@ -1,3 +1,4 @@
+import { NONE as ENGINE_NONE } from '../../../scene/shaders/engineConstants';
 import type {
     EngineCore,
     Frame,
@@ -43,7 +44,7 @@ import {
 } from '../shaders/surfaceCollider';
 
 const WORKGROUP = 64;
-const NONE = 0xffffffff;
+const NONE = ENGINE_NONE.value;
 
 /** Slots do estágio dos colliders de superfície. */
 export interface SurfaceColliderSlots extends SlotMap {

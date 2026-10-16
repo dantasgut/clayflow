@@ -9,6 +9,7 @@ import { scenePointsIn, type PointImplementation } from '../../shaders/WgslPoint
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
+import { bindingEntries } from '../../flows/FlowBinding';
 import type {
     BindingSource,
     BindingSources,
@@ -119,7 +120,7 @@ export class FlowRuntime {
         readonly flow: Flow,
         readonly options: RegisterOptions,
     ) {
-        for (const [name, source] of Object.entries(flow.bindings)) this.privates.set(name, source);
+        for (const [name, source] of bindingEntries(flow.bindings)) this.privates.set(name, source);
         const pools = new Set<string>();
         for (const decl of Object.values(flow.slots)) {
             if (decl.kind === 'pool') pools.add(decl.poolKey);
@@ -501,7 +502,7 @@ export class FlowRuntime {
     }
 
     private bindPrivates(sources: BindingSources): void {
-        for (const [name, source] of Object.entries(sources)) this.privates.set(name, source);
+        for (const [name, source] of bindingEntries(sources)) this.privates.set(name, source);
         this.dirty = true;
     }
 
@@ -630,8 +631,10 @@ export class FlowRuntime {
         group: number,
         state: PipelineState,
     ): ResolvedSource | undefined => {
-        // Global de ponto de cena (spec 009): o pool dos registros, ou o substituto zerado.
         const base = this.baseDescriptors.get(state.id);
+        const declared = entry.declared;
+        if (declared !== undefined) return this.declaredSource(entry, group, state, base);
+        // Global de ponto de cena (spec 009): o pool dos registros, ou o substituto zerado.
         const global =
             base === undefined
                 ? undefined
@@ -676,6 +679,41 @@ export class FlowRuntime {
             resources: this.host.resources,
         });
     };
+
+    /** Fonte de um recurso declarado (spec 031): pelo fornecedor da declaração. */
+    private declaredSource(
+        entry: InferredEntry,
+        group: number,
+        state: PipelineState,
+        base: PipelineDescriptor | undefined,
+    ): ResolvedSource | undefined {
+        const provider = entry.declared!.resource.provider;
+        const ctx = { world: this.host.world, resources: this.host.resources };
+        if (provider === 'private') {
+            const priv =
+                this.privates.get(`${state.id}:${entry.name}`) ?? this.privates.get(entry.name);
+            if (priv !== undefined) return normalizeSource(priv);
+            throw new FlowBindingError(
+                `recurso privado '${entry.name}' (@group(${group}) @binding(${entry.binding})) do pipeline '${state.id}' do Flow '${this.flow.type}' sem fonte: ligue-o com ctx.bind.`,
+                {
+                    flow: this.flow.type,
+                    pipeline: state.id,
+                    group,
+                    binding: entry.binding,
+                    variable: entry.name,
+                },
+            );
+        }
+        if ('scene' in provider) {
+            return base === undefined
+                ? undefined
+                : this.host.scenePoints.globalSource(base.shader, entry.name);
+        }
+        const name = 'pool' in provider ? provider.pool : provider.consumer;
+        // Pool ou resolver ainda ausente na cena: o pipeline espera.
+        if (!this.host.consumers.has(name)) return undefined;
+        return this.host.consumers.resolve(name, ctx);
+    }
 
     private readonly onReplaced = (
         state: PipelineState,

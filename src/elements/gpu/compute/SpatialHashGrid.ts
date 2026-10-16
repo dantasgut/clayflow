@@ -1,3 +1,6 @@
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type {
     EngineCore,
     Frame,
@@ -11,7 +14,7 @@ import {
 } from '../../../scene/flows/createComputeKernel';
 import { PrefixSum } from './PrefixSum';
 import { HashGridParamsSchema } from './schemas';
-import { shCount, shScatter } from './shaders';
+import { shCount, shScatter, hashGridResources } from './shaders';
 
 /** Opções de `SpatialHashGrid`. */
 export interface SpatialHashGridOptions {
@@ -131,18 +134,22 @@ export class SpatialHashGrid {
                 discriminator: `${this.disc}:count`,
                 shader: shCount,
                 entryPoint: 'sh_count_main',
-                bindings: { grid: this.paramsBuffer, items, counts: this.counts! },
+                bindings: new Map<WgslResource, BindingSource>([
+                    [hashGridResources.grid, this.paramsBuffer],
+                    [hashGridResources.items, items],
+                    [hashGridResources.counts, this.counts!],
+                ]),
             });
             this.scatterKernel = createComputeKernel(this.core, {
                 discriminator: `${this.disc}:scatter`,
                 shader: shScatter,
                 entryPoint: 'sh_scatter_main',
-                bindings: {
-                    grid: this.paramsBuffer,
-                    items,
-                    cursors: this.cursors!,
-                    cell_items: this.itemsOut!,
-                },
+                bindings: new Map<WgslResource, BindingSource>([
+                    [hashGridResources.grid, this.paramsBuffer],
+                    [hashGridResources.items, items],
+                    [hashGridResources.cursors, this.cursors!],
+                    [hashGridResources.cellItems, this.itemsOut!],
+                ]),
             });
         }
         this.count = count;
@@ -174,8 +181,8 @@ export class SpatialHashGrid {
     private run(frame: Frame, label: string, kernel: ComputeKernel): void {
         frame.compute(label, (pass) => {
             pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindGroups.forEach((bg, g) => pass.bind.setBindGroup(g, bg));
-            pass.dispatch.invocations(this.count, 64);
+            kernel.bindTo(pass.bind);
+            pass.dispatch.invocations(this.count, WORKGROUP_SIZE.value);
         });
     }
 

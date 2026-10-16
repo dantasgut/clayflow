@@ -1,3 +1,4 @@
+import { NONE } from '../shaders/engineConstants';
 import type {
     TextureSpec,
     TextureViewSpec,
@@ -70,7 +71,7 @@ export interface EntityRecordDeclaration {
 }
 
 /** Valor de um campo opcional de registro de entidade sem o Resource (`0xFFFFFFFF`). */
-export const RECORD_NONE = 0xffffffff;
+export const RECORD_NONE = NONE.value;
 
 /**
  * Grupos de instâncias de um conjunto `entities` (spec 007): a C2 agrupa as entradas pela chave que o estágio dá (ex.:

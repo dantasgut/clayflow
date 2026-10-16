@@ -1,4 +1,6 @@
 import type {
+    Binder,
+    PipelineSpec,
     BindGroupSpec,
     BindingLayoutEntry,
     ComputePipelineSpec,
@@ -10,8 +12,17 @@ import type { ResolvedSource } from '../consumers/ResolvedSource';
 import { composeWgsl } from '../shaders/composeWgsl';
 import type { WgslModule } from '../shaders/WgslModule';
 import { LayoutInferencer } from '../systems/LayoutInferencer';
+import { checkLayoutLimits } from '../systems/flowBinding/limits';
 import { bindingEntryOf, layoutEntryOf, normalizeSource } from '../systems/flowBinding/sources';
-import type { BindingSource } from './FlowBinding';
+import {
+    bindGroupsTo,
+    bindingEntries,
+    type BindingSource,
+    type BindingSources,
+    type GroupOffsets,
+    type PreparedGroup,
+} from './FlowBinding';
+import type { BindingFrequency } from '../shaders/WgslResource';
 
 /**
  * Kernel de compute criado pela C2: pipeline do módulo de entrada, layouts inferidos do WGSL e bind groups ligados
@@ -34,6 +45,10 @@ export interface ComputeKernel {
     readonly layouts: readonly LayoutSpec[];
     /** `dynamic[g]`: o grupo `g` tem binding com offset dinâmico (o `setBindGroup` leva o offset). */
     readonly dynamic: readonly boolean[];
+    /** Grupos de uma frequência (recursos declarados, spec 031). */
+    groupsOf(frequency: BindingFrequency): readonly PreparedGroup[];
+    /** Grava todos os grupos, com os offsets da frequência dos grupos dinâmicos (spec 031). */
+    bindTo<P extends PipelineSpec>(binder: Binder<P>, offsets?: GroupOffsets): void;
 }
 
 /**
@@ -56,7 +71,9 @@ export interface ComputeKernelOptions {
      * Fontes por nome de variável WGSL. Cada binding usado pela entrada precisa de uma fonte; nome que não é binding
      * usado pela entrada é erro.
      */
-    readonly bindings: Readonly<Record<string, BindingSource>>;
+    readonly bindings: BindingSources;
+    /** Constantes `override` do shader. */
+    readonly constants?: Readonly<Record<string, number>>;
     /** Se true, o pipeline compila em segundo plano (`core.createAsync`). */
     readonly preferAsync?: boolean;
 }
@@ -79,7 +96,7 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
             `createComputeKernel("${opts.discriminator}"): entry point '${opts.entryPoint}' não é função do módulo '${opts.shader.name}'.`,
         );
     }
-    const named = opts.bindings;
+    const named: Record<string, BindingSource> = Object.fromEntries(bindingEntries(opts.bindings));
     const layout = inferencer.infer(composed, [opts.entryPoint]);
     const used = new Set<string>();
     const groups: {
@@ -115,6 +132,11 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
             `createComputeKernel("${opts.discriminator}"): fonte para '${unused.join("', '")}', que a entrada '${opts.entryPoint}' não usa.`,
         );
     }
+    checkLayoutLimits(
+        `createComputeKernel("${opts.discriminator}")`,
+        groups.map((g) => g.entries),
+        core.capabilities().limits,
+    );
     const single = groups.length === 1;
     const layouts = groups.map((g, i) =>
         core.create<LayoutSpec>({
@@ -132,15 +154,37 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
             bindings: g.sources.map((s) => bindingEntryOf(s.binding, s.source)),
         }),
     );
+    const dynamic = groups.map((g) =>
+        g.sources.some((s) => s.source.kind === 'buffer' && s.source.dynamic !== undefined),
+    );
     return {
         pipeline,
         bindGroup: bindGroups[0]!,
         layout: layouts[0]!,
         bindGroups,
         layouts,
-        dynamic: groups.map((g) =>
-            g.sources.some((s) => s.source.kind === 'buffer' && s.source.dynamic !== undefined),
-        ),
+        dynamic,
+        bindTo: (binder, offsets) => {
+            bindGroupsTo(
+                binder,
+                layout.groups.map((g) => ({
+                    index: g.group,
+                    spec: bindGroups[g.group]!,
+                    dynamic: dynamic[g.group] === true,
+                    ...(g.frequency !== undefined ? { frequency: g.frequency } : {}),
+                })),
+                offsets,
+                `createComputeKernel("${opts.discriminator}")`,
+            );
+        },
+        groupsOf: (frequency) =>
+            layout.groups
+                .filter((g) => g.frequency === frequency)
+                .map((g) => ({
+                    index: g.group,
+                    spec: bindGroups[g.group]!,
+                    dynamic: dynamic[g.group] === true,
+                })),
     };
 }
 
@@ -171,6 +215,7 @@ function createPipeline(
         layouts,
         shader,
         entryPoint: opts.entryPoint,
+        ...(opts.constants !== undefined ? { constants: opts.constants } : {}),
     };
     if (opts.preferAsync === true) void core.createAsync<ComputePipelineSpec>(pipeline);
     else core.create<ComputePipelineSpec>(pipeline);

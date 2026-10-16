@@ -1,3 +1,10 @@
+import {
+    FIELD_BUOYANCY,
+    FIELD_DRAG,
+    FIELD_GRAVITY_POINT,
+    FIELD_VORTEX,
+    FIELD_WIND,
+} from '../../gpu/shaders/constants';
 import { Entity } from '../../../scene/contracts/Entity';
 import { ResourceState } from '../../../scene/contracts/ResourceState';
 import type { Resource } from '../../../scene/contracts/Resource';
@@ -8,11 +15,11 @@ import { FieldFnRecordSchema } from '../shaders/fields';
 /** Tipo de campo pronto no registro comum (`kind` do `FieldFnRecord`; 0 = fora do laço). */
 export const FieldKind = {
     none: 0,
-    gravityPoint: 1,
-    wind: 2,
-    vortex: 3,
-    drag: 4,
-    buoyancy: 5,
+    gravityPoint: FIELD_GRAVITY_POINT.value,
+    wind: FIELD_WIND.value,
+    vortex: FIELD_VORTEX.value,
+    drag: FIELD_DRAG.value,
+    buoyancy: FIELD_BUOYANCY.value,
 } as const;
 
 /** Valores de um campo pronto no registro comum: tipo e os vetores a, b, s (ver `field_builtin.wgsl`). */
