@@ -115,3 +115,22 @@ export const instancesResource = wgslResource({
     frequency: 'stage',
     provider: { pool: RenderInstanceSchema.name },
 });
+
+/**
+ * Profundidade do mapa de sombra da luz que projeta (resolver `ShadowCaster.depth`, registrado pelos elementos). Lido só
+ * pela contribuição de sombra (`light_visibility`).
+ */
+export const shadowCasterDepthResource = wgslResource({
+    name: 'shadow_map',
+    binding: { texture: { sample: 'depth' } },
+    frequency: 'frame',
+    provider: { consumer: 'ShadowCaster.depth' },
+});
+
+/** Amostrador de comparação do mapa de sombra da luz que projeta (resolver `ShadowCaster.sampler`). */
+export const shadowCasterSamplerResource = wgslResource({
+    name: 'shadow_sampler',
+    binding: { sampler: 'comparison' },
+    frequency: 'frame',
+    provider: { consumer: 'ShadowCaster.sampler' },
+});

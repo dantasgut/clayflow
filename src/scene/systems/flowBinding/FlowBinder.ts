@@ -62,6 +62,7 @@ export class FlowBinder {
             }),
             events.on('resourceReady', (e) => {
                 const resource = e.payload.resource;
+                if (scenePoints.resourceUploaded(resource)) this.sceneChanged();
                 for (const rt of this.runtimes.values()) {
                     rt.resourceUploaded(resource);
                     const schema = rt.listenedSchema(resource);

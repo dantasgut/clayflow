@@ -3,24 +3,10 @@
 // está na frente da superfície), absorção pela espessura (Beer-Lambert por canal), dispersão interna iluminada,
 // reflexão do ambiente com Fresnel e brilho especular sob a sombra da cena. Consome a superfície genérica
 // (profundidade, espessura e material por pixel) — não sabe de partículas. As ondulações do material
-// (`water_ripple.wgsl`) somam o detalhe fino à normal. Structs `CameraMatrices`, `Light`,
-// `ShadowMap`, `ShadowMatrix`, `FluidSurfaceMaterial` e `WaterCompositeParams` gerados dos schemas; a profundidade da
-// cena vem do módulo da variante (com ou sem amostras).
-@group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
-@group(0) @binding(1) var<storage, read> lights: array<Light>;
-@group(0) @binding(2) var<storage, read> shadow_maps: array<ShadowMap>;
-@group(0) @binding(3) var<storage, read> shadow_matrices: array<ShadowMatrix>;
-@group(0) @binding(4) var<storage, read> water_materials: array<FluidSurfaceMaterial>;
-@group(0) @binding(5) var<uniform> water_composite: WaterCompositeParams;
-@group(1) @binding(0) var water_depth: texture_2d<f32>;
-@group(1) @binding(1) var water_thickness: texture_2d<f32>;
-@group(1) @binding(2) var water_material: texture_2d<u32>;
-@group(1) @binding(3) var water_background: texture_2d<f32>;
-@group(2) @binding(0) var shadow_map: texture_depth_2d;
-@group(2) @binding(1) var shadow_sampler: sampler_comparison;
-
-const COMPOSITE_NO_DEPTH: f32 = 1e8;
-const COMPOSITE_DEFAULT_LIGHT_DIR = vec3f(0.4, -1.0, 0.6);
+// (`water_ripple.wgsl`) somam o detalhe fino à normal. A luz vem dos pontos de cena do sombreamento
+// (`scene_light_direction`, `light_visibility`): a composição não sabe qual luz ilumina nem de onde vem a sombra.
+// Structs `CameraMatrices`, `FluidSurfaceMaterial` e `WaterCompositeParams` gerados dos schemas; recursos declarados em
+// `water/shaders.ts`; a profundidade da cena vem do módulo da variante (com ou sem amostras).
 
 @vertex
 fn water_composite_vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -43,7 +29,7 @@ fn composite_neighbor(q: vec2i, m: u32, z: f32, limit: f32, size: vec2i) -> f32 
     let c = clamp(q, vec2i(0), size - 1);
     if (textureLoad(water_material, c, 0).x != m) { return z; }
     let zq = textureLoad(water_depth, c, 0).x;
-    if (zq >= COMPOSITE_NO_DEPTH || abs(zq - z) > limit) { return z; }
+    if (zq >= WATER_DEPTH_LIMIT || abs(zq - z) > limit) { return z; }
     return zq;
 }
 
@@ -60,7 +46,7 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     let m = textureLoad(water_material, pi, 0).x;
     if (m == 0u) { discard; }
     let z = textureLoad(water_depth, pi, 0).x;
-    if (z >= COMPOSITE_NO_DEPTH) { discard; }
+    if (z >= WATER_DEPTH_LIMIT) { discard; }
     let material = water_materials[m - 1u];
     let cam = cameras[water_composite.cameraSlot];
     let proj = cam.projection;
@@ -99,18 +85,12 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     var pr = clamp(vec2i(frag.xy + shift), vec2i(0), size_i - 1);
     if (water_scene_linear(vec2f(pr), proj) < z) { pr = pi; }
     let background = textureLoad(water_background, pr, 0).rgb;
-    // Luz que ilumina e sombra da cena na superfície.
-    var light_dir = COMPOSITE_DEFAULT_LIGHT_DIR;
-    if (water_composite.lightSlot != 0xFFFFFFFFu) {
-        light_dir = lights[water_composite.lightSlot].direction.xyz;
-    }
+    // Luz que ilumina e sombra da cena na superfície (pontos de cena: direção padrão e visibilidade 1 sem luz que
+    // projeta sombra).
+    let light_dir = scene_light_direction();
     let l = normalize(-light_dir);
     let n_dot_l = max(dot(n, l), 0.0);
-    let sm = shadow_maps[water_composite.shadowSlot];
-    let shadow = sample_shadow_pcf(
-        shadow_map, shadow_sampler, shadow_matrices[water_composite.shadowSlot].lightViewProj, pw, sm.bias,
-        water_composite.shadowEnabled, n_dot_l,
-    );
+    let shadow = light_visibility(pw, n_dot_l);
     let absorb = exp(-material.absorption.rgb * thickness);
     let lit = BRDF_AMBIENT + BRDF_DIFFUSE * n_dot_l * shadow;
     let transmitted = background * absorb + material.color.rgb * (1.0 - absorb) * lit;

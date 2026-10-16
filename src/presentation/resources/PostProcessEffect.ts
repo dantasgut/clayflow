@@ -69,7 +69,7 @@ export abstract class PostProcessEffect extends Entity<PostProcessData> implemen
     /**
      * Override opcional: módulo WGSL próprio contendo o fragment entry point (`fragmentEntry`). Quando definido, o
      * PostFlow monta um shader dedicado para este effect em vez de usar o comum. O módulo declara
-     * `requires: [effectsBase]` para reutilizar os bindings e o `vs_fullscreen`:
+     * `requires: [effectsBase]` para reutilizar os recursos (`src_tex`, `src_smp`, `params`) e o `vs_fullscreen`:
      * ```ts
      * fragmentModule() {
      *     return wgslModule({ name: 'meu_efeito', source: meuFragmento, requires: [effectsBase] });

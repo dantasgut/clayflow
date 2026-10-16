@@ -1,17 +1,8 @@
 // Desenho das partículas secundárias de um fluido (spec 010, `DiffuseMaterial`): um quad virado para a câmera por
 // vértice da nuvem de pontos (posição; uv = tipo e fração de vida), com a aparência do tipo — spray: gotícula
 // (esfera com reflexo especular e Fresnel, tom de água); espuma: disco branco que se dissolve com a vida (descarte
-// pontilhado, sem mistura); bolha: anel claro. Morta: fora do recorte. Mesmos grupos 0 e 1 do forward.
-@group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
-@group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
-@group(1) @binding(1) var<storage, read> renderables: array<Renderable>;
-@group(1) @binding(2) var<storage, read> instances: array<RenderInstance>;
-@group(2) @binding(0) var<storage, read> materials: array<DiffuseMaterial>;
-@group(3) @binding(0) var<uniform> forward_frame: ForwardFrameParams;
-@group(3) @binding(5) var<storage, read> lights: array<Light>;
-@group(3) @binding(6) var<storage, read> point_vertices: array<f32>;
-
-const DIFFUSE_DEFAULT_LIGHT_DIR = vec3f(0.4, -1.0, 0.6);
+// pontilhado, sem mistura); bolha: anel claro. Morta: fora do recorte. Direção da luz pelo ponto de cena
+// `scene_light_direction` (spec 031).
 
 struct DiffuseOut {
     @builtin(position) clip_position: vec4f,
@@ -65,11 +56,7 @@ fn fs_main(in: DiffuseOut) -> @location(0) vec4f {
     if (r2 > 1.0) { discard; }
     let material = materials[in.material_slot];
     let camera = cameras[forward_frame.cameraSlot];
-    var light_dir = DIFFUSE_DEFAULT_LIGHT_DIR;
-    if (forward_frame.lightSlot != 0xFFFFFFFFu) {
-        light_dir = lights[forward_frame.lightSlot].direction.xyz;
-    }
-    let l = normalize((camera.view * vec4f(-light_dir, 0.0)).xyz);
+    let l = normalize((camera.view * vec4f(-scene_light_direction(), 0.0)).xyz);
     let n = vec3f(in.corner, sqrt(1.0 - r2));
     if (in.kind < 0.5) {
         // Spray: gotícula — tom de água, Fresnel na borda e reflexo especular.

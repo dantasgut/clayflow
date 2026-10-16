@@ -6,20 +6,21 @@ import type {
     IndexBufferSpec,
     IndirectBufferSpec,
     RenderTarget,
-    SamplerSpec,
     StorageBufferSpec,
-    TextureSpec,
-    TextureViewSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type {
-    BindingSources,
+    BindingKey,
+    BindingSource,
     BoundFlow,
     PreparedRender,
     TransitionContext,
 } from '../../scene/flows/FlowBinding';
+import { sameBindGroup } from '../../scene/flows/FlowBinding';
+import type { BindGroupSpec } from '../../scene/contracts/gpu';
+import { BINDING_FREQUENCIES, type WgslResource } from '../../scene/shaders/WgslResource';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
@@ -31,25 +32,23 @@ import {
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
-    type TextureSlot,
 } from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { SurfaceDiffSchema } from '../../elements/geometry/SurfaceSchemas';
 import { Material } from '../../elements/material/Material';
+import { ForwardFrameParamsSchema } from '../../elements/material/forwardSchemas';
 import {
-    ForwardFrameParamsSchema,
-    NO_LIGHT_SLOT,
-    WaterLightMatrixSchema,
-} from '../../elements/material/forwardSchemas';
+    forwardFrameResource,
+    pointVerticesResource,
+    surfaceDiffReadResource,
+    wireEdgesResource,
+    wireVerticesResource,
+} from '../../elements/material/renderResources';
 import { Camera } from '../../elements/scene/Camera';
-import { Light } from '../../elements/scene/Light';
-import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { Transform } from '../../elements/scene/Transform';
 import { renderableRecord, RenderInstanceSchema } from '../../elements/scene/Renderable';
 import { FrameTargets } from '../app/FrameTargets';
-import { WaterSurface } from '../app/WaterSurface';
-import { castingShadowMap } from './ShadowFlow';
 import { bindPoints } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import { Time } from '../../scene/time/Time';
@@ -77,9 +76,6 @@ const VERTEX_LAYOUT = [
     },
 ];
 
-/** Família de layout dos pipelines do forward (grupos compartilhados no passe). */
-type Family = 'forward' | 'points' | 'wire';
-
 /** Mistura alfa do arame (borda suavizada). */
 const ALPHA_BLEND = {
     color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
@@ -102,18 +98,6 @@ export interface ForwardSlots extends SlotMap {
      * por (geometria, shader do material, orientação) mantidos pela C2.
      */
     readonly renderables: EntitiesSlot;
-    /** `ShadowMap` da luz que projeta sombra (opcional; sem ele, `shadowEnabled = 0`). */
-    readonly caster: SingletonSlot<true>;
-    /** Textura de profundidade do caster (opcional). */
-    readonly shadowTexture: TextureSlot<true>;
-    /** Pool `ShadowMap` (vieses pelo slot do caster; opcional). */
-    readonly shadowMaps: PoolSlot<true>;
-    /** Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU; opcional). */
-    readonly shadowMatrices: PoolSlot<true>;
-    /** Superfície de água da cena (cáusticas da luz que projeta sombra, spec 017; opcional). */
-    readonly water: SingletonSlot<true>;
-    /** Pool `Light` (direção da luz que ilumina pelo `lightSlot`; opcional). */
-    readonly lights: PoolSlot<true>;
     /** Pool da geometria diferencial das superfícies (spec 010; opcional). */
     readonly diffs: PoolSlot<true>;
     /** Cor dos `FrameTargets` (com pós) ou o canvas; profundidade dos `FrameTargets`. */
@@ -148,8 +132,7 @@ function materialFunctionOf(entry: EntityEntry): MaterialFunction | undefined {
     return entry.resources.find((r): r is MaterialFunction => r instanceof MaterialFunction);
 }
 
-function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
-    const select = castingShadowMap(world);
+function slotsOf(output: ForwardOutput): ForwardSlots {
     const depth = { schema: FrameTargets.schema, descId: 'depth' };
     // Cor multiamostrada dos alvos (MSAA, spec 008): o passe desenha nela e resolve na cor.
     const samples = { schema: FrameTargets.schema, descId: 'samples' };
@@ -168,12 +151,6 @@ function slotsOf(world: World, output: ForwardOutput): ForwardSlots {
                 rekeyOn: { [Transform.schema.name]: ['scale'] },
             },
         }),
-        caster: slot.singleton(ShadowMap.schema, { optional: true, select }),
-        shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
-        shadowMaps: slot.pool(ShadowMap.schema.name, { optional: true }),
-        shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
-        water: slot.singleton(WaterSurface.schema, { optional: true }),
-        lights: slot.pool(Light.schema.name, { optional: true }),
         diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
         target: slot.target(
             output === 'scene'
@@ -199,32 +176,24 @@ export interface ForwardFlowOptions {
 /**
  * ForwardFlow — o render principal: desenha as entidades com geometria, material e transform.
  *
- * Tudo vem do que a C2 já alocou, sem objeto de GPU por entidade:
- *   - grupo 0: o pool `CameraMatrices` (matrizes produzidas na GPU pelo `CameraFlow`); a câmera ativa é escolhida pelo
- *     `cameraSlot` dos parâmetros do quadro;
- *   - grupo 1: o pool `WorldTransform` (produzido pelo `TransformFlow`), o pool `Renderable` — o registro de cada
- *     entidade (`transformSlot`, `materialSlot`), mantido pela C2 — e a lista de instâncias dos grupos
- *     (`RenderInstance`, slot do registro por instância);
- *   - grupo 2: o pool de storage do material do schema do pipeline, indexado pelo `materialSlot` do registro;
- *   - grupo 3: parâmetros do quadro (slots da câmera, da luz e do mapa; sombra ligada), o mapa de sombra da luz que
- *     projeta (`ShadowMap`: textura, vieses pelo pool `ShadowMap` e a matriz pelo pool `ShadowMatrix`, produzida na
- *     GPU), o sampler de comparação e o pool `Light` — a direção da luz é lida no shader pelo slot dela, sem conta
- *     na CPU;
- *   - vértices e índices: os buffers da `Geometry` alocados pela C2.
+ * Tudo vem do que a C2 já alocou, sem objeto de GPU por entidade, pelos recursos declarados dos shaders de material
+ * (spec 031): as matrizes das câmeras (`frame`), o mundo, o registro `Renderable` e a lista de instâncias dos grupos
+ * (`stage`), o pool do material do shader (`batch`) e, nos sprites e no arame, os vértices da geometria do pipeline
+ * (`draw`). A luz, a sombra e a água chegam pelos pontos de cena dos shaders — o estágio não as conhece.
  *
  * Um desenho por grupo de instâncias (spec 007): entidades com a mesma geometria (mesmo conteúdo), o mesmo shader de
  * material e a mesma orientação de faces saem numa chamada `draw.indexed(índices, instâncias, 0, 0, início do
  * grupo)`; os grupos são mantidos pela C2 por eventos, e a gravação não percorre entidades. Os grupos 0, 1 e 3 são
- * definidos uma vez por passe; pipeline e grupo 2 só quando o pipeline muda. Um pipeline
+ * religados só quando mudam (por frequência); pipeline e material só quando o pipeline muda. Um pipeline
  * por shader de material e orientação de faces (escala espelhada ⇒ `frontFace: 'cw'`), preparado numa transição
- * quando o material entra na cena. Recursos privados (parâmetros do quadro, sampler, substitutos da sombra) são
+ * quando o material entra na cena. Recursos privados (parâmetros do quadro, substituto da geometria diferencial) são
  * religados em transições.
  */
 export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     readonly type = 'ForwardFlow';
     readonly slots: ForwardSlots;
     override readonly listens = [MaterialFnRecordSchema];
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<ForwardSlots>>;
 
@@ -233,25 +202,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly resources: ResourceDirectory;
     private readonly preferAsync: boolean;
     private readonly frameParams: UniformBufferSpec;
-    private readonly sampler: SamplerSpec;
-    private readonly dummyDepth: TextureSpec;
-    private readonly dummyDepthView: TextureViewSpec;
-    private readonly dummyShadowMaps: StorageBufferSpec;
-    private readonly dummyShadowMatrices: StorageBufferSpec;
-    private readonly dummyLights: StorageBufferSpec;
     /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
     private readonly dummyDiff: StorageBufferSpec;
-    /** Substitutos das cáusticas (spec 017): fator 1 e "sem água" — só lidos com `causticsEnabled = 1`. */
-    private readonly dummyCaustics: TextureSpec;
-    private readonly dummyCausticsView: TextureViewSpec;
-    private readonly dummyWaterDepth: TextureSpec;
-    private readonly dummyWaterDepthView: TextureViewSpec;
-    private readonly dummyLightMatrix: StorageBufferSpec;
-    /** Fontes das cáusticas ligadas (as reais ou os substitutos). */
-    private causticSources:
-        | readonly [TextureViewSpec, TextureViewSpec, StorageBufferSpec]
-        | undefined;
-    private causticsEnabled = false;
+    /** Pool `SurfaceDiff` ligado (o real ou o substituto). */
+    private boundDiff: StorageBufferSpec | undefined;
     /** Conteúdo escrito em `ForwardFrameParams` (comparado para escrever só quando muda). */
     private writtenFrame = '';
     /** Pipelines (por orientação) do shader de cada material, preparados quando o material aparece. */
@@ -274,8 +228,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             readonly pipelines?: { readonly ccw: string; readonly cw: string };
         }
     >();
-    /** Família de layout de cada pipeline: os grupos 0, 1 e 3 são religados quando a família muda no passe. */
-    private readonly pipelineFamily = new Map<string, Family>();
     /**
      * Pipelines por geometria (spec 008) — sprites de vértice (`point-list`) e arame (`line-list`): um por (shader do
      * material, vertex buffer da geometria); os vértices (e as arestas do arame) são bindings privados do pipeline.
@@ -339,12 +291,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         base.shader,
                         new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
                     ),
-                    consumes: [...base.consumes, MaterialFnRecordSchema.name],
                     verify: true,
                     extensions: [...(base.extensions ?? []), fn],
                 };
                 ctx.prepare(descriptor);
-                this.pipelineFamily.set(id, 'forward');
                 // Projeção de ponto da câmera ativa também sobre a variante da função.
                 this.baseDescriptors.set(id, descriptor);
                 this.prepareVariant(ctx, descriptor);
@@ -425,49 +375,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.world = ctx.world;
         this.resources = ctx.resources;
         this.preferAsync = options.preferAsync === true;
-        this.slots = slotsOf(ctx.world, options.output ?? 'scene');
+        this.slots = slotsOf(options.output ?? 'scene');
         this.frameParams = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: 'forward_frame_params',
             byteSize: ForwardFrameParamsSchema.stride,
-        });
-        this.sampler = ctx.core.create<SamplerSpec>({
-            kind: 'sampler',
-            discriminator: 'forward_shadow_sampler',
-            desc: { magFilter: 'linear', minFilter: 'linear', compare: 'less' },
-        });
-        this.dummyDepth = ctx.core.create<TextureSpec>({
-            kind: 'texture',
-            discriminator: 'forward_shadow_dummy',
-            width: 1,
-            height: 1,
-            format: 'depth32float',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-        });
-        this.dummyDepthView = ctx.core.create<TextureViewSpec>({
-            kind: 'textureview',
-            discriminator: 'forward_shadow_dummy_view',
-            source: this.dummyDepth,
-            format: 'depth32float',
-        });
-        this.dummyShadowMaps = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'forward_shadow_maps_dummy',
-            byteSize: ShadowMap.schema.stride,
-        });
-        this.dummyShadowMatrices = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'forward_shadow_matrices_dummy',
-            byteSize: ShadowMap.matrixSchema.stride,
-        });
-        this.dummyLights = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'forward_lights_dummy',
-            byteSize: Light.schema.stride,
         });
         this.dummyDiff = ctx.core.create<StorageBufferSpec>({
             kind: 'buffer',
@@ -475,47 +388,14 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             discriminator: 'forward_surface_diff_dummy',
             byteSize: SurfaceDiffSchema.stride,
         });
-        const dummy = (name: string, format: GPUTextureFormat): [TextureSpec, TextureViewSpec] => {
-            const texture = ctx.core.create<TextureSpec>({
-                kind: 'texture',
-                discriminator: `forward_${name}_dummy`,
-                width: 1,
-                height: 1,
-                format,
-                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-            });
-            const view = ctx.core.create<TextureViewSpec>({
-                kind: 'textureview',
-                discriminator: `forward_${name}_dummy_view`,
-                source: texture,
-                format,
-            });
-            return [texture, view];
-        };
-        [this.dummyCaustics, this.dummyCausticsView] = dummy('caustics', 'rgba16float');
-        [this.dummyWaterDepth, this.dummyWaterDepthView] = dummy('water_depth', 'r32float');
-        this.dummyLightMatrix = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'forward_water_light_matrix_dummy',
-            byteSize: WaterLightMatrixSchema.stride,
-        });
-        this.bindings = {
-            caustic_map: this.dummyCausticsView,
-            water_light_depth: this.dummyWaterDepthView,
-            water_light_matrix: this.dummyLightMatrix,
-            forward_frame: this.frameParams,
-            shadow_sampler: this.sampler,
-            shadow_map: this.dummyDepthView,
-            shadow_maps: this.dummyShadowMaps,
-            shadow_matrices: this.dummyShadowMatrices,
-            lights: this.dummyLights,
-            surface_diff: this.dummyDiff,
-        };
-        const shadow = {
+        this.bindings = new Map<BindingKey, BindingSource>([
+            [forwardFrameResource, this.frameParams],
+            [surfaceDiffReadResource, this.dummyDiff],
+        ]);
+        const diffs = {
             to: 'idle' as const,
             run: (_e: unknown, c: Ctx) => {
-                this.bindShadow(c);
+                this.bindDiff(c);
             },
         };
         this.transitions = {
@@ -523,12 +403,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
-                        this.bindShadow(c);
+                        this.bindDiff(c);
                         this.prepareMaterials(c);
                     },
                 },
-                slotChanged: shadow,
-                poolReallocated: shadow,
+                slotChanged: diffs,
+                poolReallocated: diffs,
                 entitiesChanged: {
                     to: 'idle',
                     run: (e, c) => {
@@ -566,7 +446,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         if (this.pendingMaterials.size > 0)
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
-                        this.bindCaustics(c);
                         this.syncMaterialFunctions(c);
                         this.syncProjection(c);
                         this.prepareIndirect(c);
@@ -608,8 +487,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             frame.copy(source, args, 4, 20, 20);
         }
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
-            let family: Family | undefined;
             let current: PreparedRender | undefined;
+            // Bind group atual de cada índice: só o que muda é religado ao trocar de pipeline (spec 031).
+            const boundGroups: (BindGroupSpec | undefined)[] = [];
             for (const group of groups) {
                 const entry = group.representative;
                 const draw = this.materialDraw.get(entry.get(Material));
@@ -637,20 +517,13 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 if (topology === 'line-list' && edges?.subkind !== 'index') continue;
                 if (prepared !== current) {
                     pass.bind.setPipeline(prepared.spec);
-                    const next = this.pipelineFamily.get(id) ?? 'forward';
-                    if (next !== family) {
-                        // Câmera, mundo + registros + instâncias e quadro: os mesmos para a família de layout.
-                        pass.bind
-                            .setBindGroup(0, prepared.groups[0]!)
-                            .setBindGroup(1, prepared.groups[1]!)
-                            .setBindGroup(3, prepared.groups[3]!);
-                        family = next;
-                    } else if (next !== 'forward') {
-                        // Os vértices (e as arestas) da geometria são bindings privados (grupo 3) de cada pipeline.
-                        pass.bind.setBindGroup(3, prepared.groups[3]!);
+                    for (const frequency of BINDING_FREQUENCIES) {
+                        for (const g of prepared.groupsOf(frequency)) {
+                            if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
+                            pass.bind.setBindGroup(g.index, g.spec);
+                            boundGroups[g.index] = g.spec;
+                        }
                     }
-                    // Material: o pool do schema do pipeline, indexado no shader pelo registro.
-                    pass.bind.setBindGroup(2, prepared.groups[2]!);
                     current = prepared;
                 }
                 if (topology === 'point-list') {
@@ -734,64 +607,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     override dispose(): void {
         for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
         this.indirectArgs.clear();
-        for (const spec of [
-            this.frameParams,
-            this.sampler,
-            this.dummyDepthView,
-            this.dummyDepth,
-            this.dummyShadowMaps,
-            this.dummyShadowMatrices,
-            this.dummyLights,
-            this.dummyDiff,
-            this.dummyCausticsView,
-            this.dummyCaustics,
-            this.dummyWaterDepthView,
-            this.dummyWaterDepth,
-            this.dummyLightMatrix,
-        ]) {
-            this.core.destroy(spec);
-        }
+        for (const spec of [this.frameParams, this.dummyDiff]) this.core.destroy(spec);
     }
 
-    /**
-     * Cáusticas da água (spec 017): com a superfície vista pela luz produzida, liga o mapa de cáusticas e a profundidade
-     * da água na vista da luz e acende `causticsEnabled`; sem ela, os substitutos e o fator 1 exato (imagens de antes).
-     */
-    private bindCaustics(ctx: Ctx): void {
-        const water = ctx.bound.slots.water?.resource as WaterSurface | undefined;
-        const produced = water?.isProduced('light') === true;
-        const caustics = produced ? this.resources.textureViewOf(water, 'caustics') : undefined;
-        const depth = produced ? this.resources.textureViewOf(water, 'lightDepth') : undefined;
-        const matrix = produced ? this.resources.bufferOf(water, 'lightMatrix') : undefined;
-        const real =
-            caustics !== undefined && depth !== undefined && matrix?.subkind === 'storage'
-                ? ([caustics, depth, matrix] as const)
-                : undefined;
-        this.causticsEnabled = real !== undefined;
-        const sources: readonly [TextureViewSpec, TextureViewSpec, StorageBufferSpec] = real ?? [
-            this.dummyCausticsView,
-            this.dummyWaterDepthView,
-            this.dummyLightMatrix,
-        ];
-        if (this.causticSources?.every((b, i) => b === sources[i]) === true) return;
-        this.causticSources = sources;
-        ctx.bind({
-            caustic_map: sources[0],
-            water_light_depth: sources[1],
-            water_light_matrix: sources[2],
-        });
-    }
-
-    /** Mapa de sombra da luz que projeta e o pool de luzes (ou os substitutos) nos bindings do grupo 3. */
-    private bindShadow(ctx: Ctx): void {
-        const slots = ctx.bound.slots;
-        ctx.bind({
-            shadow_map: slots.shadowTexture?.view ?? this.dummyDepthView,
-            shadow_maps: slots.shadowMaps?.buffer ?? this.dummyShadowMaps,
-            shadow_matrices: slots.shadowMatrices?.buffer ?? this.dummyShadowMatrices,
-            lights: slots.lights?.buffer ?? this.dummyLights,
-            surface_diff: slots.diffs?.buffer ?? this.dummyDiff,
-        });
+    /** Pool da geometria diferencial das superfícies (ou o substituto), religado quando muda. */
+    private bindDiff(ctx: Ctx): void {
+        const buffer = ctx.bound.slots.diffs?.buffer ?? this.dummyDiff;
+        if (buffer === this.boundDiff) return;
+        this.boundDiff = buffer;
+        ctx.bind(new Map([[surfaceDiffReadResource, buffer]]));
     }
 
     /**
@@ -857,7 +681,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ...(this.preferAsync ? { preferAsync: true } : {}),
                 };
                 ctx.prepare(descriptor);
-                this.pipelineFamily.set(descriptor.id, 'forward');
                 this.baseDescriptors.set(descriptor.id, descriptor);
                 this.prepareVariant(ctx, descriptor);
                 return descriptor.id;
@@ -894,13 +717,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         let pipeline = this.geometryPipelines.get(key);
         if (pipeline === undefined) {
             const id = `forward:${desc.id}:${wire ? 'wire' : 'points'}:${n}`;
+            const at = (resource: WgslResource): BindingKey => ({ pipeline: id, resource });
             ctx.bind(
-                wire
-                    ? {
-                          [`${id}:wire_vertices`]: vertices,
-                          [`${id}:wire_edges`]: edges! as IndexBufferSpec,
-                      }
-                    : { [`${id}:point_vertices`]: vertices },
+                new Map<BindingKey, BindingSource>(
+                    wire
+                        ? [
+                              [at(wireVerticesResource), vertices],
+                              [at(wireEdgesResource), edges! as IndexBufferSpec],
+                          ]
+                        : [[at(pointVerticesResource), vertices]],
+                ),
             );
             ctx.prepare({
                 ...desc,
@@ -916,7 +742,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 multisample: { count: ctx.bound.slots.target.sampleCount },
                 ...(this.preferAsync ? { preferAsync: true } : {}),
             });
-            this.pipelineFamily.set(id, wire ? 'wire' : 'points');
             pipeline = { id, users: 0 };
             this.geometryPipelines.set(key, pipeline);
         }
@@ -940,7 +765,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const pipeline = this.geometryPipelines.get(key)!;
             if (--pipeline.users > 0) continue;
             this.geometryPipelines.delete(key);
-            this.pipelineFamily.delete(pipeline.id);
             ctx.release(pipeline.id);
         }
     }
@@ -988,11 +812,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     }
 
     /**
-     * Parâmetros do quadro: slot da câmera ativa e, com a luz que projeta sombra, o slot dela no pool `Light` (a
-     * direção é lida no shader; sem ela, a padrão), sombra ligada e o slot do mapa — escritos só quando mudam. Nenhum
-     * dado da luz é lido na CPU.
-     */
-    /**
      * Projeção de ponto da câmera ativa (spec 009): com uma `CameraFunction` que define `camera_project` na entidade
      * da câmera, prepara a variante de cada pipeline de material com o adaptador da função (e libera as da função
      * anterior); sem ela, as variantes saem e o desenho volta à `viewProjection`.
@@ -1036,11 +855,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 base.shader,
                 new Map([[forwardCameraClip, forwardCameraAdapter(projection.module)]]),
             ),
-            consumes: [...base.consumes, CameraFnRecordSchema.name],
             verify: true,
             extensions: [projection.fn],
         });
-        this.pipelineFamily.set(id, 'forward');
         projection.variants.set(base.id, id);
     }
 
@@ -1053,40 +870,28 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         return prepared?.role === 'render' && prepared.ready ? prepared : undefined;
     }
 
+    /**
+     * Parâmetros do quadro: slot da câmera ativa, tamanho do alvo, slot da função de projeção e tempo — escritos só
+     * quando mudam. A luz, a sombra e a água chegam pelos pontos de cena dos shaders (spec 031).
+     */
     private writeFrameParams(ctx: Ctx): void {
         const slots = ctx.bound.slots;
-        const caster = slots.caster?.resource;
-        const lightId = caster === undefined ? undefined : this.world.entityIdOfResource(caster);
-        const lightSlot = lightId === undefined ? undefined : slots.lights?.slotOf(lightId);
-        const shadowSlot = lightId === undefined ? undefined : slots.shadowMaps?.slotOf(lightId);
-        const on =
-            lightSlot !== undefined
-            && shadowSlot !== undefined
-            && slots.shadowMatrices !== undefined
-            && slots.shadowTexture !== undefined;
         const cameraId = this.world.entityIdOfResource(slots.camera.resource);
         const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
-        const light = on ? lightSlot : NO_LIGHT_SLOT;
-        const shadow = on ? shadowSlot : 0;
         // Tamanho do alvo em pixels: a espessura das linhas do arame é em pixels de tela.
         const { width, height } = this.core.canvasSize() ?? { width: 1, height: 1 };
-        const caustics = this.causticsEnabled && on;
         // O tempo só vai ao shader com funções `material` na cena (sem elas, nenhuma escrita por quadro).
         const time = this.usesTime
             ? ((slots.time?.resource as Time | undefined)?.simulated ?? 0)
             : 0;
-        const key = `${cameraSlot}:${light}:${shadow}:${width}x${height}:${caustics}:${this.cameraFnSlot}:${time}`;
+        const key = `${cameraSlot}:${width}x${height}:${this.cameraFnSlot}:${time}`;
         if (key === this.writtenFrame) return;
         this.core.write(
             this.frameParams,
             ForwardFrameParamsSchema.pack({
                 cameraSlot,
-                lightSlot: light,
-                shadowEnabled: on ? 1 : 0,
-                shadowSlot: shadow,
-                viewport: [width, height],
-                causticsEnabled: caustics ? 1 : 0,
                 cameraFnSlot: this.cameraFnSlot,
+                viewport: [width, height],
                 time,
             }),
         );

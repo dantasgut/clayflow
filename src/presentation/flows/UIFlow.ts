@@ -1,16 +1,17 @@
 import type { EngineCore, Frame, RenderTarget } from '../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { BindingSources, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import { slot, type SlotMap, type TargetSlot } from '../../scene/flows/slots';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { UiTree } from '../ui/UiTree';
 import type { LoadedFont } from '../assets/FontLoader';
 import { UiFlattener } from '../ui/flatten/UiFlattener';
 import { UiTextLayout } from '../ui/flatten/UiTextLayout';
 import { UiGpuPipeline } from '../ui/UiGpuPipeline';
-import { ui } from './shaders';
+import { ui, uiResources } from './shaders';
 
 /** Slots da UI. */
 export interface UISlots extends SlotMap {
@@ -31,12 +32,12 @@ const PIPELINE = 'ui:quads';
  *
  * Coordenação: a árvore é achatada em quads (`UiFlattener`/`UiTextLayout`) e enviada em `framePrepare`; o atlas da
  * fonte, quando muda, é religado na mesma transição. Os recursos (tela, quads, atlas, sampler) são privados
- * (`UiGpuPipeline`), ligados por nome; o pipeline e o bind group são da C2.
+ * (`UiGpuPipeline`), ligados pelos recursos declarados (`uiResources`); o pipeline e o bind group são da C2.
  */
 export class UIFlow extends RenderFlow<UISlots, 'idle'> {
     readonly type = 'UIFlow';
     readonly slots = slots;
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     override readonly pipelines: readonly PipelineDescriptor[];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<UISlots>>;
@@ -121,7 +122,8 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
             colorAttachments: [{ view: canvas, loadOp: 'load', storeOp: 'store' }],
         };
         frame.render(target, 'UIFlow', (pass) => {
-            pass.bind.setPipeline(prepared.spec).setBindGroup(0, prepared.groups[0]!);
+            pass.bind.setPipeline(prepared.spec);
+            prepared.bindTo(pass.bind);
             pass.draw.vertices(count * 6);
         });
     }
@@ -134,7 +136,7 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
     /** Antes da gravação: atlas novo religado, árvore achatada e enviada. */
     private prepare(ctx: Ctx): void {
         const atlas = this.gpu.takeAtlasChange();
-        if (atlas !== undefined) ctx.bind({ atlas });
+        if (atlas !== undefined) ctx.bind(new Map([[uiResources.atlas, atlas]]));
         const quads = this.tree.root.children.length === 0 ? [] : this.flattener.flatten(this.tree);
         const size = this.core.canvasSize();
         this.gpu.upload(quads, [size?.width ?? 0, size?.height ?? 0]);

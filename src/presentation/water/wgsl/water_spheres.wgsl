@@ -3,13 +3,7 @@
 // material (o mais próximo vence pelo anexo de profundidade); o de espessura soma a corda da esfera cortada pela
 // profundidade da cena. Structs `CameraMatrices`, `WaterLightMatrix`, `FluidSurfaceMaterial`, `WaterViewParams` e
 // `WaterDrawParams` gerados dos schemas; a profundidade da cena (`water_scene.wgsl`) só oculta na vista da câmera — na
-// da luz o estágio liga um substituto.
-@group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
-@group(0) @binding(1) var<storage, read> water_light_matrix: WaterLightMatrix;
-@group(0) @binding(2) var<uniform> water_view: WaterViewParams;
-@group(1) @binding(0) var<storage, read> particles: array<vec4f>;
-@group(1) @binding(1) var<storage, read> water_materials: array<FluidSurfaceMaterial>;
-@group(2) @binding(0) var<uniform> water_draw: WaterDrawParams;
+// da luz o estágio liga um substituto. Recursos declarados em `water/shaders.ts`.
 
 struct WaterSphereOut {
     @builtin(position) clip_position: vec4f,

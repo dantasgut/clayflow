@@ -90,6 +90,13 @@ export class ScenePoints {
         return changed;
     }
 
+    /** Um Resource foi enviado: se contribui para pontos de cena e a contribuição mudou, recompõe (spec 031). */
+    resourceUploaded(resource: Resource): boolean {
+        if (!this.contributors.has(resource) || !this.contributionsChanged()) return false;
+        this.recompose();
+        return true;
+    }
+
     /** Um pool foi escrito: revisão de código ou slot de alguma função mudou? Recompõe se sim. */
     poolWritten(schemaName: string): boolean {
         let changed = this.contributionsDependOn(schemaName) && this.contributionsChanged();

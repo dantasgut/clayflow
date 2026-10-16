@@ -5,19 +5,9 @@
 // resolução converte para o fator de transmissão da luz (rgb) com um borrão em tenda 3×3. Espaço métrico da luz: NDC da
 // matriz da água (`WaterLightMatrix`, ajustada à água) dividido pela escala de cada eixo; os receptores vêm do mapa de
 // sombra da cena pela matriz dele. Structs `ShadowMatrix`, `WaterLightMatrix`, `FluidSurfaceMaterial` e
-// `CausticParams` gerados dos schemas.
-@group(0) @binding(0) var<storage, read> shadow_matrices: array<ShadowMatrix>;
-@group(0) @binding(3) var<storage, read> water_light_matrix: WaterLightMatrix;
-@group(0) @binding(1) var<storage, read> water_materials: array<FluidSurfaceMaterial>;
-@group(0) @binding(2) var<uniform> caustic_params: CausticParams;
-@group(1) @binding(0) var light_depth: texture_2d<f32>;
-@group(1) @binding(1) var light_material: texture_2d<u32>;
-@group(1) @binding(2) var caustic_shadow: texture_depth_2d;
-@group(1) @binding(3) var<storage, read_write> photons: array<atomic<u32>>;
-@group(2) @binding(0) var<storage, read_write> photon_sums: array<u32>;
-@group(2) @binding(1) var caustic_out: texture_storage_2d<rgba16float, write>;
+// `CausticParams` gerados dos schemas; recursos declarados em `water/shaders.ts`. "Sem água"/"sem receptor" vêm de
+// `WATER_DEPTH_LIMIT`.
 
-const CAUSTIC_NO_DEPTH: f32 = 1e8;
 // Unidade do ponto fixo: energia 1 = 4096.
 const CAUSTIC_ONE: f32 = 4096.0;
 const CAUSTIC_ITERATIONS: i32 = 6;
@@ -26,9 +16,9 @@ fn caustic_texel_count() -> u32 {
     return caustic_params.width * caustic_params.height;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn caustic_clear(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= 3u * caustic_texel_count()) { return; }
     atomicStore(&photons[i], 0u);
 }
@@ -49,7 +39,7 @@ fn caustic_receiver(xy: vec2f, m: mat4x4f, scale: vec3f) -> f32 {
     let s = shadow_matrices[caustic_params.shadowSlot].lightViewProj;
     let c = s * vec4f(q, 1.0);
     let uv = vec2f(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
-    if (any(uv < vec2f(0.0)) || any(uv >= vec2f(1.0))) { return 2.0 * CAUSTIC_NO_DEPTH; }
+    if (any(uv < vec2f(0.0)) || any(uv >= vec2f(1.0))) { return 2.0 * WATER_DEPTH_LIMIT; }
     // Bilinear: o mapa de sombra da cena é grosso (centímetros) e, lido no texel mais próximo, um fundo inclinado em
     // relação à luz vira degraus — que a refração transforma em estrias.
     let dims = vec2i(textureDimensions(caustic_shadow));
@@ -70,7 +60,7 @@ fn caustic_receiver(xy: vec2f, m: mat4x4f, scale: vec3f) -> f32 {
 fn caustic_water(t: vec2i) -> f32 {
     let dims = vec2i(i32(caustic_params.width), i32(caustic_params.height));
     let q = clamp(t, vec2i(0), dims - 1);
-    if (textureLoad(light_material, q, 0).x == 0u) { return 2.0 * CAUSTIC_NO_DEPTH; }
+    if (textureLoad(light_material, q, 0).x == 0u) { return 2.0 * WATER_DEPTH_LIMIT; }
     return textureLoad(light_depth, q, 0).x;
 }
 
@@ -110,7 +100,7 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     let m = textureLoad(light_material, t, 0).x;
     if (m == 0u) { return; }
     let z0 = textureLoad(light_depth, t, 0).x;
-    if (z0 >= CAUSTIC_NO_DEPTH) { return; }
+    if (z0 >= WATER_DEPTH_LIMIT) { return; }
     let material = water_materials[m - 1u];
     let lvp = water_light_matrix.viewProj;
     let scale = water_affine_scale(lvp);
@@ -119,7 +109,7 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     let xy0 = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0) / scale.xy;
     // Um objeto entre a luz e a água: a água está na sombra, nenhum fóton.
     let zr0 = caustic_receiver(xy0, lvp, scale);
-    if (zr0 < z0 || zr0 >= CAUSTIC_NO_DEPTH) { return; }
+    if (zr0 < z0 || zr0 >= WATER_DEPTH_LIMIT) { return; }
     let texel = vec2f(2.0) / (vec2f(dims) * scale.xy);
     let limit = 4.0 * max(texel.x, texel.y) + 0.05;
     let sx = caustic_slope(t, vec2i(1, 0), z0, texel.x, limit);
@@ -151,7 +141,7 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     var s = max(zr0 - z0, 0.0) / dz;
     for (var it: i32 = 0; it < CAUSTIC_ITERATIONS; it = it + 1) {
         let zr = caustic_receiver(xy0 + dir.xy * s, lvp, scale);
-        if (zr >= CAUSTIC_NO_DEPTH) { break; }
+        if (zr >= WATER_DEPTH_LIMIT) { break; }
         s = max(zr - z0, 0.0) / dz;
     }
     let hit = xy0 + dir.xy * s;

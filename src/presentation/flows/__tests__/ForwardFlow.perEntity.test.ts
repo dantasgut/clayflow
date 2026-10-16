@@ -84,7 +84,7 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         ).toEqual([]);
     });
 
-    it('grupos 0, 1 e 3 uma vez por passe; grupo 2 só quando o pipeline muda; um desenho por grupo de instâncias', async () => {
+    it('grupos `frame` e `stage` uma vez por passe; `batch` (material) só quando o pipeline muda; um desenho por grupo de instâncias', async () => {
         const s = await scene();
         s.add(20);
         const ids: number[] = [];
@@ -97,9 +97,10 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         }
         const [pass] = s.step().filter((p) => p.label === 'ForwardFlow');
         const count = (g: number) => pass!.setBindGroups.filter((i) => i === g).length;
+        // Câmeras (`frame`, grupo 0) e mundo + registros + instâncias + quadro (`stage`, grupo 1): uma vez (spec 031).
         expect(count(0)).toBe(1);
         expect(count(1)).toBe(1);
-        expect(count(3)).toBe(1);
+        expect(count(3)).toBe(0);
         // Dois grupos (mesma caixa; shaders standard e wireframe) ⇒ dois desenhos, com 20 e 5 instâncias.
         expect(pass!.draws.map((d) => d.instanceCount)).toEqual([20, 5]);
         // Dois pipelines ⇒ dois binds do material, sem offset dinâmico.
@@ -119,8 +120,8 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         s.add(10_000);
         const [pass] = s.step().filter((p) => p.label === 'ForwardFlow');
         expect(pass!.draws.map((d) => d.instanceCount)).toEqual([10_000]);
-        // Grupos 0, 1, 3 uma vez; grupo 2 uma vez por pipeline (um só: StandardMaterial, faces diretas).
-        expect(pass!.setBindGroups).toHaveLength(4);
+        // `frame` e `stage` uma vez; `batch` uma vez por pipeline (um só: StandardMaterial, faces diretas).
+        expect(pass!.setBindGroups).toHaveLength(3);
     });
 
     it('sem câmera o forward não fica pronto e não grava', async () => {

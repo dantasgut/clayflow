@@ -8,7 +8,15 @@ import type {
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { BindingSources, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import type {
+    BindingKey,
+    BindingSource,
+    BoundFlow,
+    TransitionContext,
+} from '../../scene/flows/FlowBinding';
+import { sameBindGroup } from '../../scene/flows/FlowBinding';
+import type { BindGroupSpec } from '../../scene/contracts/gpu';
+import { BINDING_FREQUENCIES } from '../../scene/shaders/WgslResource';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
@@ -23,16 +31,21 @@ import {
 import type { World } from '../../scene/world/World';
 import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
 import { Material } from '../../elements/material/Material';
-import { FluidSurfaceMaterial } from '../../elements/material/FluidSurfaceMaterial';
 import { PointSpriteMaterial } from '../../elements/material/PointSpriteMaterial';
+import { Geometry } from '../../elements/geometry/Geometry';
 import {
-    ForwardFrameParamsSchema,
+    particleDrawResource,
+    particleFrameResource,
+    particleLightsResource,
+    particlePoolResource,
+} from '../../elements/material/renderResources';
+import {
+    ParticleFrameParamsSchema,
     NO_LIGHT_SLOT,
     ParticleDrawParamsSchema,
 } from '../../elements/material/forwardSchemas';
 import { particleSprite } from '../../elements/material/shaders';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
-import { SoftBody } from '../../elements/physics/bodies/SoftBody';
 import { Camera } from '../../elements/scene/Camera';
 import { Light } from '../../elements/scene/Light';
 import { FrameTargets } from '../app/FrameTargets';
@@ -91,7 +104,7 @@ interface DrawnBody {
 export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
     readonly type = 'ParticleFlow';
     readonly slots = slots;
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
@@ -119,7 +132,7 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             kind: 'buffer',
             subkind: 'uniform',
             discriminator: 'particle_frame_params',
-            byteSize: ForwardFrameParamsSchema.stride,
+            byteSize: ParticleFrameParamsSchema.stride,
         });
         this.dummyLights = ctx.core.create<StorageBufferSpec>({
             kind: 'buffer',
@@ -132,15 +145,19 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             schema: ParticleDrawParamsSchema,
         });
         this.draws.reserve(1);
-        this.bindings = {
-            particle_frame: this.frameParams,
-            lights: this.dummyLights,
-            particle_draw: this.draws.source(),
-        };
+        this.bindings = new Map<BindingKey, BindingSource>([
+            [particleFrameResource, this.frameParams],
+            [particleLightsResource, this.dummyLights],
+            [particleDrawResource, this.draws.source()],
+        ]);
         const lights = {
             to: 'idle' as const,
             run: (_e: unknown, c: Ctx) => {
-                c.bind({ lights: c.bound.slots.lights?.buffer ?? this.dummyLights });
+                c.bind(
+                    new Map([
+                        [particleLightsResource, c.bound.slots.lights?.buffer ?? this.dummyLights],
+                    ]),
+                );
             },
         };
         this.transitions = {
@@ -148,7 +165,14 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
-                        c.bind({ lights: c.bound.slots.lights?.buffer ?? this.dummyLights });
+                        c.bind(
+                            new Map([
+                                [
+                                    particleLightsResource,
+                                    c.bound.slots.lights?.buffer ?? this.dummyLights,
+                                ],
+                            ]),
+                        );
                         this.track(
                             c,
                             c.bound.slots.bodies.entries.map((e) => e.entityId),
@@ -198,17 +222,27 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         };
         frame.render(renderTarget, 'ParticleFlow', (pass) => {
             let current: string | undefined;
+            const boundGroups: (BindGroupSpec | undefined)[] = [];
             this.order.forEach((drawn, region) => {
                 const prepared = bound.pipelines.get(drawn.pipeline);
                 if (prepared?.role !== 'render' || !prepared.ready) return;
                 if (drawn.pipeline !== current) {
-                    pass.bind
-                        .setPipeline(prepared.spec)
-                        .setBindGroup(0, prepared.groups[0]!)
-                        .setBindGroup(1, prepared.groups[1]!);
+                    pass.bind.setPipeline(prepared.spec);
+                    for (const frequency of BINDING_FREQUENCIES) {
+                        if (frequency === 'draw') continue;
+                        for (const g of prepared.groupsOf(frequency)) {
+                            if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
+                            pass.bind.setBindGroup(g.index, g.spec);
+                            boundGroups[g.index] = g.spec;
+                        }
+                    }
                     current = drawn.pipeline;
                 }
-                pass.bind.setBindGroup(2, prepared.groups[2]!, [this.draws.offset(region)]);
+                // Região do corpo (offset dinâmico) a cada desenho.
+                for (const g of prepared.groupsOf('draw')) {
+                    pass.bind.setBindGroup(g.index, g.spec, [this.draws.offset(region)]);
+                    boundGroups[g.index] = undefined;
+                }
                 pass.draw.vertices(6, drawn.body.count, 0, 0);
             });
         });
@@ -232,12 +266,12 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             const entry = entries.entry(id);
             if (entry === undefined) continue;
             const body = entry.get(ParticleBody);
-            // Corpo com superfície (malha): desenhado pelo forward como geometria, não como sprites.
-            if (body instanceof SoftBody && body.surface !== undefined) continue;
+            // Entidade com geometria (ex.: superfície de um corpo mole): desenhada pelo forward como malha.
+            if (entry.resources.some((r) => r instanceof Geometry)) continue;
             const material = entry.get(Material);
-            // Água (spec 017): desenhada pelos estágios da superfície de água.
-            if (material instanceof FluidSurfaceMaterial) continue;
-            if (!(material instanceof PointSpriteMaterial)) {
+            // Material que desenha corpos numa família de outro estágio (ex.: a superfície de água): desenhado por ele.
+            if (material.drawsParticles && material.family !== 'points') continue;
+            if (!material.drawsParticles || !(material instanceof PointSpriteMaterial)) {
                 if (!this.warned.has(id)) {
                     this.warned.add(id);
                     console.warn(
@@ -264,7 +298,7 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             role: 'render',
             shader: particleSprite,
             entryPoints: ['vs_main', 'fs_main'],
-            consumes: [Camera.matricesSchema.name, PointSpriteMaterial.schema.name],
+            consumes: [],
             topology: 'triangle-list',
             cullMode: 'none',
             colorTargets: [{ format }],
@@ -273,7 +307,7 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         };
         const buffer = this.resources.poolBufferSpec(poolKey)!;
         this.boundPools.set(poolKey, buffer);
-        ctx.bind({ [`${id}:particles`]: buffer });
+        ctx.bind(new Map([[{ pipeline: id, resource: particlePoolResource }, buffer]]));
         ctx.prepare(descriptor);
         return id;
     }
@@ -284,7 +318,14 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             const buffer = this.resources.poolBufferSpec(poolKey);
             if (buffer === undefined || buffer === bound) continue;
             this.boundPools.set(poolKey, buffer);
-            ctx.bind({ [`particle_sprite:${poolKey}:particles`]: buffer });
+            ctx.bind(
+                new Map([
+                    [
+                        { pipeline: `particle_sprite:${poolKey}`, resource: particlePoolResource },
+                        buffer,
+                    ],
+                ]),
+            );
             this.drawsDirty = true;
         }
     }
@@ -295,7 +336,8 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         this.drawsDirty = false;
         this.order = [...this.bodies.values()];
         if (this.order.length === 0) return;
-        if (this.draws.reserve(this.order.length)) ctx.bind({ particle_draw: this.draws.source() });
+        if (this.draws.reserve(this.order.length))
+            ctx.bind(new Map([[particleDrawResource, this.draws.source()]]));
         this.order.forEach((drawn, region) => {
             const schema = drawn.body.particleSchema;
             const poolKey = this.resources.poolKeyForResource(drawn.body)!;
@@ -330,12 +372,7 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         if (key === this.writtenFrame) return;
         this.core.write(
             this.frameParams,
-            ForwardFrameParamsSchema.pack({
-                cameraSlot,
-                lightSlot,
-                shadowEnabled: 0,
-                shadowSlot: 0,
-            }),
+            ParticleFrameParamsSchema.pack({ cameraSlot, lightSlot }),
         );
         this.writtenFrame = key;
     }

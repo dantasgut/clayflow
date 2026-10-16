@@ -1,13 +1,7 @@
 // Enquadramento da vista da luz da água (spec 017): a mesma direção da luz que projeta sombra, com a projeção
 // ortográfica ajustada na GPU à caixa envolvente das partículas de água (mais a margem da refração) — o mapa de cáusticas
 // cobre só a água, com texels de milímetros em vez dos centímetros do mapa de sombra da cena. Structs `ShadowMatrix`,
-// `WaterLightMatrix` e `WaterBoundsParams` gerados dos schemas.
-@group(0) @binding(0) var<storage, read_write> light_bounds: array<atomic<u32>>;
-@group(0) @binding(1) var<uniform> bounds_params: WaterBoundsParams;
-@group(1) @binding(0) var<storage, read> shadow_matrices: array<ShadowMatrix>;
-@group(1) @binding(1) var<storage, read> bounds_particles: array<vec4f>;
-@group(2) @binding(0) var<storage, read_write> light_matrix: WaterLightMatrix;
-@group(2) @binding(1) var<storage, read> bounds_in: array<u32>;
+// `WaterLightMatrix` e `WaterBoundsParams` gerados dos schemas; recursos declarados em `water/shaders.ts`.
 
 // Base ortonormal da luz: as linhas da parte 3×3 da matriz do mapa de sombra, normalizadas (colunas do resultado);
 // `transpose(base) * p` são as coordenadas de `p` na base.
@@ -37,9 +31,9 @@ fn water_bounds_clear() {
     }
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn water_bounds_accumulate(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= bounds_params.count) { return; }
     let p = bounds_particles[(bounds_params.first + i) * bounds_params.strideVec4 + bounds_params.posOffsetVec4].xyz;
     // Não finita, ou retirada do domínio aberto do fluido (spec 010: muito abaixo da cena), fica fora do enquadramento.

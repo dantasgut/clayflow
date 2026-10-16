@@ -5,6 +5,7 @@ import type {
     VertexBufferLayout,
 } from '../../core/contracts/index';
 import type { WgslModule } from '../shaders/WgslModule';
+import type { WgslResource } from '../shaders/WgslResource';
 import type { PointImplementation } from '../shaders/WgslPoint';
 
 /** Entrada de `consumes`: o nome do resolver, ou o nome e o struct WGSL com que o shader lê o dado. */
@@ -67,6 +68,11 @@ export interface PipelineDescriptor {
     readonly colorTargets?: readonly ColorTargetSpec[];
     /** Vertex buffer layouts (apenas render). Default: derivado de consumes. */
     readonly vertexBuffers?: readonly VertexBufferLayout[];
+    /**
+     * Pool de cada recurso neste pipeline, quando difere do fornecedor declarado (spec 031): ex. um material com pool
+     * próprio que usa o shader do forward liga o seu pool no recurso `materials` do shader. Substitui `{ name, as }`.
+     */
+    readonly pools?: ReadonlyMap<WgslResource, string>;
     /** Constantes `override` do shader (spec 031): variantes sem remendo de texto. */
     readonly constants?: Readonly<Record<string, number>>;
     /**

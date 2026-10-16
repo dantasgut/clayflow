@@ -1,4 +1,6 @@
+import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { Light, type LightValues } from './Light';
+import { shadowCasterContributions } from './points/shadowContribution';
 import { ShadowMap, type ShadowMapOptions } from './ShadowMap';
 
 /**
@@ -23,5 +25,16 @@ export class DirectionalLight extends Light {
         };
         this.shadowMap = castShadow ? new ShadowMap(values.shadow) : undefined;
         if (this.shadowMap !== undefined) this.add(this.shadowMap);
+        this.contributions =
+            this.shadowMap === undefined
+                ? []
+                : shadowCasterContributions(() => this.data.castShadow === 1);
+    }
+
+    private readonly contributions: readonly SceneContribution[];
+
+    /** Com o mapa de sombra: a direção e a sombra desta luz nos pontos de cena do sombreamento (spec 031). */
+    getSceneContributions(): readonly SceneContribution[] {
+        return this.contributions;
     }
 }

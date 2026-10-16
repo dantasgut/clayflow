@@ -6,7 +6,10 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-import { WaterLightMatrixSchema } from '../../elements/material/forwardSchemas';
+import type { SceneContribution } from '../../scene/shaders/WgslPoint';
+import { lightTransmissionPoint } from '../../elements/scene/points/lighting';
+import { WaterLightMatrixSchema, WaterStateSchema } from '../water/schemas';
+import { waterTransmission } from '../water/shaders';
 
 /** Opções da superfície de água da cena. */
 export interface WaterSurfaceOptions {
@@ -20,6 +23,18 @@ const PhotonSchema = new StructSchema('WaterPhoton', { value: FieldType.u32 });
 /** Valor de profundidade linear que marca "sem água" nas texturas de profundidade da superfície. */
 export const NO_WATER_DEPTH = WATER_NO_DEPTH.value;
 
+/** Dado do `WaterSurface` (layout de `WaterStateSchema`, descritor `state`). */
+export interface WaterSurfaceData {
+    /** 1 com a superfície vista pela luz produzida no quadro (cáusticas na luz direta); 0 sem. */
+    caustics: number;
+    /** Preenchimento do layout. */
+    _pad0: number;
+    /** Preenchimento do layout. */
+    _pad1: number;
+    /** Preenchimento do layout. */
+    _pad2: number;
+}
+
 /**
  * Superfície de água da cena (Camada 4, spec 017): as texturas que os estágios da água compartilham — a superfície
  * genérica (profundidade linear suavizada, espessura e material por pixel) nas vistas da câmera e da luz, a cópia da
@@ -28,11 +43,16 @@ export const NO_WATER_DEPTH = WATER_NO_DEPTH.value;
  *
  * Quem produz a superfície (hoje o `FluidSurfaceFlow`, a partir das partículas; depois a água por altura da spec 029)
  * escreve `depth`/`thickness`/`material` e `lightDepth`/`lightMaterial`; quem consome (`CausticsFlow`, `WaterFlow`) não
- * sabe a origem. Todos os descritores são alocados sob demanda (`allocation: 'onDemand'`): o produtor pede a alocação
- * quando a primeira água entra; sem água, nada ocupa memória. As texturas da vista da câmera têm o tamanho do canvas e
- * são recriadas pela C2 com ele. Uma por cena, inserida pelos estágios padrão.
+ * sabe a origem. Os descritores dos estágios da água são alocados sob demanda (`allocation: 'onDemand'`): o produtor
+ * pede a alocação quando a primeira água entra. As texturas da vista da câmera têm o tamanho do canvas e são recriadas
+ * pela C2 com ele. Uma por cena, inserida pelos estágios padrão.
+ *
+ * A água contribui para a luz da cena sem que os desenhos a conheçam (spec 031): `getSceneContributions` põe no ponto
+ * `light_transmission` a transmissão pelas cáusticas enquanto elas estão ligadas (`caustics` = 1 com a vista da luz
+ * produzida, escrito só quando muda; a C2 recompõe os desenhos ao receber o envio). Sem cáusticas a água não contribui
+ * e nada da vista da luz é alocado; o estado `state` (16 B) fica com a água para os desenhos já compostos com ela.
  */
-export class WaterSurface extends Entity<Record<string, never>> implements Resource {
+export class WaterSurface extends Entity<WaterSurfaceData> implements Resource {
     /** Identidade da superfície na cena (o World indexa pelo schema da classe); sem dados de GPU próprios. */
     static readonly schema = new StructSchema('WaterSurface', { _unused: FieldType.u32 });
 
@@ -49,6 +69,7 @@ export class WaterSurface extends Entity<Record<string, never>> implements Resou
             );
         }
         this.lightSize = lightSize;
+        this.data = { caustics: 0, _pad0: 0, _pad1: 0, _pad2: 0 };
     }
 
     /** Vistas com superfície produzida no quadro corrente (marcadas pelos produtores em `framePrepare`). */
@@ -56,16 +77,35 @@ export class WaterSurface extends Entity<Record<string, never>> implements Resou
 
     /**
      * Um produtor declara se escreveu a superfície da `view` neste quadro (em `framePrepare`, antes da gravação). Os
-     * consumidores (`WaterFlow`, `CausticsFlow`, o forward) só gravam com a vista produzida.
+     * consumidores (`WaterFlow`, `CausticsFlow`) só gravam com a vista produzida; a vista da luz liga as cáusticas na
+     * transmissão da luz (estado `caustics`, escrito só quando muda).
      */
     markProduced(view: 'camera' | 'light', produced: boolean): void {
         this.produced[view] = produced;
+        if (view !== 'light') return;
+        const caustics = produced ? 1 : 0;
+        if (this.rawData.caustics !== caustics) this.data.caustics = caustics;
     }
 
     /** A superfície da `view` foi produzida neste quadro? */
     isProduced(view: 'camera' | 'light'): boolean {
         return this.produced[view];
     }
+
+    /** A transmissão da luz pela água (cáusticas) no ponto de cena `light_transmission` — sempre, sem slots. */
+    getSceneContributions(): readonly SceneContribution[] {
+        return this.contributions;
+    }
+
+    /** Transmissão pelas cáusticas, só com elas ligadas (o estado é enviado quando muda). */
+    private readonly contributions: readonly SceneContribution[] = [
+        {
+            point: lightTransmissionPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.caustics === 1 ? waterTransmission : undefined),
+        },
+    ];
 
     getDescriptors(): readonly GPUDescriptor[] {
         const view = (
@@ -99,6 +139,8 @@ export class WaterSurface extends Entity<Record<string, never>> implements Resou
             },
         });
         return [
+            // Estado lido pelos desenhos (contribuição à transmissão da luz).
+            { id: 'state', role: 'uniform', schema: WaterStateSchema },
             // Vista da câmera.
             view('depthRaw', 'texture', 'r32float'),
             view('depthTemp', 'storage-texture', 'r32float'),

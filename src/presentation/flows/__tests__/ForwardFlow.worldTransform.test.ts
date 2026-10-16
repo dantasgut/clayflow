@@ -1,3 +1,5 @@
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
+import { forward } from '../../../elements/material/shaders';
 import { describe, expect, it } from 'vitest';
 import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { StandardMaterial } from '../../../elements/material/StandardMaterial';
@@ -18,18 +20,25 @@ async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
     return { ...s, id, box, transform, worldSlot };
 }
 
+/** Grupo e ligação do recurso `worlds` no shader do forward (atribuídos pelo motor, spec 031). */
+function worldsBinding(): { group: number; binding: number } {
+    const b = composeWgsl(forward).bindings.find((x) => x.name === 'worlds')!;
+    return { group: b.group, binding: b.binding };
+}
+
 describe('ForwardFlow — matriz de mundo por slot', () => {
-    it('grupo 1 é storage somente leitura visível no vértice, ligado ao pool WorldTransform', async () => {
+    it('o recurso `worlds` é storage somente leitura visível no vértice, ligado ao pool WorldTransform', async () => {
         const s = await scene();
         s.step();
         const [draw] = s.draws('ForwardFlow');
-        const group = draw!.bindGroups.get(1)!.group;
-        expect(group.layout.entries[0]).toMatchObject({
+        const at = worldsBinding();
+        const group = draw!.bindGroups.get(at.group)!.group;
+        expect(group.layout.entries.find((e) => e.binding === at.binding)).toMatchObject({
             kind: 'buffer',
             type: 'read-only-storage',
             visibility: GPUShaderStage.VERTEX,
         });
-        expect(group.bindings[0]).toMatchObject({
+        expect(group.bindings.find((b) => b.binding === at.binding)).toMatchObject({
             kind: 'buffer',
             buffer: s.scene.resourceSystem.poolBufferSpec('WorldTransform'),
         });
@@ -76,7 +85,7 @@ describe('ForwardFlow — matriz de mundo por slot', () => {
         expect(s.draws('ForwardFlow')[0]!.pipeline.primitive?.frontFace).toBe('cw');
     });
 
-    it('religa o grupo 1 quando o pool WorldTransform é realocado', async () => {
+    it('religa o grupo de `worlds` quando o pool WorldTransform é realocado', async () => {
         const s = await scene();
         s.step();
         const before = s.scene.resourceSystem.poolBufferSpec('WorldTransform');
@@ -90,6 +99,9 @@ describe('ForwardFlow — matriz de mundo por slot', () => {
         const after = s.scene.resourceSystem.poolBufferSpec('WorldTransform');
         expect(after).not.toBe(before);
         const [draw] = s.draws('ForwardFlow');
-        expect(draw!.bindGroups.get(1)!.group.bindings[0]).toMatchObject({ buffer: after });
+        const at = worldsBinding();
+        expect(
+            draw!.bindGroups.get(at.group)!.group.bindings.find((b) => b.binding === at.binding),
+        ).toMatchObject({ buffer: after });
     });
 });

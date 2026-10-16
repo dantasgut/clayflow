@@ -6,7 +6,7 @@ import type {
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
-import type { BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { Flow } from '../../scene/flows/Flow';
@@ -22,16 +22,19 @@ import {
     type SlotMap,
     type TextureSlot,
 } from '../../scene/flows/slots';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { World } from '../../scene/world/World';
 import { FluidSurfaceMaterial } from '../../elements/material/FluidSurfaceMaterial';
-import { CausticParamsSchema } from '../../elements/material/forwardSchemas';
-import { caustics } from '../../elements/material/shaders';
 import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { Light } from '../../elements/scene/Light';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
+import { shadowMatricesResource } from '../../elements/scene/resources';
+import { castingShadowMap } from '../../elements/scene/shadowCaster';
 import { WaterSurface } from '../app/WaterSurface';
+import { CausticParamsSchema } from '../water/schemas';
+import { caustics, waterResources as R } from '../water/shaders';
 import { Time } from '../../scene/time/Time';
-import { castingShadowMap } from './ShadowFlow';
 
 /** Slots das cáusticas. */
 export interface CausticsSlots extends SlotMap {
@@ -128,10 +131,10 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         frame.compute('CausticsFlow', (pass) => {
             const run = (kernel: ComputeKernel, dispatch: () => void): void => {
                 pass.bind.setPipeline(kernel.pipeline);
-                kernel.bindGroups.forEach((g, i) => pass.bind.setBindGroup(i, g));
+                kernel.bindTo(pass.bind);
                 dispatch();
             };
-            run(kernels.clear, () => pass.dispatch.invocations(3 * n * n, 64));
+            run(kernels.clear, () => pass.dispatch.invocations(3 * n * n, WORKGROUP_SIZE.value));
             run(kernels.splat, () => pass.dispatch.workgroups(Math.ceil(n / 8), Math.ceil(n / 8)));
             run(kernels.resolve, () =>
                 pass.dispatch.workgroups(Math.ceil(n / 8), Math.ceil(n / 8)),
@@ -233,30 +236,36 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         matrices: AnyBufferSpec,
         lightMatrix: AnyBufferSpec,
     ): { clear: ComputeKernel; splat: ComputeKernel; resolve: ComputeKernel } {
-        const kernel = (entryPoint: string, bindings: Record<string, unknown>): ComputeKernel =>
+        const kernel = (
+            entryPoint: string,
+            bindings: readonly (readonly [WgslResource, unknown])[],
+        ): ComputeKernel =>
             createComputeKernel(this.core, {
                 discriminator: `caustics_${entryPoint}`,
                 shader: caustics,
                 entryPoint,
-                bindings: bindings as Parameters<typeof createComputeKernel>[1]['bindings'],
+                bindings: new Map(bindings) as ReadonlyMap<WgslResource, BindingSource>,
             });
         return {
-            clear: kernel('caustic_clear', { caustic_params: this.params, photons }),
-            splat: kernel('caustic_splat', {
-                shadow_matrices: matrices,
-                water_light_matrix: lightMatrix,
-                water_materials: materials,
-                caustic_params: this.params,
-                light_depth: lightDepth,
-                light_material: lightMaterial,
-                caustic_shadow: shadow,
-                photons,
-            }),
-            resolve: kernel('caustic_resolve', {
-                caustic_params: this.params,
-                photon_sums: photons,
-                caustic_out: out,
-            }),
+            clear: kernel('caustic_clear', [
+                [R.causticParams, this.params],
+                [R.photons, photons],
+            ]),
+            splat: kernel('caustic_splat', [
+                [shadowMatricesResource, matrices],
+                [R.lightMatrix, lightMatrix],
+                [R.materials, materials],
+                [R.causticParams, this.params],
+                [R.lightDepth, lightDepth],
+                [R.lightMaterial, lightMaterial],
+                [R.causticShadow, shadow],
+                [R.photons, photons],
+            ]),
+            resolve: kernel('caustic_resolve', [
+                [R.causticParams, this.params],
+                [R.photonSums, photons],
+                [R.causticOut, out],
+            ]),
         };
     }
 

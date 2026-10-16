@@ -7,6 +7,8 @@
 // `pointCloud-<perfil>.png` (`--record` grava; duas execuções idênticas antes).
 //
 // Para rodar: `npm run smoke -- pointCloud [--record]`. Resultado: `POINT CLOUD SMOKE PASSED` ou `FAIL: …`.
+import { wgslResource, type WgslResource } from '../scene/shaders/WgslResource';
+import type { BindingSource } from '../scene/flows/FlowBinding';
 import {
     Application,
     Camera,
@@ -52,12 +54,24 @@ const SpiralParamsSchema = new StructSchema(
 );
 
 // Espiral: ponto i em ângulo i·0,02 + t, raio crescente, subindo; 8 floats por vértice (posição, normal, uv).
+const spiralParams = wgslResource({
+    name: 'spiral',
+    binding: { uniform: true },
+    type: { schema: SpiralParamsSchema },
+    frequency: 'stage',
+    provider: 'private',
+});
+const spiralVertices = wgslResource({
+    name: 'vertices',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'f32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
 const spiral = wgslModule({
     name: 'smoke_spiral',
+    requires: [spiralParams, spiralVertices],
     source: /* wgsl */ `
-@group(0) @binding(0) var<uniform> spiral: SpiralParams;
-@group(0) @binding(1) var<storage, read_write> vertices: array<f32>;
-
 @compute @workgroup_size(64)
 fn spiral_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * 64u;
@@ -116,7 +130,10 @@ class SpiralFlow extends Flow<SpiralSlots, 'idle'> {
                         discriminator: `smoke_spiral:${entry.entityId}`,
                         shader: spiral,
                         entryPoint: 'spiral_main',
-                        bindings: { spiral: this.params, vertices },
+                        bindings: new Map<WgslResource, BindingSource>([
+                            [spiralParams, this.params],
+                            [spiralVertices, vertices],
+                        ]),
                     }),
                 );
             }
@@ -156,7 +173,8 @@ class SpiralFlow extends Flow<SpiralSlots, 'idle'> {
     dispatch(frame: Frame): void {
         for (const kernel of this.kernels) {
             frame.compute('SpiralFlow', (pass) => {
-                pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroups[0]!);
+                pass.bind.setPipeline(kernel.pipeline);
+                kernel.bindTo(pass.bind);
                 pass.dispatch.invocations(POINTS, 64);
             });
         }

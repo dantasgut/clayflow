@@ -20,12 +20,13 @@ export const lightVisibilityReady = wgslModule({
 });
 
 /**
- * `fn light_transmission(p: vec3f, direct: f32) -> vec3f` — a luz direta `direct` (já atenuada pela sombra) que chega
- * ao ponto depois de atravessar o meio (ex.: a água e as cáusticas); pronto: `vec3f(direct)`.
+ * `fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f` — a luz que chega ao ponto: o ambiente mais a
+ * direta `direct` (já atenuada pela sombra) depois de atravessar o meio (ex.: a água e as cáusticas); pronto:
+ * `vec3f(ambient + direct)`. O contribuinte devolve a soma inteira, para a conta ser a mesma de antes em cada ramo.
  */
 export const lightTransmissionReady = wgslModule({
     name: 'light_transmission_ready',
-    source: 'fn light_transmission(p: vec3f, direct: f32) -> vec3f {\n    return vec3f(direct);\n}',
+    source: 'fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f {\n    return vec3f(ambient + direct);\n}',
 });
 
 const combined = new Map<string, WgslModule>();
@@ -68,7 +69,7 @@ export const lightVisibilityPoint: ContributionPoint = {
         ),
 };
 
-/** Transmissão da luz: o primeiro contribuinte sobre a luz direta, os seguintes como fatores sobre a unidade. */
+/** Transmissão da luz: o primeiro contribuinte com o ambiente e a direta; os seguintes como fatores (sem ambiente). */
 export const lightTransmissionPoint: ContributionPoint = {
     name: 'light_transmission',
     ready: lightTransmissionReady,
@@ -78,11 +79,11 @@ export const lightTransmissionPoint: ContributionPoint = {
             wgslModule({
                 name: `light_transmission:${modules.map((m) => m.name).join('+')}`,
                 requires: modules,
-                source: `fn light_transmission(p: vec3f, direct: f32) -> vec3f {\n    return ${modules
+                source: `fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f {\n    return ${modules
                     .map((_, k) =>
                         k === 0
-                            ? 'light_transmission_0(p, direct)'
-                            : `light_transmission_${k}(p, 1.0)`,
+                            ? 'light_transmission_0(p, ambient, direct)'
+                            : `light_transmission_${k}(p, 0.0, 1.0)`,
                     )
                     .join(' * ')};\n}`,
             }),

@@ -58,7 +58,11 @@ export const sdf = wgslModule({ name: 'sdf', source: sdfSource });
 export const sphKernels = wgslModule({ name: 'sph_kernels', source: sphKernelsSource });
 
 /** Pesos B-spline quadráticos do MPM e índices de nó. */
-export const mpmWeights = wgslModule({ name: 'mpm_weights', source: mpmWeightsSource });
+export const mpmWeights = wgslModule({
+    name: 'mpm_weights',
+    source: mpmWeightsSource,
+    requires: [NONE.module],
+});
 
 /** XPBD: Δλ com compliance, correção de posição, massa generalizada de corpo rígido. */
 export const xpbd = wgslModule({ name: 'xpbd', source: xpbdSource });

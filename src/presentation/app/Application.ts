@@ -26,6 +26,7 @@ import type { Input } from '../input/Input';
 import type { InteractionSystem } from '../input/InteractionSystem';
 import { acquireSceneInteraction, releaseSceneInteraction } from './sceneInteraction';
 import { ELEMENT_CONSUMERS } from '../../elements/consumers';
+import { WATER_CONSUMERS } from '../water/consumers';
 
 /**
  * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
@@ -238,6 +239,7 @@ export class Application {
         };
         await scene.initialize(options.canvas, options.canvasOptions, device);
         for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
+        for (const resolver of WATER_CONSUMERS) scene.consumers.registerDefault(resolver);
         options.consumers?.(scene.consumers);
         const defaults = registerPresentationDefaults(scene.flows, {
             world: scene.world,

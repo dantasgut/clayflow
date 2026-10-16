@@ -3,17 +3,8 @@
 // projetado na profundidade do pixel. Amostras sem água, de outro material ou atrás além do limiar de descontinuidade
 // não entram (silhuetas preservadas); as da frente além do limiar são grampeadas a ele. A espessura passa por um
 // borrão gaussiano curto. Structs `CameraMatrices`, `WaterLightMatrix`, `FluidSurfaceMaterial` e `WaterSmoothParams`
-// gerados dos schemas.
-@group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
-@group(0) @binding(1) var<storage, read> water_light_matrix: WaterLightMatrix;
-@group(0) @binding(2) var<storage, read> water_materials: array<FluidSurfaceMaterial>;
-@group(0) @binding(3) var<storage, read> water_radii: array<f32>;
-@group(0) @binding(4) var<uniform> water_smooth: WaterSmoothParams;
-@group(1) @binding(0) var smooth_src: texture_2d<f32>;
-@group(1) @binding(1) var smooth_material: texture_2d<u32>;
-@group(1) @binding(2) var smooth_dst: texture_storage_2d<r32float, write>;
+// gerados dos schemas; recursos declarados em `water/shaders.ts`.
 
-const WATER_NO_DEPTH: f32 = 1e9;
 const WATER_MAX_TAPS: i32 = 32;
 
 // Pixels por metro na profundidade `z`: pela projeção da câmera, ou pela escala do eixo y da matriz da luz.

@@ -2,14 +2,16 @@ import type {
     EngineCore,
     Frame,
     RenderTarget,
-    SamplerSpec,
-    StorageBufferSpec,
-    TextureSpec,
     TextureViewSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
-import type { BindingSources, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import type {
+    BindingSource,
+    BindingSources,
+    BoundFlow,
+    TransitionContext,
+} from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
@@ -19,36 +21,23 @@ import {
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
-    type TextureSlot,
 } from '../../scene/flows/slots';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { World } from '../../scene/world/World';
 import { FluidSurfaceMaterial } from '../../elements/material/FluidSurfaceMaterial';
-import { NO_LIGHT_SLOT, WaterCompositeParamsSchema } from '../../elements/material/forwardSchemas';
-import { waterComposite } from '../../elements/material/shaders';
 import { Camera } from '../../elements/scene/Camera';
-import { Light } from '../../elements/scene/Light';
-import { ShadowMap } from '../../elements/scene/ShadowMap';
 import { FrameTargets } from '../app/FrameTargets';
 import { WaterSurface } from '../app/WaterSurface';
+import { WaterCompositeParamsSchema } from '../water/schemas';
+import { waterComposite, waterResources as R } from '../water/shaders';
 import { Time } from '../../scene/time/Time';
-import { castingShadowMap } from './ShadowFlow';
 
 /** Slots da composição da água. */
 export interface WaterSlots extends SlotMap {
     /** Câmera ativa. */
     readonly camera: SingletonSlot<false>;
-    /** Pool `CameraMatrices`. */
+    /** Pool `CameraMatrices` (o slot da câmera ativa). */
     readonly cameras: PoolSlot<false>;
-    /** Pool `Light` (a luz que ilumina; opcional). */
-    readonly lights: PoolSlot<true>;
-    /** `ShadowMap` da luz que projeta sombra (opcional). */
-    readonly caster: SingletonSlot<true>;
-    /** Textura do mapa de sombra dela. */
-    readonly shadowTexture: TextureSlot<true>;
-    /** Pool `ShadowMap` (vieses). */
-    readonly shadowMaps: PoolSlot<true>;
-    /** Pool `ShadowMatrix` (matriz da luz). */
-    readonly shadowMatrices: PoolSlot<true>;
     /** A superfície de água da cena. */
     readonly water: SingletonSlot<false>;
     /** Tempo da cena (fase das ondulações do material). */
@@ -68,11 +57,14 @@ type Ctx = TransitionContext<WaterSlots>;
  * nas amostras, resolvidas na cor —, com teste de profundidade contra a cena (a água se oculta atrás dos objetos) sem
  * escrever nela. Por pixel: normal da profundidade suavizada, refração, absorção pela espessura, dispersão, Fresnel com
  * a cor de ambiente do material, especular e a sombra da cena. Só grava quando a superfície foi produzida no quadro.
+ *
+ * A luz que ilumina e a sombra vêm dos pontos de cena do sombreamento (`scene_light_direction`, `light_visibility`,
+ * spec 031): o estágio não conhece luzes nem mapas de sombra.
  */
 export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
     readonly type = 'WaterFlow';
     readonly slots: WaterSlots;
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
@@ -80,12 +72,6 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
     private readonly world: World;
     private readonly resources: ResourceDirectory;
     private readonly params: UniformBufferSpec;
-    private readonly sampler: SamplerSpec;
-    private readonly dummyDepth: TextureSpec;
-    private readonly dummyDepthView: TextureViewSpec;
-    private readonly dummyShadowMaps: StorageBufferSpec;
-    private readonly dummyShadowMatrices: StorageBufferSpec;
-    private readonly dummyLights: StorageBufferSpec;
     private pipeline: string | undefined;
     private samples = 0;
     private written = '';
@@ -97,15 +83,9 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         this.core = ctx.core;
         this.world = ctx.world;
         this.resources = ctx.resources;
-        const select = castingShadowMap(ctx.world);
         this.slots = {
             camera: slot.singleton(Camera.schema),
             cameras: slot.pool(Camera.matricesSchema.name),
-            lights: slot.pool(Light.schema.name, { optional: true }),
-            caster: slot.singleton(ShadowMap.schema, { optional: true, select }),
-            shadowTexture: slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
-            shadowMaps: slot.pool(ShadowMap.schema.name, { optional: true }),
-            shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
             water: slot.singleton(WaterSurface.schema),
             time: slot.singleton(Time.schema),
             target: slot.target({
@@ -120,43 +100,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
             discriminator: 'water_composite_params',
             byteSize: WaterCompositeParamsSchema.stride,
         });
-        this.sampler = ctx.core.create<SamplerSpec>({
-            kind: 'sampler',
-            discriminator: 'water_shadow_sampler',
-            desc: { magFilter: 'linear', minFilter: 'linear', compare: 'less' },
-        });
-        this.dummyDepth = ctx.core.create<TextureSpec>({
-            kind: 'texture',
-            discriminator: 'water_shadow_dummy',
-            width: 1,
-            height: 1,
-            format: 'depth32float',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-        });
-        this.dummyDepthView = ctx.core.create<TextureViewSpec>({
-            kind: 'textureview',
-            discriminator: 'water_shadow_dummy_view',
-            source: this.dummyDepth,
-            format: 'depth32float',
-        });
-        const storage = (name: string, byteSize: number): StorageBufferSpec =>
-            ctx.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `water_${name}_dummy`,
-                byteSize,
-            });
-        this.dummyShadowMaps = storage('shadow_maps', ShadowMap.schema.stride);
-        this.dummyShadowMatrices = storage('shadow_matrices', ShadowMap.matrixSchema.stride);
-        this.dummyLights = storage('lights', Light.schema.stride);
-        this.bindings = {
-            water_composite: this.params,
-            shadow_sampler: this.sampler,
-            shadow_map: this.dummyDepthView,
-            shadow_maps: this.dummyShadowMaps,
-            shadow_matrices: this.dummyShadowMatrices,
-            lights: this.dummyLights,
-        };
+        this.bindings = new Map<WgslResource, BindingSource>([[R.composite, this.params]]);
         this.transitions = {
             '*': {
                 slotsResolved: 'ignore',
@@ -200,26 +144,14 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         };
         frame.render(renderTarget, 'WaterFlow', (pass) => {
             pass.bind.setPipeline(prepared.spec);
-            prepared.groups.forEach((g, i) => {
-                if (g !== undefined) pass.bind.setBindGroup(i, g);
-            });
+            prepared.bindTo(pass.bind);
             pass.draw.vertices(3);
         });
     }
 
     /** Libera os recursos privados. */
     override dispose(): void {
-        for (const spec of [
-            this.params,
-            this.sampler,
-            this.dummyDepthView,
-            this.dummyDepth,
-            this.dummyShadowMaps,
-            this.dummyShadowMatrices,
-            this.dummyLights,
-        ]) {
-            this.core.destroy(spec);
-        }
+        this.core.destroy(this.params);
     }
 
     /** Pipeline (variante pelas amostras da cena), fontes e parâmetros — antes da gravação. */
@@ -242,13 +174,13 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
             if (this.pipeline !== undefined) ctx.release(this.pipeline);
             this.samples = samples;
             this.pipeline = `water_composite:${samples}`;
-            ctx.bind(this.sources(ctx, water, materials, sceneDepth));
+            ctx.bind(this.sources(water, sceneDepth));
             ctx.prepare({
                 id: this.pipeline,
                 role: 'render',
                 shader: samples > 1 ? waterComposite.sceneMs : waterComposite.scene,
                 entryPoints: ['water_composite_vs', 'water_composite_fs'],
-                consumes: [Camera.matricesSchema.name],
+                consumes: [],
                 topology: 'triangle-list',
                 cullMode: 'none',
                 colorTargets: [{ format: slots.target.format ?? this.core.canvasFormat }],
@@ -256,66 +188,37 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
                 multisample: { count: samples },
             });
         } else {
-            ctx.bind(this.sources(ctx, water, materials, sceneDepth));
+            ctx.bind(this.sources(water, sceneDepth));
         }
         this.writeParams(ctx);
     }
 
-    /** Fontes do passe (texturas da superfície, profundidade da cena, sombra, luzes, materiais). */
-    private sources(
-        ctx: Ctx,
-        water: WaterSurface,
-        materials: StorageBufferSpec,
-        sceneDepth: TextureViewSpec,
-    ): BindingSources {
-        const slots = ctx.bound.slots;
+    /** Fontes do passe: texturas da superfície e profundidade da cena (o pool de materiais vem da C2). */
+    private sources(water: WaterSurface, sceneDepth: TextureViewSpec): BindingSources {
         const tex = (id: string): TextureViewSpec => this.resources.textureViewOf(water, id)!;
-        return {
-            water_depth: tex('depth'),
-            water_thickness: tex('thickness'),
-            water_material: tex('material'),
-            water_background: tex('background'),
-            water_scene_depth: sceneDepth,
-            water_materials: materials,
-            shadow_map: slots.shadowTexture?.view ?? this.dummyDepthView,
-            shadow_maps: slots.shadowMaps?.buffer ?? this.dummyShadowMaps,
-            shadow_matrices: slots.shadowMatrices?.buffer ?? this.dummyShadowMatrices,
-            lights: slots.lights?.buffer ?? this.dummyLights,
-        };
+        return new Map<WgslResource, BindingSource>([
+            [R.depth, tex('depth')],
+            [R.thickness, tex('thickness')],
+            [R.material, tex('material')],
+            [R.background, tex('background')],
+            [this.samples > 1 ? R.sceneDepthMs : R.sceneDepth, sceneDepth],
+        ]);
     }
 
-    /** Slots da câmera, da luz e do mapa; sombra ligada; tamanho — escritos quando mudam. */
+    /** Slot da câmera, tamanho e tempo — escritos quando mudam. */
     private writeParams(ctx: Ctx): void {
         const slots = ctx.bound.slots;
-        const caster = slots.caster?.resource;
-        const lightId = caster === undefined ? undefined : this.world.entityIdOfResource(caster);
-        const lightSlot = lightId === undefined ? undefined : slots.lights?.slotOf(lightId);
-        const shadowSlot = lightId === undefined ? undefined : slots.shadowMaps?.slotOf(lightId);
-        const on =
-            lightSlot !== undefined
-            && shadowSlot !== undefined
-            && slots.shadowMatrices !== undefined
-            && slots.shadowTexture !== undefined;
         const cameraId = this.world.entityIdOfResource(slots.camera.resource);
         const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
         const { width, height } = this.core.canvasSize() ?? { width: 1, height: 1 };
-        const light = on ? lightSlot : NO_LIGHT_SLOT;
-        const shadow = on ? shadowSlot : 0;
         // O tempo muda a cada quadro (ondulações): um uniform pequeno por quadro, só com água na tela.
         const time = (slots.time.resource as Time).data.elapsed;
-        const key = `${cameraSlot}:${light}:${shadow}:${width}x${height}:${time}`;
+        const key = `${cameraSlot}:${width}x${height}:${time}`;
         if (key === this.written) return;
         this.written = key;
         this.core.write(
             this.params,
-            WaterCompositeParamsSchema.pack({
-                cameraSlot,
-                lightSlot: light,
-                shadowSlot: shadow,
-                shadowEnabled: on ? 1 : 0,
-                viewport: [width, height],
-                time,
-            }),
+            WaterCompositeParamsSchema.pack({ cameraSlot, viewport: [width, height], time }),
         );
     }
 }

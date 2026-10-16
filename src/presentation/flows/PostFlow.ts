@@ -8,15 +8,21 @@ import type {
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { BindingSources, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import type {
+    BindingKey,
+    BindingSource,
+    BoundFlow,
+    TransitionContext,
+} from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import { slot, type SlotMap, type TargetSlot, type TextureSlot } from '../../scene/flows/slots';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { PostProcessEffect } from '../resources/PostProcessEffect';
 import { FrameTargets } from '../app/FrameTargets';
 import { EffectParamsSchema } from './renderSchemas';
-import { effectsBase } from './shaders';
+import { effectResources, effectsBase } from './shaders';
 
 /** Slots do pós-processamento. */
 export interface PostSlots extends SlotMap {
@@ -57,7 +63,7 @@ interface EffectPass {
 export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     readonly type = 'PostFlow';
     readonly slots = slots;
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<PostSlots>>;
 
@@ -86,7 +92,9 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 addressModeV: 'clamp-to-edge',
             },
         });
-        this.bindings = { src_smp: this.sampler };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [effectResources.sampler, this.sampler],
+        ]);
         this.transitions = {
             '*': {
                 slotsResolved: {
@@ -143,7 +151,8 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                     ? 'PostFlow.passthrough'
                     : `PostFlow.${pass.pipeline.slice(5)}`;
             frame.render(target, label, (p) => {
-                p.bind.setPipeline(prepared.spec).setBindGroup(0, prepared.groups[0]!);
+                p.bind.setPipeline(prepared.spec);
+                prepared.bindTo(p.bind);
                 p.draw.vertices(3);
             });
         }
@@ -219,7 +228,11 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             topology: 'triangle-list',
             colorTargets: [{ format: this.core.canvasFormat }],
         };
-        ctx.bind({ [`${id}:params`]: params });
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [{ pipeline: id, resource: effectResources.params }, params],
+            ]),
+        );
         const pass = { pipeline: id, descriptor, params, prepared: false };
         this.passes.set(effect, pass);
         return pass;
@@ -242,10 +255,12 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const scene = ctx.bound.slots.scene.view;
         const key = `${chain.map((p) => p.pipeline).join('|')}#${scene.discriminator ?? ''}`;
         if (key !== this.chainKey) {
-            const sources: Record<string, TextureViewSpec> = {};
+            const sources = new Map<BindingKey, BindingSource>();
             chain.forEach((pass, i) => {
-                sources[`${pass.pipeline}:src_tex`] =
-                    i === 0 ? scene : this.pingpong!.views[(i - 1) % 2]!;
+                sources.set(
+                    { pipeline: pass.pipeline, resource: effectResources.source },
+                    i === 0 ? scene : this.pingpong!.views[(i - 1) % 2]!,
+                );
             });
             ctx.bind(sources);
             this.chainKey = key;

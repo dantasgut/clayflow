@@ -1,19 +1,23 @@
 /**
- * Estágios da água (spec 017): sem corpo com `FluidSurfaceMaterial`, nada alocado nem gravado e o forward com
- * `causticsEnabled = 0`; com água, a superfície da câmera (esferas, espessura, suavização) e a composição (cópia da
- * cena + tela cheia); com a luz que projeta sombra, a vista da luz (caixa envolvente, esferas, suavização) e as
- * cáusticas antes do forward, que acende `causticsEnabled`; parâmetros escritos quando os corpos mudam; troca de
- * material em execução (`World.attach`/`detach`) entre sprites e água; nenhuma leitura de volta.
+ * Estágios da água (spec 017): sem corpo com `FluidSurfaceMaterial`, nada dos estágios alocado nem gravado (só o que a
+ * contribuição à transmissão da luz lê) e o estado `caustics` do `WaterSurface` em 0; com água, a superfície da câmera
+ * (esferas, espessura, suavização) e a composição (cópia da cena + tela cheia); com a luz que projeta sombra, a vista
+ * da luz (caixa envolvente, esferas, suavização) e as cáusticas antes do forward, que acendem `caustics`; o forward
+ * chama a transmissão da água pelo ponto de cena `light_transmission` sem conhecê-la (spec 031); parâmetros escritos
+ * quando os corpos mudam; troca de material em execução (`World.attach`/`detach`) entre sprites e água; nenhuma
+ * leitura de volta.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { FluidBody } from '../../../elements/physics/bodies/FluidBody';
 import { FluidSurfaceMaterial } from '../../../elements/material/FluidSurfaceMaterial';
-import { ForwardFrameParamsSchema } from '../../../elements/material/forwardSchemas';
 import { PointSpriteMaterial } from '../../../elements/material/PointSpriteMaterial';
+import { StandardMaterial } from '../../../elements/material/StandardMaterial';
 import { Camera } from '../../../elements/scene/Camera';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
 import { WaterSurface } from '../../app/WaterSurface';
+import { WaterStateSchema } from '../../water/schemas';
 import { discOf, registerStages, renderScene } from './helpers/renderHarness';
 
 const line = (n: number): number[] => Array.from({ length: n }, (_, i) => [i * 0.05, 0, 0]).flat();
@@ -31,10 +35,18 @@ async function scene(options: { light?: boolean } = {}) {
     return s;
 }
 
-/** Descritores do `WaterSurface` alocados (texturas e buffers sob demanda). */
+/** Descritores lidos pela transmissão da luz pela água (todo desenho que chama o ponto os liga): alocados sempre. */
+/** Alocado na inserção da água: só o estado das cáusticas (16 B). */
+const EAGER = new Set(['state']);
+
+function waterOf(s: Awaited<ReturnType<typeof scene>>): WaterSurface {
+    return s.scene.world.findResource(WaterSurface.schema, WaterSurface)!;
+}
+
+/** Descritores do `WaterSurface` alocados (texturas e buffers). */
 function waterAllocs(s: Awaited<ReturnType<typeof scene>>): string[] {
     const rs = s.scene.resourceSystem;
-    const water = s.scene.world.findResource(WaterSurface.schema, WaterSurface)!;
+    const water = waterOf(s);
     return water
         .getDescriptors()
         .map((d) => d.id)
@@ -43,16 +55,31 @@ function waterAllocs(s: Awaited<ReturnType<typeof scene>>): string[] {
         );
 }
 
-/** Último `causticsEnabled` escrito nos parâmetros do quadro do forward. */
+/** Último `caustics` enviado ao estado do `WaterSurface` na GPU. */
 function causticsFlag(s: Awaited<ReturnType<typeof scene>>): number | undefined {
-    const calls = vi
+    const state = s.scene.resourceSystem.bufferOf(waterOf(s), 'state');
+    const last = vi
         .mocked(s.core.write)
-        .mock.calls.filter(([spec]) => discOf(spec) === 'forward_frame_params');
-    const last = calls.at(-1);
+        .mock.calls.filter(([spec]) => spec === state)
+        .at(-1);
     if (last === undefined) return undefined;
     const data = last[1];
-    const view = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
-    return view[ForwardFrameParamsSchema.offsetOf('causticsEnabled') / 4];
+    const view = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+    return view[WaterStateSchema.offsetOf('caustics') / 4];
+}
+
+/** Fontes dos shaders do desenho forward criados. */
+function forwardShaders(s: Awaited<ReturnType<typeof scene>>): string[] {
+    return vi
+        .mocked(s.core.create)
+        .mock.calls.map(
+            ([spec]) => spec as { kind?: string; discriminator?: string; source?: string },
+        )
+        .filter(
+            (spec) =>
+                spec.kind === 'shader' && (spec.discriminator ?? '').startsWith('wgsl:forward'),
+        )
+        .map((spec) => spec.source ?? '');
 }
 
 afterEach(() => {
@@ -60,17 +87,25 @@ afterEach(() => {
 });
 
 describe('estágios da água (spec 017)', () => {
-    it('sem água: nenhum passe nem recurso da água; forward com causticsEnabled = 0', async () => {
+    it('sem água: nenhum passe nem recurso dos estágios da água; cáusticas desligadas no estado', async () => {
         const s = await scene({ light: true });
         s.scene.world.insert(
             new FluidBody({ algorithm: 'SPH', position: line(10) }).add(new PointSpriteMaterial()),
         );
+        s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
         const passes = s.step();
         s.step();
         expect(passes.map((p) => p.label).filter((l) => /Fluid|Water/.test(l))).toEqual([]);
         expect(s.computes().filter((c) => /Fluid|Caustics|copy:/.test(c))).toEqual([]);
-        expect(waterAllocs(s)).toEqual([]);
+        expect(new Set(waterAllocs(s))).toEqual(EAGER);
+        expect(waterOf(s).data.caustics).toBe(0);
         expect(causticsFlag(s)).toBe(0);
+        // Sem cáusticas a água não contribui: o forward desenha com a transmissão pronta (spec 031).
+        expect(s.step().find((p) => p.label === 'ForwardFlow')?.draws.length).toBeGreaterThan(0);
+        const shaders = forwardShaders(s);
+        expect(shaders.length).toBeGreaterThan(0);
+        expect(shaders.some((src) => src.includes('fn water_caustic_factor('))).toBe(false);
+        expect(shaders.every((src) => src.includes('return vec3f(ambient + direct);'))).toBe(true);
     });
 
     it('com água: esferas (um desenho por corpo), espessura, suavização e composição; sprites não desenham o corpo', async () => {
@@ -108,6 +143,7 @@ describe('estágios da água (spec 017)', () => {
         // A vista da câmera alocou as texturas dela; a da luz (sem luz com sombra) não.
         expect(new Set(waterAllocs(s))).toEqual(
             new Set([
+                ...EAGER,
                 'depthRaw',
                 'depthTemp',
                 'depth',
@@ -147,6 +183,7 @@ describe('estágios da água (spec 017)', () => {
             [...order.map((c) => computes.indexOf(c))].sort((a, b) => a - b),
         );
         expect(order.every((c) => computes.includes(c))).toBe(true);
+        expect(waterOf(s).data.caustics).toBe(1);
         expect(causticsFlag(s)).toBe(1);
     });
 

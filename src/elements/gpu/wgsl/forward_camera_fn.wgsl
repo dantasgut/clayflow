@@ -1,10 +1,8 @@
-// Projeção do desenho forward pela função `camera` da câmera ativa (spec 009): liga o pool `CameraFnRecord` (grupo 2,
-// binding 1 — o grupo do material, religado a cada pipeline) e projeta o ponto pela `camera_project` da função, com os
-// parâmetros da câmera ativa (`forward_frame.cameraFnSlot`). Toma o lugar de `forward_camera_ready`.
-// Requer: struct CameraFnRecord; o binding `cameras` e o uniforme `forward_frame` do forward; a função (camera_project,
-// camera_fn_params).
-
-@group(2) @binding(1) var<storage, read> camera_fn_records: array<CameraFnRecord>;
+// Projeção do desenho forward pela função `camera` da câmera ativa (spec 009): projeta o ponto pela `camera_project`
+// da função, com os parâmetros da câmera ativa (`forward_frame.cameraFnSlot`, registros `camera_fn_records`). Toma o
+// lugar de `forward_camera_ready`.
+// Requer: struct CameraFnRecord; os recursos `cameras`, `camera_fn_records` e `forward_frame`; a função
+// (camera_project, camera_fn_params).
 
 fn camera_clip(slot: u32, world: vec4f) -> vec4f {
     let view_pos = (cameras[slot].view * world).xyz;

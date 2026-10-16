@@ -698,8 +698,14 @@ export class FlowRuntime {
         state: PipelineState,
         base: PipelineDescriptor | undefined,
     ): ResolvedSource | undefined {
-        const provider = entry.declared!.resource.provider;
         const ctx = { world: this.host.world, resources: this.host.resources };
+        const poolOverride = state.descriptor.pools?.get(entry.declared!);
+        if (poolOverride !== undefined) {
+            return this.host.consumers.has(poolOverride)
+                ? this.host.consumers.resolve(poolOverride, ctx)
+                : undefined;
+        }
+        const provider = entry.declared!.resource.provider;
         if (provider === 'private') {
             const priv =
                 this.privates.get(`${state.id}:${entry.name}`) ?? this.privates.get(entry.name);

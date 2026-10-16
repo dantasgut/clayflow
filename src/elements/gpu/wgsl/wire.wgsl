@@ -3,15 +3,7 @@
 // Cada aresta vira um quad de `lineWidth` pixels na tela (6 vértices; `vertex_index / 6` é a aresta), com a posição
 // dos dois vértices lida do vertex buffer da geometria como storage (8 floats por vértice). A instância é a entidade do
 // grupo (registro `Renderable`). Borda suavizada por `fwidth` + `smoothstep`, com mistura alfa.
-@group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
-@group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
-@group(1) @binding(1) var<storage, read> renderables: array<Renderable>;
-@group(1) @binding(2) var<storage, read> instances: array<RenderInstance>;
-@group(2) @binding(0) var<storage, read> materials: array<WireframeMaterial>;
-@group(3) @binding(0) var<uniform> forward_frame: ForwardFrameParams;
 // Vértices e arestas da geometria do pipeline (bindings privados por geometria).
-@group(3) @binding(6) var<storage, read> wire_vertices: array<f32>;
-@group(3) @binding(7) var<storage, read> wire_edges: array<u32>;
 
 struct WireOut {
     @builtin(position) clip_position: vec4f,

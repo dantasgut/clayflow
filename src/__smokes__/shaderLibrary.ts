@@ -12,6 +12,23 @@ import { Application, createScene } from 'clayflow';
 import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow';
 import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
 import { wgslModule, type WgslModule } from '../scene/shaders/WgslModule';
+import { wgslResource } from '../scene/shaders/WgslResource';
+
+/** Entradas e saída dos kernels de teste da biblioteca (spec 031). */
+const caseInput = wgslResource({
+    name: 'inp',
+    binding: { storage: 'read' },
+    type: { wgsl: 'vec4f', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+const caseOutput = wgslResource({
+    name: 'outp',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'vec4f', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
 import { FieldType } from '../scene/descriptors/FieldType';
 import type { StructSchema } from '../scene/descriptors/StructSchema';
 import { wgslLib } from '../elements/gpu/shaders/index';
@@ -432,10 +449,8 @@ async function runReference(app: Application, c: ReferenceCase, index: number): 
     app.core.write(inBuf, inData);
     const module = wgslModule({
         name: `shaderlib_case_${index}`,
-        requires: [...c.requires],
+        requires: [...c.requires, caseInput, caseOutput],
         source: `
-@group(0) @binding(0) var<storage, read> inp: array<vec4f>;
-@group(0) @binding(1) var<storage, read_write> outp: array<vec4f>;
 fn eval_case(a: vec4f, b: vec4f) -> vec4f {
     ${c.body}
 }
@@ -449,11 +464,15 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
         discriminator: `shaderlib_case_${index}`,
         shader: module,
         entryPoint: 'test_main',
-        bindings: { inp: inBuf, outp: outBuf },
+        bindings: new Map([
+            [caseInput, inBuf],
+            [caseOutput, outBuf],
+        ]),
     });
     app.core.record('shaderlib-case', (frame) => {
         frame.compute('shaderlib.case', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind);
             pass.dispatch.invocations(N, 64);
         });
     });
@@ -576,11 +595,18 @@ const SCHEMAS: readonly StructSchema[] = [
 async function runLayout(app: Application, schema: StructSchema, index: number): Promise<void> {
     const { wgsl, probes } = probeProgram(schema);
     const buf = storage(app, `shaderlib_layout_${index}`, Math.max(16, schema.stride));
+    const probeOut = wgslResource({
+        name: 'outp',
+        binding: { storage: 'read_write' },
+        type: { schema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    });
     const module = wgslModule({
         name: `shaderlib_layout_${index}`,
+        requires: [probeOut],
         structs: [schema],
         source: `
-@group(0) @binding(0) var<storage, read_write> outp: array<${schema.wgslName}>;
 @compute @workgroup_size(1)
 fn probe_main() {
     ${wgsl}
@@ -590,12 +616,13 @@ fn probe_main() {
         discriminator: `shaderlib_layout_${index}`,
         shader: module,
         entryPoint: 'probe_main',
-        bindings: { outp: buf },
+        bindings: new Map([[probeOut, buf]]),
     });
     app.core.record('shaderlib-layout', (frame) => {
         frame.clear(buf);
         frame.compute('shaderlib.layout', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroup);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind);
             pass.dispatch.workgroups(1);
         });
     });

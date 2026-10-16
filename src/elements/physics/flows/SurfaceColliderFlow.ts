@@ -1,3 +1,4 @@
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
 import { surfaceResources } from '../../geometry/shaders';
@@ -47,7 +48,7 @@ import {
     surfaceBakeResources as B,
 } from '../shaders/surfaceCollider';
 
-const WORKGROUP = 64;
+const WORKGROUP = ENGINE_WORKGROUP_SIZE.value;
 const NONE = ENGINE_NONE.value;
 
 /** Slots do estágio dos colliders de superfície. */

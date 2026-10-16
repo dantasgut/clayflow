@@ -101,6 +101,25 @@ interface PreparedBase {
 /** Offsets dinâmicos por frequência (para `bindTo`). */
 export type GroupOffsets = Readonly<Partial<Record<BindingFrequency, readonly number[]>>>;
 
+const groupKeys = new WeakMap<BindGroupSpec, string>();
+
+/**
+ * Mesmo bind group? A identidade, ou o mesmo conteúdo (layout e fontes) — dois pipelines com os mesmos recursos numa
+ * frequência têm bind groups de conteúdo igual (o mesmo objeto de GPU, spec 004): o estágio não regrava o grupo ao
+ * trocar de pipeline (spec 031).
+ */
+export function sameBindGroup(a: BindGroupSpec | undefined, b: BindGroupSpec): boolean {
+    if (a === b) return true;
+    if (a === undefined) return false;
+    const key = (g: BindGroupSpec): string => {
+        let k = groupKeys.get(g);
+        if (k === undefined)
+            groupKeys.set(g, (k = JSON.stringify({ layout: g.layout, bindings: g.bindings })));
+        return k;
+    };
+    return key(a) === key(b);
+}
+
 /** Grava os grupos `groups` (índice, bind group, dinâmico) com os offsets da frequência de cada grupo dinâmico. */
 export function bindGroupsTo<P extends PipelineSpec>(
     binder: Binder<P>,
