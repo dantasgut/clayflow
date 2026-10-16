@@ -1,4 +1,3 @@
-import { extensionRecordSchema } from '../../../scene/descriptors/ExtensionRecord';
 import type { BindablePoint } from '../../../scene/shaders/bindPoints';
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
@@ -11,22 +10,10 @@ import materialFnReadySource from '../../gpu/wgsl/material_fn_ready.wgsl?raw';
 import materialCheckSource from '../../gpu/wgsl/material_check.wgsl?raw';
 import { StandardMaterialSchema } from '../StandardMaterialSchema';
 
-/** Registro de parâmetros das funções do ponto `material` (spec 009). */
-export const MaterialFnRecordSchema = extensionRecordSchema('MaterialFnRecord');
-
 /** Tipos do ponto `material`: `SurfaceSample` e `SurfaceParams`. */
 export const materialPointTypes = wgslModule({
     name: 'material_point_types',
     source: materialPointTypesSource,
-});
-
-/** Registros das funções `material` (spec 009), lidos pelo adaptador do forward (pelo slot do registro da entidade). */
-export const materialFnRecordsResource = wgslResource({
-    name: 'material_fn_records',
-    binding: { storage: 'read' },
-    type: { schema: MaterialFnRecordSchema, array: true },
-    frequency: 'batch',
-    provider: { pool: MaterialFnRecordSchema.name },
 });
 
 /** Função pronta do ponto `material` (as constantes do material). */
@@ -34,7 +21,7 @@ export const materialFnReady = wgslModule({
     name: 'material_fn_ready',
     source: materialFnReadySource,
     requires: [materialPointTypes],
-    structs: [StandardMaterialSchema, MaterialFnRecordSchema],
+    structs: [StandardMaterialSchema],
 });
 
 /** Parâmetros de superfície prontos do forward: os da função pronta (as constantes do material). */
@@ -58,8 +45,8 @@ export const forwardMaterial: BindablePoint = {
 export const forwardMaterialFn = wgslModule({
     name: 'forward_material_fn',
     source: forwardMaterialFnSource,
-    requires: [materialPointTypes, materialFnReady, materialFnRecordsResource],
-    structs: [StandardMaterialSchema, MaterialFnRecordSchema],
+    requires: [materialPointTypes, materialFnReady],
+    structs: [StandardMaterialSchema],
 });
 
 /** Kernel de validação das `MaterialFunction` (não é despachado): o adaptador do forward com a função. */
@@ -106,7 +93,6 @@ export const materialPoint = wgslPoint({
         names: ['s', 'm', 'data'],
     },
     paramsAlias: 'MaterialFnParams',
-    record: MaterialFnRecordSchema,
     context: 'fragment',
     ready: materialFnReady,
     hosts: () => [materialCheck],

@@ -20,9 +20,6 @@ import { cameraPoint } from '../scene/flows/shaders';
  * finas. Uma instância por câmera.
  */
 export class CameraFunction extends ExtensionFunction {
-    /** Registro de parâmetros das funções `camera` (um pool por ponto). */
-    static readonly schema = cameraPoint.record;
-
     constructor(options: ExtensionFunctionOptions) {
         super(cameraPoint, options);
     }

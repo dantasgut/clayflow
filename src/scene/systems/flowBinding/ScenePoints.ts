@@ -6,6 +6,7 @@ import type { Resource } from '../../contracts/Resource';
 import { bindPoints, type BindablePoint } from '../../shaders/bindPoints';
 import { composeWgsl } from '../../shaders/composeWgsl';
 import type { WgslModule } from '../../shaders/WgslModule';
+import type { Schema } from '../../descriptors/Schema';
 import type { StructSchema } from '../../descriptors/StructSchema';
 import { instantiateModule } from '../../shaders/instantiate';
 import {
@@ -23,7 +24,7 @@ interface PointFunctions {
     readonly functions: Set<ExtensionFunction>;
     /** Revisão de cada função na última composição. */
     readonly revisions: Map<ExtensionFunction, number>;
-    /** Slot do registro de cada função na última composição. */
+    /** Slot do registro de cada função (no pool da forma dela) na última composição. */
     readonly slots: Map<ExtensionFunction, number>;
     combined: WgslModule | undefined;
 }
@@ -34,8 +35,11 @@ interface PointFunctions {
  * compõe o módulo delas pelo `combine` do ponto e o põe no lugar do pronto em cada pipeline (`bind`); a `version`
  * sobe a cada mudança — os runtimes preparam os pipelines afetados de novo e só trocam quando compilam.
  *
- * As variáveis globais dos pontos (o pool dos registros, por exemplo) são ligadas pela C2: o pool, quando existe, ou
- * um substituto zerado de um registro (`globalSource`).
+ * Cada função traz o pool da sua forma (registro tipado, spec 031 R8: recurso declarado no módulo dela, fornecido pelo
+ * pool); o módulo composto lê cada uma pelo seu carregador. A soma das ligações de cada pipeline com as funções é
+ * conferida contra os limites do device na preparação (`PipelineState`): acima deles, as funções são rejeitadas
+ * (`extensionRejected`) e o pipeline fica com o pronto. As variáveis globais dos pontos (os campos prontos de `field`,
+ * por exemplo) são ligadas pela C2: o pool, quando existe, ou um substituto zerado de um registro (`globalSource`).
  */
 export class ScenePoints {
     private readonly byPoint = new Map<WgslPoint, PointFunctions>();
@@ -98,10 +102,10 @@ export class ScenePoints {
     }
 
     /** Um pool foi escrito: revisão de código ou slot de alguma função mudou? Recompõe se sim. */
-    poolWritten(schemaName: string): boolean {
-        let changed = this.contributionsDependOn(schemaName) && this.contributionsChanged();
+    poolWritten(schema: Schema): boolean {
+        let changed = this.contributionsDependOn(schema.name) && this.contributionsChanged();
         for (const entry of this.byPoint.values()) {
-            if (entry.point.record.name !== schemaName) continue;
+            if (!entry.point.isRecord(schema)) continue;
             for (const fn of entry.functions) {
                 if (
                     entry.revisions.get(fn) !== fn.revision
@@ -249,7 +253,7 @@ export class ScenePoints {
 
     private slotOf(fn: ExtensionFunction): number | undefined {
         const id = this.world.entityIdOfResource(fn);
-        return id === undefined ? undefined : this.pools.poolSlotOf(fn.point.record.name, id);
+        return id === undefined ? undefined : this.pools.poolSlotOf(fn.record.name, id);
     }
 }
 

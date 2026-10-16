@@ -14,7 +14,6 @@ import {
     worldsResource,
 } from '../scene/resources';
 import {
-    cameraFnRecordsResource,
     diffuseMaterialsResource,
     forwardFrameResource,
     particleDrawResource,
@@ -30,7 +29,6 @@ import {
     wireVerticesResource,
 } from './renderResources';
 import { brdf, camera } from '../gpu/shaders/math';
-import { CameraFnRecordSchema } from '../scene/flows/CameraSchemas';
 import { cameraPointTypes } from '../scene/flows/shaders';
 import { forwardMaterialReady, materialPointTypes } from './point/shaders';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
@@ -68,8 +66,8 @@ const cameraAdapters = new WeakMap<WgslModule, WgslModule>();
 
 /**
  * Adaptador da projeção de ponto de uma função `camera` (spec 009): `forward_camera_fn.wgsl` sobre o módulo da função
- * — liga o pool `CameraFnRecord` e projeta `camera_project(vista · mundo, parâmetros da câmera ativa)`. Memorizado por
- * módulo da função.
+ * — projeta `camera_project(vista · mundo, parâmetros da câmera ativa)`, com o registro da função lido no pool da forma
+ * dela (o carregador e o recurso vêm com o módulo da função, spec 031). Memorizado por módulo da função.
  */
 export function forwardCameraAdapter(fnModule: WgslModule): WgslModule {
     let adapter = cameraAdapters.get(fnModule);
@@ -77,15 +75,8 @@ export function forwardCameraAdapter(fnModule: WgslModule): WgslModule {
     adapter = wgslModule({
         name: 'forward_camera_fn',
         source: forwardCameraFnSource,
-        requires: [
-            cameraPointTypes,
-            camera,
-            fnModule,
-            camerasResource,
-            cameraFnRecordsResource,
-            forwardFrameResource,
-        ],
-        structs: [Camera.schema, CameraFnRecordSchema],
+        requires: [cameraPointTypes, camera, fnModule, camerasResource, forwardFrameResource],
+        structs: [Camera.schema],
     });
     cameraAdapters.set(fnModule, adapter);
     return adapter;

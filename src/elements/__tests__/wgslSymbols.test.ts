@@ -34,6 +34,10 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'contagem da compactação (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
     reduce_count:
         'contagem da redução (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
+    compact_keep:
+        'predicado da compactação (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
+    compact_value:
+        'valor compactado (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
     surface_jet:
         'lugar do jato da superfície (spec 010): numérico (pronto), analítico, das prontas ou do mapa com o espaço — bindPoints troca um pelo outro',
 };

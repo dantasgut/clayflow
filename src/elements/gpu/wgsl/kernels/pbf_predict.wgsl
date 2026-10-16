@@ -1,5 +1,6 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/pbf_predict.wgsl.ts
-// Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
+// Campos de força (spec 009): os campos prontos (pool `FieldBuiltinRecord`) e as funções `field` (pool da forma de cada
+// uma, spec 031), ligados pela C2 (ponto `field`).
 // Grupo 2: conjunto de colliders (`collider_set.wgsl`), para a adesão (spec 030).
 
 @compute @workgroup_size(WORKGROUP_SIZE)

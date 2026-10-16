@@ -1,8 +1,8 @@
 // Um passo das partículas de um emissor (spec 009): idade; a que passa da vida morre; as vivas integram gravidade e
 // campos (Euler semi-implícito); escreve o vértice de cada slot na nuvem de pontos do emissor — a morta vai para longe
 // da câmera (cortada pelo plano distante).
-// Requer: structs EmitterParams, ComputeParticle, FieldFnRecord; field_point_types; field_accel (ponto); recursos
-// `emit_params`, `emit_particles`, `emit_vertices` (os registros dos campos vêm do `field_builtin`).
+// Requer: structs EmitterParams, ComputeParticle; field_point_types; field_accel (ponto); recursos `emit_params`,
+// `emit_particles`, `emit_vertices` (os registros dos campos vêm do `field_builtin` e dos módulos das funções).
 
 const EMIT_FAR: f32 = 1.0e9;
 

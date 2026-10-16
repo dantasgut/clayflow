@@ -61,6 +61,11 @@ export {
     SetCountSchema,
     SET_COUNT_DISPATCH_OFFSET,
     SET_COUNT_DRAW_OFFSET,
+    Subgraph,
+    subgraphOrigin,
+    toJSON,
+    fromJSON,
+    GRAPH_JSON_VERSION,
 } from './graph/index';
 export type {
     NodeDefinition,
@@ -87,6 +92,7 @@ export type {
     SetNodeDefinitionOptions,
     SetNodeDefinition,
     SetNodeUse,
+    SetGraphData,
     SetGraphOptions,
     GraphFlowOptions,
     GraphFlowSlots,
@@ -94,6 +100,16 @@ export type {
     PlannedNode,
     FusedPointPlan,
     SetGraphPlan,
+    PointSubgraphOptions,
+    SetSubgraphOptions,
+    SetSubgraph,
+    SetSubgraphUse,
+    GraphJSON,
+    NodeJSON,
+    SubgraphJSON,
+    InlineNodeJSON,
+    AnyNodeDefinition,
+    FlatNode,
 } from './graph/index';
 
 export type {
@@ -130,8 +146,6 @@ export {
     Schema,
     StructSchema,
     TensorSchema,
-    extensionRecordSchema,
-    EXTENSION_PARAMS_CAPACITY,
 } from './descriptors/index';
 
 export { World, ReuseError } from './world/World';
@@ -160,6 +174,8 @@ export type {
     ComputeKernel,
     ComputeKernelOptions,
     FlowLifecycle,
+    Listened,
+    SchemaFamily,
     RenderSlotMap,
     RegisterOptions,
     FlowContext,
@@ -235,6 +251,7 @@ export type {
     WgslPointSignature,
     BindablePoint,
     PointImplementation,
+    PointRecord,
     ScenePointEntry,
     ScenePointOptions,
     ScenePointGlobal,

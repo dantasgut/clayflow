@@ -130,7 +130,14 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
                         }
                     },
                 },
-                slotLost: 'ignore',
+                // Sem entidades o slot some (o Flow volta a esperar): libera tudo; `slotsResolved` refaz.
+                slotLost: {
+                    to: 'idle',
+                    run: () => {
+                        for (const r of this.running.values()) this.release(r);
+                        this.running.clear();
+                    },
+                },
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
                 poolReallocated: 'ignore',

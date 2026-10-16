@@ -2,15 +2,12 @@ import {
     ExtensionFunction,
     type ExtensionFunctionOptions,
 } from '../../contracts/ExtensionFunction';
-import { extensionRecordSchema } from '../../descriptors/ExtensionRecord';
 import { wgslModule } from '../../shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint, type WgslPoint } from '../../shaders/WgslPoint';
 import { wgslResource } from '../../shaders/WgslResource';
 import { defineNode } from '../NodeDefinition';
 
 // Ponto e nós de prova dos testes de grafo (spec 031, US2): `probe_fn(s: ProbeSample, k: f32, data) -> vec3f`.
-
-export const record = extensionRecordSchema('GraphProbeRecord');
 
 const types = wgslModule({
     name: 'graph_probe_types',
@@ -21,11 +18,10 @@ const ready = wgslModule({
     name: 'graph_probe_ready',
     source: [
         'struct GraphProbeParams { _unused: u32 }',
-        'fn probe_fn_params(r: GraphProbeRecord) -> GraphProbeParams { return GraphProbeParams(0u); }',
+        'fn probe_fn_params(slot: u32) -> GraphProbeParams { return GraphProbeParams(0u); }',
         'fn probe_fn(s: ProbeSample, k: f32, data: GraphProbeParams) -> vec3f { return s.position * k; }',
     ].join('\n'),
     requires: [types],
-    structs: [record],
 });
 
 const kernel = wgslModule({
@@ -33,7 +29,7 @@ const kernel = wgslModule({
     source: [
         '@compute @workgroup_size(1) fn main() {',
         '    let s = ProbeSample(out[0].xyz, out[0].w);',
-        '    out[0] = vec4f(probe_fn(s, 2.0, probe_fn_params(params[0])), 1.0);',
+        '    out[0] = vec4f(probe_fn(s, 2.0, probe_fn_params(0u)), 1.0);',
         '}',
     ].join('\n'),
     requires: [
@@ -43,13 +39,6 @@ const kernel = wgslModule({
             name: 'out',
             binding: { storage: 'read_write' },
             type: { wgsl: 'vec4f', array: true },
-            frequency: 'draw',
-            provider: 'private',
-        }),
-        wgslResource({
-            name: 'params',
-            binding: { storage: 'read' },
-            type: { schema: record, array: true },
             frequency: 'draw',
             provider: 'private',
         }),
@@ -66,7 +55,6 @@ export const probePoint: WgslPoint = wgslPoint({
         names: ['s', 'k', 'data'],
     },
     paramsAlias: 'GraphProbeParams',
-    record,
     context: 'compute',
     ready,
     hosts: () => [kernel],

@@ -22,16 +22,10 @@ import surfaceJetNumericSource from '../gpu/wgsl/kernels/surface_jet_numeric.wgs
 import surfaceJetPresetSource from '../gpu/wgsl/kernels/surface_jet_preset.wgsl?raw';
 import { combineSpaceFunctions } from '../extension/combineSpace';
 import { MeshVertexSchema } from './MeshVertexSchema';
-import {
-    SpaceFnRecordSchema,
-    SurfaceAdaptParamsSchema,
-    SurfaceDiffSchema,
-    SurfaceFnRecordSchema,
-    SurfaceParamsSchema,
-} from './SurfaceSchemas';
+import { SurfaceAdaptParamsSchema, SurfaceDiffSchema, SurfaceParamsSchema } from './SurfaceSchemas';
 
 // Recursos da avaliação de superfícies (spec 031): todos privados do `SurfaceFlow` (por pipeline: cada superfície tem os
-// seus), exceto os registros das funções `space` da cena (ponto de cena).
+// seus). Os registros das funções `surface` e `space` chegam com os módulos delas (pool da forma de cada uma, R8).
 
 const priv = (
     name: string,
@@ -54,14 +48,6 @@ export const surfaceResources = Object.freeze({
         type: { schema: SurfaceParamsSchema },
         frequency: 'stage',
         provider: 'private',
-    }),
-    fnRecords: priv('surface_fn_records', 'read', { schema: SurfaceFnRecordSchema, array: true }),
-    spaceRecords: wgslResource({
-        name: 'space_records',
-        binding: { storage: 'read' },
-        type: { schema: SpaceFnRecordSchema, array: true },
-        frequency: 'frame',
-        provider: { scene: 'space' },
     }),
     vertices: priv('surface_vertices', 'read_write', { schema: MeshVertexSchema, array: true }),
     diff: priv('surface_diff', 'read_write', { schema: SurfaceDiffSchema, array: true }),
@@ -88,7 +74,7 @@ export const surfaceFnReady = wgslModule({
     name: 'surface_fn_ready',
     source: surfaceFnReadySource,
     requires: [noise, R.params],
-    structs: [SurfaceParamsSchema, SurfaceFnRecordSchema],
+    structs: [SurfaceParamsSchema],
 });
 
 /** Tangentes por diferenças centrais (sem derivadas analíticas). */
@@ -128,17 +114,8 @@ export const surfaceEval = wgslModule({
     name: 'surface_eval',
     source: surfaceEvalSource,
     // `noise` e `linalg` ficam à mão das funções do usuário.
-    requires: [
-        noise,
-        linalg,
-        surfaceAt,
-        WORKGROUP_SIZE.module,
-        R.params,
-        R.vertices,
-        R.fnRecords,
-        R.spaceRecords,
-    ],
-    structs: [SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema],
+    requires: [noise, linalg, surfaceAt, WORKGROUP_SIZE.module, R.params, R.vertices],
+    structs: [SurfaceParamsSchema],
 });
 
 /** Jato (derivadas até a segunda ordem) e os jatos por diferenças da função e do mapa composto com o espaço (spec 010). */
@@ -200,11 +177,9 @@ export const surfaceEvalDiff = wgslModule({
         WORKGROUP_SIZE.module,
         R.params,
         R.vertices,
-        R.fnRecords,
-        R.spaceRecords,
         R.diff,
     ],
-    structs: [SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema, SurfaceDiffSchema],
+    structs: [SurfaceParamsSchema, SurfaceDiffSchema],
 });
 
 /** Malha adaptativa (spec 010): níveis por retalho, orçamento, prefixos e emissão sem frestas. */
@@ -221,8 +196,6 @@ export const surfaceAdapt = wgslModule({
         WORKGROUP_SIZE.module,
         R.params,
         R.adapt,
-        R.fnRecords,
-        R.spaceRecords,
         R.adaptPatches,
         R.adaptHist,
         R.adaptVertices,
@@ -235,8 +208,6 @@ export const surfaceAdapt = wgslModule({
     ],
     structs: [
         SurfaceParamsSchema,
-        SurfaceFnRecordSchema,
-        SpaceFnRecordSchema,
         SurfaceDiffSchema,
         SurfaceAdaptParamsSchema,
         Camera.matricesSchema,
@@ -266,7 +237,6 @@ export const surfacePoint = wgslPoint({
         { name: 'surface_dvv', params: ['f32', 'f32', 'f32', POINT_PARAMS], returns: 'vec3f' },
     ],
     paramsAlias: 'SurfaceFnParams',
-    record: SurfaceFnRecordSchema,
     ready: surfaceFnReady,
     hosts: () => [surfaceEval, surfaceEvalDiff, surfaceAdapt],
 });
@@ -288,11 +258,10 @@ export const spacePoint = wgslPoint({
         { name: 'space_jacobian', params: ['vec3f', 'f32', POINT_PARAMS], returns: 'mat3x3f' },
     ],
     paramsAlias: 'SpaceFnParams',
-    record: SpaceFnRecordSchema,
     ready: spaceReady,
     hosts: () => [surfaceEval],
     scene: {
-        globals: { space_records: { pool: SpaceFnRecordSchema } },
-        combine: (entries) => combineSpaceFunctions(entries, [linalg, R.spaceRecords]),
+        globals: {},
+        combine: (entries) => combineSpaceFunctions(entries, [linalg]),
     },
 });

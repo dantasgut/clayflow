@@ -1,122 +1,85 @@
-import { EXTENSION_PARAMS_CAPACITY } from '../descriptors/ExtensionRecord';
+import { FieldType } from '../descriptors/FieldType';
 import type { ExtensionParamType, ExtensionParamValue } from './ExtensionParams';
 
-// Parâmetros por nome num registro de extensão (`extensionRecordSchema`: oito `vec4u` com os bits dos escalares) — o
-// layout das funções de ponto (spec 009) e dos grafos de conjunto (spec 031).
+// Parâmetros por nome das funções de ponto (spec 009) e dos grafos de nós (spec 031): campos tipados de um registro
+// (research R8) — cada parâmetro é um campo com o seu tipo no struct gerado, sem bits e sem teto de escalares.
 
-const SCALAR: Record<ExtensionParamType, ['f' | 'u' | 'i', number]> = {
-    f32: ['f', 1],
-    u32: ['u', 1],
-    i32: ['i', 1],
-    vec2f: ['f', 2],
-    vec3f: ['f', 3],
-    vec4f: ['f', 4],
-    vec2u: ['u', 2],
-    vec3u: ['u', 3],
-    vec4u: ['u', 4],
-    vec2i: ['i', 2],
-    vec3i: ['i', 3],
-    vec4i: ['i', 4],
+/** Escalares de cada tipo de parâmetro. */
+const SIZE: Readonly<Record<ExtensionParamType, number>> = {
+    f32: 1,
+    u32: 1,
+    i32: 1,
+    vec2f: 2,
+    vec3f: 3,
+    vec4f: 4,
+    vec2u: 2,
+    vec3u: 3,
+    vec4u: 4,
+    vec2i: 2,
+    vec3i: 3,
+    vec4i: 4,
 };
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** Parâmetro com a posição dos seus escalares no registro. */
-export interface ParamSlot {
-    readonly name: string;
-    readonly type: ExtensionParamType;
-    readonly kind: 'f' | 'u' | 'i';
-    readonly first: number;
-    readonly size: number;
-}
-
-const bits = new DataView(new ArrayBuffer(4));
-function toBits(kind: 'f' | 'u' | 'i', value: number): number {
-    if (kind === 'f') bits.setFloat32(0, value, true);
-    else if (kind === 'i') bits.setInt32(0, value, true);
-    else bits.setUint32(0, value, true);
-    return bits.getUint32(0, true);
-}
-function fromBits(kind: 'f' | 'u' | 'i', raw: number): number {
-    bits.setUint32(0, raw, true);
-    if (kind === 'f') return bits.getFloat32(0, true);
-    if (kind === 'i') return bits.getInt32(0, true);
-    return raw;
-}
-
 /**
- * Layout de parâmetros num registro de extensão: a posição dos escalares de cada um, na ordem declarada. Valida nomes
- * (identificadores WGSL), tipos e a capacidade do registro.
+ * Campos do registro dos parâmetros (nome → tipo do campo), na ordem declarada. Valida nomes (identificadores WGSL,
+ * fora de `reserved`) e tipos.
  *
  * @param owner Nome nas mensagens (o ponto ou o grafo).
- * @throws TypeError nome ou tipo inválido; RangeError acima de `EXTENSION_PARAMS_CAPACITY` escalares.
+ * @param reserved Nomes de campos que o registro já usa (ex.: `revision`).
+ * @throws TypeError nome inválido ou reservado, ou tipo não suportado.
  */
-export function paramSlots(
+export function paramFields(
     owner: string,
     params: Readonly<Record<string, ExtensionParamType>>,
-): readonly ParamSlot[] {
-    const slots: ParamSlot[] = [];
-    let first = 0;
+    reserved: readonly string[] = [],
+): Readonly<Record<string, FieldType>> {
+    const fields: Record<string, FieldType> = {};
     for (const [name, type] of Object.entries(params)) {
         if (!IDENT.test(name))
             throw new TypeError(`${owner}: parâmetro '${name}' não é um identificador WGSL`);
+        if (reserved.includes(name))
+            throw new TypeError(`${owner}: parâmetro '${name}' usa um nome reservado do registro`);
         // Tipo vindo de JavaScript sem checagem: confere em tempo de execução.
-        const s = (SCALAR as Partial<Record<string, ['f' | 'u' | 'i', number]>>)[type];
-        if (s === undefined)
+        if ((SIZE as Partial<Record<string, number>>)[type] === undefined)
             throw new TypeError(`${owner}: parâmetro '${name}' com tipo '${type}' não suportado`);
-        slots.push({ name, type, kind: s[0], first, size: s[1] });
-        first += s[1];
+        fields[name] = FieldType[type];
     }
-    if (first > EXTENSION_PARAMS_CAPACITY) {
-        throw new RangeError(
-            `${owner}: ${first} escalares de parâmetros (máximo ${EXTENSION_PARAMS_CAPACITY})`,
-        );
-    }
-    return Object.freeze(slots);
+    return Object.freeze(fields);
 }
 
 /**
- * Valores por nome sobre os vetores `v0`–`v7` de um registro: ler decodifica os bits; escrever valida (quantidade e
- * finitude) e atribui o vetor inteiro em `write`, para que a C2 veja a mutação e envie o registro.
+ * Valores por nome sobre os campos de um registro: ler devolve o número (ou uma cópia do vetor); escrever valida
+ * (quantidade e finitude) e atribui o campo inteiro em `write`, para que a C2 veja a mutação e envie o registro.
  *
- * @param read Os vetores atuais (sem disparar mutação).
- * @param write Atribui o vetor `v<k>` (no `data` observado).
+ * @param read Valor atual do campo (sem disparar mutação).
+ * @param write Atribui o campo (no `data` observado).
  */
 export function paramValues(
     owner: string,
-    slots: readonly ParamSlot[],
-    read: () => Readonly<Record<string, readonly number[]>>,
-    write: (vector: number, row: number[]) => void,
+    params: Readonly<Record<string, ExtensionParamType>>,
+    read: (name: string) => unknown,
+    write: (name: string, value: number | number[]) => void,
 ): Record<string, ExtensionParamValue> {
     const out: Record<string, ExtensionParamValue> = {};
-    for (const s of slots) {
-        Object.defineProperty(out, s.name, {
+    for (const [name, type] of Object.entries(params)) {
+        const size = SIZE[type];
+        Object.defineProperty(out, name, {
             enumerable: true,
             get: (): ExtensionParamValue => {
-                const raw = read();
-                const at = (k: number): number =>
-                    fromBits(s.kind, raw[`v${Math.floor(k / 4)}`]![k % 4]!);
-                return s.size === 1
-                    ? at(s.first)
-                    : Array.from({ length: s.size }, (_, c) => at(s.first + c));
+                const value = read(name);
+                if (size === 1) return value as number;
+                return Array.from(value as ArrayLike<number>);
             },
             set: (value: ExtensionParamValue): void => {
                 const list = typeof value === 'number' ? [value] : value;
-                if (list.length !== s.size || list.some((v) => !Number.isFinite(v))) {
+                if (list.length !== size || list.some((v) => !Number.isFinite(v))) {
                     throw new TypeError(
-                        `${owner}: '${s.name}' (${s.type}) espera ${s.size} número(s) finito(s)`,
+                        `${owner}: '${name}' (${type}) espera ${size} número(s) finito(s)`,
                     );
                 }
-                const raw = read();
-                const next = new Map<number, number[]>();
-                for (let c = 0; c < s.size; c++) {
-                    const k = s.first + c;
-                    const v = Math.floor(k / 4);
-                    const row = next.get(v) ?? [...raw[`v${v}`]!];
-                    row[k % 4] = toBits(s.kind, list[c]!);
-                    next.set(v, row);
-                }
-                for (const [v, row] of next) write(v, row);
+                write(name, size === 1 ? list[0]! : [...list]);
             },
         });
     }

@@ -1,5 +1,6 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/mpm_grid_update.wgsl.ts
-// Campos de força (spec 009): `field_accel_ready` (recursos `field_records`/`field_live` do ponto `field`).
+// Campos de força (spec 009): `field_accel_ready` (recurso `field_builtin_records` do ponto `field` e os pools das
+// formas das funções).
 // Conjunto de colliders: módulo `collider_set` (recursos `collider_*` declarados).
 
 const MPM_BOUNDARY: u32 = 3u;

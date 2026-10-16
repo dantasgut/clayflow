@@ -54,13 +54,12 @@ import { bindPoints } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import { Time } from '../../scene/time/Time';
 import { CameraFunction } from '../../elements/extension/CameraFunction';
-import { CameraFnRecordSchema } from '../../elements/scene/flows/CameraSchemas';
 import { forwardCameraAdapter, forwardCameraClip } from '../../elements/material/shaders';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
 import {
     forwardMaterial,
     forwardMaterialAdapter,
-    MaterialFnRecordSchema,
+    materialPoint,
 } from '../../elements/material/point/shaders';
 
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
@@ -105,8 +104,6 @@ export interface ForwardSlots extends SlotMap {
     readonly target: TargetSlot;
     /** Câmeras com `CameraFunction` (projeção de ponto da câmera ativa, spec 009). */
     readonly cameraFunctions: EntitiesSlot;
-    /** Pool dos registros de parâmetros das `CameraFunction` (opcional). */
-    readonly cameraFnRecords: PoolSlot<true>;
     /** Relógio da cena (tempo das funções `material`; opcional). */
     readonly time: SingletonSlot<true>;
 }
@@ -169,7 +166,6 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
                 : { color: 'canvas', depth, samples },
         ),
         cameraFunctions: slot.entities({ all: [Camera, CameraFunction] }),
-        cameraFnRecords: slot.pool(CameraFnRecordSchema.name, { optional: true }),
         time: slot.singleton(Time.schema, { optional: true }),
     };
 }
@@ -203,7 +199,8 @@ export interface ForwardFlowOptions {
 export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     readonly type = 'ForwardFlow';
     readonly slots: ForwardSlots;
-    override readonly listens = [MaterialFnRecordSchema];
+    /** Os registros de todas as formas das funções `material` (spec 031, R8). */
+    override readonly listens = [materialPoint];
     override readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<ForwardSlots>>;
@@ -845,7 +842,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.cameraFnSlot =
             projecting === undefined || cameraId === undefined
                 ? 0
-                : (slots.cameraFnRecords?.slotOf(cameraId) ?? 0);
+                : (this.resources.poolSlotOf(projecting.record.name, cameraId) ?? 0);
         if (projecting?.module === this.projection?.module && projecting === this.projection?.fn)
             return;
         if (this.projection !== undefined) {

@@ -12,11 +12,13 @@ const scaled = () =>
     });
 
 describe('grafo como função de ponto (spec 031, T058)', () => {
-    it('descritor do registro no pool do ponto, como as funções da 009', () => {
+    it('descritor do registro tipado da forma (pool <ponto>:<hash>), como as funções da 009', () => {
         const fn = new ProbeGraphFunction({ graph: scaled() });
         expect(fn.getDescriptors()).toEqual([
-            { id: 'params', role: 'storage-ro', schema: probePoint.record, storage: 'pool' },
+            { id: 'params', role: 'storage-ro', schema: fn.record, storage: 'pool' },
         ]);
+        expect(fn.record).toBe(probePoint.record(fn.params).schema);
+        expect(fn.record.name).toMatch(/^graph_probe:[0-9a-f]{8}$/);
     });
 
     it('mudar valor: vai para o registro sem nova compilação (revisão e módulo iguais)', () => {

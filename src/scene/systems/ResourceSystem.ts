@@ -117,6 +117,10 @@ class Tracked extends ReactiveRoot implements DataHook {
     dataChanged(field: string | undefined): void {
         this.owner.dataChanged(this.resource, field);
     }
+
+    redescribe(previous: readonly GPUDescriptor[], next: Record<string, unknown>): void {
+        this.owner.redescribe(this.resource, previous, next);
+    }
 }
 
 /** Faixa de um Resource num pool. */
@@ -138,6 +142,11 @@ function spanIn(tracked: Tracked, entry: PoolEntry): number {
 /** Quem recebe as mutações de `data` dos Resources de uma cena (o `ResourceSystem`). */
 interface DataChangeSink {
     dataChanged(resource: Resource, field: string | undefined): void;
+    redescribe(
+        resource: Resource,
+        previous: readonly GPUDescriptor[],
+        next: Record<string, unknown>,
+    ): void;
 }
 
 /** O `Tracked` fica no gancho de `data` (campo de `Entity`; propriedade acrescentada nos demais Resources). */
@@ -303,6 +312,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly dataSink: DataChangeSink = {
         dataChanged: (resource, field) => {
             this.markDirty(resource, field);
+        },
+        redescribe: (resource, previous, next) => {
+            this.redescribe(resource, previous, next);
         },
     };
     private dirty = new Set<Resource>();
@@ -2085,10 +2097,23 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }
             this.allocations.delete(resource);
         }
-        for (const desc of resource.getDescriptors()) {
+        if (tracked !== undefined) {
+            this.releasePooled(resource, tracked, resource.getDescriptors());
+            tracked.own = false;
+        }
+        this.transition(resource, ResourceState.Destroyed);
+    }
+
+    /** Libera os slots do Resource nos pools dos descritores `descs` (o bit de vivo zerado). */
+    private releasePooled(
+        resource: Resource,
+        tracked: Tracked,
+        descs: readonly GPUDescriptor[],
+    ): void {
+        for (const desc of descs) {
             if (desc.storage !== 'pool' || desc.schema === undefined) continue;
             const entry = this.pools.get(this.computePoolKey(desc.schema, resource));
-            if (entry === undefined || tracked === undefined) continue;
+            if (entry === undefined) continue;
             const first = firstIn(tracked, entry);
             if (entry.occupants[first] !== resource) continue;
             const span = spanIn(tracked, entry);
@@ -2106,15 +2131,46 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }
             entry.free.release(first, span);
             this.markLive(entry, first, first + span);
+            if (desc.clearOnRelease === true)
+                this.core.write(
+                    entry.bufferSpec,
+                    new Uint8Array(span * entry.stride),
+                    first * entry.stride,
+                );
         }
-        if (tracked !== undefined) {
-            tracked.slot = -1;
-            tracked.span = 1;
-            tracked.ranges = undefined;
-            tracked.pools = NO_POOLS;
-            tracked.own = false;
+        tracked.slot = -1;
+        tracked.span = 1;
+        tracked.ranges = undefined;
+        tracked.pools = NO_POOLS;
+    }
+
+    /**
+     * Descritores em pool trocados junto com o dado (`Entity.redescribe`; spec 031, R8 — ex.: o registro tipado de uma
+     * função de ponto que mudou de forma): libera os slots nos pools de `previous`, troca o dado e ocupa os pools dos
+     * descritores atuais (criando os que faltam), e recompõe a entidade (`entitiesRecomposed`) — os registros de
+     * entidade e os conjuntos dos estágios passam a ver os slots novos. Fora da cena (não alocado), só troca o dado.
+     */
+    private redescribe(
+        resource: Resource,
+        previous: readonly GPUDescriptor[],
+        next: Record<string, unknown>,
+    ): void {
+        const tracked = trackedOf(resource)!;
+        if (!tracked.allocated) {
+            tracked.replace(next);
+            return;
         }
-        this.transition(resource, ResourceState.Destroyed);
+        this.releasePooled(resource, tracked, previous);
+        tracked.replace(next);
+        const pooled = resource
+            .getDescriptors()
+            .filter((d) => d.storage === 'pool' && d.schema !== undefined);
+        if (pooled.length > 0) this.allocatePooled(resource, pooled);
+        for (const entry of this.createdPools.splice(0)) {
+            this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
+        }
+        const id = this.world.entityIdOfResource(resource);
+        if (id !== undefined) this.events.emit('entitiesRecomposed', { entityIds: [id] });
     }
 
     private releaseTexture(allocation: Allocation): void {

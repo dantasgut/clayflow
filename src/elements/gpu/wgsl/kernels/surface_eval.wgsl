@@ -3,8 +3,8 @@
 // du × dv; depois o espaço (`space_map`/`space_normal`, identidade sem `SpaceFunction`). Escreve posição, normal e (u, v)
 // no vertex buffer da geometria. Ponto ou normal não finitos mantêm o vértice anterior; tangentes degeneradas (polos)
 // usam as de um pouco para dentro do domínio em v.
-// Requer: structs SurfaceParams, SurfaceFnRecord, SpaceFnRecord; surface_at (com os pontos surface, surface_tangents e
-// space); global `space_records`.
+// Requer: struct SurfaceParams; surface_at (com os pontos surface, surface_tangents e space; os registros das funções
+// chegam com os módulos delas).
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn surface_eval_main(
@@ -22,7 +22,7 @@ fn surface_eval_main(
     let u = mix(surface_params.u0, surface_params.u1, su);
     let v = mix(surface_params.v0, surface_params.v1, sv);
     let time = surface_params.time;
-    let data = surface_fn_params(surface_fn_records[surface_params.record_slot]);
+    let data = surface_fn_params(surface_params.record_slot);
     let o = i;
     let prev = vec3f(surface_vertices[o].nx, surface_vertices[o].ny, surface_vertices[o].nz);
     let at = surface_at(u, v, sv, time, data, prev);

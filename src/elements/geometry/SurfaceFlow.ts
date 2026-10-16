@@ -35,15 +35,10 @@ import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
+import { SpaceFunction } from '../extension/SpaceFunction';
 import { SurfaceFunction } from '../extension/SurfaceFunction';
 import { ParametricSurface, SURFACE_PRESET_INDEX, type AdaptiveConfig } from './ParametricSurface';
-import {
-    SpaceFnRecordSchema,
-    SurfaceAdaptParamsSchema,
-    SurfaceDiffSchema,
-    SurfaceFnRecordSchema,
-    SurfaceParamsSchema,
-} from './SurfaceSchemas';
+import { SurfaceAdaptParamsSchema, SurfaceDiffSchema, SurfaceParamsSchema } from './SurfaceSchemas';
 import {
     surfaceAdapt,
     surfaceEval,
@@ -77,12 +72,10 @@ function cameraMoved(
 export interface SurfaceSlots extends SlotMap {
     /** Superfícies paramétricas (o estágio escreve os vértices). */
     readonly surfaces: EntitiesSlot;
-    /** Superfícies com `SurfaceFunction`. */
+    /** Superfícies com `SurfaceFunction` (registros nos pools das formas, spec 031). */
     readonly functions: EntitiesSlot;
-    /** Pool dos registros das `SurfaceFunction` (opcional). */
-    readonly fnRecords: PoolSlot<true>;
-    /** Pool dos registros das `SpaceFunction` (existe com espaço na cena: avaliação a cada quadro). */
-    readonly spaceRecords: PoolSlot<true>;
+    /** Funções `space` da cena (com alguma: avaliação a cada quadro). */
+    readonly spaces: EntitiesSlot;
     /** Relógio da cena (opcional; sem ele, tempo 0). */
     readonly time: SingletonSlot<true>;
     /** Pool da geometria diferencial (existe com superfícies `differential`). */
@@ -101,8 +94,7 @@ const slots: SurfaceSlots = {
         owns: [[ParametricSurface, 'vertices']],
     }),
     functions: slot.entities({ all: [ParametricSurface, SurfaceFunction] }),
-    fnRecords: slot.pool(SurfaceFnRecordSchema.name, { optional: true }),
-    spaceRecords: slot.pool(SpaceFnRecordSchema.name, { optional: true }),
+    spaces: slot.entities({ all: [SpaceFunction] }),
     time: slot.singleton(Time.schema, { optional: true }),
     diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
     camera: slot.singleton(Camera.schema, { optional: true }),
@@ -149,14 +141,14 @@ interface SurfaceState {
 export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     readonly type = 'SurfaceFlow';
     readonly slots = slots;
-    override readonly listens = [SurfaceFnRecordSchema, ParametricSurface.vertexStruct];
+    /** Os registros de todas as formas das funções `surface` (spec 031, R8) e os vértices das superfícies. */
+    override readonly listens = [surfacePoint, ParametricSurface.vertexStruct];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
     private readonly states = new Map<EntityId, SurfaceState>();
-    private readonly dummyRecords: StorageBufferSpec;
     private readonly dummyPool: StorageBufferSpec;
     private readonly world: World;
     private readonly events: EventBus;
@@ -179,12 +171,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             subkind: 'storage',
             discriminator: 'surface_adapt_pool_dummy',
             byteSize: 256,
-        });
-        this.dummyRecords = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'surface_fn_records_dummy',
-            byteSize: SurfaceFnRecordSchema.stride,
         });
         const changed = {
             to: 'idle' as const,
@@ -296,7 +282,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     override dispose(): void {
         for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.core.destroy(this.dummyRecords);
         this.core.destroy(this.dummyPool);
     }
 
@@ -311,7 +296,8 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { surfaces, functions, fnRecords, spaceRecords, diffs } = ctx.bound.slots;
+        const { surfaces, functions, spaces, diffs } = ctx.bound.slots;
+        const spaced = spaces.entries.length > 0;
         const present = new Set<EntityId>();
         for (const entry of surfaces.entries) {
             const id = entry.entityId;
@@ -362,7 +348,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             // Jato da geometria diferencial: do mapa com o espaço, analítico, das prontas ou numérico.
             const jet = !surface.differential
                 ? undefined
-                : spaceRecords !== undefined
+                : spaced
                   ? surfaceJetMapped
                   : fn === undefined
                     ? surfaceJetPreset
@@ -377,10 +363,9 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 id: emitId,
                 ...(adaptive ? { ids: ADAPT_ENTRIES.map((e) => adaptId(emitId, e)) } : {}),
             };
-            const records = fnRecords?.buffer ?? this.dummyRecords;
             for (const { id: pid } of this.evalPipelines.bindable(id, next)) {
                 if (adaptive) {
-                    this.bindAdaptive(ctx, st, surface, pid, vertices, records);
+                    this.bindAdaptive(ctx, st, surface, pid, vertices);
                     continue;
                 }
                 const at = (resource: WgslResource): BindingKey => ({ pipeline: pid, resource });
@@ -388,7 +373,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     new Map<BindingKey, BindingSource>([
                         [at(R.params), st.params],
                         [at(R.vertices), vertices],
-                        [at(R.fnRecords), records],
                         ...(surface.differential && diffs !== undefined
                             ? ([[at(R.diff), diffs.buffer]] as [BindingKey, BindingSource][])
                             : []),
@@ -448,7 +432,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         surface: ParametricSurface,
         emitId: string,
         vertices: AnyBufferSpec,
-        records: AnyBufferSpec,
     ): void {
         const { diffs, cameras, worlds } = ctx.bound.slots;
         const indices = this.resources.bufferOf(surface, 'indices');
@@ -468,7 +451,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 new Map<BindingKey, BindingSource>([
                     [at(R.params), st.params],
                     [at(R.adapt), st.adapt.params],
-                    [at(R.fnRecords), records as BindingSource],
                     [at(R.adaptPatches), st.adapt.patches],
                     [at(R.adaptHist), st.adapt.hist],
                     [at(R.adaptVertices), vertices as BindingSource],
@@ -495,23 +477,14 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
 
     /** Decide quem avalia neste quadro e escreve os parâmetros deles. */
     private writeParams(ctx: Ctx): void {
-        const {
-            surfaces,
-            functions,
-            fnRecords,
-            spaceRecords,
-            time,
-            diffs,
-            camera,
-            cameras,
-            worlds,
-        } = ctx.bound.slots;
+        const { surfaces, functions, spaces, time, diffs, camera, cameras, worlds } =
+            ctx.bound.slots;
         const cameraId =
             camera === undefined ? undefined : this.world.entityIdOfResource(camera.resource);
         const cameraPos = cameraId === undefined ? undefined : this.cameraPositionOf(cameraId);
         const indirect = this.core.capabilities().features.includes('indirect-first-instance');
         const t = (time?.resource as Time | undefined)?.simulated ?? 0;
-        const spaced = spaceRecords !== undefined;
+        const spaced = spaces.entries.length > 0;
         for (const st of this.states.values()) {
             const surface = surfaces.entry(st.id)?.get(ParametricSurface);
             if (surface === undefined) continue;
@@ -554,8 +527,9 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     }),
                 );
             }
+            const fn = functions.entry(st.id)?.get(SurfaceFunction);
             const record =
-                functions.entry(st.id) !== undefined ? fnRecords?.slotOf(st.id) : undefined;
+                fn === undefined ? undefined : this.resources.poolSlotOf(fn.record.name, st.id);
             const [u0, u1, v0, v1] = d.domain;
             this.core.write(
                 st.params,

@@ -155,6 +155,16 @@ limite (R6). Os campos prontos de `field` ganham schema próprio (`FieldBuiltinR
 As listas posicionais (`camera_fn_list`, `transform_fn_pairs`) viram structs gerados (`CameraFnEntry`,
 `TransformFnPair`).
 
+**Como ficou (US4, 2026-10-16)**: `point.record(params)` gera, por forma, o schema `<alias>_<hash>` (campos tipados +
+`revision`), cuja chave de pool é `<ponto>:<hash>`; o módulo da função declara o recurso do próprio pool e o
+carregador `<ponto>_params(slot)`, e os estágios passam só o slot (`poolSlotOf`). Sem `bitcast`, sem `v0..v7`, sem teto
+de escalares; `ExtensionRecord.ts` saiu. Mudança de forma (`setGraph`) troca de pool por `Entity.redescribe`. Campos
+prontos de `field` em `FieldBuiltinRecord` com `clearOnRelease` (sem bitset de vivos, para caber nos 10 storages do
+`pbf_predict`); o limite é conferido por pipeline e um pipeline com código de fora que o excede é rejeitado
+(`extensionRejected`, cai no pronto). `CameraFnEntry` e `TransformFnPair` são structs gerados. O `SetGraph` mantém um
+registro fixo (`SetGraphRecord { revision, writes }`) só como sinal de mudança (`poolWritten`); os valores ficam no
+Resource.
+
 ### R9 — Grafo de nós de ponto: compilação em SSA dentro de uma função
 
 **Decisão**: um nó é definido por `defineNode({ name, level: 'point', inputs, outputs, params, code, contexts })`;
@@ -227,11 +237,26 @@ compute sem offsets à mão (resolve também `wire.wgsl` e `point_sprite.wgsl`, 
 **Rationale**: o grafo de conjunto é exatamente um Flow (slots + passes + transições); a C2 já sabe alocar descritores
 de Resource e conhecer escritores — falta só a contagem na GPU e a memória genérica.
 
+**Como ficou (US3/US4, 2026-10-16)**: o `NodeGraph` aceita nós de conjunto (`defineSetNode`: portas `setType`, entradas
+de ponto `setPointInput`, regra de capacidade e de contagem `cpu`/`gpu`/`{same}`, fábrica da instância). O Resource é
+o `SetGraph` (grafo + valores); `compileSetGraph` faz o plano (ordem, capacidades, registros `SetCount`, contagens da
+CPU já com despacho e desenho, grafos de ponto fundidos: struct de parâmetros num uniform + a função `at` que o kernel
+chama, trocada por `bindPoints`); o `GraphFlow` (C2, registrado pela C4 com alvo `GraphGeometry`) aloca conjuntos e
+registros, cria as instâncias e grava os nós só quando desatualizado (`poolWritten` do registro, revisão, nó
+`animated`), limpo em `frameRecorded`. Todo kernel de nó lê a contagem de `set_counts[slot]` e despacha pelo argumento
+indireto do registro. Distribuição determinística por hash e `Compaction` estável com contagem da GPU; normais por
+soma em ponto fixo. Sub-grafos: de ponto viram nó com função `sub_<hash>` (emitida uma vez por shader; expostos como
+parâmetros, os outros embutidos); de conjunto são expandidos no grafo de fora (`uso_nó`, entradas `open`).
+
 ### R11 — Serialização
 
 **Decisão**: `NodeGraph.toJSON()` → `{ version, nodes: [{ id, type, params }], links: [[de, porta, para, porta]],
 outputs, subgraphs }`; `NodeGraph.fromJSON(json, registry)` resolve tipos pelo `NodeRegistry` da C2 (bibliotecas da C3
 registram os seus nós; nós WGSL do usuário serializam o código). A identidade (hash da forma) é a mesma antes e depois.
+
+**Como ficou**: `toJSON(graph, registry)` / `fromJSON(json, registry)` (funções, não métodos: evitam o ciclo
+grafo ↔ registro) — nós registrados pelo nome, argumentos com campos, nó WGSL do usuário sem dependências pelo código,
+sub-grafos pela estrutura em `subgraphs`; erro `serialization` nomeando tipo e nó, ou versão.
 
 ### R12 — Biblioteca base
 

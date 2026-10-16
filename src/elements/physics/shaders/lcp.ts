@@ -6,7 +6,7 @@ import {
     type WgslResourceType,
 } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
+import { fieldAccelReady, fieldPointTypes } from './fields';
 import { lcp, lcpState, quat, sdf, surfaceColliderHit, xpbd } from '../../gpu/shaders/math';
 import rbPredictSource from '../../gpu/wgsl/kernels/rb_predict.wgsl?raw';
 import rbNarrowphaseSource from '../../gpu/wgsl/kernels/rb_narrowphase.wgsl?raw';
@@ -186,7 +186,7 @@ export const rbPredict = wgslModule({
         R.params,
         R.bodies,
     ],
-    structs: [LCPSchema, RBSimParamsSchema, FieldFnRecordSchema],
+    structs: [LCPSchema, RBSimParamsSchema],
 });
 
 /** Narrowphase contra os 5 pools de collider (uma entrada por pool). */

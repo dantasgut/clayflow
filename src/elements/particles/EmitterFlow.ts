@@ -1,5 +1,5 @@
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import type { EngineCore, Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
+import type { EngineCore, Frame } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { ExtensionPipelines, type PipelineVariant } from '../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../scene/flows/Flow';
@@ -14,7 +14,6 @@ import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import {
     slot,
     type EntitiesSlot,
-    type PoolSlot,
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
@@ -31,7 +30,7 @@ import { LCPSchema } from '../physics/bodies/schemas/LCPSchema';
 import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
 import { ComputeParticleEmitter } from './ComputeParticleEmitter';
-import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
+import { EmitterParamsSchema } from './EmitterSchemas';
 import { emitCollide, emitPoint, emitResources as R, emitSpawn, emitUpdate } from './shaders';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
@@ -40,10 +39,8 @@ const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 export interface EmitterSlots extends SlotMap {
     /** Emissores com a nuvem de pontos onde as partículas são desenhadas (o estágio escreve os vértices). */
     readonly emitters: EntitiesSlot;
-    /** Emissores com `EmitFunction`. */
+    /** Emissores com `EmitFunction` (registros nos pools das formas, spec 031). */
     readonly functions: EntitiesSlot;
-    /** Pool dos registros de parâmetros das `EmitFunction` (opcional). */
-    readonly fnRecords: PoolSlot<true>;
     /** Gravidade uniforme (opcional; padrão −9,81 em y). */
     readonly gravity: SingletonSlot<true>;
     /** Relógio da cena. */
@@ -60,7 +57,6 @@ const slots: EmitterSlots = {
         owns: [[PointCloudGeometry, 'vertices']],
     }),
     functions: slot.entities({ all: [ComputeParticleEmitter, EmitFunction] }),
-    fnRecords: slot.pool(EmitFnRecordSchema.name, { optional: true }),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
     time: slot.singleton(Time.schema),
     colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
@@ -94,15 +90,14 @@ interface EmitterState {
 export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
     readonly type = 'EmitterFlow';
     readonly slots = slots;
-    override readonly listens = [EmitFnRecordSchema];
+    /** Os registros de todas as formas das funções `emit` (spec 031, R8). */
+    override readonly listens = [emitPoint];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
     private readonly states = new Map<EntityId, EmitterState>();
-    /** Substituto do pool de registros das funções (emissores sem `EmitFunction`). */
-    private readonly dummyRecords: StorageBufferSpec;
     /** Pipeline de criação de cada emissor (pela forma ou pela `EmitFunction`), ativo ao compilar. */
     private readonly spawnPipelines = new ExtensionPipelines<EntityId>();
     private dirty = true;
@@ -114,12 +109,6 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
         super();
         this.core = ctx.core;
         this.resources = ctx.resources;
-        this.dummyRecords = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'emit_fn_records_dummy',
-            byteSize: EmitFnRecordSchema.stride,
-        });
         this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
             discriminator: 'emit_colliders',
         });
@@ -201,11 +190,10 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
         }
     }
 
-    /** Libera os parâmetros dos emissores e o substituto. */
+    /** Libera os parâmetros dos emissores. */
     override dispose(): void {
         for (const st of this.states.values()) st.params.dispose();
         this.states.clear();
-        this.core.destroy(this.dummyRecords);
         this.colliderSet.destroy();
     }
 
@@ -216,7 +204,7 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { emitters, functions, fnRecords } = ctx.bound.slots;
+        const { emitters, functions } = ctx.bound.slots;
         const present = new Set<EntityId>();
         for (const entry of emitters.entries) {
             const id = entry.entityId;
@@ -244,7 +232,6 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 this.states.set(id, st);
             }
             const params = st.params.source();
-            const records = fnRecords?.buffer ?? this.dummyRecords;
             // Bindings privados antes da preparação (a C2 resolve as fontes ao preparar).
             ctx.bind(
                 at(st.updateId, [
@@ -280,7 +267,6 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                     at(pid, [
                         [R.params, params],
                         [R.particles, particles],
-                        [R.fnRecords, records],
                     ]),
                 );
             }
@@ -311,7 +297,7 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
 
     /** Partículas a criar em cada passo (acumulador por passo) e os parâmetros de cada passo, por emissor. */
     private writeSteps(ctx: Ctx): void {
-        const { emitters, functions, fnRecords, gravity, time } = ctx.bound.slots;
+        const { emitters, functions, gravity, time } = ctx.bound.slots;
         const clock = time.resource as Time;
         const steps = clock.steps;
         const stepDt = clock.stepDt;
@@ -325,8 +311,10 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
             const d = emitter.data;
             const capacity = d.maxParticles;
             const shape = d.shape?.gpu() ?? { kind: 0, a: [0, 0, 0], b: [0, 0, 0], s: [0, 0] };
-            const record = fnRecords?.slotOf(st.id);
-            const hasFn = functions.entry(st.id) !== undefined && record !== undefined;
+            const fn = functions.entry(st.id)?.get(EmitFunction);
+            const record =
+                fn === undefined ? undefined : this.resources.poolSlotOf(fn.record.name, st.id);
+            const hasFn = record !== undefined;
             if (st.params.reserve(Math.max(1, steps))) {
                 const params = st.params.source();
                 const spawns = this.spawnPipelines.bindable(st.id).map((v) => v.id);

@@ -71,7 +71,7 @@ export class FlowBinder {
                 }
             }),
             events.on('poolWritten', (e) => {
-                if (scenePoints.poolWritten(e.schema.name)) this.sceneChanged();
+                if (scenePoints.poolWritten(e.schema)) this.sceneChanged();
                 for (const rt of this.runtimes.values()) {
                     rt.poolWritten(e.poolKey, e.schema.name, e.ranges, e.fields);
                     if (rt.listens(e.schema)) {

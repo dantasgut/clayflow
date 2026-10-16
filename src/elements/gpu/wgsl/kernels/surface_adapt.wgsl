@@ -10,8 +10,8 @@
 // thread: o viés), `surface_adapt_scan_main` (um grupo: bases de vértices, índices e arestas por retalho; totais no
 // registro indireto) e `surface_adapt_emit_main` (um por vértice possível: vértice, geometria diferencial, índices e
 // arestas das células).
-// Requer: structs SurfaceParams, SurfaceFnRecord, SpaceFnRecord, SurfaceDiff, SurfaceAdaptParams, CameraMatrices,
-// WorldTransform; surface_at; surface_jet; surface_forms; global `space_records`.
+// Requer: structs SurfaceParams, SurfaceDiff, SurfaceAdaptParams, CameraMatrices, WorldTransform; surface_at;
+// surface_jet; surface_forms (os registros das funções `surface` e `space` chegam com os módulos delas).
 
 const ADAPT_NONE: u32 = NONE;
 // Posição do viés no histograma (os níveis ocupam 0..7).
@@ -67,7 +67,7 @@ fn surface_adapt_level_main(
     if (adapt.force_max == 0u) {
         let pi = idx % adapt.patches_u;
         let qi = idx / adapt.patches_u;
-        let data = surface_fn_params(surface_fn_records[surface_params.record_slot]);
+        let data = surface_fn_params(surface_params.record_slot);
         let up = vec3f(0.0, 1.0, 0.0);
         let t = surface_params.time;
         var kappa = 0.0;
@@ -236,7 +236,7 @@ fn surface_adapt_emit_main(
     if (j == 0u) { kk = adapt_snap(kk, l, adapt_neighbor(i32(pi) - 1, i32(qi), l)); }
     if (j == n) { kk = adapt_snap(kk, l, adapt_neighbor(i32(pi) + 1, i32(qi), l)); }
     let uv = adapt_uv(pi, qi, f32(jj) / f32(n), f32(kk) / f32(n));
-    let data = surface_fn_params(surface_fn_records[surface_params.record_slot]);
+    let data = surface_fn_params(surface_params.record_slot);
     let vi = pd.y + k * (n + 1u) + j;
     let o = vi;
     let prev = vec3f(adapt_vertices[o].nx, adapt_vertices[o].ny, adapt_vertices[o].nz);

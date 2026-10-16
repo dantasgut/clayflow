@@ -463,9 +463,11 @@ export class FlowRuntime {
         return changes;
     }
 
-    /** O Flow declara `schema` em `listens`? */
+    /** O Flow declara `schema` (ou uma família que o contém: os registros de um ponto) em `listens`? */
     listens(schema: Schema): boolean {
-        return this.flow.listens.includes(schema);
+        return this.flow.listens.some(
+            (l) => l === schema || ('isRecord' in l && l.isRecord(schema)),
+        );
     }
 
     /** O Flow escuta `resource` (algum descritor com schema de `listens`)? Devolve o schema, ou `undefined`. */
@@ -473,7 +475,7 @@ export class FlowRuntime {
         const listens = this.flow.listens;
         if (listens.length === 0) return undefined;
         for (const d of resource.getDescriptors()) {
-            if (d.schema !== undefined && listens.includes(d.schema)) return d.schema;
+            if (d.schema !== undefined && this.listens(d.schema)) return d.schema;
         }
         return undefined;
     }

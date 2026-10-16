@@ -1,6 +1,5 @@
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
-import { CameraFnRecordSchema } from '../scene/flows/CameraSchemas';
 import { Light } from '../scene/Light';
 import { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
 import {
@@ -52,15 +51,6 @@ export const pointSpriteMaterialsResource = materials(PointSpriteMaterialSchema)
 export const diffuseMaterialsResource = materials(DiffuseMaterialSchema);
 /** Pool `WireframeMaterial` (arame). */
 export const wireframeMaterialsResource = materials(WireframeMaterialSchema);
-
-/** Registros das funções `camera` (spec 009), lidos pela variante com projeção de ponto. */
-export const cameraFnRecordsResource = wgslResource({
-    name: 'camera_fn_records',
-    binding: { storage: 'read' },
-    type: { schema: CameraFnRecordSchema, array: true },
-    frequency: 'batch',
-    provider: { pool: CameraFnRecordSchema.name },
-});
 
 const vertices = (name: string): ReturnType<typeof wgslResource> =>
     wgslResource({

@@ -34,9 +34,20 @@ export type {
     SetNodeUse,
 } from './SetNode';
 export { SetGraph } from './SetGraph';
-export type { SetGraphOptions } from './SetGraph';
+export type { SetGraphData, SetGraphOptions } from './SetGraph';
 export { GraphFlow, SET_GROUP, setDispatchOffset } from './GraphFlow';
 export type { GraphFlowOptions, GraphFlowSlots } from './GraphFlow';
 export { compileSetGraph } from './compileSetGraph';
 export type { PlannedSet, PlannedNode, FusedPointPlan, SetGraphPlan } from './compileSetGraph';
 export { SetCountSchema, SET_COUNT_DISPATCH_OFFSET, SET_COUNT_DRAW_OFFSET } from './SetCountSchema';
+export { Subgraph, subgraphOrigin } from './Subgraph';
+export type {
+    PointSubgraphOptions,
+    SetSubgraphOptions,
+    SetSubgraph,
+    SetSubgraphUse,
+} from './Subgraph';
+export { toJSON, fromJSON, GRAPH_JSON_VERSION } from './serialize';
+export type { GraphJSON, NodeJSON, SubgraphJSON, InlineNodeJSON } from './serialize';
+export type { AnyNodeDefinition } from './NodeRegistry';
+export type { FlatNode } from './NodeGraph';

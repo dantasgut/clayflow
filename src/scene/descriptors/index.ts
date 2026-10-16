@@ -9,7 +9,6 @@ export {
 } from './FieldType';
 export { Schema } from './Schema';
 export { StructSchema, fieldArray, fieldRuntimeArray, fieldStruct } from './StructSchema';
-export { extensionRecordSchema, EXTENSION_PARAMS_CAPACITY } from './ExtensionRecord';
 export type {
     AddressSpace,
     ArrayFieldSpec,

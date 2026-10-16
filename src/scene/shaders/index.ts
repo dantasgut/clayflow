@@ -29,6 +29,7 @@ export type {
     WgslPointOptions,
     WgslPointSignature,
     PointImplementation,
+    PointRecord,
     ScenePointEntry,
     ScenePointOptions,
     ScenePointGlobal,

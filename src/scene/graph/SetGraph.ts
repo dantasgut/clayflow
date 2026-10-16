@@ -1,17 +1,32 @@
 import { Entity } from '../contracts/Entity';
-import type { ExtensionParamsData } from '../contracts/ExtensionFunction';
 import type { ExtensionParamType, ExtensionParamValue } from '../contracts/ExtensionParams';
-import { paramSlots, paramValues, type ParamSlot } from '../contracts/ParamRecord';
+import { paramFields, paramValues } from '../contracts/ParamRecord';
 import type { Resource } from '../contracts/Resource';
 import { ResourceState } from '../contracts/ResourceState';
-import { extensionRecordSchema } from '../descriptors/ExtensionRecord';
+import { FieldType } from '../descriptors/FieldType';
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
+import { StructSchema } from '../descriptors/StructSchema';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
 import type { NodeGraph } from './NodeGraph';
 import { NodeGraphError } from './NodeGraphError';
 
-/** Registro dos valores de um grafo de conjunto (pool `SetGraphRecord`). */
-const SetGraphRecordSchema = extensionRecordSchema('SetGraphRecord');
+/**
+ * Registro de um grafo de conjunto (pool `SetGraphRecord`, schema fixo): a revisão da topologia e a contagem de
+ * escritas de valores. Os valores ficam no Resource (o `GraphFlow` os lê por nó e os põe nos uniforms dos nós); o
+ * registro é o que a C2 envia quando eles mudam — o `poolWritten` que deixa o grafo `stale`.
+ */
+const SetGraphRecordSchema = new StructSchema('SetGraphRecord', {
+    revision: FieldType.u32,
+    writes: FieldType.u32,
+});
+
+/** Dado de um `SetGraph` (layout de `SetGraph.schema`). */
+export interface SetGraphData {
+    /** Revisão da topologia (sobe a cada `setGraph`). */
+    revision: number;
+    /** Escritas de valores (sobe a cada valor escrito). */
+    writes: number;
+}
 
 /** Opções de `SetGraph`. */
 export interface SetGraphOptions {
@@ -23,31 +38,29 @@ export interface SetGraphOptions {
 
 /**
  * Grafo de nós de conjunto como Resource (spec 031, US3): o grafo e os valores dos parâmetros de todos os nós
- * (`values['nó_parâmetro']`, no registro do pool `SetGraphRecord` — mudar um valor envia o registro e o `GraphFlow`
- * refaz o grafo no quadro seguinte, sem recompilar). `setGraph` troca a topologia (revisão +1: o `GraphFlow` recria os
+ * (`values['nó_parâmetro']`, sem teto; mudar um valor envia o registro do pool `SetGraphRecord` e o `GraphFlow` refaz o
+ * grafo no quadro seguinte, sem recompilar). `setGraph` troca a topologia (revisão +1: o `GraphFlow` recria os
  * nós). Na entidade, ao lado do Resource alvo (ex.: a `GraphGeometry` que o nó de saída escreve), do material e do
  * `Transform`.
  */
-export class SetGraph extends Entity<ExtensionParamsData> implements Resource {
+export class SetGraph extends Entity<SetGraphData> implements Resource {
     /** Registro dos valores (um pool para todos os grafos de conjunto). */
     static readonly schema = SetGraphRecordSchema;
 
     state: ResourceState = ResourceState.Uninitialized;
     #graph: NodeGraph;
     #params: Readonly<Record<string, ExtensionParamType>>;
-    #slots: readonly ParamSlot[];
+    /** Valores atuais, por `nó_parâmetro`. */
+    #store: Record<string, number | number[]> = {};
     #values: Record<string, ExtensionParamValue>;
 
     constructor(options: SetGraphOptions) {
         super();
         SetGraph.#validate(options.graph);
         this.#graph = options.graph;
-        this.#params = Object.freeze({ ...options.graph.allParams() });
-        this.#slots = paramSlots('SetGraph', this.#params);
-        const data = SetGraphRecordSchema.applyDefaults({}) as unknown as ExtensionParamsData;
-        for (let k = 0; k < 8; k++)
-            (data as unknown as Record<string, number[]>)[`v${k}`] = [0, 0, 0, 0];
-        this.data = data;
+        this.#params = SetGraph.#checked(options.graph);
+        this.#store = SetGraph.#zeros(this.#params);
+        this.data = { revision: 0, writes: 0 };
         this.#values = this.#accessor();
         this.#assign({ ...options.graph.allValues(), ...(options.values ?? {}) });
     }
@@ -87,14 +100,13 @@ export class SetGraph extends Entity<ExtensionParamsData> implements Resource {
      */
     setGraph(graph: NodeGraph): void {
         SetGraph.#validate(graph);
-        const params = Object.freeze({ ...graph.allParams() });
-        const slots = paramSlots('SetGraph', params);
+        const params = SetGraph.#checked(graph);
         const kept: Record<string, ExtensionParamValue> = {};
         for (const [name, type] of Object.entries(params))
             if (this.#params[name] === type) kept[name] = this.#values[name]!;
         this.#graph = graph;
         this.#params = params;
-        this.#slots = slots;
+        this.#store = SetGraph.#zeros(params);
         this.#values = this.#accessor();
         this.#assign({ ...graph.allValues(), ...kept });
         this.data.revision = this.rawData.revision + 1;
@@ -130,13 +142,31 @@ export class SetGraph extends Entity<ExtensionParamsData> implements Resource {
         }
     }
 
+    /** Parâmetros do grafo (nomes e tipos validados). */
+    static #checked(graph: NodeGraph): Readonly<Record<string, ExtensionParamType>> {
+        const params = Object.freeze({ ...graph.allParams() });
+        paramFields('SetGraph', params);
+        return params;
+    }
+
+    /** Valores zerados dos parâmetros (escalar 0; vetor `vecN` com N zeros). */
+    static #zeros(
+        params: Readonly<Record<string, ExtensionParamType>>,
+    ): Record<string, number | number[]> {
+        const out: Record<string, number | number[]> = {};
+        for (const [name, type] of Object.entries(params))
+            out[name] = type.startsWith('vec') ? new Array<number>(Number(type[3])).fill(0) : 0;
+        return out;
+    }
+
     #accessor(): Record<string, ExtensionParamValue> {
         return paramValues(
             'SetGraph',
-            this.#slots,
-            () => this.rawData as unknown as Record<string, number[]>,
-            (v, row) => {
-                (this.data as unknown as Record<string, number[]>)[`v${v}`] = row;
+            this.#params,
+            (name) => this.#store[name],
+            (name, value) => {
+                this.#store[name] = value;
+                this.data.writes = this.rawData.writes + 1;
             },
         );
     }

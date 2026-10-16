@@ -1,9 +1,14 @@
-import type { StructSchema } from '../descriptors/StructSchema';
+import type { ExtensionParamType } from '../contracts/ExtensionParams';
+import { paramFields } from '../contracts/ParamRecord';
+import { FieldType } from '../descriptors/FieldType';
+import type { Schema } from '../descriptors/Schema';
+import { StructSchema } from '../descriptors/StructSchema';
 import { bindPoints, type BindablePoint } from './bindPoints';
 import { composeWgsl } from './composeWgsl';
 import { stripWgslComments } from './scanWgslSymbols';
 import { WgslCompositionError } from './WgslCompositionError';
 import type { WgslModule } from './WgslModule';
+import { wgslResource, type WgslResource } from './WgslResource';
 
 /** Tipo de parâmetro que aceita o struct de parâmetros da função (ou o alias do ponto). */
 export const POINT_PARAMS = '$P';
@@ -33,8 +38,6 @@ export interface WgslPointOptions {
     readonly optional?: readonly WgslPointSignature[];
     /** Alias do struct de parâmetros que os kernels usam (ex.: `TransformFnParams`). */
     readonly paramsAlias: string;
-    /** Schema do registro de parâmetros do ponto (`extensionRecordSchema`; um pool por ponto). */
-    readonly record: StructSchema;
     /** Estágio em que a função é avaliada (spec 031: nós só de fragmento valem só em `fragment`). Padrão `compute`. */
     readonly context?: 'fragment' | 'vertex' | 'compute';
     /** Implementação pronta: o módulo que os kernels exigem e que uma função do usuário substitui. */
@@ -52,7 +55,7 @@ export interface WgslPointOptions {
 export interface ScenePointEntry {
     /** A função. */
     readonly impl: PointImplementation;
-    /** Slot do registro de parâmetros da função no pool do ponto. */
+    /** Slot do registro de parâmetros da função no pool da forma dela (registro tipado, spec 031 R8). */
     readonly slot: number;
 }
 
@@ -93,8 +96,6 @@ export interface WgslPoint {
     readonly optional: readonly WgslPointSignature[];
     /** Alias do struct de parâmetros. */
     readonly paramsAlias: string;
-    /** Schema do registro de parâmetros. */
-    readonly record: StructSchema;
     /** Implementação pronta. */
     readonly ready: WgslModule;
     /** Kernels que usam o ponto. */
@@ -112,6 +113,44 @@ export interface WgslPoint {
     check(module: WgslModule, paramsStruct: string): void;
     /** As funções opcionais que `module` define. */
     optionalIn(module: WgslModule): readonly WgslPointSignature[];
+    /**
+     * Registro tipado da forma `params` (spec 031, R8): um struct por forma, memorizado — a mesma forma (mesmos nomes e
+     * tipos, na ordem) dá o mesmo schema e o mesmo pool, quaisquer que sejam os valores.
+     * @throws TypeError nome de parâmetro inválido ou reservado (`revision`), ou tipo não suportado.
+     */
+    record(params: Readonly<Record<string, ExtensionParamType>>): PointRecord;
+    /** `schema` é o registro de alguma forma deste ponto (o que os estágios escutam: `Flow.listens`)? */
+    isRecord(schema: Schema): boolean;
+}
+
+/**
+ * Registro dos parâmetros de uma forma de função de ponto (spec 031, R8): o struct `<alias>_<hash>` com um campo por
+ * parâmetro, com o tipo declarado, e a revisão do código (`revision`) — sem `bitcast` e sem teto de escalares. O nome
+ * do schema, `<ponto>:<hash>`, é a chave do pool: as funções da mesma forma ocupam o mesmo pool, um registro cada.
+ */
+export interface PointRecord {
+    /** Schema do registro (nome `<ponto>:<hash>`, struct `<alias>_<hash>`). */
+    readonly schema: StructSchema;
+    /**
+     * O pool da forma no shader (`<ponto>_records_<hash>: array<struct>`, frequência `batch`, fornecido pelo pool): o
+     * carregador gerado de cada função da forma lê o registro dela por slot.
+     */
+    readonly resource: WgslResource;
+    /** Hash da forma (ponto, nomes e tipos dos parâmetros). */
+    readonly hash: string;
+}
+
+/** Campo da revisão do código no registro (nome reservado para parâmetros). */
+const REVISION = 'revision';
+
+/** FNV-1a de 32 bits em hexadecimal. */
+function fnv(text: string): string {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
 }
 
 /**
@@ -244,6 +283,9 @@ export function scenePointsIn(shader: WgslModule): readonly WgslPoint[] {
 export function wgslPoint(options: WgslPointOptions): WgslPoint {
     const optional = Object.freeze([...(options.optional ?? [])]);
     const hosts = options.hosts ?? (() => []);
+    /** Registros por forma (assinatura dos campos) e os schemas deles. */
+    const records = new Map<string, PointRecord>();
+    const schemas = new WeakSet<Schema>();
     const matches = (sig: WgslPointSignature, fn: ParsedFn, paramsStruct: string): boolean => {
         if (fn.params.length !== sig.params.length) return false;
         if (norm(sig.returns) !== fn.returns) return false;
@@ -258,7 +300,6 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
         required: options.required,
         optional,
         paramsAlias: options.paramsAlias,
-        record: options.record,
         ready: options.ready,
         hosts,
         scene: options.scene,
@@ -311,6 +352,37 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
         optionalIn(module: WgslModule): readonly WgslPointSignature[] {
             const fns = parseWgslFunctions(module.source);
             return optional.filter((s) => fns.has(s.name));
+        },
+        record(params: Readonly<Record<string, ExtensionParamType>>): PointRecord {
+            const fields = paramFields(options.name, params, [REVISION]);
+            const signature = Object.entries(fields)
+                .map(([n, t]) => `${n}:${t}`)
+                .join(',');
+            const known = records.get(signature);
+            if (known !== undefined) return known;
+            const hash = fnv(`${options.name}|${signature}`);
+            const schema = new StructSchema(
+                `${options.name}:${hash}`,
+                { ...fields, [REVISION]: FieldType.u32 },
+                { wgslName: `${options.paramsAlias}_${hash}` },
+            );
+            const record: PointRecord = Object.freeze({
+                schema,
+                hash,
+                resource: wgslResource({
+                    name: `${options.name}_records_${hash}`,
+                    binding: { storage: 'read' },
+                    type: { schema, array: true },
+                    frequency: 'batch',
+                    provider: { pool: schema.name },
+                }),
+            });
+            records.set(signature, record);
+            schemas.add(schema);
+            return record;
+        },
+        isRecord(schema: Schema): boolean {
+            return schemas.has(schema);
         },
     };
     const frozen = Object.freeze(point);

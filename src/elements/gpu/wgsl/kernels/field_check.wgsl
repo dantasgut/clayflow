@@ -1,6 +1,6 @@
 // Kernel de validação do ponto `field` (spec 009): monta `field_accel` com os globais que os solvers declaram — uma
 // `FieldFunction` é conferida contra ele na criação (assinatura, símbolos, chamadas). Não é despachado.
-// Requer: structs FieldFnRecord; field_point_types; field_accel (ponto).
+// Requer: field_point_types; field_accel (ponto).
 
 @compute @workgroup_size(1)
 fn field_check_main() {

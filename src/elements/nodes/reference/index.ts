@@ -36,3 +36,6 @@ export function colorRamp(
 }
 
 export { gradientNoise3 } from './noise';
+
+/** Referências dos nós de conjunto (spec 031, US3). */
+export * as set from './set';

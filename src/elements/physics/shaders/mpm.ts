@@ -1,5 +1,5 @@
 import { poolLive } from '../../gpu/compute/shaders';
-import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
+import { fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
@@ -96,7 +96,7 @@ export const mpmGridUpdate = wgslModule({
         R.params,
         R.grid,
     ],
-    structs: [MPMSimParamsSchema, MPMGridNodeSchema, FieldFnRecordSchema],
+    structs: [MPMSimParamsSchema, MPMGridNodeSchema],
 });
 
 /** Grade → partícula (velocidade, APIC, F; reinício de F no fluido). */

@@ -24,6 +24,7 @@ import type { BindingFrequency } from '../../shaders/WgslResource';
 import { composeWgsl, type ComposedShader } from '../../shaders/composeWgsl';
 import type { InferredEntry, InferredLayout, LayoutInferencer } from '../LayoutInferencer';
 import { checkLayoutLimits } from './limits';
+import { WgslCompositionError } from '../../shaders/WgslCompositionError';
 import { bindingEntryOf, layoutEntryOf, sameLayoutEntry, sameSource } from './sources';
 
 /** Resolução da fonte de um binding: a fonte, `undefined` (ainda ausente na cena) ou erro estrutural (lança). */
@@ -60,7 +61,11 @@ export class PipelineState {
     private readonly composedShader: ShaderModuleSpec;
     /** O shader montado (módulos e as suas linhas, para traduzir mensagens do compilador). */
     readonly composed: ComposedShader;
-    /** Erros do compilador quando o shader foi rejeitado (`descriptor.verify`); `null` sem rejeição. */
+    /**
+     * Erros do compilador quando o shader foi rejeitado (`descriptor.verify`) — ou o limite do device excedido pelas
+     * ligações do código de fora (`descriptor.extensions`: um pool por forma de função, spec 031 R8); `null` sem
+     * rejeição.
+     */
     rejected: readonly ShaderMessage[] | null = null;
     private shader: ShaderModuleSpec | null = null;
     private layoutSpecs: LayoutSpec[] = [];
@@ -169,6 +174,8 @@ export class PipelineState {
      * @throws FlowBindingError em erro estrutural (binding sem fonte possível, incompatibilidade).
      */
     refresh(lookup: SourceLookup, onReplaced: ReplacedListener): boolean {
+        // Rejeitado pelo limite (sem objetos de GPU): fica assim até o Flow trocar o shader.
+        if (this.rejected !== null && !this.built) return false;
         const next: ResolvedSource[][] = [];
         for (const g of this.layout.groups) {
             const list: ResolvedSource[] = [];
@@ -275,11 +282,26 @@ export class PipelineState {
     }
 
     private build(entries: BindingLayoutEntry[][], sources: ResolvedSource[][]): void {
-        checkLayoutLimits(
-            `Flow '${this.flowType}', pipeline '${this.id}'`,
-            entries,
-            this.core.capabilities().limits,
-        );
+        try {
+            checkLayoutLimits(
+                `Flow '${this.flowType}', pipeline '${this.id}'`,
+                entries,
+                this.core.capabilities().limits,
+            );
+        } catch (error) {
+            // Código de fora (funções de ponto: cada forma traz o seu pool, spec 031 R8) que excede um limite do
+            // device: rejeitado como um erro de compilação — a função não vale aqui e o atual (ou o pronto) continua.
+            if (
+                !(error instanceof WgslCompositionError)
+                || (this.descriptor.extensions?.length ?? 0) === 0
+            )
+                throw error;
+            this.release();
+            this.waiting = false;
+            this.rejected = [{ type: 'error', message: error.message, line: 0, column: 0 }];
+            this.onRejected(this, this.rejected);
+            return;
+        }
         this.release();
         this.waiting = false;
         this.built = true;

@@ -1,4 +1,8 @@
 import type { NodeDefinition } from './NodeDefinition';
+import type { SetNodeDefinition } from './SetNode';
+
+/** Definição registrável: nó de ponto ou de conjunto. */
+export type AnyNodeDefinition = NodeDefinition | SetNodeDefinition;
 import { NodeGraphError } from './NodeGraphError';
 
 /**
@@ -6,9 +10,9 @@ import { NodeGraphError } from './NodeGraphError';
  * que uma biblioteca de nós publica. Um nome, uma definição.
  */
 export class NodeRegistry {
-    readonly #byName = new Map<string, NodeDefinition>();
+    readonly #byName = new Map<string, AnyNodeDefinition>();
 
-    constructor(definitions: readonly NodeDefinition[] = []) {
+    constructor(definitions: readonly AnyNodeDefinition[] = []) {
         for (const d of definitions) this.register(d);
     }
 
@@ -17,7 +21,7 @@ export class NodeRegistry {
      *
      * @throws NodeGraphError (`node-signature`) se o nome já tem outra definição.
      */
-    register(definition: NodeDefinition): void {
+    register(definition: AnyNodeDefinition): void {
         const known = this.#byName.get(definition.name);
         if (known !== undefined && known !== definition) {
             throw new NodeGraphError(
@@ -30,7 +34,7 @@ export class NodeRegistry {
     }
 
     /** A definição de nome `name`, ou `undefined`. */
-    get(name: string): NodeDefinition | undefined {
+    get(name: string): AnyNodeDefinition | undefined {
         return this.#byName.get(name);
     }
 

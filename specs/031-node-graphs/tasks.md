@@ -153,8 +153,8 @@ importações cruzadas (FR-001–FR-012).
 
 ### Testes
 
-- [ ] T067 [P] [US3] Testes de `src/scene/graph/__tests__/compileSetGraph.test.ts`: kernels em ordem topológica; descritores intermediários `onDemand` com capacidade pela regra; `SetCount` como descritor `indirect` escrito só pela GPU; grafo de ponto numa entrada fundido no kernel do nó (nenhum pipeline extra)
-- [ ] T068 [P] [US3] Testes de `src/scene/graph/__tests__/GraphFlow.test.ts`: slots das entradas e saídas; `flowReady` com slots prontos; `stale` por `poolWritten` do registro, `resourceReady`/`poolWritten` de entrada e nó de tempo; `frameRecorded` → `clean`; `dispatch` não grava nada em `clean`; despacho indireto para contagem `gpu`; posse (`owns`) da `GraphGeometry`
+- [x] T067 [P] [US3] Testes de `src/scene/graph/__tests__/compileSetGraph.test.ts`: kernels em ordem topológica; descritores intermediários `onDemand` com capacidade pela regra; `SetCount` como descritor `indirect` escrito só pela GPU; grafo de ponto numa entrada fundido no kernel do nó (nenhum pipeline extra)
+- [x] T068 [P] [US3] Testes de `src/scene/graph/__tests__/GraphFlow.test.ts`: slots das entradas e saídas; `flowReady` com slots prontos; `stale` por `poolWritten` do registro, `resourceReady`/`poolWritten` de entrada e nó de tempo; `frameRecorded` → `clean`; `dispatch` não grava nada em `clean`; despacho indireto para contagem `gpu`; posse (`owns`) da `GraphGeometry`
 - [x] T069 [P] [US3] Testes de `src/elements/gpu/compute/__tests__/gpuCount.test.ts`: `CountToArgs` (contagem → despacho e desenho); `PrefixSum`, `RadixSort`, `Compaction`, `Reduce` com contagem lida do `SetCount` (variante GPU) e com contagem da CPU (inalterada)
 - [x] T070 [P] [US3] Testes de `src/elements/geometry/__tests__/MeshVertex.test.ts`: `MeshVertexSchema` com 8 `f32` escalares = 32 B, igual ao layout de vértice; `GraphGeometry` com descritores `upload: 'never'` e `indirect`
 
@@ -163,11 +163,11 @@ importações cruzadas (FR-001–FR-012).
 - [x] T071 [US3] `src/scene/graph/SetCountSchema.ts` e `src/elements/gpu/compute/CountToArgs.ts` + `wgsl/count_to_args.wgsl`
 - [x] T072 [US3] Variante de contagem da GPU em `PrefixSum.ts`, `RadixSort.ts`, `Compaction.ts`, `Reduce.ts` (despacho indireto, contagem lida no kernel)
 - [x] T073 [US3] `src/elements/geometry/MeshVertexSchema.ts` e `GraphGeometry.ts`; migrar `wire.wgsl` e `point_sprite.wgsl` para `array<MeshVertex>` (sem `index * 8u`)
-- [ ] T074 [US3] `src/scene/graph/compileSetGraph.ts`: nós de conjunto (kernels, conjuntos, regras de capacidade e contagem), descritores do `NodeGraph`, fusão das entradas de ponto (via T062)
-- [ ] T075 [US3] `src/scene/graph/GraphFlow.ts` (subclasse de `Flow`): slots, estados `stale/clean`, transições, `dispatch` em ordem topológica com `workgroupsIndirect`, registro por fábrica com a fase do grafo
-- [ ] T076 [US3] Desenho da `GraphGeometry` pelo caminho indireto da `ParametricSurface` em `ForwardFlow.ts` e `ShadowFlow.ts` (sem estágio por origem)
-- [ ] T077 [US3] Nós de conjunto em `src/elements/nodes/set/`: `grid`, `displace`, `recomputeNormals`, `distributeOnMesh` (densidade por grafo de ponto, contagem `gpu`, determinística), `realizeInstances`, `prefixSum`, `sort`, `compact`, `reduce`, `meshOutput`, `pointsOutput`, com referências de CPU
-- [ ] T078 [US3] Smoke `nodeGraphs` (parte b): grafo "grade → deslocar por ruído → normais → distribuir por densidade → realizar esferas" contra `src/__smokes__/support/nodeGraphReference.ts` (contagem exata, posições e normais ≤ 1e-5), duas execuções com o mesmo hash, nenhuma leitura de volta por quadro (contador de leituras do `countingCore`/perfil)
+- [x] T074 [US3] `src/scene/graph/compileSetGraph.ts`: nós de conjunto (kernels, conjuntos, regras de capacidade e contagem), descritores do `NodeGraph`, fusão das entradas de ponto (via T062)
+- [x] T075 [US3] `src/scene/graph/GraphFlow.ts` (subclasse de `Flow`): slots, estados `stale/clean`, transições, `dispatch` em ordem topológica com `workgroupsIndirect`, registro por fábrica com a fase do grafo
+- [x] T076 [US3] Desenho da `GraphGeometry` pelo caminho indireto da `ParametricSurface` em `ForwardFlow.ts` e `ShadowFlow.ts` (sem estágio por origem)
+- [x] T077 [US3] Nós de conjunto em `src/elements/nodes/set/`: `grid`, `displace`, `recomputeNormals`, `distributeOnMesh` (densidade por grafo de ponto, contagem `gpu`, determinística), `realizeInstances`, `prefixSum`, `sort`, `compact`, `reduce`, `meshOutput`, `pointsOutput`, com referências de CPU
+- [x] T078 [US3] Smoke `nodeGraphs` (parte b): grafo "grade → deslocar por ruído → normais → distribuir por densidade → realizar esferas" contra `src/__smokes__/support/nodeGraphReference.ts` (contagem exata, posições e normais ≤ 1e-5), duas execuções com o mesmo hash, nenhuma leitura de volta por quadro (contador de leituras do `countingCore`/perfil)
 
 **Checkpoint**: US3 completa.
 
@@ -180,11 +180,11 @@ importações cruzadas (FR-001–FR-012).
 **Independent Test**: 1 000 entidades com o mesmo sub-grafo → 1 compilação, 1 pipeline; JSON ida e volta bit a bit
 (SC-008, SC-010).
 
-- [ ] T079 [P] [US4] Testes de `src/scene/graph/__tests__/Subgraph.test.ts`: sub-grafo como nó com parâmetros expostos; código emitido uma vez por shader; valores por uso; ciclo através de sub-grafo detectado
-- [ ] T080 [P] [US4] Testes de `src/scene/graph/__tests__/serialize.test.ts`: `toJSON`/`fromJSON` com registro; identidade igual; nó WGSL do usuário serializa o código; tipo desconhecido → erro nomeando o tipo; versão
-- [ ] T081 [P] [US4] Testes de `src/scene/__tests__/typedRecords.test.ts`: registro gerado dos `params` de cada função da 009 (tipos, sem `bitcast`, acima de 32 escalares), pool por forma `<ponto>:<hash>`; `FieldBuiltinRecord`; `CameraFnEntry` e `TransformFnPair` no lugar de `vec4u`/`vec2u`
-- [ ] T082 [US4] `src/scene/graph/Subgraph.ts` e `src/scene/graph/serialize.ts`
-- [ ] T083 [US4] Registros tipados: remover `src/scene/descriptors/ExtensionRecord.ts`; schemas por forma nas funções; `FieldBuiltinRecord` em `src/elements/physics/shaders/fields.ts` e `field_builtin.wgsl`; `combineFields.ts`/`combineSpace.ts` com um pool por função (limites conferidos por T016); `CameraFnEntry` em `CameraFlow.ts`/`camera_compose_fn.wgsl`; `TransformFnPair` em `TransformFlow.ts`/`transform_compose_fn.wgsl`
+- [x] T079 [P] [US4] Testes de `src/scene/graph/__tests__/Subgraph.test.ts`: sub-grafo como nó com parâmetros expostos; código emitido uma vez por shader; valores por uso; ciclo através de sub-grafo detectado
+- [x] T080 [P] [US4] Testes de `src/scene/graph/__tests__/serialize.test.ts`: `toJSON`/`fromJSON` com registro; identidade igual; nó WGSL do usuário serializa o código; tipo desconhecido → erro nomeando o tipo; versão
+- [x] T081 [P] [US4] Testes de `src/scene/__tests__/typedRecords.test.ts`: registro gerado dos `params` de cada função da 009 (tipos, sem `bitcast`, acima de 32 escalares), pool por forma `<ponto>:<hash>`; `FieldBuiltinRecord`; `CameraFnEntry` e `TransformFnPair` no lugar de `vec4u`/`vec2u`
+- [x] T082 [US4] `src/scene/graph/Subgraph.ts` e `src/scene/graph/serialize.ts`
+- [x] T083 [US4] Registros tipados: remover `src/scene/descriptors/ExtensionRecord.ts`; schemas por forma nas funções; `FieldBuiltinRecord` em `src/elements/physics/shaders/fields.ts` e `field_builtin.wgsl`; `combineFields.ts`/`combineSpace.ts` com um pool por função (limites conferidos por T016); `CameraFnEntry` em `CameraFlow.ts`/`camera_compose_fn.wgsl`; `TransformFnPair` em `TransformFlow.ts`/`transform_compose_fn.wgsl`
 - [ ] T084 [US4] Smoke `nodeGraphs` (partes c e e): 1 000 entidades com o mesmo sub-grafo e valores diferentes → 1 compilação, 1 pipeline, valores corretos por entidade; grafo serializado e lido → mesma identidade e imagem bit a bit; `npm run smoke -- extensionPoints,parametricSurfaces,trajectories --headless` sem regravar
 
 **Checkpoint**: US4 completa.

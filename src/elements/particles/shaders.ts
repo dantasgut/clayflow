@@ -8,14 +8,15 @@ import emitFnReadySource from '../gpu/wgsl/kernels/emit_fn_ready.wgsl?raw';
 import emitSpawnSource from '../gpu/wgsl/kernels/emit_spawn.wgsl?raw';
 import emitUpdateSource from '../gpu/wgsl/kernels/emit_update.wgsl?raw';
 import emitCollideSource from '../gpu/wgsl/kernels/emit_collide.wgsl?raw';
-import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
+import { fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import { ComputeParticleEmitter } from './ComputeParticleEmitter';
 import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
-import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
+import { EmitterParamsSchema } from './EmitterSchemas';
 
 /**
  * Recursos dos emissores (spec 031): privados do `EmitterFlow` (por pipeline: cada emissor tem os seus). Os parâmetros
- * de cada passo (`emit_params`, uma região por passo, offset dinâmico) mudam entre despachos (`draw`).
+ * de cada passo (`emit_params`, uma região por passo, offset dinâmico) mudam entre despachos (`draw`). O registro da
+ * `EmitFunction` chega com o módulo dela (pool da forma, R8).
  */
 export const emitResources = Object.freeze({
     params: wgslResource({
@@ -39,14 +40,6 @@ export const emitResources = Object.freeze({
         frequency: 'stage',
         provider: 'private',
     }),
-    /** Registros das `EmitFunction` (o pool, ou um substituto quando nenhum emissor tem função). */
-    fnRecords: wgslResource({
-        name: 'emit_fn_records',
-        binding: { storage: 'read' },
-        type: { schema: EmitFnRecordSchema, array: true },
-        frequency: 'stage',
-        provider: 'private',
-    }),
 });
 const R = emitResources;
 
@@ -62,7 +55,7 @@ export const emitFnReady = wgslModule({
     name: 'emit_fn_ready',
     source: emitFnReadySource,
     requires: [emitPointTypes, R.params],
-    structs: [EmitterParamsSchema, EmitFnRecordSchema],
+    structs: [EmitterParamsSchema],
 });
 
 /** Criação das partículas de um passo pela função `emit_fn`. */
@@ -78,9 +71,8 @@ export const emitSpawn = wgslModule({
         WORKGROUP_SIZE.module,
         R.params,
         R.particles,
-        R.fnRecords,
     ],
-    structs: [EmitterParamsSchema, ComputeParticleEmitter.schema, EmitFnRecordSchema],
+    structs: [EmitterParamsSchema, ComputeParticleEmitter.schema],
 });
 
 /** Um passo das partículas: idade, gravidade e campos, vértices da nuvem. */
@@ -95,7 +87,7 @@ export const emitUpdate = wgslModule({
         R.particles,
         R.vertices,
     ],
-    structs: [EmitterParamsSchema, ComputeParticleEmitter.schema, FieldFnRecordSchema],
+    structs: [EmitterParamsSchema, ComputeParticleEmitter.schema],
 });
 
 /** Colisão das partículas vivas com os colliders, depois do passo (spec 010; só com colliders na cena). */
@@ -120,7 +112,6 @@ export const emitPoint = wgslPoint({
         names: ['i', 'time', 'seed', 'data'],
     },
     paramsAlias: 'EmitFnParams',
-    record: EmitFnRecordSchema,
     ready: emitFnReady,
     hosts: () => [emitSpawn],
 });

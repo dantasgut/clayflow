@@ -2,6 +2,20 @@ import { graphArgument, type GraphArgument } from '../../scene/graph/NodeGraph';
 import { defineNode } from '../../scene/graph/NodeDefinition';
 import { NodeRegistry } from '../../scene/graph/NodeRegistry';
 import { nodeColor, nodeMath, nodeNoise, nodeSurface } from './shaders';
+import {
+    compact,
+    displace,
+    distributeOnMesh,
+    grid,
+    meshOutput,
+    pointsOutput,
+    prefixSum,
+    realizeInstances,
+    recomputeNormals,
+    reduce,
+    sequence,
+    sort,
+} from './set';
 
 /** Campos da amostra de superfície do ponto `material` (`SurfaceSample`). */
 const SURFACE_SAMPLE_FIELDS = {
@@ -84,9 +98,27 @@ const surfaceParams = defineNode({
     contexts: ['fragment'],
 });
 
+/** Nós de conjunto (spec 031, US3): malha, pontos, as primitivas paralelas sobre conjuntos u32 (FR-027) e as saídas. */
+const set = {
+    grid,
+    displace,
+    recomputeNormals,
+    distributeOnMesh,
+    realizeInstances,
+    sequence,
+    prefixSum,
+    sort,
+    compact,
+    reduce,
+    meshOutput,
+    pointsOutput,
+} as const;
+
 /**
- * Nós da C3 (spec 031): entradas dos pontos (argumentos da função alvo), matemática, ruído, cor e saídas. Os nós de
- * entrada são argumentos do ponto (`graphArgument`), não funções: ligam direto no valor que o ponto recebe.
+ * Nós da C3 (spec 031): entradas dos pontos (argumentos da função alvo), matemática, ruído, cor e saídas; e os nós de
+ * conjunto (`set`). Os nós de entrada são argumentos do ponto (`graphArgument`), não funções: ligam direto no valor que
+ * o ponto recebe — também os argumentos `position`, `normal` e `uv` das entradas de ponto dos nós de conjunto
+ * (`vertexField`).
  */
 export const nodes = {
     input: {
@@ -97,12 +129,25 @@ export const nodes = {
         /** As constantes do material da entidade (`m`). */
         material: (): GraphArgument =>
             graphArgument('m', { albedo: 'vec4f', roughness: 'f32', metallic: 'f32' }),
+        /**
+         * Um argumento das entradas de ponto dos nós de conjunto (`height` de `set.displace`, `density` de
+         * `set.distributeOnMesh`): `position` e `normal` (`vec3f`) ou `uv` (`vec2f`) do elemento.
+         */
+        vertexField: (name: 'position' | 'normal' | 'uv'): GraphArgument => graphArgument(name),
     },
     math: { add, mix },
     noise: { gradient3 },
     color: { ramp },
     output: { surfaceParams },
+    set,
 } as const;
 
 /** Registro com os nós da C3 (serialização: `NodeGraph.fromJSON`). */
-export const defaultNodeRegistry = new NodeRegistry([add, mix, gradient3, ramp, surfaceParams]);
+export const defaultNodeRegistry = new NodeRegistry([
+    add,
+    mix,
+    gradient3,
+    ramp,
+    surfaceParams,
+    ...Object.values(set),
+]);

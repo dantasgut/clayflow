@@ -71,8 +71,9 @@ describe('compilePointGraph (spec 031, T057)', () => {
         expect(f1.module).toBe(f2.module);
         expect(f1.values.w_amp).toBe(1);
         expect(f2.values.w_amp).toBe(5);
-        expect(f1.module.source).toContain('struct GraphProbeParams_');
-        expect(f1.module.source).toContain('w_amp: f32,');
+        expect(f1.module.source).toContain('alias GraphProbeParams = GraphProbeParams_');
+        expect(f1.record).toBe(f2.record);
+        expect(composeWgsl(f1.module).spec.source).toContain('w_amp: f32,');
         expect(() => composeWgsl(f1.module)).not.toThrow();
         expect(f1.graph).toBeDefined();
     });

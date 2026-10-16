@@ -18,10 +18,46 @@ export interface GraphArgument {
 }
 
 /**
+ * Sub-grafo de conjunto (spec 031, R9/US4): expandido no grafo que o usa (nós de dentro com o prefixo do uso), para
+ * que conjuntos e contagens circulem entre dentro e fora sem cópia. Os parâmetros expostos (`nó_parâmetro`) recebem o
+ * valor do uso; os outros, o do sub-grafo.
+ */
+export interface SetSubgraph {
+    readonly level: 'subgraph';
+    readonly name: string;
+    readonly graph: NodeGraph;
+    readonly inputs: Readonly<Record<string, string>>;
+    readonly outputs: Readonly<Record<string, string>>;
+    /** Parâmetros expostos como declarados (`nó.parâmetro`). */
+    readonly expose: readonly string[];
+    /** Parâmetros expostos: `nó_parâmetro` → tipo e valor do sub-grafo. */
+    readonly params: Readonly<
+        Record<string, { readonly type: ExtensionParamType; readonly default: ExtensionParamValue }>
+    >;
+    with(values: Readonly<Record<string, ExtensionParamValue>>): SetSubgraphUse;
+}
+
+/** Um sub-grafo de conjunto no grafo: a definição e os valores dos parâmetros expostos. */
+export interface SetSubgraphUse {
+    readonly definition: SetSubgraph;
+    readonly values: Readonly<Record<string, ExtensionParamValue>>;
+}
+
+/**
  * Nó do grafo: uso de uma definição de ponto ou de conjunto (com valores), a definição (valores padrão) ou um argumento
  * do ponto.
  */
-export type GraphNode = NodeUse | NodeDefinition | SetNodeUse | SetNodeDefinition | GraphArgument;
+export type GraphNode =
+    | NodeUse
+    | NodeDefinition
+    | SetNodeUse
+    | SetNodeDefinition
+    | SetSubgraph
+    | SetSubgraphUse
+    | GraphArgument;
+
+/** Nó já expandido: sem sub-grafos de conjunto. */
+export type FlatNode = Exclude<GraphNode, SetSubgraph | SetSubgraphUse>;
 
 /** Uma ligação: `['origem.porta', 'destino.porta']`. */
 export type GraphLink = readonly [string, string];
@@ -37,6 +73,10 @@ export interface NodeGraphOptions {
      * usa a implementação pronta do ponto.
      */
     readonly output?: string;
+    /**
+     * Entradas de conjunto deixadas abertas (`nó.porta`): a fronteira de um sub-grafo de conjunto, ligada por quem o usa.
+     */
+    readonly open?: readonly string[];
 }
 
 /** O argumento `name` do ponto alvo, como nó do grafo: saída `value` e uma por campo de `fields`. */
@@ -91,24 +131,36 @@ export class NodeGraph {
     readonly nodes: Readonly<Record<string, GraphNode>>;
     readonly links: readonly GraphLink[];
     readonly output: string | undefined;
+    /** Entradas de conjunto abertas (fronteira de sub-grafo). */
+    readonly open: readonly string[];
     readonly #resolved = new Map<string, ResolvedNode>();
     /** Entrada (`nó.porta`) → origem (`nó.porta`). */
     readonly #sources = new Map<string, string>();
+
+    /** Nós com os sub-grafos de conjunto expandidos (`uso_nó`). */
+    readonly flatNodes: Readonly<Record<string, FlatNode>>;
+    /** Ligações com os sub-grafos de conjunto expandidos. */
+    readonly flatLinks: readonly GraphLink[];
 
     constructor(options: NodeGraphOptions) {
         this.nodes = Object.freeze({ ...options.nodes });
         this.links = Object.freeze(options.links.map((l) => Object.freeze([...l] as const)));
         this.output = options.output;
-        for (const [id, node] of Object.entries(this.nodes)) {
+        this.open = Object.freeze([...(options.open ?? [])]);
+        for (const id of Object.keys(this.nodes)) {
             if (!IDENT.test(id))
                 throw new NodeGraphError(
                     'unknown-node',
                     `NodeGraph: id '${id}' não é identificador WGSL`,
                     [id],
                 );
-            this.#resolved.set(id, resolve(id, node));
         }
-        for (const [from, to] of this.links) {
+        const flat = expand(this.nodes, this.links);
+        this.flatNodes = Object.freeze(flat.nodes);
+        this.flatLinks = Object.freeze(flat.links);
+        for (const [id, node] of Object.entries(this.flatNodes))
+            this.#resolved.set(id, resolve(id, node));
+        for (const [from, to] of this.flatLinks) {
             this.#port(from, 'out');
             this.#port(to, 'in');
             if (this.#sources.has(to)) {
@@ -121,11 +173,13 @@ export class NodeGraph {
             this.#sources.set(to, from);
         }
         if (this.output !== undefined) this.#port(this.output, 'out');
-        for (const [from, to] of this.links) this.#checkLevels(from, to);
+        for (const [from, to] of this.flatLinks) this.#checkLevels(from, to);
         for (const node of this.#resolved.values()) {
             if (node.set !== undefined) {
                 for (const [input, type] of Object.entries(node.set.inputs)) {
-                    if (isPointInput(type) || this.#sources.has(`${node.id}.${input}`)) continue;
+                    const key = `${node.id}.${input}`;
+                    if (isPointInput(type) || this.#sources.has(key) || this.open.includes(key))
+                        continue;
                     throw new NodeGraphError(
                         'unconnected-input',
                         `NodeGraph: a entrada de conjunto '${node.id}.${input}' (${node.set.name}) não tem ligação`,
@@ -213,8 +267,8 @@ export class NodeGraph {
         };
         visit(split(src)[0]);
         return new NodeGraph({
-            nodes: Object.fromEntries([...ids].map((id) => [id, this.nodes[id]!])),
-            links: this.links.filter(([, to]) => ids.has(split(to)[0])),
+            nodes: Object.fromEntries([...ids].map((id) => [id, this.flatNodes[id]!])),
+            links: this.flatLinks.filter(([, to]) => ids.has(split(to)[0])),
             output: src,
         });
     }
@@ -465,7 +519,68 @@ function split(ref: string): [string, string] {
     return [ref.slice(0, dot), ref.slice(dot + 1)];
 }
 
-function resolve(id: string, node: GraphNode): ResolvedNode {
+/**
+ * Expande os sub-grafos de conjunto (spec 031, US4): os nós de dentro entram como `uso_nó`, com os valores do sub-grafo
+ * e, nos expostos, os do uso; as ligações de dentro com o prefixo; as de fora que chegam ou saem do uso, religadas às
+ * portas de dentro que ele declara.
+ */
+function expand(
+    nodes: Readonly<Record<string, GraphNode>>,
+    links: readonly GraphLink[],
+): { nodes: Record<string, FlatNode>; links: GraphLink[] } {
+    const out: Record<string, FlatNode> = {};
+    const subs = new Map<string, SetSubgraph>();
+    for (const [id, node] of Object.entries(nodes)) {
+        const sub =
+            'level' in node && node.level === 'subgraph'
+                ? node
+                : 'definition' in node && node.definition.level === 'subgraph'
+                  ? node.definition
+                  : undefined;
+        if (sub === undefined) {
+            out[id] = node as FlatNode;
+            continue;
+        }
+        subs.set(id, sub);
+        const useValues = 'definition' in node ? node.values : {};
+        for (const [iid, inner] of Object.entries(sub.graph.flatNodes)) {
+            const key = `${id}_${iid}`;
+            if ('kind' in inner) {
+                out[key] = inner;
+                continue;
+            }
+            const resolved = sub.graph.node(iid);
+            const def = resolved.definition ?? resolved.set!;
+            const values: Record<string, ExtensionParamValue> = { ...resolved.values };
+            for (const p of Object.keys(def.params)) {
+                const v = useValues[`${iid}_${p}`];
+                if (v !== undefined) values[p] = v;
+            }
+            out[key] = { definition: def, values: Object.freeze(values) } as FlatNode;
+        }
+    }
+    const remap = (ref: string, side: 'out' | 'in'): string => {
+        const [id, port] = split(ref);
+        const sub = subs.get(id);
+        if (sub === undefined) return ref;
+        const inner = (side === 'out' ? sub.outputs : sub.inputs)[port];
+        if (inner === undefined)
+            throw new NodeGraphError(
+                'unknown-port',
+                `NodeGraph: '${ref}' não é ${side === 'out' ? 'saída' : 'entrada'} do sub-grafo '${sub.name}'`,
+                [id, port],
+            );
+        return `${id}_${inner}`;
+    };
+    const flatLinks: GraphLink[] = [];
+    for (const [id, sub] of subs)
+        for (const [from, to] of sub.graph.flatLinks)
+            flatLinks.push([`${id}_${from}`, `${id}_${to}`]);
+    for (const [from, to] of links) flatLinks.push([remap(from, 'out'), remap(to, 'in')]);
+    return { nodes: out, links: flatLinks };
+}
+
+function resolve(id: string, node: FlatNode): ResolvedNode {
     if ('kind' in node)
         return { id, definition: undefined, set: undefined, argument: node, values: {} };
     const def = 'definition' in node ? node.definition : node;

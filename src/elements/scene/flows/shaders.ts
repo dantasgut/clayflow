@@ -27,8 +27,8 @@ import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
 import {
     CameraComposeParamsSchema,
+    CameraFnEntrySchema,
     CameraFnGroupSchema,
-    CameraFnRecordSchema,
     CameraInstanceSchema,
     CameraRecordSchema,
 } from './CameraSchemas';
@@ -40,7 +40,7 @@ import {
 import { Transform } from '../../scene/Transform';
 import {
     TransformFnGroupSchema,
-    TransformFnRecordSchema,
+    TransformFnPairSchema,
     TransformLevelSchema,
     TransformLinkSchema,
     TransformParamsSchema,
@@ -85,11 +85,10 @@ export const transformResources = Object.freeze({
         provider: 'private',
     }),
     level: stepUniform('level', { schema: TransformLevelSchema }),
-    fnRecords: poolRead('transform_fn_records', { schema: TransformFnRecordSchema, array: true }),
     fnPairs: wgslResource({
         name: 'transform_fn_pairs',
         binding: { storage: 'read' },
-        type: { wgsl: 'vec2u', array: true },
+        type: { schema: TransformFnPairSchema, array: true },
         frequency: 'stage',
         provider: 'private',
     }),
@@ -101,11 +100,10 @@ export const cameraResources = Object.freeze({
     compose: stageUniform('compose', { schema: CameraComposeParamsSchema }),
     records: poolRead('camera_records', { schema: CameraRecordSchema, array: true }),
     list: poolRead('camera_list', { schema: CameraInstanceSchema, array: true }),
-    fnRecords: poolRead('camera_fn_records', { schema: CameraFnRecordSchema, array: true }),
     fnList: wgslResource({
         name: 'camera_fn_list',
         binding: { storage: 'read' },
-        type: { wgsl: 'vec4u', array: true },
+        type: { schema: CameraFnEntrySchema, array: true },
         frequency: 'stage',
         provider: 'private',
     }),
@@ -161,7 +159,7 @@ export const transformFnReady = wgslModule({
     name: 'transform_fn_ready',
     source: transformFnReadySource,
     requires: [transformLocal],
-    structs: [Transform.schema, Transform.worldSchema, TransformFnRecordSchema],
+    structs: [Transform.schema, Transform.worldSchema],
 });
 
 /** Composição de um grupo de entidades pela função `transform` delas (spec 009). */
@@ -177,14 +175,13 @@ export const transformComposeFn = wgslModule({
         WORKGROUP_SIZE.module,
         transformsResource,
         worldsWriteResource,
-        transformResources.fnRecords,
         transformResources.fnPairs,
         transformResources.fnGroup,
     ],
     structs: [
         Transform.schema,
         Transform.worldSchema,
-        TransformFnRecordSchema,
+        TransformFnPairSchema,
         TransformFnGroupSchema,
     ],
 });
@@ -203,7 +200,6 @@ export const transformPoint = wgslPoint({
         names: ['slot', 't', 'data', 'time'],
     },
     paramsAlias: 'TransformFnParams',
-    record: TransformFnRecordSchema,
     ready: transformFnReady,
     hosts: () => [transformComposeFn],
 });
@@ -243,7 +239,7 @@ export const cameraFnReady = wgslModule({
     name: 'camera_fn_ready',
     source: cameraFnReadySource,
     requires: [cameraPointTypes, camera],
-    structs: [Camera.schema, CameraFnRecordSchema],
+    structs: [Camera.schema],
 });
 
 /** Câmeras de um grupo de função `camera` (spec 009), depois da composição padrão. */
@@ -260,7 +256,6 @@ export const cameraComposeFn = wgslModule({
         cameraParamsResource,
         cameraMatricesWriteResource,
         worldsResource,
-        cameraResources.fnRecords,
         cameraResources.fnList,
         cameraResources.fnGroup,
     ],
@@ -268,7 +263,7 @@ export const cameraComposeFn = wgslModule({
         Camera.schema,
         Camera.matricesSchema,
         Transform.worldSchema,
-        CameraFnRecordSchema,
+        CameraFnEntrySchema,
         CameraFnGroupSchema,
     ],
 });
@@ -290,7 +285,6 @@ export const cameraPoint = wgslPoint({
     },
     optional: [{ name: 'camera_project', params: ['vec3f', POINT_PARAMS], returns: 'vec4f' }],
     paramsAlias: 'CameraFnParams',
-    record: CameraFnRecordSchema,
     ready: cameraFnReady,
     hosts: () => [cameraComposeFn],
 });

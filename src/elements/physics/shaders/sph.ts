@@ -1,5 +1,5 @@
 import { poolLive } from '../../gpu/compute/shaders';
-import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
+import { fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
@@ -101,7 +101,7 @@ export const sphForces = wgslModule({
         ...neighbors,
         R.normalRead,
     ],
-    structs: [SPHSimParamsSchema, SPHSchema, FieldFnRecordSchema],
+    structs: [SPHSimParamsSchema, SPHSchema],
 });
 
 /** Integração. */

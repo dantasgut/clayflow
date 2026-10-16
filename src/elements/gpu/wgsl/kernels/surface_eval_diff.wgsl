@@ -2,8 +2,8 @@
 // (posição, normal, uv por `surface_at`) e, no pool `SurfaceDiff` (a partir de `surface_params.diff_first`), métrica,
 // segunda forma, curvaturas e direção principal pelo jato do lugar `surface_jet`. Jato degenerado (polos) usa o de um
 // pouco para dentro do domínio em v; o que ainda não for finito fica zero.
-// Requer: structs SurfaceParams, SurfaceFnRecord, SpaceFnRecord, SurfaceDiff; surface_at; surface_jet; surface_forms;
-// global `space_records`.
+// Requer: structs SurfaceParams, SurfaceDiff; surface_at; surface_jet; surface_forms (os registros das funções chegam
+// com os módulos delas).
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn surface_eval_diff_main(
@@ -21,7 +21,7 @@ fn surface_eval_diff_main(
     let u = mix(surface_params.u0, surface_params.u1, su);
     let v = mix(surface_params.v0, surface_params.v1, sv);
     let time = surface_params.time;
-    let data = surface_fn_params(surface_fn_records[surface_params.record_slot]);
+    let data = surface_fn_params(surface_params.record_slot);
     var forms = surface_forms(surface_jet(u, v, time, data));
     if (forms.metric.w == 0.0) {
         let inward = select(-1.0, 1.0, sv < 0.5) * sign(surface_params.v1 - surface_params.v0);

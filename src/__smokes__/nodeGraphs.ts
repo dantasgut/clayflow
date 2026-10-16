@@ -4,21 +4,29 @@
 //
 //   (a) equivalência: vértices da superfície (≤ 1 ULP por componente) e pixels (≤ 1 por canal) iguais aos do WGSL à
 //       mão; GPU por quadro igual dentro do ruído (≤ 10% + 0,05 ms);
+//   (b) grafo de conjunto (US3): grade → deslocar por ruído (grafo de ponto fundido) → normais → distribuir por densidade
+//       (grafo de ponto fundido, contagem da GPU) → esferas → `meshOutput` numa `GraphGeometry`, contra a referência da
+//       CPU (`support/nodeGraphReference.ts`): contagens exatas, posições e normais ≤ 1e-5 (leitura de volta só para a
+//       medida, depois dos quadros); duas execuções com o mesmo hash; com a cena parada, 0 leituras de volta e 0 passes
+//       do grafo em 120 quadros; um valor novo refaz o grafo uma vez;
 //   (d) 60 s simulados mudando parâmetros a cada quadro → 0 shaders novos; troca de topologia (`setGraph`) compila em
 //       transição sem quadro quebrado (a superfície em todos os quadros) e o visual novo aparece.
 //
-// Para rodar: `npm run smoke -- nodeGraphs [--query part=a.d]`. Resultado: `NODEGRAPHS SMOKE PASSED` ou `FAIL: …`.
+// Para rodar: `npm run smoke -- nodeGraphs [--query part=a.b.d]`. Resultado: `NODEGRAPHS SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
     Camera,
     createScene,
+    compileSetGraph,
     defineNode,
     DirectionalLight,
+    GraphGeometry,
     graphArgument,
     MaterialFunction,
     NodeGraph,
     nodes,
     ParametricSurface,
+    SetGraph,
     StandardMaterial,
     SurfaceFunction,
     Transform,
@@ -30,6 +38,7 @@ import type { EntityId, FrameCompleteEvent } from 'clayflow';
 /** Spec de recurso do núcleo (o que `create` recebe). */
 type ResourceSpec = Parameters<Application['core']['create']>[0];
 import { capture, readBuffer, settle } from './support/extensionScenes';
+import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
 
 function log(msg: string): void {
     console.log(`[nodeGraphs] ${msg}`);
@@ -432,9 +441,260 @@ async function partD(failures: string[]): Promise<void> {
     b.app.canvas.remove();
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// (b) Grafo de conjunto contra a referência da CPU, sem leitura de volta por quadro.
+
+/** Buffers do grafo criados no núcleo (`graph:<entidade>:<revisão>:<chave>`), pela chave. */
+type GraphBuffers = Map<string, { readonly byteSize: number }>;
+
+/** Envolve o núcleo: guarda os buffers do grafo, conta leituras de volta e passes `set.*` gravados. */
+function instrument(app: Application): {
+    readonly buffers: GraphBuffers;
+    readonly readbacks: () => number;
+    readonly setPasses: () => number;
+} {
+    const buffers: GraphBuffers = new Map();
+    let readbacks = 0;
+    let setPasses = 0;
+    const core = app.core as unknown as {
+        create: <S extends ResourceSpec>(s: S) => S;
+        readback: (s: unknown) => Promise<ArrayBuffer>;
+        record: (label: unknown, body?: unknown) => void;
+    };
+    const create = core.create.bind(core);
+    const readback = core.readback.bind(core);
+    const record = core.record.bind(core);
+    core.create = <S extends ResourceSpec>(s: S): S => {
+        const out = create(s);
+        const d = (s as { discriminator?: string }).discriminator;
+        if (s.kind === 'buffer' && d?.startsWith('graph:') === true)
+            buffers.set(d.split(':').slice(3).join(':'), out as { byteSize: number });
+        return out;
+    };
+    core.readback = (s: unknown): Promise<ArrayBuffer> => {
+        readbacks++;
+        return readback(s);
+    };
+    core.record = (label: unknown, body?: unknown): void => {
+        const wrap =
+            (fn: (frame: { compute: (...a: unknown[]) => void }) => void) =>
+            (frame: { compute: (...a: unknown[]) => void }) => {
+                const compute = frame.compute.bind(frame);
+                frame.compute = (...a: unknown[]) => {
+                    if (typeof a[0] === 'string' && a[0].startsWith('set.')) setPasses++;
+                    compute(...a);
+                };
+                fn(frame);
+            };
+        if (typeof label === 'function') record(wrap(label as never));
+        else record(label, wrap(body as never));
+    };
+    return { buffers, readbacks: () => readbacks, setPasses: () => setPasses };
+}
+
+/** FNV-1a de 32 bits dos bytes. */
+function fnvBytes(...arrays: ArrayBufferView[]): string {
+    let h = 0x811c9dc5;
+    for (const a of arrays) {
+        const bytes = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+        for (const b of bytes) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+}
+
+interface SetRun {
+    readonly hash: string;
+    readonly staticReadbacks: number;
+    readonly staticPasses: number;
+    readonly firstPasses: number;
+    readonly image: ImageData;
+}
+
+/** Uma execução do grafo do smoke; mede contra a referência e devolve o hash do resultado. */
+async function runSetGraph(failures: string[], label: string): Promise<SetRun> {
+    const app = await createApp();
+    const probe = instrument(app);
+    app.world.insert(
+        new Camera({ fov: Math.PI / 3, near: 0.05, far: 50 }).add(
+            new Transform({
+                position: [0, 2.0, 2.0, 1],
+                rotation: Transform.lookRotation([0, 2.0, 2.0], [0, 0, 0], [0, 1, 0]),
+            }),
+        ),
+    );
+    app.world.insert(new DirectionalLight({ direction: [-0.3, -1, -0.4, 0], intensity: 1 }));
+    const graph = smokeSetGraph();
+    const setGraph = new SetGraph({ graph });
+    const plan = compileSetGraph(graph, (n) => setGraph.valuesOf(n));
+    const cap = (key: string): number => plan.sets.find((s) => s.key === key)!.capacity;
+    const slot = (key: string): number => plan.sets.find((s) => s.key === key)!.slot;
+    const triangleCapacity = cap('r.mesh.triangles');
+    const geometry = new GraphGeometry({
+        vertexCapacity: cap('r.mesh.vertices'),
+        indexCapacity: triangleCapacity * 3,
+        edgeCapacity: triangleCapacity * 3,
+    });
+    app.world.insert(
+        setGraph
+            .add(geometry)
+            .add(new StandardMaterial({ albedo: [0.85, 0.55, 0.25, 1] }))
+            .add(new Transform()),
+    );
+    await settle(app, 300);
+    const firstPasses = probe.setPasses();
+
+    // Cena parada: nada refeito, nada lido de volta.
+    const readbacks0 = probe.readbacks();
+    const passes0 = probe.setPasses();
+    for (let k = 0; k < 120; k++) {
+        app.step(1 / 60);
+        if (k % 30 === 29) await new Promise((r) => setTimeout(r, 0));
+    }
+    const staticReadbacks = probe.readbacks() - readbacks0;
+    const staticPasses = probe.setPasses() - passes0;
+    await settle(app, 100);
+    const image = capture(app.canvas);
+
+    // Medida (depois dos quadros): leitura de volta dos conjuntos e do alvo.
+    const read = async (key: string): Promise<Float32Array> => {
+        const spec = probe.buffers.get(key);
+        if (spec === undefined) throw new Error(`(b) buffer do grafo '${key}' não encontrado`);
+        return readBuffer(app, spec, `set_${label}_${key.replace(/\W/g, '_')}`);
+    };
+    const u32 = (f: Float32Array): Uint32Array => new Uint32Array(f.buffer, f.byteOffset, f.length);
+    const counts = u32(await read('counts'));
+    const countOf = (key: string): number => counts[slot(key) * 12]!;
+    const normals = await read('n.mesh.vertices');
+    const points = await read('s.points.points');
+    const sphereVertices = await read('r.mesh.vertices');
+    const sphereTriangles = u32(await read('r.mesh.triangles'));
+    const target = (id: string) => app.resources.bufferOf(geometry, id)!;
+    const indices = u32(await readBuffer(app, target('indices'), `set_${label}_indices`));
+    const edges = u32(await readBuffer(app, target('wireEdges'), `set_${label}_edges`));
+    const indirect = u32(await readBuffer(app, target('indirect'), `set_${label}_indirect`));
+
+    const ref = setGraphReference();
+    const fail = (msg: string): void => {
+        failures.push(`(b:${label}) ${msg}`);
+    };
+    /** Maior diferença das posições e das normais (`stride` floats por elemento, normal no offset 3). */
+    const compare = (
+        gpu: Float32Array,
+        cpu: Float64Array,
+        stride: number,
+        n: number,
+    ): [number, number] => {
+        let dp = 0;
+        let dn = 0;
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < 3; j++) {
+                dp = Math.max(dp, Math.abs(gpu[i * stride + j]! - cpu[i * stride + j]!));
+                dn = Math.max(dn, Math.abs(gpu[i * stride + 3 + j]! - cpu[i * stride + 3 + j]!));
+            }
+        }
+        return [dp, dn];
+    };
+    const nVertices = ref.normals.vertices.length / 8;
+    const [np, nn] = compare(normals, ref.normals.vertices, 8, nVertices);
+    const pointCount = countOf('s.points.points');
+    const refPoints = ref.points.points.length / 6;
+    const sphereVertexCount = countOf('r.mesh.vertices');
+    const sphereTriangleCount = countOf('r.mesh.triangles');
+    log(
+        `(b:${label}) malha ${nVertices} vértices: posição ${np.toExponential(2)}, normal ${nn.toExponential(2)}; pontos ${pointCount} (referência ${refPoints}, folga do aceite ${ref.points.margin.toExponential(2)}); esferas ${sphereVertexCount} vértices, ${sphereTriangleCount} triângulos`,
+    );
+    if (np > 1e-5 || nn > 1e-5) fail(`malha com normais difere: posição ${np}, normal ${nn}`);
+    if (pointCount !== refPoints) fail(`${pointCount} pontos (referência ${refPoints})`);
+    const nPoints = Math.min(pointCount, refPoints);
+    const [pp, pn] = compare(points, ref.points.points, 6, nPoints);
+    log(`(b:${label}) pontos: posição ${pp.toExponential(2)}, normal ${pn.toExponential(2)}`);
+    if (pp > 1e-5 || pn > 1e-5) fail(`pontos diferem: posição ${pp}, normal ${pn}`);
+    const refSphereVertices = ref.spheres.vertices.length / 8;
+    const refSphereTriangles = ref.spheres.triangles.length / 3;
+    if (sphereVertexCount !== refSphereVertices || sphereTriangleCount !== refSphereTriangles)
+        fail(
+            `esferas ${sphereVertexCount}/${sphereTriangleCount} (referência ${refSphereVertices}/${refSphereTriangles})`,
+        );
+    const nSphere = Math.min(sphereVertexCount, refSphereVertices);
+    const [sp, sn] = compare(sphereVertices, ref.spheres.vertices, 8, nSphere);
+    log(`(b:${label}) esferas: posição ${sp.toExponential(2)}, normal ${sn.toExponential(2)}`);
+    if (sp > 1e-5 || sn > 1e-5) fail(`esferas diferem: posição ${sp}, normal ${sn}`);
+    let badTriangles = 0;
+    for (let i = 0; i < Math.min(sphereTriangleCount, refSphereTriangles) * 3; i++)
+        if (sphereTriangles[i] !== ref.spheres.triangles[i]) badTriangles++;
+    let badIndices = 0;
+    for (let i = 0; i < triangleCapacity * 3; i++) {
+        const want = i < refSphereTriangles * 3 ? ref.spheres.triangles[i]! : 0;
+        if (indices[i] !== want) badIndices++;
+    }
+    let badEdges = 0;
+    for (let e = 0; e < triangleCapacity * 3; e++) {
+        const t = Math.floor(e / 3);
+        const k = e % 3;
+        const tri = ref.spheres.triangles;
+        const want =
+            t < refSphereTriangles ? [tri[t * 3 + k]!, tri[t * 3 + ((k + 1) % 3)]!] : [0, 0];
+        if (edges[2 * e] !== want[0] || edges[2 * e + 1] !== want[1]) badEdges++;
+    }
+    log(
+        `(b:${label}) alvo: indireto [${indirect[0]}, …, ${indirect[5]}], ${badTriangles} triângulos, ${badIndices} índices e ${badEdges} arestas diferentes da referência`,
+    );
+    if (badTriangles + badIndices + badEdges > 0)
+        fail(`${badTriangles} triângulos, ${badIndices} índices, ${badEdges} arestas diferentes`);
+    if (indirect[0] !== refSphereTriangles * 3 || indirect[5] !== refSphereTriangles * 3 * 6)
+        fail(
+            `indireto [${indirect[0]}, ${indirect[5]}] (esperado [${refSphereTriangles * 3}, ${refSphereTriangles * 18}])`,
+        );
+    const hash = fnvBytes(
+        points.subarray(0, pointCount * 6),
+        sphereVertices.subarray(0, sphereVertexCount * 8),
+        sphereTriangles.subarray(0, sphereTriangleCount * 3),
+        indices,
+    );
+    // Valor novo (semente da distribuição): o grafo é refeito uma vez, sem recompilar, e volta a parar.
+    const passes1 = probe.setPasses();
+    setGraph.values.s_seed = 8;
+    for (let k = 0; k < 10; k++) app.step(1 / 60);
+    const redone = probe.setPasses() - passes1;
+    log(`(b:${label}) semente nova: ${redone} passes set.* em 10 quadros`);
+    if (redone !== firstPasses)
+        fail(`semente nova refez ${redone} passes (esperado ${firstPasses}, uma vez)`);
+    app.dispose();
+    app.canvas.remove();
+    return { hash, staticReadbacks, staticPasses, firstPasses, image };
+}
+
+async function partB(failures: string[]): Promise<void> {
+    const first = await runSetGraph(failures, '1');
+    const second = await runSetGraph(failures, '2');
+    log(
+        `(b) hash ${first.hash} / ${second.hash}; passes set.* ao montar ${first.firstPasses}; com a cena parada (120 quadros): ${first.staticReadbacks} leituras de volta, ${first.staticPasses} passes set.*`,
+    );
+    if (first.hash !== second.hash)
+        failures.push(`(b) execuções com hashes diferentes (${first.hash} × ${second.hash})`);
+    if (first.firstPasses === 0) failures.push('(b) o grafo não gravou passes ao montar');
+    for (const r of [first, second]) {
+        if (r.staticReadbacks !== 0)
+            failures.push(`(b) ${r.staticReadbacks} leituras de volta com a cena parada`);
+        if (r.staticPasses !== 0)
+            failures.push(`(b) ${r.staticPasses} passes do grafo refeitos com a cena parada`);
+    }
+    // As esferas aparecem: pixels diferentes do fundo.
+    const d = first.image.data;
+    let lit = 0;
+    for (let k = 0; k < d.length; k += 4)
+        if (
+            Math.abs(d[k]! - d[0]!) + Math.abs(d[k + 1]! - d[1]!) + Math.abs(d[k + 2]! - d[2]!)
+            > 30
+        )
+            lit++;
+    log(`(b) imagem: ${lit} pixels com as esferas`);
+    if (lit < 100) failures.push(`(b) as esferas não aparecem (${lit} pixels)`);
+}
+
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('part');
-    const parts: Record<string, (f: string[]) => Promise<void>> = { a: partA, d: partD };
+    const parts: Record<string, (f: string[]) => Promise<void>> = { a: partA, b: partB, d: partD };
     const failures: string[] = [];
     for (const [name, run] of Object.entries(parts)) {
         if (only !== null && !only.split('.').includes(name)) continue;

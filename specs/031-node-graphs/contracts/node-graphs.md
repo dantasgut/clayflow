@@ -96,20 +96,22 @@ entity.add(material);
 material.values.n_scale = 8; // quadro seguinte, sem recompilar
 material.setGraph(other); // topologia nova → revisão +1, recompila em transição; falha mantém a anterior
 
-// Grafo de conjunto → Flow
-const terrainScatter = new NodeGraph({
-  target: { phase: 'transform' },
+// Grafo de conjunto: um Resource (SetGraph) com o grafo; o GraphFlow (fase transform) o executa e escreve a
+// GraphGeometry da mesma entidade, desenhada pelo forward e pela sombra.
+const scatter = new NodeGraph({
   nodes: {
-    grid: nodes.set.grid.with({ size: [256, 256], extent: [20, 20] }),
-    disp: nodes.set.displace,
+    grid: nodes.set.grid.with({ resolution: [256, 256], extent: [20, 20] }),
+    pos: graphArgument('position'),
     h: noise3.with({ scale: 0.3 }),
+    disp: nodes.set.displace,
     nrm: nodes.set.recomputeNormals,
-    pts: nodes.set.distributeOnMesh.with({ maxPoints: 20000 }),
-    rock: nodes.set.realizeInstances.with({ mesh: sphereMesh, scale: 0.15 }),
+    pts: nodes.set.distributeOnMesh,
+    rock: nodes.set.realizeInstances,
     out: nodes.set.meshOutput,
   },
   links: [
     ['grid.mesh', 'disp.mesh'],
+    ['pos.value', 'h.p'],
     ['h.value', 'disp.height'], // grafo de ponto fundido no kernel de `disp`
     ['disp.mesh', 'nrm.mesh'],
     ['nrm.mesh', 'pts.mesh'],
@@ -118,12 +120,30 @@ const terrainScatter = new NodeGraph({
     ['rock.mesh', 'out.mesh'],
   ],
 });
-world.insert(new Entity([terrainScatter.geometry, new StandardMaterial(), new Transform()]));
+const graph = new SetGraph({ graph: scatter });
+world.insert(
+  new Entity([
+    graph,
+    new GraphGeometry({ vertexCapacity, indexCapacity }),
+    new StandardMaterial(),
+    new Transform(),
+  ]),
+);
+graph.values.h_scale = 0.5; // refeito no quadro seguinte; parado, nada é refeito
 
-// Sub-grafo e serialização
-const rocky = Subgraph.from(terrainScatter, { expose: ['h.scale', 'pts.maxPoints'] });
-const json = terrainScatter.toJSON();
-const again = NodeGraph.fromJSON(json, defaultNodeRegistry); // mesma identidade
+// Sub-grafos e serialização
+const wave = Subgraph.point(waveGraph, {
+  name: 'my.wave',
+  inputs: { t: 'f32' },
+  expose: ['w.amp'],
+}); // nó de ponto
+const filterStage = Subgraph.set(stageGraph, {
+  name: 'my.filter',
+  inputs: { in: 'm.in' },
+  outputs: { out: 'f.out' },
+});
+const json = toJSON(scatter, defaultNodeRegistry);
+const again = fromJSON(json, defaultNodeRegistry); // mesma forma, mesmo código
 ```
 
 Eventos: `extensionRejected` (já existente) para grafos que não compilam; `graphRejected { graph, node?, reason }` para

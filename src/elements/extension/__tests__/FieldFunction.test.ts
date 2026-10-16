@@ -1,6 +1,7 @@
 /**
- * Spec 009 (US2): campos — o registro comum dos campos prontos (derivado do `data`) e os pontos de cena (funções
- * `field` compostas em todo shader que contém o ponto, com os globais ligados pela C2).
+ * Spec 009 (US2): campos — o registro dos campos prontos (`FieldBuiltinRecord`, derivado do `data`; spec 031) e os
+ * pontos de cena (funções `field` compostas em todo shader que contém o ponto, cada uma com o pool da sua forma, e os
+ * globais dos campos prontos ligados pela C2).
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '../../../scene/contracts/gpu';
@@ -14,18 +15,11 @@ import { FieldKind } from '../../physics/forcefields/ForceField';
 import { GravityField } from '../../physics/forcefields/GravityField';
 import { VortexField } from '../../physics/forcefields/VortexField';
 import { WindField } from '../../physics/forcefields/WindField';
-import { fieldPoint, FieldFnRecordSchema } from '../../physics/shaders/fields';
+import { fieldPoint, FieldBuiltinRecordSchema } from '../../physics/shaders/fields';
 import { xpbdPredict } from '../../physics/shaders/xpbd';
 import { FieldFunction } from '../FieldFunction';
 
-const f32 = (bitsValue: number): number => {
-    const v = new DataView(new ArrayBuffer(4));
-    v.setUint32(0, bitsValue, true);
-    return v.getFloat32(0, true);
-};
-const vec = (bitsList: readonly number[]): number[] => bitsList.map(f32);
-const record = (data: object) =>
-    data as { kind: number; v0: number[]; v1: number[]; v2: number[]; revision: number };
+const record = (data: object) => data as { kind: number; a: number[]; b: number[]; s: number[] };
 
 const RING = `
 fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams) -> vec3f {
@@ -34,17 +28,23 @@ fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data: FieldFnParams)
     return -d / r * (r - data.radius) * data.k;
 }`;
 
-describe('campos prontos no registro comum (spec 009)', () => {
+describe('campos prontos no registro FieldBuiltinRecord (spec 009, 031)', () => {
     it('vento: direção normalizada × intensidade e turbulência; mudar o data muda o registro', () => {
         const wind = new WindField({ direction: [2, 0, 0, 0], magnitude: 3, turbulence: 0.5 });
         const r = record(wind.data);
         expect(r.kind).toBe(FieldKind.wind);
-        expect(vec(r.v0)).toEqual([3, 0, 0, 0]);
-        expect(vec(r.v2)[0]).toBe(0.5);
+        expect(r.a).toEqual([3, 0, 0, 0]);
+        expect(r.s[0]).toBe(0.5);
         wind.data.magnitude = 1;
-        expect(vec(record(wind.data).v0)).toEqual([1, 0, 0, 0]);
+        expect(record(wind.data).a).toEqual([1, 0, 0, 0]);
         expect(wind.getDescriptors()).toEqual([
-            { id: 'record', role: 'storage-ro', storage: 'pool', schema: FieldFnRecordSchema },
+            {
+                id: 'record',
+                role: 'storage-ro',
+                storage: 'pool',
+                schema: FieldBuiltinRecordSchema,
+                clearOnRelease: true,
+            },
         ]);
     });
 
@@ -58,20 +58,15 @@ describe('campos prontos no registro comum (spec 009)', () => {
             }).data,
         );
         expect(vortex.kind).toBe(FieldKind.vortex);
-        expect(vec(vortex.v0)).toEqual([0, 1, 0, 0]);
-        expect(vec(vortex.v1)).toEqual([1, 0, 0, 1]);
-        expect(vec(vortex.v2).slice(0, 2)).toEqual([4, 0.5]);
+        expect(vortex.a).toEqual([0, 1, 0, 0]);
+        expect(vortex.b).toEqual([1, 0, 0, 1]);
+        expect(vortex.s.slice(0, 2)).toEqual([4, 0.5]);
         const drag = record(new DragField({ linearCoeff: 0.25, quadraticCoeff: 0.5 }).data);
-        expect([drag.kind, ...vec(drag.v2).slice(0, 2)]).toEqual([FieldKind.drag, 0.25, 0.5]);
+        expect([drag.kind, ...drag.s.slice(0, 2)]).toEqual([FieldKind.drag, 0.25, 0.5]);
         const buoy = record(
             new BuoyancyField({ fluidDensity: 1000, fluidLevel: 0.5, gravity: 9.5 }).data,
         );
-        expect([buoy.kind, ...vec(buoy.v2).slice(0, 3)]).toEqual([
-            FieldKind.buoyancy,
-            1000,
-            0.5,
-            9.5,
-        ]);
+        expect([buoy.kind, ...buoy.s.slice(0, 3)]).toEqual([FieldKind.buoyancy, 1000, 0.5, 9.5]);
     });
 
     it('gravidade: uniforme fica fora do laço (tipo 0); fonte pontual zera a uniforme e entra no laço', () => {
@@ -86,7 +81,7 @@ describe('campos prontos no registro comum (spec 009)', () => {
         });
         expect(record(point.data).kind).toBe(FieldKind.gravityPoint);
         expect(point.uniformAcceleration()).toEqual([0, 0, 0, 0]);
-        expect(vec(record(point.data).v2)[0]).toBeCloseTo(66.74, 2);
+        expect(record(point.data).s[0]).toBeCloseTo(66.74, 2);
     });
 });
 
@@ -95,6 +90,7 @@ describe('pontos de cena (spec 009)', () => {
         const core = {
             create: vi.fn(<S>(spec: S) => spec),
             destroy: vi.fn(),
+            capabilities: () => ({ limits: { maxStorageBuffersPerShaderStage: 31 }, features: [] }),
         } as unknown as EngineCore;
         const world = { entityIdOfResource: () => 7 } as unknown as World;
         let slot = 3;
@@ -128,9 +124,10 @@ describe('pontos de cena (spec 009)', () => {
         expect(bound.shader).not.toBe(xpbdPredict);
         expect(bound.extensions).toEqual([fn]);
         const src = composeWgsl(bound.shader).spec.source;
-        expect(src).toContain(
-            `${fn.functionName}(x, v, time, body, ${fn.loaderName}(field_records[3u]))`,
-        );
+        expect(src).toContain(`${fn.functionName}(x, v, time, body, ${fn.loaderName}(3u))`);
+        // O registro tipado da forma, no pool dela, lido pelo carregador da função.
+        expect(src).toContain(`return field_records_${fn.record.name.split(':')[1]}[slot];`);
+        expect(fn.module.source).not.toContain('bitcast');
         expect(rejected).not.toHaveBeenCalled();
     });
 
@@ -153,25 +150,23 @@ describe('pontos de cena (spec 009)', () => {
         const { points, setSlot } = setup();
         const fn = ring();
         points.resourcesChanged([fn], []);
-        expect(points.poolWritten(FieldFnRecordSchema.name)).toBe(false);
+        expect(points.poolWritten(fn.record)).toBe(false);
         fn.setCode(RING.replace('data.k', '(data.k * 2.0)'));
-        expect(points.poolWritten(FieldFnRecordSchema.name)).toBe(true);
+        expect(points.poolWritten(fn.record)).toBe(true);
         setSlot(5);
-        expect(points.poolWritten(FieldFnRecordSchema.name)).toBe(true);
-        expect(points.poolWritten('Outro')).toBe(false);
+        expect(points.poolWritten(fn.record)).toBe(true);
+        expect(points.poolWritten(FieldBuiltinRecordSchema)).toBe(false);
         expect(composeWgsl(points.bind(xpbdPredict, vi.fn()).shader).spec.source).toContain(
-            'field_records[5u]',
+            `${fn.loaderName}(5u)`,
         );
     });
 
-    it('globais: o pool ou um substituto zerado; registros e bitset de vivos', () => {
+    it('global: o pool dos campos prontos ou um substituto zerado (sem bitset de vivos)', () => {
         const { points } = setup();
-        const records = points.globalSource(xpbdPredict, 'field_records');
-        const live = points.globalSource(xpbdPredict, 'field_live');
+        const records = points.globalSource(xpbdPredict, 'field_builtin_records');
         expect(records?.kind).toBe('buffer');
-        expect(live?.kind).toBe('buffer');
         expect(points.globalSource(xpbdPredict, 'particles')).toBeUndefined();
-        expect(fieldPoint.scene?.globals.field_live?.part).toBe('live');
+        expect(Object.keys(fieldPoint.scene?.globals ?? {})).toEqual(['field_builtin_records']);
     });
 
     it('validação na criação pela composição: assinatura errada e chamada sem definição', () => {

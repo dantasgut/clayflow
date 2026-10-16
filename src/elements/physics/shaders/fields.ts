@@ -1,4 +1,3 @@
-import { poolLive } from '../../gpu/compute/shaders';
 import { finite, noise } from '../../gpu/shaders/math';
 import {
     FIELD_BUOYANCY,
@@ -8,7 +7,8 @@ import {
     FIELD_WIND,
 } from '../../gpu/shaders/constants';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
-import { extensionRecordSchema } from '../../../scene/descriptors/ExtensionRecord';
+import { FieldType } from '../../../scene/descriptors/FieldType';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../../../scene/shaders/WgslPoint';
 import fieldPointTypesSource from '../../gpu/wgsl/kernels/field_point_types.wgsl?raw';
@@ -18,27 +18,28 @@ import fieldCheckSource from '../../gpu/wgsl/kernels/field_check.wgsl?raw';
 import { combineFieldFunctions } from '../../extension/combineFields';
 
 /**
- * Registro dos campos (spec 009): o mesmo pool para os campos prontos (tipo em `kind`, valores em v0–v2) e para os
- * parâmetros das `FieldFunction` (tipo 0).
+ * Registro de um campo pronto (spec 031, R8; pool `FieldBuiltinRecord`): o código de tipo (`kind`: as constantes
+ * compartilhadas `FIELD_*`; 0 = fora do laço — também o slot livre, que a C2 zera na saída do campo:
+ * `clearOnRelease`) e os vetores `a`, `b`, `s` (ver `field_builtin.wgsl`). As funções `field` do usuário têm os
+ * registros tipados das suas formas, em pools próprios.
  */
-export const FieldFnRecordSchema = extensionRecordSchema('FieldFnRecord');
+export const FieldBuiltinRecordSchema = new StructSchema('FieldBuiltinRecord', {
+    a: FieldType.vec4f,
+    b: FieldType.vec4f,
+    s: FieldType.vec4f,
+    kind: FieldType.u32,
+});
 
 /**
- * Recursos dos campos (spec 031): os registros e o bitset de vivos do pool `FieldFnRecord`, globais do ponto de cena
- * `field` (a C2 liga o pool ou um substituto vazio).
+ * Recursos dos campos prontos (spec 031): os registros do pool `FieldBuiltinRecord`, global do ponto de cena `field`
+ * (a C2 liga o pool ou um substituto zerado). Slots livres são zerados (`kind` 0): sem bitset de vivos — uma ligação de
+ * storage a menos em cada solver, para os pools das formas das funções.
  */
 export const fieldResources = Object.freeze({
     records: wgslResource({
-        name: 'field_records',
+        name: 'field_builtin_records',
         binding: { storage: 'read' },
-        type: { schema: FieldFnRecordSchema, array: true },
-        frequency: 'frame',
-        provider: { scene: 'field' },
-    }),
-    live: wgslResource({
-        name: 'field_live',
-        binding: { storage: 'read' },
-        type: { wgsl: 'u32', array: true },
+        type: { schema: FieldBuiltinRecordSchema, array: true },
         frequency: 'frame',
         provider: { scene: 'field' },
     }),
@@ -50,23 +51,21 @@ export const fieldPointTypes = wgslModule({
     source: fieldPointTypesSource,
 });
 
-/** Campos prontos (gravidade pontual, vento, vórtice, arrasto, empuxo) sobre os globais `field_records`/`field_live`. */
+/** Campos prontos (gravidade pontual, vento, vórtice, arrasto, empuxo) sobre o global `field_builtin_records`. */
 export const fieldBuiltin = wgslModule({
     name: 'field_builtin',
     source: fieldBuiltinSource,
     requires: [
         fieldPointTypes,
         noise,
-        poolLive,
         fieldResources.records,
-        fieldResources.live,
         FIELD_GRAVITY_POINT.module,
         FIELD_WIND.module,
         FIELD_VORTEX.module,
         FIELD_DRAG.module,
         FIELD_BUOYANCY.module,
     ],
-    structs: [FieldFnRecordSchema],
+    structs: [FieldBuiltinRecordSchema],
 });
 
 /** `field_accel` pronto: os campos prontos. */
@@ -91,14 +90,14 @@ export const fieldCheck = wgslModule({
             provider: 'private',
         }),
     ],
-    structs: [FieldFnRecordSchema],
 });
 
 /**
  * Ponto `field` (spec 009) — de cena: `fn field_fn(x: vec3f, v: vec3f, time: f32, body: FieldBody, data:
  * FieldFnParams) -> vec3f` (aceleração, m/s²). As funções da cena somam-se aos campos prontos em todo solver que chama
- * `field_accel` (a C2 compõe e troca o pronto). Os kernels declaram os globais `field_records: array<FieldFnRecord>` e
- * `field_live: array<u32>`; a C2 os liga. Disponíveis para a função: `noise`.
+ * `field_accel` (a C2 compõe e troca o pronto). Os kernels declaram o global dos campos prontos
+ * (`field_builtin_records: array<FieldBuiltinRecord>`; a C2 o liga); cada função traz o pool da sua forma (registro
+ * tipado, spec 031 R8), lido pelo carregador dela. Disponíveis para a função: `noise`.
  */
 export const fieldPoint = wgslPoint({
     name: 'field',
@@ -109,20 +108,11 @@ export const fieldPoint = wgslPoint({
         names: ['x', 'v', 'time', 'body', 'data'],
     },
     paramsAlias: 'FieldFnParams',
-    record: FieldFnRecordSchema,
     ready: fieldAccelReady,
     hosts: () => [fieldCheck],
     scene: {
-        globals: {
-            field_records: { pool: FieldFnRecordSchema },
-            field_live: { pool: FieldFnRecordSchema, part: 'live' },
-        },
+        globals: { field_builtin_records: { pool: FieldBuiltinRecordSchema } },
         combine: (entries) =>
-            combineFieldFunctions(entries, [
-                fieldPointTypes,
-                fieldBuiltin,
-                finite,
-                fieldResources.records,
-            ]),
+            combineFieldFunctions(entries, [fieldPointTypes, fieldBuiltin, finite]),
     },
 });

@@ -1,5 +1,4 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
-import { extensionRecordSchema } from '../../../scene/descriptors/ExtensionRecord';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import type { EntityRecordDeclaration } from '../../../scene/flows/slots';
 import { Camera } from '../Camera';
@@ -35,8 +34,15 @@ export const cameraRecord: EntityRecordDeclaration = {
     },
 };
 
-/** Registro de parâmetros das funções do ponto `camera` (spec 009; um pool para todas as `CameraFunction`). */
-export const CameraFnRecordSchema = extensionRecordSchema('CameraFnRecord');
+/**
+ * Câmera com função `camera` (spec 009) na lista do estágio: slot dos parâmetros/matrizes, slot da matriz de mundo e
+ * slot do registro da função no pool da forma dela (spec 031, R8).
+ */
+export const CameraFnEntrySchema = new StructSchema('CameraFnEntry', {
+    camera: FieldType.u32,
+    world: FieldType.u32,
+    record: FieldType.u32,
+});
 
 /** Trecho de um grupo de função na lista de câmeras, tempo simulado e razão do canvas (spec 009). */
 export const CameraFnGroupSchema = new StructSchema(

@@ -18,6 +18,18 @@ import type { SlotMap } from './slots';
  */
 export type FlowLifecycle = 'pending' | 'preparing' | 'ready' | 'disposed';
 
+/**
+ * Família de schemas que um Flow escuta como um só: os registros tipados de todas as formas de um ponto de extensão
+ * (spec 031, R8 — o próprio `WgslPoint`), gerados quando as funções entram na cena.
+ */
+export interface SchemaFamily {
+    /** `schema` pertence à família? */
+    isRecord(schema: Schema): boolean;
+}
+
+/** O que um Flow escuta: um schema, ou uma família de schemas. */
+export type Listened = Schema | SchemaFamily;
+
 /** Acesso da C2 aos membros protegidos de um Flow (definido no bloco estático da classe). */
 interface FlowAccess {
     deliver(flow: Flow, event: FlowEvent, ctx: TransitionContext): void;
@@ -65,8 +77,11 @@ export abstract class Flow<TSlots extends SlotMap = SlotMap, S extends string = 
     readonly pipelines: readonly PipelineDescriptor[] = [];
     /** Bindings privados iniciais por recurso declarado (uniforms por passo, temporários do algoritmo). */
     readonly bindings: BindingSources = new Map();
-    /** Schemas cujos `resourceReady` o Flow recebe como evento. */
-    readonly listens: readonly Schema[] = [];
+    /**
+     * Schemas (ou famílias de schemas: os registros de um ponto de extensão) cujos `resourceReady` e `poolWritten` o
+     * Flow recebe como evento.
+     */
+    readonly listens: readonly Listened[] = [];
     /** Estado inicial do algoritmo. */
     protected abstract readonly initialState: S;
     /** Tabela de transições (estado × evento). */

@@ -8,11 +8,7 @@ import surfaceColliderBuildSource from '../../gpu/wgsl/kernels/surface_collider_
 import surfaceColliderCommonSource from '../../gpu/wgsl/kernels/surface_collider_common.wgsl?raw';
 import surfaceColliderPointsSource from '../../gpu/wgsl/kernels/surface_collider_points.wgsl?raw';
 import { surfaceAt, surfaceResources } from '../../geometry/shaders';
-import {
-    SpaceFnRecordSchema,
-    SurfaceFnRecordSchema,
-    SurfaceParamsSchema,
-} from '../../geometry/SurfaceSchemas';
+import { SurfaceParamsSchema } from '../../geometry/SurfaceSchemas';
 import { Transform } from '../../scene/Transform';
 
 /**
@@ -109,17 +105,10 @@ export const surfaceColliderPoints = wgslModule({
         surfaceColliderCommon,
         WORKGROUP_SIZE.module,
         surfaceResources.params,
-        surfaceResources.fnRecords,
-        surfaceResources.spaceRecords,
         B.points,
         B.bounds,
     ],
-    structs: [
-        SurfaceBakeParamsSchema,
-        SurfaceParamsSchema,
-        SurfaceFnRecordSchema,
-        SpaceFnRecordSchema,
-    ],
+    structs: [SurfaceBakeParamsSchema, SurfaceParamsSchema],
 });
 
 /** Demais passadas: rascunho, cabeçalho, altura ou distância (semeadura, jump flooding, sinal). */

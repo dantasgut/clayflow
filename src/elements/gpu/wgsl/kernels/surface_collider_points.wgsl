@@ -2,7 +2,7 @@
 // tempo de cada cópia (cópias em sequência no índice linear; uma por passo fixo do quadro quando anima), pelo mesmo `surface_at` do desenho
 // (função da entidade ou pronta, espaço da cena). Grava posição e normal locais e acumula a caixa da cópia com
 // atomicMin/atomicMax em ordem total. Amostra não finita fica fora (w = 0).
-// Requer: structs SurfaceBakeParams, SurfaceParams, SurfaceFnRecord, SpaceFnRecord; surface_at; surface_collider_common.
+// Requer: structs SurfaceBakeParams, SurfaceParams; surface_at; surface_collider_common.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_points_main(
@@ -19,7 +19,7 @@ fn scb_points_main(
     let sv = f32(iv) / f32(bake.nv - 1u);
     let u = mix(surface_params.u0, surface_params.u1, su);
     let v = mix(surface_params.v0, surface_params.v1, sv);
-    let data = surface_fn_params(surface_fn_records[surface_params.record_slot]);
+    let data = surface_fn_params(surface_params.record_slot);
     let at = surface_at(u, v, sv, scb_time(k), data, vec3f(0.0, 1.0, 0.0));
     let o = (k * bake.samples + i) * 2u;
     if (!at.finite) {

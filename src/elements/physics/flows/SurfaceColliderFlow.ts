@@ -17,6 +17,7 @@ import type {
     TransitionContext,
 } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
+import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
     slot,
@@ -28,14 +29,11 @@ import {
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { Time } from '../../../scene/time/Time';
 import type { EntityId } from '../../../scene/world/EntityId';
+import { SpaceFunction } from '../../extension/SpaceFunction';
 import { SurfaceFunction } from '../../extension/SurfaceFunction';
 import { TransformFunction } from '../../extension/TransformFunction';
 import { ParametricSurface, SURFACE_PRESET_INDEX } from '../../geometry/ParametricSurface';
-import {
-    SpaceFnRecordSchema,
-    SurfaceFnRecordSchema,
-    SurfaceParamsSchema,
-} from '../../geometry/SurfaceSchemas';
+import { SurfaceParamsSchema } from '../../geometry/SurfaceSchemas';
 import { surfacePoint, surfaceTangents, surfaceTangentsAnalytic } from '../../geometry/shaders';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { Parent } from '../../scene/Parent';
@@ -59,10 +57,8 @@ export interface SurfaceColliderSlots extends SlotMap {
     readonly functions: EntitiesSlot;
     /** Pool do campo (cabeçalho e valores de todos os colliders de superfície). */
     readonly fields: PoolSlot<false>;
-    /** Pool dos registros das `SurfaceFunction` (opcional). */
-    readonly fnRecords: PoolSlot<true>;
-    /** Pool dos registros das `SpaceFunction` (existe com espaço na cena: a superfície anima). */
-    readonly spaceRecords: PoolSlot<true>;
+    /** Funções `space` da cena (com alguma, a superfície anima). */
+    readonly spaces: EntitiesSlot;
     /** Pool das matrizes de mundo (transformação por função ou por hierarquia). */
     readonly worlds: PoolSlot<true>;
     /** Relógio da cena (opcional; sem ele, tempo 0 e uma cópia). */
@@ -73,8 +69,7 @@ const slots: SurfaceColliderSlots = {
     colliders: slot.entities({ all: [ParametricSurface, SurfaceCollider] }),
     functions: slot.entities({ all: [ParametricSurface, SurfaceCollider, SurfaceFunction] }),
     fields: slot.pool(SurfaceCollider.cellSchema.name),
-    fnRecords: slot.pool(SurfaceFnRecordSchema.name, { optional: true }),
-    spaceRecords: slot.pool(SpaceFnRecordSchema.name, { optional: true }),
+    spaces: slot.entities({ all: [SpaceFunction] }),
     worlds: slot.pool(Transform.worldSchema.name, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
 };
@@ -141,13 +136,15 @@ interface ColliderState {
 export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     readonly type = 'SurfaceColliderFlow';
     readonly slots = slots;
-    override readonly listens = [SurfaceFnRecordSchema];
+    /** Os registros de todas as formas das funções `surface` (spec 031, R8). */
+    override readonly listens = [surfacePoint];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
+    /** Pools da C2: o slot do registro de cada função, no pool da forma dela. */
+    private readonly pools: PoolDirectory;
     private readonly states = new Map<EntityId, ColliderState>();
-    private readonly dummyRecords: StorageBufferSpec;
     private readonly dummyWorlds: StorageBufferSpec;
     private readonly warnedSteps = new Set<EntityId>();
     /** Pipeline da amostragem de cada colisor (pela função da entidade, ou a pronta), ativo ao compilar. */
@@ -157,12 +154,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     constructor(ctx: FlowContext) {
         super();
         this.core = ctx.core;
-        this.dummyRecords = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'scb_fn_records_dummy',
-            byteSize: SurfaceFnRecordSchema.stride,
-        });
+        this.pools = ctx.resources;
         this.dummyWorlds = ctx.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
@@ -279,7 +271,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     override dispose(): void {
         for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.core.destroy(this.dummyRecords);
         this.core.destroy(this.dummyWorlds);
     }
 
@@ -287,7 +278,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { colliders, functions, fnRecords, fields, worlds } = ctx.bound.slots;
+        const { colliders, functions, fields, worlds } = ctx.bound.slots;
         const present = new Set<EntityId>();
         for (const entry of colliders.entries) {
             const id = entry.entityId;
@@ -315,13 +306,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 [B.bounds, st.bounds],
             ];
             for (const { id: pid } of this.pointPipelines.bindable(id, next)) {
-                ctx.bind(
-                    prefixed(pid, [
-                        ...shared,
-                        [surfaceResources.params, st.surfaceParams],
-                        [surfaceResources.fnRecords, fnRecords?.buffer ?? this.dummyRecords],
-                    ]),
-                );
+                ctx.bind(prefixed(pid, [...shared, [surfaceResources.params, st.surfaceParams]]));
             }
             for (const entryName of BUILD_ENTRIES[shape.mode]) {
                 const pid = buildId(id, entryName);
@@ -372,9 +357,9 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
 
     /** Decide quem constrói neste quadro, quantas cópias e em que tempos, e escreve os parâmetros. */
     private plan(ctx: Ctx): void {
-        const { colliders, fnRecords, fields, spaceRecords, worlds, functions } = ctx.bound.slots;
+        const { colliders, fields, spaces, worlds, functions } = ctx.bound.slots;
         const time = ctx.bound.slots.time?.resource as Time | undefined;
-        const spaced = spaceRecords !== undefined;
+        const spaced = spaces.entries.length > 0;
         for (const st of this.states.values()) {
             st.copies = 0;
             const entry = colliders.entry(st.id);
@@ -408,8 +393,9 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             st.world = world?.m;
             const d = surface.data;
             const [u0, u1, v0, v1] = d.domain;
+            const fn = functions.entry(st.id)?.get(SurfaceFunction);
             const record =
-                functions.entry(st.id) !== undefined ? fnRecords?.slotOf(st.id) : undefined;
+                fn === undefined ? undefined : this.pools.poolSlotOf(fn.record.name, st.id);
             this.core.write(
                 st.surfaceParams,
                 SurfaceParamsSchema.pack({

@@ -117,8 +117,9 @@ export interface EntitiesInsertedPayload {
 
 /**
  * Payload do evento `entitiesRecomposed` — emitido pelo World depois de `resourcesChanged` quando recursos são anexados
- * ou desanexados de entidades já inseridas (`World.attach`/`detach`). A C2 reavalia os registros e os slots de
- * entidades delas (uma entidade pode entrar, sair ou mudar de entrada num conjunto).
+ * ou desanexados de entidades já inseridas (`World.attach`/`detach`), e pela C2 quando um Resource da entidade troca de
+ * pools (`Entity.redescribe`: o registro tipado de uma função de ponto que mudou de forma, spec 031). A C2 reavalia os
+ * registros e os slots de entidades delas (uma entidade pode entrar, sair ou mudar de entrada num conjunto).
  */
 export interface EntitiesRecomposedPayload {
     /** Ids das entidades raiz recompostas. */

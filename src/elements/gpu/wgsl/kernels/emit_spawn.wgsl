@@ -1,8 +1,8 @@
 // Criação de partículas de um emissor num passo (spec 009): cada invocação cria uma partícula no anel — slot
 // (head + k) mod capacidade, índice global emitted + k — pela função `emit_fn` (pronta: a forma do emissor). Partícula
 // com valor não finito não é criada (o slot fica morto).
-// Requer: structs EmitterParams, ComputeParticle, EmitFnRecord; emit_point_types; emit_fn (ponto); finite; recursos
-// `emit_params`, `emit_particles`, `emit_fn_records`.
+// Requer: structs EmitterParams, ComputeParticle; emit_point_types; emit_fn (ponto, com o carregador do registro da
+// função: `emit_params.record_slot` no pool da forma dela); finite; recursos `emit_params`, `emit_particles`.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn emit_spawn_main(
@@ -12,7 +12,7 @@ fn emit_spawn_main(
     let k = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (k >= emit_params.spawn_count) { return; }
     let slot = (emit_params.head + k) % emit_params.capacity;
-    let data = emit_fn_params(emit_fn_records[emit_params.record_slot]);
+    let data = emit_fn_params(emit_params.record_slot);
     let p = emit_fn(emit_params.emitted + k, emit_params.time, emit_params.seed, data);
     var q: ComputeParticle;
     let ok = finite4(vec4f(p.position, p.life)) && finite4(vec4f(p.velocity, 0.0))
