@@ -1,10 +1,11 @@
 /**
- * Spec 007 (US6): o render principal lê a direção da luz no pool `Light` pelo `lightSlot` dos parâmetros do quadro —
- * nenhum dado da luz é lido na CPU; sem luz que projeta sombra, a sentinela (direção padrão no shader).
+ * Spec 007 (US6) e 031 (R4): o render principal lê a direção da luz no pool `Light` e a sombra do mapa da direcional
+ * que projeta — nenhum dado da luz é lido na CPU nem passa pelos parâmetros do quadro. A luz chega pelos pontos de cena
+ * `scene_light_direction` e `light_visibility`, compostos pela C2 com a contribuição da luz (pelos slots dela); sem luz
+ * que projeta sombra, os prontos (direção padrão, visibilidade 1).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
-import { ForwardFrameParamsSchema, NO_LIGHT_SLOT } from '../../../elements/material/forwardSchemas';
 import { StandardMaterial } from '../../../elements/material/StandardMaterial';
 import { Camera } from '../../../elements/scene/Camera';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
@@ -22,52 +23,52 @@ async function scene(castShadow: boolean) {
     return { ...s, light, lightId };
 }
 
-/** Os parâmetros do quadro de cada escrita do forward, em ordem. */
-function frameWrites(core: Awaited<ReturnType<typeof renderScene>>['core']) {
-    return vi
-        .mocked(core.write)
-        .mock.calls.filter(([spec]) => discOf(spec) === 'forward_frame_params')
-        .map(([, data]) => {
-            const u32 = new Uint32Array(data.buffer, data.byteOffset, 4);
-            const f32 = new Float32Array(data.buffer, data.byteOffset, 4);
-            const at = (f: string) => ForwardFrameParamsSchema.offsetOf(f) / 4;
-            return {
-                lightSlot: u32[at('lightSlot')],
-                shadowEnabled: f32[at('shadowEnabled')],
-                shadowSlot: u32[at('shadowSlot')],
-            };
-        });
+/** Fonte do shader do desenho forward mais recente. */
+function forwardSource(s: Awaited<ReturnType<typeof scene>>): string {
+    const draw = s.draws('ForwardFlow').at(-1)!;
+    return draw.pipeline.vertex.shader.source;
 }
 
-describe('ForwardFlow — luz pelo pool (spec 007)', () => {
-    it('lightSlot é o slot no pool Light da direcional que projeta; o mapa dela no shadowSlot', async () => {
+describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
+    it('a direção vem do slot no pool Light da direcional que projeta; a sombra do slot do mapa dela', async () => {
         const s = await scene(true);
         s.step();
         s.step();
+        s.step();
         const rs = s.scene.resourceSystem;
-        const last = frameWrites(s.core).at(-1)!;
-        expect(last.lightSlot).toBe(rs.poolSlotOf('Light', s.lightId));
-        expect(last.shadowEnabled).toBe(1);
-        expect(last.shadowSlot).toBe(rs.poolSlotOf('ShadowMap', s.lightId));
+        const src = forwardSource(s);
+        expect(src).toContain(
+            `return lights[${rs.poolSlotOf('Light', s.lightId)}u].direction.xyz;`,
+        );
+        expect(src).toContain(`let sm = shadow_maps[${rs.poolSlotOf('ShadowMap', s.lightId)}u];`);
+        expect(src).toContain('sample_shadow_pcf(shadow_map, shadow_sampler');
     });
 
-    it('sem direcional que projeta sombra: a sentinela (direção padrão no shader)', async () => {
+    it('sem direcional que projeta sombra: a direção padrão e visibilidade 1 (os prontos)', async () => {
         const s = await scene(false);
         s.step();
-        const last = frameWrites(s.core).at(-1)!;
-        expect(last.lightSlot).toBe(NO_LIGHT_SLOT);
-        expect(last.shadowEnabled).toBe(0);
+        s.step();
+        const src = forwardSource(s);
+        expect(src).toContain('return DEFAULT_LIGHT_DIRECTION;');
+        expect(src).toMatch(
+            /fn light_visibility\(p: vec3f, n_dot_l: f32\) -> f32 \{\s*return 1\.0;/,
+        );
+        expect(src).not.toMatch(/var shadow_map|shadow_maps\[/);
     });
 
     it('nenhuma escrita dos parâmetros do quadro sem mudança — nem quando a direção da luz muda', async () => {
         const s = await scene(true);
         s.step();
         s.step();
-        const before = frameWrites(s.core).length;
+        const writes = (): number =>
+            vi
+                .mocked(s.core.write)
+                .mock.calls.filter(([spec]) => discOf(spec) === 'forward_frame_params').length;
+        const before = writes();
         s.step();
         s.light.data.direction = [0.5, -1, 0, 0];
         s.step();
         s.step();
-        expect(frameWrites(s.core)).toHaveLength(before);
+        expect(writes()).toBe(before);
     });
 });

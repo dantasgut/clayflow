@@ -1,0 +1,324 @@
+import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import {
+    wgslResource,
+    type BindingFrequency,
+    type WgslResource,
+    type WgslResourceType,
+} from '../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { brdf } from '../../elements/gpu/shaders/math';
+import { FluidSurfaceMaterialSchema } from '../../elements/material/FluidSurfaceMaterialSchema';
+import {
+    lightVisibilityReady,
+    sceneLightDirectionReady,
+} from '../../elements/scene/points/lighting';
+import { camerasResource, shadowMatricesResource } from '../../elements/scene/resources';
+import { WATER_DEPTH_LIMIT, WATER_NO_DEPTH } from './constants';
+import {
+    CausticParamsSchema,
+    WaterBoundsParamsSchema,
+    WaterCompositeParamsSchema,
+    WaterDrawParamsSchema,
+    WaterLightMatrixSchema,
+    WaterSmoothParamsSchema,
+    WaterStateSchema,
+    WaterViewParamsSchema,
+} from './schemas';
+import waterViewSource from './wgsl/water_view.wgsl?raw';
+import waterSpheresSource from './wgsl/water_spheres.wgsl?raw';
+import waterSceneSource from './wgsl/water_scene.wgsl?raw';
+import waterSmoothSource from './wgsl/water_smooth.wgsl?raw';
+import causticsSource from './wgsl/caustics.wgsl?raw';
+import waterLightSource from './wgsl/water_light.wgsl?raw';
+import waterRippleSource from './wgsl/water_ripple.wgsl?raw';
+import waterCompositeSource from './wgsl/water_composite.wgsl?raw';
+import waterTransmissionSource from './wgsl/water_transmission.wgsl?raw';
+
+// Shaders da água e das cáusticas (spec 017) com recursos declarados (spec 031). Uniforms de parâmetros, texturas e
+// rascunhos são do estágio que os cria (`private`, frequência `stage`); a região por corpo do desenho das esferas tem
+// offset dinâmico (`draw`) e o pool do corpo muda entre pipelines (`batch`). Câmeras e matrizes de sombra são os
+// recursos de cena compartilhados; o pool `FluidSurfaceMaterial` vem da C2.
+
+const uniform = (
+    name: string,
+    type: WgslResourceType,
+    frequency: BindingFrequency = 'stage',
+): WgslResource =>
+    wgslResource({ name, binding: { uniform: true }, type, frequency, provider: 'private' });
+const storage = (
+    name: string,
+    access: 'read' | 'read_write',
+    type: WgslResourceType,
+    frequency: BindingFrequency = 'stage',
+): WgslResource =>
+    wgslResource({ name, binding: { storage: access }, type, frequency, provider: 'private' });
+const texture = (name: string, sample: 'f32' | 'u32'): WgslResource =>
+    wgslResource({
+        name,
+        binding: { texture: { sample } },
+        frequency: 'stage',
+        provider: 'private',
+    });
+const storageTexture = (name: string, format: GPUTextureFormat): WgslResource =>
+    wgslResource({
+        name,
+        binding: { storageTexture: { format, access: 'write' } },
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+/** Recursos dos estágios da água (produtor da superfície, suavização, vista da luz, cáusticas e composição). */
+export const waterResources = Object.freeze({
+    /** Materiais de água (pool `FluidSurfaceMaterial`). */
+    materials: wgslResource({
+        name: 'water_materials',
+        binding: { storage: 'read' },
+        type: { schema: FluidSurfaceMaterialSchema, array: true },
+        frequency: 'stage',
+        provider: { pool: FluidSurfaceMaterialSchema.name },
+    }),
+    /** Matriz da vista da luz da água (leitura; o substituto antes de ela existir é do estágio). */
+    lightMatrix: storage('water_light_matrix', 'read', { schema: WaterLightMatrixSchema }),
+    // Esferas.
+    view: uniform('water_view', { schema: WaterViewParamsSchema }),
+    draw: uniform('water_draw', { schema: WaterDrawParamsSchema }, 'draw'),
+    particles: storage('particles', 'read', { wgsl: 'vec4f', array: true }, 'batch'),
+    /** Profundidade da cena de amostra única. */
+    sceneDepth: wgslResource({
+        name: 'water_scene_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** Profundidade da cena multiamostrada (MSAA). */
+    sceneDepthMs: wgslResource({
+        name: 'water_scene_depth',
+        binding: { texture: { sample: 'depth', multisampled: true } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    // Suavização.
+    smooth: uniform('water_smooth', { schema: WaterSmoothParamsSchema }),
+    radii: storage('water_radii', 'read', { wgsl: 'f32', array: true }),
+    smoothSrc: texture('smooth_src', 'f32'),
+    smoothMaterial: texture('smooth_material', 'u32'),
+    smoothDst: storageTexture('smooth_dst', 'r32float'),
+    // Enquadramento da vista da luz.
+    lightBounds: storage('light_bounds', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    boundsParams: uniform('bounds_params', { schema: WaterBoundsParamsSchema }),
+    boundsParticles: storage('bounds_particles', 'read', { wgsl: 'vec4f', array: true }),
+    lightMatrixWrite: storage('light_matrix', 'read_write', { schema: WaterLightMatrixSchema }),
+    boundsIn: storage('bounds_in', 'read', { wgsl: 'u32', array: true }),
+    // Cáusticas.
+    causticParams: uniform('caustic_params', { schema: CausticParamsSchema }),
+    lightDepth: texture('light_depth', 'f32'),
+    lightMaterial: texture('light_material', 'u32'),
+    causticShadow: wgslResource({
+        name: 'caustic_shadow',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    photons: storage('photons', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    photonSums: storage('photon_sums', 'read_write', { wgsl: 'u32', array: true }),
+    causticOut: storageTexture('caustic_out', 'rgba16float'),
+    // Composição.
+    composite: uniform('water_composite', { schema: WaterCompositeParamsSchema }),
+    depth: texture('water_depth', 'f32'),
+    thickness: texture('water_thickness', 'f32'),
+    material: texture('water_material', 'u32'),
+    background: texture('water_background', 'f32'),
+});
+const R = waterResources;
+
+/**
+ * Recursos da contribuição da água à transmissão da luz (`light_transmission`, spec 031): o estado da superfície, o
+ * mapa de cáusticas, a profundidade da água vista pela luz e a matriz dessa vista — lidos dos descritores do
+ * `WaterSurface` da cena pelos resolvers `WaterSurface.*` (`water/consumers.ts`), em qualquer desenho que chame o ponto.
+ */
+export const waterTransmissionResources = Object.freeze({
+    state: wgslResource({
+        name: 'water_state',
+        binding: { uniform: true },
+        type: { schema: WaterStateSchema },
+        frequency: 'frame',
+        provider: { consumer: 'WaterSurface.state' },
+    }),
+    causticMap: wgslResource({
+        name: 'caustic_map',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: { consumer: 'WaterSurface.caustics' },
+    }),
+    lightDepth: wgslResource({
+        name: 'water_light_depth',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: { consumer: 'WaterSurface.lightDepth' },
+    }),
+    lightMatrix: wgslResource({
+        name: 'water_light_matrix',
+        binding: { storage: 'read' },
+        type: { schema: WaterLightMatrixSchema },
+        frequency: 'frame',
+        provider: { consumer: 'WaterSurface.lightMatrix' },
+    }),
+});
+
+/** Vista de um produtor de superfície de água (spec 017): escalas da matriz da luz, profundidade linear e NDC. */
+export const waterView = wgslModule({ name: 'water_view_fns', source: waterViewSource });
+
+/** Profundidade da cena de amostra única: oclusão e profundidade linear da cena no pixel. */
+const waterSceneSingle = wgslModule({
+    name: 'water_scene',
+    source: waterSceneSource,
+    requires: [waterView, WATER_NO_DEPTH.module, R.sceneDepth],
+});
+
+/** A mesma, com a profundidade da cena multiamostrada (MSAA): a amostra 0 do pixel. */
+const waterSceneMs = wgslModule({
+    name: 'water_scene_ms',
+    source: waterSceneSource,
+    requires: [waterView, WATER_NO_DEPTH.module, R.sceneDepthMs],
+});
+
+function waterSpheresModule(name: string, scene: WgslModule): WgslModule {
+    return wgslModule({
+        name,
+        source: waterSpheresSource,
+        requires: [
+            waterView,
+            scene,
+            camerasResource,
+            R.lightMatrix,
+            R.view,
+            R.particles,
+            R.materials,
+            R.draw,
+        ],
+    });
+}
+
+/**
+ * Esferas das partículas da superfície de água (spec 017): profundidade linear + material e espessura. Profundidade da
+ * cena sem e com MSAA (na vista da câmera ela oculta a água atrás dos objetos; na da luz, um substituto sem uso).
+ */
+export const waterSpheres = {
+    scene: waterSpheresModule('water_spheres', waterSceneSingle),
+    sceneMs: waterSpheresModule('water_spheres_ms', waterSceneMs),
+} as const;
+
+/** Suavização bilateral separável da profundidade da água e borrão da espessura (spec 017). */
+export const waterSmooth = wgslModule({
+    name: 'water_smooth_kernels',
+    source: waterSmoothSource,
+    requires: [
+        waterView,
+        WATER_NO_DEPTH.module,
+        camerasResource,
+        R.lightMatrix,
+        R.materials,
+        R.radii,
+        R.smooth,
+        R.smoothSrc,
+        R.smoothMaterial,
+        R.smoothDst,
+    ],
+});
+
+/** Ondulações capilares procedurais do material de água (inclinação somada à normal; spec 017). */
+const waterRipple = wgslModule({
+    name: 'water_ripple',
+    source: waterRippleSource,
+    structs: [FluidSurfaceMaterialSchema],
+});
+
+/** Cáusticas por fótons em espaço da luz: limpar, depositar, resolver (spec 017). */
+export const caustics = wgslModule({
+    name: 'caustics',
+    source: causticsSource,
+    requires: [
+        waterView,
+        waterRipple,
+        WATER_DEPTH_LIMIT.module,
+        WORKGROUP_SIZE.module,
+        shadowMatricesResource,
+        R.lightMatrix,
+        R.materials,
+        R.causticParams,
+        R.lightDepth,
+        R.lightMaterial,
+        R.causticShadow,
+        R.photons,
+        R.photonSums,
+        R.causticOut,
+    ],
+});
+
+/**
+ * Enquadramento da vista da luz da água (spec 017): caixa envolvente das partículas na base da luz e a matriz
+ * ortográfica ajustada a ela.
+ */
+export const waterLight = wgslModule({
+    name: 'water_light',
+    source: waterLightSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        shadowMatricesResource,
+        R.lightBounds,
+        R.boundsParams,
+        R.boundsParticles,
+        R.lightMatrixWrite,
+        R.boundsIn,
+    ],
+});
+
+function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
+    return wgslModule({
+        name,
+        source: waterCompositeSource,
+        requires: [
+            waterView,
+            scene,
+            brdf,
+            waterRipple,
+            sceneLightDirectionReady,
+            lightVisibilityReady,
+            WATER_DEPTH_LIMIT.module,
+            camerasResource,
+            R.materials,
+            R.composite,
+            R.depth,
+            R.thickness,
+            R.material,
+            R.background,
+        ],
+    });
+}
+
+/**
+ * Composição óptica da água nos alvos da cena, sem e com MSAA (spec 017). A direção da luz e a sombra vêm dos pontos
+ * de cena `scene_light_direction` e `light_visibility` (spec 031): a C2 troca os prontos pelas contribuições da luz que
+ * projeta sombra.
+ */
+export const waterComposite = {
+    scene: waterCompositeModule('water_composite_pass', waterSceneSingle),
+    sceneMs: waterCompositeModule('water_composite_pass_ms', waterSceneMs),
+} as const;
+
+/**
+ * Contribuição da água ao ponto `light_transmission` (spec 031): `fn light_transmission(p, ambient, direct)` devolve
+ * `vec3f(ambient + direct)` com as cáusticas desligadas no estado do `WaterSurface` e
+ * `ambient + direct × water_caustic_factor(p, …)` com
+ * elas ligadas.
+ */
+export const waterTransmission = wgslModule({
+    name: 'water_transmission',
+    source: waterTransmissionSource,
+    requires: [
+        waterTransmissionResources.state,
+        waterTransmissionResources.causticMap,
+        waterTransmissionResources.lightDepth,
+        waterTransmissionResources.lightMatrix,
+    ],
+});

@@ -76,6 +76,12 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
                 role: 'texture',
                 textureShape: { format: 'depth32float', width, height },
             },
+            // Amostrador de comparação do PCF (spec 031): do mapa, para quem lê a sombra não criar o seu.
+            {
+                id: 'compare',
+                role: 'sampler',
+                samplerShape: { magFilter: 'linear', minFilter: 'linear', compare: 'less' },
+            },
         ];
     }
 

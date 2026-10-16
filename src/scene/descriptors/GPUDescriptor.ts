@@ -93,6 +93,12 @@ export interface GPUDescriptor {
      * usam (ex.: as arestas de arame de uma geometria, só com material de arame). Liberado com o Resource.
      */
     readonly allocation?: 'eager' | 'onDemand';
+    /**
+     * Em pool: os slots que o Resource libera (saída da cena, troca de pool) voltam a zero na GPU (spec 031). Serve a
+     * quem percorre o pool inteiro e reconhece o slot vazio pelo próprio dado (ex.: o `kind` 0 dos campos prontos),
+     * sem ligar o bitset de vivos — uma ligação de storage a menos nos kernels. Padrão: o dado antigo fica no slot.
+     */
+    readonly clearOnRelease?: boolean;
 }
 
 /** Alvo de uma referência de slot (`GPUDescriptor.slotRefs`). */

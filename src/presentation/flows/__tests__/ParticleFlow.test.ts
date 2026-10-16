@@ -51,7 +51,13 @@ describe('ParticleFlow (spec 008)', () => {
             [6, 5],
             [6, 7],
         ]);
-        expect(draws.map((d) => d.bindGroups.get(2)?.offsets?.[0])).toEqual([0, 256, 512]);
+        // A região do corpo é o único grupo com offset dinâmico (frequência `draw`, spec 031).
+        expect(
+            draws.map(
+                (d) =>
+                    [...d.bindGroups.values()].find((g) => g.offsets !== undefined)?.offsets?.[0],
+            ),
+        ).toEqual([0, 256, 512]);
         // Dois pools de partícula (SPH e XPBD): dois pipelines.
         expect(new Set(draws.map((d) => d.pipeline)).size).toBe(2);
     });

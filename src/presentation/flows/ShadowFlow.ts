@@ -5,10 +5,14 @@ import type {
     RenderTarget,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
-import type { Resource } from '../../scene/contracts/Resource';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { BoundFlow, PreparedRender, TransitionContext } from '../../scene/flows/FlowBinding';
+import type {
+    BindingSource,
+    BoundFlow,
+    PreparedRender,
+    TransitionContext,
+} from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
@@ -21,24 +25,15 @@ import {
     type SlotMap,
     type TargetSlot,
 } from '../../scene/flows/slots';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
-import { DirectionalLight } from '../../elements/scene/DirectionalLight';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
+import { castingShadowMap } from '../../elements/scene/shadowCaster';
 import { Transform } from '../../elements/scene/Transform';
 import { ShadowDepthParamsSchema, ShadowInstanceSchema } from './renderSchemas';
-import { shadowDepth } from './shaders';
-
-/** O `ShadowMap` de uma `DirectionalLight` que projeta sombra (`castShadow = 1`). */
-export function castingShadowMap(world: World): (resource: Resource) => boolean {
-    return (resource) => {
-        const id = world.entityIdOfResource(resource);
-        if (id === undefined) return false;
-        const light = world.resourcesOf(id).find((r) => r instanceof DirectionalLight);
-        return light?.data.castShadow === 1;
-    };
-}
+import { shadowDepth, shadowResources } from './shaders';
 
 /** Slots do estágio de sombra. */
 export interface ShadowSlots extends SlotMap {
@@ -107,11 +102,6 @@ function depthPipeline(frontFace: GPUFrontFace, preferAsync: boolean): PipelineD
         role: 'render',
         shader: shadowDepth,
         entryPoints: ['vs_main'],
-        consumes: [
-            Transform.worldSchema.name,
-            ShadowMap.matrixSchema.name,
-            ShadowInstanceSchema.name,
-        ],
         topology: 'triangle-list',
         cullMode: 'back',
         frontFace,
@@ -141,10 +131,8 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
     readonly type = 'ShadowFlow';
     readonly slots: ShadowSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: {
-        /** Parâmetros do passe (`ShadowDepthParams`: slot do caster). */
-        readonly shadow: UniformBufferSpec;
-    };
+    /** Parâmetros do passe (`ShadowDepthParams`: slot do caster). */
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<ShadowSlots>>;
 
@@ -175,7 +163,9 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
             discriminator: 'shadow_params_buf',
             byteSize: ShadowDepthParamsSchema.stride,
         });
-        this.bindings = { shadow: this.params };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [shadowResources.params, this.params],
+        ]);
         const async = options.preferAsync === true;
         this.pipelines = [depthPipeline('ccw', async), depthPipeline('cw', async)];
         const caster = {
@@ -223,11 +213,9 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
             frame.copy(source, args, 4, 0, 0);
         frame.render(target, 'ShadowFlow', (pass) => {
             if (groups.length === 0) return;
-            // Grupos 0 (parâmetros + pool ShadowMatrix) e 1 (WorldTransform + instâncias) uma vez por passe.
-            pass.bind
-                .setPipeline(ccw.spec)
-                .setBindGroup(0, ccw.groups[0]!)
-                .setBindGroup(1, ccw.groups[1]!);
+            // Grupos (pool ShadowMatrix; parâmetros, WorldTransform e instâncias) uma vez por passe.
+            pass.bind.setPipeline(ccw.spec);
+            ccw.bindTo(pass.bind);
             let current: PreparedRender = ccw;
             for (const group of groups) {
                 if (group.key.startsWith(NO_SHADOW)) continue;

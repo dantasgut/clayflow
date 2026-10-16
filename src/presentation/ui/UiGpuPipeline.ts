@@ -6,17 +6,19 @@ import type {
     TextureViewSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
-import type { BindingSources } from '../../scene/flows/FlowBinding';
+import type { BindingSource } from '../../scene/flows/FlowBinding';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { LoadedFont } from '../assets/FontLoader';
 import type { UiQuadCpu } from './flatten/UiQuadCpu';
 import { ScreenParamsSchema, UiQuadSchema } from '../flows/renderSchemas';
+import { uiResources } from '../flows/shaders';
 
 const MAX_QUADS = 1024;
 
 /**
  * Recursos de GPU privados da UI: parâmetros de tela, buffer de quads, atlas da fonte (ou um texel branco enquanto não
- * há fonte) e sampler. Ligados ao pipeline do `UIFlow` por nome de variável (`screen`, `quads`, `atlas`,
- * `atlas_smp`); o pipeline, o layout e o bind group são da C2.
+ * há fonte) e sampler. Ligados ao pipeline do `UIFlow` pelos recursos declarados (`uiResources`: `screen`, `quads`,
+ * `atlas`, `atlas_smp`); o pipeline, o layout e o bind group são da C2.
  *
  * Uso:
  *   const gpu = new UiGpuPipeline(core);
@@ -82,14 +84,14 @@ export class UiGpuPipeline {
         );
     }
 
-    /** Fontes privadas do pipeline de UI, por nome de variável. */
-    sources(): BindingSources {
-        return {
-            screen: this.screenBuffer,
-            quads: this.quadsBuffer,
-            atlas: this.atlasView ?? this.dummyAtlasView,
-            atlas_smp: this.sampler,
-        };
+    /** Fontes privadas do pipeline de UI, por recurso declarado. */
+    sources(): ReadonlyMap<WgslResource, BindingSource> {
+        return new Map<WgslResource, BindingSource>([
+            [uiResources.screen, this.screenBuffer],
+            [uiResources.quads, this.quadsBuffer],
+            [uiResources.atlas, this.atlasView ?? this.dummyAtlasView],
+            [uiResources.sampler, this.sampler],
+        ]);
     }
 
     /** O atlas mudou desde a última chamada (o chamador religa `atlas`)? */

@@ -4,7 +4,7 @@ export { ScriptedParticleEmitter } from './ScriptedParticleEmitter';
 export { ComputeParticleEmitter } from './ComputeParticleEmitter';
 export * from './shapes/index';
 export { EmitterFlow, type EmitterSlots } from './EmitterFlow';
-export { EmitterParamsSchema, EmitFnRecordSchema } from './EmitterSchemas';
+export { EmitterParamsSchema } from './EmitterSchemas';
 export { DiffuseParticles } from './DiffuseParticles';
 export type {
     DiffuseParticlesOptions,

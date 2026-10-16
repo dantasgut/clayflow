@@ -10,14 +10,12 @@ export interface FlowBindingErrorDetails {
     readonly binding?: number;
     /** Nome da variável no WGSL. */
     readonly variable?: string;
-    /** Nome de `consumes` envolvido. */
-    readonly consumes?: string;
 }
 
 /**
- * Erro na preparação de um pipeline de Flow pela C2 (FR-012): binding do WGSL sem fonte (nem privado, nem coberto
- * por `consumes`), nome de `consumes` sem resolver, dois nomes de `consumes` para o mesmo tipo, ou fonte incompatível
- * com o binding (uniform × storage, profundidade × cor). A mensagem nomeia binding, grupo, pipeline, Flow e nome.
+ * Erro na preparação de um pipeline de Flow pela C2 (FR-012): recurso declarado sem fonte (privado sem `ctx.bind`,
+ * slot que o Flow não declara), fonte privada para recurso com fornecedor, ou fonte incompatível com o binding
+ * (uniform × storage, profundidade × cor). A mensagem nomeia binding, grupo, pipeline, Flow e variável.
  */
 export class FlowBindingError extends Error {
     /** Nome do erro (`'FlowBindingError'`). */
@@ -28,7 +26,7 @@ export class FlowBindingError extends Error {
      */
     constructor(
         message: string,
-        /** Binding, grupo, pipeline, Flow e nome de `consumes` envolvidos. */
+        /** Binding, grupo, pipeline, Flow e variável envolvidos. */
         readonly details: FlowBindingErrorDetails,
     ) {
         super(message);

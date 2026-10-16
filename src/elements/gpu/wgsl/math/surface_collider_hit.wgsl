@@ -10,9 +10,8 @@
 //   60 modo (u32: 0 altura, 1 distância) · 61 folga (m) — de 37 a 61 só na cópia 0 · 64.. valores (nós da grade; altura: x + nx·z; distância: x + nx·(y + ny·z))
 // Altura: nó sem triângulo acima = SURFACE_NO_HEIGHT (fora do terreno: sem contato). Distância: fora da caixa, sem contato.
 //
-// O colisor i começa em `surface_collider_first(i)` (do uniforme de contagens do hospedeiro: até 16 superfícies).
-// Requer: global `collider_surface_field: array<f32>` e a função `surface_collider_first(i: u32) -> u32` do hospedeiro;
-// struct `ColliderHit`.
+// As consultas recebem o início do colisor no pool (`first`; quem consulta o obtém das suas contagens).
+// Requer: o recurso `collider_surface_field`; struct `ColliderHit`.
 
 const SURFACE_COLLIDER_HEADER: u32 = 64u;
 const SURFACE_NO_HEIGHT: f32 = -3.0e38;
@@ -89,8 +88,7 @@ struct SurfaceColliderInfo {
     margin: f32,
 }
 
-fn surface_collider_info(i: u32) -> SurfaceColliderInfo {
-    let first = surface_collider_first(i);
+fn surface_collider_info(first: u32) -> SurfaceColliderInfo {
     return SurfaceColliderInfo(
         first,
         bitcast<u32>(surface_field(first, 56u)),
@@ -102,13 +100,13 @@ fn surface_collider_info(i: u32) -> SurfaceColliderInfo {
     );
 }
 
-// Folga de contato do colisor i (somada ao raio de quem colide).
-fn surface_collider_margin(i: u32) -> f32 {
-    return surface_field(surface_collider_first(i), 61u);
+// Folga de contato do colisor que começa em `first` (somada ao raio de quem colide).
+fn surface_collider_margin(first: u32) -> f32 {
+    return surface_field(first, 61u);
 }
 
-fn collider_hit_surface(i: u32, p: vec3f) -> ColliderHit {
-    let c = surface_collider_info(i);
+fn collider_hit_surface(first: u32, p: vec3f) -> ColliderHit {
+    let c = surface_collider_info(first);
     let built = bitcast<u32>(surface_field(c.first, 37u));
     if (built == 0u || c.nx < 2u || c.nz < 2u) { return surface_hit_far(); }
     let k = surface_copy(c.first, built);

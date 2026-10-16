@@ -4,6 +4,7 @@ import { wgslModule, type WgslModule } from '../shaders/WgslModule';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
 import { StructSchema, fieldStruct } from '../descriptors/StructSchema';
 import { FieldType } from '../descriptors/FieldType';
+import { wgslResource } from '../shaders/WgslResource';
 
 function errorOf(f: () => unknown): WgslCompositionError {
     try {
@@ -139,8 +140,6 @@ describe('composeWgsl — referências (substitui validateWgslReferences)', () =
         const src = `
             // call_to_missing()
             /* with_missing_call() */
-            @group(0) @binding(0) var samp: sampler;
-            @group(0) @binding(1) var albedo: texture_2d<f32>;
             @fragment fn shade(@location(0) uv: vec2f) -> @location(0) vec4f {
                 let c = textureSample(albedo, samp, uv);
                 var s = 0u;
@@ -148,7 +147,24 @@ describe('composeWgsl — referências (substitui validateWgslReferences)', () =
                 return vec4f(dot(c.xyz, normalize(vec3f(0.0, 1.0, 0.0))), 0.0, 0.0, 1.0);
             }
         `;
-        expect(() => composeWgsl(mod('frag', src))).not.toThrow();
+        const samp = wgslResource({
+            name: 'samp',
+            binding: { sampler: 'filtering' },
+            frequency: 'draw',
+            provider: 'private',
+        });
+        const albedo = wgslResource({
+            name: 'albedo',
+            binding: { texture: { sample: 'f32' } },
+            frequency: 'draw',
+            provider: 'private',
+        });
+        // Atributos com parênteses (`@location(0)`, `@group(0) @binding(n)` emitidos pela montagem) não são chamadas.
+        const composed = composeWgsl(mod('frag', src, [samp, albedo]));
+        expect(composed.spec.source).toContain(
+            '@group(0) @binding(0) var albedo: texture_2d<f32>;',
+        );
+        expect(composed.spec.source).toContain('@group(0) @binding(1) var samp: sampler;');
     });
 
     it('struct definido no fonte pode ser usado como construtor', () => {
@@ -163,6 +179,13 @@ describe('composeWgsl — structs gerados', () => {
     const Outer = new StructSchema('Outer', { i: fieldStruct(Inner), n: FieldType.u32 });
 
     it('structs no topo (aninhados antes), uma vez cada; marcador removido', () => {
+        const data = wgslResource({
+            name: 'data',
+            binding: { storage: 'read' },
+            type: { schema: Outer, array: true },
+            frequency: 'draw',
+            provider: 'private',
+        });
         const lib = wgslModule({
             name: 'lib',
             source: '{{struct:Outer}}\nfn get(o: Outer) -> f32 { return o.i.x; }',
@@ -170,8 +193,8 @@ describe('composeWgsl — structs gerados', () => {
         });
         const k = wgslModule({
             name: 'kernel',
-            source: '{{struct:Outer}}\n@group(0) @binding(0) var<storage> data: array<Outer>;\nfn k() { let v = get(data[0]); }',
-            requires: [lib],
+            source: '{{struct:Outer}}\nfn k() { let v = get(data[0]); }',
+            requires: [lib, data],
             structs: [Outer],
         });
         const src = composeWgsl(k).spec.source;

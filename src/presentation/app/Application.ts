@@ -26,6 +26,7 @@ import type { Input } from '../input/Input';
 import type { InteractionSystem } from '../input/InteractionSystem';
 import { acquireSceneInteraction, releaseSceneInteraction } from './sceneInteraction';
 import { ELEMENT_CONSUMERS } from '../../elements/consumers';
+import { WATER_CONSUMERS } from '../water/consumers';
 
 /**
  * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
@@ -85,7 +86,7 @@ export interface ApplicationOptions {
      */
     maxFramesInFlight?: number;
     /**
-     * Registra resolvers de `consumes` próprios da aplicação (ex.: `r.register(new SingletonResolver(Wind.schema,
+     * Registra fornecedores (`{ consumer }`) próprios da aplicação (ex.: `r.register(new SingletonResolver(Wind.schema,
      * 'wind'))`). Roda depois dos padrão do motor; `register` de um nome existente o substitui.
      */
     consumers?: (registry: ConsumerResolverRegistry) => void;
@@ -238,6 +239,7 @@ export class Application {
         };
         await scene.initialize(options.canvas, options.canvasOptions, device);
         for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
+        for (const resolver of WATER_CONSUMERS) scene.consumers.registerDefault(resolver);
         options.consumers?.(scene.consumers);
         const defaults = registerPresentationDefaults(scene.flows, {
             world: scene.world,

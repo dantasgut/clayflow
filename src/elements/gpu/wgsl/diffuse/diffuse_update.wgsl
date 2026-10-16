@@ -4,16 +4,9 @@
 // bolha (dentro: empuxo e arrasto para a velocidade do fluido). Sai da caixa do domínio: morre.
 // Requer: structs DiffuseParams, DiffuseParticle; diffuse_common.
 
-@group(0) @binding(0) var<uniform>             diffuse_params: DiffuseParams;
-@group(0) @binding(1) var<storage, read>       fluid:          array<f32>;
-@group(0) @binding(2) var<storage, read>       cell_start:     array<u32>;
-@group(0) @binding(3) var<storage, read>       cell_count:     array<u32>;
-@group(0) @binding(4) var<storage, read>       sorted_particles: array<u32>;
-@group(0) @binding(5) var<storage, read_write> diffuse:        array<DiffuseParticle>;
-
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn diffuse_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let p = diffuse_params;
     if (i >= p.capacity) { return; }
     var d = diffuse[i];

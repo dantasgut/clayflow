@@ -2,7 +2,7 @@ import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contra
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
-    BindingSources,
+    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -17,6 +17,8 @@ import {
     type SingletonSlot,
     type SlotMap,
 } from '../../../scene/flows/slots';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Time } from '../../../scene/time/Time';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
@@ -25,7 +27,14 @@ import { GravityField } from '../forcefields/GravityField';
 import { ParticleMaterial } from '../materials/ParticleMaterial';
 import { MPMSimParamsSchema } from '../schemas/simParams';
 import { MPMGridNodeSchema } from '../schemas/simState';
-import { mpmClearGrid, mpmG2P, mpmGridUpdate, mpmP2G, mpmParticleCollision } from '../shaders/mpm';
+import {
+    mpmClearGrid,
+    mpmG2P,
+    mpmGridUpdate,
+    mpmP2G,
+    mpmParticleCollision,
+    mpmResources as R,
+} from '../shaders/mpm';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Escala do ponto fixo das somas atômicas da grade. */
@@ -84,7 +93,7 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
     readonly type = 'MPMFlow';
     readonly slots = slots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<MPMSlots>>;
 
@@ -116,43 +125,40 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         this.grid = material.gridFor(material.mpmCellSize);
         this.gridKey = gridKeyOf(this.grid);
         this.gridBuffer = this.createGrid();
-        this.bindings = { mpm_params: this.params.source(), grid: this.gridBuffer };
-        const consumes = [this.bodyType, `${this.bodyType}.live`];
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [R.params, this.params.source()],
+            [R.grid, this.gridBuffer],
+        ]);
         this.pipelines = [
             {
                 id: 'mpm_clear_grid',
                 role: 'compute',
                 shader: mpmClearGrid,
                 entryPoints: ['mpm_clear_grid_main'],
-                consumes,
             },
             {
                 id: 'mpm_p2g',
                 role: 'compute',
                 shader: mpmP2G,
                 entryPoints: ['mpm_p2g_main'],
-                consumes,
             },
             {
                 id: 'mpm_grid_update',
                 role: 'compute',
                 shader: mpmGridUpdate,
                 entryPoints: ['mpm_grid_update_main'],
-                consumes,
             },
             {
                 id: 'mpm_g2p',
                 role: 'compute',
                 shader: mpmG2P,
                 entryPoints: ['mpm_g2p_main'],
-                consumes,
             },
             {
                 id: 'mpm_particle_collision',
                 role: 'compute',
                 shader: mpmParticleCollision,
                 entryPoints: ['mpm_particle_collision_main'],
-                consumes,
             },
         ];
         const colliders = {
@@ -205,11 +211,9 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         ): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
-                // Grupo com os parâmetros (offset dinâmico da iteração); demais grupos sem offset.
-                p.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(g, bg, p.dynamic[g] ? offset : undefined),
-                );
-                pass.dispatch.invocations(invocations, 64);
+                // Grupo dos parâmetros (`draw`) com o offset dinâmico da iteração; demais grupos sem offset.
+                p.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(invocations, WORKGROUP_SIZE.value);
             });
         };
         for (let i = 0; i < this.iterations; i++) {
@@ -270,7 +274,7 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
             this.gridKey = key;
             this.core.destroy(this.gridBuffer);
             this.gridBuffer = this.createGrid();
-            ctx.bind({ grid: this.gridBuffer });
+            ctx.bind(new Map([[R.grid, this.gridBuffer]]));
         }
         const substeps = ParticleMaterial.substepsFor(
             time.stepDt,
@@ -279,7 +283,8 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         );
         this.iterations = time.steps * substeps;
         if (this.iterations === 0) return;
-        if (this.params.reserve(this.iterations)) ctx.bind({ mpm_params: this.params.source() });
+        if (this.params.reserve(this.iterations))
+            ctx.bind(new Map([[R.params, this.params.source()]]));
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];

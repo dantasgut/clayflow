@@ -2,12 +2,6 @@
 // dígito de 4 bits é ordenado por quatro divisões estáveis por bit (soma de prefixos de flags em memória de
 // workgroup); o posto de cada elemento entre os do mesmo dígito no grupo vai somado à base global (dígito, grupo) do
 // histograma escaneado. Sem atômicos na saída: determinístico. Duas entradas: só chaves, e chaves com valores.
-@group(0) @binding(0) var<uniform>             radix:      RadixParams;
-@group(1) @binding(0) var<storage, read>       keys_in:    array<u32>;
-@group(1) @binding(1) var<storage, read_write> keys_out:   array<u32>;
-@group(1) @binding(2) var<storage, read>       hist:       array<u32>;
-@group(1) @binding(3) var<storage, read>       values_in:  array<u32>;
-@group(1) @binding(4) var<storage, read_write> values_out: array<u32>;
 
 var<workgroup> radix_digit_wg: array<u32, 256>;
 var<workgroup> radix_src_wg:   array<u32, 256>;
@@ -15,11 +9,11 @@ var<workgroup> radix_scan_wg:  array<u32, 256>;
 var<workgroup> radix_start_wg: array<u32, 16>;
 
 // Destino na saída do elemento que ficou na posição local `li` após a ordenação do grupo (`dest.x`), com o índice
-// de origem (`dest.y`); `dest.x = 0xFFFFFFFF` para posições sem elemento (cauda do último grupo).
+// de origem (`dest.y`); `dest.x = NONE` para posições sem elemento (cauda do último grupo).
 fn radix_local_sort(i: u32, li: u32, group: u32) -> vec2u {
-    let n = radix.count;
+    let n = radix_count();
     // Fora do domínio: chave máxima, índice ≥ n — ficam no fim (são as últimas posições do último grupo).
-    var key = 0xFFFFFFFFu;
+    var key = NONE;
     if (i < n) { key = keys_in[i]; }
     var digit = (key >> radix.shift) & 15u;
     if (i >= n) { digit = 15u; }
@@ -49,12 +43,12 @@ fn radix_local_sort(i: u32, li: u32, group: u32) -> vec2u {
     }
 
     // Início de cada dígito no grupo ordenado: a primeira posição em que ele aparece.
-    if (li < 16u) { radix_start_wg[li] = 0xFFFFFFFFu; }
+    if (li < 16u) { radix_start_wg[li] = NONE; }
     workgroupBarrier();
     if (li == 0u || radix_digit_wg[li - 1u] != digit) { radix_start_wg[digit] = li; }
     workgroupBarrier();
 
-    if (src >= n) { return vec2u(0xFFFFFFFFu, src); }
+    if (src >= n) { return vec2u(NONE, src); }
     let base = hist[digit * radix.groups + group];
     return vec2u(base + (li - radix_start_wg[digit]), src);
 }
@@ -68,7 +62,7 @@ fn radix_scatter_main(
 ) {
     let i    = gid3.x + gid3.y * nwg.x * 256u;
     let dest = radix_local_sort(i, lid.x, wgid.x + wgid.y * nwg.x);
-    if (dest.x != 0xFFFFFFFFu) { keys_out[dest.x] = keys_in[dest.y]; }
+    if (dest.x != NONE) { keys_out[dest.x] = keys_in[dest.y]; }
 }
 
 @compute @workgroup_size(256)
@@ -80,7 +74,7 @@ fn radix_scatter_kv_main(
 ) {
     let i    = gid3.x + gid3.y * nwg.x * 256u;
     let dest = radix_local_sort(i, lid.x, wgid.x + wgid.y * nwg.x);
-    if (dest.x != 0xFFFFFFFFu) {
+    if (dest.x != NONE) {
         keys_out[dest.x]   = keys_in[dest.y];
         values_out[dest.x] = values_in[dest.y];
     }

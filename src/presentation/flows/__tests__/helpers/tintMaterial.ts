@@ -3,6 +3,7 @@ import type { PipelineDescriptor } from '../../../../scene/descriptors/PipelineD
 import { FieldType } from '../../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../../scene/descriptors/StructSchema';
 import { StandardMaterial } from '../../../../elements/material/StandardMaterial';
+import { standardMaterialsResource } from '../../../../elements/material/renderResources';
 
 /** Schema próprio (pool `TintMaterial`) no layout do `StandardMaterial`. */
 const TintSchema = new StructSchema('TintMaterial', {
@@ -14,8 +15,8 @@ const TintSchema = new StructSchema('TintMaterial', {
 });
 
 /**
- * Material de triângulos de teste com schema e pipeline próprios (o mesmo shader do forward, lido como
- * `StandardMaterial`): um segundo pipeline da mesma família de layout.
+ * Material de triângulos de teste com schema e pipeline próprios (o mesmo shader do forward, com o pool dele no recurso
+ * `materials` do shader): um segundo pipeline da mesma família de layout.
  */
 export class TintMaterial extends StandardMaterial {
     static override readonly schema = TintSchema;
@@ -30,13 +31,7 @@ export class TintMaterial extends StandardMaterial {
             {
                 ...base!,
                 id: 'pipeline_tint',
-                consumes: [
-                    'CameraMatrices',
-                    'WorldTransform',
-                    'Renderable',
-                    'RenderInstance',
-                    { name: TintSchema.name, as: 'StandardMaterial' },
-                ],
+                pools: new Map([[standardMaterialsResource, TintSchema.name]]),
             },
         ];
     }

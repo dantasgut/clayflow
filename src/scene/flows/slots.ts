@@ -1,3 +1,4 @@
+import { NONE } from '../shaders/engineConstants';
 import type {
     TextureSpec,
     TextureViewSpec,
@@ -70,7 +71,7 @@ export interface EntityRecordDeclaration {
 }
 
 /** Valor de um campo opcional de registro de entidade sem o Resource (`0xFFFFFFFF`). */
-export const RECORD_NONE = 0xffffffff;
+export const RECORD_NONE = NONE.value;
 
 /**
  * Grupos de instâncias de um conjunto `entities` (spec 007): a C2 agrupa as entradas pela chave que o estágio dá (ex.:
@@ -199,7 +200,7 @@ export interface BoundPool {
     readonly gpuOwned: number;
     /**
      * Bitset de slots ocupados na GPU (`array<u32>`, um bit por slot; spec 008) — o que um kernel que percorre
-     * `[0, count)` testa para ignorar faixas liberadas (`pool_live`). Também em `consumes` como `<poolKey>.live`.
+     * `[0, count)` testa para ignorar faixas liberadas (`pool_live`). Também como fornecedor `{ consumer: '<poolKey>.live' }`.
      */
     readonly live: StorageBufferSpec;
     /** Slot da entidade no pool (o primeiro da faixa), ou `undefined`. */

@@ -18,9 +18,6 @@ import { materialPoint } from '../material/point/shaders';
  * entidade; instâncias com o mesmo código compartilham o pipeline.
  */
 export class MaterialFunction extends ExtensionFunction {
-    /** Registro de parâmetros das funções `material` (um pool por ponto). */
-    static readonly schema = materialPoint.record;
-
     constructor(options: ExtensionFunctionOptions) {
         super(materialPoint, options);
     }

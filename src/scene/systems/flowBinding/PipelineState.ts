@@ -1,4 +1,6 @@
 import type {
+    Binder,
+    PipelineSpec,
     BindGroupSpec,
     BindingLayoutEntry,
     ComputePipelineSpec,
@@ -11,9 +13,18 @@ import type {
 import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import { FlowBindingError } from '../../flows/FlowBindingError';
-import type { PreparedCompute, PreparedRender } from '../../flows/FlowBinding';
+import {
+    bindGroupsTo,
+    type GroupOffsets,
+    type PreparedCompute,
+    type PreparedGroup,
+    type PreparedRender,
+} from '../../flows/FlowBinding';
+import type { BindingFrequency } from '../../shaders/WgslResource';
 import { composeWgsl, type ComposedShader } from '../../shaders/composeWgsl';
 import type { InferredEntry, InferredLayout, LayoutInferencer } from '../LayoutInferencer';
+import { checkLayoutLimits } from './limits';
+import { WgslCompositionError } from '../../shaders/WgslCompositionError';
 import { bindingEntryOf, layoutEntryOf, sameLayoutEntry, sameSource } from './sources';
 
 /** Resolução da fonte de um binding: a fonte, `undefined` (ainda ausente na cena) ou erro estrutural (lança). */
@@ -50,7 +61,11 @@ export class PipelineState {
     private readonly composedShader: ShaderModuleSpec;
     /** O shader montado (módulos e as suas linhas, para traduzir mensagens do compilador). */
     readonly composed: ComposedShader;
-    /** Erros do compilador quando o shader foi rejeitado (`descriptor.verify`); `null` sem rejeição. */
+    /**
+     * Erros do compilador quando o shader foi rejeitado (`descriptor.verify`) — ou o limite do device excedido pelas
+     * ligações do código de fora (`descriptor.extensions`: um pool por forma de função, spec 031 R8); `null` sem
+     * rejeição.
+     */
     rejected: readonly ShaderMessage[] | null = null;
     private shader: ShaderModuleSpec | null = null;
     private layoutSpecs: LayoutSpec[] = [];
@@ -110,6 +125,40 @@ export class PipelineState {
         return this.dynamicGroups;
     }
 
+    /** Grupos da frequência (spec 031). */
+    groupsOf(frequency: BindingFrequency): readonly PreparedGroup[] {
+        const out: PreparedGroup[] = [];
+        for (const g of this.layout.groups) {
+            if (g.frequency !== frequency) continue;
+            const spec = this.bindGroups[g.group];
+            if (spec === undefined) continue;
+            out.push({ index: g.group, spec, dynamic: this.dynamicGroups[g.group] === true });
+        }
+        return out;
+    }
+
+    /** Grava todos os grupos (spec 031). */
+    bindTo<P extends PipelineSpec>(binder: Binder<P>, offsets?: GroupOffsets): void {
+        bindGroupsTo(
+            binder,
+            this.layout.groups.flatMap((g) => {
+                const spec = this.bindGroups[g.group];
+                return spec === undefined
+                    ? []
+                    : [
+                          {
+                              index: g.group,
+                              spec,
+                              dynamic: this.dynamicGroups[g.group] === true,
+                              ...(g.frequency !== undefined ? { frequency: g.frequency } : {}),
+                          },
+                      ];
+            }),
+            offsets,
+            `Flow '${this.flowType}', pipeline '${this.id}'`,
+        );
+    }
+
     get ready(): boolean {
         return this.pipelineSpec !== null && this.compiled && !this.waiting;
     }
@@ -125,6 +174,8 @@ export class PipelineState {
      * @throws FlowBindingError em erro estrutural (binding sem fonte possível, incompatibilidade).
      */
     refresh(lookup: SourceLookup, onReplaced: ReplacedListener): boolean {
+        // Rejeitado pelo limite (sem objetos de GPU): fica assim até o Flow trocar o shader.
+        if (this.rejected !== null && !this.built) return false;
         const next: ResolvedSource[][] = [];
         for (const g of this.layout.groups) {
             const list: ResolvedSource[] = [];
@@ -231,6 +282,26 @@ export class PipelineState {
     }
 
     private build(entries: BindingLayoutEntry[][], sources: ResolvedSource[][]): void {
+        try {
+            checkLayoutLimits(
+                `Flow '${this.flowType}', pipeline '${this.id}'`,
+                entries,
+                this.core.capabilities().limits,
+            );
+        } catch (error) {
+            // Código de fora (funções de ponto: cada forma traz o seu pool, spec 031 R8) que excede um limite do
+            // device: rejeitado como um erro de compilação — a função não vale aqui e o atual (ou o pronto) continua.
+            if (
+                !(error instanceof WgslCompositionError)
+                || (this.descriptor.extensions?.length ?? 0) === 0
+            )
+                throw error;
+            this.release();
+            this.waiting = false;
+            this.rejected = [{ type: 'error', message: error.message, line: 0, column: 0 }];
+            this.onRejected(this, this.rejected);
+            return;
+        }
         this.release();
         this.waiting = false;
         this.built = true;
@@ -316,6 +387,9 @@ export class PipelineState {
             layouts: this.layoutSpecs,
             shader,
             entryPoint: this.descriptor.entryPoints[0]!,
+            ...(this.descriptor.constants !== undefined
+                ? { constants: this.descriptor.constants }
+                : {}),
         };
     }
 
@@ -338,6 +412,7 @@ export class PipelineState {
                 shader,
                 entryPoint: vertexEntry,
                 ...(d.vertexBuffers !== undefined ? { buffers: d.vertexBuffers } : {}),
+                ...(d.constants !== undefined ? { constants: d.constants } : {}),
             },
             ...(fragmentEntry !== undefined
                 ? {
@@ -345,6 +420,7 @@ export class PipelineState {
                           shader,
                           entryPoint: fragmentEntry,
                           targets: d.colorTargets ?? [{ format: this.canvasFormat() }],
+                          ...(d.constants !== undefined ? { constants: d.constants } : {}),
                       },
                   }
                 : {}),

@@ -1,31 +1,26 @@
-// Campos de força prontos (spec 009): soma, na posição `x` e velocidade `v`, as acelerações dos campos vivos do pool
-// `FieldFnRecord` cujo tipo (`kind`) é de campo pronto — os registros das funções do usuário têm tipo 0 e ficam de
-// fora. Registro: v0 = a, v1 = b, v2 = s (bits de f32).
+// Campos de força prontos (spec 009): soma, na posição `x` e velocidade `v`, as acelerações dos campos do pool
+// `FieldBuiltinRecord` (spec 031, R8: registro próprio dos campos prontos; as funções `field` do usuário têm os pools
+// das suas formas). Slot livre é zerado pela C2 (`kind` 0, fora do laço). Registro: `kind` (código de tipo), vetores
+// `a`, `b`, `s`:
 //   1 gravidade de fonte pontual: a = posição da fonte, s.x = G·M, s.y = suavização (m²)
 //   2 vento:     a = direção · intensidade, s.x = turbulência, s.y = escala espacial do ruído (1/m)
 //   3 vórtice:   a = eixo (unitário), b = centro, s.x = intensidade (m/s²), s.y = decaimento (1/m)
 //   4 arrasto:   s.x = coeficiente linear (1/s), s.y = quadrático (1/m)
 //   5 empuxo:    s.x = densidade do meio, s.y = nível da superfície (y), s.z = gravidade (m/s²)
 // A gravidade uniforme continua nos parâmetros de cada solver (soma exata com estes termos).
-// Requer: structs FieldFnRecord; field_point_types; noise; pool_live; globais `field_records` e `field_live` do kernel.
-
-const FIELD_GRAVITY_POINT: u32 = 1u;
-const FIELD_WIND: u32 = 2u;
-const FIELD_VORTEX: u32 = 3u;
-const FIELD_DRAG: u32 = 4u;
-const FIELD_BUOYANCY: u32 = 5u;
+// Requer: struct FieldBuiltinRecord; field_point_types; noise; o recurso `field_builtin_records` e os códigos de tipo
+// (constantes compartilhadas `FIELD_*`).
 
 fn field_builtin(x: vec3f, v: vec3f, time: f32, body: FieldBody) -> vec3f {
     var acc = vec3f(0.0);
-    let n = arrayLength(&field_records);
+    let n = arrayLength(&field_builtin_records);
     for (var k = 0u; k < n; k++) {
-        if (!pool_live(field_live[k >> 5u], k)) { continue; }
-        let r = field_records[k];
+        let r = field_builtin_records[k];
         let kind = r.kind;
         if (kind == 0u) { continue; }
-        let a = bitcast<vec4f>(r.v0);
-        let b = bitcast<vec4f>(r.v1);
-        let s = bitcast<vec4f>(r.v2);
+        let a = r.a;
+        let b = r.b;
+        let s = r.s;
         switch kind {
             case FIELD_GRAVITY_POINT: {
                 let d = a.xyz - x;

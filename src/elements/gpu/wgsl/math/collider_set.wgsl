@@ -1,24 +1,14 @@
 // Conjunto de colliders (spec 005, R17): pools tipados de plano, caixa, esfera, malha e superfície (spec 010), com a pose dos colliders
-// dinâmicos vinda do corpo dono. Ligado no grupo 2 pelos estágios que colidem partículas/nós contra o mundo (SPH, PBF,
-// MPM); o `ColliderSet` (C3) fornece as fontes por nome. A malha está no grupo (spec 006, A6), mas nenhuma função
+// dinâmicos vinda do corpo dono. Requerido pelos estágios que colidem partículas/nós contra o mundo (SPH, PBF, MPM,
+// XPBD, FEM, partículas); o `ColliderSet` (C3) fornece as fontes dos recursos (`colliderResources`, spec 031). A malha está no grupo (spec 006, A6), mas nenhuma função
 // daqui a usa ainda — `MeshCollider` não gera contato (lacuna P2), então os layouts inferidos não a incluem.
 //
 // Requer: structs `ColliderSetCounts`, `PlaneCollider`, `BoxCollider`, `SphereCollider`, `MeshCollider`, `RigidBody`
 // e `SurfaceCollider` (gerados dos schemas); `quat.wgsl`; `sdf.wgsl`; `surface_collider_hit.wgsl`.
 
-@group(2) @binding(0) var<uniform>       collider_counts:        ColliderSetCounts;
-@group(2) @binding(1) var<storage, read> collider_planes:        array<PlaneCollider>;
-@group(2) @binding(2) var<storage, read> collider_boxes:         array<BoxCollider>;
-@group(2) @binding(3) var<storage, read> collider_spheres:       array<SphereCollider>;
-// Donos das caixas e das esferas num só mapa (caixas a partir de 0, esferas a partir de `sphere_owner_base`).
-@group(2) @binding(4) var<storage, read> collider_owners:        array<u32>;
-@group(2) @binding(7) var<storage, read> collider_bodies:        array<RigidBody>;
-@group(2) @binding(8) var<storage, read> collider_meshes:        array<MeshCollider>;
-@group(2) @binding(9) var<storage, read> collider_mesh_owners:   array<u32>;
-@group(2) @binding(11) var<storage, read> collider_surface_field: array<f32>;
 
 // Collider sem corpo dono: o centro é a posição de mundo, sem rotação.
-const COLLIDER_NO_OWNER: u32 = 0xFFFFFFFFu;
+const COLLIDER_NO_OWNER: u32 = NONE;
 
 struct ColliderPose {
     pos: vec3f,
@@ -96,7 +86,7 @@ fn collider_set_push_out(p: ptr<function, vec3f>, v: ptr<function, vec3f>, radiu
         collider_resolve_particle(collider_hit_sphere(i, *p), p, v, radius, restitution);
     }
     for (var i = 0u; i < collider_counts.surface_count; i++) {
-        collider_resolve_particle(collider_hit_surface(i, *p), p, v, radius + surface_collider_margin(i), restitution);
+        collider_resolve_particle(collider_hit_surface(surface_collider_first(i), *p), p, v, radius + surface_collider_margin(surface_collider_first(i)), restitution);
     }
 }
 
@@ -120,7 +110,7 @@ fn collider_set_constrain(p: vec3f, v: ptr<function, vec3f>, band: f32) {
         collider_constrain_node(collider_hit_sphere(i, p), v, band);
     }
     for (var i = 0u; i < collider_counts.surface_count; i++) {
-        collider_constrain_node(collider_hit_surface(i, p), v, band);
+        collider_constrain_node(collider_hit_surface(surface_collider_first(i), p), v, band);
     }
 }
 
@@ -173,6 +163,6 @@ fn collider_set_adhesion(
         collider_adhesion_contact(collider_hit_sphere(i, p), v, H, accel, tangential, dt);
     }
     for (var i = 0u; i < collider_counts.surface_count; i++) {
-        collider_adhesion_contact(collider_hit_surface(i, p), v, H, accel, tangential, dt);
+        collider_adhesion_contact(collider_hit_surface(surface_collider_first(i), p), v, H, accel, tangential, dt);
     }
 }

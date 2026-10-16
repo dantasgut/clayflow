@@ -103,11 +103,20 @@ describe('TransformFlow (slots)', () => {
             'linalg',
             'mat',
             'transform_local',
+            'const:WORKGROUP_SIZE',
+            'transforms',
+            'worlds',
+            'params',
             'transform_compose',
         ]);
         expect(composed.spec.source).toContain(Transform.schema.toWGSL());
         expect(composed.spec.source).toContain(Transform.worldSchema.toWGSL());
-        expect(desc!.consumes).toEqual([Transform.schema.name, Transform.worldSchema.name]);
+        // Os pools vêm dos fornecedores dos recursos declarados (spec 031).
+        expect(composed.bindings.map((b) => [b.name, b.resource.resource.provider])).toEqual([
+            ['params', 'private'],
+            ['transforms', { pool: Transform.schema.name }],
+            ['worlds', { pool: Transform.worldSchema.name }],
+        ]);
     });
 
     it('dispose libera o uniform de parâmetros', () => {

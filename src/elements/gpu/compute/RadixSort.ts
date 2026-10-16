@@ -1,13 +1,29 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type {
+    EngineCore,
+    Frame,
+    IndirectBufferSpec,
+    StorageBufferSpec,
+} from '../../../scene/contracts/gpu';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,
 } from '../../../scene/flows/createComputeKernel';
+import { bindPoints } from '../../../scene/shaders/bindPoints';
+import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
 import { RadixParamsSchema } from './schemas';
-import { radixHistogram, radixScatter } from './shaders';
+import {
+    radixCountGpu,
+    radixCountPoint,
+    radixHistogram,
+    radixScatter,
+    radixResources,
+    setCountResources,
+} from './shaders';
 
 /** Bits por passe (dígitos de 16 valores). */
 const DIGIT_BITS = 4;
@@ -29,8 +45,11 @@ export interface RadixSortRecordArgs {
     readonly keys: StorageBufferSpec;
     /** Valores `u32[count]` permutados junto com as chaves (exige `withValues`). */
     readonly values?: StorageBufferSpec;
-    /** Elementos (≤ `capacity`). `0` não grava nada. */
-    readonly count: number;
+    /**
+     * Elementos (≤ `capacity`). `0` não grava nada. Ou a contagem lida na GPU (`GpuCount`, com `keys` preparado com o
+     * mesmo `counts`): o histograma cobre os grupos da capacidade e a contagem real limita os kernels.
+     */
+    readonly count: number | GpuCount;
     /** Bits menos significativos considerados: múltiplo de 4 em [4, 32]. Padrão 32. */
     readonly bits?: number;
 }
@@ -59,7 +78,15 @@ const MAX_PASSES = 32 / DIGIT_BITS;
  * Os passes alternam entre o buffer do chamador e um temporário interno (pingue-pongue); com número ímpar de passes,
  * o resultado é copiado de volta, então ele sempre termina em `keys` (e `values`).
  *
- * Duas fases (spec 006): `prepare(keys, values, gravaçõesPorQuadro)` fora da gravação; `record` só grava.
+ * Contagem da GPU (spec 031, R10): preparada com `counts`, a ordenação aceita `count: { counts, index }` — os
+ * elementos vêm do registro `SetCount` no próprio kernel (ponto `radix_count`), sem leitura de volta. O histograma usa
+ * os grupos da capacidade (os além da contagem real ficam zerados, sem mudar as bases) e despacha pela capacidade; a
+ * soma de prefixos dele tem tamanho conhecido na CPU; o espalhamento despacha pelo argumento indireto do registro, que
+ * precisa já trazer o despacho para grupos de 256 (`CountToArgs` com `workgroupSize: 256` gravado antes no mesmo
+ * fluxo). Com número ímpar de passes, as chaves (e valores) são copiadas para o temporário antes e de volta depois,
+ * pela capacidade (limitada pelos buffers) — a cauda além da contagem volta intacta. A contagem deve ser ≤ `capacity`.
+ *
+ * Duas fases (spec 006): `prepare(keys, values, gravaçõesPorQuadro, counts?)` fora da gravação; `record` só grava.
  */
 export class RadixSort {
     private readonly disc: string;
@@ -70,7 +97,11 @@ export class RadixSort {
     private tmpKeys: StorageBufferSpec | null = null;
     private tmpValues: StorageBufferSpec | null = null;
     private hist: StorageBufferSpec | null = null;
-    private readonly prepared = new Map<StorageBufferSpec, PreparedKeys>();
+    /** Kernels por origem da contagem (`null` = CPU; um buffer `SetCount` = variante da GPU) e buffer de chaves. */
+    private readonly prepared = new Map<
+        IndirectBufferSpec | null,
+        Map<StorageBufferSpec, PreparedKeys>
+    >();
 
     constructor(
         private readonly core: EngineCore,
@@ -96,30 +127,42 @@ export class RadixSort {
 
     /**
      * Prepara a ordenação de `keys` (e `values`, com `withValues`) para até `recordsPerFrame` gravações por quadro.
-     * Idempotente; fora da gravação.
+     * Com `counts`, também os kernels da variante de contagem da GPU ligados a esse buffer de registros `SetCount`
+     * (memorizados por buffer). Idempotente; fora da gravação.
      */
-    prepare(keys: StorageBufferSpec, values?: StorageBufferSpec, recordsPerFrame = 1): void {
+    prepare(
+        keys: StorageBufferSpec,
+        values?: StorageBufferSpec,
+        recordsPerFrame = 1,
+        counts?: IndirectBufferSpec,
+    ): void {
         this.checkValues(values);
         if (this.params.reserve(MAX_PASSES * recordsPerFrame)) this.releaseKernels();
         this.allocate();
         this.scan.prepare(this.hist!, MAX_PASSES * recordsPerFrame);
-        const cached = this.prepared.get(keys);
-        if (cached !== undefined && cached.values === values) return;
-        if (cached !== undefined) this.destroyPrepared(cached);
         const tmpKeys = this.tmpKeys!;
-        this.prepared.set(keys, {
-            values,
-            fromCaller: this.passKernels(
-                keys,
-                tmpKeys,
-                values === undefined ? undefined : [values, this.tmpValues!],
-            ),
-            fromTemp: this.passKernels(
-                tmpKeys,
-                keys,
-                values === undefined ? undefined : [this.tmpValues!, values],
-            ),
-        });
+        for (const source of counts === undefined ? [null] : [null, counts]) {
+            let byKeys = this.prepared.get(source);
+            if (byKeys === undefined) this.prepared.set(source, (byKeys = new Map()));
+            const cached = byKeys.get(keys);
+            if (cached !== undefined && cached.values === values) continue;
+            if (cached !== undefined) this.destroyPrepared(cached);
+            byKeys.set(keys, {
+                values,
+                fromCaller: this.passKernels(
+                    source,
+                    keys,
+                    tmpKeys,
+                    values === undefined ? undefined : [values, this.tmpValues!],
+                ),
+                fromTemp: this.passKernels(
+                    source,
+                    tmpKeys,
+                    keys,
+                    values === undefined ? undefined : [this.tmpValues!, values],
+                ),
+            });
+        }
     }
 
     /**
@@ -135,6 +178,10 @@ export class RadixSort {
             );
         }
         this.checkValues(values);
+        if (typeof count !== 'number') {
+            this.recordGpu(frame, args, bits, count);
+            return;
+        }
         if (!Number.isInteger(count) || count < 0) {
             throw new RangeError(
                 `RadixSort(${this.disc}): count deve ser inteiro ≥ 0 (recebeu ${count}).`,
@@ -146,24 +193,74 @@ export class RadixSort {
             );
         }
         if (count === 0) return;
-        const prepared = this.prepared.get(keys);
+        const prepared = this.prepared.get(null)?.get(keys);
         if (prepared === undefined || prepared.values !== values) {
             throw new Error(`RadixSort(${this.disc}): prepare(keys, values) antes de gravar.`);
         }
+        this.runPasses(frame, prepared, bits, count, count, 0);
+        if ((bits / DIGIT_BITS) % 2 === 1) this.copyBack(frame, args, count * 4);
+    }
+
+    /**
+     * Variante de contagem da GPU: histograma pelos grupos da capacidade, espalhamento pelo despacho indireto do
+     * registro `count`; com passes ímpares, as chaves (e valores) vão ao temporário antes, para a cauda voltar intacta.
+     */
+    private recordGpu(
+        frame: Frame,
+        args: RadixSortRecordArgs,
+        bits: number,
+        count: GpuCount,
+    ): void {
+        const owner = `RadixSort(${this.disc})`;
+        CountToArgs.check(owner, count);
+        const { keys, values } = args;
+        const prepared = this.prepared.get(count.counts)?.get(keys);
+        if (prepared === undefined || prepared.values !== values) {
+            throw new Error(`${owner}: prepare(keys, values, gravações, counts) antes de gravar.`);
+        }
+        const odd = (bits / DIGIT_BITS) % 2 === 1;
+        const limit = Math.min(this.capacity * 4, keys.byteSize, values?.byteSize ?? Infinity);
+        const bytes = limit - (limit % 4);
+        if (odd) {
+            frame.copy(keys, this.tmpKeys!, bytes);
+            if (values !== undefined) frame.copy(values, this.tmpValues!, bytes);
+        }
+        this.runPasses(frame, prepared, bits, this.capacity, count, count.index);
+        if (odd) this.copyBack(frame, args, bytes);
+    }
+
+    /**
+     * Passes de 4 bits: `count` elementos no uniform (a capacidade na variante da GPU, cujo kernel lê o registro) e
+     * histograma pelos grupos dele; o espalhamento despacha `scatter` (as mesmas invocações, ou o indireto do registro).
+     */
+    private runPasses(
+        frame: Frame,
+        prepared: PreparedKeys,
+        bits: number,
+        count: number,
+        scatter: number | GpuCount,
+        countIndex: number,
+    ): void {
         const groups = Math.ceil(count / SCAN_GROUP);
-        const passes = bits / DIGIT_BITS;
         const hist = this.hist!;
-        for (let p = 0; p < passes; p++) {
-            const offset = this.params.allocate(frame, { count, shift: p * DIGIT_BITS, groups });
+        for (let p = 0; p < bits / DIGIT_BITS; p++) {
+            const offset = this.params.allocate(frame, {
+                count,
+                shift: p * DIGIT_BITS,
+                groups,
+                count_index: countIndex,
+            });
             const kernels = p % 2 === 0 ? prepared.fromCaller : prepared.fromTemp;
             this.run(frame, 'RadixSort.histogram', kernels.histogram, offset, count);
             this.scan.record(frame, { src: hist, dst: hist, count: DIGITS * groups });
-            this.run(frame, 'RadixSort.scatter', kernels.scatter, offset, count);
+            this.run(frame, 'RadixSort.scatter', kernels.scatter, offset, scatter);
         }
-        if (passes % 2 === 1) {
-            frame.copy(this.tmpKeys!, keys, count * 4);
-            if (values !== undefined) frame.copy(this.tmpValues!, values, count * 4);
-        }
+    }
+
+    /** Número ímpar de passes: o resultado, no temporário, volta às chaves (e valores) do chamador. */
+    private copyBack(frame: Frame, args: RadixSortRecordArgs, bytes: number): void {
+        frame.copy(this.tmpKeys!, args.keys, bytes);
+        if (args.values !== undefined) frame.copy(this.tmpValues!, args.values, bytes);
     }
 
     /** Libera kernels, temporários, a soma de prefixos interna e os uniforms. */
@@ -204,50 +301,66 @@ export class RadixSort {
     }
 
     private passKernels(
+        counts: IndirectBufferSpec | null,
         inKeys: StorageBufferSpec,
         outKeys: StorageBufferSpec,
         valuePair: readonly [StorageBufferSpec, StorageBufferSpec] | undefined,
     ): PassKernels {
         const radix = this.params.source();
         const hist = this.hist!;
+        const r = radixResources;
+        const gpu = counts === null ? '' : ':gpu';
+        const variant = (ready: typeof radixHistogram): typeof radixHistogram =>
+            counts === null
+                ? ready
+                : bindPoints(ready, new Map([[radixCountPoint, radixCountGpu]]));
+        const countBinding: [WgslResource, BindingSource][] =
+            counts === null ? [] : [[setCountResources.counts, counts]];
         const histogram = createComputeKernel(this.core, {
-            discriminator: `${this.disc}:radix_histogram`,
-            shader: radixHistogram,
+            discriminator: `${this.disc}:radix_histogram${gpu}`,
+            shader: variant(radixHistogram),
             entryPoint: 'radix_histogram_main',
-            bindings: { radix, keys: inKeys, hist },
+            bindings: new Map<WgslResource, BindingSource>([
+                [r.radix, radix],
+                [r.keys, inKeys],
+                [r.histWrite, hist],
+                ...countBinding,
+            ]),
         });
         const scatter = createComputeKernel(this.core, {
-            discriminator: `${this.disc}:radix_scatter${valuePair === undefined ? '' : '_kv'}`,
-            shader: radixScatter,
+            discriminator: `${this.disc}:radix_scatter${valuePair === undefined ? '' : '_kv'}${gpu}`,
+            shader: variant(radixScatter),
             entryPoint: valuePair === undefined ? 'radix_scatter_main' : 'radix_scatter_kv_main',
-            bindings:
-                valuePair === undefined
-                    ? { radix, keys_in: inKeys, keys_out: outKeys, hist }
-                    : {
-                          radix,
-                          keys_in: inKeys,
-                          keys_out: outKeys,
-                          hist,
-                          values_in: valuePair[0],
-                          values_out: valuePair[1],
-                      },
+            bindings: new Map<WgslResource, BindingSource>([
+                [r.radix, radix],
+                [r.keysIn, inKeys],
+                [r.keysOut, outKeys],
+                [r.histRead, hist],
+                ...countBinding,
+                ...(valuePair === undefined
+                    ? []
+                    : ([
+                          [r.valuesIn, valuePair[0]],
+                          [r.valuesOut, valuePair[1]],
+                      ] as [WgslResource, BindingSource][])),
+            ]),
         });
         return { histogram, scatter };
     }
 
+    /** Um número despacha `invocations(count, 256)`; `GpuCount`, o indireto do registro. */
     private run(
         frame: Frame,
         label: string,
         kernel: ComputeKernel,
         offset: number,
-        count: number,
+        count: number | GpuCount,
     ): void {
         frame.compute(label, (pass) => {
-            pass.bind
-                .setPipeline(kernel.pipeline)
-                .setBindGroup(0, kernel.bindGroups[0]!, [offset])
-                .setBindGroup(1, kernel.bindGroups[1]!);
-            pass.dispatch.invocations(count, SCAN_GROUP);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind, { draw: [offset] });
+            if (typeof count === 'number') pass.dispatch.invocations(count, SCAN_GROUP);
+            else pass.dispatch.workgroupsIndirect(count.counts, CountToArgs.dispatchOffset(count));
         });
     }
 
@@ -259,7 +372,9 @@ export class RadixSort {
     }
 
     private releaseKernels(): void {
-        for (const p of this.prepared.values()) this.destroyPrepared(p);
+        for (const byKeys of this.prepared.values()) {
+            for (const p of byKeys.values()) this.destroyPrepared(p);
+        }
         this.prepared.clear();
     }
 }

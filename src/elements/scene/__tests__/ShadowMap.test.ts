@@ -18,7 +18,7 @@ describe('ShadowMap', () => {
         expect(map.data.size).toEqual([1024, 1024]);
     });
 
-    it('descritores: parâmetros em pool, matriz só na GPU (mesmo slot) e textura depth32float do tamanho do mapa', () => {
+    it('descritores: parâmetros em pool, matriz só na GPU (mesmo slot), textura depth32float do tamanho do mapa e o amostrador de comparação', () => {
         const map = new ShadowMap({ size: [512, 256] });
         expect(map.data).not.toHaveProperty('lightViewProj');
         expect(map.getDescriptors()).toEqual([
@@ -34,6 +34,11 @@ describe('ShadowMap', () => {
                 id: 'depth',
                 role: 'texture',
                 textureShape: { format: 'depth32float', width: 512, height: 256 },
+            },
+            {
+                id: 'compare',
+                role: 'sampler',
+                samplerShape: { magFilter: 'linear', minFilter: 'linear', compare: 'less' },
             },
         ]);
     });

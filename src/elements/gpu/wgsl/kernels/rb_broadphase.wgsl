@@ -9,13 +9,8 @@
 // Requer: structs RigidBody, RBSimParams, BoxCollider, SphereCollider, CandidatePair, BroadphaseParams,
 // HashGridParams; spatial_hash; quat.
 
-@group(0) @binding(0) var<uniform>             rb_params:   RBSimParams;
-@group(0) @binding(1) var<storage, read>       bodies:      array<RigidBody>;
-@group(0) @binding(2) var<uniform>             bp_params:   BroadphaseParams;
-@group(0) @binding(3) var<storage, read_write> proxies:     array<vec4f>;
-
 const BP_BODY_BOX: u32 = 1u;
-const NO_OWNER: u32 = 0xFFFFFFFFu;
+const NO_OWNER: u32 = NONE;
 
 // Raio do proxy: positivo na grade; negativo (−raio) para os grandes, testados à parte.
 fn proxy_of(center: vec3f, radius: f32) -> vec4f {
@@ -27,30 +22,24 @@ fn owner_center(owner: u32, local_center: vec3f, static_center: vec3f) -> vec3f 
     return bodies[owner].pos_pred.xyz + quat_rotate_vec(bodies[owner].rot_pred, local_center);
 }
 
-@group(1) @binding(0) var<storage, read> boxes:       array<BoxCollider>;
-@group(1) @binding(1) var<storage, read> box_owners:  array<u32>;
-
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_proxies_box_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let j = gid3.x + gid3.y * nwg.x * 64u;
+    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (j >= bp_params.box_count) { return; }
     let box = boxes[j];
     let center = owner_center(box_owners[j], box.center.xyz, box.center.xyz);
     proxies[j] = proxy_of(center, length(box.halfExtents.xyz));
 }
 
-@group(1) @binding(2) var<storage, read> spheres:       array<SphereCollider>;
-@group(1) @binding(3) var<storage, read> sphere_owners: array<u32>;
-
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_proxies_sphere_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let j = gid3.x + gid3.y * nwg.x * 64u;
+    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (j >= bp_params.sphere_count) { return; }
     let sph = spheres[j];
     let center = owner_center(sphere_owners[j], sph.center.xyz, sph.center.xyz);
@@ -58,15 +47,6 @@ fn rb_proxies_sphere_main(
 }
 
 // ── Pares candidatos ─────────────────────────────────────────────────────────
-
-@group(1) @binding(10) var<uniform>             grid:        HashGridParams;
-@group(1) @binding(11) var<storage, read>       cell_start:  array<u32>;
-@group(1) @binding(12) var<storage, read>       cell_count:  array<u32>;
-@group(1) @binding(13) var<storage, read>       cell_items:  array<u32>;
-@group(1) @binding(14) var<storage, read>       large:       array<u32>;
-@group(1) @binding(15) var<storage, read_write> pair_counts: CandidatePairCounts;
-@group(1) @binding(16) var<storage, read_write> box_pairs:   array<CandidatePair>;
-@group(1) @binding(17) var<storage, read_write> sphere_pairs: array<CandidatePair>;
 
 fn emit_pair(body: u32, proxy: u32) {
     let is_box = proxy < bp_params.box_count;
@@ -90,12 +70,12 @@ fn overlaps(center: vec3f, reach: f32, proxy: vec4f) -> bool {
     return dot(d, d) < r * r;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_candidate_pairs_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= rb_params.body_count) { return; }
     let body = bodies[i];
     // Corpo estático não gera contato (a narrowphase descarta inv_mass = 0).
@@ -137,12 +117,10 @@ fn rb_candidate_pairs_main(
 
 // ── Argumentos do despacho indireto da narrowphase (caixas, esferas) ─────────
 
-@group(1) @binding(18) var<storage, read_write> np_args: NarrowphaseDispatch;
-
 // Grupos de 64 para os pares (até a capacidade), distribuídos em x/y dentro do limite por dimensão
 // (como Dispatcher.invocations).
 fn dispatch_of(pairs: u32) -> vec3u {
-    let groups = (min(pairs, bp_params.pair_capacity) + 63u) / 64u;
+    let groups = (min(pairs, bp_params.pair_capacity) + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
     return vec3u(min(groups, 65535u), select(1u, (groups + 65534u) / 65535u, groups > 65535u), 1u);
 }
 

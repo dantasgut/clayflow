@@ -64,7 +64,7 @@ fn mpm_grad_3d(
 // ── Índice linear de nó na grade ─────────────────────────────────────────────
 
 // Calcula o índice linear do nó (bx+a, by+b, bz+c) na grade cúbica grid_x × grid_y × grid_z.
-// Retorna 0xFFFFFFFF se o nó estiver fora da grade.
+// Retorna NONE se o nó estiver fora da grade.
 fn mpm_node_index(
     base:   vec3i,
     a: u32, b: u32, c: u32,
@@ -75,7 +75,7 @@ fn mpm_node_index(
     let iz = base.z + i32(c);
     if (ix < 0 || iy < 0 || iz < 0
         || u32(ix) >= grid_x || u32(iy) >= grid_y || u32(iz) >= grid_z) {
-        return 0xFFFFFFFFu;
+        return NONE;
     }
     return u32(ix) + u32(iy) * grid_x + u32(iz) * grid_x * grid_y;
 }

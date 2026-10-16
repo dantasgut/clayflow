@@ -2,14 +2,15 @@
 // (superfície do raio, velocidade radial) e cone (do vértice, dentro do meio-ângulo em torno da direção). Uma
 // `EmitFunction` toma o lugar deste módulo com a mesma assinatura:
 //   fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle
-// `i` é o índice global da partícula no emissor (0, 1, 2… na ordem de criação), `time` o tempo simulado do passo.
-// Requer: structs EmitterParams, EmitFnRecord; emit_point_types; o uniforme `emit_params` do kernel.
+// `i` é o índice global da partícula no emissor (0, 1, 2… na ordem de criação), `time` o tempo simulado do passo. O
+// carregador `emit_fn_params(slot)` lê o registro tipado da função no pool da forma dela (spec 031); a pronta não tem.
+// Requer: struct EmitterParams; emit_point_types; o recurso `emit_params`.
 
 struct EmitFnParams {
     _unused: u32,
 }
 
-fn emit_fn_params(r: EmitFnRecord) -> EmitFnParams {
+fn emit_fn_params(slot: u32) -> EmitFnParams {
     return EmitFnParams(0u);
 }
 

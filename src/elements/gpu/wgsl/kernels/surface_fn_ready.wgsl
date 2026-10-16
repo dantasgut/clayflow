@@ -3,14 +3,15 @@
 // terreno por ruído (altura a.x · ruído(escala a.y · (u, v)), a.z oitavas). Normal = du × dv para fora (para cima no
 // plano e no terreno). Uma `SurfaceFunction` toma o lugar deste módulo com a mesma assinatura:
 //   fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f
-// e, opcionais, as derivadas analíticas `surface_du`/`surface_dv` (mesma assinatura).
-// Requer: structs SurfaceParams, SurfaceFnRecord; noise; o uniforme `surface_params` do kernel.
+// e, opcionais, as derivadas analíticas `surface_du`/`surface_dv` (mesma assinatura). O carregador
+// `surface_fn_params(slot)` lê o registro tipado da função no pool da forma dela (spec 031); a pronta não tem.
+// Requer: struct SurfaceParams; noise; o uniforme `surface_params` do kernel.
 
 struct SurfaceFnParams {
     _unused: u32,
 }
 
-fn surface_fn_params(r: SurfaceFnRecord) -> SurfaceFnParams {
+fn surface_fn_params(slot: u32) -> SurfaceFnParams {
     return SurfaceFnParams(0u);
 }
 

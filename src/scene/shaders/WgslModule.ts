@@ -1,5 +1,5 @@
 import type { StructSchema } from '../descriptors/StructSchema';
-import { scanWgslSymbols, type WgslSymbol } from './scanWgslSymbols';
+import { scanWgslSymbols, stripWgslComments, type WgslSymbol } from './scanWgslSymbols';
 import { WgslCompositionError } from './WgslCompositionError';
 
 /**
@@ -32,10 +32,20 @@ export interface WgslModuleOptions {
     readonly structs?: readonly StructSchema[];
 }
 
-/** Cria um módulo WGSL congelado. Lança se o nome é vazio ou se o fonte define o mesmo símbolo duas vezes. */
+/**
+ * Cria um módulo WGSL congelado. Lança se o nome é vazio, se o fonte define o mesmo símbolo duas vezes ou se escreve
+ * ligações à mão (`@group`/`@binding` — spec 031: recursos são declarados com `wgslResource`).
+ */
 export function wgslModule(options: WgslModuleOptions): WgslModule {
     if (options.name.trim().length === 0)
         throw new TypeError('wgslModule: name não pode ser vazio');
+    if (/@group\s*\(|@binding\s*\(/.test(stripWgslComments(options.source))) {
+        throw new WgslCompositionError(
+            'manual-binding',
+            `wgslModule '${options.name}': ligação escrita à mão (@group/@binding) — declare o recurso com wgslResource e requeira-o`,
+            [options.name],
+        );
+    }
     const symbols = scanWgslSymbols(options.source);
     const seen = new Set<string>();
     for (const s of symbols) {

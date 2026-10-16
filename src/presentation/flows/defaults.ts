@@ -19,6 +19,8 @@ import { WaterFlow } from './WaterFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
 import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
+import { GraphGeometry } from '../../elements/geometry/GraphGeometry';
+import { GraphFlow } from '../../scene/graph/GraphFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -163,6 +165,15 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
         priority: -40,
     });
+    // Grafos de nós de conjunto (spec 031) na mesma fase, depois das superfícies: escrevem a `GraphGeometry` da entidade.
+    const graphRegistration = flows.register(
+        (ctx) =>
+            new GraphFlow(ctx, {
+                target: GraphGeometry,
+                owns: ['vertices', 'indices', 'wireEdges', 'indirect'],
+            }),
+        { type: 'setGraph', phase: 'transform', priority: -50 },
+    );
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
@@ -243,6 +254,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadowMatrixRegistration,
             softSurfaceRegistration,
             surfaceRegistration,
+            graphRegistration,
             shadowRegistration,
             forwardRegistration,
             particleRegistration,

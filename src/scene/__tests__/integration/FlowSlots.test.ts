@@ -2,11 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BindGroupSpec, LayoutSpec } from '../../../core/contracts/index';
 import { FlowBindingError } from '../../flows/FlowBindingError';
 import type { BindGroupReplacedEvent } from '../../events/BindGroupReplacedEvent';
+import { SingletonResolver } from '../../consumers/strategies/SingletonResolver';
+import { wgslModule } from '../../shaders/WgslModule';
+import { wgslResource } from '../../shaders/WgslResource';
 import {
     ProbeBody,
     ProbeCam,
+    ProbeCamSchema,
     ProbeFlow,
+    probeBodiesResource,
+    probeCamResource,
     probeParams,
+    probeParamsResource,
     probePipeline,
     probeScene,
 } from '../helpers/probeFlow';
@@ -37,44 +44,93 @@ describe('US1 — estágio declara o que consome e recebe tudo ligado', () => {
         expect(ready).toHaveBeenCalledTimes(1);
         const bound = ready.mock.calls[0]![0].payload.bound;
         const p = bound.compute('main');
-        expect(p.groups).toHaveLength(2);
+        // Grupos pela frequência dos recursos: 0 = frame (cam), 1 = stage (bodies), 2 = draw (params).
+        expect(p.groups).toHaveLength(3);
         const layouts = p.spec.layouts as readonly LayoutSpec[];
         expect(layouts[0]!.entries).toEqual([
             { binding: 0, visibility: COMPUTE, kind: 'buffer', type: 'uniform' },
-            { binding: 1, visibility: COMPUTE, kind: 'buffer', type: 'storage' },
         ]);
         expect(layouts[1]!.entries).toEqual([
+            { binding: 0, visibility: COMPUTE, kind: 'buffer', type: 'storage' },
+        ]);
+        expect(layouts[2]!.entries).toEqual([
             { binding: 0, visibility: COMPUTE, kind: 'buffer', type: 'uniform' },
         ]);
-        const g0 = p.groups[0] as BindGroupSpec;
-        expect(g0.bindings.map((b) => (b.kind === 'buffer' ? b.buffer : undefined))).toEqual([
+        const buffers = (g: unknown) =>
+            (g as BindGroupSpec).bindings.map((b) => (b.kind === 'buffer' ? b.buffer : undefined));
+        expect(buffers(p.groups[0])).toEqual([
             scene.resourceSystem.bufferOf(
                 scene.world.rootOf(scene.world.queryBySchemaName('ProbeCam')[0]!)! as ProbeCam,
                 'cam',
             ),
-            scene.resourceSystem.poolBufferSpec('ProbeBody'),
         ]);
-        expect((p.groups[1] as BindGroupSpec).bindings[0]).toMatchObject({ buffer: probeParams });
+        expect(buffers(p.groups[1])).toEqual([scene.resourceSystem.poolBufferSpec('ProbeBody')]);
+        expect((p.groups[2] as BindGroupSpec).bindings[0]).toMatchObject({ buffer: probeParams });
+        expect(p.groupsOf('frame')[0].spec).toBe(p.groups[0]);
+        expect(p.groupsOf('stage')[0].spec).toBe(p.groups[1]);
+        expect(p.groupsOf('draw')[0].spec).toBe(p.groups[2]);
     });
 
-    it('cenário 3: nome de consumes sem resolver → erro com o nome, o estágio e os resolvers disponíveis', async () => {
-        const { scene } = await readyProbe({
-            pipelines: [probePipeline({ consumes: ['ProbeCam', 'ProbeBody', 'Wind'] })],
+    it('cenário 3: fornecedor do recurso sem resolver na cena → o pipeline espera (sem erro, sem bind group); com o resolver, fica pronto', async () => {
+        const wind = wgslResource({
+            name: 'wind',
+            binding: { uniform: true },
+            type: { schema: ProbeCamSchema },
+            frequency: 'frame',
+            provider: { consumer: 'Wind' },
         });
+        const windShader = wgslModule({
+            name: 'probe_wind',
+            requires: [probeCamResource, wind, probeBodiesResource, probeParamsResource],
+            source: `
+@compute @workgroup_size(64) fn probe_main(@builtin(global_invocation_id) id: vec3u) {
+    bodies[id.x].v = cam.scale * wind.scale * params.k;
+}
+`,
+        });
+        const { scene, flow, frame, counting } = await readyProbe({
+            pipelines: [probePipeline({ shader: windShader })],
+        });
+        const ready = vi.fn();
+        scene.events.on('flowReady', ready);
         scene.world.insert(new ProbeCam());
-        expect(() => scene.world.insert(new ProbeBody())).toThrow(FlowBindingError);
+        expect(() => scene.world.insert(new ProbeBody())).not.toThrow();
+        frame();
+        expect(flow()!.lifecycle).not.toBe('ready');
+        expect(ready).not.toHaveBeenCalled();
+        expect(flow()!.dispatched).toEqual([]);
+        expect(counting.stats().creates.get('bindgroup') ?? 0).toBe(0);
+        scene.consumers.register(new SingletonResolver(ProbeCamSchema, 'cam', { name: 'Wind' }));
+        scene.world.insert(new ProbeBody());
+        frame();
+        expect(flow()!.lifecycle).toBe('ready');
+        expect(ready).toHaveBeenCalledTimes(1);
+        const p = ready.mock.calls[0]![0].payload.bound.compute('main');
+        const [frameGroup] = p.groupsOf('frame');
+        // Ligações do grupo frame em ordem de nome: cam, wind — o mesmo singleton pelos dois resolvers.
+        const cam = scene.resourceSystem.bufferOf(
+            scene.world.rootOf(scene.world.queryBySchemaName('ProbeCam')[0]!)! as ProbeCam,
+            'cam',
+        );
+        expect(
+            (frameGroup.spec as BindGroupSpec).bindings.map((b) =>
+                b.kind === 'buffer' ? b.buffer : undefined,
+            ),
+        ).toEqual([cam, cam]);
+    });
+
+    it('cenário 4: recurso privado sem fonte → erro com recurso, grupo, ligação, pipeline e estágio', async () => {
+        const { scene } = await readyProbe({ bindings: new Map() });
+        scene.world.insert(new ProbeCam());
+        let error: unknown;
         try {
             scene.world.insert(new ProbeBody());
         } catch (e) {
-            expect((e as Error).message).toMatch(/'ProbeFlow'.*'Wind'.*disponíveis: .*ProbeCam/);
+            error = e;
         }
-    });
-
-    it('cenário 4: binding sem slot nem consumes → erro com binding, grupo e estágio', async () => {
-        const { scene } = await readyProbe({ bindings: {} });
-        scene.world.insert(new ProbeCam());
-        expect(() => scene.world.insert(new ProbeBody())).toThrow(
-            /binding 'params' \(@group\(1\) @binding\(0\).*'main'.*'ProbeFlow'/,
+        expect(error).toBeInstanceOf(FlowBindingError);
+        expect((error as Error).message).toMatch(
+            /recurso privado 'params' \(@group\(2\) @binding\(0\)\).*'main'.*'ProbeFlow'.*ctx\.bind/,
         );
     });
 
@@ -93,9 +149,10 @@ describe('US1 — estágio declara o que consome e recebe tudo ligado', () => {
         for (let i = 0; i < 16; i++) scene.world.insert(new ProbeBody());
         frame();
         expect(replaced).toHaveLength(1);
-        expect(replaced[0]).toMatchObject({ flow: 'ProbeFlow', pipeline: 'main', group: 0 });
+        // O pool vive no grupo da frequência stage (1); os grupos frame e draw não mudam.
+        expect(replaced[0]).toMatchObject({ flow: 'ProbeFlow', pipeline: 'main', group: 1 });
         const newSpec = replaced[0]!.newSpec;
-        expect(newSpec.bindings[1]).toMatchObject({
+        expect(newSpec.bindings[0]).toMatchObject({
             buffer: scene.resourceSystem.poolBufferSpec('ProbeBody'),
         });
         expect(counting.core.destroy).toHaveBeenCalledWith(replaced[0]!.oldSpec);
@@ -115,7 +172,7 @@ describe('US1 — estágio declara o que consome e recebe tudo ligado', () => {
         scene.world.insert(new ProbeCam());
         scene.world.insert(new ProbeBody());
         const p = ready.mock.calls[0]![0].payload.bound.compute('main');
-        expect((p.spec.layouts as readonly LayoutSpec[])[1]!.entries[0]).toMatchObject({
+        expect((p.spec.layouts as readonly LayoutSpec[])[2]!.entries[0]).toMatchObject({
             visibility: COMPUTE | 1,
         });
     });

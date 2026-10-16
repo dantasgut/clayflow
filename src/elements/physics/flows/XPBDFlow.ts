@@ -1,11 +1,7 @@
 import type { EngineCore, Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
-import type {
-    BindingSources,
-    BoundFlow,
-    TransitionContext,
-} from '../../../scene/flows/FlowBinding';
+import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
@@ -17,11 +13,19 @@ import {
     type SingletonSlot,
     type SlotMap,
 } from '../../../scene/flows/slots';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Time } from '../../../scene/time/Time';
 import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { GravityField } from '../forcefields/GravityField';
 import { SimParamsSchema } from '../schemas/simParams';
-import { xpbdCollide, xpbdDistanceSolve, xpbdPredict, xpbdVelocityUpdate } from '../shaders/xpbd';
+import {
+    xpbdCollide,
+    xpbdDistanceSolve,
+    xpbdPredict,
+    xpbdResources,
+    xpbdVelocityUpdate,
+} from '../shaders/xpbd';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
@@ -83,7 +87,7 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
     readonly type = 'XPBDFlow';
     readonly slots: XPBDSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<XPBDSlots>>;
 
@@ -99,7 +103,6 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
     constructor(ctx: FlowContext, options: XPBDFlowOptions = {}) {
         super();
         this.core = ctx.core;
-        const bodyType = ctx.bodyType ?? 'XPBDSoftSchema';
         const constraintPoolKey = options.constraintPoolKey ?? DistanceConstraint.schema.name;
         this.substeps = Math.max(1, options.substeps ?? 8);
         this.solverIters = Math.max(1, options.solverIters ?? 1);
@@ -109,7 +112,9 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
             schema: SimParamsSchema,
         });
         this.params.reserve(this.substeps);
-        this.bindings = { params: this.params.source() };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [xpbdResources.params, this.params.source()],
+        ]);
         this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
             discriminator: 'xpbd_colliders',
         });
@@ -119,21 +124,18 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                 role: 'compute',
                 shader: xpbdPredict,
                 entryPoints: ['predict_main'],
-                consumes: [bodyType, `${bodyType}.live`],
             },
             {
                 id: 'xpbd_collide',
                 role: 'compute',
                 shader: xpbdCollide,
                 entryPoints: ['xpbd_collide_main'],
-                consumes: [bodyType, `${bodyType}.live`],
             },
             {
                 id: 'xpbd_velocity_update',
                 role: 'compute',
                 shader: xpbdVelocityUpdate,
                 entryPoints: ['velocity_update_main'],
-                consumes: [bodyType, `${bodyType}.live`],
             },
         ];
         this.distance = {
@@ -141,7 +143,6 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
             role: 'compute',
             shader: xpbdDistanceSolve,
             entryPoints: ['distance_solve_main'],
-            consumes: [bodyType, `${bodyType}.live`, constraintPoolKey],
         };
         const constraints = {
             to: 'running' as const,
@@ -158,7 +159,7 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
-                // O bitset de vivos das restrições é recriado com o pool: religado.
+                // Pool recriado: os colliders religam os buffers que mudaram; o pipeline de restrições segue o slot.
                 poolReallocated: {
                     to: 'running',
                     run: (e, c) => {
@@ -200,15 +201,15 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
             frame.compute('XPBDFlow.predict', (pass) => {
-                pass.bind.setPipeline(predict.spec).setBindGroup(0, predict.groups[0]!, offset);
-                pass.dispatch.invocations(count, 64);
+                pass.bind.setPipeline(predict.spec);
+                predict.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
             if (solve) {
                 for (let it = 0; it < this.solverIters; it++) {
                     frame.compute('XPBDFlow.distance_solve', (pass) => {
-                        pass.bind
-                            .setPipeline(distance.spec)
-                            .setBindGroup(0, distance.groups[0]!, offset);
+                        pass.bind.setPipeline(distance.spec);
+                        distance.bindTo(pass.bind, { draw: offset });
                         pass.dispatch.workgroups(1);
                     });
                 }
@@ -216,14 +217,13 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
             if (this.collide)
                 frame.compute('XPBDFlow.collide', (pass) => {
                     pass.bind.setPipeline(collide.spec);
-                    collide.groups.forEach((bg, g) =>
-                        pass.bind.setBindGroup(g, bg, collide.dynamic[g] ? offset : undefined),
-                    );
-                    pass.dispatch.invocations(count, 64);
+                    collide.bindTo(pass.bind, { draw: offset });
+                    pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
                 });
             frame.compute('XPBDFlow.velocity_update', (pass) => {
-                pass.bind.setPipeline(velocity.spec).setBindGroup(0, velocity.groups[0]!, offset);
-                pass.dispatch.invocations(count, 64);
+                pass.bind.setPipeline(velocity.spec);
+                velocity.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
         }
     }
@@ -243,14 +243,12 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         return ((bound.slots.time.resource as Time).steps ?? 0) * this.substeps;
     }
 
-    /** O pipeline de restrições existe enquanto o pool de restrições existe (com o bitset de vivos dele). */
+    /** O pipeline de restrições existe enquanto o pool de restrições existe (o slot fornece o pool e o bitset dele). */
     private prepareConstraints(ctx: Ctx): void {
-        const constraints = ctx.bound.slots.constraints;
-        if (constraints === undefined) {
+        if (ctx.bound.slots.constraints === undefined) {
             ctx.release(DISTANCE);
             return;
         }
-        ctx.bind({ constraint_live: constraints.live });
         ctx.prepare(this.distance);
     }
 
@@ -259,7 +257,8 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         const bound = ctx.bound;
         const iterations = this.iterations(bound);
         if (iterations === 0) return;
-        if (this.params.reserve(iterations)) ctx.bind({ params: this.params.source() });
+        if (this.params.reserve(iterations))
+            ctx.bind(new Map([[xpbdResources.params, this.params.source()]]));
         const time = bound.slots.time.resource as Time;
         const dt = time.stepDt / this.substeps;
         const accel = (

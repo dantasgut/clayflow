@@ -1,20 +1,14 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/rb_build_lcp.wgsl.ts
-@group(0) @binding(0) var<uniform>             rb_params: RBSimParams;
-@group(0) @binding(1) var<storage, read>       bodies:    array<RigidBody>;
-@group(0) @binding(2) var<storage, read_write> contacts:  array<RBContact>;
-@group(0) @binding(3) var<storage, read_write> b_vec:     array<f32>;
 // Contador da lista compactada (spec 004, R19): [0] = contatos reservados na narrowphase.
-@group(0) @binding(4) var<storage, read>       contact_counter: array<u32>;
 // Contatos por corpo neste substep: o solve Jacobi vê cada corpo com massa m/nᵢ (divisão de massa).
-@group(0) @binding(5) var<storage, read>       body_split:      array<u32>;
 
-@compute @workgroup_size(64, 1, 1)
+@compute @workgroup_size(WORKGROUP_SIZE, 1, 1)
 fn rb_build_lcp(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let ci = gid.x;
     // Só os contatos ativos da lista compactada deste substep.
     if (ci >= min(contact_counter[0], rb_params.max_contacts)) { return; }
@@ -45,9 +39,9 @@ fn rb_build_lcp(
     var v_rel_n = dot(v_cp_a, n);
 
     // Contribuição do corpo B (apenas para contatos corpo-a-corpo).
-    // rb_idx_b == 0xFFFFFFFFu → collider estático (massa infinita, contribuição zero).
+    // rb_idx_b == NONE → collider estático (massa infinita, contribuição zero).
     let rb_j = contacts[ci].rb_idx_b;
-    if (rb_j != 0xFFFFFFFFu && rb_j < rb_params.body_count) {
+    if (rb_j != NONE && rb_j < rb_params.body_count) {
         let split_b    = f32(max(body_split[rb_j], 1u));
         let inv_mass_b = bodies[rb_j].pos.w * split_b;
         let I_inv_b    = bodies[rb_j].I_inv.xyz * split_b;

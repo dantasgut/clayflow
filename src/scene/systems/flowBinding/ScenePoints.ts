@@ -3,11 +3,15 @@ import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ExtensionFunction } from '../../contracts/ExtensionFunction';
 import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
-import { bindPoints } from '../../shaders/bindPoints';
+import { bindPoints, type BindablePoint } from '../../shaders/bindPoints';
 import { composeWgsl } from '../../shaders/composeWgsl';
 import type { WgslModule } from '../../shaders/WgslModule';
+import type { Schema } from '../../descriptors/Schema';
+import type { StructSchema } from '../../descriptors/StructSchema';
+import { instantiateModule } from '../../shaders/instantiate';
 import {
     scenePointsIn,
+    type ContributionPoint,
     type PointImplementation,
     type ScenePointGlobal,
     type WgslPoint,
@@ -20,7 +24,7 @@ interface PointFunctions {
     readonly functions: Set<ExtensionFunction>;
     /** Revisão de cada função na última composição. */
     readonly revisions: Map<ExtensionFunction, number>;
-    /** Slot do registro de cada função na última composição. */
+    /** Slot do registro de cada função (no pool da forma dela) na última composição. */
     readonly slots: Map<ExtensionFunction, number>;
     combined: WgslModule | undefined;
 }
@@ -31,11 +35,18 @@ interface PointFunctions {
  * compõe o módulo delas pelo `combine` do ponto e o põe no lugar do pronto em cada pipeline (`bind`); a `version`
  * sobe a cada mudança — os runtimes preparam os pipelines afetados de novo e só trocam quando compilam.
  *
- * As variáveis globais dos pontos (o pool dos registros, por exemplo) são ligadas pela C2: o pool, quando existe, ou
- * um substituto zerado de um registro (`globalSource`).
+ * Cada função traz o pool da sua forma (registro tipado, spec 031 R8: recurso declarado no módulo dela, fornecido pelo
+ * pool); o módulo composto lê cada uma pelo seu carregador. A soma das ligações de cada pipeline com as funções é
+ * conferida contra os limites do device na preparação (`PipelineState`): acima deles, as funções são rejeitadas
+ * (`extensionRejected`) e o pipeline fica com o pronto. As variáveis globais dos pontos (os campos prontos de `field`,
+ * por exemplo) são ligadas pela C2: o pool, quando existe, ou um substituto zerado de um registro (`globalSource`).
  */
 export class ScenePoints {
     private readonly byPoint = new Map<WgslPoint, PointFunctions>();
+    /** Resources com contribuições de cena (spec 031). */
+    private readonly contributors = new Set<Resource>();
+    /** Módulo composto de cada ponto de contribuição com ao menos um contribuinte. */
+    private readonly contributed = new Map<ContributionPoint, WgslModule>();
     private readonly dummies = new Map<string, StorageBufferSpec>();
     /** Sobe a cada mudança de composição. */
     version = 0;
@@ -49,6 +60,13 @@ export class ScenePoints {
     /** Recursos entraram ou saíram da cena: funções de ponto de cena entram ou saem da composição. */
     resourcesChanged(added: readonly Resource[], removed: readonly Resource[]): boolean {
         let changed = false;
+        for (const r of removed) if (this.contributors.delete(r)) changed = true;
+        for (const r of added) {
+            if (r.getSceneContributions === undefined || r.getSceneContributions().length === 0)
+                continue;
+            this.contributors.add(r);
+            changed = true;
+        }
         for (const r of removed) {
             const fn = asSceneFunction(r);
             if (fn === undefined) continue;
@@ -76,11 +94,18 @@ export class ScenePoints {
         return changed;
     }
 
+    /** Um Resource foi enviado: se contribui para pontos de cena e a contribuição mudou, recompõe (spec 031). */
+    resourceUploaded(resource: Resource): boolean {
+        if (!this.contributors.has(resource) || !this.contributionsChanged()) return false;
+        this.recompose();
+        return true;
+    }
+
     /** Um pool foi escrito: revisão de código ou slot de alguma função mudou? Recompõe se sim. */
-    poolWritten(schemaName: string): boolean {
-        let changed = false;
+    poolWritten(schema: Schema): boolean {
+        let changed = this.contributionsDependOn(schema.name) && this.contributionsChanged();
         for (const entry of this.byPoint.values()) {
-            if (entry.point.record.name !== schemaName) continue;
+            if (!entry.point.isRecord(schema)) continue;
             for (const fn of entry.functions) {
                 if (
                     entry.revisions.get(fn) !== fn.revision
@@ -104,7 +129,7 @@ export class ScenePoints {
         shader: WgslModule,
         rejected: (fns: readonly PointImplementation[], message: string) => void,
     ): { shader: WgslModule; extensions: readonly PointImplementation[] } {
-        const impls = new Map<WgslPoint, WgslModule>();
+        const impls = new Map<BindablePoint, WgslModule>();
         const extensions: PointImplementation[] = [];
         for (const entry of this.byPoint.values()) {
             if (entry.combined === undefined || !contains(shader, entry.point.ready)) continue;
@@ -116,6 +141,10 @@ export class ScenePoints {
             }
             impls.set(entry.point, entry.combined);
             extensions.push(...entry.functions);
+        }
+        for (const [point, module] of this.contributed) {
+            if (!contains(shader, point.ready)) continue;
+            impls.set(point, module);
         }
         return impls.size === 0
             ? { shader, extensions }
@@ -155,7 +184,57 @@ export class ScenePoints {
         this.dummies.clear();
     }
 
+    /** Alguma contribuição depende de slots do pool `schemaName`? */
+    private contributionsDependOn(schemaName: string): boolean {
+        for (const r of this.contributors) {
+            for (const c of r.getSceneContributions!()) {
+                if (c.pools.some((p) => p.name === schemaName)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Os módulos das contribuições mudaram (slots, condição)? */
+    private contributionsChanged(): boolean {
+        const next = this.composeContributions();
+        if (next.size !== this.contributed.size) return true;
+        for (const [point, module] of next) if (this.contributed.get(point) !== module) return true;
+        return false;
+    }
+
+    /** Módulo de cada ponto de contribuição: o do contribuinte, ou a combinação dos contribuintes em ordem. */
+    private composeContributions(): Map<ContributionPoint, WgslModule> {
+        const byPoint = new Map<ContributionPoint, { order: number; module: WgslModule }[]>();
+        for (const r of this.contributors) {
+            const id = this.world.entityIdOfResource(r);
+            if (id === undefined) continue;
+            const slotOf = (pool: StructSchema): number | undefined =>
+                this.pools.poolSlotOf(pool.name, id);
+            for (const c of r.getSceneContributions!()) {
+                const module = c.build(slotOf);
+                if (module === undefined) continue;
+                let list = byPoint.get(c.point);
+                if (list === undefined) byPoint.set(c.point, (list = []));
+                list.push({ order: c.order, module });
+            }
+        }
+        const out = new Map<ContributionPoint, WgslModule>();
+        for (const [point, list] of byPoint) {
+            list.sort((a, b) => a.order - b.order);
+            out.set(
+                point,
+                list.length === 1
+                    ? list[0]!.module
+                    : point.combine(list.map((e, k) => instantiateModule(e.module, `_${k}`))),
+            );
+        }
+        return out;
+    }
+
     private recompose(): void {
+        this.contributed.clear();
+        for (const [point, module] of this.composeContributions())
+            this.contributed.set(point, module);
         for (const entry of this.byPoint.values()) {
             entry.revisions.clear();
             entry.slots.clear();
@@ -163,7 +242,7 @@ export class ScenePoints {
             for (const fn of entry.functions) {
                 const slot = this.slotOf(fn);
                 entry.revisions.set(fn, fn.revision);
-                if (slot === undefined) continue;
+                if (slot === undefined || !fn.implemented) continue;
                 entry.slots.set(fn, slot);
                 entries.push({ impl: fn, slot });
             }
@@ -174,7 +253,7 @@ export class ScenePoints {
 
     private slotOf(fn: ExtensionFunction): number | undefined {
         const id = this.world.entityIdOfResource(fn);
-        return id === undefined ? undefined : this.pools.poolSlotOf(fn.point.record.name, id);
+        return id === undefined ? undefined : this.pools.poolSlotOf(fn.record.name, id);
     }
 }
 

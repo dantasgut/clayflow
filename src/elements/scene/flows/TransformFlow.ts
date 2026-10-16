@@ -1,3 +1,6 @@
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type {
     EngineCore,
     Frame,
@@ -8,6 +11,7 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
 import { Flow } from '../../../scene/flows/Flow';
 import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
+import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
     slot,
@@ -26,16 +30,17 @@ import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { Parent } from '../Parent';
 import { Transform } from '../Transform';
 import { transformCompose, transformComposeFn, transformLink, transformPoint } from './shaders';
+import { transformResources as R } from './shaders';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import {
     TransformFnGroupSchema,
-    TransformFnRecordSchema,
+    TransformFnPairSchema,
     TransformLevelSchema,
     TransformLinkSchema,
     TransformParamsSchema,
 } from './TransformParams';
 
-const WORKGROUP_SIZE = 64;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
 /** Slots do estágio de transformação. */
 export interface TransformSlots extends SlotMap {
@@ -47,10 +52,8 @@ export interface TransformSlots extends SlotMap {
     readonly entities: EntitiesSlot;
     /** Entidades com `Transform` e `Parent` (a hierarquia opcional). */
     readonly children: EntitiesSlot;
-    /** Entidades com `Transform` e `TransformFunction` (spec 009). */
+    /** Entidades com `Transform` e `TransformFunction` (spec 009; registros nos pools das formas, spec 031). */
     readonly functions: EntitiesSlot;
-    /** Pool dos registros de parâmetros das `TransformFunction` (existe com alguma função na cena). */
-    readonly fnRecords: PoolSlot<true>;
     /** Relógio da cena (tempo simulado das funções; sem relógio, 0). */
     readonly time: SingletonSlot<true>;
 }
@@ -61,7 +64,6 @@ const slots: TransformSlots = {
     entities: slot.entities({ all: [Transform] }),
     children: slot.entities({ all: [Transform, Parent] }),
     functions: slot.entities({ all: [Transform, TransformFunction] }),
-    fnRecords: slot.pool(TransformFnRecordSchema.name, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
 };
 
@@ -89,7 +91,7 @@ type Ctx = TransitionContext<TransformSlots>;
  * sua intenção (posição, rotação, escala), com a convenção `M = T · R · S`. O resultado fica no pool
  * `WorldTransform` (mesmo slot do `Transform`), que os estágios de sombra e desenho leem por índice de instância.
  *
- * Slots: os pools `Transform` e `WorldTransform` (ligados por `consumes`) e as entidades com `Transform`. Reativo
+ * Slots: os pools `Transform` e `WorldTransform` (fornecedores `{ pool }` dos recursos) e as entidades com `Transform`. Reativo
  * pela tabela de transições: fica `stale` com `poolWritten` do pool `Transform`, entidades inseridas ou removidas,
  * pool realocado ou bind group substituído; em `stale`, `framePrepare` escreve a contagem (uma vez por quadro) e o
  * quadro grava a composição; `frameRecorded` volta a `clean` — numa cena parada não faz nada. Se o pool tem slots de
@@ -109,35 +111,28 @@ type Ctx = TransitionContext<TransformSlots>;
 export class TransformFlow extends Flow<TransformSlots, TransformState> {
     readonly type = 'TransformFlow';
     readonly slots = slots;
-    override readonly listens = [Transform.schema, TransformFnRecordSchema];
+    /** O pool `Transform` e os registros de todas as formas das funções `transform` (spec 031, R8). */
+    override readonly listens = [Transform.schema, transformPoint];
     override readonly pipelines: readonly PipelineDescriptor[] = [
         {
             id: 'transform_compose',
             role: 'compute',
             shader: transformCompose,
             entryPoints: ['transform_compose_main'],
-            consumes: [Transform.schema.name, Transform.worldSchema.name],
         },
         {
             id: 'transform_link',
             role: 'compute',
             shader: transformLink,
             entryPoints: ['transform_link_main'],
-            consumes: [Transform.schema.name, Transform.worldSchema.name],
         },
     ];
-    override readonly bindings: {
-        /** Parâmetros da composição (`TransformParams`: contagem). */
-        readonly params: UniformBufferSpec;
-        /** Elos da hierarquia (`TransformLink`), ordenados por nível. */
-        readonly links: StorageBufferSpec;
-        /** Trecho de cada nível (`TransformLevel`, uma região por nível, offset dinâmico). */
-        readonly level: ReturnType<PerStepUniforms['source']>;
-        /** Pares (slot do Transform, slot do registro) das entidades com função, agrupados por função. */
-        readonly transform_fn_pairs: StorageBufferSpec;
-        /** Trecho e tempo de cada grupo de função (`TransformFnGroup`, uma região por grupo, offset dinâmico). */
-        readonly transform_fn_group: ReturnType<PerStepUniforms['source']>;
-    };
+    /**
+     * Recursos privados: parâmetros da composição (`TransformParams`), elos da hierarquia (`TransformLink`, por
+     * nível), trecho de cada nível (região por nível, offset dinâmico), pares (slot do Transform, slot do registro)
+     * das entidades com função e trecho/tempo de cada grupo de função (região por grupo, offset dinâmico).
+     */
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'stale' as const;
     protected readonly transitions: FlowTransitions<
         TransformState,
@@ -145,6 +140,8 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
     >;
 
     private readonly core: EngineCore;
+    /** Pools da C2: o slot do registro de cada função, no pool da forma dela. */
+    private readonly pools: PoolDirectory;
     private readonly params: UniformBufferSpec;
     /** Contagem escrita em `TransformParams` (-1 = ainda não escrita). */
     private writtenCount = -1;
@@ -162,22 +159,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
     /** `gpuOwned` do pool na última reconstrução (posse nova pode atingir um filho). */
     private ownedAtBuild = 0;
     /** Pipelines das `TransformFunction` presentes (um por código). */
-    private readonly fnPipelines = new ExtensionPipelines<TransformFunction>(
-        'transform_fn:',
-        (module, fn) => ({
-            id: '',
-            role: 'compute',
-            shader: bindPoints(transformComposeFn, new Map([[transformPoint, module]])),
-            entryPoints: ['transform_compose_fn_main'],
-            consumes: [
-                Transform.schema.name,
-                Transform.worldSchema.name,
-                TransformFnRecordSchema.name,
-            ],
-            verify: true,
-            extensions: [fn],
-        }),
-    );
+    private readonly fnPipelines = new ExtensionPipelines<TransformFunction>();
     /** As funções (conjunto, códigos ou slots) mudaram desde a última sincronização. */
     private fnDirty = false;
     /** Grupos ativos (função compilada), na ordem da lista de pares. */
@@ -191,6 +173,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
     constructor(ctx: FlowContext) {
         super();
         this.core = ctx.core;
+        this.pools = ctx.resources;
         this.params = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
             subkind: 'uniform',
@@ -209,13 +192,13 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             schema: TransformFnGroupSchema,
         });
         this.fnGroupUniforms.reserve(1);
-        this.bindings = {
-            params: this.params,
-            links: this.links,
-            level: this.levels.source(),
-            transform_fn_pairs: this.fnPairs,
-            transform_fn_group: this.fnGroupUniforms.source(),
-        };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [R.params, this.params],
+            [R.links, this.links],
+            [R.level, this.levels.source()],
+            [R.fnPairs, this.fnPairs],
+            [R.fnGroup, this.fnGroupUniforms.source()],
+        ]);
         const stale = { to: 'stale' as const };
         const fnChanged = {
             to: 'stale' as const,
@@ -238,9 +221,10 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
                 // Uma função compilada passa a valer; a rejeitada sai (a anterior continua).
                 pipelinesCompiled: {
                     to: 'stale',
-                    run: (e) => {
+                    run: (e, c) => {
                         if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        if (this.fnPipelines.compiled(e.pipeline)) this.fnDirty = true;
+                        if (this.fnPipelines.compiled(e.pipeline, c).length > 0)
+                            this.fnDirty = true;
                     },
                 },
                 pipelineRejected: {
@@ -254,7 +238,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
                 poolWritten: {
                     to: 'stale',
                     run: (e) => {
-                        if (e.type === 'poolWritten' && e.schema === TransformFnRecordSchema)
+                        if (e.type === 'poolWritten' && transformPoint.isRecord(e.schema))
                             this.fnDirty = true;
                     },
                 },
@@ -308,7 +292,8 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         if (count === 0) return;
         const p = bound.compute('transform_compose');
         frame.compute('TransformFlow', (pass) => {
-            pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
             pass.dispatch.invocations(count, WORKGROUP_SIZE);
         });
         // Funções do usuário: um despacho por grupo, sobre a matriz do TRS já composta (spec 009).
@@ -317,13 +302,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             if (!fn.ready) return;
             frame.compute('TransformFlow.function', (pass) => {
                 pass.bind.setPipeline(fn.spec);
-                fn.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(
-                        g,
-                        bg,
-                        fn.dynamic[g] ? [this.fnGroupUniforms.offset(k)] : undefined,
-                    ),
-                );
+                fn.bindTo(pass.bind, { draw: [this.fnGroupUniforms.offset(k)] });
                 pass.dispatch.invocations(group.count, WORKGROUP_SIZE);
             });
         });
@@ -333,13 +312,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         this.levelCounts.forEach((links, k) => {
             frame.compute('TransformFlow.level', (pass) => {
                 pass.bind.setPipeline(link.spec);
-                link.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(
-                        g,
-                        bg,
-                        link.dynamic[g] ? [this.levels.offset(k)] : undefined,
-                    ),
-                );
+                link.bindTo(pass.bind, { draw: [this.levels.offset(k)] });
                 pass.dispatch.invocations(links, WORKGROUP_SIZE);
             });
         });
@@ -359,27 +332,46 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         if (!this.fnDirty) return;
         this.fnDirty = false;
         const present = ctx.bound.slots.functions.entries.map((e) => e.get(TransformFunction));
-        this.fnPipelines.sync(ctx, present);
+        // Um pipeline por código (`transform_fn:<módulo>`), compartilhado pelas funções com o mesmo código.
+        for (const fn of present) {
+            const module = fn.module;
+            this.fnPipelines.select(
+                fn,
+                { key: module.name, id: `transform_fn:${module.name}` },
+                ({ id }) =>
+                    ctx.prepare({
+                        id,
+                        role: 'compute',
+                        shader: bindPoints(transformComposeFn, new Map([[transformPoint, module]])),
+                        entryPoints: ['transform_compose_fn_main'],
+                        verify: true,
+                        extensions: [fn],
+                    }).ready,
+            );
+        }
+        this.fnPipelines.retain(ctx, present);
         this.rebuildPairs(ctx);
     }
 
-    /** Pares (slot do Transform, slot do registro) por função ativa, agrupados; entidades com função ativa. */
+    /**
+     * Pares `TransformFnPair` (slot do Transform, slot do registro no pool da forma da função) por função ativa,
+     * agrupados; entidades com função ativa.
+     */
     private rebuildPairs(ctx: Ctx): void {
-        const { functions, transforms, fnRecords } = ctx.bound.slots;
-        const byId = new Map<string, number[]>();
+        const { functions, transforms } = ctx.bound.slots;
+        const byId = new Map<string, { transform: number; record: number }[]>();
         const withFn = new Set<EntityId>();
-        if (fnRecords !== undefined) {
-            for (const entry of functions.entries) {
-                const id = this.fnPipelines.active(entry.get(TransformFunction));
-                if (id === undefined) continue;
-                const t = transforms.slotOf(entry.entityId);
-                const r = fnRecords.slotOf(entry.entityId);
-                if (t === undefined || r === undefined) continue;
-                let list = byId.get(id);
-                if (list === undefined) byId.set(id, (list = []));
-                list.push(t, r);
-                withFn.add(entry.entityId);
-            }
+        for (const entry of functions.entries) {
+            const fn = entry.get(TransformFunction);
+            const id = this.fnPipelines.active(fn)?.id;
+            if (id === undefined) continue;
+            const t = transforms.slotOf(entry.entityId);
+            const r = this.pools.poolSlotOf(fn.record.name, entry.entityId);
+            if (t === undefined || r === undefined) continue;
+            let list = byId.get(id);
+            if (list === undefined) byId.set(id, (list = []));
+            list.push({ transform: t, record: r });
+            withFn.add(entry.entityId);
         }
         const changedSet =
             withFn.size !== this.fnEntities.size
@@ -389,8 +381,8 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         const groups: FnGroup[] = [];
         let total = 0;
         for (const [id, pairs] of byId) {
-            groups.push({ id, first: total, count: pairs.length / 2 });
-            total += pairs.length / 2;
+            groups.push({ id, first: total, count: pairs.length });
+            total += pairs.length;
         }
         this.fnGroups = groups;
         if (total === 0) return;
@@ -400,13 +392,15 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             this.core.destroy(this.fnPairs);
             this.fnPairs = this.createPairs(capacity);
             this.fnPairCapacity = capacity;
-            ctx.bind({ transform_fn_pairs: this.fnPairs });
+            ctx.bind(new Map([[R.fnPairs, this.fnPairs]]));
         }
-        const data = new Uint32Array(total * 2);
+        const data = new Uint8Array(total * TransformFnPairSchema.stride);
         let at = 0;
         for (const pairs of byId.values()) {
-            data.set(pairs, at);
-            at += pairs.length;
+            for (const pair of pairs) {
+                TransformFnPairSchema.packInto(data, at * TransformFnPairSchema.stride, pair);
+                at++;
+            }
         }
         this.core.write(this.fnPairs, data);
     }
@@ -415,7 +409,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
     private writeGroups(ctx: Ctx): void {
         if (this.fnGroups.length === 0) return;
         if (this.fnGroupUniforms.reserve(this.fnGroups.length))
-            ctx.bind({ transform_fn_group: this.fnGroupUniforms.source() });
+            ctx.bind(new Map([[R.fnGroup, this.fnGroupUniforms.source()]]));
         const time = (ctx.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         this.fnGroups.forEach((g, k) => {
             this.fnGroupUniforms.write(k, { first: g.first, count: g.count, time });
@@ -428,7 +422,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             kind: 'buffer',
             subkind: 'storage',
             discriminator: `transform_fn_pairs:${capacity}`,
-            byteSize: capacity * 8,
+            byteSize: capacity * TransformFnPairSchema.stride,
         });
     }
 
@@ -478,10 +472,10 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             this.core.destroy(this.links);
             this.links = this.createLinks(capacity);
             this.linkCapacity = capacity;
-            ctx.bind({ links: this.links });
+            ctx.bind(new Map([[R.links, this.links]]));
         }
         if (this.levels.reserve(Math.max(1, this.levelCounts.length)))
-            ctx.bind({ level: this.levels.source() });
+            ctx.bind(new Map([[R.level, this.levels.source()]]));
         if (total === 0) return;
         const data = new Uint32Array(total * 2);
         let first = 0;

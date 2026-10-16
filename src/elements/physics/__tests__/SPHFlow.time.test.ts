@@ -36,7 +36,11 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
             Array.from({ length: 4 }, () => ['NS.find', 'SPHFlow.density']).flat(),
         );
         const integrate = passes.filter((p) => p.label === 'SPHFlow.integrate');
-        expect(integrate.map((p) => p.offsets[0]?.[0])).toEqual([0, 256, 512, 768]);
+        // Grupos por frequência (spec 031): `stage` (pool, vizinhança) e `draw` (parâmetros, único dinâmico).
+        expect(integrate.map((p) => p.offsets[1]?.[0])).toEqual([0, 256, 512, 768]);
+        expect(integrate.every((p) => p.offsets.length === 2 && p.offsets[0] === undefined)).toBe(
+            true,
+        );
     });
 
     it('dt e dt_frame por região, uma escrita de parâmetros por quadro', async () => {

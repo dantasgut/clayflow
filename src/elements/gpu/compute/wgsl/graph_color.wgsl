@@ -1,7 +1,7 @@
 // Coloração de arestas na GPU (GraphColorer, research R12): definições comuns aos passes.
 
 // Aresta ainda sem cor.
-const GC_UNCOLORED: u32 = 0xFFFFFFFFu;
+const GC_UNCOLORED: u32 = NONE;
 
 // Prioridade da aresta `e` no subpasso `step`: `pcg_hash` é uma bijeção de u32, então a prioridade é única por aresta
 // em cada subpasso — no máximo uma aresta vence em cada vértice.

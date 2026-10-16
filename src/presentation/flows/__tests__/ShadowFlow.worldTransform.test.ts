@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
 import { Transform } from '../../../elements/scene/Transform';
-import { discOf, registerStages, renderScene } from './helpers/renderHarness';
+import { discOf, registerStages, renderScene, type DrawCall } from './helpers/renderHarness';
 
 async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
     const s = await renderScene();
@@ -16,18 +16,29 @@ async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
     return { ...s, id, box, worldSlot };
 }
 
+/**
+ * Ligação `worlds` do desenho de sombra: grupo `stage` (o 1, depois do `frame` com `shadow_matrices`), na posição do
+ * nome entre os recursos do grupo (`instances`, `shadow`, `worlds`).
+ */
+function worldsOf(draw: DrawCall | undefined) {
+    const group = draw!.bindGroups.get(1)!.group;
+    return { layout: group.layout.entries[2], binding: group.bindings[2] };
+}
+
 describe('ShadowFlow — matriz de mundo por slot', () => {
-    it('grupo 1 é storage somente leitura visível no vértice, ligado ao pool WorldTransform', async () => {
+    it('worlds (grupo stage) é storage somente leitura visível no vértice, ligado ao pool WorldTransform', async () => {
         const s = await scene();
         s.step();
         const [draw] = s.draws('ShadowFlow');
-        const group = draw!.bindGroups.get(1)!.group;
-        expect(group.layout.entries[0]).toMatchObject({
+        const worlds = worldsOf(draw);
+        expect(worlds.layout).toMatchObject({
+            binding: 2,
             kind: 'buffer',
             type: 'read-only-storage',
             visibility: GPUShaderStage.VERTEX,
         });
-        expect(group.bindings[0]).toMatchObject({
+        expect(worlds.binding).toMatchObject({
+            binding: 2,
             buffer: s.scene.resourceSystem.poolBufferSpec('WorldTransform'),
         });
     });
@@ -55,7 +66,7 @@ describe('ShadowFlow — matriz de mundo por slot', () => {
         expect(discOf(pass!.target.depthStencilAttachment?.view)).toMatch(/depth/);
     });
 
-    it('religa o grupo 1 quando o pool WorldTransform é realocado', async () => {
+    it('religa worlds quando o pool WorldTransform é realocado', async () => {
         const s = await scene();
         s.step();
         const before = s.scene.resourceSystem.poolBufferSpec('WorldTransform');
@@ -63,9 +74,7 @@ describe('ShadowFlow — matriz de mundo por slot', () => {
         s.step();
         const after = s.scene.resourceSystem.poolBufferSpec('WorldTransform');
         expect(after).not.toBe(before);
-        expect(s.draws('ShadowFlow')[0]!.bindGroups.get(1)!.group.bindings[0]).toMatchObject({
-            buffer: after,
-        });
+        expect(worldsOf(s.draws('ShadowFlow')[0]).binding).toMatchObject({ buffer: after });
     });
 
     it('sem luz que projeta sombra o estágio não grava', async () => {

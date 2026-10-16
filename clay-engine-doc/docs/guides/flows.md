@@ -7,8 +7,8 @@ title: Flows
 
 Um **Flow** é um estágio do quadro: um solver de física, a composição das transformações, a sombra, o render
 principal, o pós-processamento, a UI. Os Flows do motor e os seus usam o mesmo contrato. Você **declara** o que o
-algoritmo consome e como ele reage a eventos; a Camada 2 (C2) resolve os dados da cena, infere os layouts do WGSL,
-cria e mantém os bind groups e decide quando o Flow entra no quadro.
+algoritmo consome e como ele reage a eventos; a Camada 2 (C2) resolve os dados da cena, atribui as ligações dos
+recursos que os shaders declaram, cria e mantém os bind groups e decide quando o Flow entra no quadro.
 
 Um Flow declara:
 
@@ -17,7 +17,7 @@ Um Flow declara:
 | `type` | Nome do estágio (mensagens de erro, profiling, `flowReady`) — dado, não nome de classe. |
 | `slots` | Os dados da cena que o algoritmo lê, tipados, pelos construtores `slot.*`. |
 | `pipelines` | Os pipelines compilados antes de o Flow ficar pronto (`PipelineDescriptor`). |
-| `bindings` | Recursos **privados** pelo nome da variável no WGSL (uniforms por passo, temporários). |
+| `bindings` | Fontes dos recursos **privados** (uniforms por passo, temporários): `Map<BindingKey, BindingSource>`, pela identidade do recurso declarado. |
 | `listens` | Schemas cujos envios chegam ao Flow como evento: `poolWritten` (dado em pool, faixas de slots) ou `resourceReady` (Resource com objetos próprios). |
 | `initialState` / `transitions` | A máquina de estados do algoritmo: `estado → evento → destino`. |
 | `dispatch(frame, bound)` | A gravação do quadro. **Só grava**: nada é criado nem escrito aqui. |
@@ -84,27 +84,37 @@ geometria `'never'` sem escritor.
 
 Um Resource com descritor `count: N` em pool ocupa N slots contíguos: `bound.slots.x.rangeOf(entityId)` dá
 `{ first, count }` (os corpos de partículas usam isso; o desenho deles lê `first + instance_index`). Kernels que
-percorrem `[0, count)` de um pool com faixas liberadas testam o bitset de vivos: `BoundPool.live` (ou `consumes`
-`'<pool>.live'`, tipo `u32`) e `pool_live(live[i >> 5u], i)` do módulo `poolLive` da `wgslLib`.
+percorrem `[0, count)` de um pool com faixas liberadas testam o bitset de vivos: `BoundPool.live` (no shader, um
+recurso `array<u32>` com fornecedor `{ slot: 'bodies', part: 'live' }` ou `{ consumer: '<pool>.live' }`) e
+`pool_live(live[i >> 5u], i)` do módulo `poolLive` da `wgslLib`.
 
 Slot obrigatório não resolvido mantém o Flow `pending` (fora do quadro). Slots opcionais resolvem como `undefined`
 enquanto o dado não existe; quando aparecem, somem ou trocam de recurso, o Flow recebe `slotChanged`.
 
-## Bindings: privados e `consumes`
+## Bindings: recursos declarados (spec 031)
 
-Os layouts vêm do WGSL montado (`LayoutInferencer.infer`): grupos, bindings, tipo e visibilidade. Para cada binding
-que as entradas do pipeline usam, a C2 procura a fonte nesta ordem:
+Os shaders não escrevem `@group/@binding`: cada recurso que um módulo usa é declarado com `wgslResource({ name,
+binding, type, frequency, provider })` e posto em `requires`. A montagem (`composeWgsl`) atribui o grupo (pela
+frequência: `frame` < `stage` < `batch` < `draw`) e a ligação (pela ordem do nome) e emite as linhas; o
+`LayoutInferencer` lê essas declarações e deriva a visibilidade. Para cada binding que as entradas do pipeline usam, a
+C2 resolve a fonte pelo **fornecedor declarado**:
 
-1. privado `pipeline:variável` (vale só para aquele pipeline — ex.: a mesma `src_tex` com uma textura por efeito);
-2. privado `variável` (vale para todos os pipelines do Flow);
-3. um nome de `consumes` cujo tipo é o tipo do binding (o struct, ou o elemento de `array<…>`), ou o `as` da
-   entrada `{ name, as }` — o `ConsumerResolver` registrado com esse nome devolve a fonte;
-4. senão, `FlowBindingError` (nomeia binding, grupo, pipeline, Flow e o nome envolvido).
+1. `PipelineDescriptor.pools` — troca, só naquele pipeline, o pool que fornece um recurso;
+2. `'private'` — a fonte que o Flow deu ao recurso: `{ pipeline, resource }` (só naquele pipeline — ex.: a mesma
+   origem de pós com uma textura por efeito) vence o próprio recurso (todos os pipelines do Flow); sem fonte,
+   `FlowBindingError` nomeando o recurso, o grupo, o pipeline e o Flow;
+3. `{ scene: ponto }` — o global de um ponto de cena (o pool, ou um substituto zerado);
+4. `{ slot: nome, part?, descriptor? }` — o que o slot do Flow resolveu (o pool, o bitset `live`, os registros ou as
+   instâncias de um conjunto de entidades, uma textura, o descritor de um singleton);
+5. `{ pool: chave }` / `{ consumer: nome }` — o `ConsumerResolver` registrado com esse nome.
 
 Fonte ainda inexistente na cena faz o pipeline esperar. Cada pool criado registra o seu `PoolResolver`
-automaticamente; recursos únicos da C3 (Camera, GravityField, ParticleMaterial) já têm resolver, e
-`Application.create({ consumers })` registra os seus (`SingletonResolver`, `PoolResolver`, `TextureResolver` ou uma
-implementação própria de `ConsumerResolver`).
+automaticamente; fornecedores da C3/C4 (`Time`, `GravityField`, `ParticleMaterial`, `ShadowCaster.*`,
+`WaterSurface.*`) já têm resolver, e `Application.create({ consumers })` registra os seus (`SingletonResolver`,
+`PoolResolver`, `TextureResolver` ou uma implementação própria de `ConsumerResolver`). Uma fonte privada para um
+recurso que tem fornecedor é erro. No `dispatch`, grave os grupos sem índices: `prepared.bindTo(pass.bind, {
+frequência: offsets })`, ou `prepared.groupsOf(frequência)` para regravar só o que mudou. Detalhes em
+[Arquitetura — Contrato de shader estruturado](./architecture_resource_loaders.md).
 
 ## Transições e eventos
 
@@ -116,9 +126,15 @@ O Flow tem dois estados, ambos mudados por eventos:
 - **Estado do algoritmo** (`flow.state`), só por transições. A tabela tem uma entrada por estado (e `'*'` para
   qualquer estado); cada entrada é `'ignore'` ou `{ to, run? }`. **Evento sem entrada lança `FlowTransitionError`.**
 
-No `run(event, ctx)` o Flow recria e religa recursos privados (`ctx.bind({ nome: fonte })`), prepara pipelines que
+No `run(event, ctx)` o Flow recria e religa recursos privados (`ctx.bind(new Map([[recurso, fonte]]))`), prepara pipelines que
 dependem da cena (`ctx.prepare(descriptor)`, idempotente por `id`) e os libera (`ctx.release(id)`). A C2 recria os
 bind groups afetados antes da próxima gravação.
+
+Um Flow que escreve um dado só em alguns quadros declara em `framePrepare` se o produziu:
+`ctx.produced(resource, descId, produced)` (spec 031). Quem lê consulta `resources.isProduced(resource, descId)`
+(`ResourceDirectory`) e só grava com o dado produzido. Um descritor tem um produtor só (o primeiro Flow que o marca); um
+segundo produtor é erro. É assim que a água liga produtor (`FluidSurfaceFlow`) e consumidores (`WaterFlow`,
+`CausticsFlow`) pelos descritores `WaterSurface.producedDescriptor`.
 
 | Evento | Quando a C2 entrega |
 |---|---|
@@ -143,7 +159,7 @@ Um Resource de partícula em pool e um Flow que avança `posição += velocidade
 
 ```typescript
 import {
-  Flow, slot, Time, StructSchema, FieldType, ResourceState, Entity, wgslModule,
+  Flow, slot, Time, StructSchema, FieldType, ResourceState, Entity, wgslModule, wgslResource, WORKGROUP_SIZE,
   type BindingSources, type BoundFlow, type FlowContext, type FlowTransitions, type Frame,
   type GPUDescriptor, type PipelineDescriptor, type Resource, type TransitionContext, type UniformBufferSpec,
 } from 'clayflow';
@@ -170,20 +186,33 @@ export class Drifter extends Entity<{ position: number[]; velocity: number[] }> 
   }
 }
 
-// 2. O shader: structs gerados dos schemas; nenhum offset à mão.
+// 2. O shader: recursos declarados e structs gerados dos schemas; nenhuma ligação nem offset à mão.
 const DriftParamsSchema = new StructSchema(
   'DriftParams',
   { dt: FieldType.f32, count: FieldType.u32 },
   { addressSpace: 'uniform' },
 );
 
+const driftBodies = wgslResource({
+  name: 'bodies',
+  binding: { storage: 'read_write' },
+  type: { schema: DrifterSchema, array: true },
+  frequency: 'stage',
+  provider: { slot: 'bodies' },          // o pool que o slot `bodies` resolveu
+});
+const driftParams = wgslResource({
+  name: 'params',
+  binding: { uniform: true },
+  type: { schema: DriftParamsSchema },
+  frequency: 'stage',
+  provider: 'private',                   // o Flow liga pelo objeto do recurso
+});
+
 const drift = wgslModule({
   name: 'drift',
-  structs: [DrifterSchema, DriftParamsSchema],
+  requires: [WORKGROUP_SIZE.module, driftBodies, driftParams],
   source: `
-@group(0) @binding(0) var<storage, read_write> bodies: array<Drifter>;
-@group(0) @binding(1) var<uniform> params: DriftParams;
-@compute @workgroup_size(64) fn drift_main(@builtin(global_invocation_id) id: vec3u) {
+@compute @workgroup_size(WORKGROUP_SIZE) fn drift_main(@builtin(global_invocation_id) id: vec3u) {
     if (id.x >= params.count) { return; }
     bodies[id.x].position += bodies[id.x].velocity * params.dt;
 }`,
@@ -201,8 +230,8 @@ export class DriftFlow extends Flow<DriftSlots, 'running'> {
   readonly type = 'DriftFlow';
   readonly slots = slots;
   override readonly pipelines: readonly PipelineDescriptor[] = [
-    // `bodies` vem de consumes (tipo Drifter → PoolResolver do pool 'Drifter'); `params` é privado.
-    { id: 'drift', role: 'compute', shader: drift, entryPoints: ['drift_main'], consumes: ['Drifter'] },
+    // `bodies` vem do slot (fornecedor { slot: 'bodies' }); `params` é privado.
+    { id: 'drift', role: 'compute', shader: drift, entryPoints: ['drift_main'] },
   ];
   override readonly bindings: BindingSources;
   protected readonly initialState = 'running' as const;
@@ -226,7 +255,7 @@ export class DriftFlow extends Flow<DriftSlots, 'running'> {
     this.params = ctx.core.create<UniformBufferSpec>({
       kind: 'buffer', subkind: 'uniform', discriminator: 'drift_params', byteSize: DriftParamsSchema.stride,
     });
-    this.bindings = { params: this.params };
+    this.bindings = new Map([[driftParams, this.params]]);
   }
 
   /** Antes da gravação: dt e contagem do quadro. */
@@ -244,8 +273,9 @@ export class DriftFlow extends Flow<DriftSlots, 'running'> {
     if (count === 0) return;
     const p = bound.compute('drift');
     frame.compute('DriftFlow', (pass) => {
-      pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
-      pass.dispatch.invocations(count, 64);
+      pass.bind.setPipeline(p.spec);
+      p.bindTo(pass.bind);                 // grupos pela frequência, sem índices escritos
+      pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
     });
   }
 

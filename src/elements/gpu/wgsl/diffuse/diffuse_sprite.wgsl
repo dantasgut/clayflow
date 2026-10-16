@@ -1,17 +1,8 @@
 // Desenho das partículas secundárias de um fluido (spec 010, `DiffuseMaterial`): um quad virado para a câmera por
 // vértice da nuvem de pontos (posição; uv = tipo e fração de vida), com a aparência do tipo — spray: gotícula
 // (esfera com reflexo especular e Fresnel, tom de água); espuma: disco branco que se dissolve com a vida (descarte
-// pontilhado, sem mistura); bolha: anel claro. Morta: fora do recorte. Mesmos grupos 0 e 1 do forward.
-@group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
-@group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
-@group(1) @binding(1) var<storage, read> renderables: array<Renderable>;
-@group(1) @binding(2) var<storage, read> instances: array<RenderInstance>;
-@group(2) @binding(0) var<storage, read> materials: array<DiffuseMaterial>;
-@group(3) @binding(0) var<uniform> forward_frame: ForwardFrameParams;
-@group(3) @binding(5) var<storage, read> lights: array<Light>;
-@group(3) @binding(6) var<storage, read> point_vertices: array<f32>;
-
-const DIFFUSE_DEFAULT_LIGHT_DIR = vec3f(0.4, -1.0, 0.6);
+// pontilhado, sem mistura); bolha: anel claro. Morta: fora do recorte. Direção da luz pelo ponto de cena
+// `scene_light_direction` (spec 031).
 
 struct DiffuseOut {
     @builtin(position) clip_position: vec4f,
@@ -31,15 +22,15 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     );
     let corner = corners[index % 6u];
     let point = index / 6u;
-    let v = point * 8u;
+    let m = point_vertices[point];
     let r = renderables[instances[instance].renderable];
     let material = materials[r.materialSlot];
     let camera = cameras[forward_frame.cameraSlot];
-    let local = vec3f(point_vertices[v], point_vertices[v + 1u], point_vertices[v + 2u]);
+    let local = vec3f(m.px, m.py, m.pz);
     out.corner = corner;
     out.material_slot = r.materialSlot;
-    out.kind = point_vertices[v + 6u];
-    out.life = point_vertices[v + 7u];
+    out.kind = m.u;
+    out.life = m.v;
     out.id = point;
     if (!all(abs(local) < vec3f(1e8))) {
         out.clip_position = vec4f(2.0, 2.0, 2.0, 1.0);
@@ -65,11 +56,7 @@ fn fs_main(in: DiffuseOut) -> @location(0) vec4f {
     if (r2 > 1.0) { discard; }
     let material = materials[in.material_slot];
     let camera = cameras[forward_frame.cameraSlot];
-    var light_dir = DIFFUSE_DEFAULT_LIGHT_DIR;
-    if (forward_frame.lightSlot != 0xFFFFFFFFu) {
-        light_dir = lights[forward_frame.lightSlot].direction.xyz;
-    }
-    let l = normalize((camera.view * vec4f(-light_dir, 0.0)).xyz);
+    let l = normalize((camera.view * vec4f(-scene_light_direction(), 0.0)).xyz);
     let n = vec3f(in.corner, sqrt(1.0 - r2));
     if (in.kind < 0.5) {
         // Spray: gotícula — tom de água, Fresnel na borda e reflexo especular.

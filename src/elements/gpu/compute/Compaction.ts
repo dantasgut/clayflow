@@ -1,23 +1,36 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
-import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type {
+    EngineCore,
+    Frame,
+    IndirectBufferSpec,
+    StorageBufferSpec,
+} from '../../../scene/contracts/gpu';
+import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,
 } from '../../../scene/flows/createComputeKernel';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
+import { bindPoints } from '../../../scene/shaders/bindPoints';
+import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
 import { CompactParamsSchema } from './schemas';
-import { compactionModules } from './shaders';
+import {
+    compactCountGpu,
+    compactCountPoint,
+    compactionModules,
+    compactResources,
+    setCountResources,
+} from './shaders';
 
 /** Opções de `Compaction`. */
 export interface CompactionOptions {
     /** Prefixo único dos recursos da instância. */
     readonly discriminator: string;
     /**
-     * Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32`, e
-     * declara no `@group(1)` os buffers que lê (fontes em `bindings`, pelo nome da variável).
+     * Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32` e requer
+     * os recursos que lê (spec 031; fontes em `bindings`, pelo objeto do recurso).
      */
     readonly predicate: WgslModule;
     /** Tamanho máximo da saída (elementos u32). */
@@ -26,14 +39,17 @@ export interface CompactionOptions {
     readonly stable?: boolean;
     /** Maior `count` de entrada — obrigatório com `stable` (dimensiona as flags e a soma de prefixos). */
     readonly inputCapacity?: number;
-    /** Fontes dos buffers lidos pelo predicado, pelo nome da variável WGSL. */
-    readonly bindings?: Readonly<Record<string, BindingSource>>;
+    /** Fontes dos recursos privados lidos pelo predicado. */
+    readonly bindings?: ReadonlyMap<BindingKey, BindingSource>;
 }
 
 /** Argumentos de `Compaction.record`. */
 export interface CompactionRecordArgs {
-    /** Elementos de entrada avaliados pelo predicado (`i ∈ [0, count)`). `0` só zera o contador. */
-    readonly count: number;
+    /**
+     * Elementos de entrada avaliados pelo predicado (`i ∈ [0, count)`). `0` só zera o contador. Ou a contagem lida na
+     * GPU (`GpuCount`, com `out` preparado com o mesmo `counts`).
+     */
+    readonly count: number | GpuCount;
     /** Saída `u32[capacity]`, preparada antes (`prepare`). */
     readonly out: StorageBufferSpec;
     /** Contador `AtomicAllocCounter`: aceitos (`count`, inclui os recusados) e excedente (`overflow`). */
@@ -54,19 +70,30 @@ interface BoundKernels {
  * `stable`: flags, soma de prefixos exclusiva e espalhamento — ordem da entrada preservada, resultado determinístico.
  * Nos dois modos o excedente acima de `capacity` é contado (`overflow`) e nada é escrito fora da saída.
  *
- * Duas fases (spec 006): `prepare(out, counter, gravaçõesPorQuadro)` fora da gravação; `record` só grava.
+ * Contagem da GPU (spec 031, R10): preparada com `counts`, a compactação aceita `count: { counts, index }` — a
+ * entrada vem do registro `SetCount` no próprio kernel (ponto `compact_count`), sem leitura de volta; os passes por
+ * elemento despacham pelo argumento indireto do registro, que precisa já trazer o despacho para grupos de 256
+ * (`CountToArgs` com `workgroupSize: 256` gravado antes no mesmo fluxo), e a soma de prefixos do modo `stable` usa a
+ * mesma contagem. O total vai para o contador como no caminho da CPU (quem o consome copia para um `SetCount` na GPU).
+ * No modo `stable`, a contagem do registro deve ser ≤ `inputCapacity`.
+ *
+ * Duas fases (spec 006): `prepare(out, counter, gravaçõesPorQuadro, counts?)` fora da gravação; `record` só grava.
  */
 export class Compaction {
     private readonly disc: string;
     private readonly capacity: number;
     private readonly stable: boolean;
     private readonly inputCapacity: number;
-    private readonly bindings: Readonly<Record<string, BindingSource>>;
+    private readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     private readonly modules: ReturnType<typeof compactionModules>;
     private readonly params: FrameUniforms;
     private readonly scan: PrefixSum | null;
     private flagsBuffer: StorageBufferSpec | null = null;
-    private readonly bound = new Map<StorageBufferSpec, BoundKernels>();
+    /** Kernels por origem da contagem (`null` = CPU; um buffer `SetCount` = variante da GPU) e saída. */
+    private readonly bound = new Map<
+        IndirectBufferSpec | null,
+        Map<StorageBufferSpec, BoundKernels>
+    >();
 
     constructor(
         private readonly core: EngineCore,
@@ -87,7 +114,7 @@ export class Compaction {
         this.disc = options.discriminator;
         this.capacity = options.capacity;
         this.inputCapacity = inputCapacity;
-        this.bindings = options.bindings ?? {};
+        this.bindings = options.bindings ?? new Map();
         this.modules = compactionModules(options.predicate);
         this.params = new FrameUniforms(core, {
             discriminator: `${this.disc}:compact`,
@@ -103,9 +130,15 @@ export class Compaction {
 
     /**
      * Prepara a compactação para a saída `out` e o contador `counter`, para até `recordsPerFrame` gravações por
-     * quadro. Idempotente; chamado fora da gravação.
+     * quadro. Com `counts`, também os kernels da variante de contagem da GPU ligados a esse buffer de registros
+     * `SetCount` (memorizados por buffer). Idempotente; chamado fora da gravação.
      */
-    prepare(out: StorageBufferSpec, counter: StorageBufferSpec, recordsPerFrame = 1): void {
+    prepare(
+        out: StorageBufferSpec,
+        counter: StorageBufferSpec,
+        recordsPerFrame = 1,
+        counts?: IndirectBufferSpec,
+    ): void {
         if (this.params.reserve(recordsPerFrame)) this.releaseKernels();
         if (this.stable) {
             this.flagsBuffer ??= this.core.create<StorageBufferSpec>({
@@ -114,12 +147,16 @@ export class Compaction {
                 discriminator: `${this.disc}:compact_flags`,
                 byteSize: Math.max(16, this.inputCapacity * 4),
             });
-            this.scan!.prepare(this.flagsBuffer, recordsPerFrame);
+            this.scan!.prepare(this.flagsBuffer, recordsPerFrame, counts);
         }
-        const cached = this.bound.get(out);
-        if (cached?.counter === counter) return;
-        if (cached !== undefined) this.destroyBound(cached);
-        this.bound.set(out, this.createKernels(out, counter));
+        for (const source of counts === undefined ? [null] : [null, counts]) {
+            let byOut = this.bound.get(source);
+            if (byOut === undefined) this.bound.set(source, (byOut = new Map()));
+            const cached = byOut.get(out);
+            if (cached?.counter === counter) continue;
+            if (cached !== undefined) this.destroyBound(cached);
+            byOut.set(out, this.createKernels(source, out, counter));
+        }
     }
 
     /**
@@ -128,6 +165,10 @@ export class Compaction {
      */
     record(frame: Frame, args: CompactionRecordArgs): void {
         const { count, out, counter } = args;
+        if (typeof count !== 'number') {
+            this.recordGpu(frame, args, count);
+            return;
+        }
         if (!Number.isInteger(count) || count < 0) {
             throw new RangeError(
                 `Compaction(${this.disc}): count deve ser inteiro ≥ 0 (recebeu ${count}).`,
@@ -138,13 +179,40 @@ export class Compaction {
                 `Compaction(${this.disc}): count ${count} acima de inputCapacity ${this.inputCapacity}.`,
             );
         }
-        const kernels = this.bound.get(out);
+        const kernels = this.bound.get(null)?.get(out);
         if (kernels?.counter !== counter) {
             throw new Error(`Compaction(${this.disc}): prepare(out, counter) antes de gravar.`);
         }
         frame.clear(counter);
         if (count === 0) return;
-        const offset = this.params.allocate(frame, { count, capacity: this.capacity });
+        this.runPasses(frame, kernels, count, 0);
+    }
+
+    /** Variante de contagem da GPU: os mesmos passes, despachados pelo indireto do registro `count`. */
+    private recordGpu(frame: Frame, args: CompactionRecordArgs, count: GpuCount): void {
+        const owner = `Compaction(${this.disc})`;
+        CountToArgs.check(owner, count);
+        const kernels = this.bound.get(count.counts)?.get(args.out);
+        if (kernels?.counter !== args.counter) {
+            throw new Error(`${owner}: prepare(out, counter, gravações, counts) antes de gravar.`);
+        }
+        frame.clear(args.counter);
+        this.runPasses(frame, kernels, count, count.index);
+    }
+
+    /** Atômico num passe, ou flags + soma de prefixos + espalhamento; `count` também é o despacho. */
+    private runPasses(
+        frame: Frame,
+        kernels: BoundKernels,
+        count: number | GpuCount,
+        countIndex: number,
+    ): void {
+        // Na variante da GPU o campo `count` não é lido (o kernel lê o registro `count_index`).
+        const offset = this.params.allocate(frame, {
+            count: typeof count === 'number' ? count : 0,
+            capacity: this.capacity,
+            count_index: countIndex,
+        });
         if (!this.stable) {
             this.run(frame, 'Compaction.atomic', kernels.atomic!, offset, count);
             return;
@@ -163,21 +231,34 @@ export class Compaction {
         this.params.destroy();
     }
 
-    private createKernels(out: StorageBufferSpec, counter: StorageBufferSpec): BoundKernels {
+    private createKernels(
+        counts: IndirectBufferSpec | null,
+        out: StorageBufferSpec,
+        counter: StorageBufferSpec,
+    ): BoundKernels {
         const compact = this.params.source();
+        const r = compactResources;
+        const gpu = counts === null ? '' : ':gpu';
+        const variant = (ready: WgslModule): WgslModule =>
+            counts === null
+                ? ready
+                : bindPoints(ready, new Map([[compactCountPoint, compactCountGpu]]));
+        const countBinding: [BindingKey, BindingSource][] =
+            counts === null ? [] : [[setCountResources.counts, counts]];
         if (!this.stable) {
             return {
                 counter,
                 atomic: createComputeKernel(this.core, {
-                    discriminator: `${this.disc}:compact_atomic`,
-                    shader: this.modules.atomic,
+                    discriminator: `${this.disc}:compact_atomic${gpu}`,
+                    shader: variant(this.modules.atomic),
                     entryPoint: 'compact_atomic_main',
-                    bindings: {
+                    bindings: new Map<BindingKey, BindingSource>([
                         ...this.bindings,
-                        compact,
-                        compact_out: out,
-                        compact_counter: counter,
-                    },
+                        ...countBinding,
+                        [r.compact, compact],
+                        [r.out, out],
+                        [r.counter, counter],
+                    ]),
                 }),
             };
         }
@@ -185,37 +266,45 @@ export class Compaction {
         return {
             counter,
             flags: createComputeKernel(this.core, {
-                discriminator: `${this.disc}:compact_flags`,
-                shader: this.modules.flags,
+                discriminator: `${this.disc}:compact_flags${gpu}`,
+                shader: variant(this.modules.flags),
                 entryPoint: 'compact_flags_main',
-                bindings: { ...this.bindings, compact, compact_flags: flags },
+                bindings: new Map<BindingKey, BindingSource>([
+                    ...this.bindings,
+                    ...countBinding,
+                    [r.compact, compact],
+                    [r.flags, flags],
+                ]),
             }),
             scatter: createComputeKernel(this.core, {
-                discriminator: `${this.disc}:compact_scatter`,
-                shader: this.modules.scatter,
+                discriminator: `${this.disc}:compact_scatter${gpu}`,
+                shader: variant(this.modules.scatter),
                 entryPoint: 'compact_scatter_main',
-                bindings: {
+                bindings: new Map<BindingKey, BindingSource>([
                     ...this.bindings,
-                    compact,
-                    compact_out: out,
-                    compact_counter: counter,
-                    compact_positions: flags,
-                },
+                    ...countBinding,
+                    [r.compact, compact],
+                    [r.out, out],
+                    [r.counter, counter],
+                    [r.positions, flags],
+                ]),
             }),
         };
     }
 
+    /** Um número despacha `invocations(count, 256)`; `GpuCount`, o indireto do registro. */
     private run(
         frame: Frame,
         label: string,
         kernel: ComputeKernel,
         offset: number,
-        count: number,
+        count: number | GpuCount,
     ): void {
         frame.compute(label, (pass) => {
-            pass.bind.setPipeline(kernel.pipeline).setBindGroup(0, kernel.bindGroups[0]!, [offset]);
-            if (kernel.bindGroups[1] !== undefined) pass.bind.setBindGroup(1, kernel.bindGroups[1]);
-            pass.dispatch.invocations(count, SCAN_GROUP);
+            pass.bind.setPipeline(kernel.pipeline);
+            kernel.bindTo(pass.bind, { draw: [offset] });
+            if (typeof count === 'number') pass.dispatch.invocations(count, SCAN_GROUP);
+            else pass.dispatch.workgroupsIndirect(count.counts, CountToArgs.dispatchOffset(count));
         });
     }
 
@@ -226,7 +315,9 @@ export class Compaction {
     }
 
     private releaseKernels(): void {
-        for (const entry of this.bound.values()) this.destroyBound(entry);
+        for (const byOut of this.bound.values()) {
+            for (const entry of byOut.values()) this.destroyBound(entry);
+        }
         this.bound.clear();
     }
 }

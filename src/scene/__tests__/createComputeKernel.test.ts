@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createComputeKernel, destroyComputeKernel } from '../flows/createComputeKernel';
 import { fakeResourceCore } from './helpers/fakeResourceCore';
+import { defaultCapabilities } from './helpers/defaultCapabilities';
 import { wgslModule } from '../shaders/WgslModule';
+import { wgslResource } from '../shaders/WgslResource';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
+import type { BindingKey, BindingSource } from '../flows/FlowBinding';
 import type { EngineCore, StorageBufferSpec, UniformBufferSpec } from '../../core/contracts/index';
 
 function recordingCore(): {
@@ -27,6 +30,7 @@ function recordingCore(): {
             asyncCreates.push(entry(spec));
             return Promise.resolve(spec);
         }),
+        capabilities: vi.fn(defaultCapabilities),
     } as unknown as EngineCore;
     return { core, creates, asyncCreates };
 }
@@ -44,16 +48,36 @@ const sbo: StorageBufferSpec = {
     byteSize: 64,
 };
 
+// Grupos atribuídos pela montagem: 0 = stage (data, params — ordem de nome), 1 = draw (table).
+const params = wgslResource({
+    name: 'params',
+    binding: { uniform: true },
+    type: { wgsl: 'vec4u' },
+    frequency: 'stage',
+    provider: 'private',
+});
+const data = wgslResource({
+    name: 'data',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'f32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+const table = wgslResource({
+    name: 'table',
+    binding: { storage: 'read' },
+    type: { wgsl: 'f32', array: true },
+    frequency: 'draw',
+    provider: 'private',
+});
+
 const KERNEL = wgslModule({
     name: 'kernel',
+    requires: [params, data, table],
     source: `
-struct P { n: u32, a: u32, b: u32, c: u32 }
-@group(0) @binding(0) var<uniform> params: P;
-@group(0) @binding(1) var<storage, read_write> data: array<f32>;
-@group(1) @binding(0) var<storage, read> table: array<f32>;
 fn get(i: u32) -> f32 { return table[i]; }
 @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) {
-    if (id.x >= params.n) { return; }
+    if (id.x >= params.x) { return; }
     data[id.x] = get(id.x);
 }
 @compute @workgroup_size(64) fn other(@builtin(global_invocation_id) id: vec3u) { data[id.x] = 0.0; }
@@ -67,7 +91,11 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
             discriminator: 'k1',
             shader: KERNEL,
             entryPoint: 'main',
-            bindings: { params: ubo, data: sbo, table: sbo },
+            bindings: new Map<BindingKey, BindingSource>([
+                [params, ubo],
+                [data, sbo],
+                [table, sbo],
+            ]),
         });
         expect(k.pipeline).toMatchObject({
             kind: 'pipeline',
@@ -76,16 +104,18 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
         });
         expect(k.layouts).toHaveLength(2);
         expect(k.layouts[0]!.entries).toEqual([
-            { binding: 0, visibility: 4, kind: 'buffer', type: 'uniform' },
-            { binding: 1, visibility: 4, kind: 'buffer', type: 'storage' },
+            { binding: 0, visibility: 4, kind: 'buffer', type: 'storage' },
+            { binding: 1, visibility: 4, kind: 'buffer', type: 'uniform' },
         ]);
         expect(k.layouts[1]!.entries).toEqual([
             { binding: 0, visibility: 4, kind: 'buffer', type: 'read-only-storage' },
         ]);
         expect(k.bindGroups[0]!.bindings).toEqual([
-            { binding: 0, kind: 'buffer', buffer: ubo },
-            { binding: 1, kind: 'buffer', buffer: sbo },
+            { binding: 0, kind: 'buffer', buffer: sbo },
+            { binding: 1, kind: 'buffer', buffer: ubo },
         ]);
+        expect(k.groupsOf('stage').map((g) => g.index)).toEqual([0]);
+        expect(k.groupsOf('draw').map((g) => g.index)).toEqual([1]);
         expect(creates.map((c) => c.kind).sort()).toEqual([
             'bindgroup',
             'bindgroup',
@@ -104,7 +134,7 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
             discriminator: 'kOther',
             shader: KERNEL,
             entryPoint: 'other',
-            bindings: { data: sbo },
+            bindings: new Map<BindingKey, BindingSource>([[data, sbo]]),
         });
         expect(k.layouts.map((l) => l.entries.length)).toEqual([1]);
         expect(() =>
@@ -112,7 +142,10 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
                 discriminator: 'kExtra',
                 shader: KERNEL,
                 entryPoint: 'other',
-                bindings: { data: sbo, params: ubo },
+                bindings: new Map<BindingKey, BindingSource>([
+                    [data, sbo],
+                    [params, ubo],
+                ]),
             }),
         ).toThrow(/fonte para 'params', que a entrada 'other' não usa/);
     });
@@ -124,7 +157,10 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
                 discriminator: 'kMissing',
                 shader: KERNEL,
                 entryPoint: 'main',
-                bindings: { params: ubo, data: sbo },
+                bindings: new Map<BindingKey, BindingSource>([
+                    [params, ubo],
+                    [data, sbo],
+                ]),
             }),
         ).toThrow(/binding 'table' \(@group\(1\) @binding\(0\)\) sem fonte/);
     });
@@ -136,7 +172,11 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
                 discriminator: 'kWrong',
                 shader: KERNEL,
                 entryPoint: 'main',
-                bindings: { params: sbo, data: sbo, table: sbo },
+                bindings: new Map<BindingKey, BindingSource>([
+                    [params, sbo],
+                    [data, sbo],
+                    [table, sbo],
+                ]),
             }),
         ).toThrow(/'params' incompatível/);
     });
@@ -147,14 +187,15 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
             discriminator: 'kDyn',
             shader: KERNEL,
             entryPoint: 'main',
-            bindings: {
-                params: { kind: 'buffer', buffer: ubo, size: 16, dynamic: { stride: 256 } },
-                data: sbo,
-                table: sbo,
-            },
+            bindings: new Map<BindingKey, BindingSource>([
+                [params, { kind: 'buffer', buffer: ubo, size: 16, dynamic: { stride: 256 } }],
+                [data, sbo],
+                [table, sbo],
+            ]),
         });
-        expect(k.layouts[0]!.entries[0]).toMatchObject({ hasDynamicOffset: true });
-        expect(k.bindGroups[0]!.bindings[0]).toMatchObject({ size: 16 });
+        expect(k.layouts[0]!.entries[1]).toMatchObject({ hasDynamicOffset: true });
+        expect(k.layouts[0]!.entries[0]).not.toHaveProperty('hasDynamicOffset', true);
+        expect(k.bindGroups[0]!.bindings[1]).toMatchObject({ size: 16 });
         expect(k.dynamic).toEqual([true, false]);
     });
 
@@ -164,7 +205,7 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
             discriminator: 'k_async',
             shader: KERNEL,
             entryPoint: 'other',
-            bindings: { data: sbo },
+            bindings: new Map<BindingKey, BindingSource>([[data, sbo]]),
             preferAsync: true,
         });
         expect(creates.find((c) => c.kind === 'pipeline')).toBeUndefined();
@@ -177,7 +218,7 @@ describe('createComputeKernel — bindings por nome, layout inferido (T025)', ()
             discriminator: 'kP',
             shader: KERNEL,
             entryPoint: 'other',
-            bindings: { data: sbo },
+            bindings: new Map<BindingKey, BindingSource>([[data, sbo]]),
         });
         expect(
             creates
@@ -213,9 +254,9 @@ describe('createComputeKernel — buffers de vértice, índice e indireto (FR-01
             discriminator: `k_${buffer.subkind}`,
             shader: KERNEL,
             entryPoint: 'other',
-            bindings: { data: buffer },
+            bindings: new Map<BindingKey, BindingSource>([[data, buffer]]),
         });
-        expect(k.bindGroup.bindings[0]).toEqual({ binding: 1, kind: 'buffer', buffer });
+        expect(k.bindGroup.bindings[0]).toEqual({ binding: 0, kind: 'buffer', buffer });
         expect(k.layout.entries[0]).toMatchObject({ kind: 'buffer', type: 'storage' });
     });
 });
@@ -232,7 +273,7 @@ describe('createComputeKernel — montagem e posse', () => {
                 discriminator: 'kBad',
                 shader: bad,
                 entryPoint: 'driver',
-                bindings: {},
+                bindings: new Map(),
             }),
         ).toThrowError(/missing_helper/);
     });
@@ -244,7 +285,7 @@ describe('createComputeKernel — montagem e posse', () => {
                 discriminator: 'kEntry',
                 shader: KERNEL,
                 entryPoint: 'nao_existe',
-                bindings: {},
+                bindings: new Map(),
             }),
         ).toThrowError(/entry point 'nao_existe'.*'kernel'/);
     });
@@ -263,7 +304,7 @@ describe('createComputeKernel — montagem e posse', () => {
                 discriminator: 'kDup',
                 shader: entry,
                 entryPoint: 'main',
-                bindings: {},
+                bindings: new Map(),
             });
             expect.unreachable();
         } catch (e) {
@@ -274,7 +315,11 @@ describe('createComputeKernel — montagem e posse', () => {
 
     it('cada kernel recebe a sua cópia da spec montada (posse independente), com o mesmo texto', () => {
         const { core } = recordingCore();
-        const opts = { shader: KERNEL, entryPoint: 'other', bindings: { data: sbo } };
+        const opts = {
+            shader: KERNEL,
+            entryPoint: 'other',
+            bindings: new Map<BindingKey, BindingSource>([[data, sbo]]),
+        };
         const k1 = createComputeKernel(core, { discriminator: 'kA', ...opts });
         const k2 = createComputeKernel(core, { discriminator: 'kB', ...opts });
         expect(k1.pipeline.shader).not.toBe(k2.pipeline.shader);
@@ -287,7 +332,11 @@ describe('createComputeKernel — montagem e posse', () => {
             discriminator: 'k',
             shader: KERNEL,
             entryPoint: 'main',
-            bindings: { params: ubo, data: sbo, table: sbo },
+            bindings: new Map<BindingKey, BindingSource>([
+                [params, ubo],
+                [data, sbo],
+                [table, sbo],
+            ]),
         });
         destroyComputeKernel(core, kernel);
         expect(vi.mocked(core.destroy).mock.calls.map((c) => c[0])).toEqual([

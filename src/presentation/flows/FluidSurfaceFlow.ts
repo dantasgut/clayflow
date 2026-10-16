@@ -9,7 +9,12 @@ import type {
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { BindingSources, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import type {
+    BindingKey,
+    BindingSource,
+    BoundFlow,
+    TransitionContext,
+} from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { Flow } from '../../scene/flows/Flow';
@@ -26,21 +31,17 @@ import {
     type SlotMap,
     type TextureSlot,
 } from '../../scene/flows/slots';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { World } from '../../scene/world/World';
 import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
 import { FluidSurfaceMaterial } from '../../elements/material/FluidSurfaceMaterial';
-import {
-    WaterBoundsParamsSchema,
-    WaterDrawParamsSchema,
-    WaterLightMatrixSchema,
-    WaterSmoothParamsSchema,
-    WaterViewParamsSchema,
-} from '../../elements/material/forwardSchemas';
-import { waterLight, waterSmooth, waterSpheres } from '../../elements/material/shaders';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
 import { ParticleMaterial } from '../../elements/physics/materials/ParticleMaterial';
 import { Camera } from '../../elements/scene/Camera';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
+import { camerasResource, shadowMatricesResource } from '../../elements/scene/resources';
+import { castingShadowMap } from '../../elements/scene/shadowCaster';
 import { FrameTargets } from '../app/FrameTargets';
 import {
     NO_WATER_DEPTH,
@@ -48,7 +49,14 @@ import {
     WATER_VIEW_TEXTURES,
     WaterSurface,
 } from '../app/WaterSurface';
-import { castingShadowMap } from './ShadowFlow';
+import {
+    WaterBoundsParamsSchema,
+    WaterDrawParamsSchema,
+    WaterLightMatrixSchema,
+    WaterSmoothParamsSchema,
+    WaterViewParamsSchema,
+} from '../water/schemas';
+import { waterLight, waterResources as R, waterSmooth, waterSpheres } from '../water/shaders';
 
 /** Vista de um produtor da superfície de água: a da câmera (o que se vê) ou a da luz que projeta sombra (cáusticas). */
 export type WaterView = 'camera' | 'light';
@@ -129,7 +137,7 @@ const ADDITIVE = {
 export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
     readonly type = 'FluidSurfaceFlow';
     readonly slots: FluidSurfaceSlots;
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
@@ -142,7 +150,6 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
     private readonly viewParams: UniformBufferSpec;
     /** Parâmetros dos passos da suavização, um por direção (horizontal, vertical, diagonais). */
     private readonly smoothParams: readonly UniformBufferSpec[];
-    private readonly dummyShadowMatrices: StorageBufferSpec;
     /** Matriz da vista da luz substituta (a vista da câmera não a usa, mas o shader a declara). */
     private readonly dummyLightMatrix: StorageBufferSpec;
     /** Parâmetros da caixa envolvente por corpo (vista da luz). */
@@ -209,12 +216,6 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         this.smoothParams = ['h', 'v', 'd', 'a'].map((d) =>
             uniform(`smooth_${d}`, WaterSmoothParamsSchema.stride),
         );
-        this.dummyShadowMatrices = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `water_${this.view}_shadow_matrices_dummy`,
-            byteSize: ShadowMap.matrixSchema.stride,
-        });
         this.dummyLightMatrix = ctx.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
@@ -241,13 +242,12 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
             schema: WaterDrawParamsSchema,
         });
         this.draws.reserve(1);
-        this.bindings = {
-            water_view: this.viewParams,
-            water_draw: this.draws.source(),
-            shadow_matrices: this.dummyShadowMatrices,
-            water_light_matrix: this.dummyLightMatrix,
-            water_scene_depth: this.dummyDepthView,
-        };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [R.view, this.viewParams],
+            [R.draw, this.draws.source()],
+            [R.lightMatrix, this.dummyLightMatrix],
+            [R.sceneDepth, this.dummyDepthView],
+        ]);
         this.transitions = {
             '*': {
                 slotsResolved: {
@@ -296,13 +296,13 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
             frame.compute('FluidSurfaceFlow.lightBounds', (pass) => {
                 const set = (kernel: ComputeKernel): void => {
                     pass.bind.setPipeline(kernel.pipeline);
-                    kernel.bindGroups.forEach((g, i) => pass.bind.setBindGroup(i, g));
+                    kernel.bindTo(pass.bind);
                 };
                 set(bounds.clear);
                 pass.dispatch.workgroups(1);
                 for (const a of bounds.accumulate) {
                     set(a.kernel);
-                    pass.dispatch.invocations(a.count, 64);
+                    pass.dispatch.invocations(a.count, WORKGROUP_SIZE.value);
                 }
                 set(bounds.fit);
                 pass.dispatch.workgroups(1);
@@ -363,7 +363,7 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
             (pass) => {
                 const run = (kernel: ComputeKernel): void => {
                     pass.bind.setPipeline(kernel.pipeline);
-                    kernel.bindGroups.forEach((g, i) => pass.bind.setBindGroup(i, g));
+                    kernel.bindTo(pass.bind);
                     pass.dispatch.workgroups(groups[0], groups[1]);
                 };
                 for (const kernel of this.chain!.kernels.depth) run(kernel);
@@ -378,7 +378,6 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         this.draws.dispose();
         this.core.destroy(this.viewParams);
         for (const p of this.smoothParams) this.core.destroy(p);
-        this.core.destroy(this.dummyShadowMatrices);
         this.core.destroy(this.dummyLightMatrix);
         this.releaseBounds();
         for (const p of this.boundsParams.values()) this.core.destroy(p);
@@ -387,7 +386,7 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         this.core.destroy(this.radii);
     }
 
-    /** Um desenho por corpo (um quad por partícula), no pipeline do pool do corpo. */
+    /** Um desenho por corpo (um quad por partícula), no pipeline do pool do corpo, com a região dele. */
     private drawBodies(
         pass: Parameters<Parameters<Frame['render']>[2]>[0],
         bound: BoundFlow<FluidSurfaceSlots>,
@@ -398,14 +397,15 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
             const id = this.pipelineId(kind, drawn.poolKey);
             const prepared = bound.pipelines.get(id);
             if (prepared?.role !== 'render' || !prepared.ready) return;
+            const draw = [this.draws.offset(region)];
             if (id !== current) {
                 pass.bind.setPipeline(prepared.spec);
-                prepared.groups.forEach((g, i) => {
-                    if (i !== 2 && g !== undefined) pass.bind.setBindGroup(i, g);
-                });
+                prepared.bindTo(pass.bind, { draw });
                 current = id;
+            } else {
+                for (const g of prepared.groupsOf('draw'))
+                    pass.bind.setBindGroup(g.index, g.spec, draw);
             }
-            pass.bind.setBindGroup(2, prepared.groups[2]!, [this.draws.offset(region)]);
             pass.draw.vertices(6, drawn.body.count, 0, 0);
         });
     }
@@ -440,11 +440,22 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         return water;
     }
 
+    /**
+     * Declara à C2 se a superfície desta vista foi produzida no quadro (spec 031, R5: `depth` na vista da câmera,
+     * `lightDepth` na da luz) — os consumidores (`WaterFlow`, `CausticsFlow`) consultam `isProduced`. A vista da luz
+     * também liga as cáusticas na transmissão da luz.
+     */
+    private produced(ctx: Ctx, water: WaterSurface | undefined, produced: boolean): void {
+        if (water === undefined) return;
+        ctx.produced(water, WaterSurface.producedDescriptor[this.view], produced);
+        if (this.view === 'light') water.setCaustics(produced);
+    }
+
     /** Antes da gravação: pipelines, regiões, parâmetros e a cadeia de suavização (refeita quando uma fonte muda). */
     private prepareFrame(ctx: Ctx): void {
         if (this.bodies.size === 0) {
             // Sem água: nada a preparar (custo zero por quadro).
-            if (this.active) this.water?.markProduced(this.view, false);
+            if (this.active) this.produced(ctx, this.water, false);
             this.active = false;
             return;
         }
@@ -457,14 +468,11 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
                 : shadowSlot !== undefined && slots.shadowMatrices !== undefined);
         this.active = ready;
         if (!ready) {
-            this.water?.markProduced(this.view, false);
+            this.produced(ctx, this.water, false);
             return;
         }
-        this.allocate(ctx).markProduced(this.view, true);
-        ctx.bind({
-            shadow_matrices: slots.shadowMatrices?.buffer ?? this.dummyShadowMatrices,
-            water_light_matrix: this.lightMatrix(),
-        });
+        this.produced(ctx, this.allocate(ctx), true);
+        ctx.bind(new Map<WgslResource, BindingSource>([[R.lightMatrix, this.lightMatrix()]]));
         if (this.view === 'camera') {
             const depth = slots.sceneDepth!;
             const samples = depth.texture.sampleCount ?? 1;
@@ -477,7 +485,11 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
                 this.boundPools.clear();
                 this.sceneSamples = samples;
             }
-            ctx.bind({ water_scene_depth: depth.view });
+            ctx.bind(
+                new Map<WgslResource, BindingSource>([
+                    [samples > 1 ? R.sceneDepthMs : R.sceneDepth, depth.view],
+                ]),
+            );
         }
         for (const drawn of this.bodies.values()) this.preparePool(ctx, drawn.poolKey);
         this.rebindPools(ctx);
@@ -551,32 +563,32 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         const kernel = (
             name: string,
             entryPoint: string,
-            bindings: Record<string, unknown>,
+            bindings: readonly (readonly [WgslResource, unknown])[],
         ): ComputeKernel =>
             createComputeKernel(this.core, {
                 discriminator: `water_light_${name}`,
                 shader: waterLight,
                 entryPoint,
-                bindings: bindings as Parameters<typeof createComputeKernel>[1]['bindings'],
+                bindings: new Map(bindings) as ReadonlyMap<WgslResource, BindingSource>,
             });
         this.boundsKernels = {
             sources,
-            clear: kernel('bounds_clear', 'water_bounds_clear', { light_bounds: bounds }),
+            clear: kernel('bounds_clear', 'water_bounds_clear', [[R.lightBounds, bounds]]),
             accumulate: bodies.map((drawn, i) => ({
                 count: drawn.body.count,
-                kernel: kernel(`bounds_${drawn.entity}`, 'water_bounds_accumulate', {
-                    light_bounds: bounds,
-                    bounds_params: params[i]!,
-                    shadow_matrices: shadows,
-                    bounds_particles: pools[i]!,
-                }),
+                kernel: kernel(`bounds_${drawn.entity}`, 'water_bounds_accumulate', [
+                    [R.lightBounds, bounds],
+                    [R.boundsParams, params[i]!],
+                    [shadowMatricesResource, shadows],
+                    [R.boundsParticles, pools[i]!],
+                ]),
             })),
-            fit: kernel('fit', 'water_light_fit', {
-                bounds_in: bounds,
-                bounds_params: params[0]!,
-                shadow_matrices: shadows,
-                light_matrix: matrix,
-            }),
+            fit: kernel('fit', 'water_light_fit', [
+                [R.boundsIn, bounds],
+                [R.boundsParams, params[0]!],
+                [shadowMatricesResource, shadows],
+                [R.lightMatrixWrite, matrix],
+            ]),
         };
     }
 
@@ -619,12 +631,15 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         const base: Omit<PipelineDescriptor, 'id' | 'entryPoints'> = {
             role: 'render',
             shader,
-            consumes: [Camera.matricesSchema.name],
             topology: 'triangle-list',
             cullMode: 'none',
         };
         const depthId = this.pipelineId('depth', poolKey);
-        ctx.bind({ [`${depthId}:particles`]: buffer, water_materials: materials });
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [{ pipeline: depthId, resource: R.particles }, buffer],
+            ]),
+        );
         ctx.prepare({
             ...base,
             id: depthId,
@@ -634,7 +649,11 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         });
         if (this.view === 'camera') {
             const thicknessId = this.pipelineId('thickness', poolKey);
-            ctx.bind({ [`${thicknessId}:particles`]: buffer });
+            ctx.bind(
+                new Map<BindingKey, BindingSource>([
+                    [{ pipeline: thicknessId, resource: R.particles }, buffer],
+                ]),
+            );
             ctx.prepare({
                 ...base,
                 id: thicknessId,
@@ -646,17 +665,19 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         this.drawsDirty = true;
     }
 
-    /** Religa os pools (corpos e materiais) recriados pelo crescimento. */
+    /** Religa os pools dos corpos recriados pelo crescimento (o de materiais vem da C2). */
     private rebindPools(ctx: Ctx): void {
-        const materials = this.resources.poolBufferSpec(FluidSurfaceMaterial.schema.name);
-        if (materials !== undefined) ctx.bind({ water_materials: materials });
         for (const [poolKey, bound] of this.boundPools) {
             const buffer = this.resources.poolBufferSpec(poolKey);
             if (buffer === undefined || buffer === bound) continue;
             this.boundPools.set(poolKey, buffer);
-            ctx.bind({ [`${this.pipelineId('depth', poolKey)}:particles`]: buffer });
-            if (this.view === 'camera')
-                ctx.bind({ [`${this.pipelineId('thickness', poolKey)}:particles`]: buffer });
+            const ids = [this.pipelineId('depth', poolKey)];
+            if (this.view === 'camera') ids.push(this.pipelineId('thickness', poolKey));
+            ctx.bind(
+                new Map<BindingKey, BindingSource>(
+                    ids.map((pipeline) => [{ pipeline, resource: R.particles }, buffer]),
+                ),
+            );
             this.drawsDirty = true;
         }
     }
@@ -667,7 +688,8 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         this.drawsDirty = false;
         this.order = [...this.bodies.values()].filter((d) => this.boundPools.has(d.poolKey));
         if (this.order.length === 0) return;
-        if (this.draws.reserve(this.order.length)) ctx.bind({ water_draw: this.draws.source() });
+        if (this.draws.reserve(this.order.length))
+            ctx.bind(new Map<WgslResource, BindingSource>([[R.draw, this.draws.source()]]));
         const materialPool = FluidSurfaceMaterial.schema.name;
         const radii = new Map<number, number>();
         this.order.forEach((drawn, region) => {
@@ -790,16 +812,16 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
                 discriminator: `water_${this.view}_${name}`,
                 shader: waterSmooth,
                 entryPoint: 'water_smooth_depth',
-                bindings: {
-                    cameras,
-                    water_light_matrix: lightMatrix,
-                    water_materials: materials!,
-                    water_radii: this.radii,
-                    water_smooth: params,
-                    smooth_src: src,
-                    smooth_material: material!,
-                    smooth_dst: dst,
-                },
+                bindings: new Map<WgslResource, BindingSource>([
+                    [camerasResource, cameras],
+                    [R.lightMatrix, lightMatrix],
+                    [R.materials, materials!],
+                    [R.radii, this.radii],
+                    [R.smooth, params],
+                    [R.smoothSrc, src],
+                    [R.smoothMaterial, material!],
+                    [R.smoothDst, dst],
+                ]),
             });
         const depth: ComputeKernel[] = [];
         for (let i = 0; i < this.iterations; i++) {
@@ -821,7 +843,11 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
                     discriminator: `water_${this.view}_${name}`,
                     shader: waterSmooth,
                     entryPoint: 'water_smooth_thickness',
-                    bindings: { water_smooth: params, smooth_src: src, smooth_dst: dst },
+                    bindings: new Map<WgslResource, BindingSource>([
+                        [R.smooth, params],
+                        [R.smoothSrc, src],
+                        [R.smoothDst, dst],
+                    ]),
                 });
             thickness.push(blur('thick_h', tRaw!, tTemp!, h), blur('thick_v', tTemp!, tFinal!, v));
         }

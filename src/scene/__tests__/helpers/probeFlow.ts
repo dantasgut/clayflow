@@ -13,6 +13,7 @@ import type { FlowEvent, FlowTransitions } from '../../flows/FlowTransitions';
 import { slot } from '../../flows/slots';
 import { createScene, type SceneContext } from '../../SceneContext';
 import { wgslModule } from '../../shaders/WgslModule';
+import { wgslResource } from '../../shaders/WgslResource';
 import { countingCore } from './countingCore';
 
 /** Corpo de teste em pool de storage. */
@@ -70,17 +71,39 @@ export class ProbeCam extends Entity implements Resource {
     }
 }
 
+/** Câmera de teste: frequência `frame`, fornecida pelo resolver `ProbeCam` da cena. */
+export const probeCamResource = wgslResource({
+    name: 'cam',
+    binding: { uniform: true },
+    type: { schema: ProbeCamSchema },
+    frequency: 'frame',
+    provider: { consumer: 'ProbeCam' },
+});
+/** Corpos de teste: frequência `stage`, do pool `ProbeBody`. */
+export const probeBodiesResource = wgslResource({
+    name: 'bodies',
+    binding: { storage: 'read_write' },
+    type: { schema: ProbeBodySchema, array: true },
+    frequency: 'stage',
+    provider: { pool: 'ProbeBody' },
+});
+/** Uniform privado do Flow de teste: frequência `draw`. */
+export const probeParamsResource = wgslResource({
+    name: 'params',
+    binding: { uniform: true },
+    type: { schema: ProbeParamsSchema },
+    frequency: 'draw',
+    provider: 'private',
+});
+
 /**
  * `cam` só é citada numa função auxiliar (`scale_of`) chamada pela entrada; `params` é privado; `bodies` vem do
- * pool pelo tipo `ProbeBody` em `consumes`.
+ * pool `ProbeBody`. Grupos atribuídos pela montagem: 0 = frame (`cam`), 1 = stage (`bodies`), 2 = draw (`params`).
  */
 export const probeShader = wgslModule({
     name: 'probe',
-    structs: [ProbeCamSchema, ProbeBodySchema, ProbeParamsSchema],
+    requires: [probeCamResource, probeBodiesResource, probeParamsResource],
     source: `
-@group(0) @binding(0) var<uniform> cam: ProbeCam;
-@group(0) @binding(1) var<storage, read_write> bodies: array<ProbeBody>;
-@group(1) @binding(0) var<uniform> params: ProbeParams;
 fn scale_of() -> vec4f { return cam.scale; }
 @compute @workgroup_size(64) fn probe_main(@builtin(global_invocation_id) id: vec3u) {
     bodies[id.x].v = scale_of() * params.k;
@@ -106,7 +129,6 @@ export function probePipeline(overrides: Partial<PipelineDescriptor> = {}): Pipe
         role: 'compute',
         shader: probeShader,
         entryPoints: ['probe_main'],
-        consumes: ['ProbeCam', 'ProbeBody'],
         ...overrides,
     };
 }
@@ -126,7 +148,7 @@ export class ProbeFlow extends Flow<ProbeSlots, ProbeState> {
     constructor(params: UniformBufferSpec, options: ProbeFlowOptions = {}) {
         super();
         this.pipelines = options.pipelines ?? [probePipeline()];
-        this.bindings = options.bindings ?? { params };
+        this.bindings = options.bindings ?? new Map([[probeParamsResource, params]]);
         const record = (event: FlowEvent): void => {
             this.events.push(event);
         };

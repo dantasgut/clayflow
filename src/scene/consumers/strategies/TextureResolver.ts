@@ -8,18 +8,18 @@ import { sourceOfDescriptor } from './sourceOfDescriptor';
 /**
  * Fonte de uma textura (view) alocada pela C2 para o descritor `descId` do primeiro recurso com `schema` (ex.: a
  * profundidade do `ShadowMap`, a cor da cena em `FrameTargets`). `typeName` é o tipo WGSL do binding
- * (ex.: `texture_depth_2d`); `name` é o nome em `consumes`.
+ * (ex.: `texture_depth_2d`); `name` é o nome do fornecedor (`{ consumer }`).
  */
 export class TextureResolver implements ConsumerResolver {
     /**
-     * @param name - Nome em `consumes`.
+     * @param name - Nome do fornecedor (`{ consumer }`).
      * @param typeName - Tipo WGSL do binding (ex.: `texture_depth_2d`).
      * @param schema - Schema do Resource dono da textura.
      * @param descId - Id do descritor de textura no Resource.
      * @param select - Filtro do Resource (padrão: o primeiro com o schema).
      */
     constructor(
-        /** Nome em `consumes`. */
+        /** Nome do fornecedor (`{ consumer }`). */
         readonly name: string,
         /** Tipo WGSL do binding (ex.: `texture_depth_2d`). */
         readonly typeName: string,

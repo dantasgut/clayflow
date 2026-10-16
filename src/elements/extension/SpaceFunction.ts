@@ -19,9 +19,6 @@ import { spacePoint } from '../geometry/shaders';
  * spec 019.
  */
 export class SpaceFunction extends ExtensionFunction {
-    /** Registro de parâmetros das funções `space` (um pool por ponto). */
-    static readonly schema = spacePoint.record;
-
     constructor(options: ExtensionFunctionOptions) {
         super(spacePoint, options);
     }

@@ -1,9 +1,6 @@
 // Redução (Reduce, research R11): árvore por grupo de 256 em memória de workgroup; o resultado de cada grupo vai para
 // `reduce_out[reduce_level.out_index + grupo]`. Os níveis se repetem até restar um valor. Operação, tipo e identidade
 // vêm do módulo de operação (`reduceOp`): `ReduceT`, `REDUCE_IDENTITY`, `reduce_op`.
-@group(0) @binding(0) var<uniform>             reduce_level: ReduceLevel;
-@group(1) @binding(0) var<storage, read>       reduce_in:    array<ReduceT>;
-@group(1) @binding(1) var<storage, read_write> reduce_out:   array<ReduceT>;
 
 var<workgroup> reduce_wg: array<ReduceT, 256>;
 
@@ -16,7 +13,7 @@ fn reduce_main(
 ) {
     let i     = gid3.x + gid3.y * nwg.x * 256u;
     let group = wgid.x + wgid.y * nwg.x;
-    let n     = reduce_level.count;
+    let n     = reduce_count();
     let li    = lid.x;
 
     var v = REDUCE_IDENTITY;

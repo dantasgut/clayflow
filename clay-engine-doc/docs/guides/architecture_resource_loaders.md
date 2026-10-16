@@ -1329,7 +1329,7 @@ A Camada 2 é a ponte entre o hardware (C1) e os elementos de cena (C3). Ela nã
 - **`Resource`** — contrato único de dado GPU. Implementado por classes data-bearing (Camera, Material, Transform, RigidBody, ...). Cada Resource declara `getDescriptors()` retornando uma bag de `GPUDescriptor`. Coalescing é declarativo via `storage: 'individual' | 'pool'` em cada descritor:
   - `storage: 'individual'` (default): buffer GPU próprio por instância — Camera, `Time`, a textura `depth` do `ShadowMap`, os alvos do quadro (`FrameTargets`).
   - Materiais (`StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial`) usam `storage: 'pool'` com `role: 'storage-ro'`: um pool de storage por schema (`array<T>`, stride do struct), indexado no shader pelo `materialSlot` do registro `Renderable` — ver "Pools canônicos". Pools são sempre de storage: `role: 'uniform'` em pool é rejeitado.
-  - `storage: 'pool'`: engine agrega N instâncias do mesmo schema em um buffer global contíguo. Pool key = `${schema.name}` (ou `${schema.name}:${algorithm}` quando o Resource declara FlowDescriptor). Membros indexam por slot estável atribuído na inserção; o ResourceSystem mantém isso em `Map<poolKey, PoolEntry>` interno. Um Flow consome o pool por um slot (`slot.pool('SchemaName')`, `slot.bodies()`) e/ou por `consumes: ['SchemaName']` no PipelineDescriptor, que o `PoolResolver` resolve para a fonte de binding (o buffer atual do pool); a C2 cria e mantém o bind group.
+  - `storage: 'pool'`: engine agrega N instâncias do mesmo schema em um buffer global contíguo. Pool key = `${schema.name}` (ou `${schema.name}:${algorithm}` quando o Resource declara FlowDescriptor). Membros indexam por slot estável atribuído na inserção; o ResourceSystem mantém isso em `Map<poolKey, PoolEntry>` interno. Um Flow consome o pool por um slot (`slot.pool('SchemaName')`, `slot.bodies()`) e o shader o lê por um recurso declarado (`wgslResource`, spec 031) com fornecedor `{ pool: 'SchemaName' }` — resolvido pelo `PoolResolver` que o `ResourceSystem` registra ao criar o pool — ou `{ slot: 'nome' }` (o pool que o slot do Flow resolveu); a C2 cria e mantém o bind group. Ver "Contrato de shader estruturado".
 
 Resources implementam ciclo de vida 7-state (`ResourceStateHandler`, State Pattern), são registrados no `World` ECS e observados pelo `EventBus`. Cardinalidade é declarativa por descritor, não por tipo separado.
 
@@ -1415,7 +1415,7 @@ classDiagram
         }
     }
     note for Entity "Base abstrata de composição. Define APENAS `add(e)` e `attached`.\nNão tem dado GPU, não declara state.\nClasses data-bearing herdam Entity AND implementam Resource.\nClasses de coleção (ex.: Scene) herdam Entity sem implementar Resource."
-    note for Resource "Contrato GPU puro. Implementado por classes que carregam dado para a GPU\n(Camera, Material, Geometry, RigidBody, ...). Cada classe declara `static schema`\n(StructSchema com nome — o tag de tipo). Dado mora em `data: Record<string, unknown>`\ngovernado pelo schema; ResourceSystem chama `schema.pack(data)` diretamente. `state` é\nenum público alterado só por `ResourceSystem.transition()`, que valida e lança — não há `transitionTo` no Resource.\n\nCoalescing é declarativo via `storage: 'pool'` no GPUDescriptor — sem classe paralela.\nEngine internamente mantém `Map<poolKey, PoolEntry>` indexado por schema.name (+ algoritmo se\nResource declarar getFlowDescriptors). PoolEntry é struct plain (bufferSpec, bindGroupSpec,\ncount, slotByEntity); Flow resolve o BindGroupSpec via consumes + ConsumerResolver."
+    note for Resource "Contrato GPU puro. Implementado por classes que carregam dado para a GPU\n(Camera, Material, Geometry, RigidBody, ...). Cada classe declara `static schema`\n(StructSchema com nome — o tag de tipo). Dado mora em `data: Record<string, unknown>`\ngovernado pelo schema; ResourceSystem chama `schema.pack(data)` diretamente. `state` é\nenum público alterado só por `ResourceSystem.transition()`, que valida e lança — não há `transitionTo` no Resource.\n\nCoalescing é declarativo via `storage: 'pool'` no GPUDescriptor — sem classe paralela.\nEngine internamente mantém `Map<poolKey, PoolEntry>` indexado por schema.name (+ algoritmo se\nResource declarar getFlowDescriptors). PoolEntry é struct plain (bufferSpec, bindGroupSpec,\ncount, slotByEntity); o shader lê o pool por um recurso declarado com fornecedor { pool } ou { slot },\ne a C2 liga o bind group."
 
     %% ── CICLO DE VIDA (interno do ResourceSystem; Resource só carrega `state` simples) ──
     namespace Ciclo_Vida {
@@ -1507,7 +1507,11 @@ classDiagram
             +role: 'compute'|'render'
             +shader: WgslModule
             +entryPoints: string[]
-            +consumes: string[]
+            +family?: string
+            +pools?: Map~WgslResource, string~
+            +constants?: Record~string, number~
+            +verify?: boolean
+            +extensions?: PointImplementation[]
             +topology?: GPUPrimitiveTopology
             +depth?: DepthSpec
             +multisample?: MultisampleSpec
@@ -1521,7 +1525,7 @@ classDiagram
         }
     }
     note for GPUDescriptor "Bag declarativa: Resource diz **o que é** (role), **como é estruturado**\n(schema/textureShape/samplerShape) e **como é alocado** (storage).\nstorage: 'individual' (default) → buffer GPU próprio por instância.\nstorage: 'pool' → engine agrega N instâncias do mesmo schema num buffer global\n(coalescing). Pool key = schema.name (+ algoritmo se Resource declarar FlowDescriptor).\nC2 infere group/binding/visibility/usage/layoutId a partir daqui + WGSL AST."
-    note for PipelineDescriptor "Bag declarativa de pipeline: source WGSL + entry points + consumes\n(resources que o pipeline lê). Campos fixed-function opcionais reutilizam\nos value objects de C1 (DepthSpec, MultisampleSpec, ColorTargetSpec,\nVertexBufferLayout). C2 infere layoutId e compõe vertexBuffers do shader."
+    note for PipelineDescriptor "Bag declarativa de pipeline: módulo WGSL de entrada + entry points. O que o pipeline\nlê é o conjunto de recursos declarados (wgslResource) que o módulo alcança por requires —\nnão há lista de nomes. family = família de desenho (surface, points, wire…); pools troca o\npool de um recurso neste pipeline; constants = override do WGSL; verify/extensions =\ncódigo de fora conferido pelo compilador (spec 009). Campos fixed-function opcionais\nreutilizam os value objects de C1 (DepthSpec, MultisampleSpec, ColorTargetSpec, VertexBufferLayout)."
     note for FlowDescriptor "Bag opcional — só Resources que participam de Flow físico declaram via\n`getFlowDescriptors?()`. Default por classe (`static defaultAlgorithm`) + override\nper-instance (`new RigidBody({...}, { algorithm: 'XPBD' })`).\nResourceSystem usa `(schema.name, algorithm)` como pool key — bodies de algoritmos\ndiferentes coexistem em pools distintos com Flows distintos no mesmo frame.\nResources não-físicos (Camera, Material, Geometry) não implementam este método."
 
     %% ── FLOW — execução multi-pass orquestrada por state machine + eventos ──
@@ -1564,7 +1568,7 @@ classDiagram
             <<enum nomeado — physics, transform, shadow, forward, post, ui>>
         }
     }
-    note for Flow "Classe abstrata PÚBLICA agnóstica entre compute e render. Engine fornece defaults\nfísicos (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, PBFFlow, SPHFlow), TransformFlow e de render\n(ShadowFlow, ForwardFlow, PostFlow, UIFlow, DebugFlow). Dev escreve subclasses adicionais\n(nível N3) e as registra por factory no FlowRegistry.\n\nDeclara slots (slot.*), pipelines, privados por nome de variável WGSL e a tabela de transições.\nA C2 resolve os slots, infere os layouts, liga os bind groups e controla o ciclo de vida\npending → preparing → ready → disposed. O estado do algoritmo (S) só muda por transições;\nevento sem entrada na tabela lança FlowTransitionError.\n\ndispatch(frame, bound) é o único ponto de gravação e só grava: recursos privados são\nrecriados e religados em transições (ctx.bind / ctx.prepare / ctx.release)."
+    note for Flow "Classe abstrata PÚBLICA agnóstica entre compute e render. Engine fornece defaults\nfísicos (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, PBFFlow, SPHFlow), TransformFlow e de render\n(ShadowFlow, ForwardFlow, PostFlow, UIFlow, DebugFlow). Dev escreve subclasses adicionais\n(nível N3) e as registra por factory no FlowRegistry.\n\nDeclara slots (slot.*), pipelines, privados pelo recurso declarado (Map<BindingKey, BindingSource>) e a tabela de transições.\nA C2 resolve os slots, infere os layouts, liga os bind groups e controla o ciclo de vida\npending → preparing → ready → disposed. O estado do algoritmo (S) só muda por transições;\nevento sem entrada na tabela lança FlowTransitionError.\n\ndispatch(frame, bound) é o único ponto de gravação e só grava: recursos privados são\nrecriados e religados em transições (ctx.bind / ctx.prepare / ctx.release)."
     note for FlowRegistry "Registro por factory: register(factory, { type, phase, bodyType?, priority? }).\nSem bodyType, a factory é instanciada no registro; com bodyType, quando o pool do tipo passa\na existir (poolCreated) e o registro vence a seleção.\noverride(bodyType, factory, options) vence a prioridade; unregister(registration) descarta a instância\n(objetos de GPU, inscrições) e instancia o próximo vencedor.\n\nExecutionSystem itera fases na ordem fixa physics → transform → shadow → forward → post → ui.\nDentro da fase: priority decrescente, empate pela ordem de registro (sem before/after/at).\nresolve(bodyType): override, senão maior priority (empate: o último registrado).\n\nOs Flows padrão (solvers, Transform, Shadow, Forward, Post, Debug, UI) são registrados por\nfactory em registerPresentationDefaults (Application.create)."
     note for RenderFlow "Subclasse abstrata de Flow para estágios que renderizam — Shadow/Forward/Post/UI.\nO alvo é um slot como os demais: slot.target('canvas') ou { color, depth } com texturas de Resources\n(FrameTargets.color/depth, ShadowMap.depth), resolvido pela C2 e recriado com o canvas.\ndispatch(frame, bound) abre frame.render(...) com a view de bound.slots.target (colorView)."
 
@@ -1583,12 +1587,11 @@ classDiagram
             +onFrameTick() void
         }
         class LayoutInferencer {
-            <<C2 — layout inferido do WGSL montado: grupos, bindings, tipo e visibilidade>>
-            +parseWGSL(source: string) WgslBindingInfo
+            <<C2 — layout das declarações de recursos do shader montado: grupos, bindings, tipo e visibilidade>>
             +infer(shader: ComposedShader, entryPoints: string[]) InferredLayout
         }
     }
-    note for LayoutInferencer "Lê o WGSL montado por composeWgsl e devolve, para as entradas pedidas, os grupos e bindings\nusados, o tipo de cada recurso (uniform, storage, textura, sampler) e a visibilidade — a união dos\nestágios das entradas que alcançam a variável (chamadas transitivas contam).\n\nA ligação de Flows (C2, flowBinding) dá a cada binding inferido a sua fonte, nesta ordem:\n1. privado do Flow 'pipeline:variável'; 2. privado 'variável';\n3. nome de consumes cujo tipo (ou o 'as') é o tipo do binding — ConsumerResolver;\n4. senão FlowBindingError. Fonte ainda inexistente → o pipeline espera.\n\nLayouts e bind groups são criados pela C2; nenhum estágio os cria (verificado no gate).\nOverride: a visibilidade explícita do descritor do Resource vence a inferida."
+    note for LayoutInferencer "Os bindings vêm só de ComposedShader.bindings — as declarações wgslResource com grupo e ligação\natribuídos por composeWgsl (spec 031); nenhuma regex sobre @group/@binding. Do fonte montado só\nvarre as funções, para a visibilidade: a união dos estágios das entradas que alcançam (chamadas\ntransitivas contam) uma função que cita a variável. Cada entrada inferida carrega o recurso declarado.\n\nA ligação de Flows (C2, flowBinding) dá a cada binding a fonte pelo fornecedor da declaração:\npools do descritor (troca por pipeline) → 'private' (fonte do Flow pela identidade do recurso,\n{ pipeline, resource } vence o recurso) → { scene } → { slot } → { pool } / { consumer } (ConsumerResolver).\nPrivado sem fonte → FlowBindingError. Fonte ainda inexistente → o pipeline espera.\n\nLayouts e bind groups são criados pela C2; nenhum estágio os cria (verificado no gate).\nOverride: a visibilidade explícita do descritor (bindings[variável].visibility) vence a inferida."
     note for ResourceSystem "Reage a eventos do World (resourcesChanged, resourceDirty).\nRoteia por descriptor.storage:\n- 'individual' → core.create(spec) próprio por instância.\n- 'pool' → poolKey = schema.name (+ algoritmo se getFlowDescriptors presente).\n  Pool aloca buffer global de storage (array<T>, stride do struct) com capacity inicial,\n  realoca 2× ao exceder. Registros de entidade (slot.entities com record, ex.: Renderable)\n  são pools mantidos pela C2 com os slots referidos. Slots seguem POLÍTICA FREE-LIST:\n  remoção marca slot como livre; próxima inserção reusa slot livre antes de crescer.\n  Slots NUNCA migram.\n\nPrimeiro recurso de um schema → poolCreated(poolKey); realocação → poolReallocated(poolKey).\nA ligação de Flows (ensureFlowAllocated) recria os bind groups que usavam o buffer e emite\nbindGroupReplaced { flow, pipeline, group, oldSpec, newSpec }.\n\nPipelines com preferAsync=true → core.createAsync; o Flow só fica ready (flowReady)\ndepois de compilar. Enquanto compila, o ExecutionSystem não o grava."
     note for ExecutionSystem "Não tem loop imperativo. Reage a eventos:\n- flowReady / flowSuspended: mantém os Flows ativos (com o BoundFlow de cada um).\n- frameTick: emite frameRecording (a C2 envia os dados sujos, reconcilia os Flows e entrega\n  framePrepare), abre core.record('frame', frame => { ... }) UMA vez por frame.\n\nDentro do record, itera os Flows ativos pelas fases na ordem fixa\nphysics → transform → shadow → forward → post → ui (dentro da fase: priority decrescente,\nempate pelo registro). Cada flow.dispatch(frame, bound) grava os seus passes.\n\nAo sair do callback, chama core.submit() e emite frameComplete { timestamp, dt, elapsed }.\nBarreiras inter-pass são automáticas (WebGPU). Submit único, encoder único, sem micro-requests."
 
@@ -1678,12 +1681,11 @@ classDiagram
     ResourceSystem ..> EventBus : escuta ChangedEvent
     ResourceSystem --> World : consulta Resources por EntityId
     ResourceSystem ..> GPUDescriptor : lê bag para inferir ResourceSpec
-    ResourceSystem ..> LayoutInferencer : delega inferência bag para ResourceSpec
+    ResourceSystem ..> LayoutInferencer : prepara os pipelines dos Flows com o layout das declarações
     ResourceSystem ..> EngineCore : core create createAsync write writeTexture destroy
     ResourceSystem --> EventBus : emite ReadyEvent Flow poolReallocated bindGroupReplaced
 
-    LayoutInferencer ..> GPUDescriptor : lê role schema textureShape samplerShape
-    LayoutInferencer ..> PipelineDescriptor : lê shader (WgslModule) e entryPoints; consumes resolvido pela C2
+    LayoutInferencer ..> PipelineDescriptor : lê shader (WgslModule montado) e entryPoints; fontes pelos fornecedores declarados
 
     ExecutionSystem ..> EventBus : escuta frameTick, flowReady e flowSuspended
     ExecutionSystem ..> EngineCore : core record body core submit
@@ -1719,73 +1721,72 @@ classDiagram
 
 ### Padrão bag — declaração semântica + inferência automática
 
-A bag (`GPUDescriptor[]` + `PipelineDescriptor[]` + `FlowDescriptor[]?`) é **declarativa**: o Resource diz o que é (role), como é estruturado (schema/textureShape/samplerShape), como é alocado (`storage`), o que consome e — se aplicável — qual algoritmo físico precisa (`getFlowDescriptors?()`). O mecânico (group/binding/visibility/usage/layout) é **inferido pela C2**: o `LayoutInferencer` lê o WGSL montado (grupos, bindings, tipo e visibilidade) e a ligação de Flows dá a cada binding a sua fonte — os privados do Flow por nome de variável, ou o dado da cena nomeado em `consumes` (`ConsumerResolver`). Nenhum estágio do motor cria layout nem bind group (verificado no gate). **Coalescing** é declarado por `storage: 'pool'` no descriptor — engine roteia para buffer global.
+A bag (`GPUDescriptor[]` + `PipelineDescriptor[]` + `FlowDescriptor[]?`) é **declarativa**: o Resource diz o que é (role), como é estruturado (schema/textureShape/samplerShape), como é alocado (`storage`) e — se aplicável — qual algoritmo físico precisa (`getFlowDescriptors?()`). O que o shader lê não é uma lista de nomes no descritor: é o conjunto de **recursos declarados** (`wgslResource`, spec 031) que o módulo de entrada alcança por `requires`, cada um com tipo, frequência e fornecedor. O mecânico (group/binding/visibility/usage/layout) é **atribuído e inferido pela C2**: `composeWgsl` emite as linhas `@group/@binding` com os números que ele mesmo atribui, o `LayoutInferencer` lê essas declarações (grupo, ligação, tipo) e deriva a visibilidade, e a ligação de Flows dá a cada binding a fonte do seu fornecedor — o pool, um resolver da cena, um slot do Flow, um ponto de cena ou o privado do Flow, sempre pela identidade do recurso. Nenhum estágio do motor cria layout nem bind group, e nenhum módulo escreve `@group/@binding` (verificado no gate). **Coalescing** é declarado por `storage: 'pool'` no descriptor — engine roteia para buffer global.
 
-**O que o Resource declara (parte ~25 linhas, semântico):**
+**O que o Resource declara (semântico):**
 
 ```typescript
-// C3 — Resource declara a bag (sem group/binding/visibility/usage/layoutId)
-// shaders.ts do pacote — o único lugar que importa o `.wgsl` (spec 005): módulo com dependências e structs gerados.
-import standardMaterialSource from './standard_material.wgsl?raw';
-export const standardMaterialShader = wgslModule({
-    name: 'standard_material',
-    source: standardMaterialSource,
-    requires: [wgslLib.brdf],                                 // lambert_diffuse, sample_shadow_pcf…
-    structs: [Camera.schema, StandardMaterial.schema],        // {{struct:…}} ou topo do fonte, gerados do schema
+// C3 — o recurso compartilhado é declarado uma vez (elements/material/renderResources.ts) e requerido por quem o usa.
+export const standardMaterialsResource = wgslResource({
+    name: 'materials',
+    binding: { storage: 'read' },
+    type: { schema: StandardMaterialSchema, array: true },   // array<StandardMaterial>, struct gerado do schema
+    frequency: 'batch',                                       // muda entre grupos de desenho
+    provider: { pool: StandardMaterialSchema.name },          // o pool da C2 com essa chave
 });
 
-class StandardMaterial extends Entity implements Resource {
-    static readonly schema = new StructSchema('StandardMaterial', {
-        albedo:    FieldType.vec4f,
-        roughness: FieldType.f32,
-        metallic:  FieldType.f32,
-    });
+// shaders.ts do pacote — o único lugar que importa o `.wgsl` (spec 005): módulo com dependências, recursos e structs.
+import forwardSource from '../gpu/wgsl/forward.wgsl?raw';    // nenhuma linha @group/@binding no fonte
+export const forward = wgslModule({
+    name: 'forward',
+    source: forwardSource,
+    requires: [
+        brdf, NONE.module, forwardCameraReady, materialPointTypes, forwardMaterialReady,
+        sceneLightDirectionReady, lightVisibilityReady, lightTransmissionReady,   // pontos de cena (luz, sombra, água)
+        camerasResource, worldsResource, renderablesResource, instancesResource,
+        surfaceDiffReadResource, standardMaterialsResource, forwardFrameResource,
+    ],
+    structs: [/* Camera.matricesSchema, Transform.worldSchema, RenderableSchema, … */],
+});
 
-    state: ResourceState = ResourceState.Uninitialized;
+class StandardMaterial extends Material<StandardMaterialData> {
+    static readonly schema = StandardMaterialSchema;            // albedo, roughness, metallic
 
-    constructor(values: Record<string, unknown> = {}) {
-        super();
-        this.data = StandardMaterial.schema.applyDefaults(values);
+    getDescriptors(): readonly GPUDescriptor[] {
+        // Um registro por entidade no pool de storage do schema, lido como array<T> pelo `materialSlot` do Renderable.
+        return [{ id: 'material', role: 'storage-ro', schema: StandardMaterial.schema, storage: 'pool' }];
     }
 
-    getDescriptors(): GPUDescriptor[] {
-        return [
-            { id: 'material',  role: 'uniform', schema: StandardMaterial.schema },
-            { id: 'albedoMap', role: 'texture', textureShape: { format: 'rgba8unorm', dimension: '2d' } },
-            { id: 'normalMap', role: 'texture', textureShape: { format: 'rgba8unorm', dimension: '2d' } },
-            { id: 'linear',    role: 'sampler', samplerShape: { magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear' } },
-        ];
-    }
-
-    getPipelineDescriptors(): PipelineDescriptor[] {
+    getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [{
-            id: 'pipeline_standard_material',
+            id: 'pipeline_standard',
             role: 'render',
-            shader: standardMaterialShader,
+            shader: forward,                                     // o que o shader lê vem dos recursos que ele requer
             entryPoints: ['vs_main', 'fs_main'],
-            consumes: ['Camera', 'Transform', 'Light', 'ShadowMap'],   // resolvidos via ConsumerResolverRegistry
-            // fixed-function com defaults sensatos quando ausentes
+            family: 'surface',                                   // família de desenho (os estágios selecionam por ela)
             topology: 'triangle-list',
-            depth: { format: 'depth24plus', depthCompare: 'less', depthWriteEnabled: true },
+            cullMode: 'back',
         }];
     }
-
 }
 ```
-**O que o `LayoutInferencer` deriva (mecânico, invisível ao usuário):**
+
+**O que a C2 deriva (mecânico, invisível ao usuário):**
 
 ```
-parseWGSL(standardMaterialWGSL) →
-    @group(0) @binding(0) var<uniform> camera:    Camera     // consumes: Camera
-    @group(1) @binding(0) var<uniform> transform: Transform  // consumes: Transform
-    @group(2) @binding(0) var<uniform> material:  Material   // este Resource
-    @group(2) @binding(1) var            albedoMap: texture_2d<f32>
-    @group(2) @binding(2) var            normalMap: texture_2d<f32>
-    @group(2) @binding(3) var            linear:    sampler
+composeWgsl(forward) →                                   // grupo = posto da frequência presente; ligação = ordem do nome
+    @group(0) @binding(0) var<storage, read> cameras:     array<CameraMatrices>     // frame — { pool: 'CameraMatrices' }
+    @group(1) @binding(0) var<uniform>       forward_frame: ForwardFrameParams      // stage — 'private' (o ForwardFlow liga)
+    @group(1) @binding(1) var<storage, read> instances:   array<RenderInstance>     // stage — { pool }
+    @group(1) @binding(2) var<storage, read> renderables: array<Renderable>         // stage — { pool }
+    …                                                                                // surface_diff, worlds
+    @group(2) @binding(0) var<storage, read> materials:   array<StandardMaterial>   // batch — { pool: 'StandardMaterial' }
+    (+ os recursos das contribuições de cena compostas no pipeline: shadow_map, shadow_sampler, lights, caustic_map…)
 
-→ visibilities analisando uso em vs_main / fs_main
-→ usages derivados dos roles
-→ layoutId único inferido a partir das entries do group 2
+LayoutInferencer.infer(composed, ['vs_main', 'fs_main']) →
+    → só as declarações; visibilidade pelas funções que cada entrada alcança
+    → frequência de cada grupo (groupsOf('batch') no desenho, sem índices escritos no estágio)
+    → limites do device conferidos na preparação (limit-exceeded)
 ```
 
 **O que chega na Camada 1 (via `core.create`):**
@@ -1794,32 +1795,24 @@ parseWGSL(standardMaterialWGSL) →
 // Ordem topológica — shader → layout → recursos → pipeline → bindgroup.
 // `create(spec)` devolve a própria spec; a identidade de GPU é o hash do conteúdo + `discriminator` (mesma spec →
 // mesmo objeto, posse contada). Specs se referenciam por objeto, não por nome. O `id` dos GPUDescriptors
-// ('material', 'albedoMap', …) é só o nome local do binding — nunca identidade de GPU.
-const shader = core.create<ShaderModuleSpec>(composeWgsl(standardMaterialModule).spec);
-const layout = core.create<LayoutSpec>({ kind: 'layout', discriminator: 'std_mat_g2', entries: [/* 4 inferidas */] });
-const material = core.create<UniformBufferSpec>({
-  kind: 'buffer', subkind: 'uniform', discriminator: 'mat_42', byteSize: StandardMaterial.schema.stride });
-const albedo = core.create<TextureSpec>({
-  kind: 'texture', discriminator: 'mat_42_albedo', dimension: '2d', width, height,
-  format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-const albedoView = core.create<TextureViewSpec>({ kind: 'textureview', source: albedo });
-const linear = core.create<SamplerSpec>({ kind: 'sampler', desc: { magFilter: 'linear', /*...*/ } });
+// ('material', …) é só o nome local do descritor — nunca identidade de GPU.
+const shader = core.create<ShaderModuleSpec>(composeWgsl(forward).spec);
+const layouts = inferred.groups.map((g) => core.create<LayoutSpec>({ kind: 'layout', entries: /* do grupo */ [] }));
 const pipeline = core.create<RenderPipelineSpec>({
-  kind: 'pipeline', subkind: 'render', discriminator: 'standard_material', layouts: [/* g0, g1 */ layout],
+  kind: 'pipeline', subkind: 'render', discriminator: 'pipeline_standard', layouts,
   vertex: { shader, entryPoint: 'vs_main', buffers: [/*...*/] },
   fragment: { shader, entryPoint: 'fs_main', targets: [/*...*/] },
-  primitive: { topology: 'triangle-list' }, depthStencil: { /*...*/ } });
-const bindGroup = core.create<BindGroupSpec>({
-  kind: 'bindgroup', discriminator: 'mat_42_g2', layout,
-  bindings: [
-    { binding: 0, kind: 'buffer',      buffer:  material },
-    { binding: 1, kind: 'textureview', view:    albedoView },
-    { binding: 2, kind: 'textureview', view:    normalView },
-    { binding: 3, kind: 'sampler',     sampler: linear },
-  ] });
+  primitive: { topology: 'triangle-list', cullMode: 'back' }, depthStencil: { /*...*/ } });
+const batch = core.create<BindGroupSpec>({
+  kind: 'bindgroup', layout: layouts[2]!,
+  bindings: [{ binding: 0, kind: 'buffer', buffer: standardMaterialPool /* fonte de { pool: 'StandardMaterial' } */ }] });
 ```
 
-**Ponto de override:** quando a inferência não basta (ex.: bindings dinâmicos, variant de pipeline compartilhada entre N materiais), GPUDescriptor/PipelineDescriptor aceitam campos opcionais explícitos (`binding?: number`, `visibility?: GPUShaderStageFlags`, `layoutId?: string`). Esses se sobrepõem à inferência automática.
+**Pontos de override:** `PipelineDescriptor.pools` (`Map<WgslResource, string>`) troca, só naquele pipeline, o pool
+que fornece um recurso declarado (ex.: um material com pool próprio usando um shader que declara `materials` de outro
+schema); `PipelineDescriptor.constants` passa constantes `override` do WGSL (variantes sem remendo de texto);
+`PipelineDescriptor.bindings[variável].visibility` vence a visibilidade inferida. Não há `binding`/`group` explícitos:
+o motor atribui todos.
 
 ### Ciclo de vida — 7 estados e capabilities
 
@@ -1862,65 +1855,64 @@ Dado em pool não passa por `Dirty` (spec 007): a mutação marca o slot no bits
 
 **Implementação:** 7 classes concretas `{Uninitialized/Loading/Ready/Dirty/GpuManaged/Disposed/Destroyed}ResourceStateHandler` — cada uma stateless, instância única via `ResourceStateHandlerRegistry.get(state)`. As transições são dirigidas pelos eventos que o `ResourceSystem` recebe (`resourcesChanged`, `resourceDirty`, `frameRecording`) e **toda mudança de estado passa por `ResourceSystem.transition(resource, to)`**, que consulta as transições válidas do handler atual e **lança** em transição inválida (com estado atual, destino e schema). As regras de comportamento vêm do handler, nunca de comparação de estado: `suppressCpuUpload()` bloqueia o envio, `ignoreDirtyMark()` ignora a marcação de sujo e `reportsIgnoredMutation()` decide se a mutação ignorada merece aviso (só `GpuManaged` — `Dirty` também ignora, mas porque já está na fila).
 
-### ConsumerResolver — resolvendo nomes semânticos em `consumes`
+### ConsumerResolver — fornecedores nomeados da cena (`{ pool }` e `{ consumer }`)
 
-`PipelineDescriptor.consumes: string[]` usa nomes semânticos (`'Camera'`, `'Transform'`, `'Light'`, `'ShadowMap'`, ...) em vez de referenciar Resources por id. Cada nome é resolvido em tempo de inferência por um `ConsumerResolver` registrado no `ConsumerResolverRegistry`. Isso permite que materiais declarem intenção (`consumes: ['Light']`) sem saber se a resolução é um buffer individual, um pool coalescido (`storage: 'pool'`), ou uma estratégia custom.
+Um recurso declarado (`wgslResource`) cujo fornecedor é `{ pool: chave }` ou `{ consumer: nome }` recebe a fonte de um
+`ConsumerResolver` registrado com esse nome no `ConsumerResolverRegistry` da cena. O shader declara a intenção (o
+recurso `shadow_map` vem do resolver `ShadowCaster.depth`) sem saber se a fonte é um buffer individual, um pool
+coalescido (`storage: 'pool'`), uma textura alocada pela C2 ou uma estratégia custom. O nome está no recurso, não no
+descritor do pipeline: não há lista de nomes por pipeline, e o casamento é pela declaração, nunca pelo tipo do binding.
 
 ```typescript
 interface ConsumerResolver {
-  readonly name: string;                 // 'Camera', 'Light', 'ShadowMap', 'Wind', ...
-  resolve(ctx: ResolveContext): BindGroupEntry[];
+  readonly name: string;       // nome do fornecedor: chave do pool, 'Time', 'ShadowCaster.depth', 'WaterSurface.caustics'…
+  readonly typeName: string;   // tipo WGSL que a fonte preenche (struct do elemento, texture_depth_2d, sampler_comparison…)
+  resolve(ctx: ResolveContext): ResolvedSource | undefined;   // undefined: o dado ainda não existe — o pipeline espera
 }
 
 class ConsumerResolverRegistry {
-  register(resolver: ConsumerResolver): void;
-  resolve(name: string, ctx: ResolveContext): BindGroupEntry[];
+  register(resolver: ConsumerResolver): void;           // registra ou substitui o do mesmo nome
+  registerDefault(resolver: ConsumerResolver): boolean; // não substitui um registrado antes
+  has(name: string): boolean;
+  resolve(name: string, ctx: ResolveContext): ResolvedSource | undefined;   // nome sem resolver: ConsumerResolutionError
 }
 ```
 
-**Três estratégias default fornecidas pela engine:**
+**Estratégias fornecidas pela engine** (`scene/consumers/strategies`):
 
-| Resolver | Resolve `consume` como | Caso típico |
+| Resolver | Fonte | Registrado por |
 |---|---|---|
-| `SingletonResolver(name)` | Único Resource do tipo ativo na cena | `'Camera'` — uma câmera principal |
-| `PerEntityResolver(name)` | Resource colocalizado no mesmo `EntityId` da entidade que está renderizando | `'Transform'` — cada mesh usa seu próprio transform |
-| `PoolResolver(name)` | Buffer global do pool correspondente (`storage: 'pool'`) | `'Light'`, `'ShadowMap'`, `'ForceField'` |
+| `PoolResolver(poolKey, schema)` | buffer atual do pool (`array<T>`) | `ResourceSystem`, ao criar o pool — é o que atende `{ pool: chave }` |
+| `PoolLiveResolver(poolKey)` | bitset de slots vivos do pool (`<pool>.live`, spec 008) | `ResourceSystem`, com o pool |
+| `SingletonResolver(schema, descId, { name?, select? })` | descritor do primeiro Resource do schema na cena | cena (`Time`), elementos (`GravityField`, `ParticleMaterial`) |
+| `TextureResolver(name, typeName, schema, descId, select?)` | view de textura alocada pela C2 | quem precisar |
 
-**Extensão:** dev registra um resolver novo para consumir Resources custom:
+Os elementos registram os seus por padrão em `Application.create` (`ELEMENT_CONSUMERS`: gravidade, material de
+partículas, `ShadowCaster.depth`/`ShadowCaster.sampler` — o mapa da luz que projeta sombra; `WATER_CONSUMERS`:
+`WaterSurface.state`, `.caustics`, `.lightDepth`, `.lightMatrix`).
+
+**Extensão:** dev registra um resolver novo e declara o recurso que ele fornece:
 
 ```typescript
-class EnvironmentResolver implements ConsumerResolver {
-  readonly name = 'Environment';
-  resolve(ctx: ResolveContext): BindGroupEntry[] {
-    const envId = ctx.world.queryByTag('environment')[0];
-    const env   = ctx.world.resourcesOf(envId)
-                     .find(r => r.constructor === Environment) as Environment;
-    return [{ binding: 'skybox',     view: env.skyboxView },
-            { binding: 'irradiance', view: env.irradianceView }];
-  }
-}
+// Fonte: a view do descritor 'skybox' do primeiro Environment da cena (estratégia pronta da C2).
+const skybox = new TextureResolver('Environment.skybox', 'texture_cube<f32>', Environment.schema, 'skybox');
 
 // Registrar no bootstrap:
-await Application.create(canvas, {
-  consumers: (r) => r.register(new EnvironmentResolver()),
+await Application.create({ canvas, consumers: (r) => r.register(skybox) });
+
+// O recurso declarado uma vez; o módulo que o lê o põe em `requires`.
+export const skyboxResource = wgslResource({
+  name: 'skybox',
+  binding: { texture: { sample: 'f32', dimension: 'cube' } },
+  frequency: 'frame',
+  provider: { consumer: 'Environment.skybox' },
 });
-
-// Material custom declara consumo:
-class EnvironmentMaterial extends Entity implements Resource {
-  static readonly schema = new StructSchema('EnvironmentMaterial', {});
-  state: ResourceState = ResourceState.Uninitialized;
-
-  getDescriptors() { return []; }
-  getPipelineDescriptors(): PipelineDescriptor[] {
-    return [{
-      role: 'render', shader: environmentShader, entryPoints: ['vs_main', 'fs_main'],
-      consumes: ['Camera', 'Transform', 'Environment'],   // novo consume semântico
-    }];
-  }
-}
+export const environmentShader = wgslModule({ name: 'environment', source, requires: [camerasResource, skyboxResource] });
 ```
 
-**Como `LayoutInferencer` usa:** ao parsear `consumes`, para cada nome chama `registry.resolve(name, ctx)` e anexa as `BindGroupEntry` resultantes ao bindgroup final. Nomes não-registrados disparam erro em modo dev.
+**Como a C2 usa:** ao preparar um pipeline, para cada binding inferido com fornecedor `{ pool }`/`{ consumer }`, chama
+`registry.resolve(nome, ctx)`; nome sem resolver registrado (pool ainda inexistente) ou fonte `undefined` deixa o
+pipeline esperando, sem erro (`has` é conferido antes). A fonte recriada (pool que cresceu, textura do canvas) recria o bind group (`bindGroupReplaced`).
 
 ### Flows canônicos — máquinas de estado reativas por solver
 
@@ -2019,6 +2011,14 @@ destrói. Resources cujas alocações próprias são todas de geometria comparti
 (nenhum objeto de alocação por entidade); se o conteúdo de um deles muda, ele ganha cópia própria antes (cópia na
 escrita).
 
+**Produzido no quadro** (spec 031, R5). Um dado que um estágio escreve só em alguns quadros (a superfície de água, que
+só existe com água pronta) tem um estado genérico na C2, por Resource e descritor: o Flow que o escreve declara em
+`framePrepare`, antes da gravação, `ctx.produced(resource, descId, produced)` (`TransitionContext`), e quem o lê
+consulta `ResourceDirectory.isProduced(resource, descId)` e só grava com o dado produzido. O `ResourceSystem` guarda o
+estado (`markProduced`): o primeiro Flow que marca um descritor é o produtor dele; `produced: false` de outro Flow é
+ignorado e um segundo produtor marcando `true` é erro, assim como um `descId` que não é descritor do Resource. Nenhum
+Resource carrega flag própria de "produzido".
+
 ### Pools canônicos — `storage: 'pool'` esperados
 
 Abaixo os pools padrão para Resources com `storage: 'pool'` no GPUDescriptor, com o **status** de cada um. Todo o estado de cena vive em pools na GPU (spec 007): um recurso com vários descritores em pool ocupa o mesmo slot em todos, e um descritor `upload: 'never'` é o lugar onde um estágio publica o que produziu (matrizes de mundo, de câmera e de sombra).
@@ -2045,7 +2045,7 @@ A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescript
 | `PlaneCollider`, `BoxCollider`, `SphereCollider`, `MeshCollider` | colliders tipados | `ColliderSet` (LCP e fluidos) | atual |
 | `ParticleMaterial` | material das partículas (um por World) | fluidos | atual |
 | `DiffuseParticleSchema` | partícula secundária (posição e tipo; velocidade e vida), só GPU | `DiffuseFlow` | atual |
-| `Light` | luz unificada (kind discriminado) | forward (`lights[lightSlot]`: direção da luz que ilumina), `ShadowMatrixFlow` | atual (cor e intensidade no sombreamento: F4) |
+| `Light` | luz unificada (kind discriminado) | pontos de cena (spec 031): `scene_light_direction` (luz que projeta sombra), `scene_any_light_direction` (primeira luz viva: sprites de partículas); `ShadowMatrixFlow` (`lights[r.lightSlot]`, do registro `ShadowRecord`) | atual (cor e intensidade no sombreamento: F4) |
 
 **Políticas comuns:**
 - Stride do buffer global é fixo (ditado pelo WGSL struct) — engine usa `schema.pack(resource.data)` para produzir bytes conforme o layout.
@@ -2116,7 +2116,7 @@ descritores de contagens diferentes (partículas e arestas de um corpo) tem uma 
 dado por campo. Sem `count`, o comportamento é o de um slot por Resource.
 
 **Slots vivos.** A C2 mantém por pool um bitset de ocupação na GPU (`array<u32>`, um bit por slot), criado no primeiro
-pedido (`poolLiveBuffer`, `BoundPool.live`, consumes `<pool>.live`) e escrito no mesmo envio da alocação ou liberação.
+pedido (`poolLiveBuffer`, `BoundPool.live`, recursos com fornecedor `{ slot, part: 'live' }` ou `{ consumer: '<pool>.live' }`) e escrito no mesmo envio da alocação ou liberação.
 Kernels que percorrem `[0, count)` testam `pool_live(live[slot >> 5u], slot)` (módulo `poolLive` da `wgslLib`): faixas
 liberadas não são simuladas nem entram na busca de vizinhança, e corpos vivos nunca mudam de slot.
 
@@ -2136,15 +2136,19 @@ liga partículas de corpos diferentes do mesmo pool. O teto da busca de vizinhan
 **Desenho de partículas.** O `ParticleFlow` (C4, fase `forward`, depois do forward) desenha cada corpo com
 `PointSpriteMaterial` num `draw.vertices(6, N)`: o vertex shader lê a posição direto do pool do corpo pelo índice da
 instância (`array<vec4f>`, stride e deslocamento do campo `pos` em `ParticleDrawParams`, um por corpo com offset
-dinâmico) — sem cópia para vertex buffer nem leitura de volta —, esfera impostora iluminada pela luz do pool, na cor e
-na profundidade da cena (`loadOp: 'load'`).
+dinâmico) — sem cópia para vertex buffer nem leitura de volta —, esfera impostora iluminada pela primeira luz viva da
+cena (ponto de cena `scene_any_light_direction`, spec 031 — o estágio não tem slot de luzes), na cor e na profundidade
+da cena (`loadOp: 'load'`).
 
 **Superfície de água (spec 017).** Um corpo de partículas com `FluidSurfaceMaterial` (C3, struct próprio: cor de
 dispersão, absorção por canal, cor refletida, índice de refração, refletividade, brilho, raio e suavização, cáusticas) é
 desenhado como água contínua, não como sprites (o `ParticleFlow` o ignora). A cadeia é dividida entre **produtor** e
 **consumidores** por uma superfície genérica — profundidade linear suavizada, espessura e slot do material por pixel —
 guardada no Resource `WaterSurface` da cena (C4, inserido com `FrameTargets`; todos os descritores
-`allocation: 'onDemand'`, alocados por `ensureAllocated` — que também aloca texturas — só quando entra água):
+`allocation: 'onDemand'`, alocados por `ensureAllocated` — que também aloca texturas — só quando entra água). O
+produtor marca cada vista como produzida no quadro pelo estado genérico da C2 (`ctx.produced`, descritores
+`WaterSurface.producedDescriptor`: `depth` na vista da câmera, `lightDepth` na da luz) e os consumidores (`WaterFlow`,
+`CausticsFlow`) consultam `isProduced` — o `WaterSurface` não tem estado próprio de produção:
 
 - `FluidSurfaceFlow` (produtor de partículas, uma classe em duas vistas). Vista da câmera (fase `forward`, −60): esferas
   lidas do pool (um `draw.vertices(6, N)` por corpo), profundidade e material da mais próxima, espessura aditiva cortada
@@ -2156,8 +2160,12 @@ guardada no Resource `WaterSurface` da cena (C4, inserido com `FrameTargets`; to
   receptor (mapa de sombra da cena, lido bilinear) por iteração de ponto fixo; energia de Fresnel × absorção no
   percurso depositada com B-spline quadrático em ponto fixo (`atomicAdd`: soma independente da ordem, imagem
   determinística); resolução no mapa `caustics` (fator de transmissão rgb).
-- `ForwardFlow`: com a superfície da luz produzida, `causticsEnabled = 1` e a luz direta é multiplicada pelo mapa
-  abaixo da água vista pela luz; sem água, os substitutos e o caminho de antes (imagens idênticas).
+- Transmissão da luz (spec 031): o `ForwardFlow` não conhece a água. Com a superfície da luz produzida
+  (`ctx.produced(water, WaterSurface.producedDescriptor.light, true)` e `water.setCaustics(true)` → estado
+  `caustics = 1` do `WaterSurface`), a água contribui para o ponto de cena
+  `light_transmission` (módulo `water_transmission`, recursos `{ consumer: 'WaterSurface.*' }`) e a luz direta passa
+  a ser multiplicada pelo mapa abaixo da água vista pela luz em todo desenho que chama o ponto (forward, sprites de
+  vértice, partículas secundárias); sem água, o pronto `vec3f(ambient + direct)` (imagens idênticas).
 - `WaterFlow` (fase `forward`, −70): copia a cor da cena para `background` e compõe num triângulo de tela cheia (MSAA:
   nas amostras, resolvidas na cor; profundidade da cena só leitura, teste por `frag_depth`): normal da profundidade,
   refração (nunca do que está na frente), absorção de Beer-Lambert, dispersão, Fresnel com a cor refletida, brilho e a
@@ -2212,6 +2220,561 @@ vez por iteração: na colisão do SPH e na predição do PBF (que liga o grupo 
 Os parâmetros (`cohesion_gamma`, `adhesion_accel`, `adhesion_tangential`, `support`) vêm do `ParticleMaterial` pelos
 `*SimParams` de cada iteração; com coesão e adesão zero, os kernels não leem nem somam nada.
 
+### Contrato de shader estruturado (spec 031)
+
+Módulos WGSL, estágios e funções de extensão se compõem sem se conhecer: quem escreve um módulo **declara** o que ele
+usa — dado de pool, textura, amostrador, parâmetros, recurso de cena —, o motor atribui grupo e ligação na montagem,
+confere na criação que tudo o que o código usa foi declarado e liga cada recurso pela declaração, não pelo nome em
+texto. Nenhum módulo escreve `@group/@binding`, nenhum estágio escreve índice de grupo, e nenhum shader genérico
+conhece água, sombra ou luzes: eles chegam por pontos compostos pela cena (código em `src/scene/shaders`,
+`src/scene/systems/flowBinding` e `src/scene/flows`).
+
+```mermaid
+flowchart LR
+  subgraph Declaração [C3/C4 — declaração]
+    R["wgslResource<br/>binding · type · frequency · provider"]
+    M["wgslModule<br/>source + requires"]
+    C["sharedConstant<br/>value + module const"]
+  end
+  subgraph Montagem [C2 — montagem]
+    CW["composeWgsl<br/>ordem · structs · @group/@binding atribuídos<br/>globais conferidos"]
+    LI["LayoutInferencer<br/>layout das declarações + visibilidade"]
+  end
+  subgraph Ligação [C2 — ligação de Flows]
+    FR["FlowRuntime<br/>fonte pelo fornecedor"]
+    SP["ScenePoints<br/>funções e contribuições de cena"]
+    PP["PreparedPipeline<br/>groupsOf · bindTo"]
+  end
+  R --> M --> CW --> LI --> FR --> PP
+  C --> M
+  SP -->|"bindPoints: troca o pronto"| CW
+  FR -->|"{ pool } / { consumer }"| CR[ConsumerResolverRegistry]
+  FR -->|"{ slot }"| SL[slots do Flow]
+  FR -->|"'private'"| PV["Flow.bindings / ctx.bind<br/>BindingKey → BindingSource"]
+  FR -->|"{ scene }"| SP
+```
+
+#### Recursos declarados — `wgslResource`
+
+Um recurso é **ele mesmo um módulo** (sem fonte de função) que declara uma variável ligada pelo motor:
+
+```ts
+export const worldsResource = wgslResource({
+    name: 'worlds',                                         // nome da variável WGSL (e do módulo)
+    binding: { storage: 'read' },                           // como é ligado
+    type: { schema: Transform.worldSchema, array: true },   // array<WorldTransform> (struct gerado do schema)
+    frequency: 'stage',                                     // decide o grupo
+    provider: { pool: Transform.worldSchema.name },         // quem fornece o dado
+});
+export const forward = wgslModule({ name: 'forward', source, requires: [camerasResource, worldsResource /* … */] });
+```
+
+| Campo | Valores |
+|---|---|
+| `binding` | `{ storage: 'read' \| 'read_write' }`, `{ uniform: true }`, `{ texture: { sample: 'f32' \| 'i32' \| 'u32' \| 'depth', dimension?, multisampled? } }`, `{ storageTexture: { format, access, dimension? } }`, `{ sampler: 'filtering' \| 'comparison' }` |
+| `type` (buffers; obrigatório) | `{ schema: StructSchema, array? }` (o struct entra nos `structs` do módulo) ou `{ wgsl: 'u32' \| 'vec4f' \| 'atomic<u32>' …, array? }` |
+| `frequency` | `frame` (igual para todos os pipelines e passes do quadro: câmeras, luzes, sombra, cáusticas), `stage` (igual para os pipelines de um estágio: matrizes de mundo, registros e instâncias de desenho, parâmetros do estágio), `batch` (muda entre grupos de desenho: pool de material, registros de função), `draw` (do pipeline ou da chamada: vértices de um pipeline, parâmetros por despacho com offset dinâmico) |
+| `provider` | `{ pool: chave }` (pool da C2), `{ consumer: nome }` (resolver da cena: `Time`, `ShadowCaster.depth`, `WaterSurface.caustics`, `<pool>.live`…), `{ slot: nome, part?, descriptor? }` (o que o slot do Flow resolveu: o buffer do pool ou `part: 'live'`; `records`/`instances` de um `slot.entities`; a view de um `slot.texture`; o descritor `descriptor` de um `slot.singleton`), `{ scene: ponto }` (global de ponto de cena), `'private'` (o estágio liga pelo objeto do recurso) |
+
+Recursos compartilhados são declarados **uma vez**, em módulo próprio, e incluídos por dependência: os de cena em
+`elements/scene/resources.ts` (`transforms`, `worlds`, `camera_params`, `camera_matrices`, `cameras`, `lights`,
+`shadow_matrices`, `shadow_maps`, `renderables`, `instances`, `shadow_map`, `shadow_sampler` — as versões de escrita
+para os estágios que produzem o dado, `*WriteResource`), os de cada família no pacote dono
+(`elements/material/renderResources.ts`, `presentation/water/shaders.ts`, `elements/nodes/set/shaders.ts`…). A
+deduplicação é por objeto: dois módulos que requerem o mesmo recurso o incluem uma vez; duas declarações **diferentes**
+com o mesmo nome no mesmo shader são `symbol-conflict`. Variantes que mudam o tipo do binding são dois recursos com o
+mesmo nome escolhidos na composição (a profundidade da cena da água, `water_scene_depth`, simples ou
+multiamostrada).
+
+#### Montagem — ligações atribuídas, globais conferidos
+
+`composeWgsl(entrada)` (C2) inclui os recursos alcançados por `requires` e **emite as linhas**
+`@group(g) @binding(b) var<…> nome: tipo;` logo depois dos structs gerados:
+
+- **grupo** = posto da frequência do recurso entre as frequências presentes no shader (`BINDING_FREQUENCIES` =
+  `frame` < `stage` < `batch` < `draw`; um shader só com `stage` e `draw` tem os grupos 0 e 1);
+- **ligação** = ordem do nome dentro do grupo — determinístico;
+- o resultado traz `bindings: ComposedBinding[]` (`{ resource, name, group, binding, frequency }`) e
+  `groupFrequencies` (frequência de cada grupo emitido).
+
+Duas famílias de pipeline de um estágio com o mesmo conjunto de recursos `frame`/`stage` têm os mesmos grupos nessas
+frequências (mesmo layout, mesmo bind group por conteúdo — `sameBindGroup`), e o estágio não os regrava ao trocar de
+família.
+
+Erros (`WgslCompositionError`, na criação ou na montagem — nunca no compilador do driver):
+
+| `kind` | Causa |
+|---|---|
+| `manual-binding` | `wgslModule` cujo fonte (sem comentários) escreve `@group(`/`@binding(` — o recurso deve ser declarado e requerido |
+| `unresolved-reference` | chamada a função sem definição; ou um módulo que usa um recurso declarado que não alcança pelos seus `requires` (global implícito do hospedeiro) — a mensagem nomeia o módulo e o recurso |
+| `symbol-conflict` | o mesmo símbolo (inclusive `var` de recurso) definido por dois módulos distintos |
+| `limit-exceeded` | layout acima de um limite do device (conferido na preparação, ver abaixo) |
+| `cycle`, `duplicate-module-name`, `struct-marker`, `struct-conflict`, `point-signature`, `point-missing` | como antes (specs 005 e 009) |
+
+`wgslResource` sem `type` num buffer lança `TypeError` na declaração.
+
+#### Layout — `LayoutInferencer` lê só as declarações
+
+`LayoutInferencer.infer(composed, entryPoints)` toma os bindings de `ComposedShader.bindings` — nenhuma regex sobre
+`@group/@binding` — e do fonte montado varre só as funções, para a **visibilidade**: um binding é visível nos estágios
+das entradas que alcançam, por chamadas transitivas, uma função que cita a variável (binding que nenhuma entrada usa
+fica fora do layout; grupos vazios entre 0 e o maior usado aparecem vazios). Cada `InferredEntry` carrega o recurso
+declarado (`declared`), e cada `InferredGroup` a sua frequência. O tipo do layout (uniform, storage só leitura ou
+leitura e escrita, textura com tipo de amostra e dimensão, textura de storage, amostrador) sai do texto do tipo gerado
+pela declaração.
+
+#### Ligação pelo fornecedor — `FlowRuntime`
+
+Ao preparar um pipeline de um Flow, a C2 resolve a fonte de cada binding pela declaração (`FlowRuntime.declaredSource`):
+
+1. `PipelineDescriptor.pools` (`Map<WgslResource, string>`) — troca, só neste pipeline, o pool de um recurso;
+2. `'private'` — a fonte do Flow para o recurso: a do pipeline (`{ pipeline, resource }`) vence a geral (o próprio
+   recurso); sem fonte → `FlowBindingError` nomeando o recurso, o grupo e a ligação;
+3. `{ scene }` — o global do ponto de cena (`ScenePoints.globalSource`: o pool, ou um substituto zerado);
+4. `{ slot }` — o valor do slot do Flow (slot não declarado → `FlowBindingError`; slot opcional ausente → espera);
+5. `{ pool }` / `{ consumer }` — o `ConsumerResolverRegistry` (nome ainda sem resolver ou fonte `undefined` → o
+   pipeline espera).
+
+As fontes privadas são um `Map<BindingKey, BindingSource>`, nunca nomes soltos:
+
+```ts
+type BindingKey = WgslResource | { readonly pipeline: string; readonly resource: WgslResource };
+type BindingSource = ResolvedSource | BindableBufferSpec | TextureViewSpec | SamplerSpec;
+
+override readonly bindings = new Map<WgslResource, BindingSource>([[xpbdResources.params, this.params.source()]]);
+ctx.bind(new Map([[surfaceDiffReadResource, buffer]]));                                   // numa transição
+ctx.bind(new Map([[{ pipeline: id, resource: effectResources.params }, params]]));        // só neste pipeline
+```
+
+Fonte privada para um recurso que tem fornecedor é erro (troque o pool com `pools` no descritor). Renomear a variável
+no WGSL vira erro de tipo no TypeScript: a chave é o objeto. `createComputeKernel(core, { discriminator, shader,
+entryPoint, bindings, constants?, preferAsync? })` segue a mesma regra fora dos Flows (kernels genéricos, nós de
+conjunto): `bindings` é um `Map` pela identidade do recurso; recurso usado sem fonte, fonte para recurso que a entrada
+não usa e chave por pipeline são erros.
+
+#### Gravação sem índices — `groupsOf` e `bindTo`
+
+O pipeline preparado (`PreparedPipeline`, e o `ComputeKernel`) expõe os grupos por frequência:
+
+```ts
+pass.bind.setPipeline(prepared.spec);
+for (const frequency of BINDING_FREQUENCIES)
+    for (const g of prepared.groupsOf(frequency)) {           // { index, spec, dynamic }
+        if (sameBindGroup(bound[g.index], g.spec)) continue;  // mesmo conteúdo: não regrava
+        pass.bind.setBindGroup(g.index, g.spec);
+        bound[g.index] = g.spec;
+    }
+// ou, tudo de uma vez, com os offsets dinâmicos por frequência:
+kernel.bindTo(pass.bind, { draw: [this.params.offset(i)] });
+```
+
+`bindTo` lança se um grupo dinâmico não recebeu offsets da sua frequência. Nenhum literal de grupo no código de
+estágio (teste de varredura).
+
+#### Limites do device
+
+`checkLayoutLimits(rótulo, grupos, limites)` confere `maxBindGroups`, `maxBindingsPerBindGroup` e, por estágio,
+`maxStorageBuffersPerShaderStage`, `maxUniformBuffersPerShaderStage`, `maxSamplersPerShaderStage`,
+`maxSampledTexturesPerShaderStage` e `maxStorageTexturesPerShaderStage` (`limit-exceeded` nomeando o pipeline, o
+limite, o valor e o máximo). Roda na preparação de cada pipeline (`PipelineState`) e em `createComputeKernel`. Um
+pipeline com código de fora (funções de ponto, cada forma com o seu pool) que excede um limite não lança: é rejeitado
+como erro de compilação (`extensionRejected`) e o atual — ou o pronto — continua.
+
+#### Constantes com fonte única — `sharedConstant` e `override`
+
+```ts
+export const WORKGROUP_SIZE = sharedConstant('WORKGROUP_SIZE', 64, 'u32');   // WORKGROUP_SIZE.value no TS
+// WGSL: @compute @workgroup_size(WORKGROUP_SIZE) — o módulo entra por requires: [WORKGROUP_SIZE.module]
+```
+
+`sharedConstant(nome, valor, tipo)` (`u32`, `i32`, `f32`, `vec2f`, `vec3f`, `vec4f`; valor conferido contra o tipo)
+devolve o valor TS e um módulo `const:<nome>` com a declaração WGSL. Constantes do motor: `NONE` (`0xFFFFFFFF`,
+sentinela de slot, luz ou dono ausente) e `WORKGROUP_SIZE` (C2, `engineConstants.ts`); `SCAN_GROUP`,
+`MAX_SURFACE_COLLIDERS`, `DEFAULT_LIGHT_DIRECTION` e os códigos de campo `FIELD_*` (C3,
+`elements/gpu/shaders/constants.ts`); `WATER_NO_DEPTH` e `WATER_DEPTH_LIMIT` (C4, `presentation/water/constants.ts`).
+Variantes de um mesmo fonte usam constantes de especialização: `PipelineDescriptor.constants` e
+`createComputeKernel({ constants })` chegam ao `constants` da spec de pipeline da C1 (`override` no WGSL).
+
+#### Instanciação por token
+
+Quando o mesmo código precisa conviver duas vezes no shader (contribuintes de um ponto de cena, funções da 009 nos
+pontos de cena), os símbolos são renomeados por **token**, nunca por substituição de texto: `renameTokens(fonte,
+nomes, sufixo)` troca só identificadores inteiros fora de comentários e de acessos a membro (`v.x`), sem tocar campos,
+parâmetros e locais que declaram o mesmo nome; `instantiateModule(módulo, sufixo)` aplica isso aos símbolos de nível
+superior do módulo (`fn`, `struct`, `const`, `override`, `alias` — variáveis de recurso não: são compartilhadas) e é
+memorizado por (módulo, sufixo). Nenhum fonte WGSL do motor é remendado por `replace`.
+
+#### Pontos de cena com contribuições
+
+Generalização do mecanismo de `field`/`space` (spec 009): um **ponto de contribuição** (`ContributionPoint`: `name`,
+`ready`, `functionName`, `combine`) é um lugar no shader cujas implementações vêm de Resources da cena, que o shader
+chama sem conhecê-las. Um Resource contribui declarando `getSceneContributions(): SceneContribution[]`:
+
+```ts
+interface SceneContribution {
+    readonly point: ContributionPoint;
+    readonly order: number;                    // ordem entre os contribuintes do ponto (menor primeiro)
+    readonly pools: readonly StructSchema[];   // escritas nesses pools reavaliam a contribuição
+    build(slotOf: (pool: StructSchema) => number | undefined): WgslModule | undefined;   // undefined: não contribui agora
+}
+```
+
+O `ScenePoints` (C2) acompanha os contribuintes (entrada e saída da cena, envio do Resource, `poolWritten` dos pools
+declarados), recompõe quando o módulo de algum ponto muda e troca o pronto em **todo pipeline cujo shader contém o
+ponto** (`bindPoints`; o `FlowRuntime` prepara de novo e troca quando compila). Um contribuinte: o módulo dele toma o
+lugar do pronto. Vários: cada um instanciado com o sufixo `_k` (na ordem) e combinados pelo `combine` do ponto. Sem
+contribuinte, fica o pronto. Contribuições são código do motor (sem conferência do compilador); os recursos de cada
+uma entram no pipeline pelos `requires` do módulo dela.
+
+| Ponto (C3, `elements/scene/points/lighting.ts`) | Assinatura | Pronto | Composição |
+|---|---|---|---|
+| `scene_light_direction` | `fn scene_light_direction() -> vec3f` | `DEFAULT_LIGHT_DIRECTION` | o primeiro contribuinte |
+| `light_visibility` | `fn light_visibility(p: vec3f, n_dot_l: f32) -> f32` | `1.0` (sem sombra) | produto dos contribuintes, em ordem |
+| `light_transmission` | `fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f` | `vec3f(ambient + direct)` | o primeiro com o ambiente e a direta; os seguintes como fatores |
+| `scene_any_light_direction` | `fn scene_any_light_direction() -> vec3f` | `DEFAULT_LIGHT_DIRECTION` | o primeiro contribuinte (todos entregam o mesmo módulo) |
+
+| Contribuinte | Pontos | Quando |
+|---|---|---|
+| Toda `DirectionalLight` e `PointLight` (`anyLightContribution`, `points/anyLightContribution.ts`) | `scene_any_light_direction` (`scene_any_light_direction_pool`: a primeira luz viva do pool `Light`, lida na GPU pelo bitset `{ consumer: 'Light.live' }`; sem luz viva, a direção padrão) | sempre, com ou sem sombra |
+| `DirectionalLight` com `ShadowMap` (`shadowCasterContributions`) | `scene_light_direction` (`lights[slot].direction`) e `light_visibility` (PCF 3×3 do mapa: `shadow_maps`, `shadow_matrices`, `shadow_map`, `shadow_sampler`) | `castShadow = 1` e slots nos pools `Light` e `ShadowMap` |
+| `WaterSurface` (C4) | `light_transmission` (`water_transmission`: cáusticas abaixo da água vista pela luz; recursos `{ consumer: 'WaterSurface.*' }`) | estado `caustics = 1` (`setCaustics`, chamado pelo produtor da vista da luz junto com `produced`) |
+
+Chamam os pontos: o `forward` (superfícies), os sprites de vértice (`point_sprite`), as partículas secundárias
+(`diffuse_sprite`) e a composição da água (`water_composite`); os sprites dos corpos de partículas (`particle_sprite`,
+do `ParticleFlow`) chamam `scene_any_light_direction()` — o `ParticleFlow` não tem slot de luzes (os parâmetros do
+quadro, `ParticleFrameParams`, só têm `cameraSlot`). Cada ponto recebe o valor que o desenho já calculava,
+para a conta ser a mesma de antes (imagens das fixtures bit a bit). Na F4, outra luz ou o céu entram como
+contribuintes sem tocar os estágios.
+
+```mermaid
+sequenceDiagram
+  participant W as World
+  participant SP as ScenePoints (C2)
+  participant FR as FlowRuntime (forward)
+  participant PS as PipelineState
+  W->>SP: resourcesChanged (DirectionalLight, WaterSurface)
+  SP->>SP: build(slotOf) de cada contribuição → módulo por ponto (instanciado _k, combine)
+  SP-->>FR: version++ → sceneChanged()
+  FR->>FR: withScene: bindPoints(shader, {ponto → módulo})
+  FR->>PS: prepara o shader novo (recursos das contribuições entram no layout)
+  PS-->>FR: compilou → troca o pipeline no quadro seguinte (rejeitado: fica o atual)
+```
+
+#### Famílias de desenho
+
+`PipelineDescriptor.family` declara como as entidades com aquele pipeline são desenhadas (`surface` no
+`StandardMaterial`, `wire` no `WireframeMaterial`, `points` no `PointSpriteMaterial` e no `DiffuseMaterial`); o
+`Material` a expõe (`material.family`). Os estágios escolhem o que desenham pela família declarada, não pelo tipo de
+outros Resources (o `ParticleFlow` deixa para outro estágio o material de corpos que não é da família `points`, como a
+superfície de água).
+
+#### Registros tipados por forma
+
+Os parâmetros de uma função de ponto (ou de um grafo hospedado nela) vivem num **registro tipado gerado da forma**:
+`point.record(params)` devolve `PointRecord { schema, resource, hash }` — o schema `<ponto>:<hash>` (a chave do pool)
+com o struct `<alias>_<hash>` (um campo por parâmetro, no tipo declarado, e `revision`), e o recurso
+`<ponto>_records_<hash>` (`array<struct>`, frequência `batch`, fornecedor `{ pool }`). A mesma forma (nomes e tipos,
+na ordem) devolve o mesmo registro, quaisquer que sejam os valores; `point.isRecord(schema)` reconhece os schemas do
+ponto (o que os estágios escutam em `listens`). Sem `bitcast`, sem `v0..v7`, sem teto de escalares. Outros registros
+gerados de schema no lugar de listas posicionais: `FieldBuiltinRecord` (campos prontos de `field`), `CameraFnEntry`
+(câmera, mundo, registro), `TransformFnPair` (transformação, registro) e `SetGraphRecord` (revisão e escritas de um
+grafo de conjunto).
+
+### Grafos de nós (spec 031)
+
+O grafo de nós é o padrão de composição acima de entidades, slots e Flows: monta comportamento a partir de peças
+pequenas, com os dados encapsulados num Resource. Há dois níveis, ligados entre si:
+
+- **nós de ponto** — avaliados por amostra (pixel, vértice, elemento), **fundidos numa única função** do shader que os
+  usa, um `let` por nó;
+- **nós de conjunto** — operam sobre conjuntos inteiros (malhas, pontos, listas u32) e viram passes de compute; o
+  grafo de conjunto é executado por um **Flow** (`GraphFlow`), com os intermediários alocados na C2 e as contagens
+  decididas na GPU.
+
+```mermaid
+flowchart TB
+  subgraph Ponto [Grafo de ponto — uma função]
+    A["graphArgument('s', campos)"] --> N1["noise.gradient3"]
+    N1 --> N2["color.ramp"]
+    N2 --> O["output.surfaceParams"]
+    N1 --> O
+  end
+  O -->|"compile(point)"| F["fn material_fn(s, m, data): um let por nó"]
+  F -->|"ExtensionFunction { graph }"| EF["MaterialFunction — pools, troca e rejeição da 009"]
+
+  subgraph Conjunto [Grafo de conjunto — passes de compute]
+    G["set.grid"] --> D["set.displace"]
+    H["grafo de ponto (altura)"] -.->|"fundido no kernel"| D
+    D --> Nm["set.recomputeNormals"] --> Ds["set.distributeOnMesh (contagem da GPU)"]
+    Ds --> Ri["set.realizeInstances"] --> MO["set.meshOutput"]
+  end
+  MO -->|"escreve"| GG["GraphGeometry (upload: 'never')"]
+  GG -->|"desenhada como a ParametricSurface"| FW["ForwardFlow / ShadowFlow"]
+```
+
+Código: C2 em `src/scene/graph` (definições, grafo, compilação, `SetGraph`, `GraphFlow`, sub-grafos, serialização,
+registro); C3 em `src/elements/nodes` (a biblioteca: `nodes`, `defaultNodeRegistry` — um subdiretório por categoria,
+referências da CPU em `reference/`) e `src/elements/geometry`
+(`GraphGeometry`, `MeshVertexSchema`); C4 registra o `GraphFlow` (`registerPresentationDefaults`).
+
+#### Nós de ponto — `defineNode`
+
+```ts
+const gradient3 = defineNode({
+    name: 'noise.gradient3',                                  // único no registro
+    inputs: { p: 'vec3f' },                                   // na ordem dos parâmetros da função
+    outputs: { value: 'f32' },                                // uma saída = o retorno; várias = struct com esses campos
+    params: {                                                 // depois das entradas, na ordem declarada
+        scale: { type: 'f32', default: 1 },
+        offset: { type: 'vec3f' },                            // sem padrão: 0
+        seed: { type: 'u32', default: 0 },
+    },
+    defaults: { /* entrada → expressão WGSL quando sem ligação */ },
+    code: nodeNoise,                                          // WgslModule com a função
+    fn: 'node_noise_gradient3',                               // fn node_noise_gradient3(p: vec3f, scale: f32, offset: vec3f, seed: u32) -> f32
+    contexts: ['fragment', 'vertex', 'compute'],              // padrão: todos (derivadas de tela: só 'fragment')
+});
+const n = gradient3.with({ scale: 4 });                       // uso com valores próprios; o código é o mesmo
+```
+
+`defineNode` confere na criação que a função existe no módulo com a assinatura das portas e dos parâmetros
+(entradas, depois parâmetros; retorno = a saída, ou um struct do módulo cujos campos são as saídas) — erro
+`node-signature` nomeando o nó. `with` recusa parâmetro desconhecido. A definição é imutável.
+
+#### O grafo — `NodeGraph`
+
+```ts
+const look = new NodeGraph({
+    nodes: {                                                  // id (identificador WGSL) → nó
+        s: nodes.input.surfaceSample(),                       // graphArgument('s', { world_position: 'vec3f', … })
+        n: nodes.noise.gradient3.with({ scale: 4 }),
+        c: nodes.color.ramp.with({ color_a: [0.1, 0.1, 0.1], color_b: [0.9, 0.6, 0.2] }),
+        out: nodes.output.surfaceParams,                      // a definição: valores padrão
+    },
+    links: [                                                  // ['origem.porta', 'destino.porta']
+        ['s.world_position', 'n.p'],
+        ['n.value', 'c.t'],
+        ['c.color', 'out.base_color'],
+        ['n.value', 'out.roughness'],                         // saída usada duas vezes → avaliada uma vez
+    ],
+    output: 'out.value',                                      // a porta que a função devolve
+});
+```
+
+Um nó é um uso (`NodeUse`/`SetNodeUse`, de `with`), uma definição (valores padrão), um argumento do ponto
+(`graphArgument(nome, campos)`: saída `value` e uma por campo, ex. `s.world_position`) ou um sub-grafo de conjunto. O
+grafo é imutável e **validado na criação** (`NodeGraphError`, síncrono, `detail` com nós e portas): id que não é
+identificador, nó ou porta inexistente (`unknown-node`, `unknown-port`), duas ligações numa entrada
+(`duplicate-link`), nível errado — conjunto só liga em conjunto do mesmo tipo, valor de ponto só em entrada de ponto
+(`type-mismatch`) —, entrada sem ligação nem padrão (`unconnected-input`; entradas de conjunto podem ficar abertas em
+`open`, a fronteira de um sub-grafo), ciclo com o caminho no sentido dos dados (`cycle`).
+
+**Compilação de um grafo de ponto** — `graph.compile(point)` gera a função do ponto alvo (`PointTarget`: nome,
+assinatura com `names`, `paramsAlias`, `context`):
+
+1. ordem topológica dos nós que a saída alcança (`order()`); nó de conjunto ali é erro (`target`);
+2. cada nó vira **um** `let v_<id> = <fn>(…);` — avaliado uma vez por amostra mesmo com a saída usada em vários
+   lugares (a fusão é sintática; o compilador do driver vê o mesmo WGSL que o escrito à mão);
+3. entradas ligadas recebem o valor de origem (`v_<id>`, `v_<id>.<porta>` com várias saídas, ou o argumento
+   `s.world_position`); sem ligação, a expressão de `defaults` no escopo da função (o nó `output.surfaceParams` usa as
+   constantes do material, `m.albedo.rgb`…); parâmetros por `data.<id>_<parâmetro>`;
+4. tipos iguais, ou a única conversão implícita — escalar → vetor do mesmo componente por repetição (`f32` → `vec3f`) —;
+   o resto é `type-mismatch`; nó fora do estágio do ponto é `context`; argumento que o ponto não tem é `target`;
+5. o retorno é a porta `output`, convertida ao tipo de retorno do ponto.
+
+A função gerada tem o nome e a assinatura do ponto (`fn material_fn(s: SurfaceSample, m: StandardMaterial, data:
+MaterialFnParams) -> SurfaceParams`). `params()`/`values()` dão os parâmetros (`nó_parâmetro` → tipo e valor inicial)
+dos nós que a saída alcança; `modules()`, os módulos deles (cada um uma vez). A identidade é a forma: definições,
+ligações e saída determinam o código gerado; os valores não entram nele (mudar um valor não recompila).
+
+#### Hospedagem nos pontos da 009 — `{ graph }` e `setGraph`
+
+O grafo de ponto é hospedado pela própria função de ponto — um caminho só para código e grafo:
+
+```ts
+const material = new MaterialFunction({ graph: look });   // e TransformFunction, CameraFunction, SurfaceFunction,
+entity.add(material);                                     // SpaceFunction, FieldFunction, EmitFunction
+material.values.n_scale = 8;                              // quadro seguinte, sem recompilar
+material.setGraph(other);                                 // topologia nova: revisão +1, compila em transição
+app.events.on('extensionRejected', (e) => console.warn(e.point, e.message));
+```
+
+`new XFunction({ graph, values? })` gera o código pelo grafo (`graph.compile(point)`), os parâmetros
+(`graph.params()`, no registro tipado da forma) e os `requires` (`graph.modules()`); daí em diante é a função da 009:
+validação na criação (`point.check`), módulo memorizado por hash, pool por forma, `ExtensionPipelines` nos estágios,
+`extensionRejected` na falha. Os estágios acham as funções pela classe (`slot.entities({ all: [ParametricSurface,
+SurfaceFunction] })`) e servem grafos sem mudança. `setGraph(g)` valida e gera na hora (lança e o anterior continua),
+mantém os valores de parâmetros de mesmo nome e tipo, sobe a revisão e, com parâmetros de outra forma, passa a função
+para o pool da forma nova (`Entity.redescribe`); `setCode` numa função de grafo, e `setGraph` numa função de código,
+lançam. O saneamento de não finitos (`wgslLib.finite`) fica nos hospedeiros (transform, camera, emit, surface), igual
+para código e grafo.
+
+**Grafo vazio ou sem saída** (`output` ausente): a função usa o módulo pronto do ponto (`implemented = false`), com
+aviso único por ponto; nos pontos de cena (`field`, `space`) ela não entra na composição. Ligar a saída depois
+(`setGraph`) passa a valer quando compilar.
+
+#### Nós de conjunto — `defineSetNode`
+
+```ts
+export const displace = defineSetNode({
+    name: 'set.displace',
+    inputs: {
+        mesh: MESH,                                                        // setType('mesh', { vertices: MeshVertex, triangles: MeshTriangle })
+        height: setPointInput(displaceHeightTarget, displaceHeight, 'displace_height'),   // entrada de ponto
+    },
+    outputs: { mesh: MESH },
+    params: { scale: { type: 'f32', default: 1 } },
+    capacity: (c) => ({ 'mesh.vertices': c.input('mesh', 'vertices'), 'mesh.triangles': c.input('mesh', 'triangles') }),
+    counts: { 'mesh.vertices': { same: 'mesh.vertices' }, 'mesh.triangles': { same: 'mesh.triangles' } },
+    create: (c) => {                                                       // SetNodeContext → SetNodeInstance
+        /* kernels ligados a c.input(...)/c.output(...).buffer, c.counts, c.point('height') */
+        return { update: () => { /* uniforms */ }, record: (frame) => { /* passes */ }, dispose: () => {} };
+    },
+});
+```
+
+- **Portas de conjunto**: `setType(nome, conjuntos)` — o nome é a identidade nas ligações (`mesh` só liga em `mesh`) e
+  cada conjunto tem o schema do elemento (`MeshVertex`, `MeshTriangle`, `SetPoint`, `SetU32` na biblioteca).
+- **Entradas de ponto**: `setPointInput(alvo, at, fn)` — o grafo de ponto ligado a ela é compilado contra `alvo`
+  (assinatura por elemento, ex. `fn(position: vec3f, normal: vec3f, uv: vec2f, data) -> f32`) e **fundido no kernel
+  do nó**, que chama `fn` — o ponto vinculável `at` (o pronto devolve o valor padrão da entrada). Nenhum passe a mais.
+- **Capacidade** de cada conjunto de saída (`'porta.conjunto'` → elementos) pelos valores e pelas capacidades das
+  entradas; **contagem**: `'cpu'` (= a capacidade, conhecida na CPU), `'gpu'` (escrita por um kernel do nó) ou
+  `{ same: 'porta.conjunto' }` (o registro da entrada, sem cópia). `animated: true` refaz o grafo a cada quadro.
+- **Instância**: `create(ctx)` recebe `core`, um prefixo `id`, os registros `counts`, `input`/`output(porta,
+  conjunto)` (`{ buffer, capacity, slot }`), `point(porta)` (o grafo fundido: `{ module, resource, params }`),
+  `values()` e `target(descId)` (o buffer do Resource alvo — a geometria de saída); devolve `update` (valores novos:
+  escrever uniforms), `record(frame)` (gravar os passes) e `dispose`.
+
+`defineSetNode` confere os nomes e que toda regra de contagem nomeia um conjunto de saída (`same`: um de entrada do
+mesmo schema) — `node-signature`.
+
+#### O Resource e o plano — `SetGraph` e `compileSetGraph`
+
+`SetGraph` (C2, `Entity` + `Resource`) guarda o grafo e os valores de **todos** os nós (`values['nó_parâmetro']`,
+`valuesOf(nó)`), validados na criação (ao menos um nó de conjunto, sem `output`). O dado de GPU é um registro fixo do
+pool `SetGraphRecord { revision, writes }`: escrever um valor soma `writes` (a C2 envia o registro e o `GraphFlow`
+recebe `poolWritten`); `setGraph` troca a topologia (revisão +1, valores de mesmo nome e tipo mantidos). Na entidade,
+ao lado do alvo (a `GraphGeometry`), do material e do `Transform`.
+
+`compileSetGraph(grafo, valuesOf)` faz o plano (`SetGraphPlan`): os nós em ordem topológica (`setOrder`), para cada
+conjunto de saída a capacidade pela regra do nó e o registro `SetCount` (próprio, ou o da entrada em `same`), as
+contagens da CPU (`cpuCounts`), `animated`, e os grafos de ponto das entradas de ponto **fundidos**: o grafo ligado
+(`pointGraphFor`) compilado contra o alvo, os parâmetros num struct uniform `<alias>_<hash>` (recurso privado
+`<fn>_params`, frequência `stage`) e a função `fn` que o kernel chama — a do alvo com os parâmetros do uniform —,
+memorizado por alvo e código. Capacidade inválida e grafo de ponto que não compila são `NodeGraphError`.
+
+#### O Flow — `GraphFlow`
+
+```mermaid
+stateDiagram-v2
+  [*] --> stale : entrou na cena (build)
+  stale --> clean : frameRecorded (gravado neste quadro)
+  clean --> stale : poolWritten do SetGraphRecord (valores)
+  clean --> stale : revisão nova (setGraph) → reconstrói
+  clean --> stale : framePrepare com nó animated
+  stale --> stale : dispatch grava os nós em ordem topológica
+```
+
+O grafo de conjunto compilado **é** executado como um Flow: `GraphFlow` (C2) tem o slot `graphs`
+(`slot.entities({ all: [SetGraph], owns })`) e, por entidade, o plano, os conjuntos (buffers de storage com a
+capacidade do plano), os registros `SetCount` (um buffer `indirect`), os uniforms dos grafos de ponto fundidos e a
+instância de cada nó — tudo alocado e liberado por ele. A C4 o registra em `registerPresentationDefaults` com o alvo
+`GraphGeometry` e a posse dos descritores `vertices`, `indices`, `wireEdges`, `indirect` (`{ type: 'setGraph', phase:
+'transform', priority: -50 }`: depois das superfícies, antes da sombra e do forward).
+
+- **Entradas**: as contagens da CPU já com os argumentos de despacho (grupos de `SET_GROUP` = 256, divididos em x/y
+  pelo `maxComputeWorkgroupsPerDimension`) e de desenho; os uniforms dos grafos fundidos com os valores atuais.
+- **Valores novos** (`poolWritten`): replaneja; mesmas capacidades → escreve as entradas, `update` em cada instância e
+  marca `stale`; capacidades diferentes (um valor mudou o tamanho) ou revisão nova → reconstrói.
+- **Memória do resultado**: `dispatch` grava os nós só de grafos `stale`; `frameRecorded` os deixa limpos (salvo os
+  `animated`). Com entradas e parâmetros parados, nada é refeito (FR-020) — a memória que o Transform e a Surface
+  escreviam à mão é comportamento do `GraphFlow`.
+- Nada é lido de volta: contagens decididas na GPU seguem por despacho e desenho indiretos.
+
+#### Contagens na GPU — `SetCount` e `CountToArgs`
+
+`SetCountSchema` (`SetCount`, 48 B): `count`, os argumentos de despacho (`dispatch_x/y/z`, byte 4 —
+`SET_COUNT_DISPATCH_OFFSET`) e de desenho indexado (`index_count`, `instance_count`, `first_index`, `base_vertex`,
+`first_instance`, byte 16 — `SET_COUNT_DRAW_OFFSET`). Todo kernel de nó lê a contagem de `set_counts[slot]` (módulo
+`set_count`) e despacha pelo argumento indireto do registro (`setDispatchOffset(slot)`, `workgroupsIndirect`). Um nó
+com contagem `'gpu'` escreve `count` num kernel e grava `CountToArgs` (C3, `elements/gpu/compute`): um kernel de uma
+invocação que deriva no mesmo registro o despacho linear e o desenho — a contagem nunca volta à CPU. As primitivas
+`PrefixSum`, `RadixSort`, `Compaction` e `Reduce` aceitam `count: GpuCount { counts, index }` (preparadas com
+`counts`), lendo a contagem no próprio kernel; viram os nós `set.prefixSum`, `set.sort`, `set.compact`, `set.reduce`.
+A distribuição de pontos é determinística (hash de semente, triângulo e candidato; compactação estável), e as normais
+somam em ponto fixo (independente da ordem dos atômicos).
+
+#### Saída de malha — `GraphGeometry` e `MeshVertex`
+
+`GraphGeometry({ vertexCapacity, indexCapacity, edgeCapacity? })` (C3) é uma `Geometry` com vértices, índices
+`uint32`, arestas de arame opcionais e o registro `indirect` (registro 0: desenho indexado; byte 20: vértices do
+arame) — todos `upload: 'never'`, possuídos pelo `GraphFlow`, sem deduplicação por conteúdo. O nó `set.meshOutput`
+copia os vértices, escreve os índices (os além da contagem degenerados), as arestas e o registro indireto; o forward
+e a sombra a desenham pelo **mesmo caminho da `ParametricSurface`** (cópia do indireto antes do passe), sem estágio
+por origem. `set.pointsOutput` escreve pontos como vértices para o desenho por sprites (`PointSpriteMaterial`).
+`MeshVertexSchema` (`MeshVertex`: `px, py, pz, nx, ny, nz, u, v`, oito `f32` escalares) tem o layout de 32 B do buffer
+de vértices: a malha é `array<MeshVertex>` em compute — e nos vértices lidos como storage pelo arame e pelos sprites —
+sem deslocamentos à mão.
+
+#### Relação com Flows, slots e pontos da 009
+
+| Conceito | No grafo de ponto | No grafo de conjunto |
+|---|---|---|
+| Resource | a `ExtensionFunction` que o hospeda (registro tipado da forma, pool `<ponto>:<hash>`) | `SetGraph` (registro `SetGraphRecord`) + o alvo (`GraphGeometry`) |
+| Compilação | uma função no shader do estágio hospedeiro (`compile(point)`) | um plano (`compileSetGraph`) + instâncias de nós (kernels) |
+| Execução | o estágio da 009 (`ExtensionPipelines`: troca só quando compila) | `GraphFlow` (fase `transform`, `stale`/`clean`) |
+| Slots | os do estágio hospedeiro | `graphs` (entidades com `SetGraph`, posse dos descritores do alvo) |
+| Valores | `values['nó_parâmetro']` → `poolWritten` do registro, sem recompilar | `values['nó_parâmetro']` → `poolWritten` → `update` e refeito no quadro seguinte |
+| Topologia | `setGraph` → revisão +1, recompila em transição; falha: `extensionRejected`, fica a anterior | `setGraph` → revisão +1, `GraphFlow` reconstrói |
+| Grafo de ponto dentro | — | entrada de ponto fundida no kernel do nó (`setPointInput`) |
+
+#### Sub-grafos — `Subgraph.point` e `Subgraph.set`
+
+- **`Subgraph.point(grafo, { name, inputs, expose })`** devolve um nó de ponto (`NodeDefinition`) cuja função é o grafo
+  compilado (`sub_<hash>`, struct `Sub_<hash>`, módulo `subgraph_<hash>`): entradas = os argumentos do grafo
+  (`inputs`, na ordem das portas), saída `value` = a do grafo, parâmetros = os expostos (`'nó.parâmetro'` →
+  `nó_parâmetro`, com valor por uso); os não expostos ficam embutidos como literais exatos. Estágios = os comuns a
+  todos os nós de dentro. O módulo é emitido uma vez por shader (usos repetidos compartilham o módulo: mesma forma,
+  mesmo pipeline). Erros: grafo sem saída, parâmetro exposto inexistente, nenhum estágio comum.
+- **`Subgraph.set(grafo, { name, inputs, outputs, expose })`** devolve um `SetSubgraph` **expandido** no grafo que o
+  usa: os nós de dentro entram como `uso_nó`, com os valores do sub-grafo e, nos expostos, os do uso
+  (`sub.with({ nó_parâmetro: v })`); as ligações de fora que chegam ou saem do uso são religadas às portas de dentro
+  declaradas — conjuntos e contagens circulam sem cópia. As entradas declaradas precisam estar abertas (`open`) no
+  grafo de dentro.
+
+Ciclos através de sub-grafos de conjunto aparecem com o caminho completo (`uso_nó`); um sub-grafo de ponto é uma
+função compilada, sem ligação de volta.
+
+#### Serialização — `toJSON`/`fromJSON`
+
+```ts
+const json = toJSON(graph, defaultNodeRegistry);         // GraphJSON { version, nodes, links, output?, open?, subgraphs? }
+const again = fromJSON(json, defaultNodeRegistry);       // mesma forma → mesmo código, mesmo pipeline
+```
+
+Funções, não métodos (evitam o ciclo grafo ↔ registro). Nós registrados vão pelo nome do tipo e os valores do uso;
+argumentos com os campos; nós WGSL do usuário fora do registro e sem dependências de módulo, pelo código
+(`type: 'wgsl'`, reconstruídos e memorizados pelo conteúdo: mesma definição a cada leitura; os módulos são
+compartilhados por nome e código, então nós que vinham do mesmo módulo voltam a usar um só — dois módulos distintos com
+o mesmo nome não se montam no mesmo shader); sub-grafos pela estrutura
+(o grafo e as opções, uma vez por nome, em `subgraphs`). Erros `serialization`: versão diferente de
+`GRAPH_JSON_VERSION`, tipo fora do registro (nomeando o tipo e o nó), sub-grafo não declarado, nó de conjunto fora do
+registro, nó WGSL com dependências, dois sub-grafos diferentes com o mesmo nome.
+
+#### Registro — `NodeRegistry` e `defaultNodeRegistry`
+
+`new NodeRegistry(definições)` guarda definições (de ponto ou de conjunto) por nome: `register` (o mesmo nome com
+outra definição é `node-signature`), `get`, `names`. A biblioteca da C3 publica `defaultNodeRegistry` com todos os
+seus nós — os 64 de ponto (`math`, `map`, `color`, `noise`, `condition`, `space`, `field`, `surface`, `output`) e os 12 de
+conjunto; as entradas de contexto (`nodes.input`) são argumentos, não definições, e não entram no registro. Cada nó de
+ponto tem a referência da CPU (`elements/nodes/reference`, tolerância por nó em `reference/cases.ts` e nos arquivos de
+cada categoria), avaliada pelo teste da biblioteca e, na GPU, pelo smoke `nodeGraphs`. A lista por categoria, com
+portas, parâmetros e tolerâncias, está no guia [Grafos de nós](./node-graphs.md#biblioteca). Quem escreve nós próprios cria um registro com eles (e os padrão) para serializar grafos que os usam.
+
+`NodeGraphError.kind`: `node-signature`, `unknown-node`, `unknown-port`, `type-mismatch`, `unconnected-input`,
+`duplicate-link`, `cycle`, `context`, `target`, `serialization`.
+
 ### Correções aplicadas — tabela C2 original → C2 refatorada
 
 | # | Antes (C2 original) | Depois (C2 refatorada) | Princípio |
@@ -2220,8 +2783,9 @@ Os parâmetros (`cohesion_gamma`, `adhesion_accel`, `adhesion_tangential`, `supp
 | 2b | Ciclo de vida fragmentado — guards dispersos (`if state === Ready`), getter `isGpuManaged` ad-hoc, sem State Pattern | `ResourceStateHandler` (State Pattern, flyweight) com 7 estados e capabilities (`canRender`, `needsAllocation`, `suppressCpuUpload`, ...) uniformes para Resource individual e Resource pooled | State Pattern (GoF) — substitui ifs por polimorfismo |
 | 2c | `ExecutionSystem.run(colorView, depthView)` com loop imperativo, passes como campos da classe (`computePass`, `renderPass`), `pipeline.native` vazando, `setPipeline`/`setBindGroup`/`dispatchWorkgroups` flat — física multi-pass impossível | `ExecutionSystem` reativo: abre `core.record(frame => ...)` por frame e itera Flows ativos pelas fases (`physics → transform → shadow → forward → post → ui`); cada Flow grava seus próprios passes via slots tipados (`pass.bind.*`, `pass.dispatch.*`, `pass.geometry.*`, `pass.draw.*`); `flowReady` só dispara após slots resolvidos e pipelines compilados | Inversão de controle + callback-scoped + sem micro-requests; zero vazamento de GPU* |
 | 2d | Substeps/multi-pass orquestrado inexistente; solvers precisariam reimplementar ordenação de passes manualmente | Classe abstrata `Flow` (Template Method) com slots tipados (resolvidos via FlowDescriptor para pool ou Resource individual) e state machine reativa; `LCPFlow`, `XPBDFlow`, `MPMFlow`, `SPHFlow`, `PBFFlow`, `FEMFlow` como concretas; avanço exclusivamente via eventos | Template Method + State Pattern — múltiplos solvers com infraestrutura compartilhada |
-| 2e | `GPUDescriptor { id, group, binding, schema, count, usage }` mecânico; cobre só buffer — textura/sampler/view ausentes; `PipelineDescriptor { type: string, shaderId, source }` sem campos fixed-function | Descriptors como **bag semântica**: role discriminado (`'uniform'/'storage-rw'/.../'texture'/'sampler'`), `schema?`/`textureShape?`/`samplerShape?`; PipelineDescriptor com `role: 'compute'\|'render'`, `consumes[]`, fixed-function reutilizando value objects de C1 (DepthSpec/MultisampleSpec/ColorTargetSpec/VertexBufferLayout) | Declarativo — o mecânico é inferido, não declarado |
-| 2f | Sem inferência — Resource declara group/binding/visibility/usage/layoutId à mão em cada descriptor | `LayoutInferencer.infer` em C2 derivando grupos, bindings, tipo e visibilidade do WGSL montado; a ligação de Flows resolve cada binding por privados (`pipeline:variável`, `variável`) e por `consumes[]` (`ConsumerResolver` sobre o World e o que a C2 alocou); visibilidade explícita do descritor vence a inferida | DRY — a bag diz o quê, C2 deriva o como |
+| 2e | `GPUDescriptor { id, group, binding, schema, count, usage }` mecânico; cobre só buffer — textura/sampler/view ausentes; `PipelineDescriptor { type: string, shaderId, source }` sem campos fixed-function | Descriptors como **bag semântica**: role discriminado (`'uniform'/'storage-rw'/.../'texture'/'sampler'`), `schema?`/`textureShape?`/`samplerShape?`; PipelineDescriptor com `role: 'compute'\|'render'`, `family`, `constants`, fixed-function reutilizando value objects de C1 (DepthSpec/MultisampleSpec/ColorTargetSpec/VertexBufferLayout) | Declarativo — o mecânico é inferido, não declarado |
+| 2f | Sem inferência — Resource declara group/binding/visibility/usage/layoutId à mão em cada descriptor | Recursos declarados pelos módulos (`wgslResource`, spec 031): `composeWgsl` atribui grupo (frequência) e ligação e emite as linhas; `LayoutInferencer.infer` lê só as declarações e deriva a visibilidade; a ligação de Flows resolve cada binding pelo fornecedor declarado (pool, resolver, slot, ponto de cena ou privado pela identidade do recurso); visibilidade explícita do descritor vence a inferida | DRY — a bag diz o quê, C2 deriva o como |
+| 2l | Ligações escritas à mão no WGSL (`@group/@binding` redeclarados com números diferentes), ligação por nome de variável em texto, lista de nomes de dados da cena casada pelo nome do struct, índices de grupo no desenho, globais implícitos do hospedeiro, constantes repetidas entre TS e WGSL | Contrato de shader estruturado (spec 031): `manual-binding` na criação do módulo, `unresolved-reference` para global não requerido, `BindingKey` pela identidade do recurso, `groupsOf(frequência)`/`bindTo`, `sharedConstant`, instanciação por token, pontos de cena com contribuições | Contrato verificado na criação, não no compilador do driver |
 | 2g | `Resource.pack(): Float32Array` (e o método em si) | Removido. ResourceSystem chama `descriptor.schema.pack(resource.data)` direto. `Schema.pack()` produz os bytes do layout WGSL (f32/u32/i32, atômicos, arrays, aninhados) | Wrapper era redundante; schema é a única fonte de packing |
 | 2h | `StructSchema` com record literal fechado; sem ordem preservada acessível, sem `offsetOf` | `StructSchema` com `fields: Map<string, FieldType>` (ordem preservada) + `offsetOf(field)` + `pack(data)` + `toWGSL(name)` | Introspeção e composição declarativa de WGSL |
 | 2i | `PipelineCache.get(descriptor)` recompilava mesma fonte WGSL múltiplas vezes | `composeWgsl(módulo)` memoriza a `ShaderModuleSpec` montada; `core.create(spec)` deduplica pelo hash da spec — zero recompilação duplicada | Dedup estrutural via hash |
@@ -2234,7 +2798,7 @@ Os parâmetros (`cohesion_gamma`, `adhesion_accel`, `adhesion_tangential`, `supp
 
 **1. Cobertura de texturas, samplers e views**
 
-Resolvido via `role` discriminado em `GPUDescriptor`. Roles `'texture'`, `'sampler'` carregam `textureShape` / `samplerShape` (value objects com `dimension/format/mipLevelCount/sampleCount` e `magFilter/minFilter/wrap/compare`). Storage texture para compute write: `role: 'storage-texture'` com `textureShape.access: 'write-only'|'read-only'|'read-write'`. `TextureView` não é declarado diretamente por Resource — é inferido pelo `LayoutInferencer` quando um binding espera view (derivado do WGSL `texture_2d`/`texture_3d`/`texture_cube`/etc.). Override opcional via `GPUDescriptor.viewSpec?: TextureViewSpec`.
+Resolvido via `role` discriminado em `GPUDescriptor`. Roles `'texture'`, `'sampler'` carregam `textureShape` / `samplerShape` (value objects com `dimension/format/mipLevelCount/sampleCount` e `magFilter/minFilter/wrap/compare`). Storage texture para compute write: `role: 'storage-texture'` com `textureShape.access: 'write-only'|'read-only'|'read-write'`. `TextureView` não é declarado diretamente por Resource — a C2 cria a view com a textura, e o shader a lê por um recurso declarado `{ texture: { sample, dimension, multisampled } }` (o tipo `texture_2d<f32>`, `texture_depth_2d`, `texture_cube<f32>`… sai da declaração). Override opcional via `GPUDescriptor.viewSpec?: TextureViewSpec`.
 
 **2. RenderTarget — value object construído por frame**
 
@@ -2266,7 +2830,7 @@ Não há `ShaderRegistry`. `composeWgsl(módulo)` memoriza a `ShaderModuleSpec` 
 
 **7. Composição declarativa de WGSL**
 
-`WgslModule` + `composeWgsl` (spec 005 — ver a nota de composição em "Organização de Pacotes — Camada 3"): dependências por `requires`, ordem topológica, deduplicação por símbolo, structs gerados por `StructSchema.toWGSL()` no topo do fonte ou nos marcadores `{{struct:Nome}}`. Os structs vêm dos schemas declarados no módulo (`structs`), não de uma busca no World; a ligação aos dados da cena vem depois, da C2, pelos nomes em `consumes` (ver "Fase 4").
+`WgslModule` + `composeWgsl` (spec 005 — ver a nota de composição em "Organização de Pacotes — Camada 3"): dependências por `requires`, ordem topológica, deduplicação por símbolo, structs gerados por `StructSchema.toWGSL()` no topo do fonte ou nos marcadores `{{struct:Nome}}`. Os structs vêm dos schemas declarados no módulo (`structs`), não de uma busca no World; os recursos de GPU também são módulos (`wgslResource`), e a ligação aos dados da cena vem do fornecedor de cada declaração (ver "Contrato de shader estruturado").
 
 ---
 
@@ -2287,7 +2851,7 @@ src/scene/
 │
 ├── descriptors/                      ← bag semântica que Layer 3 produz e Layer 2 consome
 │     ├── GPUDescriptor.ts              bag (role + schema + count + storage 'individual'|'pool' + textureShape/samplerShape)
-│     ├── PipelineDescriptor.ts         bag (role + shader: WgslModule + entryPoints + consumes + fixed-function)
+│     ├── PipelineDescriptor.ts         bag (role + shader: WgslModule + entryPoints + family + pools + constants + fixed-function)
 │     ├── FlowDescriptor.ts             bag opcional (algorithm + bodyType) — só para Resources que entram em Flow
 │     ├── Schema.ts                     abstract — base de StructSchema/TensorSchema (name + stride + toWGSL + pack + applyDefaults)
 │     ├── StructSchema.ts               layout struct nomeado — fields: Map<string, FieldType>
@@ -2320,22 +2884,50 @@ src/scene/
 │     ├── RenderFlow.ts                 abstrata extends Flow com o slot `target` (canvas, FrameTargets, ShadowMap.depth)
 │     ├── slots.ts                      construtores `slot.*` (pool, bodies, pools, singleton, entities, texture, target)
 │     ├── FlowTransitions.ts            eventos de Flow, tabela de transições, FlowTransitionError
-│     ├── createComputeKernel.ts        kernel de compute avulso com bindings por nome (layout inferido)
+│     ├── FlowBinding.ts                BoundFlow, PreparedPipeline (groupsOf/bindTo), BindingKey/BindingSources, TransitionContext
+│     ├── createComputeKernel.ts        kernel de compute avulso com fontes pela identidade do recurso (layout das declarações)
+│     ├── ExtensionPipelines.ts         estado ativo/pendente único dos pipelines de funções de ponto (spec 009/031)
 │     └── FlowRegistry.ts               register(factory, { type, phase, bodyType?, priority? }) + override + unregister + resolve + flowsInPhase
 │
-├── consumers/                        ← ConsumerResolver — resolve nomes em PipelineDescriptor.consumes
-│     ├── ConsumerResolver.ts           interface — resolve(world, ctx) BindGroupEntry[]
+├── shaders/                          ← contrato de shader (specs 005, 009, 031)
+│     ├── WgslModule.ts                 wgslModule — fonte + requires + structs; @group/@binding à mão → manual-binding
+│     ├── WgslResource.ts               wgslResource — binding, tipo, frequência (frame/stage/batch/draw), fornecedor
+│     ├── composeWgsl.ts                montagem: ordem topológica, structs, ligações atribuídas, globais conferidos
+│     ├── SharedConstant.ts             sharedConstant — valor TS + módulo `const` WGSL
+│     ├── engineConstants.ts            NONE, WORKGROUP_SIZE
+│     ├── instantiate.ts                renameTokens / instantiateModule — símbolos por instância, por token
+│     ├── WgslPoint.ts                  wgslPoint (pontos da 009), ContributionPoint/SceneContribution (pontos de cena), registros tipados
+│     ├── bindPoints.ts                 troca o pronto de cada ponto pela implementação na árvore de requires
+│     └── scanWgslSymbols.ts, wgslBuiltins.ts, WgslCompositionError.ts
+│
+├── graph/                            ← grafos de nós (spec 031) — ver "Grafos de nós"
+│     ├── NodeDefinition.ts             defineNode — nó de ponto (portas, parâmetros, função WGSL, estágios)
+│     ├── SetNode.ts                    defineSetNode, setType, setPointInput — nó de conjunto
+│     ├── NodeGraph.ts                  NodeGraph (forma imutável, validação, compile), graphArgument
+│     ├── SetGraph.ts                   Resource do grafo de conjunto (grafo + valores; registro SetGraphRecord)
+│     ├── compileSetGraph.ts            plano: ordem, capacidades, registros SetCount, grafos de ponto fundidos
+│     ├── GraphFlow.ts                  Flow que executa os grafos de conjunto (stale/clean)
+│     ├── SetCountSchema.ts             registro SetCount { count, despacho, desenho }
+│     ├── Subgraph.ts                   Subgraph.point / Subgraph.set
+│     ├── serialize.ts                  toJSON / fromJSON
+│     └── NodeRegistry.ts, NodeGraphError.ts
+│
+├── consumers/                        ← ConsumerResolver — fornecedores { pool } / { consumer } dos recursos declarados
+│     ├── ConsumerResolver.ts           interface — name + typeName + resolve(ctx) → ResolvedSource | undefined
 │     ├── ResolvedSource.ts             tipos da fonte de binding (buffer, textureView, sampler) — sem dependência do World
-│     ├── ConsumerResolverRegistry.ts   register + resolve
+│     ├── ConsumerResolverRegistry.ts   register + registerDefault + has + resolve
 │     └── strategies/
-│           ├── SingletonResolver.ts    pega 1 Resource ativo do schema (ex.: Camera, Time)
-│           ├── PerEntityResolver.ts    pega Resource colocalizado no mesmo EntityId (ex.: Transform)
-│           └── PoolResolver.ts         pega buffer global do pool (ex.: Light, ShadowMap, ForceField, RigidBody)
+│           ├── SingletonResolver.ts    descritor do primeiro Resource do schema (ex.: Time, GravityField)
+│           ├── PoolResolver.ts         buffer do pool pela chave (registrado pelo ResourceSystem com o pool)
+│           ├── PoolLiveResolver.ts     bitset de slots vivos do pool (`<pool>.live`)
+│           └── TextureResolver.ts      view de textura alocada pela C2
 │
 ├── systems/                          ← sistemas de coordenação reativos
 │     ├── ResourceSystem.ts             on('resourcesChanged'/'resourceDirty'); aloca/atualiza buffers; mantém Map<poolKey, PoolEntry>
 │     ├── ExecutionSystem.ts            on('frameTick'); abre core.record(), drena ReadyEvent, executa pipeline; submete
-│     └── LayoutInferencer.ts           parsea WGSL + bag → ResourceSpec[] completo
+│     ├── LayoutInferencer.ts           layout das declarações do shader montado (grupos, ligações, tipo) + visibilidade
+│     └── flowBinding/                  ligação de Flows: FlowRuntime (fontes pelo fornecedor), PipelineState,
+│                                       ScenePoints (funções e contribuições de cena), limits (limites do device), EntityGroups
 │
 └── events/                           ← sistema de eventos de pipeline GPU
       ├── EventBus.ts                   interface pubsub — importada por L3 e L4
@@ -2350,7 +2942,7 @@ src/scene/
 ```
 
 > **Regra de importação:**
-> **Layer 3** importa exclusivamente de `scene/contracts/`, `scene/descriptors/`, `scene/world/`, `scene/flows/` (Flow + RenderFlow + FlowRegistry públicos), `scene/consumers/` (registro de resolvers custom) e `scene/events/` — nunca de `scene/systems/` ou `scene/lifecycle/` (internals) nem de `core/` (Layer 1).
+> **Layer 3** importa exclusivamente de `scene/contracts/`, `scene/descriptors/`, `scene/world/`, `scene/flows/` (Flow + RenderFlow + FlowRegistry públicos), `scene/shaders/` (módulos, recursos declarados, constantes, pontos), `scene/graph/` (grafos de nós), `scene/consumers/` (registro de resolvers custom) e `scene/events/` — nunca de `scene/systems/` ou `scene/lifecycle/` (internals) nem de `core/` (Layer 1).
 > **Layer 4** importa **exclusivamente de `scene/`** (que re-exporta os contratos de Layer 1 via `contracts/index.ts`). L4 nunca toca `core/` direta nem indiretamente — nem `core/contracts/`, nem `core/gpu/`.
 > Apenas `scene/index.ts` (e arquivos internos de `systems/`) importa de `core/gpu/` para construir o `EngineCore` durante o bootstrap top-level.
 > Pools são `Map<poolKey, PoolEntry>` interno do ResourceSystem — não há classe `Pool` exportada.
@@ -2425,8 +3017,8 @@ O padrão é idêntico para física, geometria, material, luz e câmera:
 | `ResourceSystem.flush(world, core)` | Reativo via `on('resourcesChanged')` + `on('resourceDirty')` | Imperativo virou observação de eventos — ninguém "empurra" ciclo de vida |
 | `ExecutionSystem.run(encoder, world, core)` | `onFrameTick()` abre `core.record(frame => ...)` | Encoder não cruza camadas; passes são callback-scoped |
 | `Resource.pack(): Float32Array` | Removido — ResourceSystem usa `descriptor.schema.pack(resource.data)` direto | Schema já recebe data e produz TypedArray; método na Resource era wrapper redundante |
-| `GPUDescriptor { group, binding, usage }` explícito | Bag `{ role, schema, textureShape?, samplerShape? }`; bindings derivados do WGSL pelo `LayoutInferencer` e ligados pela C2 | Dev declara semântica; C2 deriva o mecânico |
-| `PipelineDescriptor { type, shaderId, source }` | Bag `{ role, shader: WgslModule, entryPoints, consumes[], depth?, topology?, ... }` | Dedup pelo hash da spec montada; ligação com Resources externos via `consumes`, resolvida pela C2 (`ConsumerResolver`) |
+| `GPUDescriptor { group, binding, usage }` explícito | Bag `{ role, schema, textureShape?, samplerShape? }`; bindings atribuídos pelo motor aos recursos declarados (`wgslResource`), lidos pelo `LayoutInferencer` e ligados pela C2 | Dev declara semântica; C2 deriva o mecânico |
+| `PipelineDescriptor { type, shaderId, source }` | Bag `{ role, shader: WgslModule, entryPoints, family?, constants?, depth?, topology?, ... }` | Dedup pelo hash da spec montada; o que o shader lê são os recursos declarados que ele requer, ligados pela C2 pelo fornecedor de cada um (spec 031) |
 | `Resource.transitionTo(state)` imperativo | `ResourceSystem.transition(resource, to)` (interno): valida pela tabela e lança; eventos de estado (`resourceReady`) emitidos depois | Só o ResourceSystem muda estado — dev nunca dispara transição; evento nunca causa transição |
 | `SceneEntity` (value object agregador) | `SceneSpec` + `scene.add(spec)` | Facade pragmática — um único método de entrada; ECS cru via `EcsBundle` |
 | `Scene.addPlanet/addCloth/addFluidBox/addTerrain/addLight/setCamera` | `scene.add(new Planet/Cloth/FluidBox/Terrain/DirectionalLight/Observer/... )` | Entrada uniforme — API não ramifica por tipo; discriminação ocorre pela classe do spec |
@@ -2436,7 +3028,7 @@ O padrão é idêntico para física, geometria, material, luz e câmera:
 | Seleção automática de solver indefinida | `FlowRegistry` com `register/resolve/override` por `bodyType` e `priority` | Engine escolhe default; dev substitui via `app.flows.override(bodyType, factory, options)` |
 | `Flow` fechado (dev não escreve) | `Flow` abstract PÚBLICO (nível N3) + registro por factory: `FlowRegistry.register(factory, { type, phase, bodyType?, priority? })` | Autor de algoritmo novo injeta seu Flow; os Flows do motor seguem o mesmo contrato |
 | `Light` como Resource individual + `shadowTarget` não definido | `Light` declara `storage: 'pool'`; `ShadowMap` Resource auto-criado quando `castShadow=true`, vinculado por entityId no slot do pool | Coalescing de N luzes em buffer único; shadow map criado automaticamente pelo ResourceSystem |
-| `consumes: string[]` com nomes hardcoded no inferencer | `ConsumerResolverRegistry` plugável (Singleton/PerEntity/Pool resolvers) | Dev pode registrar novos nomes semânticos sem tocar na engine |
+| Nomes de dados da cena fixos no inferencer | `ConsumerResolverRegistry` plugável (`SingletonResolver`, `PoolResolver`, `PoolLiveResolver`, `TextureResolver`), atendendo os fornecedores `{ pool }`/`{ consumer }` dos recursos declarados | Dev pode registrar novos fornecedores sem tocar na engine |
 | `RenderPipeline.add(stage)` só append | Fases fixas + `priority` decrescente dentro da fase, empate pela ordem de registro (sem `before`/`after`/`at`) | Ordem determinística sem âncoras nomeadas; posição custom = fase + prioridade |
 | `SceneSpec` interface + `scene.add(spec)` + `SceneHandle` | `Entity` (composição) + `Resource` (dado) — contratos separados; classes data-bearing estendem Entity AND implementam Resource | SceneSpec duplicava dado já modelado em Resources; criava layer 3.5 e exigia diff opaco em `set` |
 | `SceneHandle`/`EntityHandle` | A Entity é o handle (`entity.entityId` injetado pelo `World.insert`) | Handle separado era redundante — Entity carrega id e parts |
@@ -2451,7 +3043,7 @@ O padrão é idêntico para física, geometria, material, luz e câmera:
 | `World.spawn()` separado + `World.insert(id, resource)` | `World.insert(entity): EntityId` atômico — aloca id + co-localiza `entity.attached` | Operação atômica elimina race entre spawn e insert |
 | `interface ResourceSet<T>` como contrato público | `storage: 'individual' \| 'pool'` no `GPUDescriptor` | Coalescing é estratégia declarativa de armazenamento, não tipo paralelo. Pool é detalhe interno do ResourceSystem. |
 | Classes `RigidBodyBuffer`/`ConstraintBuffer`/`LightBuffer` paralelas | uma classe por Resource | Sem duplicação. Engine mantém `Map<poolKey, PoolEntry>` interno indexado por `(schema.name, algorithm)`. |
-| `insert(entityId, member)` / `remove(entityId)` / `indexOf(entityId)` no contrato `ResourceSet<T>` | Internals do ResourceSystem com slot estável (free-list) por PoolEntry | Constraints traduzem EntityId → slot na inserção; o dado packed contém slot, não EntityId. Flow recebe `BindGroupSpec` via ConsumerResolver. |
+| `insert(entityId, member)` / `remove(entityId)` / `indexOf(entityId)` no contrato `ResourceSet<T>` | Internals do ResourceSystem com slot estável (free-list) por PoolEntry | Constraints traduzem EntityId → slot na inserção; o dado packed contém slot, não EntityId. O shader lê o pool pelo recurso declarado (`{ pool }` ou `{ slot }`); a C2 liga o bind group. |
 | Algoritmo físico só configurável via `FlowRegistry.override` global | `getFlowDescriptors?()` opcional no Resource + `static defaultAlgorithm` + override per-instance via `options.algorithm` | Default por classe + override granular — pool key vira `(schema.name, algorithm)`. Bodies de algoritmos diferentes coexistem em pools distintos. |
 | Resource com múltiplos schemas (Struct + Tensor) sem exemplo | Subseção `EulerianGrid` em C3 mostrando padrão (params StructSchema + velocity/mass TensorSchema) | Resources com paramsão + arrays N-dim N são padrão necessário p/ MPM/FLIP/SPH/PBF; estava implícito sem exemplo. |
 
@@ -2599,7 +3191,7 @@ classDiagram
     }
     note for Scene "Scene herda Entity (composição) mas NÃO implementa Resource — não tem dado GPU.\n`scene.add(entity): this` insere no World (atômico: aloca id + co-localiza parts) e anexa;\n`scene.addEntity(entity): EntityId` faz o mesmo devolvendo o id. `Entity.add` só anexa filho."
     note for CanvasRenderTarget "L4 declara apenas\n  scene.add(new CanvasRenderTarget({ canvas: document.querySelector('#gpu') }))\nResourceSystem reage à inserção: chama canvas.getContext('webgpu').configure(...)\ncom o device do EngineCore. A textura corrente do swapchain é exposta como\nview do quadro (frame.canvasView) — o RenderFlow declara slot.target('canvas')\ne usa a view em frame.render(...). Reconfiguração em resize é feita pelo\npróprio ResourceSystem ao receber resourceDirty no CanvasRenderTarget."
-    note for Light "Todas as luzes (Directional, Point, Spot futuras) coalescem em UM pool 'Light'\ncom struct unificado — o campo `kind` discrimina o tipo no shader.\nMateriais que iluminam cena declaram `consumes: ['Light']` — LayoutInferencer\nresolve para o buffer global do pool. Se a luz tem `castShadow: true`, o\nResourceSystem cria automaticamente um ShadowMap associado via entityId\n(pool 'ShadowMap' indexado pelo mesmo índice); materiais declaram\n`consumes: ['ShadowMap']` para receber o array de shadow maps."
+    note for Light "Todas as luzes (Directional, Point, Spot futuras) coalescem em UM pool 'Light'\ncom struct unificado — o campo `kind` discrimina o tipo no shader.\nShaders leem o pool pelo recurso declarado `lights` (fornecedor { pool: 'Light' }).\nSe a luz tem `castShadow: true`, a DirectionalLight cria o seu ShadowMap (pool 'ShadowMap',\nmesmo slot) e contribui para os pontos de cena (spec 031): a direção para\nscene_light_direction e a sombra (PCF do mapa) para light_visibility. Materiais não\nconhecem luz nem sombra: chamam os pontos, compostos pela C2 com os contribuintes presentes."
 
     %% ── GEOMETRIA ────────────────────────────────────────────────────────────
     namespace Geometria {
@@ -2631,11 +3223,11 @@ classDiagram
     namespace Material_ns {
         class Material {
             <<Abstract — extends Entity, implements Resource>>
-            <<PipelineDescriptor: shader WgslModule + entryPoints + consumes>>
+            <<PipelineDescriptor: shader WgslModule + entryPoints + family>>
         }
         class StandardMaterial {
             <<schema 'StandardMaterial' — albedo: vec4f, roughness: f32, metallic: f32>>
-            <<consumes: ['Camera', 'Transform', 'Light', 'ShadowMap']>>
+            <<shader forward: requires cameras, worlds, renderables, instances, materials + pontos de luz>>
         }
         class WireframeMaterial {
             <<schema 'WireframeMaterial' — color: vec4f, lineWidth: f32 — arestas da geometria (wireEdges) em quads>>
@@ -2946,7 +3538,13 @@ src/elements/
 │     ├── DirectionalLight.ts            kind=0 — popula direction
 │     ├── PointLight.ts                  kind=1 — popula position, radius
 │     ├── ShadowMap.ts                   storage: 'pool' (texture array layered) — auto-criado
-│     └── RenderTarget.ts                par color+depth — implementa Resource
+│     ├── RenderTarget.ts                par color+depth — implementa Resource
+│     ├── resources.ts                   recursos de cena declarados uma vez (spec 031): transforms, worlds, cameras,
+│     │                                  lights, shadow_*, renderables, instances
+│     ├── shadowCaster.ts                castingShadowMap + ShadowCasterResolver (`ShadowCaster.depth`/`.sampler`)
+│     └── points/                        pontos de cena do sombreamento (spec 031): lighting.ts (scene_light_direction,
+│                                        light_visibility, light_transmission, scene_any_light_direction),
+│                                        shadowContribution.ts, anyLightContribution.ts
 │
 ├── geometry/                         ← dados de vértice e índice
 │     ├── Geometry.ts                   abstract extends Entity, implements Resource
@@ -2956,7 +3554,9 @@ src/elements/
 │     ├── PlaneGeometry.ts              schema 'PlaneGeometry' { size, divisions }
 │     ├── PointCloudGeometry.ts         nuvem de pontos com vértices escritos pela GPU (spec 008)
 │     ├── SurfaceGeometry.ts            superfície de corpo mole escrita por kernel (spec 008)
-│     └── ParametricSurfaceGeometry.ts  compute shader avalia f(u,v) → pos, normal
+│     ├── ParametricSurfaceGeometry.ts  compute shader avalia f(u,v) → pos, normal
+│     ├── GraphGeometry.ts              malha escrita por um grafo de conjunto (spec 031): tudo `upload: 'never'`
+│     └── MeshVertexSchema.ts           MeshVertex — 8 × f32 (px…pz, nx…nz, u, v), o layout de 32 B do vértice
 │
 ├── material/                         ← shading e aparência
 │     ├── Material.ts                   abstract extends Entity, implements Resource
@@ -3001,6 +3601,17 @@ src/elements/
 │           ├── PBFFlow.ts              FluidBody:PBF — Position-Based Fluids
 │           └── SPHFlow.ts              FluidBody:SPH — WCSPH
 │
+├── extension/                        ← funções dos pontos da 009 (TransformFunction … MaterialFunction), por código ou grafo
+│
+├── nodes/                            ← biblioteca de nós (spec 031): `nodes`, `defaultNodeRegistry`
+│     ├── index.ts                      `nodes`, `pointNodes` e `defaultNodeRegistry`
+│     ├── input/ math/ map/ noise/      nós de ponto por categoria (map/ também as rampas de cor `color.*`)
+│     ├── condition/ space/ field/
+│     ├── surface/ output/
+│     ├── set/                          nós de conjunto: grid, displace, recomputeNormals, distributeOnMesh,
+│     │                                 realizeInstances, sequence, prefixSum, sort, compact, reduce, meshOutput, pointsOutput
+│     └── reference/                    referências da CPU e casos de teste (tolerância por nó; teste e smoke na GPU)
+│
 ├── particles/                        ← sistema de partículas visual
 │     ├── ParticleEmitter.ts            abstract extends Entity, implements Resource
 │     ├── ScriptedParticleEmitter.ts    CPU — até ~5k
@@ -3021,71 +3632,100 @@ src/elements/
       │     ├── Compaction.ts            compactação por predicado (atômica ou estável)
       │     ├── Reduce.ts                sum/min/max × u32/i32/f32
       │     ├── GraphColorer.ts          coloração de arestas na GPU (≤ 2Δ − 1 cores)
+      │     ├── CountToArgs.ts           contagem da GPU (`SetCount`) → argumentos de despacho e desenho (spec 031)
       │     ├── FrameUniforms.ts         parâmetros por chamada (regiões de uniform por quadro)
       │     ├── schemas.ts, shaders.ts   schemas e módulos (atomic_alloc, fixed_point, scan_*, radix_*, …)
       │     └── wgsl/
       ├── shaders/                      ← módulos de base: `wgslLib` (index.ts), math.ts, neighborSearch.ts
       └── wgsl/                         ← fontes WGSL (importadas por `?raw` só nos arquivos de módulo)
             ├── kernels/                  entradas dos estágios: rb_*, fem_*, mpm_*, sph_*, pbf_*, ns_*, transform_compose
+            ├── nodes/                    funções dos nós de ponto (math, map, color, noise, condition, space, field,
+            │                             surface, output) e set/ (kernels dos nós de conjunto)
             ├── math/                     quat, linalg, mat, sdf, sph_kernels, mpm_weights, xpbd, lcp, lcp_state, fem,
             │                             noise, color, brdf, collider_set, mpm_material
             └── forward.wgsl
 ```
 
-> **Composição WGSL — `WgslModule` + `composeWgsl` (spec 005).** Shaders não são montados por concatenação.
+> **Composição WGSL — `WgslModule` + `composeWgsl` (spec 005; contrato estruturado da spec 031).** Shaders não são
+> montados por concatenação.
 >
 > 1. **Módulo.** `wgslModule({ name, source, requires, structs })` é um valor imutável: o fonte do arquivo (importado
 >    por `?raw` só nos arquivos de módulo — `shaders.ts` de cada pacote), os módulos de que depende (`requires`, por
->    referência) e os schemas cujos structs ele usa. Conflito interno (símbolo definido duas vezes) é erro na criação.
-> 2. **Montagem.** `composeWgsl(entrada)` resolve as dependências em ordem topológica (ciclo → erro legível com o
+>    referência) e os schemas cujos structs ele usa. Conflito interno (símbolo definido duas vezes) é erro na criação;
+>    `@group`/`@binding` no fonte também (`manual-binding`, spec 031).
+> 2. **Recursos.** Todo recurso de GPU que um módulo usa é um módulo `wgslResource({ name, binding, type, frequency,
+>    provider })` (sem fonte de função), declarado uma vez — os de cena em `elements/scene/resources.ts`, os de cada
+>    família ou estágio no `shaders.ts` do pacote dono — e posto em `requires` por quem o usa. Ver "Contrato de shader
+>    estruturado" na Camada 2.
+> 3. **Montagem.** `composeWgsl(entrada)` resolve as dependências em ordem topológica (ciclo → erro legível com o
 >    caminho), inclui cada módulo uma vez, detecta símbolo definido por dois módulos diferentes, gera os structs dos
->    schemas (dependências aninhadas antes) no topo ou nos marcadores `{{struct:X}}`, e confere que toda referência é
->    resolvida (`WgslCompositionError` com o tipo: `cycle`, `duplicate-module-name`, `symbol-conflict`,
->    `struct-marker`, `struct-conflict`, `unresolved-reference`). O resultado é memorizado por módulo: mesma entrada →
->    mesma `ShaderModuleSpec` → mesmo objeto de GPU (deduplicação pelo hash da spec).
-> 3. **Uso.** `PipelineDescriptor.shader: WgslModule`; `createComputeKernel(core, { discriminator, shader, entryPoint, bindings })` (bindings pelo nome da variável WGSL);
+>    schemas (dependências aninhadas antes) no topo ou nos marcadores `{{struct:X}}`, **emite as linhas
+>    `@group(g) @binding(b) var…` dos recursos alcançados** com os números que atribui, e confere que toda chamada é
+>    resolvida e que nenhum módulo usa recurso que não requer (`WgslCompositionError`: `cycle`,
+>    `duplicate-module-name`, `symbol-conflict`, `struct-marker`, `struct-conflict`, `unresolved-reference`,
+>    `manual-binding`). O resultado é memorizado por módulo: mesma entrada → mesma `ShaderModuleSpec` → mesmo objeto
+>    de GPU (deduplicação pelo hash da spec).
+> 4. **Uso.** `PipelineDescriptor.shader: WgslModule`; `createComputeKernel(core, { discriminator, shader,
+>    entryPoint, bindings, constants? })` (fontes num `Map<BindingKey, BindingSource>`, pela identidade do recurso);
 >    efeitos de pós declaram `fragmentModule()`. O mesmo módulo serve compute e render.
-> 4. **Biblioteca.** `wgslLib` (congelado) expõe os módulos de base — `quat`, `linalg`, `mat`, `sdf`, `sphKernels`,
->    `mpmWeights`, `xpbd`, `lcp`, `fem`, `noise`, `color`, `brdf`, `fixedPoint`, `atomicAlloc` — e cada função existe
->    em um único módulo (verificado no gate: nenhum `fn`/`struct`/`const` em dois `.wgsl`, nenhum `.wgsl` órfão).
-> 5. **Kernels genéricos.** `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `GraphColorer` (C3, `elements/gpu/compute`)
->    são os blocos dos estágios do motor (a busca de vizinhança usa o `PrefixSum`; o LCP aloca contatos com
->    `atomic_alloc` e soma em `fixed_point`).
-> 6. **`consumes`.** A C2 deriva os bindings do WGSL montado (`LayoutInferencer.infer`) e liga cada um: privado do
->    Flow pelo nome (`pipeline:variável` ou `variável`), ou o nome de `consumes` cujo tipo é o do binding (o resolver
->    registrado com esse nome devolve a fonte). Nenhum estágio cria layout nem bind group.
+> 5. **Biblioteca.** `wgslLib` (congelado) expõe os módulos de base — `quat`, `linalg`, `mat`, `camera`, `sdf`,
+>    `sphKernels`, `mpmWeights`, `xpbd`, `lcp`, `fem`, `noise`, `color`, `brdf`, `finite`, `fixedPoint`,
+>    `atomicAlloc`, `poolLive` — e cada função existe em um único módulo (verificado no gate: nenhum
+>    `fn`/`struct`/`const` em dois `.wgsl`, nenhum `.wgsl` órfão). Constantes compartilhadas com o TypeScript vêm de
+>    `sharedConstant` (`NONE`, `WORKGROUP_SIZE`, `SCAN_GROUP`, `DEFAULT_LIGHT_DIRECTION`, `MAX_SURFACE_COLLIDERS`,
+>    códigos de campo, `WATER_NO_DEPTH`…), requeridas pelo `module` de cada uma.
+> 6. **Kernels genéricos.** `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `GraphColorer` e `CountToArgs` (C3,
+>    `elements/gpu/compute`) são os blocos dos estágios do motor (a busca de vizinhança usa o `PrefixSum`; o LCP aloca
+>    contatos com `atomic_alloc` e soma em `fixed_point`). Os quatro primeiros aceitam a contagem lida na GPU
+>    (`GpuCount { counts, index }`, registro `SetCount`) e são nós de conjunto da biblioteca (spec 031).
+> 7. **Ligação.** A C2 lê as declarações do WGSL montado (`LayoutInferencer.infer`) e liga cada uma pelo seu
+>    fornecedor — pool, resolver da cena, slot do Flow, ponto de cena, ou privado do Flow pela identidade do recurso.
+>    Nenhum estágio cria layout nem bind group, nem escreve índice de grupo (grava por `groupsOf`/`bindTo`).
 >
 > **Pontos de extensão matemáticos (spec 009).** O nível N2: um estágio chama uma função de assinatura fixa que o
-> usuário pode escrever em WGSL, sem escrever Flow, pipeline nem bind group.
+> usuário pode escrever em WGSL — ou montar como grafo de nós (spec 031) —, sem escrever Flow, pipeline nem bind group.
 >
-> 1. **Ponto.** `wgslPoint({ name, required, optional, paramsAlias, record, ready, hosts, scene? })` (C2,
->    `scene/shaders`): a assinatura (`$P` = struct de parâmetros da função), o **módulo pronto** que os kernels exigem
->    como qualquer módulo, o schema do registro de parâmetros (um pool por ponto) e os kernels hospedeiros. Os sete do
->    motor (C3): `transform`, `camera` (+ `camera_project`), `surface` (+ `surface_du`/`surface_dv`), `space`
->    (+ `space_jacobian`), `field`, `material`, `emit`.
+> 1. **Ponto.** `wgslPoint({ name, required, optional, paramsAlias, context, ready, hosts, scene? })` (C2,
+>    `scene/shaders`): a assinatura (`$P` = struct de parâmetros da função; `names` dá os nomes dos argumentos, que
+>    os grafos leem), o estágio em que a função é avaliada (`context`), o **módulo pronto** que os kernels exigem como
+>    qualquer módulo e os kernels hospedeiros. Os sete do motor (C3): `transform`, `camera` (+ `camera_project`),
+>    `surface` (+ `surface_du`/`surface_dv`), `space` (+ `space_jacobian`), `field`, `material`, `emit`.
 > 2. **Troca.** `bindPoints(entrada, Map<ponto, módulo>)` reescreve a árvore de `requires` com o módulo do usuário no
 >    lugar do pronto (memorizado); `composeWgsl` não muda — "um símbolo, uma definição" vale no pipeline final.
 >    Adaptadores (`camera_clip`, `material_eval` no forward; `surface_tangents`) são lugares com pronto e alternativa
 >    em arquivos distintos, nunca no mesmo pipeline.
-> 3. **Função.** `ExtensionFunction` (C2, `scene/contracts`; classes por ponto na C3: `TransformFunction`,
->    `CameraFunction`, `SurfaceFunction`, `SpaceFunction`, `FieldFunction`, `MaterialFunction`, `EmitFunction`) é o
->    Resource: código, parâmetros por nome e tipo (até 32 escalares) e valores. O módulo gerado traz o struct dos
->    parâmetros (alias do ponto), o carregador `<função>_params(registro)` e o código; a validação na criação e em
->    `setCode` (`point.check`) confere assinatura, símbolos e a montagem em cada kernel hospedeiro — erro síncrono
->    (`WgslCompositionError` `point-signature`, `symbol-conflict`, `unresolved-reference`). Valores vão ao registro do
->    pool do ponto (mudar vale no quadro seguinte, sem recompilar); código igual compartilha módulo e pipeline.
+> 3. **Função.** `ExtensionFunction` (C2, `scene/contracts`; classes por ponto na C3, `elements/extension`:
+>    `TransformFunction`, `CameraFunction`, `SurfaceFunction`, `SpaceFunction`, `FieldFunction`, `MaterialFunction`,
+>    `EmitFunction`) é o Resource: `{ code, params, values, requires }` ou `{ graph, values }`. Os parâmetros vivem no
+>    **registro tipado da forma** (spec 031, R8): `point.record(params)` gera o struct `<alias>_<hash>` com um campo
+>    por parâmetro, no tipo declarado, mais `revision` — sem `bitcast` nem teto de escalares —, num pool por forma
+>    (`<ponto>:<hash>`). O módulo gerado traz `alias <Alias> = <struct>`, o carregador
+>    `<função>_params(slot: u32)`, que lê o recurso declarado `<ponto>_records_<hash>` (frequência `batch`, fornecedor
+>    `{ pool }`), e o código; os estágios passam só o slot (`poolSlotOf`). A validação na criação e em
+>    `setCode`/`setGraph` (`point.check`) confere assinatura, símbolos e a montagem em cada kernel hospedeiro — erro
+>    síncrono (`WgslCompositionError` `point-signature`, `symbol-conflict`, `unresolved-reference`). Valores vão ao
+>    registro (mudar vale no quadro seguinte, sem recompilar); código igual compartilha módulo e pipeline; forma nova
+>    (`setGraph` com outros parâmetros) muda o registro de pool por `Entity.redescribe`.
 > 4. **Compilação conferida.** `PipelineDescriptor.verify` (com `extensions`): a C2 confere o fonte pelo compilador
 >    (`EngineCore.shaderMessages`, na C1) antes de criar o módulo — o erro não chega ao device. Rejeitado: a cena
->    anuncia `extensionRejected { point, resource, revision, message, line }` (linha no código do usuário, pelas
->    `ranges` do `composeWgsl`), o Flow recebe `pipelineRejected` e segue com o pipeline anterior. `ExtensionPipelines`
->    (C2) é o estado que os Flows mantêm para isso: um pipeline por código, ativo ao compilar.
+>    anuncia `extensionRejected { point, resource, revision, message, line, pipeline }` (linha no código do usuário,
+>    pelas `ranges` do `composeWgsl`), o Flow recebe `pipelineRejected` e segue com o pipeline anterior. Um pipeline
+>    com código de fora que excede um limite do device (cada forma traz o seu pool) é rejeitado do mesmo jeito.
+>    `ExtensionPipelines` (C2) é o estado único que todos os estágios hospedeiros mantêm para isso (Transform, Camera,
+>    Surface, SurfaceCollider, Emitter, Forward): por chave, a variante ativa e a que aguarda compilar; a nova só vale
+>    ao compilar; rejeitada, fica a anterior (ou a pronta); pipelines sem chave que os use são liberados.
 > 5. **Pontos de cena** (`field`, `space`): as funções inseridas na cena valem em todo pipeline cujo shader contém o
 >    ponto. `ScenePoints` (C2) acompanha as funções (inserção, remoção, revisão, slot do registro), compõe-as pelo
->    `combine` do ponto (nomes com o hash) e o `FlowRuntime` troca o pronto em cada pipeline — prepara de novo e troca
->    quando compila; composição que não compila num kernel volta ao pronto, sem envolver o Flow. Os globais do ponto
->    (`field_records`/`field_live`, `space_records`) são ligados pela C2: o pool, ou um substituto zerado.
+>    `combine` do ponto (nomes com o hash, renomeados por token) e o `FlowRuntime` troca o pronto em cada pipeline —
+>    prepara de novo e troca quando compila; composição que não compila num kernel volta ao pronto, sem envolver o
+>    Flow. Os globais do ponto (`ScenePointOptions.globals`: os campos prontos de `field` no pool
+>    `FieldBuiltinRecord`) são recursos com fornecedor `{ scene }`, ligados pela C2: o pool, ou um substituto zerado.
+>    O mesmo `ScenePoints` compõe as **contribuições de cena** de Resources (luz, sombra, água — spec 031).
 > 6. **Tempo.** Toda função recebe o tempo simulado (`Time.simulated`/`stepTime(k)`: passos inteiros × passo fixo) —
 >    o mesmo estado a 30, 60 e 144 Hz.
+> 7. **Grafos.** Uma função de ponto pode ser montada por um grafo de nós (`{ graph }`): o grafo gera o código, os
+>    parâmetros (`nó_parâmetro`) e os módulos, e todo o resto — validação, pools, troca, rejeição — é o caminho acima.
+>    Ver "Grafos de nós" na Camada 2.
 >
 > **Superfícies paramétricas completas (spec 010).** A `ParametricSurface` deixa de ser só desenho:
 >
@@ -3107,7 +3747,7 @@ src/elements/
 >    perfil de referência: os donos de caixa e esfera viraram um mapa só e os inícios dos campos vão no uniforme de
 >    contagens (até 16 superfícies por estágio).
 > 4. **Geometria diferencial no material.** Pool `SurfaceDiff` por vértice (métrica, segunda forma, curvaturas,
->    direção principal), lido no `vs_main` do forward pelo `diffSlot` do `Renderable` (`RECORD_NONE` sem ela — campo
+>    direção principal), lido no `vs_main` do forward pelo `diffSlot` do `Renderable` (`NONE` sem ela — campo
 >    opcional de registro também quando o Resource existe sem o descritor); `SurfaceSample` ganhou `metric`,
 >    `curvature` e `principal`. O vértice continua com 32 bytes.
 > 5. **Malha adaptativa e desenho indireto.** Níveis por retalho (curvatura e câmera), orçamento, prefixos e emissão
@@ -3203,7 +3843,7 @@ class Camera extends Entity implements Resource {
 
 ### Fase 3 — Como um Resource declara arrays (vértices, partículas) + GPUDescriptor
 
-Para arrays homogêneos de structs (vértices interleaved, partículas, constraints), use `StructSchema` para descrever o layout de um elemento e `count` no `GPUDescriptor` para informar quantos existem. O `LayoutInferencer` traduz automaticamente em `VertexBufferLayout` com atributos tipados (`role: 'vertex'`) ou em `storage` com stride (`role: 'storage-rw'`). `TensorSchema` continua disponível para tensores N-dimensionais sem campos nomeados (ex.: grids em MPM/FLIP).
+Para arrays homogêneos de structs (vértices interleaved, partículas, constraints), use `StructSchema` para descrever o layout de um elemento e `count` no `GPUDescriptor` para informar quantos existem. A C2 aloca o buffer pelo papel — `role: 'vertex'` (stride do `vertexLayout` do schema, atributos tipados) ou `storage` com o stride do struct (`role: 'storage-rw'`); o shader que lê o buffer o declara como recurso (`wgslResource`, `array<Struct>`). `TensorSchema` continua disponível para tensores N-dimensionais sem campos nomeados (ex.: grids em MPM/FLIP).
 
 O critério para a presença de um compute shader em `Geometry` é se a **forma é calculada na GPU** — isso inclui qualquer operação: geração procedural, deformação, cálculos de geometria algébrica, simulação, ou qualquer outro programa compute. Qualquer subclasse de `Geometry` pode implementar `getPipelineDescriptors()`.
 
@@ -3265,8 +3905,8 @@ class PointCloudGeometry extends Entity implements Resource {
     this.data = PointCloudGeometry.schema.applyDefaults(values);
   }
 
-  // role:'storage-rw' porque o compute escreve; LayoutInferencer adiciona
-  // também o uso VERTEX ao detectar o buffer como entrada do vertex stage.
+  // role:'storage-rw' porque o compute escreve; o kernel o lê e escreve pelo recurso declarado que o seu módulo requer
+  // (ex.: { storage: 'read_write' }, fornecedor { slot } ou 'private').
   getDescriptors(): GPUDescriptor[] {
     return [{
       id:     'points',
@@ -3281,8 +3921,7 @@ class PointCloudGeometry extends Entity implements Resource {
       id:           'pipeline_pointcloud_gen',
       role:         'compute',
       shader:       pointCloudGenShader,
-      entryPoints:  ['cs_main'],
-      consumes:     [],                // gera dados ex-nihilo
+      entryPoints:  ['cs_main'],       // gera dados ex-nihilo: o módulo só requer os recursos que escreve
     }];
   }
 
@@ -3329,7 +3968,6 @@ class ParametricSurfaceGeometry extends Entity implements Resource {
       role:         'compute',
       shader:       parametricSurfaceShader,
       entryPoints:  ['cs_main'],
-      consumes:     [],
     }];
   }
 
@@ -3354,14 +3992,14 @@ RenderPass   — StandardMaterial.pipeline
 | `BoxGeometry` (sem compute) | `role: 'vertex'` + StructSchema interleaved | vazio | `{ vertices: Float32Array }` |
 | `PointCloudGeometry` | `role: 'storage-rw'` + StructSchema do ponto | `role: 'compute'` + WGSL de geração | `{}` — dado nasce na GPU |
 | `ParametricSurfaceGeometry` | 2 entradas: `storage-rw` de vértices + `uniform` de parâmetros | `role: 'compute'` — avalia f(u,v) | `{ params: Uint32Array }` |
-| `StandardMaterial` | `uniform` + 2× `texture` + `sampler` | `role: 'render'` com `consumes: ['Camera', 'Transform', 'Light', 'ShadowMap']` | `{ material: Float32Array }` |
+| `StandardMaterial` | `storage-ro` em pool (`StandardMaterial`) | `role: 'render'` com o shader `forward` (recursos `cameras`, `worlds`, `renderables`, `instances`, `materials`… e os pontos de luz), `family: 'surface'` | `{ albedo, roughness, metallic }` |
 | `Camera` | `role: 'uniform'` + StructSchema (view, projection) | vazio | `{ camera: Float32Array }` |
 
 ---
 
 ### Fase 4 — Como um Resource preenche PipelineDescriptor
 
-O `PipelineDescriptor` é auto-suficiente: carrega o módulo WGSL (`shader: WgslModule`, montado por `composeWgsl` com dependências e structs gerados) e declara `consumes` (outros Resources que o shader referencia por tipo). A C2 resolve `consumes` (um `ConsumerResolver` por nome: `SingletonResolver`, `PoolResolver`, `TextureResolver`) e deriva layouts e visibilidades pelo `LayoutInferencer`; o dev não declara `group/binding/usage`. Uma entrada de `consumes` é o nome (string) ou `{ name, as }` quando o shader lê o dado por outro tipo (ex.: `{ name: WireframeMaterial.schema.name, as: 'StandardMaterial' }`).
+O `PipelineDescriptor` é auto-suficiente: carrega o módulo WGSL (`shader: WgslModule`, montado por `composeWgsl` com dependências, structs gerados e as linhas de ligação dos recursos declarados que ele alcança). O que o shader lê da cena está nos próprios recursos (`wgslResource`, spec 031): cada um diz a frequência (o grupo) e o fornecedor — `{ pool }` e `{ consumer }` atendidos pelos `ConsumerResolver` (`PoolResolver`, `SingletonResolver`, `TextureResolver`…), `{ slot }` pelo slot do Flow, `{ scene }` pelos pontos de cena, `'private'` pelo estágio. A C2 deriva layouts e visibilidades pelo `LayoutInferencer`; o dev não declara `group/binding/usage` nem lista nomes. Um shader que lê o mesmo dado de outro pool usa um recurso próprio (o arame declara `materials` sobre `WireframeMaterial`) ou, por pipeline, `pools: new Map([[recurso, chave]])`. `family` diz como as entidades com o pipeline são desenhadas (`surface`, `points`, `wire`, `particle-sprite`, `fluid-surface`).
 
 ```typescript
 // Camada 3 — StandardMaterial.ts (o módulo `forward` vem do shaders.ts do pacote de materiais)
@@ -3388,14 +4026,14 @@ class StandardMaterial extends Entity implements Resource {
   }
 
   // O render principal prepara um pipeline por shader de material (e orientação de faces) quando o material
-  // entra na cena; `consumes` diz que dados da cena o shader lê — cada nome tem um resolver na C2.
+  // entra na cena; o que o shader lê da cena são os recursos que `forward` requer — cada um com o seu fornecedor.
   getPipelineDescriptors(): PipelineDescriptor[] {
     return [{
       id:           'pipeline_standard',
       role:         'render',
       shader:       forward,
       entryPoints:  ['vs_main', 'fs_main'],
-      consumes:     ['Camera', 'WorldTransform', 'StandardMaterial'],
+      family:       'surface',
       topology:     'triangle-list',
       cullMode:     'back',
     }];
@@ -3407,7 +4045,7 @@ class StandardMaterial extends Entity implements Resource {
 
 ### Fase 5 — Coleta e alocação (Camada 2 → Camada 1)
 
-`ResourceSystem` reage ao `resourcesChanged` e delega ao `LayoutInferencer` a tradução bag → `ResourceSpec[]`. Depois chama `core.create()` diretamente — sem navegação por `resources.buffers.create`, sem `pipeline.native`.
+`ResourceSystem` reage ao `resourcesChanged` e traduz a bag em `ResourceSpec[]` (papel, schema, forma da textura). Depois chama `core.create()` diretamente — sem navegação por `resources.buffers.create`, sem `pipeline.native`. O `LayoutInferencer` só entra na preparação dos pipelines dos Flows (layout das declarações dos shaders).
 
 ```
 ResourceSystem.onAdded(resource)
@@ -3419,7 +4057,7 @@ ResourceSystem.onAdded(resource)
       se slot ≥ capacidade: growPool(pool) → cópia na GPU → emit 'poolReallocated' { poolKey, oldByteSize, newByteSize }
       markSlot(pool, slot)                         // o dado sai no próximo envio, em faixa com os vizinhos ('poolWritten')
     senão (storage === 'individual' ou ausente):
-      spec = inferencer.specFor(desc, resource)    // bag + WGSL → ResourceSpec
+      spec = specOf(desc, resource)                // bag → ResourceSpec (papel, schema, count, textureShape)
       core.create(spec)                             // engine hasheia internamente — idempotente
       trackBuffer(resource, desc.id, spec)          // geometria com contentKey: buffer compartilhado por conteúdo
       upload(resource) → emit 'resourceReady'       // só objetos próprios emitem resourceReady
@@ -3615,7 +4253,7 @@ class World {
 
 ### ResourceSystem — ciclo de vida de recursos GPU
 
-`ResourceSystem` é reativo. Escuta `resourcesChanged`/`resourceDirty` do `World`/`EventBus`, delega inferência ao `LayoutInferencer` e chama `core.create/write/writeTexture/destroy` diretamente. Ciclo de vida de 7 estados: o ResourceSystem reage aos acontecimentos e muda estado só por `transition()` (valida e lança); não há `transitionTo` público. Coalescing usa `Map<poolKey, PoolEntry>` interno indexado por `(schema.name, algorithm?)`; pool **não** é classe pública — `PoolEntry` é só uma struct interna do ResourceSystem.
+`ResourceSystem` é reativo. Escuta `resourcesChanged`/`resourceDirty` do `World`/`EventBus`, aloca a bag e chama `core.create/write/writeTexture/destroy` diretamente; os pipelines dos Flows são preparados pela ligação de Flows com o `LayoutInferencer`. Ciclo de vida de 7 estados: o ResourceSystem reage aos acontecimentos e muda estado só por `transition()` (valida e lança); não há `transitionTo` público. Coalescing usa `Map<poolKey, PoolEntry>` interno indexado por `(schema.name, algorithm?)`; pool **não** é classe pública — `PoolEntry` é só uma struct interna do ResourceSystem.
 
 ```typescript
 // Ilustrativo (o código real está em `scene/systems/ResourceSystem.ts`). Structs internas — não exportadas de @scene.
@@ -3678,11 +4316,11 @@ class ResourceSystem {
 
 **O que mudou vs API antiga:**
 - `core.resources.buffers.create(id, {size, usage})` → `core.create({ kind: 'buffer', subkind, byteSize })` com spec-as-identity
-- `core.resources.pipelines.get(descriptor)` → `core.create({ kind: 'pipeline', subkind, ... })` via `LayoutInferencer.specFor(desc)`
+- `core.resources.pipelines.get(descriptor)` → `core.create({ kind: 'pipeline', subkind, ... })` pela ligação de Flows (`PipelineState`: `composeWgsl` + `LayoutInferencer.infer`)
 - `core.commands.write(buffer, data)` → `core.write(spec, data)` usando spec direto
 - `core.commands.write` não cobria textura; agora `core.writeTexture(spec, data, layout, size)`
 - `resource.transitionTo(state)` (imperativo) → `ResourceSystem.transition(resource, to)` interno, que valida e lança; eventos (`resourceReady`, `poolReallocated`) emitidos depois da transição
-- `ResourceSet<T>` público → `storage: 'pool'` declarativo + `Map<poolKey, PoolEntry>` interno; Flow recebe `BindGroupSpec` via `consumes` + ConsumerResolver, e `count` via `resourceSystem.poolCount(poolKey)`
+- `ResourceSet<T>` público → `storage: 'pool'` declarativo + `Map<poolKey, PoolEntry>` interno; o shader lê o pool por um recurso declarado (`{ pool }`/`{ slot }`) e a C2 liga o `BindGroupSpec`; `count` via `resourceSystem.poolCount(poolKey)`
 - `bufferReallocated` → `poolReallocated` + `bindGroupReplaced` (eventos pareados)
 - (spec 007) envio por recurso → envio por faixa de slots marcados; `resourceReady` de dado em pool → `poolWritten`; buffers de geometria por conteúdo; leitura sob demanda (`read`) no lugar de leitura de volta por quadro
 
@@ -3883,7 +4521,7 @@ class EulerianGrid extends Entity implements Resource {
 
 }
 ```
-**Padrão geral:** um Resource pode declarar **N descritores** (`getDescriptors` retorna N entradas). Cada descriptor tem seu próprio schema (Struct ou Tensor) e seu próprio buffer GPU. ResourceSystem itera os descriptors e chama `descriptor.schema.pack(resource.data)` para cada — schema escolhe seus campos do `data`. Engine aloca cada buffer separadamente; LayoutInferencer parsea WGSL para descobrir como cada um é consumido.
+**Padrão geral:** um Resource pode declarar **N descritores** (`getDescriptors` retorna N entradas). Cada descriptor tem seu próprio schema (Struct ou Tensor) e seu próprio buffer GPU. ResourceSystem itera os descriptors e chama `descriptor.schema.pack(resource.data)` para cada — schema escolhe seus campos do `data`. Engine aloca cada buffer separadamente; cada shader que lê um deles o declara como recurso (`wgslResource`) com o fornecedor que o liga.
 
 Casos onde isso aparece:
 - **`EulerianGrid`** — params (Struct) + velocity (Tensor 3D) + mass (Tensor 3D)
@@ -3905,8 +4543,11 @@ Um Flow **declara** o que consome e como reage; a C2 faz o resto:
   (`slot.target`). Slot obrigatório não resolvido mantém o Flow fora do quadro.
 - **`pipelines`** — os descritores compilados antes de o Flow ficar pronto. Pipelines que dependem da cena (ex.: o de
   restrições, só com o pool de restrições) são preparados e liberados em transições (`ctx.prepare`/`ctx.release`).
-- **`bindings`** — os recursos **privados** do algoritmo (uniforms por passo, temporários) pelo nome da variável no
-  WGSL; `pipeline:variável` vale só para aquele pipeline. O resto vem de `consumes` (o resolver de cada nome).
+- **`bindings`** — as fontes dos recursos **privados** do algoritmo (uniforms por passo, temporários): um
+  `Map<BindingKey, BindingSource>` cuja chave é o próprio recurso declarado (`provider: 'private'`), ou
+  `{ pipeline, resource }` para valer só naquele pipeline (vence a anterior). Fonte para um recurso que tem fornecedor
+  é erro. O resto vem do fornecedor de cada recurso: `{ slot: 'bodies' }` (o pool que o slot resolveu, `part: 'live'`
+  para o bitset de vivos), `{ pool }`, `{ consumer }`, `{ scene }` — ver "Contrato de shader estruturado".
 - **`transitions`** — a tabela `estado → evento → destino`. A chave `'*'` vale para qualquer estado.
 
 ```typescript
@@ -3938,15 +4579,16 @@ class XPBDFlow extends Flow<XPBDSlots, 'running'> {
     const bodyType = ctx.bodyType ?? 'XPBDSoftSchema';
     const constraintPoolKey = options.constraintPoolKey ?? DistanceConstraint.schema.name;
     this.slots = slotsOf(constraintPoolKey);
-    // SimParams por iteração: uniform privado com offset dinâmico, ligado pelo nome `params`.
+    // SimParams por iteração: uniform privado com offset dinâmico (frequência 'draw'), ligado pelo objeto do recurso.
+    // Os módulos requerem xpbdResources.particles ({ slot: 'bodies' }), .live ({ slot: 'bodies', part: 'live' }),
+    // .constraints ({ slot: 'constraints' }) — a C2 os liga pelos slots; só `params` é privado.
     this.params = new PerStepUniforms(ctx.core, { discriminator: 'xpbd_sim_params', schema: SimParamsSchema });
-    this.bindings = { params: this.params.source() };
+    this.bindings = new Map<WgslResource, BindingSource>([[xpbdResources.params, this.params.source()]]);
     this.pipelines = [
-      { id: 'xpbd_predict',         role: 'compute', shader: xpbdPredict,        entryPoints: ['predict_main'],         consumes: [bodyType] },
-      { id: 'xpbd_velocity_update', role: 'compute', shader: xpbdVelocityUpdate, entryPoints: ['velocity_update_main'], consumes: [bodyType] },
+      { id: 'xpbd_predict',         role: 'compute', shader: xpbdPredict,        entryPoints: ['predict_main'] },
+      { id: 'xpbd_velocity_update', role: 'compute', shader: xpbdVelocityUpdate, entryPoints: ['velocity_update_main'] },
     ];
-    this.distance = { id: DISTANCE, role: 'compute', shader: xpbdDistanceSolve, entryPoints: ['distance_solve_main'],
-                      consumes: [bodyType, constraintPoolKey] };
+    this.distance = { id: DISTANCE, role: 'compute', shader: xpbdDistanceSolve, entryPoints: ['distance_solve_main'] };
     const constraints = { to: 'running' as const, run: (_e: unknown, c: Ctx) => this.prepareConstraints(c) };
     this.transitions = {
       '*': {
@@ -3971,18 +4613,21 @@ class XPBDFlow extends Flow<XPBDSlots, 'running'> {
     for (let i = 0; i < this.iterations(bound); i++) {
       const offset = [this.params.offset(i)];
       frame.compute('XPBDFlow.predict', (pass) => {
-        pass.bind.setPipeline(predict.spec).setBindGroup(0, predict.groups[0]!, offset);
-        pass.dispatch.invocations(count, 64);
+        pass.bind.setPipeline(predict.spec);
+        predict.bindTo(pass.bind, { draw: offset });        // todos os grupos; o offset vai ao grupo 'draw'
+        pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
       });
       if (distance !== undefined && (bound.slots.constraints?.count ?? 0) > 0) {
         frame.compute('XPBDFlow.distance_solve', (pass) => {
-          pass.bind.setPipeline(distance.spec).setBindGroup(0, distance.groups[0]!, offset);
+          pass.bind.setPipeline(distance.spec);
+          distance.bindTo(pass.bind, { draw: offset });
           pass.dispatch.workgroups(1);
         });
       }
       frame.compute('XPBDFlow.velocity_update', (pass) => {
-        pass.bind.setPipeline(velocity.spec).setBindGroup(0, velocity.groups[0]!, offset);
-        pass.dispatch.invocations(count, 64);
+        pass.bind.setPipeline(velocity.spec);
+        velocity.bindTo(pass.bind, { draw: offset });
+        pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
       });
     }
   }
@@ -3996,7 +4641,7 @@ class XPBDFlow extends Flow<XPBDSlots, 'running'> {
   /** Antes da gravação: uma região de SimParams por iteração; o buffer cresce aqui (e é religado), nunca no dispatch. */
   private writeParams(ctx: Ctx): void {
     const iterations = this.iterations(ctx.bound);
-    if (this.params.reserve(iterations)) ctx.bind({ params: this.params.source() });
+    if (this.params.reserve(iterations)) ctx.bind(new Map([[xpbdResources.params, this.params.source()]]));
     for (let i = 0; i < iterations; i++) this.params.write(i, { /* dt, gravity, contagens… */ });
   }
 }
@@ -4061,7 +4706,7 @@ scene.add(moon);
 O que a engine faz implicitamente:
 
 1. **Coalescing** — os 2 `RigidBody` (ambos `algorithm: 'LCP'` por default) viram membros do pool `RigidBody:LCP` (1 buffer global compartilhado).
-2. **Inferência** — `LayoutInferencer` parsea WGSL de `StandardMaterial` + flows, deriva bind groups, compila shaders **uma vez** (dedup via hash de spec).
+2. **Ligação** — `composeWgsl` monta os shaders de `StandardMaterial` e dos flows com as ligações dos recursos declarados, o `LayoutInferencer` deriva os layouts, a C2 liga os bind groups pelos fornecedores e compila os shaders **uma vez** (dedup via hash de spec).
 3. **Flow selecionado** — bootstrap registrou `LCPFlow` (priority 10) para `bodyType: 'RigidBody'`; FlowRegistry resolve para o pool `RigidBody:LCP`.
 4. **Frame loop reativo** — `ExecutionSystem` abre `core.record(frame => ...)`, itera Flows ativos por fase (`physics → transform → shadow → forward → post → ui`), e cada `Flow.dispatch(frame)` grava seus passes.
 5. **Gravidade radial** — `GravityField` radial do planeta atrai a lua; LCPFlow integra Newton no pool de bodies.
@@ -4147,17 +4792,14 @@ class StandardMaterial extends Entity implements Resource {
   }
 
   getDescriptors(): GPUDescriptor[] {
-    return [
-      { id: 'material',  role: 'uniform', schema: StandardMaterial.schema },
-      { id: 'albedoMap', role: 'texture', textureShape: { format: 'rgba8unorm', dimension: '2d' } },
-    ];
+    return [{ id: 'material', role: 'storage-ro', schema: StandardMaterial.schema, storage: 'pool' }];
   }
   getPipelineDescriptors(): PipelineDescriptor[] {
     return [{
-      id: 'pipeline_standard_material', role: 'render',
-      shader:       standardMaterialShader,
+      id: 'pipeline_standard', role: 'render',
+      shader:       forward,                 // requires os recursos declarados que lê (cameras, worlds, materials…)
       entryPoints: ['vs_main', 'fs_main'],
-      consumes: ['Camera', 'Transform', 'Light', 'ShadowMap'],
+      family:      'surface',
     }];
   }
 }
@@ -4539,7 +5181,7 @@ classDiagram
     Input ..> EventBus                 : emite keyDown pointerMove wheel etc
     InputDrivenController ..> Input    : consulta state em frameTick
     GameLoop ..> Time                  : consulta scale antes de emitir frameTick
-    Flow ..> Time                      : consome via consumes ['Time'] para dt e fixedDt
+    Flow ..> Time                      : consome via slot.singleton(Time.schema) e o recurso { consumer: 'Time' }
 
     GameLoop ..> EventBus              : emite frameTick e escuta frameRetired
     ExecutionSystem ..> EventBus       : escuta frameTick e ReadyEvent Flow
@@ -4625,7 +5267,7 @@ class Application {
   ) {}
 
   static create(canvas: HTMLCanvasElement, options?: ApplicationOptions): Application {
-    // Resolvers de `consumes` da C3 (Camera, GravityField, ParticleMaterial…) e os do dev.
+    // Fornecedores { consumer } da C3 e da C4 (ELEMENT_CONSUMERS, WATER_CONSUMERS) e os do dev.
     options?.consumers?.(consumers);
     // Estágios padrão por factory (solvers, Transform, Shadow, Forward, Post, Debug, UI) e os FrameTargets.
     registerPresentationDefaults(flows, { world: scene.world });
@@ -4738,7 +5380,7 @@ textura `depth` do `ShadowMap` dela:
 ```typescript
 // Camada 4 — flows/ShadowFlow.ts (resumo)
 function slotsOf(world: World) {
-  const select = castingShadowMap(world);                         // o ShadowMap de uma luz com castShadow
+  const select = castingShadowMap(world);   // C3 (elements/scene/shadowCaster): o ShadowMap de uma luz com castShadow
   return {
     caster:   slot.singleton(ShadowMap.schema, { select }),
     world:    slot.pool(Transform.worldSchema.name),              // WorldTransform
@@ -4761,7 +5403,8 @@ class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
     const depth = bound.slots.target.depth;
     if (depth === undefined) return;
     frame.render(/* só profundidade, na `depth` do caster */, 'ShadowFlow', (pass) => {
-      // grupos 0 (parâmetros + ShadowMatrix) e 1 (WorldTransform + ShadowInstance) uma vez por passe
+      // todos os grupos uma vez por passe (ccw.bindTo): ShadowMatrix, parâmetros, WorldTransform, ShadowInstance —
+      // índices atribuídos pelo motor pela frequência de cada recurso, nenhum escrito no estágio
       for (const group of bound.slots.casters.groups) {
         // VBO/IBO da geometria do representante (resources.bufferOf); 'shadow_depth:cw' se espelhada
         pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
@@ -4775,44 +5418,48 @@ class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
 
 ```typescript
 // Camada 4 — flows/ForwardFlow.ts (resumo)
-function slotsOf(world: World, output: 'scene' | 'canvas') {
-  const select = castingShadowMap(world);
+function slotsOf(output: 'scene' | 'canvas') {
   const depth = { schema: FrameTargets.schema, descId: 'depth' };
+  const samples = { schema: FrameTargets.schema, descId: 'samples' };            // MSAA (spec 008)
   return {
-    camera:         slot.singleton(Camera.schema),                              // câmera ativa (o seu slot)
-    cameras:        slot.pool(Camera.matricesSchema.name),                      // CameraMatrices (GPU)
-    world:          slot.pool(Transform.worldSchema.name),
-    renderables:    slot.entities({
+    camera:          slot.singleton(Camera.schema),                             // câmera ativa (o seu slot)
+    cameras:         slot.pool(Camera.matricesSchema.name),                     // CameraMatrices (GPU)
+    world:           slot.pool(Transform.worldSchema.name),
+    renderables:     slot.entities({
       all: [Geometry, Material, Transform],
-      record: renderableRecord,                                                  // { transformSlot, materialSlot }
-      groups: { schema: RenderInstanceSchema, key: forwardGroupKey,              // contentKey | shader | face
+      record: renderableRecord,                                                 // { transformSlot, materialSlot, diffSlot }
+      groups: { schema: RenderInstanceSchema, key: forwardGroupKey,             // contentKey | shader | face
                 instance: 'record', rekeyOn: { Transform: ['scale'] } },
     }),
-    caster:         slot.singleton(ShadowMap.schema, { optional: true, select }),
-    shadowTexture:  slot.texture(ShadowMap.schema, 'depth', { optional: true, select }),
-    shadowMaps:     slot.pool(ShadowMap.schema.name, { optional: true }),        // vieses
-    shadowMatrices: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),  // matriz da luz (GPU)
-    lights:         slot.pool(Light.schema.name, { optional: true }),            // direção da luz
-    target:         slot.target(output === 'scene'
-                      ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth }
-                      : { color: 'canvas', depth }),
+    diffs:           slot.pool(SurfaceDiffSchema.name, { optional: true }),     // geometria diferencial (spec 010)
+    target:          slot.target(output === 'scene'
+                       ? { color: { schema: FrameTargets.schema, descId: 'color' }, depth, samples }
+                       : { color: 'canvas', depth, samples }),
+    cameraFunctions: slot.entities({ all: [Camera, CameraFunction] }),          // projeção de ponto (spec 009)
+    time:            slot.singleton(Time.schema, { optional: true }),
   };
 }
 ```
 
-- Grupo 0: o pool `CameraMatrices`; a câmera ativa é `cameras[cameraSlot]`.
-- Grupo 1: o pool `WorldTransform`, o pool `Renderable` (registro de cada entidade, mantido pela C2) e a lista
-  `RenderInstance` (slot do registro por instância).
-- Grupo 2: o pool de storage do material do schema do pipeline (`array<StandardMaterial>`), lido por `materialSlot` —
-  ligado uma vez por pipeline.
-- Grupo 3: `ForwardFrameParams` privado `{ cameraSlot, lightSlot, shadowEnabled, shadowSlot }` (escrito em
-  `framePrepare` só quando muda; nenhum dado da luz é lido na CPU), a textura `depth` do `ShadowMap`, os pools
-  `ShadowMap` (vieses) e `ShadowMatrix` (matriz), o pool `Light` (o shader lê a direção em `lights[lightSlot]`;
-  `0xFFFFFFFF` = direção padrão) e o sampler de comparação. Pools ausentes têm substitutos privados; sem luz que projeta
-  sombra, `shadowEnabled = 0`.
-- Os grupos 0, 1 e 3 são definidos uma vez por passe; pipeline e grupo 2 só quando o pipeline muda. Um pipeline por
-  shader de material e orientação de faces (`forward:<material>:ccw|cw`), preparado numa transição (`entitiesChanged`)
-  quando o material entra na cena.
+O forward não tem slot de luz, sombra nem água (spec 031): o shader chama os pontos de cena
+`scene_light_direction()`, `light_visibility(p, n_dot_l)` e `light_transmission(p, ambient, direct)`, e a C2 compõe
+neles as contribuições presentes (a luz que projeta sombra, a água com cáusticas) — com os recursos de cada
+contribuinte (`lights`, `shadow_maps`, `shadow_matrices`, `shadow_map`, `shadow_sampler`, `caustic_map`…) entrando no
+pipeline por `requires` do módulo da contribuição. Os recursos do shader `forward`, por frequência:
+
+- `frame`: `cameras` (pool `CameraMatrices`; a câmera ativa é `cameras[cameraSlot]`) e os recursos das contribuições
+  de cena.
+- `stage`: `worlds`, `renderables` (registro de cada entidade, mantido pela C2), `instances` (slot do registro por
+  instância), `surface_diff` (privado: o pool ou um substituto) e `forward_frame` (privado:
+  `ForwardFrameParams { cameraSlot, cameraFnSlot, viewport, time }`, escrito em `framePrepare` só quando muda).
+- `batch`: `materials` (o pool de storage do material do schema do pipeline, `array<StandardMaterial>`, lido por
+  `materialSlot`).
+
+A gravação percorre `BINDING_FREQUENCIES` e, para cada grupo de `prepared.groupsOf(frequência)`, só regrava o que
+mudou (`sameBindGroup`: famílias de pipeline com os mesmos recursos `frame`/`stage` têm bind groups iguais e não são
+regravadas na troca). Um pipeline por shader de material e orientação de faces (`forward:<material>:ccw|cw`),
+preparado numa transição (`entitiesChanged`) quando o material entra na cena; as variantes com função `material` ou
+projeção de ponto passam pelo `ExtensionPipelines`.
 
 **`PostFlow`** — lê a cor da cena e aplica os efeitos em pingue-pongue até o canvas:
 
@@ -4824,13 +5471,14 @@ const slots = {
 };
 // Pingue-pongue privado do tamanho do canvas, recriado em slotsResolved e canvasReconfigured.
 // Em framePrepare: um pipeline por efeito ligado ('post:<nome>', fragment do efeito; 'post:passthrough' sem
-// efeitos), privados por pipeline '<id>:src_tex' (cena ou pingue-pongue, pela posição na cadeia) e '<id>:params',
-// sampler `src_smp` compartilhado; parâmetros escritos; origens religadas quando a cadeia muda.
+// efeitos), privados por pipeline — chaves { pipeline: id, resource: effectResources.source } (cena ou
+// pingue-pongue, pela posição na cadeia) e { pipeline: id, resource: effectResources.params } —, amostrador
+// compartilhado; parâmetros escritos; origens religadas quando a cadeia muda.
 defaults.post.addEffect(new Bloom()).addEffect(new ToneMapping()).addEffect(new Fxaa());
 ```
 
 **`UIFlow`** — a árvore de UI por cima do canvas (`loadOp: 'load'`): `slots = { target: slot.target('canvas') }`;
-recursos privados (tela, quads, atlas, sampler) ligados por nome; a árvore é achatada e enviada em `framePrepare`, e o
+recursos privados (tela, quads, atlas, sampler) ligados pelo objeto do recurso (`ctx.bind(new Map([[uiResources.atlas, atlas]]))`); a árvore é achatada e enviada em `framePrepare`, e o
 atlas de uma fonte nova é religado na mesma transição.
 
 **`DebugFlow`** — sem slots nem pipelines: observa `frameTick`/`frameComplete` e emite `profilerStats` quando
@@ -5039,13 +5687,13 @@ flows.register((ctx) => new ForwardFlow(ctx, { targetTag: 'canvas' }),          
 
 A primeira instância renderiza nas câmeras com tag `'offscreen-camera'`; a segunda no `CanvasRenderTarget`. Como Flow é a mesma classe, basta um parâmetro de slot resolvendo target por tag.
 
-**Resolver `'CameraTexture'`:** novo `PoolResolver`-like que retorna a textura do RenderTarget de cada câmera offscreen indexada por entityId. `MirrorMaterial` pode declarar `consumes: ['CameraTexture']` e referenciar a câmera espelhada por id no shader.
+**Fornecedor `'CameraTexture'`:** novo resolver (como o `TextureResolver`) que devolve a textura do RenderTarget da câmera offscreen. O shader do `MirrorMaterial` requer um recurso declarado `{ texture: { sample: 'f32' } }` com fornecedor `{ consumer: 'CameraTexture' }` e referencia a câmera espelhada por id.
 
 ```typescript
 // Material espelho consome textura da câmera offscreen via 'CameraTexture' resolver
 scene.add(
   new PlaneGeometry({ size: [2, 2] })
-    .add(new MirrorMaterial({ cameraSource: mirrorCam.entityId }))    // consumes: ['CameraTexture']
+    .add(new MirrorMaterial({ cameraSource: mirrorCam.entityId }))    // recurso { consumer: 'CameraTexture' }
     .add(new Transform({ position: [0, 1, 0] }))
 );
 ```
@@ -5163,7 +5811,6 @@ class BloomEffect extends Entity implements Resource {
       id: 'pipeline_bloom', role: 'render',
       shader: bloomShader,               // wgslModule({ name: 'bloom', source, requires: [effectsBase] })
       entryPoints: ['vs_fullscreen', 'fs_main'],
-      consumes: [],
     }];
   }
 
@@ -5272,7 +5919,7 @@ class UiTree extends Entity implements Resource {
 }
 ```
 
-`scene.add(new UiTree([...]))` insere a UI no World; o `UIFlow` (acima) achata a árvore em quads em `framePrepare` e os desenha por cima do canvas; os recursos dele são privados, ligados por nome.
+`scene.add(new UiTree([...]))` insere a UI no World; o `UIFlow` (acima) achata a árvore em quads em `framePrepare` e os desenha por cima do canvas; os recursos dele são privados, ligados pelo objeto do recurso declarado.
 
 **Hit-testing** — `InteractionSystem` (já existente) escuta `pointerDown` no `EventBus` e percorre `world.queryByTag('ui')` chamando `hitTest` em ordem reversa de inserção (top-most primeiro); o primeiro elemento que retorna `true` recebe `onClick`.
 
@@ -5494,7 +6141,7 @@ Camada 3 — Composição via Entity + Resource em chain
   static schema = new StructSchema('Name', {...})    ← carrega o tag de tipo
   data (acessor de Entity)                            ← bag governado pelo schema (atribuído no construtor)
   getDescriptors()        → GPUDescriptor[]        role + schema + storage ('individual'|'pool')
-  getPipelineDescriptors() → PipelineDescriptor[]   role + shader (WgslModule) + consumes + fixed-function
+  getPipelineDescriptors() → PipelineDescriptor[]   role + shader (WgslModule com recursos declarados) + family + fixed-function
   getFlowDescriptors?()    → FlowDescriptor[]       (opcional) algoritmo + bodyType
   ResourceSystem usa schema.pack(data) direto       — não há método pack() na Resource
         ↓
@@ -5509,9 +6156,13 @@ Camada 2 — coordena via eventos; ninguém preenche group/binding/usage
                     + lifecycle 7-state mutado pelo ResourceSystem em reação a eventos
   ExecutionSystem → frameRecording (C2 reconcilia) → abre core.record 1× por frame; itera os Flows ativos (flowReady) pelas fases (physics → transform → shadow → forward → post → ui) e chama core.submit() ao sair
   Flow            → slots (slot.*) + pipelines + privados + tabela de transições; a C2 resolve os slots,
-                    infere os layouts (LayoutInferencer.infer), liga os bind groups (privados e consumes)
+                    monta o shader com as ligações atribuídas (composeWgsl), lê o layout das declarações
+                    (LayoutInferencer.infer), liga os bind groups pelo fornecedor de cada recurso
                     e entrega os eventos; dispatch(frame, bound) só grava
                     FlowRegistry: register(factory, { type, phase, bodyType?, priority? }); resolve por bodyType
+  ScenePoints     → funções de cena (field, space) e contribuições de cena (luz, sombra, água) trocadas no lugar do
+                    pronto em todo pipeline que contém o ponto
+  GraphFlow       → grafos de nós de conjunto (SetGraph): plano, conjuntos, SetCount, nós gravados só quando stale
   EventBus        → frameTick, resourcesChanged, poolWritten, resourceReady, entitiesChanged, poolReallocated, bindGroupReplaced, ...
         ↓
 Camada 1 — executa contra o hardware via facade callback-based

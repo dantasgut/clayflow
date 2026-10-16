@@ -1,22 +1,13 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/ns_find.wgsl.ts
-@group(0) @binding(0) var<uniform>             ns_params:       NsSimParams;
-@group(1) @binding(0) var<storage, read>       particle_data:   array<f32>;
-@group(1) @binding(1) var<storage, read>       cell_start:      array<u32>;
-@group(1) @binding(2) var<storage, read>       cell_count_buf:  array<u32>;
-@group(1) @binding(3) var<storage, read>       sorted_particles: array<u32>;
-@group(1) @binding(4) var<storage, read_write> neighbor_list:   array<u32>;
-@group(1) @binding(5) var<storage, read_write> neighbor_count:  array<u32>;
-@group(1) @binding(6) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
 // Posições na ordem de `sorted_particles` (escritas por `ns_sort_cells`): leitura contígua dos candidatos.
-@group(1) @binding(7) var<storage, read>       sorted_positions: array<vec4f>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn ns_find_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let i = gid.x;
     if (i >= ns_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 

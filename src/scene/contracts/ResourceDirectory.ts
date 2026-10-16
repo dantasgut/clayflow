@@ -33,6 +33,11 @@ export interface ResourceDirectory extends PoolDirectory {
      */
     hasGpuWriter(resource: Resource, descId: string): boolean;
     /**
+     * O descritor `descId` de `resource` foi produzido no quadro corrente pelo seu produtor (spec 031, R5)? Marcado pelo
+     * Flow que o escreve (`TransitionContext.produced`, no `framePrepare`); quem o lê só grava com o dado produzido.
+     */
+    isProduced(resource: Resource, descId: string): boolean;
+    /**
      * Aloca agora um descritor individual `allocation: 'onDemand'` de `resource` (se ainda não estiver) e devolve o
      * buffer (spec 008). Descritores de textura também (spec 017: a superfície de água só ocupa memória quando há
      * água): alocados com o tamanho do canvas ou o declarado, e lidos por `textureOf`/`textureViewOf` — o retorno é

@@ -1,3 +1,6 @@
+import type { WgslResource } from '../../scene/shaders/WgslResource';
+import { NONE as ENGINE_NONE } from '../../scene/shaders/engineConstants';
+import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type {
     AnyBufferSpec,
     EngineCore,
@@ -6,9 +9,11 @@ import type {
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import { ExtensionPipelines, type PipelineVariant } from '../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../scene/flows/Flow';
 import type {
-    BindingSources,
+    BindingKey,
+    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -30,15 +35,10 @@ import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
+import { SpaceFunction } from '../extension/SpaceFunction';
 import { SurfaceFunction } from '../extension/SurfaceFunction';
 import { ParametricSurface, SURFACE_PRESET_INDEX, type AdaptiveConfig } from './ParametricSurface';
-import {
-    SpaceFnRecordSchema,
-    SurfaceAdaptParamsSchema,
-    SurfaceDiffSchema,
-    SurfaceFnRecordSchema,
-    SurfaceParamsSchema,
-} from './SurfaceSchemas';
+import { SurfaceAdaptParamsSchema, SurfaceDiffSchema, SurfaceParamsSchema } from './SurfaceSchemas';
 import {
     surfaceAdapt,
     surfaceEval,
@@ -50,10 +50,11 @@ import {
     surfacePoint,
     surfaceTangents,
     surfaceTangentsAnalytic,
+    surfaceResources as R,
 } from './shaders';
 
-const WORKGROUP_SIZE = 64;
-const NONE = 0xffffffff;
+const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
+const NONE = ENGINE_NONE.value;
 
 /** A câmera andou mais que `limit` (ou mudou o campo de visão) desde a última geração? */
 function cameraMoved(
@@ -71,12 +72,10 @@ function cameraMoved(
 export interface SurfaceSlots extends SlotMap {
     /** Superfícies paramétricas (o estágio escreve os vértices). */
     readonly surfaces: EntitiesSlot;
-    /** Superfícies com `SurfaceFunction`. */
+    /** Superfícies com `SurfaceFunction` (registros nos pools das formas, spec 031). */
     readonly functions: EntitiesSlot;
-    /** Pool dos registros das `SurfaceFunction` (opcional). */
-    readonly fnRecords: PoolSlot<true>;
-    /** Pool dos registros das `SpaceFunction` (existe com espaço na cena: avaliação a cada quadro). */
-    readonly spaceRecords: PoolSlot<true>;
+    /** Funções `space` da cena (com alguma: avaliação a cada quadro). */
+    readonly spaces: EntitiesSlot;
     /** Relógio da cena (opcional; sem ele, tempo 0). */
     readonly time: SingletonSlot<true>;
     /** Pool da geometria diferencial (existe com superfícies `differential`). */
@@ -95,8 +94,7 @@ const slots: SurfaceSlots = {
         owns: [[ParametricSurface, 'vertices']],
     }),
     functions: slot.entities({ all: [ParametricSurface, SurfaceFunction] }),
-    fnRecords: slot.pool(SurfaceFnRecordSchema.name, { optional: true }),
-    spaceRecords: slot.pool(SpaceFnRecordSchema.name, { optional: true }),
+    spaces: slot.entities({ all: [SpaceFunction] }),
     time: slot.singleton(Time.schema, { optional: true }),
     diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
     camera: slot.singleton(Camera.schema, { optional: true }),
@@ -107,19 +105,17 @@ const slots: SurfaceSlots = {
 /** Passadas da malha adaptativa (entradas do `surface_adapt.wgsl`), na ordem. */
 const ADAPT_ENTRIES = ['level', 'budget', 'scan', 'emit'] as const;
 
-/** Id do pipeline de uma passada da malha adaptativa (o estado guarda o da emissão). */
+/** Id do pipeline de uma passada da malha adaptativa (a variante tem o da emissão como principal). */
 function adaptId(emitId: string, entry: (typeof ADAPT_ENTRIES)[number]): string {
     return `${emitId.slice(0, -'#emit'.length)}#${entry}`;
 }
 
 type Ctx = TransitionContext<SurfaceSlots>;
 
-/** Estado de uma superfície: parâmetros, pipeline em uso e o que aguarda compilar, avaliação pendente. */
+/** Estado de uma superfície: parâmetros, avaliação pendente e a malha adaptativa (o pipeline fica em `pipelines`). */
 interface SurfaceState {
     readonly id: EntityId;
     readonly params: UniformBufferSpec;
-    active: { readonly id: string; readonly key: string } | undefined;
-    pending: { readonly id: string; readonly key: string } | undefined;
     /** Avaliar no próximo quadro. */
     stale: boolean;
     /** Avaliar neste quadro (decidido no `framePrepare`). */
@@ -145,18 +141,23 @@ interface SurfaceState {
 export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     readonly type = 'SurfaceFlow';
     readonly slots = slots;
-    override readonly listens = [SurfaceFnRecordSchema, ParametricSurface.vertexStruct];
+    /** Os registros de todas as formas das funções `surface` (spec 031, R8) e os vértices das superfícies. */
+    override readonly listens = [surfacePoint, ParametricSurface.vertexStruct];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
     private readonly states = new Map<EntityId, SurfaceState>();
-    private readonly dummyRecords: StorageBufferSpec;
     private readonly dummyPool: StorageBufferSpec;
     private readonly world: World;
     private readonly events: EventBus;
     private readonly warnedAdaptive = new Set<EntityId>();
+    /**
+     * Pipeline de avaliação de cada superfície (por função, adaptadores e jato; na malha adaptativa, as quatro
+     * passadas, com a emissão como principal), ativo ao compilar.
+     */
+    private readonly evalPipelines = new ExtensionPipelines<EntityId>();
     private dirty = true;
 
     constructor(ctx: FlowContext) {
@@ -170,12 +171,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             subkind: 'storage',
             discriminator: 'surface_adapt_pool_dummy',
             byteSize: 256,
-        });
-        this.dummyRecords = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'surface_fn_records_dummy',
-            byteSize: SurfaceFnRecordSchema.stride,
         });
         const changed = {
             to: 'idle' as const,
@@ -207,23 +202,19 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 bindGroupReplaced: 'ignore',
                 pipelinesCompiled: {
                     to: 'idle',
-                    run: (e) => {
+                    run: (e, c) => {
                         if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        for (const st of this.states.values()) {
-                            if (st.pending?.id !== e.pipeline) continue;
-                            st.active = st.pending;
-                            st.pending = undefined;
-                            st.stale = true;
+                        for (const id of this.evalPipelines.compiled(e.pipeline, c)) {
+                            const st = this.states.get(id);
+                            if (st !== undefined) st.stale = true;
                         }
                     },
                 },
                 pipelineRejected: {
                     to: 'idle',
                     run: (e, c) => {
-                        if (e.type !== 'pipelineRejected') return;
-                        for (const st of this.states.values())
-                            if (st.pending?.id === e.pipeline) st.pending = undefined;
-                        c.release(e.pipeline);
+                        if (e.type === 'pipelineRejected')
+                            this.evalPipelines.rejected(e.pipeline, c);
                     },
                 },
                 framePrepare: {
@@ -240,18 +231,19 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     /** Uma avaliação por superfície marcada neste quadro. */
     dispatch(frame: Frame, bound: BoundFlow<SurfaceSlots>): void {
         for (const st of this.states.values()) {
-            if (!st.evaluate || st.active === undefined) continue;
+            const active = this.evalPipelines.active(st.id);
+            if (!st.evaluate || active === undefined) continue;
             const surface = bound.slots.surfaces.entry(st.id)?.get(ParametricSurface);
             if (surface === undefined) continue;
             if (surface.adaptive !== undefined && st.adapt !== undefined) {
-                this.dispatchAdaptive(frame, bound, st, surface.adaptive);
+                this.dispatchAdaptive(frame, bound, st, active, surface.adaptive);
                 continue;
             }
-            const p = bound.pipelines.get(st.active.id);
+            const p = bound.pipelines.get(active.id);
             if (p?.role !== 'compute' || !p.ready) continue;
             frame.compute('SurfaceFlow', (pass) => {
                 pass.bind.setPipeline(p.spec);
-                p.groups.forEach((bg, g) => pass.bind.setBindGroup(g, bg));
+                p.bindTo(pass.bind);
                 pass.dispatch.invocations(surface.vertexCount, WORKGROUP_SIZE);
             });
             st.stale = false;
@@ -263,9 +255,10 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         frame: Frame,
         bound: BoundFlow<SurfaceSlots>,
         st: SurfaceState,
+        active: PipelineVariant,
         a: AdaptiveConfig,
     ): void {
-        const ps = ADAPT_ENTRIES.map((e) => bound.pipelines.get(adaptId(st.active!.id, e)));
+        const ps = ADAPT_ENTRIES.map((e) => bound.pipelines.get(adaptId(active.id, e)));
         if (ps.some((p) => p?.role !== 'compute' || !p.ready)) return;
         const [level, budget, scan, emit] = ps as PreparedCompute[];
         const patches = a.patches[0] * a.patches[1];
@@ -273,7 +266,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         const run = (label: string, p: PreparedCompute, count: number | 'one'): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
-                p.groups.forEach((bg, g) => pass.bind.setBindGroup(g, bg));
+                p.bindTo(pass.bind);
                 if (count === 'one') pass.dispatch.workgroups(1);
                 else pass.dispatch.invocations(count, WORKGROUP_SIZE);
             });
@@ -289,7 +282,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     override dispose(): void {
         for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.core.destroy(this.dummyRecords);
         this.core.destroy(this.dummyPool);
     }
 
@@ -300,19 +292,12 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 this.core.destroy(b);
     }
 
-    private releasePipelines(ctx: Ctx, st: SurfaceState, adaptive: boolean): void {
-        for (const pid of [st.active?.id, st.pending?.id]) {
-            if (pid === undefined) continue;
-            if (adaptive) for (const e of ADAPT_ENTRIES) ctx.release(adaptId(pid, e));
-            else ctx.release(pid);
-        }
-    }
-
     /** Superfícies presentes: estado, bindings e pipeline (pela função, ou pela pronta). */
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { surfaces, functions, fnRecords, spaceRecords, diffs } = ctx.bound.slots;
+        const { surfaces, functions, spaces, diffs } = ctx.bound.slots;
+        const spaced = spaces.entries.length > 0;
         const present = new Set<EntityId>();
         for (const entry of surfaces.entries) {
             const id = entry.entityId;
@@ -329,8 +314,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                         discriminator: `surface_params:${id}`,
                         byteSize: SurfaceParamsSchema.stride,
                     }),
-                    active: undefined,
-                    pending: undefined,
                     stale: true,
                     evaluate: false,
                     adapt: undefined,
@@ -365,7 +348,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             // Jato da geometria diferencial: do mapa com o espaço, analítico, das prontas ou numérico.
             const jet = !surface.differential
                 ? undefined
-                : spaceRecords !== undefined
+                : spaced
                   ? surfaceJetMapped
                   : fn === undefined
                     ? surfaceJetPreset
@@ -373,83 +356,73 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                       ? surfaceJetAnalytic
                       : undefined;
             const key = `${module?.name ?? 'preset'}|${surface.differential ? (jet?.name ?? 'numeric') : '-'}`;
-            const known = st.pending ?? st.active;
             const adaptive = surface.adaptive !== undefined;
-            const pipelineId =
-                known?.key !== key
-                    ? `surface_eval:${id}:${key}${adaptive ? '#emit' : ''}`
-                    : undefined;
-            const records = fnRecords?.buffer ?? this.dummyRecords;
-            for (const pid of [st.active?.id, st.pending?.id, pipelineId]) {
-                if (pid === undefined) continue;
+            const emitId = `surface_eval:${id}:${key}${adaptive ? '#emit' : ''}`;
+            const next: PipelineVariant = {
+                key,
+                id: emitId,
+                ...(adaptive ? { ids: ADAPT_ENTRIES.map((e) => adaptId(emitId, e)) } : {}),
+            };
+            for (const { id: pid } of this.evalPipelines.bindable(id, next)) {
                 if (adaptive) {
-                    this.bindAdaptive(ctx, st, surface, pid, vertices, records);
+                    this.bindAdaptive(ctx, st, surface, pid, vertices);
                     continue;
                 }
-                ctx.bind({
-                    [`${pid}:surface_params`]: st.params,
-                    [`${pid}:surface_vertices`]: vertices,
-                    [`${pid}:surface_fn_records`]: records,
-                    ...(surface.differential && diffs !== undefined
-                        ? { [`${pid}:surface_diff`]: diffs.buffer }
-                        : {}),
-                });
+                const at = (resource: WgslResource): BindingKey => ({ pipeline: pid, resource });
+                ctx.bind(
+                    new Map<BindingKey, BindingSource>([
+                        [at(R.params), st.params],
+                        [at(R.vertices), vertices],
+                        ...(surface.differential && diffs !== undefined
+                            ? ([[at(R.diff), diffs.buffer]] as [BindingKey, BindingSource][])
+                            : []),
+                    ]),
+                );
             }
-            if (pipelineId === undefined) continue;
-            const base = adaptive
-                ? surfaceAdapt
-                : surface.differential
-                  ? surfaceEvalDiff
-                  : surfaceEval;
-            const impls = new Map<BindablePoint, WgslModule>([
-                [surfacePoint, fn?.module ?? surfacePoint.ready],
-            ]);
-            if (fn?.analytic === true) impls.set(surfaceTangents, surfaceTangentsAnalytic);
-            if (jet !== undefined) impls.set(surfaceJet, jet);
-            const shader = fn === undefined && jet === undefined ? base : bindPoints(base, impls);
-            const extra = fn === undefined ? {} : { verify: true, extensions: [fn] };
-            let ready: boolean;
-            if (adaptive) {
-                // As quatro passadas compartilham o shader; a de emissão (a última preparada) marca o estado.
-                ready = ADAPT_ENTRIES.map(
-                    (e) =>
-                        ctx.prepare({
-                            id: adaptId(pipelineId, e),
-                            role: 'compute',
-                            shader,
-                            entryPoints: [`surface_adapt_${e}_main`],
-                            consumes: [],
-                            ...extra,
-                        }).ready,
-                ).every(Boolean);
-            } else {
-                ready = ctx.prepare({
+            this.evalPipelines.select(id, next, ({ id: pipelineId }) => {
+                const base = adaptive
+                    ? surfaceAdapt
+                    : surface.differential
+                      ? surfaceEvalDiff
+                      : surfaceEval;
+                const impls = new Map<BindablePoint, WgslModule>([
+                    [surfacePoint, fn?.module ?? surfacePoint.ready],
+                ]);
+                if (fn?.analytic === true) impls.set(surfaceTangents, surfaceTangentsAnalytic);
+                if (jet !== undefined) impls.set(surfaceJet, jet);
+                const shader =
+                    fn === undefined && jet === undefined ? base : bindPoints(base, impls);
+                const extra = fn === undefined ? {} : { verify: true, extensions: [fn] };
+                if (adaptive) {
+                    // As quatro passadas compartilham o shader; a de emissão é a principal (marca a compilação).
+                    return ADAPT_ENTRIES.map(
+                        (e) =>
+                            ctx.prepare({
+                                id: adaptId(pipelineId, e),
+                                role: 'compute',
+                                shader,
+                                entryPoints: [`surface_adapt_${e}_main`],
+                                ...extra,
+                            }).ready,
+                    ).every(Boolean);
+                }
+                return ctx.prepare({
                     id: pipelineId,
                     role: 'compute',
                     shader,
                     entryPoints: [
                         surface.differential ? 'surface_eval_diff_main' : 'surface_eval_main',
                     ],
-                    consumes: [],
                     ...extra,
                 }).ready;
-            }
-            const next = { id: pipelineId, key };
-            if (ready) {
-                if (st.active !== undefined && st.active.id !== pipelineId) {
-                    const old = { ...st, pending: undefined };
-                    this.releasePipelines(ctx, old, adaptive);
-                }
-                st.active = next;
-                st.pending = undefined;
-            } else st.pending = next;
+            });
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
-            this.releasePipelines(ctx, st, st.adapt !== undefined);
             this.destroyState(st);
             this.states.delete(id);
         }
+        this.evalPipelines.retain(ctx, present);
     }
 
     /** Fontes das passadas da malha adaptativa (pelo id da emissão). */
@@ -459,7 +432,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         surface: ParametricSurface,
         emitId: string,
         vertices: AnyBufferSpec,
-        records: AnyBufferSpec,
     ): void {
         const { diffs, cameras, worlds } = ctx.bound.slots;
         const indices = this.resources.bufferOf(surface, 'indices');
@@ -474,20 +446,22 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             return;
         for (const e of ADAPT_ENTRIES) {
             const pid = adaptId(emitId, e);
-            ctx.bind({
-                [`${pid}:surface_params`]: st.params,
-                [`${pid}:adapt`]: st.adapt.params,
-                [`${pid}:surface_fn_records`]: records,
-                [`${pid}:adapt_patches`]: st.adapt.patches,
-                [`${pid}:adapt_hist`]: st.adapt.hist,
-                [`${pid}:adapt_vertices`]: vertices,
-                [`${pid}:adapt_indices`]: indices,
-                [`${pid}:adapt_edges`]: edges,
-                [`${pid}:adapt_draw`]: draw,
-                [`${pid}:surface_diff`]: diffs?.buffer ?? this.dummyPool,
-                [`${pid}:adapt_cameras`]: cameras?.buffer ?? this.dummyPool,
-                [`${pid}:adapt_worlds`]: worlds?.buffer ?? this.dummyPool,
-            } as BindingSources);
+            const at = (resource: WgslResource): BindingKey => ({ pipeline: pid, resource });
+            ctx.bind(
+                new Map<BindingKey, BindingSource>([
+                    [at(R.params), st.params],
+                    [at(R.adapt), st.adapt.params],
+                    [at(R.adaptPatches), st.adapt.patches],
+                    [at(R.adaptHist), st.adapt.hist],
+                    [at(R.adaptVertices), vertices as BindingSource],
+                    [at(R.adaptIndices), indices as BindingSource],
+                    [at(R.adaptEdges), edges as BindingSource],
+                    [at(R.adaptDraw), draw as BindingSource],
+                    [at(R.diff), diffs?.buffer ?? this.dummyPool],
+                    [at(R.adaptCameras), cameras?.buffer ?? this.dummyPool],
+                    [at(R.adaptWorlds), worlds?.buffer ?? this.dummyPool],
+                ]),
+            );
         }
     }
 
@@ -503,23 +477,14 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
 
     /** Decide quem avalia neste quadro e escreve os parâmetros deles. */
     private writeParams(ctx: Ctx): void {
-        const {
-            surfaces,
-            functions,
-            fnRecords,
-            spaceRecords,
-            time,
-            diffs,
-            camera,
-            cameras,
-            worlds,
-        } = ctx.bound.slots;
+        const { surfaces, functions, spaces, time, diffs, camera, cameras, worlds } =
+            ctx.bound.slots;
         const cameraId =
             camera === undefined ? undefined : this.world.entityIdOfResource(camera.resource);
         const cameraPos = cameraId === undefined ? undefined : this.cameraPositionOf(cameraId);
         const indirect = this.core.capabilities().features.includes('indirect-first-instance');
         const t = (time?.resource as Time | undefined)?.simulated ?? 0;
-        const spaced = spaceRecords !== undefined;
+        const spaced = spaces.entries.length > 0;
         for (const st of this.states.values()) {
             const surface = surfaces.entry(st.id)?.get(ParametricSurface);
             if (surface === undefined) continue;
@@ -562,8 +527,9 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     }),
                 );
             }
+            const fn = functions.entry(st.id)?.get(SurfaceFunction);
             const record =
-                functions.entry(st.id) !== undefined ? fnRecords?.slotOf(st.id) : undefined;
+                fn === undefined ? undefined : this.resources.poolSlotOf(fn.record.name, st.id);
             const [u0, u1, v0, v1] = d.domain;
             this.core.write(
                 st.params,

@@ -3,6 +3,8 @@
 // faz os próprios envios) e não despacha com contagem 0.
 export { PrefixSum, scanLevelCounts, SCAN_GROUP } from './PrefixSum';
 export type { PrefixSumOptions, PrefixSumRecordArgs } from './PrefixSum';
+export { CountToArgs } from './CountToArgs';
+export type { CountToArgsOptions, CountToArgsRecordArgs, GpuCount } from './CountToArgs';
 export { RadixSort } from './RadixSort';
 export type { RadixSortOptions, RadixSortRecordArgs } from './RadixSort';
 export { Compaction } from './Compaction';
@@ -18,4 +20,9 @@ export type {
 } from './GraphColorer';
 export { reduceOp, compactionModules } from './shaders';
 export type { ReduceOpName, ReduceType, CompactionModules } from './shaders';
-export { AtomicAllocCounterSchema, ColorRangeSchema, ScanLevelSchema } from './schemas';
+export {
+    AtomicAllocCounterSchema,
+    ColorRangeSchema,
+    CountToArgsParamsSchema,
+    ScanLevelSchema,
+} from './schemas';

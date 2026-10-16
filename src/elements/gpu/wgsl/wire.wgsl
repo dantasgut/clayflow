@@ -1,27 +1,20 @@
 // Arame com espessura (spec 008, `WireframeMaterial`; o desenho do legado na arquitetura atual): as arestas são da
 // geometria, em espaço de objeto (descritor `wireEdges`, pares de índices de vértice) — amostradas antes da projeção.
 // Cada aresta vira um quad de `lineWidth` pixels na tela (6 vértices; `vertex_index / 6` é a aresta), com a posição
-// dos dois vértices lida do vertex buffer da geometria como storage (8 floats por vértice). A instância é a entidade do
-// grupo (registro `Renderable`). Borda suavizada por `fwidth` + `smoothstep`, com mistura alfa.
-@group(0) @binding(0) var<storage, read> cameras: array<CameraMatrices>;
-@group(1) @binding(0) var<storage, read> worlds: array<WorldTransform>;
-@group(1) @binding(1) var<storage, read> renderables: array<Renderable>;
-@group(1) @binding(2) var<storage, read> instances: array<RenderInstance>;
-@group(2) @binding(0) var<storage, read> materials: array<WireframeMaterial>;
-@group(3) @binding(0) var<uniform> forward_frame: ForwardFrameParams;
+// dos dois vértices lida do vertex buffer da geometria como storage (`array<MeshVertex>`). A instância é a entidade do
+// grupo (registro `Renderable`). Sem mistura: o arame escreve profundidade como um opaco (a ordem de desenho não
+// importa); a borda do quad é suavizada pelo MSAA, como a de qualquer triângulo, e o alfa da cor vira a fração das
+// amostras cobertas (alpha-to-coverage).
 // Vértices e arestas da geometria do pipeline (bindings privados por geometria).
-@group(3) @binding(6) var<storage, read> wire_vertices: array<f32>;
-@group(3) @binding(7) var<storage, read> wire_edges: array<u32>;
 
 struct WireOut {
     @builtin(position) clip_position: vec4f,
-    @location(0) side: f32,
-    @location(1) @interpolate(flat) material_slot: u32,
+    @location(0) @interpolate(flat) material_slot: u32,
 }
 
 fn wire_vertex(index: u32) -> vec3f {
-    let o = index * 8u;
-    return vec3f(wire_vertices[o], wire_vertices[o + 1u], wire_vertices[o + 2u]);
+    let m = wire_vertices[index];
+    return vec3f(m.px, m.py, m.pz);
 }
 
 @vertex
@@ -46,16 +39,11 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     let perp_ndc = vec2f(-dir.y, dir.x) / half_screen;
     let half_width = material.lineWidth * 0.5;
     out.clip_position = vec4f(clip.xy + perp_ndc * side * half_width * clip.w, clip.z, clip.w);
-    out.side = side;
     out.material_slot = r.materialSlot;
     return out;
 }
 
 @fragment
 fn fs_main(in: WireOut) -> @location(0) vec4f {
-    let material = materials[in.material_slot];
-    let d = abs(in.side);
-    let fw = fwidth(d);
-    let alpha = 1.0 - smoothstep(1.0 - fw, 1.0 + fw, d);
-    return vec4f(material.color.rgb, material.color.a * alpha);
+    return materials[in.material_slot].color;
 }
