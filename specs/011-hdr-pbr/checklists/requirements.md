@@ -35,3 +35,5 @@
   GGX, OpenPBR, Fresnel) são o vocabulário do produto, não detalhe de implementação. A tabela de contexto cita
   arquivos como evidência do estado atual, padrão adotado desde a 004.
 - A comparação com o Three.js é parte do critério aprovado pelo usuário (F4 "superior ao Three.js").
+- Revisada em 2026-10-16 após a 031: materiais por nós (US3, FR-012–FR-018); a checagem acima foi refeita sobre o texto
+  revisado.

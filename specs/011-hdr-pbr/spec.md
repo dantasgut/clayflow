@@ -1,10 +1,11 @@
-# Feature Specification: HDR e modelo de material físico em camadas
+# Feature Specification: HDR e materiais físicos por nós
 
 **Feature Branch**: `feature/011-hdr-pbr`
 
 **Created**: 2026-10-15
 
-**Status**: Draft
+**Status**: Draft (revisada em 2026-10-16 após a 031: materiais por nós BSDF, OpenPBR como sub-grafo, luzes por
+pontos de cena)
 
 **Input**: User description: "HDR e modelo de material físico em camadas (spec 011, fase F4 do roadmap —
 `011-hdr-pbr`). Escopo conforme linha da F4 em specs/ROADMAP.md: (1) desenho em HDR `rgba16float` sobre o MSAA 4× já
@@ -29,15 +30,15 @@ MeshPhysicalMaterial) em cenas de referência lado a lado, com medidas; nada de 
 
 ## Contexto e Problema
 
-O desenho atual não é físico. Levantamento na `develop` após o PR #45:
+O desenho atual não é físico. Levantamento na `develop` após o PR #46 (031):
 
 | Lacuna                       | Estado atual (evidência)                                                                                                                                                       |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Cena em 8 bits               | A cor da cena, a cópia de MSAA e a cadeia de pós usam o formato do canvas (`FrameTargets.ts`, `PostFlow.ts`); brilhos acima do branco são cortados, gradientes mostram degraus |
 | Saída sem codificação de cor | O forward escreve RGB linear direto no alvo, sem passo sRGB; o "tone mapping" (`1 − e^(−c·exposure)`) é um efeito opcional aplicado sobre LDR                                  |
 | Iluminação Lambert fixa      | `brdf.wgsl`: Lambert + ambiente constante (0,18/0,82); rugosidade e metalicidade calculadas e ignoradas; o especular não existe                                                |
-| Uma luz, só a direção        | O forward lê só `direction` da luz com sombra (ou uma direção padrão); cor, intensidade, tipo e alcance do pool nunca são lidos; não há laço de luzes nem classe de luz spot   |
-| Material com quatro campos   | A função `material` (009) devolve cor, rugosidade, metalicidade e emissão; não há verniz, transmissão, tecido, anisotropia, iridescência nem subsuperfície                     |
+| Uma luz, só a direção        | Os pontos de cena (031) entregam só a direção da luz com sombra (ou uma direção padrão); cor, intensidade, tipo e alcance do pool nunca são lidos; não há luz spot             |
+| Material com quatro campos   | A função `material` (009, código ou grafo da 031) devolve cor, rugosidade, metalicidade e emissão; não há nós de BSDF nem como compor verniz, vidro, tecido ou pele            |
 | Água com aproximações        | `water_composite.wgsl`: especular Blinn-Phong, reflexo para uma cor constante, cópia do fundo em 8 bits e corte final em [0, 1]                                                |
 | Cáusticas em blocos          | Mapa de 512² na vista da luz, borrão 3×3; de perto cada texel ocupa vários pixels e o padrão aparece em degraus                                                                |
 
@@ -104,42 +105,51 @@ pixel com a avaliação de referência do modelo; luzes pontuais e spot medidas 
 
 ---
 
-### User Story 3 - Material em camadas (Priority: P1)
+### User Story 3 - Material composto por nós (Priority: P1)
 
-Quem define um material empilha camadas físicas: verniz por cima (madeira envernizada, pintura de carro), transmissão
-(vidro, líquidos, com refração do que está atrás, absorção pela espessura e dispersão de cores), parede fina translúcida
-(cortina, folha), brilho de fibra (veludo, algodão), anisotropia (metal escovado, seda), iridescência de filme fino
-(bolha, óleo, metal tratado), subsuperfície (pele, cera, mármore) e emissão. A função `material` da 009 pode devolver
-todas as camadas, variando por posição, curvatura, tempo ou campo.
+Quem define um material **compõe** o comportamento físico ligando nós, como no editor de shader do Blender: um nó por
+espalhamento (difuso, especular de metal, especular de dielétrico, transmissão, parede fina, brilho de fibra,
+subsuperfície, emissão) e nós de composição (misturar, somar, pôr uma camada sobre outra, filme fino, opacidade, normal
+própria). Cada entrada pode vir de um valor ou de qualquer outro nó (ruído, curvatura, campo, tempo), então a madeira
+envernizada é "difuso de madeira sob um dielétrico liso", o verniz pode ficar áspero onde o ruído quer, e dois
+materiais se misturam por uma máscara. O OpenPBR Surface é um grupo de nós pronto entre outros, não o modelo do motor.
 
-**Why this priority**: é o que distingue a apresentação de um desenho genérico e o que o usuário pediu explicitamente
-(materiais compostos).
+**Why this priority**: é o que distingue a apresentação de um desenho genérico, e o usuário rejeitou o material de
+parâmetros fixos que ligam e desligam camadas ("liga e desliga com valores fixos não serve"); a 031 trouxe os grafos
+de nós como padrão fundacional.
 
-**Independent Test**: uma esfera por camada, cada uma medida contra a propriedade física que a camada introduz.
+**Independent Test**: um grafo por nó de espalhamento e por nó de composição, cada um medido contra a propriedade
+física que introduz; um grafo com entradas ligadas a ruído e curvatura; troca de valores sem recompilar.
 
 **Acceptance Scenarios**:
 
-1. **Given** um verniz liso sobre uma base rugosa, **When** iluminado, **Then** aparecem dois realces (o nítido do verniz
-   e o largo da base), e a base fica atenuada pela energia que o verniz reflete.
-2. **Given** um vidro de IOR 1,5, **When** desenhado diante de um padrão, **Then** o padrão aparece deslocado conforme a
-   refração, a reflexão em ângulo rasante cresce conforme Fresnel, e com espessura e cor de absorção o vidro escurece
-   com a espessura (Beer-Lambert).
-3. **Given** um vidro com dispersão, **When** desenhado diante de bordas de alto contraste, **Then** as bordas refratadas
-   mostram separação de cores coerente com o número de Abbe.
-4. **Given** uma superfície de parede fina iluminada por trás, **When** vista de frente, **Then** a luz atravessa
-   (translucidez) sem refratar o fundo.
-5. **Given** um material com sheen, **When** visto em ângulo rasante, **Then** a borda brilha mais que o centro, como
-   veludo.
-6. **Given** um material anisotrópico, **When** iluminado, **Then** o realce se alonga perpendicularmente à direção da
-   anisotropia, e girar a direção gira o realce.
+1. **Given** um dielétrico liso em camada sobre um difuso rugoso, **When** iluminado, **Then** aparecem dois realces (o
+   nítido de cima e o largo de baixo), e a base fica atenuada pela energia que a camada de cima reflete.
+2. **Given** um nó de transmissão de IOR 1,5, **When** desenhado diante de um padrão, **Then** o padrão aparece deslocado
+   conforme a refração, a reflexão em ângulo rasante cresce conforme Fresnel, e com espessura e cor de absorção o vidro
+   escurece com a espessura (Beer-Lambert).
+3. **Given** a transmissão com dispersão, **When** desenhada diante de bordas de alto contraste, **Then** as bordas
+   refratadas mostram separação de cores coerente com o número de Abbe.
+4. **Given** um nó de parede fina iluminado por trás, **When** visto de frente, **Then** a luz atravessa (translucidez)
+   sem refratar o fundo.
+5. **Given** um nó de brilho de fibra (sheen), **When** visto em ângulo rasante, **Then** a borda brilha mais que o
+   centro, como veludo.
+6. **Given** um especular anisotrópico com a tangente ligada a um nó, **When** iluminado, **Then** o realce se alonga
+   perpendicularmente à tangente, e girar o vetor no grafo gira o realce.
 7. **Given** um filme fino de espessura conhecida, **When** visto em ângulos diferentes, **Then** a cor do reflexo muda
    conforme a interferência para essa espessura e IOR.
-8. **Given** um material com subsuperfície, **When** iluminado de lado, **Then** a transição luz-sombra é mais suave e
-   avermelhada (ou na cor do espalhamento) do que a do material sem subsuperfície.
-9. **Given** um material emissivo com intensidade acima de 1, **When** desenhado, **Then** a emissão chega ao HDR acima
-   do branco (sem corte antes do mapeamento de tons).
-10. **Given** uma função `material` escrita para a 009 (devolvendo só cor, rugosidade, metalicidade e emissão), **When**
-    usada sem mudança, **Then** funciona com as camadas novas desligadas.
+8. **Given** um nó de subsuperfície, **When** iluminado de lado, **Then** a transição luz-sombra é mais suave e na cor
+   do espalhamento do que a do difuso.
+9. **Given** um nó de emissão com intensidade acima de 1, **When** desenhado, **Then** a emissão chega ao HDR acima do
+   branco (sem corte antes do mapeamento de tons).
+10. **Given** dois materiais misturados por uma máscara de ruído, **When** desenhados, **Then** cada região mostra o
+    comportamento do seu material e a transição é contínua; a regra de fusão de lobos do mesmo tipo é a documentada.
+11. **Given** um grafo de material, **When** um valor de nó muda a cada quadro, **Then** nada recompila; **When** a
+    ligação muda, **Then** recompila em transição, sem quadro quebrado.
+12. **Given** um grafo que usa só difuso e especular, **When** compilado, **Then** o shader não contém o código dos
+    outros espalhamentos e custa o mesmo que o material pronto.
+13. **Given** uma função `material` escrita para a 009 (código ou grafo devolvendo cor, rugosidade, metalicidade e
+    emissão), **When** usada sem mudança, **Then** funciona, com o especular físico da base.
 
 ---
 
@@ -173,25 +183,26 @@ continuidade das cáusticas de perto.
 
 Quem monta a cena escolhe um material pronto — madeira crua, madeira envernizada (fosca ou brilhante, âmbar), algodão,
 lã, veludo, seda/cetim, jeans, tecido fino, couro, borracha, cerâmica/porcelana, plástico fosco e brilhante, metal
-polido e escovado, pintura de carro, vidro, metal oxidado — ajusta qualquer parâmetro e, se quiser, substitui por uma
-função.
+polido e escovado, pintura de carro, vidro, metal oxidado, pele, cera, mármore. Cada um é um grupo de nós: usa inteiro,
+ajusta os parâmetros expostos, abre e religa, ou usa como nó dentro de um grafo maior.
 
-**Why this priority**: torna o modelo de camadas utilizável sem conhecimento de óptica; depende das US2 e US3.
+**Why this priority**: torna os nós de material utilizáveis sem conhecimento de óptica; depende das US2 e US3.
 
-**Independent Test**: uma galeria com todos os materiais prontos sob a mesma luz; cada um verificado pelas camadas que
+**Independent Test**: uma galeria com todos os materiais prontos sob a mesma luz; cada um verificado pelos nós que
 deve ter e por valores físicos de referência (IOR, metalicidade, rugosidade dentro das faixas de medidas publicadas).
 
 **Acceptance Scenarios**:
 
-1. **Given** cada material pronto, **When** criado, **Then** tem as camadas e os valores documentados (ex.: madeira
-   envernizada = madeira crua + verniz; pintura de carro = base metálica + verniz).
+1. **Given** cada material pronto, **When** criado, **Then** tem os nós e os valores documentados (ex.: madeira
+   envernizada = madeira crua sob um dielétrico liso; pintura de carro = condutor sob um dielétrico).
 2. **Given** um material pronto, **When** a pessoa muda um parâmetro (ex.: cor do verniz), **Then** só esse parâmetro
    muda e o restante permanece.
 3. **Given** a galeria, **When** desenhada, **Then** cada material é reconhecível pelo comportamento sob a luz (madeira
    crua fosca sem realce nítido; envernizada com realce nítido; veludo com borda brilhante; metal escovado com realce
    alongado; vidro transparente com refração).
-4. **Given** um material pronto, **When** a 012 trouxer padrões (veios, trama, flocos), **Then** eles se aplicam às mesmas
-   camadas sem trocar o material.
+4. **Given** um material pronto usado como nó, **When** misturado a outro por uma máscara ou com uma entrada ligada a
+   outro nó, **Then** o grafo compila e desenha como qualquer grafo; a 012 liga padrões (veios, trama, flocos) às mesmas
+   entradas.
 
 ---
 
@@ -227,7 +238,11 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
 - Muitas luzes além do limite do laço desta spec: as excedentes são ignoradas com aviso único e contagem exposta (a 013
   traz a iluminação clustered).
 - Luz spot com cone interno maior que o externo: corrigido para o externo, com aviso.
-- Materiais transparentes ordenados de trás para frente; interseção entre transparentes tem o artefato documentado.
+- Transparentes em mais de duas camadas (três vidros enfileirados): a terceira em diante tem a aproximação documentada
+  (o descasque cobre duas camadas sem ordenação na CPU).
+- Grafo de material sem saída ou com erro: a entidade desenha com o material pronto, com o aviso/evento da 031.
+- Lobos do mesmo tipo misturados (dois especulares de rugosidades diferentes na mesma camada): fundidos pela regra
+  documentada.
 - Navegador sem saída HDR estendida: cai no mapeamento de tons padrão em 8 bits com pontilhamento.
 - MSAA desligado: o HDR continua funcionando (sem resolução de amostras).
 - Partículas em sprite e partículas secundárias: iluminadas pelo mesmo modelo (impostor esférico), sem caminho Lambert
@@ -254,8 +269,9 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
 - **FR-006**: O sombreamento DEVE ser Cook-Torrance (distribuição GGX, sombreamento-mascaramento de Smith correlacionado,
   Fresnel) com difuso físico, usando cor, rugosidade e metalicidade, e com compensação de múltiplo espalhamento para
   conservar energia nas rugosidades altas.
-- **FR-007**: O sombreamento DEVE somar todas as luzes ativas do pool (direcional, pontual e spot) até um limite
-  documentado, usando cor, intensidade (unidades físicas documentadas), alcance com queda suave e cone (spot).
+- **FR-007**: O sombreamento DEVE somar todas as luzes ativas (direcional, pontual e spot) até um limite documentado,
+  usando cor, intensidade (unidades físicas documentadas), alcance com queda suave e cone (spot); as luzes chegam ao
+  desenho pelos pontos de cena (031) — nenhum estágio de desenho conhece uma classe de luz.
 - **FR-008**: DEVE existir a luz spot (cone interno e externo) e a luz ambiente de hemisfério (céu e chão), como
   Resources da cena; a constante de ambiente escondida deixa de existir.
 - **FR-009**: A sombra direcional existente DEVE continuar valendo para a luz que a projeta; as demais luzes não têm
@@ -263,26 +279,27 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
 - **FR-010**: As normais DEVEM usar a matriz normal (inversa transposta) para escala não uniforme.
 - **FR-011**: O brilho especular DEVE ter controle de serrilhado (rugosidade ajustada pela variação da normal na tela).
 
-**Material em camadas**
+**Material por nós**
 
-- **FR-012**: O modelo de material DEVE seguir as camadas do OpenPBR Surface: base (cor, rugosidade, metalicidade, peso),
-  especular (IOR, cor, anisotropia e direção), verniz (peso, cor, rugosidade, IOR, escurecimento), transmissão (peso,
-  cor/profundidade de absorção, dispersão por número de Abbe), parede fina, sheen (peso, cor, rugosidade), filme fino
-  (peso, espessura, IOR), subsuperfície (peso, cor, raio de espalhamento) e emissão (cor, luminância).
+- **FR-012**: O material DEVE ser composto por nós: nós de espalhamento (difuso com rugosidade, especular de condutor
+  com tinta de borda, especular de dielétrico com IOR, ambos com anisotropia e tangente, transmissão com absorção e
+  dispersão por número de Abbe, parede fina, brilho de fibra, subsuperfície, emissão) e nós de composição (mistura,
+  soma, camada com atenuação por Fresnel, filme fino, opacidade, normal própria), com qualquer entrada ligável a outro
+  nó; o OpenPBR Surface DEVE existir como grupo de nós pronto.
 - **FR-013**: A transmissão DEVE refratar a imagem HDR do que está atrás conforme IOR e espessura, borrada conforme a
-  rugosidade, e atenuar por Beer-Lambert; o material transparente é ordenado de trás para frente.
+  rugosidade, e atenuar por Beer-Lambert, com duas camadas transparentes sem ordenação na CPU.
 - **FR-014**: A subsuperfície DEVE estar no modelo (difusão aproximada no sombreamento: transição suave e cor de
   espalhamento); o passe de espalhamento na tela é da 014.
-- **FR-015**: A função `material` (009) DEVE poder devolver todas as camadas; funções existentes continuam válidas com
-  as camadas novas nos valores neutros.
-- **FR-016**: O mesmo modelo DEVE iluminar malhas, superfícies paramétricas, sprites de partículas e partículas
-  secundárias; nenhum caminho Lambert paralelo permanece.
-- **FR-017**: Valores não finitos ou fora de faixa vindos do material DEVEM ser saneados sem NaN no HDR.
+- **FR-015**: O shader de um material DEVE conter só os espalhamentos que o grafo usa; mudar valores não recompila,
+  mudar a ligação recompila em transição; funções `material` da 009 continuam válidas.
+- **FR-016**: O mesmo modelo DEVE iluminar malhas, superfícies paramétricas, geometrias de grafo, sprites de partículas
+  e partículas secundárias; nenhum caminho Lambert paralelo permanece.
+- **FR-017**: Valores não finitos ou fora de faixa vindos do grafo ou da função DEVEM ser saneados sem NaN no HDR.
 
 **Biblioteca**
 
-- **FR-018**: DEVE existir a biblioteca de materiais prontos listada na US5, cada um com valores físicos documentados,
-  ajustável parâmetro a parâmetro e substituível por função.
+- **FR-018**: DEVE existir a biblioteca de materiais prontos listada na US5, cada um como grupo de nós com valores
+  físicos documentados e parâmetros expostos, usável inteiro ou como nó de outro grafo, e serializável.
 
 **Água e cáusticas**
 
@@ -299,7 +316,7 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
 - **FR-023**: As trajetórias físicas DEVEM continuar idênticas, bit a bit (a mudança é só de desenho); as fixtures de
   imagem que mudam com o HDR DEVEM ser regravadas e listadas com a justificativa visual.
 - **FR-024**: Smokes com medidas (HDR, mapeamento de tons, faixas, BRDF contra referência, forno, luzes, normais,
-  camadas, água, cáusticas), no fonte e no build minificado; `bench:check` sem regressão relevante e baseline
+  nós de material, água, cáusticas), no fonte e no build minificado; `bench:check` sem regressão relevante e baseline
   regravado; `npm run ci` verde.
 - **FR-025**: Documentação de arquitetura, guias, ROADMAP e PENDENCIAS atualizados; vídeos para o usuário (galeria de
   materiais, água com o novo material e cáusticas, comparação com o Three.js).
@@ -311,10 +328,11 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
 - **Apresentação (mapeamento de tons)**: operador (ACES, AgX, neutro, linear), exposição em EV, pontilhamento e modo de
   saída (padrão ou HDR estendido).
 - **Luz**: direcional, pontual, spot (cone interno/externo) e ambiente de hemisfério, com cor, intensidade em unidades
-  físicas e alcance.
-- **Material em camadas**: o conjunto de parâmetros das camadas OpenPBR (base, especular, verniz, transmissão, parede
-  fina, sheen, filme fino, subsuperfície, emissão), constante ou devolvido pela função `material`.
-- **Material pronto**: um material em camadas com valores documentados e nome, ajustável e substituível.
+  físicas e alcance; contribui para a iluminação da cena sem o desenho a conhecer.
+- **Nó de espalhamento e de composição**: as peças do material (difuso, especulares, transmissão, parede fina, fibra,
+  subsuperfície, emissão; mistura, soma, camada, filme fino, opacidade, normal).
+- **Material**: um grafo dessas peças (ou o material pronto das constantes), avaliado por ponto da superfície.
+- **Material pronto**: um grupo de nós com nome, valores documentados e parâmetros expostos.
 - **Cena de referência**: a mesma cena montada na Clayflow e no Three.js para comparação medida.
 
 ## Success Criteria _(mandatory)_
@@ -331,9 +349,11 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
 - **SC-005**: Teste de forno: radiância a ≤ 3 % do ambiente para rugosidades de 0 a 1.
 - **SC-006**: Luz pontual com queda pelo inverso do quadrado (erro ≤ 2 %); spot com os cones corretos; cores somam.
 - **SC-007**: Normais com escala não uniforme a ≤ 1° da analítica.
-- **SC-008**: Cada camada demonstra a sua propriedade física (dois realces no verniz, deslocamento e Fresnel no vidro,
-  Beer-Lambert com a espessura, separação de cores na dispersão, borda do sheen, realce alongado da anisotropia, cor
-  angular do filme fino, transição suave da subsuperfície, emissão acima de 1).
+- **SC-008**: Cada nó de espalhamento e de composição demonstra a sua propriedade física (dois realces na camada,
+  deslocamento e Fresnel no vidro, Beer-Lambert com a espessura, separação de cores na dispersão, borda do sheen, realce
+  alongado da anisotropia, cor angular do filme fino, transição suave da subsuperfície, emissão acima de 1, mistura por
+  máscara contínua); grafo com só difuso e especular custa o mesmo que o material pronto; 60 s mudando valores → zero
+  recompilações.
 - **SC-009**: Água: Fresnel para IOR 1,33 com erro ≤ 2 pontos percentuais; absorção com erro ≤ 3 %; realce do sol acima
   de 1 no HDR.
 - **SC-010**: Cáusticas de perto (texel ≥ 4 pixels): 0 platôs de texel com borda reta detectados; variação temporal
@@ -357,7 +377,11 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
   escolhida para que as cenas atuais pareçam equivalentes.
 - O limite de luzes no laço desta spec é fixo e documentado; a iluminação clustered (013) o elimina.
 - Padrões visuais dos materiais (veios, trama, poros, flocos visíveis) e mapas de textura/deslocamento são da 012; a 011
-  entrega as camadas e versões uniformes coerentes de cada material pronto.
+  entrega os nós e versões uniformes coerentes de cada material pronto.
+- O fechamento avaliado no shader tem um número fixo de lobos por tipo (como os "bins" do Blender EEVEE); lobos do
+  mesmo tipo na mesma camada são fundidos pelo peso, regra documentada e medida.
+- O `StandardMaterial` continua com cor, rugosidade e metalicidade — as constantes do material pronto e os padrões dos
+  nós; as camadas vêm do grafo, não de campos fixos.
 - TAA, bloom em cadeia de mips e a reconstrução de SSAO/FXAA são da 014; esta spec não os altera além de passá-los
   para HDR.
 - As fixtures de imagem mudam necessariamente (8 bits linear sem sRGB → HDR com mapeamento e sRGB); as de estado
