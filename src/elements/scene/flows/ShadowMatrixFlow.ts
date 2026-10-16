@@ -1,3 +1,5 @@
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { EngineCore, Frame, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
@@ -14,7 +16,7 @@ import {
     ShadowMatrixParamsSchema,
     shadowRecord,
 } from './ShadowMatrixSchemas';
-import { shadowMatrix } from './shaders';
+import { shadowMatrix, shadowMatrixResources } from './shaders';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
@@ -57,18 +59,11 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
             role: 'compute',
             shader: shadowMatrix,
             entryPoints: ['shadow_matrix_main'],
-            consumes: [
-                Light.schema.name,
-                ShadowMap.matrixSchema.name,
-                shadowRecord.schema.name,
-                ShadowMatrixInstanceSchema.name,
-            ],
+            consumes: [],
         },
     ];
-    override readonly bindings: {
-        /** Parâmetros do estágio (`ShadowMatrixParams`). */
-        readonly shadow_params: UniformBufferSpec;
-    };
+    /** Recurso privado: parâmetros do estágio (`ShadowMatrixParams`). */
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
@@ -86,7 +81,9 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
             discriminator: 'shadow_matrix_params',
             byteSize: ShadowMatrixParamsSchema.stride,
         });
-        this.bindings = { shadow_params: this.params };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [shadowMatrixResources.params, this.params],
+        ]);
         this.transitions = {
             '*': {
                 slotsResolved: 'ignore',
@@ -110,7 +107,8 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
         if (this.count === 0) return;
         const p = bound.compute('shadow_matrix');
         frame.compute('ShadowMatrixFlow', (pass) => {
-            pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
             pass.dispatch.invocations(this.count, WORKGROUP_SIZE);
         });
     }

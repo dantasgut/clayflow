@@ -8,3 +8,12 @@ fn finite3(v: vec3f) -> bool {
 fn finite4(v: vec4f) -> bool {
     return all(v == v) && all(abs(v) < vec4f(3.4e38));
 }
+
+// Matriz 4×4 finita: nenhuma coluna com NaN nem |v| acima do maior f32 finito.
+fn finite_mat4(m: mat4x4f) -> bool {
+    for (var c = 0u; c < 4u; c++) {
+        let v = m[c];
+        if (any(v != v) || any(abs(v) > vec4f(3.4e38))) { return false; }
+    }
+    return true;
+}

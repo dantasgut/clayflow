@@ -1,3 +1,5 @@
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { EngineCore, Frame, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
@@ -28,7 +30,7 @@ import {
     CameraInstanceSchema,
     cameraRecord,
 } from './CameraSchemas';
-import { cameraCompose, cameraComposeFn, cameraPoint } from './shaders';
+import { cameraCompose, cameraComposeFn, cameraPoint, cameraResources as R } from './shaders';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
@@ -90,24 +92,16 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             role: 'compute',
             shader: cameraCompose,
             entryPoints: ['camera_compose_main'],
-            consumes: [
-                Camera.schema.name,
-                Camera.matricesSchema.name,
-                Transform.worldSchema.name,
-                cameraRecord.schema.name,
-                CameraInstanceSchema.name,
-            ],
+            consumes: [],
         },
     ];
     override readonly listens = [CameraFnRecordSchema];
-    override readonly bindings: {
-        /** Parâmetros do estágio (`CameraComposeParams`). */
-        readonly compose: UniformBufferSpec;
-        /** (slot da câmera, slot do Transform, slot do registro) das câmeras com função, agrupadas por função. */
-        readonly camera_fn_list: StorageBufferSpec;
-        /** Trecho, tempo e razão do canvas de cada grupo de função (offset dinâmico). */
-        readonly camera_fn_group: ReturnType<PerStepUniforms['source']>;
-    };
+    /**
+     * Recursos privados: parâmetros do estágio (`CameraComposeParams`), (slot da câmera, slot do Transform, slot do
+     * registro) das câmeras com função agrupadas por função, e trecho/tempo/razão do canvas de cada grupo de função
+     * (offset dinâmico).
+     */
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
@@ -124,12 +118,7 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             role: 'compute',
             shader: bindPoints(cameraComposeFn, new Map([[cameraPoint, module]])),
             entryPoints: ['camera_compose_fn_main'],
-            consumes: [
-                Camera.schema.name,
-                Camera.matricesSchema.name,
-                Transform.worldSchema.name,
-                CameraFnRecordSchema.name,
-            ],
+            consumes: [],
             verify: true,
             extensions: [fn],
         }),
@@ -160,11 +149,11 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             schema: CameraFnGroupSchema,
         });
         this.fnGroupUniforms.reserve(1);
-        this.bindings = {
-            compose: this.params,
-            camera_fn_list: this.fnList,
-            camera_fn_group: this.fnGroupUniforms.source(),
-        };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [R.compose, this.params],
+            [R.fnList, this.fnList],
+            [R.fnGroup, this.fnGroupUniforms.source()],
+        ]);
         const fnChanged = {
             to: 'idle' as const,
             run: (): void => {
@@ -224,7 +213,8 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
         if (this.count === 0) return;
         const p = bound.compute('camera_compose');
         frame.compute('CameraFlow', (pass) => {
-            pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
             pass.dispatch.invocations(this.count, WORKGROUP_SIZE);
         });
         // Câmeras com função: um despacho por função, sobre as matrizes padrão (spec 009).
@@ -233,13 +223,7 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             if (!fn.ready) return;
             frame.compute('CameraFlow.function', (pass) => {
                 pass.bind.setPipeline(fn.spec);
-                fn.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(
-                        g,
-                        bg,
-                        fn.dynamic[g] ? [this.fnGroupUniforms.offset(k)] : undefined,
-                    ),
-                );
+                fn.bindTo(pass.bind, { draw: [this.fnGroupUniforms.offset(k)] });
                 pass.dispatch.invocations(group.count, WORKGROUP_SIZE);
             });
         });
@@ -289,7 +273,7 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             this.core.destroy(this.fnList);
             this.fnList = this.createList(capacity);
             this.fnCapacity = capacity;
-            ctx.bind({ camera_fn_list: this.fnList });
+            ctx.bind(new Map([[R.fnList, this.fnList]]));
         }
         const data = new Uint32Array(total * 4);
         let at = 0;
@@ -304,7 +288,7 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
     private writeGroups(ctx: Ctx): void {
         if (this.fnGroups.length === 0) return;
         if (this.fnGroupUniforms.reserve(this.fnGroups.length))
-            ctx.bind({ camera_fn_group: this.fnGroupUniforms.source() });
+            ctx.bind(new Map([[R.fnGroup, this.fnGroupUniforms.source()]]));
         const time = (ctx.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         const { width, height } = this.core.canvasSize() ?? { width: 1, height: 1 };
         const aspect = height > 0 ? width / height : 1;

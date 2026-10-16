@@ -221,7 +221,7 @@ describe('composeWgsl — ligações emitidas pelo motor (spec 031, T005)', () =
         });
         const e = wgslModule({
             name: 'res_absent_host',
-            requires: [helper],
+            requires: [helper, items],
             source: '@compute @workgroup_size(1) fn main() { let x = ab(0u); }',
         });
         expect(() => composeWgsl(e)).toThrow(

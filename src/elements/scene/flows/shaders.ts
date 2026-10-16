@@ -1,6 +1,17 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../../../scene/shaders/WgslPoint';
-import { camera, linalg, mat, quat } from '../../gpu/shaders/math';
+import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import { camera, finite, linalg, mat, quat } from '../../gpu/shaders/math';
+import {
+    cameraMatricesWriteResource,
+    cameraParamsResource,
+    lightsResource,
+    shadowMatricesWriteResource,
+    transformsResource,
+    worldsResource,
+    worldsWriteResource,
+} from '../resources';
 import transformComposeSource from '../../gpu/wgsl/kernels/transform_compose.wgsl?raw';
 import transformLinkSource from '../../gpu/wgsl/kernels/transform_link.wgsl?raw';
 import transformLocalSource from '../../gpu/wgsl/kernels/transform_local.wgsl?raw';
@@ -35,6 +46,79 @@ import {
     TransformParamsSchema,
 } from './TransformParams';
 
+// Recursos privados dos estágios de transformação, câmera e matriz de sombra (spec 031): parâmetros do estágio e listas
+// em `stage`; regiões por grupo ou nível (offset dinâmico) em `draw`. Registros e listas mantidos pela C2 vêm do pool.
+
+const stageUniform = (name: string, type: WgslResourceType): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { uniform: true },
+        type,
+        frequency: 'stage',
+        provider: 'private',
+    });
+const stepUniform = (name: string, type: WgslResourceType): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { uniform: true },
+        type,
+        frequency: 'draw',
+        provider: 'private',
+    });
+const poolRead = (name: string, type: WgslResourceType & { readonly schema: { name: string } }) =>
+    wgslResource({
+        name,
+        binding: { storage: 'read' },
+        type,
+        frequency: 'stage',
+        provider: { pool: type.schema.name },
+    });
+
+/** Recursos do estágio de transformação. */
+export const transformResources = Object.freeze({
+    params: stageUniform('params', { schema: TransformParamsSchema }),
+    links: wgslResource({
+        name: 'links',
+        binding: { storage: 'read' },
+        type: { schema: TransformLinkSchema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    level: stepUniform('level', { schema: TransformLevelSchema }),
+    fnRecords: poolRead('transform_fn_records', { schema: TransformFnRecordSchema, array: true }),
+    fnPairs: wgslResource({
+        name: 'transform_fn_pairs',
+        binding: { storage: 'read' },
+        type: { wgsl: 'vec2u', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    fnGroup: stepUniform('transform_fn_group', { schema: TransformFnGroupSchema }),
+});
+
+/** Recursos do estágio de câmera. */
+export const cameraResources = Object.freeze({
+    compose: stageUniform('compose', { schema: CameraComposeParamsSchema }),
+    records: poolRead('camera_records', { schema: CameraRecordSchema, array: true }),
+    list: poolRead('camera_list', { schema: CameraInstanceSchema, array: true }),
+    fnRecords: poolRead('camera_fn_records', { schema: CameraFnRecordSchema, array: true }),
+    fnList: wgslResource({
+        name: 'camera_fn_list',
+        binding: { storage: 'read' },
+        type: { wgsl: 'vec4u', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    fnGroup: stepUniform('camera_fn_group', { schema: CameraFnGroupSchema }),
+});
+
+/** Recursos do estágio da matriz de sombra. */
+export const shadowMatrixResources = Object.freeze({
+    params: stageUniform('shadow_params', { schema: ShadowMatrixParamsSchema }),
+    records: poolRead('shadow_records', { schema: ShadowRecordSchema, array: true }),
+    list: poolRead('shadow_list', { schema: ShadowMatrixInstanceSchema, array: true }),
+});
+
 /** Matriz local `M = T · R · S` e matriz de normais de um `Transform` (raízes e níveis da hierarquia). */
 export const transformLocal = wgslModule({
     name: 'transform_local',
@@ -47,7 +131,13 @@ export const transformLocal = wgslModule({
 export const transformCompose = wgslModule({
     name: 'transform_compose',
     source: transformComposeSource,
-    requires: [transformLocal],
+    requires: [
+        transformLocal,
+        WORKGROUP_SIZE.module,
+        transformsResource,
+        worldsWriteResource,
+        transformResources.params,
+    ],
     structs: [Transform.schema, Transform.worldSchema, TransformParamsSchema],
 });
 
@@ -55,7 +145,14 @@ export const transformCompose = wgslModule({
 export const transformLink = wgslModule({
     name: 'transform_link',
     source: transformLinkSource,
-    requires: [transformLocal],
+    requires: [
+        transformLocal,
+        WORKGROUP_SIZE.module,
+        transformsResource,
+        worldsWriteResource,
+        transformResources.links,
+        transformResources.level,
+    ],
     structs: [Transform.schema, Transform.worldSchema, TransformLinkSchema, TransformLevelSchema],
 });
 
@@ -72,7 +169,18 @@ export const transformComposeFn = wgslModule({
     name: 'transform_compose_fn',
     source: transformComposeFnSource,
     // `transform_local` (e quat, mat, linalg) ficam à mão das funções do usuário, que substituem só o pronto.
-    requires: [transformLocal, linalg, transformFnReady],
+    requires: [
+        transformLocal,
+        linalg,
+        finite,
+        transformFnReady,
+        WORKGROUP_SIZE.module,
+        transformsResource,
+        worldsWriteResource,
+        transformResources.fnRecords,
+        transformResources.fnPairs,
+        transformResources.fnGroup,
+    ],
     structs: [
         Transform.schema,
         Transform.worldSchema,
@@ -103,7 +211,16 @@ export const transformPoint = wgslPoint({
 export const cameraCompose = wgslModule({
     name: 'camera_compose',
     source: cameraComposeSource,
-    requires: [camera],
+    requires: [
+        camera,
+        WORKGROUP_SIZE.module,
+        cameraParamsResource,
+        cameraMatricesWriteResource,
+        worldsResource,
+        cameraResources.records,
+        cameraResources.list,
+        cameraResources.compose,
+    ],
     structs: [
         Camera.schema,
         Camera.matricesSchema,
@@ -133,7 +250,19 @@ export const cameraComposeFn = wgslModule({
     name: 'camera_compose_fn',
     source: cameraComposeFnSource,
     // `camera` (perspectiva, ortográfica, vista, lookAt) e os tipos ficam à mão da função do usuário.
-    requires: [cameraPointTypes, camera, cameraFnReady],
+    requires: [
+        cameraPointTypes,
+        camera,
+        finite,
+        cameraFnReady,
+        WORKGROUP_SIZE.module,
+        cameraParamsResource,
+        cameraMatricesWriteResource,
+        worldsResource,
+        cameraResources.fnRecords,
+        cameraResources.fnList,
+        cameraResources.fnGroup,
+    ],
     structs: [
         Camera.schema,
         Camera.matricesSchema,
@@ -168,7 +297,15 @@ export const cameraPoint = wgslPoint({
 export const shadowMatrix = wgslModule({
     name: 'shadow_matrix',
     source: shadowMatrixSource,
-    requires: [camera],
+    requires: [
+        camera,
+        WORKGROUP_SIZE.module,
+        lightsResource,
+        shadowMatricesWriteResource,
+        shadowMatrixResources.records,
+        shadowMatrixResources.list,
+        shadowMatrixResources.params,
+    ],
     structs: [
         Light.schema,
         ShadowMap.matrixSchema,

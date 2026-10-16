@@ -280,8 +280,10 @@ function closureOf(m: WgslModule, out = new Set<WgslModule>()): Set<WgslModule> 
  * por um módulo que não o requer é um global implícito do hospedeiro — `unresolved-reference`.
  */
 function checkResourceReferences(order: readonly WgslModule[], entryName: string): void {
+    // Só em shaders com recursos declarados: um shader inteiro com ligações escritas à mão (forma anterior à 031)
+    // declara as próprias variáveis.
+    if (!order.some(isWgslResource)) return;
     const known = declaredResourceNames();
-    if (known.size === 0) return;
     for (const m of order) {
         if (isWgslResource(m) || m.source.length === 0) continue;
         const reachNames = new Set<string>();

@@ -1,3 +1,5 @@
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type {
     EngineCore,
@@ -27,6 +29,7 @@ import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { Parent } from '../Parent';
 import { Transform } from '../Transform';
 import { transformCompose, transformComposeFn, transformLink, transformPoint } from './shaders';
+import { transformResources as R } from './shaders';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import {
     TransformFnGroupSchema,
@@ -117,28 +120,22 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             role: 'compute',
             shader: transformCompose,
             entryPoints: ['transform_compose_main'],
-            consumes: [Transform.schema.name, Transform.worldSchema.name],
+            consumes: [],
         },
         {
             id: 'transform_link',
             role: 'compute',
             shader: transformLink,
             entryPoints: ['transform_link_main'],
-            consumes: [Transform.schema.name, Transform.worldSchema.name],
+            consumes: [],
         },
     ];
-    override readonly bindings: {
-        /** Parâmetros da composição (`TransformParams`: contagem). */
-        readonly params: UniformBufferSpec;
-        /** Elos da hierarquia (`TransformLink`), ordenados por nível. */
-        readonly links: StorageBufferSpec;
-        /** Trecho de cada nível (`TransformLevel`, uma região por nível, offset dinâmico). */
-        readonly level: ReturnType<PerStepUniforms['source']>;
-        /** Pares (slot do Transform, slot do registro) das entidades com função, agrupados por função. */
-        readonly transform_fn_pairs: StorageBufferSpec;
-        /** Trecho e tempo de cada grupo de função (`TransformFnGroup`, uma região por grupo, offset dinâmico). */
-        readonly transform_fn_group: ReturnType<PerStepUniforms['source']>;
-    };
+    /**
+     * Recursos privados: parâmetros da composição (`TransformParams`), elos da hierarquia (`TransformLink`, por
+     * nível), trecho de cada nível (região por nível, offset dinâmico), pares (slot do Transform, slot do registro)
+     * das entidades com função e trecho/tempo de cada grupo de função (região por grupo, offset dinâmico).
+     */
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'stale' as const;
     protected readonly transitions: FlowTransitions<
         TransformState,
@@ -170,11 +167,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             role: 'compute',
             shader: bindPoints(transformComposeFn, new Map([[transformPoint, module]])),
             entryPoints: ['transform_compose_fn_main'],
-            consumes: [
-                Transform.schema.name,
-                Transform.worldSchema.name,
-                TransformFnRecordSchema.name,
-            ],
+            consumes: [],
             verify: true,
             extensions: [fn],
         }),
@@ -210,13 +203,13 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             schema: TransformFnGroupSchema,
         });
         this.fnGroupUniforms.reserve(1);
-        this.bindings = {
-            params: this.params,
-            links: this.links,
-            level: this.levels.source(),
-            transform_fn_pairs: this.fnPairs,
-            transform_fn_group: this.fnGroupUniforms.source(),
-        };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [R.params, this.params],
+            [R.links, this.links],
+            [R.level, this.levels.source()],
+            [R.fnPairs, this.fnPairs],
+            [R.fnGroup, this.fnGroupUniforms.source()],
+        ]);
         const stale = { to: 'stale' as const };
         const fnChanged = {
             to: 'stale' as const,
@@ -309,7 +302,8 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         if (count === 0) return;
         const p = bound.compute('transform_compose');
         frame.compute('TransformFlow', (pass) => {
-            pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
             pass.dispatch.invocations(count, WORKGROUP_SIZE);
         });
         // Funções do usuário: um despacho por grupo, sobre a matriz do TRS já composta (spec 009).
@@ -318,13 +312,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             if (!fn.ready) return;
             frame.compute('TransformFlow.function', (pass) => {
                 pass.bind.setPipeline(fn.spec);
-                fn.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(
-                        g,
-                        bg,
-                        fn.dynamic[g] ? [this.fnGroupUniforms.offset(k)] : undefined,
-                    ),
-                );
+                fn.bindTo(pass.bind, { draw: [this.fnGroupUniforms.offset(k)] });
                 pass.dispatch.invocations(group.count, WORKGROUP_SIZE);
             });
         });
@@ -334,13 +322,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         this.levelCounts.forEach((links, k) => {
             frame.compute('TransformFlow.level', (pass) => {
                 pass.bind.setPipeline(link.spec);
-                link.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(
-                        g,
-                        bg,
-                        link.dynamic[g] ? [this.levels.offset(k)] : undefined,
-                    ),
-                );
+                link.bindTo(pass.bind, { draw: [this.levels.offset(k)] });
                 pass.dispatch.invocations(links, WORKGROUP_SIZE);
             });
         });
@@ -401,7 +383,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             this.core.destroy(this.fnPairs);
             this.fnPairs = this.createPairs(capacity);
             this.fnPairCapacity = capacity;
-            ctx.bind({ transform_fn_pairs: this.fnPairs });
+            ctx.bind(new Map([[R.fnPairs, this.fnPairs]]));
         }
         const data = new Uint32Array(total * 2);
         let at = 0;
@@ -416,7 +398,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
     private writeGroups(ctx: Ctx): void {
         if (this.fnGroups.length === 0) return;
         if (this.fnGroupUniforms.reserve(this.fnGroups.length))
-            ctx.bind({ transform_fn_group: this.fnGroupUniforms.source() });
+            ctx.bind(new Map([[R.fnGroup, this.fnGroupUniforms.source()]]));
         const time = (ctx.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         this.fnGroups.forEach((g, k) => {
             this.fnGroupUniforms.write(k, { first: g.first, count: g.count, time });
@@ -479,10 +461,10 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             this.core.destroy(this.links);
             this.links = this.createLinks(capacity);
             this.linkCapacity = capacity;
-            ctx.bind({ links: this.links });
+            ctx.bind(new Map([[R.links, this.links]]));
         }
         if (this.levels.reserve(Math.max(1, this.levelCounts.length)))
-            ctx.bind({ level: this.levels.source() });
+            ctx.bind(new Map([[R.level, this.levels.source()]]));
         if (total === 0) return;
         const data = new Uint32Array(total * 2);
         let first = 0;

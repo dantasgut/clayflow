@@ -4,17 +4,12 @@
 // a função escreveu em `worlds` neste quadro, antes dos níveis.
 // Requer: structs Transform, WorldTransform, TransformLink, TransformLevel; transform_local.
 
-@group(0) @binding(0) var<storage, read>       transforms: array<Transform>;
-@group(0) @binding(1) var<storage, read_write> worlds:     array<WorldTransform>;
-@group(0) @binding(2) var<storage, read>       links:      array<TransformLink>;
-@group(0) @binding(3) var<uniform>             level:      TransformLevel;
-
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn transform_link_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let k = gid3.x + gid3.y * nwg.x * 64u;
+    let k = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (k >= level.count) { return; }
     let link = links[level.first + k];
     let child = link.child & 0x7fffffffu;
