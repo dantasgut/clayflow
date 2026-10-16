@@ -773,8 +773,7 @@ function tintSubgraph(): ReturnType<typeof Subgraph.point> {
 async function partC(failures: string[]): Promise<void> {
     const app = await createApp(false, GRID_X * PX, GRID_Z * PX);
     app.world.insert(
-        // Câmera a 40 m: a ortográfica pronta mapeia a profundidade na convenção [-1, 1] e só a metade de longe do
-        // intervalo [near, far] cai no [0, 1] do WebGPU.
+        // Câmera ortográfica a 40 m, de cima.
         new Camera({ projection: 'orthographic', orthoHeight: GRID_Z, near: 0.1, far: 50 }).add(
             new Transform({
                 position: [0, 40, 0, 1],

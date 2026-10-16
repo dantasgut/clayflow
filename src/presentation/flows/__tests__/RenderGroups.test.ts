@@ -38,8 +38,9 @@ describe('topologia do material (spec 008)', () => {
         expect(forward.draws.map((d) => [d.pipeline.primitive?.topology, d.indexCount])).toEqual([
             ['triangle-list', 36],
         ]);
-        // Arame: um quad (6 vértices) por aresta de feição da caixa (12); sprites: 6 por vértice (24).
-        expect(forward.vertexDraws.map((d) => d.indexCount)).toEqual([72, 144]);
+        // Sprites: 6 por vértice (24); arame: um quad (6 vértices) por aresta de feição da caixa (12), por último —
+        // misturado e sem escrever profundidade, vem depois de tudo o que é opaco, mesmo inserido antes.
+        expect(forward.vertexDraws.map((d) => d.indexCount)).toEqual([144, 72]);
         // Sombra: só a caixa de triângulos (arame e sprites não projetam).
         expect(instances(s.draws('ShadowFlow'))).toEqual([1]);
     });

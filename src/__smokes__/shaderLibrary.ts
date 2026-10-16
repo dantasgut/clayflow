@@ -340,7 +340,7 @@ const CASES: readonly ReferenceCase[] = [
         tol: 2e-5,
     },
     {
-        // Spec 007: projeções do estágio de câmera (convenção de clip z em [−1, 1]).
+        // Spec 007: projeções do estágio de câmera (clip z em [0, 1]).
         name: 'camera (perspectiva e ortográfica)',
         requires: [wgslLib.camera],
         body: `let p = camera_perspective(a.x, a.y, a.z, a.w);
@@ -354,12 +354,7 @@ const CASES: readonly ReferenceCase[] = [
             const f = 1 / Math.tan(a[0] / 2);
             const nf = 1 / (a[2] - a[3]);
             const onf = 1 / (b[2] - b[3]);
-            return [
-                f / a[1],
-                (a[3] + a[2]) * nf,
-                2 * a[3] * a[2] * nf,
-                2 * onf + (b[3] + b[2]) * onf,
-            ];
+            return [f / a[1], a[3] * nf, a[3] * a[2] * nf, onf + b[2] * onf];
         },
         tol: 2e-4,
     },
