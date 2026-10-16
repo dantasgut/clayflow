@@ -7,13 +7,8 @@
 //   4 arrasto:   s.x = coeficiente linear (1/s), s.y = quadrático (1/m)
 //   5 empuxo:    s.x = densidade do meio, s.y = nível da superfície (y), s.z = gravidade (m/s²)
 // A gravidade uniforme continua nos parâmetros de cada solver (soma exata com estes termos).
-// Requer: structs FieldFnRecord; field_point_types; noise; pool_live; globais `field_records` e `field_live` do kernel.
-
-const FIELD_GRAVITY_POINT: u32 = 1u;
-const FIELD_WIND: u32 = 2u;
-const FIELD_VORTEX: u32 = 3u;
-const FIELD_DRAG: u32 = 4u;
-const FIELD_BUOYANCY: u32 = 5u;
+// Requer: structs FieldFnRecord; field_point_types; noise; pool_live; os recursos `field_records` e `field_live` e os
+// códigos de tipo (constantes compartilhadas `FIELD_*`).
 
 fn field_builtin(x: vec3f, v: vec3f, time: f32, body: FieldBody) -> vec3f {
     var acc = vec3f(0.0);

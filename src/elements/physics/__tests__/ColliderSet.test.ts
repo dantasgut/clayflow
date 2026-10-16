@@ -11,6 +11,12 @@ import { World } from '../../../scene/world/World';
 import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
+/** Fontes do conjunto de colliders pelo nome da variável (para conferir). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function byName(m: ReadonlyMap<{ readonly name: string }, unknown>): Record<string, any> {
+    return Object.fromEntries([...m].map(([r, v]) => [r.name, v]));
+}
+
 function setup() {
     const events = new DefaultEventBus();
     const world = new World(events);
@@ -55,7 +61,7 @@ describe('ColliderSet', () => {
     it('pools ausentes recebem buffers mínimos; fontes do grupo de colliders sempre válidas', () => {
         const s = setup();
         s.set.refresh();
-        const src = s.set.sources() as Record<string, { subkind?: string }>;
+        const src = byName(s.set.sources());
         expect(src.collider_counts!.subkind).toBe('uniform');
         expect(
             Object.entries(src)
@@ -75,7 +81,7 @@ describe('ColliderSet', () => {
         s.world.insert(new SphereCollider({ radius: 1 }));
         s.world.insert(new SphereCollider({ radius: 2 }));
         s.set.refresh();
-        const counts = s.set.sources().collider_counts;
+        const counts = byName(s.set.sources()).collider_counts;
         expect(lastU32(s.writes, counts as StorageBufferSpec).slice(0, 8)).toEqual([
             1, 0, 2, 0, 0, 0, 0, 0,
         ]);
@@ -117,12 +123,12 @@ describe('ColliderSet', () => {
         s.world.insert(new SurfaceCollider({ mode: 'height', resolution: [4, 4] }));
         s.set.refresh();
         expect(s.set.surfaceCount).toBe(1);
-        const counts = s.set.sources().collider_counts;
+        const counts = byName(s.set.sources()).collider_counts;
         const words = lastU32(s.writes, counts as StorageBufferSpec);
         expect(words.slice(0, 8)).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
         // Início do campo do colisor 0 (slot do pool de campo).
         expect(words[8]).toBe(0);
-        expect(s.set.sources().collider_surface_field).toBe(s.set.fieldBuffer());
+        expect(byName(s.set.sources()).collider_surface_field).toBe(s.set.fieldBuffer());
     });
 
     it('mapa de donos comum: caixas a partir de 0, esferas a partir do total de caixas (sphere_owner_base)', () => {
@@ -131,7 +137,7 @@ describe('ColliderSet', () => {
         s.world.insert(new SphereCollider({ radius: 1 }));
         s.world.insert(new SphereCollider({ radius: 2 }));
         s.set.refresh();
-        const src = s.set.sources();
+        const src = byName(s.set.sources());
         expect(lastU32(s.writes, src.collider_counts as StorageBufferSpec).slice(0, 8)).toEqual([
             0, 1, 2, 0, 0, 1, 0, 0,
         ]);
@@ -145,7 +151,7 @@ describe('ColliderSet', () => {
     it('destroy libera mapas, buffers mínimos e contagens', () => {
         const s = setup();
         s.set.refresh();
-        const created = Object.values(s.set.sources()) as StorageBufferSpec[];
+        const created = Object.values(byName(s.set.sources())) as StorageBufferSpec[];
         s.set.destroy();
         for (const spec of created.filter((b) => b.discriminator?.startsWith('test_colliders'))) {
             expect(s.core.destroy).toHaveBeenCalledWith(spec);
@@ -155,7 +161,7 @@ describe('ColliderSet', () => {
     it('sources(): nomes do collider_set.wgsl, inclusive a malha (A6), com buffers mínimos para pools ausentes', () => {
         const s = setup();
         s.set.refresh();
-        const src = s.set.sources();
+        const src = byName(s.set.sources());
         expect(Object.keys(src).sort()).toEqual([
             'collider_bodies',
             'collider_boxes',
@@ -177,6 +183,8 @@ describe('ColliderSet', () => {
         s.world.insert(new PlaneCollider({}));
         s.set.markDirty();
         expect(s.set.refresh()).toBe(true);
-        expect(s.set.sources().collider_planes).toBe(s.resources.poolBufferSpec('PlaneCollider'));
+        expect(byName(s.set.sources()).collider_planes).toBe(
+            s.resources.poolBufferSpec('PlaneCollider'),
+        );
     });
 });

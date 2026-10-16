@@ -72,7 +72,8 @@ export type WgslResourceType =
 /**
  * Quem fornece o dado: o pool da C2 de chave `pool` (o nome do schema, ou `schema:algoritmo`), um resolver nomeado
  * da cena (`consumer`: tempo, alvos, bitset vivo `<pool>.live`), um ponto de cena (`scene`, registros das funções da
- * cena) ou o próprio estágio (`'private'`, ligado pelo objeto do recurso).
+ * cena), um slot do Flow (`slot`: o que o slot resolveu, ex. o pool de corpos do `bodyType` do registro) ou o próprio
+ * estágio (`'private'`, ligado pelo objeto do recurso).
  */
 export type ResourceProvider =
     | {
@@ -86,6 +87,18 @@ export type ResourceProvider =
     | {
           /** Nome do ponto de cena. */
           readonly scene: string;
+      }
+    | {
+          /**
+           * Slot do Flow que liga o recurso (spec 031): um pool (`buffer`, ou o bitset `live`), os registros ou a lista
+           * de instâncias de um conjunto de entidades (`records`, `instances`), uma textura (`view`) ou o descritor
+           * `descriptor` de um singleton. Slot opcional ausente: o pipeline espera.
+           */
+          readonly slot: string;
+          /** Parte do slot (padrão: o buffer do pool, ou a view da textura). */
+          readonly part?: 'live' | 'records' | 'instances';
+          /** Descritor do Resource de um slot `singleton`. */
+          readonly descriptor?: string;
       }
     | 'private';
 

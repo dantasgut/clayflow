@@ -1,5 +1,13 @@
 import { poolLive } from '../../gpu/compute/shaders';
-import { noise } from '../../gpu/shaders/math';
+import { finite, noise } from '../../gpu/shaders/math';
+import {
+    FIELD_BUOYANCY,
+    FIELD_DRAG,
+    FIELD_GRAVITY_POINT,
+    FIELD_VORTEX,
+    FIELD_WIND,
+} from '../../gpu/shaders/constants';
+import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { extensionRecordSchema } from '../../../scene/descriptors/ExtensionRecord';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../../../scene/shaders/WgslPoint';
@@ -15,6 +23,27 @@ import { combineFieldFunctions } from '../../extension/combineFields';
  */
 export const FieldFnRecordSchema = extensionRecordSchema('FieldFnRecord');
 
+/**
+ * Recursos dos campos (spec 031): os registros e o bitset de vivos do pool `FieldFnRecord`, globais do ponto de cena
+ * `field` (a C2 liga o pool ou um substituto vazio).
+ */
+export const fieldResources = Object.freeze({
+    records: wgslResource({
+        name: 'field_records',
+        binding: { storage: 'read' },
+        type: { schema: FieldFnRecordSchema, array: true },
+        frequency: 'frame',
+        provider: { scene: 'field' },
+    }),
+    live: wgslResource({
+        name: 'field_live',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'frame',
+        provider: { scene: 'field' },
+    }),
+});
+
 /** Tipos do ponto `field`: `FieldBody`. */
 export const fieldPointTypes = wgslModule({
     name: 'field_point_types',
@@ -25,7 +54,18 @@ export const fieldPointTypes = wgslModule({
 export const fieldBuiltin = wgslModule({
     name: 'field_builtin',
     source: fieldBuiltinSource,
-    requires: [fieldPointTypes, noise, poolLive],
+    requires: [
+        fieldPointTypes,
+        noise,
+        poolLive,
+        fieldResources.records,
+        fieldResources.live,
+        FIELD_GRAVITY_POINT.module,
+        FIELD_WIND.module,
+        FIELD_VORTEX.module,
+        FIELD_DRAG.module,
+        FIELD_BUOYANCY.module,
+    ],
     structs: [FieldFnRecordSchema],
 });
 
@@ -40,7 +80,17 @@ export const fieldAccelReady = wgslModule({
 export const fieldCheck = wgslModule({
     name: 'field_check',
     source: fieldCheckSource,
-    requires: [fieldPointTypes, fieldAccelReady],
+    requires: [
+        fieldPointTypes,
+        fieldAccelReady,
+        wgslResource({
+            name: 'field_out',
+            binding: { storage: 'read_write' },
+            type: { wgsl: 'vec4f', array: true },
+            frequency: 'draw',
+            provider: 'private',
+        }),
+    ],
     structs: [FieldFnRecordSchema],
 });
 
@@ -66,6 +116,12 @@ export const fieldPoint = wgslPoint({
             field_records: { pool: FieldFnRecordSchema },
             field_live: { pool: FieldFnRecordSchema, part: 'live' },
         },
-        combine: (entries) => combineFieldFunctions(entries, [fieldPointTypes, fieldBuiltin]),
+        combine: (entries) =>
+            combineFieldFunctions(entries, [
+                fieldPointTypes,
+                fieldBuiltin,
+                finite,
+                fieldResources.records,
+            ]),
     },
 });

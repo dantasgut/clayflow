@@ -8,7 +8,7 @@ const combined = new Map<string, WgslModule>();
  * parâmetros do seu registro (slot no pool `FieldFnRecord`); resultado não finito de uma função não entra na soma.
  * Memorizada pelas funções e slots.
  *
- * @param base Módulos que a composição exige (tipos e campos prontos).
+ * @param base Módulos que a composição exige (tipos, campos prontos, `finite` e o recurso `field_records`).
  */
 export function combineFieldFunctions(
     entries: readonly ScenePointEntry[],
@@ -27,7 +27,7 @@ export function combineFieldFunctions(
         source: [
             '// Campos da cena (gerado; spec 009): os prontos e as funções `field` do usuário.',
             'fn field_finite(f: vec3f) -> vec3f {',
-            '    return select(vec3f(0.0), f, all(f == f) && all(abs(f) < vec3f(3.4e38)));',
+            '    return select(vec3f(0.0), f, finite3(f));',
             '}',
             'fn field_accel(x: vec3f, v: vec3f, time: f32, body: FieldBody) -> vec3f {',
             '    var a = field_builtin(x, v, time, body);',

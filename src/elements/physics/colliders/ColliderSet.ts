@@ -8,10 +8,12 @@ import type {
 } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { ColliderSetCountsSchema, colliderResources as C } from './colliderResources';
 
-type NamedSources = Readonly<Record<string, BindingSource>>;
-import { FieldType } from '../../../scene/descriptors/FieldType';
-import { StructSchema } from '../../../scene/descriptors/StructSchema';
+export { ColliderSetCountsSchema } from './colliderResources';
+
+import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import type { World } from '../../../scene/world/World';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { BoxCollider } from './BoxCollider';
@@ -40,24 +42,6 @@ export const COLLIDER_POOL_KEYS: readonly string[] = [
 
 /** Slot de dono para collider sem corpo (estático: o centro é a posição de mundo). */
 export const NO_OWNER = NONE.value;
-
-/** Contagens dos pools ligados no grupo de colliders (`ColliderSetCounts` no WGSL). */
-export const ColliderSetCountsSchema = new StructSchema('ColliderSetCounts', {
-    plane_count: FieldType.u32,
-    box_count: FieldType.u32,
-    sphere_count: FieldType.u32,
-    mesh_count: FieldType.u32,
-    surface_count: FieldType.u32,
-    /** Início das esferas no mapa de donos comum (`collider_owners`: caixas, depois esferas). */
-    sphere_owner_base: FieldType.u32,
-    _pad0: FieldType.u32,
-    _pad1: FieldType.u32,
-    /** Início do campo de cada colisor de superfície no pool (até `MAX_SURFACE_COLLIDERS`, 4 por vetor). */
-    surface_first0: FieldType.vec4u,
-    surface_first1: FieldType.vec4u,
-    surface_first2: FieldType.vec4u,
-    surface_first3: FieldType.vec4u,
-});
 
 /** Colliders de superfície consultados por estágio (os inícios dos campos vão no uniforme de contagens). */
 export const MAX_SURFACE_COLLIDERS = MAX_SURFACE_COLLIDERS_CONSTANT.value;
@@ -197,25 +181,25 @@ export class ColliderSet {
         return this.gen !== before;
     }
 
-    /** Fontes do grupo de colliders pelos nomes do `collider_set.wgsl` (válidas depois de `refresh()`). */
-    sources(): NamedSources {
+    /** Fontes dos recursos do conjunto de colliders (`colliderResources`; válidas depois de `refresh()`). */
+    sources(): ReadonlyMap<WgslResource, BindingSource> {
         if (this.countsBuffer === null)
             throw new Error('ColliderSet: refresh() antes de sources()');
         const plane = this.pool(PlaneCollider.schema.name);
         const box = this.pool(BoxCollider.schema.name);
         const sphere = this.pool(SphereCollider.schema.name);
         const mesh = this.pool(MeshCollider.schema.name);
-        return {
-            collider_counts: this.countsBuffer,
-            collider_planes: plane.buffer,
-            collider_boxes: box.buffer,
-            collider_spheres: sphere.buffer,
-            collider_meshes: mesh.buffer,
-            collider_owners: this.sharedOwners!.spec,
-            collider_mesh_owners: mesh.owners,
-            collider_bodies: this.bodiesBuffer(),
-            collider_surface_field: this.fieldBuffer(),
-        };
+        return new Map<WgslResource, BindingSource>([
+            [C.counts, this.countsBuffer],
+            [C.planes, plane.buffer],
+            [C.boxes, box.buffer],
+            [C.spheres, sphere.buffer],
+            [C.meshes, mesh.buffer],
+            [C.owners, this.sharedOwners!.spec],
+            [C.meshOwners, mesh.owners],
+            [C.bodies, this.bodiesBuffer()],
+            [C.surfaceField, this.fieldBuffer()],
+        ]);
     }
 
     /** Visão de um pool de collider (válida depois de `refresh()`). */

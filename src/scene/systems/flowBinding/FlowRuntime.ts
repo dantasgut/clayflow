@@ -1,4 +1,9 @@
-import type { EngineCore, BindGroupSpec } from '../../../core/contracts/index';
+import type {
+    AnyBufferSpec,
+    BindGroupSpec,
+    EngineCore,
+    StorageBufferSpec,
+} from '../../../core/contracts/index';
 import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
 import type { PoolDirectory } from '../../contracts/PoolDirectory';
@@ -709,10 +714,64 @@ export class FlowRuntime {
                 ? undefined
                 : this.host.scenePoints.globalSource(base.shader, entry.name);
         }
+        if ('slot' in provider) return this.slotSource(provider, entry, state);
         const name = 'pool' in provider ? provider.pool : provider.consumer;
         // Pool ou resolver ainda ausente na cena: o pipeline espera.
         if (!this.host.consumers.has(name)) return undefined;
         return this.host.consumers.resolve(name, ctx);
+    }
+
+    /** Fonte de um recurso fornecido por um slot do Flow (spec 031). */
+    private slotSource(
+        provider: { readonly slot: string; readonly part?: string; readonly descriptor?: string },
+        entry: InferredEntry,
+        state: PipelineState,
+    ): ResolvedSource | undefined {
+        const decl = (this.flow.slots as Record<string, SlotDeclaration | undefined>)[
+            provider.slot
+        ];
+        if (decl === undefined) {
+            throw new FlowBindingError(
+                `recurso '${entry.name}' do pipeline '${state.id}' do Flow '${this.flow.type}' fornecido pelo slot '${provider.slot}', que o Flow não declara.`,
+                { flow: this.flow.type, pipeline: state.id, variable: entry.name },
+            );
+        }
+        const value = this.slotValues[provider.slot];
+        if (value === undefined) return undefined;
+        const buffer = (
+            b: StorageBufferSpec | AnyBufferSpec | undefined,
+        ): ResolvedSource | undefined =>
+            b === undefined ? undefined : normalizeSource(b as BindingSource);
+        switch (decl.kind) {
+            case 'pool':
+            case 'bodies': {
+                const pool = value as BoundPool;
+                return buffer(provider.part === 'live' ? pool.live : pool.buffer);
+            }
+            case 'entities': {
+                const set = value as BoundEntities;
+                const pool = provider.part === 'instances' ? set.instances : set.records;
+                return buffer(pool?.buffer);
+            }
+            case 'singleton': {
+                const single = value as BoundSingleton;
+                const d = provider.descriptor;
+                if (d === undefined) return undefined;
+                const b = single.bufferOf(d);
+                if (b !== undefined) return buffer(b);
+                const view = single.textureViewOf(d);
+                if (view !== undefined) return normalizeSource(view);
+                const sampler = single.samplerOf(d);
+                return sampler === undefined ? undefined : normalizeSource(sampler);
+            }
+            case 'texture':
+                return normalizeSource((value as BoundTexture).view);
+            default:
+                throw new FlowBindingError(
+                    `recurso '${entry.name}' do Flow '${this.flow.type}': o slot '${provider.slot}' (${decl.kind}) não fornece dado de shader.`,
+                    { flow: this.flow.type, pipeline: state.id, variable: entry.name },
+                );
+        }
     }
 
     private readonly onReplaced = (

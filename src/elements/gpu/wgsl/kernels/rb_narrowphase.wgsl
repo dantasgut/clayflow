@@ -348,7 +348,7 @@ fn narrowphase_body_vs_sphere(ctx: TestContext, sphere_center_world: vec3f, sphe
 @group(0) @binding(14) var<storage, read> surfaces:               array<SurfaceCollider>;
 @group(0) @binding(15) var<storage, read> collider_surface_field: array<f32>;
 
-fn surface_collider_first(i: u32) -> u32 {
+fn narrowphase_surface_first(i: u32) -> u32 {
     return surfaces[i].first;
 }
 
@@ -366,7 +366,7 @@ fn narrowphase_body_vs_surface(ctx: TestContext, i: u32) {
         var sdfs:    array<f32, 8>;
         var n_active = 0u;
         for (var k: u32 = 0u; k < 8u; k++) {
-            let hit = collider_hit_surface(i, corners[k]);
+            let hit = collider_hit_surface(narrowphase_surface_first(i), corners[k]);
             sdfs[k] = hit.dist - margin;
             normals[k] = hit.normal;
             depths[k] = 1e30;
@@ -386,7 +386,7 @@ fn narrowphase_body_vs_surface(ctx: TestContext, i: u32) {
         return;
     }
     let radius = bodies[ctx.rb_i].body_shape.y;
-    let hit = collider_hit_surface(i, world_cm);
+    let hit = collider_hit_surface(narrowphase_surface_first(i), world_cm);
     if (hit.dist >= 1e30) { return; }
     emit_single(ctx, hit.normal, hit.dist - margin - radius, world_cm, vec3f(0.0), radius);
 }

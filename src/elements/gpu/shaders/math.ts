@@ -24,7 +24,11 @@ import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
 import { MeshCollider } from '../../physics/colliders/MeshCollider';
 import { SphereCollider } from '../../physics/colliders/SphereCollider';
-import { ColliderSetCountsSchema } from '../../physics/colliders/ColliderSet';
+import {
+    ColliderSetCountsSchema,
+    colliderResources,
+} from '../../physics/colliders/colliderResources';
+import { NONE } from '../../../scene/shaders/engineConstants';
 import { RBSimParamsSchema } from '../../physics/schemas/simParams';
 import {
     RBBodyCorrectionSchema,
@@ -90,14 +94,30 @@ export const colliderHit = wgslModule({ name: 'collider_hit', source: colliderHi
 export const surfaceColliderHit = wgslModule({
     name: 'surface_collider_hit',
     source: surfaceColliderHitSource,
-    requires: [colliderHit],
+    requires: [colliderHit, colliderResources.surfaceField],
 });
 
 /** Conjunto de colliders (grupo 2, com a malha): pose pelo corpo dono, SDF, push-out de partículas, restrição de nós. */
 export const colliderSet = wgslModule({
     name: 'collider_set',
     source: colliderSetSource,
-    requires: [quat, sdf, sphKernels, surfaceColliderHit, fluidBounds],
+    requires: [
+        quat,
+        sdf,
+        sphKernels,
+        surfaceColliderHit,
+        fluidBounds,
+        NONE.module,
+        colliderResources.counts,
+        colliderResources.planes,
+        colliderResources.boxes,
+        colliderResources.spheres,
+        colliderResources.owners,
+        colliderResources.bodies,
+        colliderResources.meshes,
+        colliderResources.meshOwners,
+        colliderResources.surfaceField,
+    ],
     structs: [
         ColliderSetCountsSchema,
         PlaneCollider.schema,

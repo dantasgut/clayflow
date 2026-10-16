@@ -64,7 +64,52 @@ async function readyDeclared(bindings: ConstructorParameters<typeof ProbeFlow>[1
     return { ...s, flow: () => flow };
 }
 
+const bodiesBySlot = wgslResource({
+    name: 'bodies',
+    binding: { storage: 'read_write' },
+    type: { schema: ProbeBodySchema, array: true },
+    frequency: 'stage',
+    provider: { slot: 'bodies' },
+});
+const liveBySlot = wgslResource({
+    name: 'probe_live',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'stage',
+    provider: { slot: 'bodies', part: 'live' },
+});
+const slotShader = wgslModule({
+    name: 'probe_slot',
+    requires: [cam, bodiesBySlot, liveBySlot, params],
+    source: `
+@compute @workgroup_size(64) fn probe_main(@builtin(global_invocation_id) id: vec3u) {
+    if (probe_live[id.x >> 5u] == 0u) { return; }
+    bodies[id.x].v = cam.scale * params.k;
+}
+`,
+});
+
 describe('Flow com recursos declarados (spec 031, T010)', () => {
+    it('fornecedor por slot do Flow: o pool do bodyType e o bitset de vivos', async () => {
+        const { scene, flow } = await readyDeclared({
+            pipelines: [probePipeline({ shader: slotShader, consumes: [] })],
+        });
+        const ready = vi.fn();
+        scene.events.on('flowReady', ready);
+        scene.world.insert(new ProbeCam());
+        scene.world.insert(new ProbeBody());
+        expect(flow()?.lifecycle).toBe('ready');
+        const p = ready.mock.calls[0]![0].payload.bound.compute('main');
+        const [stage] = p.groupsOf('stage');
+        const entries = (stage.spec as BindGroupSpec).bindings;
+        expect(entries[0]).toMatchObject({
+            buffer: scene.resourceSystem.poolBufferSpec('ProbeBody'),
+        });
+        expect(entries[1]).toMatchObject({
+            buffer: scene.resourceSystem.poolLiveBuffer('ProbeBody'),
+        });
+    });
+
     it('fornecedores resolvidos (consumer, pool, privado por objeto) e grupos por frequência', async () => {
         const { scene, flow } = await readyDeclared();
         const ready = vi.fn();

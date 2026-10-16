@@ -20,7 +20,7 @@ import { PlaneCollider } from '../elements/physics/colliders/PlaneCollider';
 import { BoxCollider } from '../elements/physics/colliders/BoxCollider';
 import { SphereCollider } from '../elements/physics/colliders/SphereCollider';
 import { MeshCollider } from '../elements/physics/colliders/MeshCollider';
-import { ColliderSetCountsSchema } from '../elements/physics/colliders/ColliderSet';
+import { ColliderSetCountsSchema } from '../elements/physics/colliders/colliderResources';
 import { DistanceConstraint } from '../elements/physics/constraints/DistanceConstraint';
 import * as Params from '../elements/physics/schemas/simParams';
 import * as State from '../elements/physics/schemas/simState';
