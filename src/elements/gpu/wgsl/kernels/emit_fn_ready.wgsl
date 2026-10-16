@@ -3,7 +3,7 @@
 // `EmitFunction` toma o lugar deste módulo com a mesma assinatura:
 //   fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle
 // `i` é o índice global da partícula no emissor (0, 1, 2… na ordem de criação), `time` o tempo simulado do passo.
-// Requer: structs EmitterParams, EmitFnRecord; emit_point_types; o uniforme `emit_params` do kernel.
+// Requer: structs EmitterParams, EmitFnRecord; emit_point_types; o recurso `emit_params`.
 
 struct EmitFnParams {
     _unused: u32,

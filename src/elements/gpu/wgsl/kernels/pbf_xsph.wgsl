@@ -2,21 +2,14 @@
 // Correção de velocidade do PBF (spec 005, R18): XSPH (Schechter & Bridson 2012) + confinamento de vorticidade
 // (Macklin & Müller 2013) a partir de ω calculado no passe anterior. Grava Δv em `pbf_delta` (os vizinhos leem as
 // velocidades deste passe, sem corrida); `pbf_apply_velocity_main` soma depois.
-@group(0) @binding(0) var<uniform>             pbf_params:     PBFSimParams;
-@group(1) @binding(0) var<storage, read_write> particles:      array<PBFParticle>;
-@group(1) @binding(1) var<storage, read>       live: array<u32>;  // slots vivos do pool (spec 008)
-@group(2) @binding(0) var<storage, read>       neighbor_list:  array<u32>;
-@group(2) @binding(1) var<storage, read>       neighbor_count: array<u32>;
-@group(3) @binding(0) var<storage, read_write> pbf_delta:      array<vec4f>;
-@group(3) @binding(1) var<storage, read>       pbf_normal:     array<vec4f>;  // (nⱼ, ρⱼ) do passe de vorticidade
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn pbf_xsph_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= pbf_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 
     let h        = pbf_params.h;

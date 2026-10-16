@@ -1,14 +1,10 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/mpm_grid_update.wgsl.ts
-@group(0) @binding(0) var<uniform>             mpm_params: MPMSimParams;
-@group(1) @binding(0) var<storage, read_write> grid:       array<MPMGridNode>;
-// Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
-@group(1) @binding(1) var<storage, read>       field_records: array<FieldFnRecord>;
-@group(1) @binding(2) var<storage, read>       field_live:    array<u32>;
-// Grupo 2: conjunto de colliders (`collider_set.wgsl`).
+// Campos de força (spec 009): `field_accel_ready` (recursos `field_records`/`field_live` do ponto `field`).
+// Conjunto de colliders: módulo `collider_set` (recursos `collider_*` declarados).
 
 const MPM_BOUNDARY: u32 = 3u;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn mpm_grid_update_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
@@ -16,7 +12,7 @@ fn mpm_grid_update_main(
     // Tempo da iteração: escolhe a cópia do passo nos colliders de superfície (spec 010).
     collider_time = mpm_params.field_time;
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let idx = gid.x;
     let total = mpm_params.grid_x * mpm_params.grid_y * mpm_params.grid_z;
     if (idx >= total) { return; }

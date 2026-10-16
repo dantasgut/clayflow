@@ -13,18 +13,20 @@ import {
     type ComputeKernel,
 } from '../../../scene/flows/createComputeKernel';
 import { Flow } from '../../../scene/flows/Flow';
-import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
+import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import { slot, type EntitiesSlot, type SlotMap } from '../../../scene/flows/slots';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { EntityId } from '../../../scene/world/EntityId';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { SurfaceGeometry } from '../../geometry/SurfaceGeometry';
 import { SoftBody } from '../bodies/SoftBody';
 import { SoftSurfaceParamsSchema } from '../schemas/softSurface';
-import { softFaceNormals, softVertexWrite } from '../shaders/softSurface';
+import { softFaceNormals, softSurfaceResources, softVertexWrite } from '../shaders/softSurface';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
+const R = softSurfaceResources;
 
 /** Slots do estágio de superfície de corpos moles. */
 export interface SoftSurfaceSlots extends SlotMap {
@@ -123,15 +125,13 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
         this.order.forEach((surface, region) => {
             const offset = [this.params.offset(region)];
             frame.compute('SoftSurfaceFlow.face_normals', (pass) => {
-                pass.bind
-                    .setPipeline(surface.normals.pipeline)
-                    .setBindGroup(0, surface.normals.bindGroups[0]!, offset);
+                pass.bind.setPipeline(surface.normals.pipeline);
+                surface.normals.bindTo(pass.bind, { draw: offset });
                 pass.dispatch.invocations(surface.geometry.triangleCount, WORKGROUP_SIZE);
             });
             frame.compute('SoftSurfaceFlow.vertex_write', (pass) => {
-                pass.bind
-                    .setPipeline(surface.vertices.pipeline)
-                    .setBindGroup(0, surface.vertices.bindGroups[0]!, offset);
+                pass.bind.setPipeline(surface.vertices.pipeline);
+                surface.vertices.bindTo(pass.bind, { draw: offset });
                 pass.dispatch.invocations(surface.geometry.vertexCount, WORKGROUP_SIZE);
             });
         });
@@ -194,24 +194,24 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
                 discriminator: `soft_surface_normals:${id}`,
                 shader: softFaceNormals,
                 entryPoint: 'soft_face_normals_main',
-                bindings: {
-                    surface,
-                    particles,
-                    indices: this.geometryBuffer(geometry, 'indices'),
-                    face_normals: faces,
-                },
+                bindings: new Map<WgslResource, BindingSource>([
+                    [R.surface, surface],
+                    [R.particles, particles],
+                    [R.indices, this.geometryBuffer(geometry, 'indices')],
+                    [R.faceNormalsWrite, faces],
+                ]),
             }),
             vertices: createComputeKernel(this.core, {
                 discriminator: `soft_surface_vertices:${id}`,
                 shader: softVertexWrite,
                 entryPoint: 'soft_vertex_write_main',
-                bindings: {
-                    surface,
-                    particles,
-                    adjacency: this.geometryBuffer(geometry, 'adjacency'),
-                    face_normals: faces,
-                    vertices: this.geometryBuffer(geometry, 'vertices'),
-                },
+                bindings: new Map<WgslResource, BindingSource>([
+                    [R.surface, surface],
+                    [R.particles, particles],
+                    [R.adjacency, this.geometryBuffer(geometry, 'adjacency')],
+                    [R.faceNormalsRead, faces],
+                    [R.vertices, this.geometryBuffer(geometry, 'vertices')],
+                ]),
             }),
         };
     }

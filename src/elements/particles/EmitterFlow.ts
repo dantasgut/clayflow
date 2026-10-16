@@ -2,7 +2,12 @@ import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/eng
 import type { EngineCore, Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../scene/flows/Flow';
-import type { BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import type {
+    BindingKey,
+    BindingSource,
+    BoundFlow,
+    TransitionContext,
+} from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import {
@@ -15,6 +20,7 @@ import {
 } from '../../scene/flows/slots';
 import { bindPoints } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Time } from '../../scene/time/Time';
 import type { EntityId } from '../../scene/world/EntityId';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
@@ -26,7 +32,7 @@ import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
 import { ComputeParticleEmitter } from './ComputeParticleEmitter';
 import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
-import { emitCollide, emitPoint, emitSpawn, emitUpdate } from './shaders';
+import { emitCollide, emitPoint, emitResources as R, emitSpawn, emitUpdate } from './shaders';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
@@ -178,30 +184,24 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 st.spawnActive === undefined ? undefined : bound.pipelines.get(st.spawnActive.id);
             const capacity = this.capacityOf(bound, st.id);
             st.spawn.forEach((n, k) => {
-                const offset = [st.params.offset(k)];
+                const offsets = { draw: [st.params.offset(k)] };
                 if (n > 0 && spawn?.role === 'compute' && spawn.ready) {
                     frame.compute('EmitterFlow.spawn', (pass) => {
                         pass.bind.setPipeline(spawn.spec);
-                        spawn.groups.forEach((bg, g) =>
-                            pass.bind.setBindGroup(g, bg, spawn.dynamic[g] ? offset : undefined),
-                        );
+                        spawn.bindTo(pass.bind, offsets);
                         pass.dispatch.invocations(n, WORKGROUP_SIZE);
                     });
                 }
                 frame.compute('EmitterFlow.update', (pass) => {
                     pass.bind.setPipeline(update.spec);
-                    update.groups.forEach((bg, g) =>
-                        pass.bind.setBindGroup(g, bg, update.dynamic[g] ? offset : undefined),
-                    );
+                    update.bindTo(pass.bind, offsets);
                     pass.dispatch.invocations(capacity, WORKGROUP_SIZE);
                 });
                 const collide = this.collide ? bound.pipelines.get(st.collideId) : undefined;
                 if (collide?.role === 'compute' && collide.ready)
                     frame.compute('EmitterFlow.collide', (pass) => {
                         pass.bind.setPipeline(collide.spec);
-                        collide.groups.forEach((bg, g) =>
-                            pass.bind.setBindGroup(g, bg, collide.dynamic[g] ? offset : undefined),
-                        );
+                        collide.bindTo(pass.bind, offsets);
                         pass.dispatch.invocations(capacity, WORKGROUP_SIZE);
                     });
             });
@@ -255,11 +255,13 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
             const params = st.params.source();
             const records = fnRecords?.buffer ?? this.dummyRecords;
             // Bindings privados antes da preparação (a C2 resolve as fontes ao preparar).
-            ctx.bind({
-                [`${st.updateId}:emit_params`]: params,
-                [`${st.updateId}:emit_particles`]: particles,
-                [`${st.updateId}:emit_vertices`]: vertices,
-            });
+            ctx.bind(
+                at(st.updateId, [
+                    [R.params, params],
+                    [R.particles, particles],
+                    [R.vertices, vertices],
+                ]),
+            );
             ctx.prepare({
                 id: st.updateId,
                 role: 'compute',
@@ -267,11 +269,13 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 entryPoints: ['emit_update_main'],
                 consumes: [],
             });
-            ctx.bind({
-                [`${st.collideId}:emit_params`]: params,
-                [`${st.collideId}:emit_particles`]: particles,
-                [`${st.collideId}:emit_vertices`]: vertices,
-            });
+            ctx.bind(
+                at(st.collideId, [
+                    [R.params, params],
+                    [R.particles, particles],
+                    [R.vertices, vertices],
+                ]),
+            );
             ctx.prepare({
                 id: st.collideId,
                 role: 'compute',
@@ -288,11 +292,13 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                     : undefined;
             for (const pid of [st.spawnActive?.id, st.spawnPending?.id, spawnId]) {
                 if (pid === undefined) continue;
-                ctx.bind({
-                    [`${pid}:emit_params`]: params,
-                    [`${pid}:emit_particles`]: particles,
-                    [`${pid}:emit_fn_records`]: records,
-                });
+                ctx.bind(
+                    at(pid, [
+                        [R.params, params],
+                        [R.particles, particles],
+                        [R.fnRecords, records],
+                    ]),
+                );
             }
             if (spawnId !== undefined) {
                 const prepared = ctx.prepare({
@@ -350,7 +356,7 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                     st.updateId,
                     st.collideId,
                 ])
-                    if (pid !== undefined) ctx.bind({ [`${pid}:emit_params`]: params });
+                    if (pid !== undefined) ctx.bind(at(pid, [[R.params, params]]));
             }
             st.spawn = [];
             for (let k = 0; k < steps; k++) {
@@ -386,4 +392,12 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
     private capacityOf(bound: BoundFlow<EmitterSlots>, id: EntityId): number {
         return bound.slots.emitters.entry(id)?.get(ComputeParticleEmitter).data.maxParticles ?? 0;
     }
+}
+
+/** Fontes privadas de um pipeline (chave `{ pipeline, resource }`). */
+function at(
+    pid: string,
+    sources: readonly (readonly [WgslResource, BindingSource])[],
+): Map<BindingKey, BindingSource> {
+    return new Map(sources.map(([resource, source]) => [{ pipeline: pid, resource }, source]));
 }

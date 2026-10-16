@@ -33,8 +33,13 @@ describe('MPMFlow — avanço governado pelo Time (slots)', () => {
             expect(countPasses(passes, label)).toBe(4);
         }
         const g2p = passes.filter((p) => p.label === 'MPMFlow.g2p');
-        expect(g2p.map((p) => p.offsets[0]?.[0])).toEqual([0, 256, 512, 768]);
-        expect(g2p[0]!.offsets.slice(1).every((o) => o === undefined)).toBe(true);
+        // G2P: grade, partículas e vivos em `stage` (grupo 0); parâmetros da iteração em `draw` (grupo 1).
+        expect(g2p.map((p) => p.offsets[1]?.[0])).toEqual([0, 256, 512, 768]);
+        expect(g2p.every((p) => p.offsets.length === 2 && p.offsets[0] === undefined)).toBe(true);
+        // Atualização da grade: campos em `frame` (0), grade e colliders em `stage` (1), parâmetros em `draw` (2).
+        const update = passes.filter((p) => p.label === 'MPMFlow.grid_update');
+        expect(update.map((p) => p.offsets[2]?.[0])).toEqual([0, 256, 512, 768]);
+        expect(update.every((p) => p.offsets.slice(0, 2).every((o) => o === undefined))).toBe(true);
     });
 
     it('dt e dt_frame por região, uma escrita por quadro', async () => {

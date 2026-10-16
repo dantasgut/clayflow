@@ -10,7 +10,7 @@ import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
 import { consumesName, type PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
-import { scenePointsIn, type PointImplementation } from '../../shaders/WgslPoint';
+import type { PointImplementation } from '../../shaders/WgslPoint';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
@@ -223,7 +223,11 @@ export class FlowRuntime {
         for (const state of [...this.pipelineStates.values()]) {
             state.refresh(this.lookup, this.onReplaced);
         }
-        for (const next of this.nextStates.values()) next.refresh(this.lookup, this.onReplaced);
+        for (const [id, next] of this.nextStates) {
+            next.refresh(this.lookup, this.onReplaced);
+            // Compilado de forma síncrona (sem conferência nem `preferAsync`): troca já neste reconcile.
+            if (next.ready && !this.swapQueue.includes(id)) this.swapQueue.push(id);
+        }
         while (this.nextRejected.length > 0) {
             const id = this.nextRejected.shift()!;
             const next = this.nextStates.get(id);
@@ -576,7 +580,9 @@ export class FlowRuntime {
                 });
             }
         });
-        if (bound.extensions.length === 0) return descriptor;
+        if (bound.shader === descriptor.shader) return descriptor;
+        // Contribuições de cena (spec 031) são código do motor; funções do usuário pedem a conferência do compilador.
+        if (bound.extensions.length === 0) return { ...descriptor, shader: bound.shader };
         return {
             ...descriptor,
             shader: bound.shader,
@@ -586,13 +592,13 @@ export class FlowRuntime {
     }
 
     /**
-     * As funções de cena mudaram (spec 009): cada pipeline cujo shader contém um ponto de cena é preparado de novo com
-     * as funções atuais e troca o atual quando compila (rejeitado, o atual continua).
+     * As funções de cena (spec 009) ou as contribuições de cena (spec 031) mudaram: cada pipeline cujo shader muda com
+     * a composição atual é preparado de novo e troca o atual quando compila (rejeitado, o atual continua).
      */
     sceneChanged(): void {
         for (const [id, state] of this.pipelineStates) {
             const base = this.baseDescriptors.get(id);
-            if (base === undefined || scenePointsIn(base.shader).length === 0) continue;
+            if (base === undefined) continue;
             const descriptor = this.withScene(base);
             const target = this.nextStates.get(id) ?? state;
             if (descriptor.shader === target.descriptor.shader) continue;

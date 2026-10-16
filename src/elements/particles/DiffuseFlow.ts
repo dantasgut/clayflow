@@ -2,7 +2,8 @@ import type { EngineCore, Frame, StorageBufferSpec } from '../../scene/contracts
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../scene/flows/Flow';
 import type {
-    BindingSources,
+    BindingKey,
+    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -16,6 +17,9 @@ import {
     type SingletonSlot,
     type SlotMap,
 } from '../../scene/flows/slots';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import type { WgslModule } from '../../scene/shaders/WgslModule';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Time } from '../../scene/time/Time';
 import type { EntityId } from '../../scene/world/EntityId';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
@@ -24,17 +28,22 @@ import {
     NEIGHBOR_SEARCH_MAX_PARTICLES,
     NeighborSearchPipeline,
 } from '../gpu/NeighborSearchPipeline';
+import { neighborResources } from '../gpu/shaders/neighborSearch';
 import { PointCloudGeometry } from '../geometry/PointCloudGeometry';
 import { LCPSchema } from '../physics/bodies/schemas/LCPSchema';
 import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
 import { GravityField } from '../physics/forcefields/GravityField';
 import { ParticleMaterial } from '../physics/materials/ParticleMaterial';
-import { diffuseCollide, diffuseSpawn, diffuseUpdate } from '../physics/shaders/diffuse';
+import {
+    diffuseCollide,
+    diffuseResources as R,
+    diffuseSpawn,
+    diffuseUpdate,
+} from '../physics/shaders/diffuse';
 import { DiffuseParticles } from './DiffuseParticles';
 import { DiffuseParamsSchema } from './DiffuseSchemas';
 
-const WORKGROUP = 64;
 /** Vizinhos lidos por partícula do fluido nos potenciais. */
 const MAX_NEIGHBORS = 64;
 
@@ -176,15 +185,9 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             ) => {
                 frame.compute(label, (pass) => {
                     pass.bind.setPipeline(k.spec);
-                    k.groups.forEach((bg, g) =>
-                        pass.bind.setBindGroup(
-                            g,
-                            bg,
-                            k.dynamic[g] ? [st.params.offset(region)] : undefined,
-                        ),
-                    );
+                    k.bindTo(pass.bind, { draw: [st.params.offset(region)] });
                     if (count === 'one') pass.dispatch.workgroups(1);
-                    else pass.dispatch.invocations(count, WORKGROUP);
+                    else pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
                 });
             };
             st.search.rebuild(frame, st.fluidCount);
@@ -256,27 +259,29 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             st.scan.prepare(st.offsets, 1);
             st.pool = pool;
             const g = st.search.grid!;
-            const shared: BindingSources = {
-                diffuse_params: st.params.source(),
-                fluid: pool,
-                fluid_live: live,
-                neighbor_list: st.search.neighborList!,
-                neighbor_count: st.search.neighborCount!,
-                diffuse_normals: st.normals,
-                diffuse_counts: st.counts,
-                diffuse_offsets: st.offsets,
-                diffuse: particles,
-                diffuse_state: st.state,
-                cell_start: g.cellStart,
-                cell_count: g.cellCount,
-                sorted_particles: g.sortedParticles,
-                diffuse_vertices: vertices,
-            };
-            const prepare = (name: string, shader: typeof diffuseSpawn, entry: string): void => {
+            const shared: [WgslResource, BindingSource][] = [
+                [R.params, st.params.source()],
+                [R.fluid, pool],
+                [R.fluidLive, live],
+                [R.neighborList, st.search.neighborList!],
+                [R.neighborCount, st.search.neighborCount!],
+                [R.normals, st.normals],
+                [R.counts, st.counts],
+                [R.offsets, st.offsets],
+                [R.particles, particles],
+                [R.state, st.state],
+                [neighborResources.cellStart, g.cellStart],
+                [R.cellCount, g.cellCount],
+                [neighborResources.sortedParticlesRead, g.sortedParticles],
+                [R.vertices, vertices],
+            ];
+            const prepare = (name: string, shader: WgslModule, entry: string): void => {
                 const pid = `diffuse_${name}:${id}`;
-                const sources: Record<string, unknown> = {};
-                for (const [k, v] of Object.entries(shared)) sources[`${pid}:${k}`] = v;
-                ctx.bind(sources as BindingSources);
+                ctx.bind(
+                    new Map<BindingKey, BindingSource>(
+                        shared.map(([resource, source]) => [{ pipeline: pid, resource }, source]),
+                    ),
+                );
                 ctx.prepare({
                     id: pid,
                     role: 'compute',

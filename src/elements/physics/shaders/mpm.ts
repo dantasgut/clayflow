@@ -1,6 +1,8 @@
 import { poolLive } from '../../gpu/compute/shaders';
 import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { wgslResource } from '../../../scene/shaders/WgslResource';
+import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { colliderSet, fluidBounds, mat, mpmMaterial, mpmWeights } from '../../gpu/shaders/math';
 import mpmClearGridSource from '../../gpu/wgsl/kernels/mpm_clear_grid.wgsl?raw';
 import mpmP2GSource from '../../gpu/wgsl/kernels/mpm_p2g.wgsl?raw';
@@ -11,13 +13,53 @@ import { MPMFluidSchema } from '../../physics/bodies/schemas/MPMFluidSchema';
 import { MPMSimParamsSchema } from '../../physics/schemas/simParams';
 import { MPMGridNodeSchema } from '../../physics/schemas/simState';
 
-// Kernels do MLS-MPM.
+// Kernels do MLS-MPM. Recursos (spec 031): os parâmetros de cada iteração têm frequência `draw` (região própria,
+// offset dinâmico); a grade e o pool de partículas (com o bitset de vivos), `stage`. Colliders e campos vêm dos
+// módulos `collider_set` e `field_accel_ready`, que já requerem os seus recursos.
+
+/** Recursos do MPM. */
+export const mpmResources = Object.freeze({
+    /** `MPMSimParams` da iteração (região por iteração, offset dinâmico). */
+    params: wgslResource({
+        name: 'mpm_params',
+        binding: { uniform: true },
+        type: { schema: MPMSimParamsSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    /** Grade euleriana (somas atômicas em ponto fixo no P2G). */
+    grid: wgslResource({
+        name: 'grid',
+        binding: { storage: 'read_write' },
+        type: { schema: MPMGridNodeSchema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** Pool de partículas do `bodyType` (fluido ou sólido; mesmo struct `MPMParticle`). */
+    particles: wgslResource({
+        name: 'particles',
+        binding: { storage: 'read_write' },
+        type: { schema: MPMFluidSchema, array: true },
+        frequency: 'stage',
+        provider: { slot: 'bodies' },
+    }),
+    /** Bitset de slots vivos do pool de partículas (spec 008). */
+    live: wgslResource({
+        name: 'live',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'bodies', part: 'live' },
+    }),
+});
+
+const R = mpmResources;
 
 /** Zera a grade. */
 export const mpmClearGrid = wgslModule({
     name: 'mpm_clear_grid',
     source: mpmClearGridSource,
-    requires: [mpmMaterial],
+    requires: [WORKGROUP_SIZE.module, mpmMaterial, R.params, R.grid],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema],
 });
 
@@ -25,7 +67,19 @@ export const mpmClearGrid = wgslModule({
 export const mpmP2G = wgslModule({
     name: 'mpm_p2g',
     source: mpmP2GSource,
-    requires: [poolLive, mat, mpmWeights, mpmMaterial, fluidBounds],
+    requires: [
+        NONE.module,
+        WORKGROUP_SIZE.module,
+        poolLive,
+        mat,
+        mpmWeights,
+        mpmMaterial,
+        fluidBounds,
+        R.params,
+        R.grid,
+        R.particles,
+        R.live,
+    ],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema, MPMFluidSchema],
 });
 
@@ -33,7 +87,15 @@ export const mpmP2G = wgslModule({
 export const mpmGridUpdate = wgslModule({
     name: 'mpm_grid_update',
     source: mpmGridUpdateSource,
-    requires: [colliderSet, mpmMaterial, fieldPointTypes, fieldAccelReady],
+    requires: [
+        WORKGROUP_SIZE.module,
+        colliderSet,
+        mpmMaterial,
+        fieldPointTypes,
+        fieldAccelReady,
+        R.params,
+        R.grid,
+    ],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema, FieldFnRecordSchema],
 });
 
@@ -41,7 +103,19 @@ export const mpmGridUpdate = wgslModule({
 export const mpmG2P = wgslModule({
     name: 'mpm_g2p',
     source: mpmG2PSource,
-    requires: [poolLive, mat, mpmWeights, mpmMaterial, fluidBounds],
+    requires: [
+        NONE.module,
+        WORKGROUP_SIZE.module,
+        poolLive,
+        mat,
+        mpmWeights,
+        mpmMaterial,
+        fluidBounds,
+        R.params,
+        R.grid,
+        R.particles,
+        R.live,
+    ],
     structs: [MPMSimParamsSchema, MPMGridNodeSchema, MPMFluidSchema],
 });
 
@@ -49,6 +123,14 @@ export const mpmG2P = wgslModule({
 export const mpmParticleCollision = wgslModule({
     name: 'mpm_particle_collision',
     source: mpmParticleCollisionSource,
-    requires: [poolLive, colliderSet, mpmMaterial],
+    requires: [
+        WORKGROUP_SIZE.module,
+        poolLive,
+        colliderSet,
+        mpmMaterial,
+        R.params,
+        R.particles,
+        R.live,
+    ],
     structs: [MPMSimParamsSchema, MPMFluidSchema],
 });

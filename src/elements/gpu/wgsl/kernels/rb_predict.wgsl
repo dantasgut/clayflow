@@ -1,17 +1,13 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/rb_predict.wgsl.ts
-@group(0) @binding(0) var<uniform>             rb_params: RBSimParams;
-@group(0) @binding(1) var<storage, read_write> bodies:    array<RigidBody>;
 // Campos de força (spec 009): registros e slots vivos do pool `FieldFnRecord`, ligados pela C2 (ponto `field`).
-@group(0) @binding(2) var<storage, read>       field_records: array<FieldFnRecord>;
-@group(0) @binding(3) var<storage, read>       field_live:    array<u32>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_predict_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let i = gid.x;
     if (i >= rb_params.body_count) { return; }
 
@@ -61,12 +57,12 @@ fn rb_predict_main(
 
 // Gravidade de um substep: vel += g · dtSub (gravity.w da região do substep) nos corpos dinâmicos acordados, e os campos
 // no centro de massa (spec 009; sem torque) num termo à parte, só quando não são zero — sem campos, bit a bit.
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_apply_gravity_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= rb_params.body_count) { return; }
     if (bodies[i].pos.w == 0.0 || bodies[i].vel.w > 0.5) { return; }
     let v_in = bodies[i].vel.xyz;

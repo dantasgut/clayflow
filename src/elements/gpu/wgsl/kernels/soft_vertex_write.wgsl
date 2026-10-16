@@ -2,18 +2,13 @@
 // das faces adjacentes (adjacência CSR: `vertexCount + 1` inícios e os triângulos de cada vértice), escritas no vertex
 // buffer da geometria (8 floats por vértice; o uv, nos floats 6 e 7, fica como foi enviado). Sem atômicos: cada vértice
 // soma as suas faces — determinístico.
-@group(0) @binding(0) var<uniform>             surface:      SoftSurfaceParams;
-@group(0) @binding(1) var<storage, read>       particles:    array<vec4f>;
-@group(0) @binding(2) var<storage, read>       adjacency:    array<u32>;
-@group(0) @binding(3) var<storage, read>       face_normals: array<vec4f>;
-@group(0) @binding(4) var<storage, read_write> vertices:     array<f32>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn soft_vertex_write_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let v = gid3.x + gid3.y * nwg.x * 64u;
+    let v = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (v >= surface.vertexCount) { return; }
     let p = particles[(surface.first + v) * surface.strideVec4 + surface.posOffsetVec4].xyz;
     var n = vec3f(0.0);

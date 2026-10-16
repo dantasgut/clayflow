@@ -1,5 +1,5 @@
 import type { StructSchema } from '../descriptors/StructSchema';
-import { bindPoints } from './bindPoints';
+import { bindPoints, type BindablePoint } from './bindPoints';
 import { composeWgsl } from './composeWgsl';
 import { stripWgslComments } from './scanWgslSymbols';
 import { WgslCompositionError } from './WgslCompositionError';
@@ -103,6 +103,34 @@ export interface WgslPoint {
     check(module: WgslModule, paramsStruct: string): void;
     /** As funções opcionais que `module` define. */
     optionalIn(module: WgslModule): readonly WgslPointSignature[];
+}
+
+/**
+ * Ponto de contribuição de cena (spec 031, R4): um lugar no shader (ex.: `light_visibility`) cujas implementações vêm
+ * de Resources da cena (`getSceneContributions`) — a sombra, a água — e que o shader chama sem conhecê-las. Sem
+ * contribuinte, fica o pronto. Com um, o módulo dele toma o lugar do pronto; com vários, `combine` recebe os módulos
+ * (instanciados com sufixo, na ordem) e devolve o módulo que toma o lugar do pronto.
+ */
+export interface ContributionPoint extends BindablePoint {
+    /** Nome da função do ponto (o que os contribuintes definem). */
+    readonly functionName: string;
+    /** Combina dois ou mais contribuintes (os nomes das funções vêm com o sufixo `_<k>`, k na ordem). */
+    combine(modules: readonly WgslModule[]): WgslModule;
+}
+
+/** Contribuição de um Resource para um ponto de cena (spec 031). */
+export interface SceneContribution {
+    /** O ponto. */
+    readonly point: ContributionPoint;
+    /** Ordem entre os contribuintes do ponto (menor primeiro). */
+    readonly order: number;
+    /** Pools de cujos slots o módulo depende (escritas neles reavaliam a contribuição). */
+    readonly pools: readonly StructSchema[];
+    /**
+     * O módulo da contribuição para os slots atuais da entidade do Resource nos pools (`slotOf`), ou `undefined` se o
+     * Resource não contribui agora (slot ainda ausente, condição desligada).
+     */
+    build(slotOf: (pool: StructSchema) => number | undefined): WgslModule | undefined;
 }
 
 /**

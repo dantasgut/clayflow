@@ -1,6 +1,9 @@
 import { poolLive } from '../../gpu/compute/shaders';
 import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from './fields';
+import { sphResources } from './sph';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { colliderSet, sphKernels } from '../../gpu/shaders/math';
 import pbfPredictSource from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
 import pbfDensityLambdaSource from '../../gpu/wgsl/kernels/pbf_density_lambda.wgsl?raw';
@@ -14,12 +17,56 @@ import { PBFSchema } from '../../physics/bodies/schemas/PBFSchema';
 import { PBFSimParamsSchema } from '../../physics/schemas/simParams';
 
 // Kernels do Position Based Fluids.
+// Recursos (spec 031): parâmetros por iteração (offset dinâmico, `draw`), o pool do slot `bodies` e o bitset de vivos,
+// a vizinhança (mesmas declarações do SPH), as correções e as normais privadas do `PBFFlow` (`stage`).
+
+const vec4s: WgslResourceType = { wgsl: 'vec4f', array: true };
+const privateStorage = (
+    name: string,
+    access: 'read' | 'read_write',
+    type: WgslResourceType,
+): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type,
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+/** Recursos dos kernels do PBF. */
+export const pbfResources = Object.freeze({
+    params: wgslResource({
+        name: 'pbf_params',
+        binding: { uniform: true },
+        type: { schema: PBFSimParamsSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    particles: wgslResource({
+        name: 'particles',
+        binding: { storage: 'read_write' },
+        type: { schema: PBFSchema, array: true },
+        frequency: 'stage',
+        provider: { slot: 'bodies' },
+    }),
+    live: sphResources.live,
+    neighborList: sphResources.neighborList,
+    neighborCount: sphResources.neighborCount,
+    delta: privateStorage('pbf_delta', 'read_write', vec4s),
+    deltaRead: privateStorage('pbf_delta', 'read', vec4s),
+    normal: privateStorage('pbf_normal', 'read_write', vec4s),
+    normalRead: privateStorage('pbf_normal', 'read', vec4s),
+});
+const R = pbfResources;
+const own = [WORKGROUP_SIZE.module, R.params, R.particles, R.live] as const;
+const neighbors = [R.neighborList, R.neighborCount] as const;
 
 /** Predição. */
 export const pbfPredict = wgslModule({
     name: 'pbf_predict',
     source: pbfPredictSource,
-    requires: [poolLive, colliderSet, fieldPointTypes, fieldAccelReady],
+    requires: [poolLive, colliderSet, fieldPointTypes, fieldAccelReady, ...own],
     structs: [PBFSimParamsSchema, PBFSchema, FieldFnRecordSchema],
 });
 
@@ -27,7 +74,7 @@ export const pbfPredict = wgslModule({
 export const pbfDensityLambda = wgslModule({
     name: 'pbf_density_lambda',
     source: pbfDensityLambdaSource,
-    requires: [poolLive, sphKernels],
+    requires: [poolLive, sphKernels, ...own, ...neighbors],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -35,7 +82,7 @@ export const pbfDensityLambda = wgslModule({
 export const pbfPositionCorrect = wgslModule({
     name: 'pbf_position_correct',
     source: pbfPositionCorrectSource,
-    requires: [poolLive, sphKernels],
+    requires: [poolLive, sphKernels, ...own, ...neighbors, R.delta],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -43,7 +90,7 @@ export const pbfPositionCorrect = wgslModule({
 export const pbfApply = wgslModule({
     name: 'pbf_apply',
     source: pbfApplySource,
-    requires: [poolLive],
+    requires: [poolLive, ...own, R.deltaRead],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -51,7 +98,7 @@ export const pbfApply = wgslModule({
 export const pbfCollision = wgslModule({
     name: 'pbf_collision',
     source: pbfCollisionSource,
-    requires: [poolLive, colliderSet],
+    requires: [poolLive, colliderSet, ...own],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -59,7 +106,7 @@ export const pbfCollision = wgslModule({
 export const pbfVelocityUpdate = wgslModule({
     name: 'pbf_velocity_update',
     source: pbfVelocityUpdateSource,
-    requires: [poolLive],
+    requires: [poolLive, ...own],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -67,7 +114,7 @@ export const pbfVelocityUpdate = wgslModule({
 export const pbfVorticity = wgslModule({
     name: 'pbf_vorticity',
     source: pbfVorticitySource,
-    requires: [poolLive, sphKernels],
+    requires: [poolLive, sphKernels, ...own, ...neighbors, R.normal],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -75,6 +122,6 @@ export const pbfVorticity = wgslModule({
 export const pbfXsph = wgslModule({
     name: 'pbf_xsph',
     source: pbfXsphSource,
-    requires: [poolLive, sphKernels],
+    requires: [poolLive, sphKernels, ...own, ...neighbors, R.delta, R.normalRead],
     structs: [PBFSimParamsSchema, PBFSchema],
 });

@@ -1,9 +1,4 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/distance_solve.wgsl.ts
-@group(0) @binding(0) var<uniform>             params:      SimParams;
-@group(0) @binding(1) var<storage, read_write> particles:   array<Particle>;
-@group(0) @binding(2) var<storage, read>       constraints: array<DistanceConstraint>;
-@group(0) @binding(3) var<storage, read>       live:        array<u32>;  // slots vivos do pool de partículas (spec 008)
-@group(0) @binding(4) var<storage, read>       constraint_live: array<u32>;  // slots vivos do pool de restrições
 
 @compute @workgroup_size(1)
 fn distance_solve_main(@builtin(global_invocation_id) _gid: vec3u) {

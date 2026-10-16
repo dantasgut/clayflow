@@ -2,7 +2,7 @@ import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contra
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
-    BindingSources,
+    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -17,6 +17,8 @@ import {
     type SingletonSlot,
     type SlotMap,
 } from '../../../scene/flows/slots';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { Time } from '../../../scene/time/Time';
 import {
     NEIGHBOR_SEARCH_MAX_PARTICLES,
@@ -37,6 +39,7 @@ import {
     pbfVelocityUpdate,
     pbfVorticity,
     pbfXsph,
+    pbfResources,
 } from '../shaders/pbf';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
@@ -102,7 +105,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     readonly type = 'PBFFlow';
     readonly slots = slots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<PBFSlots>>;
 
@@ -131,7 +134,6 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     constructor(ctx: FlowContext, options: PBFFlowOptions = {}) {
         super();
         this.core = ctx.core;
-        const bodyType = ctx.bodyType ?? 'PBFSchema';
         this.minSubsteps = Math.max(1, options.substeps ?? 1);
         this.solverIters = Math.max(1, options.solverIters ?? 4);
         this.maxNeighbors = options.maxNeighbors ?? 64;
@@ -158,13 +160,14 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         const grid = gridOf(ParticleMaterial.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
-        this.bindings = {
-            pbf_params: this.params.source(),
-            pbf_delta: this.delta,
-            pbf_normal: this.normals,
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [pbfResources.params, this.params.source()],
+            [pbfResources.delta, this.delta],
+            [pbfResources.deltaRead, this.delta],
+            [pbfResources.normal, this.normals],
+            [pbfResources.normalRead, this.normals],
             ...this.neighborSources(),
-        };
-        const consumes = [bodyType, `${bodyType}.live`];
+        ]);
         const compute = (
             id: string,
             shader: PipelineDescriptor['shader'],
@@ -174,7 +177,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             role: 'compute',
             shader,
             entryPoints: [entry],
-            consumes,
+            consumes: [],
         });
         this.pipelines = [
             compute('pbf_predict', pbfPredict, 'pbf_predict_main'),
@@ -236,10 +239,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         const run = (label: string, k: PreparedCompute, offset: number[]): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(k.spec);
-                k.groups.forEach((bg, g) =>
-                    pass.bind.setBindGroup(g, bg, k.dynamic[g] ? offset : undefined),
-                );
-                pass.dispatch.invocations(count, 64);
+                k.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
         };
         for (let i = 0; i < this.iterations; i++) {
@@ -288,11 +289,11 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         return ns;
     }
 
-    private neighborSources(): BindingSources {
-        return {
-            neighbor_list: this.neighborSearch.neighborList!,
-            neighbor_count: this.neighborSearch.neighborCount!,
-        };
+    private neighborSources(): Map<WgslResource, BindingSource> {
+        return new Map<WgslResource, BindingSource>([
+            [pbfResources.neighborList, this.neighborSearch.neighborList!],
+            [pbfResources.neighborCount, this.neighborSearch.neighborCount!],
+        ]);
     }
 
     /** Mapas de dono e contagens dos colliders; religa as fontes do grupo de colliders quando mudam. */
@@ -337,7 +338,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             bound.slots.bodies.live,
             this.iterations,
         );
-        if (this.params.reserve(this.iterations)) ctx.bind({ pbf_params: this.params.source() });
+        if (this.params.reserve(this.iterations))
+            ctx.bind(new Map([[pbfResources.params, this.params.source()]]));
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];

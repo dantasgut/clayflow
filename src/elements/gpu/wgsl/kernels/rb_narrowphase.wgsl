@@ -4,7 +4,7 @@
 // collider lido e a função de SDF específica da shape.
 //
 // Lê de: bodies (pool RigidBody:LCP), body_owners (mapa CPU: collider_slot →
-// rb_idx do owner, 0xFFFFFFFFu se estático), e pool tipado de colliders.
+// rb_idx do owner, NONE se estático), e pool tipado de colliders.
 // Escreve em: lista compactada `contacts` — cada contato reserva um índice por `atomic_alloc` (spec 004,
 // R19); o par é identificado por `slot = rb_i * total_col + pool_base + col_j` (id do par) e o contato por
 // (par, feature): caixa gera um contato por canto (manifold), esfera um só.
@@ -12,20 +12,10 @@
 // Dispatch: planos — threads = body_count * pool_count (exaustivo; poucos planos); caixas e esferas — um thread por par
 // candidato da broadphase (spec 007), despacho indireto pela contagem de pares. LCPFlow despacha por pool não vazio.
 
-@group(0) @binding(0) var<uniform>             rb_params:   RBSimParams;
-@group(0) @binding(1) var<storage, read_write> bodies:      array<RigidBody>;
-@group(0) @binding(2) var<uniform>             np_params:   NarrowphaseParams;
-@group(0) @binding(3) var<storage, read>       body_owners: array<u32>;
-@group(0) @binding(4) var<storage, read_write> contacts:    array<RBContact>;
-@group(0) @binding(9)  var<storage, read_write> contact_counter: AtomicAllocCounter;
-@group(0) @binding(10) var<storage, read_write> warm_table:      array<RBWarmEntry>;
-// Contatos por corpo neste substep (divisão de massa do solve Jacobi) — zerado antes da narrowphase.
-@group(0) @binding(11) var<storage, read_write> body_split:      array<atomic<u32>>;
-// Pares candidatos da forma (caixas ou esferas) e as contagens de pares (0 = caixas, 1 = esferas), da broadphase.
-@group(0) @binding(12) var<storage, read>       pairs:           array<CandidatePair>;
-@group(0) @binding(13) var<storage, read>       pair_counts:     array<u32>;
-
-// Binding 5: pool específico da variante — declarado por kernel via concat WGSL no TS.
+// Recursos (declarados em `physics/shaders/lcp.ts`): `body_split` conta os contatos por corpo neste substep (divisão
+// de massa do solve Jacobi; zerado antes da narrowphase); `pairs` e `pair_counts` são os pares candidatos da forma
+// (caixas ou esferas) e as contagens de pares (0 = caixas, 1 = esferas), da broadphase; cada variante liga o pool de
+// collider e o mapa de donos (`body_owners`) da sua forma.
 
 const SHAPE_TYPE_BODY_SPHERE: u32 = 0u;
 const SHAPE_TYPE_BODY_BOX:    u32 = 1u;
@@ -52,7 +42,7 @@ fn box_corners_world(cm: vec3f, q: vec4f, he: vec3f, corners: ptr<function, arra
 struct TestContext {
     rb_i:                 u32,
     slot:                 u32,
-    owner_rb:             u32,   // 0xFFFFFFFFu se estático
+    owner_rb:             u32,   // NONE se estático
     is_dynamic_col:       bool,
     body_shape_type:      u32,   // 0=sphere, 1=box
 }
@@ -333,20 +323,13 @@ fn narrowphase_body_vs_sphere(ctx: TestContext, sphere_center_world: vec3f, sphe
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Entry points por variante de collider. Cada um declara seu pool no próprio
-// binding (5/6/7/8) — pipeline layout é inferido pelo entry point, cada
-// pipeline binda apenas o pool da sua variante.
+// Entry points por variante de collider. Cada um lê só o pool da sua forma —
+// o layout é inferido pelo entry point, cada pipeline liga apenas o pool da
+// sua variante.
 // ═══════════════════════════════════════════════════════════════════════════
-
-@group(0) @binding(5) var<storage, read> planes:  array<PlaneCollider>;
-@group(0) @binding(6) var<storage, read> boxes:   array<BoxCollider>;
-@group(0) @binding(7) var<storage, read> spheres: array<SphereCollider>;
-@group(0) @binding(8) var<storage, read> meshes:  array<MeshCollider>;
 
 // Superfícies colidíveis (spec 010): registros (com o início do campo) e o pool do campo, consultados por
 // `collider_hit_surface` na cópia do passo do substep (`collider_time`).
-@group(0) @binding(14) var<storage, read> surfaces:               array<SurfaceCollider>;
-@group(0) @binding(15) var<storage, read> collider_surface_field: array<f32>;
 
 fn narrowphase_surface_first(i: u32) -> u32 {
     return surfaces[i].first;
@@ -405,13 +388,13 @@ fn make_ctx_pair(rb_i: u32, col_j: u32) -> TestContext {
     return TestContext(rb_i, slot, owner, is_dyn, body_shape);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_narrowphase_plane_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let idx = gid.x;
     if (idx >= rb_params.body_count * np_params.pool_count) { return; }
     let ctx = make_ctx(idx);
@@ -422,13 +405,13 @@ fn rb_narrowphase_plane_main(
     narrowphase_body_vs_plane(ctx, normal, plane.offset);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_narrowphase_box_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    let idx = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= min(pair_counts[0], arrayLength(&pairs))) { return; }
     let pair = pairs[idx];
     let ctx = make_ctx_pair(pair.body, pair.slot);
@@ -443,13 +426,13 @@ fn rb_narrowphase_box_main(
     narrowphase_body_vs_box(ctx, frame, box.halfExtents.xyz);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_narrowphase_sphere_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    let idx = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= min(pair_counts[1], arrayLength(&pairs))) { return; }
     let pair = pairs[idx];
     let ctx = make_ctx_pair(pair.body, pair.slot);
@@ -465,13 +448,13 @@ fn rb_narrowphase_sphere_main(
     narrowphase_body_vs_sphere(ctx, center_world, sph.radius);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_narrowphase_surface_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    let idx = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= rb_params.body_count * np_params.pool_count) { return; }
     let ctx = make_ctx(idx);
     if (!precheck_pair(ctx, 2u)) { return; }
@@ -480,13 +463,13 @@ fn rb_narrowphase_surface_main(
     narrowphase_body_vs_surface(ctx, idx % np_params.pool_count);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_narrowphase_mesh_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * 64u, 0u, 0u);
+    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
     let idx = gid.x;
     if (idx >= rb_params.body_count * np_params.pool_count) { return; }
     // MeshCollider triangle-by-triangle narrowphase é trabalho separado;

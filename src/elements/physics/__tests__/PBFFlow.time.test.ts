@@ -33,7 +33,9 @@ describe('PBFFlow — avanço governado pelo Time (slots)', () => {
             Array.from({ length: 4 }, () => ['NS.find', 'PBFFlow.predict']).flat(),
         );
         const xsph = passes.filter((p) => p.label === 'PBFFlow.xsph');
-        expect(xsph.map((p) => p.offsets[0]?.[0])).toEqual([0, 256, 512, 768]);
+        // Grupos por frequência (spec 031): `stage` (pool, vizinhança) e `draw` (parâmetros, único dinâmico).
+        expect(xsph.map((p) => p.offsets[1]?.[0])).toEqual([0, 256, 512, 768]);
+        expect(xsph.every((p) => p.offsets.length === 2 && p.offsets[0] === undefined)).toBe(true);
     });
 
     it('dt e dt_frame por região, uma escrita de parâmetros por quadro', async () => {

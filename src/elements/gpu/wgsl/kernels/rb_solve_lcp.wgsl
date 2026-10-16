@@ -9,28 +9,20 @@
 //   rb_solve_contacts_main     — uma iteração Jacobi: normal (Signorini), rolamento e atrito (cone de Coulomb)
 //   rb_apply_body_delta_main   — Δv/Δω acumulados → vel/omega de cada corpo
 //   rb_warm_store_main         — grava os impulsos na região da tabela deste substep
-@group(0) @binding(0) var<uniform>             rb_params:       RBSimParams;
-@group(0) @binding(1) var<storage, read_write> bodies:          array<RigidBody>;
-@group(0) @binding(2) var<storage, read_write> contacts:        array<RBContact>;
-@group(0) @binding(3) var<storage, read>       b_vec:           array<f32>;
-@group(0) @binding(4) var<storage, read>       contact_counter: array<u32>;
-@group(0) @binding(5) var<storage, read_write> warm_table:      array<RBWarmEntry>;
-@group(0) @binding(6) var<storage, read_write> body_delta:      array<RBBodyDelta>;
-@group(0) @binding(7) var<storage, read>       body_split:      array<u32>;
 
 fn contact_index(gid3: vec3u, nwg: vec3u) -> u32 {
-    return gid3.x + gid3.y * nwg.x * 64u;
+    return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
 }
 
 fn active_contacts() -> u32 {
     return min(contact_counter[0], rb_params.max_contacts);
 }
 
-// Corpo B dinâmico do contato (massa finita); 0xFFFFFFFFu se estático.
+// Corpo B dinâmico do contato (massa finita); NONE se estático.
 fn dynamic_b(ci: u32) -> u32 {
     let rb_j = contacts[ci].rb_idx_b;
-    if (rb_j == 0xFFFFFFFFu || rb_j >= rb_params.body_count) { return 0xFFFFFFFFu; }
-    if (bodies[rb_j].pos.w == 0.0) { return 0xFFFFFFFFu; }
+    if (rb_j == NONE || rb_j >= rb_params.body_count) { return NONE; }
+    if (bodies[rb_j].pos.w == 0.0) { return NONE; }
     return rb_j;
 }
 
@@ -56,14 +48,14 @@ fn add_contact_impulse(rb_i: u32, rb_j: u32, r_a: vec3f, r_b: vec3f, p: vec3f, l
     let inv_a = bodies[rb_i].pos.w;
     let I_a   = bodies[rb_i].I_inv.xyz;
     add_body_delta(rb_i, p * inv_a, (cross(r_a, p) + l) * I_a);
-    if (rb_j != 0xFFFFFFFFu) {
+    if (rb_j != NONE) {
         let inv_b = bodies[rb_j].pos.w;
         let I_b   = bodies[rb_j].I_inv.xyz;
         add_body_delta(rb_j, -p * inv_b, -(cross(r_b, p) + l) * I_b);
     }
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_warm_apply_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let ci = contact_index(gid3, nwg);
     if (ci >= active_contacts()) { return; }
@@ -84,11 +76,11 @@ fn rb_warm_apply_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     let rb_j = dynamic_b(ci);
     let r_a = contacts[ci].point.xyz - bodies[rb_i].pos_pred.xyz;
     var r_b = vec3f(0.0);
-    if (rb_j != 0xFFFFFFFFu) { r_b = contacts[ci].point.xyz - bodies[rb_j].pos_pred.xyz; }
+    if (rb_j != NONE) { r_b = contacts[ci].point.xyz - bodies[rb_j].pos_pred.xyz; }
     add_contact_impulse(rb_i, rb_j, r_a, r_b, n * lambda_n + t1 * lambda_tx + t2 * lambda_ty, vec3f(0.0));
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_solve_contacts_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let ci = contact_index(gid3, nwg);
     if (ci >= active_contacts()) { return; }
@@ -110,7 +102,7 @@ fn rb_solve_contacts_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     var v_b   = vec3f(0.0);
     var w_b   = vec3f(0.0);
     var r_b   = vec3f(0.0);
-    if (rb_j != 0xFFFFFFFFu) {
+    if (rb_j != NONE) {
         let s_b = split_of(rb_j);
         m_b = bodies[rb_j].pos.w * s_b;
         I_b = bodies[rb_j].I_inv.xyz * s_b;
@@ -140,7 +132,7 @@ fn rb_solve_contacts_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     // Limitado por c·λn (c = coeficiente de rolamento em metros, maior dos dois corpos).
     var c_roll = bodies[rb_i]._rb_pad.y;
     let rb_j_any = contacts[ci].rb_idx_b;
-    if (rb_j_any != 0xFFFFFFFFu && rb_j_any < rb_params.body_count) {
+    if (rb_j_any != NONE && rb_j_any < rb_params.body_count) {
         c_roll = max(c_roll, bodies[rb_j_any]._rb_pad.y);
     }
     if (c_roll > 0.0) {
@@ -179,7 +171,7 @@ fn rb_solve_contacts_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     add_contact_impulse(rb_i, rb_j, r_a, r_b, p_total, l_total);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_apply_body_delta_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = contact_index(gid3, nwg);
     if (i >= rb_params.body_count) { return; }
@@ -198,7 +190,7 @@ fn rb_apply_body_delta_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     bodies[i].omega = vec4f(bodies[i].omega.xyz + dw, bodies[i].omega.w);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_warm_store_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let ci = contact_index(gid3, nwg);
     if (ci >= active_contacts()) { return; }

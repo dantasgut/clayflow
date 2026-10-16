@@ -1,6 +1,7 @@
 import type { FlowDescriptor } from '../descriptors/FlowDescriptor';
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
+import type { SceneContribution } from '../shaders/WgslPoint';
 import type { ResourceState } from './ResourceState';
 
 /**
@@ -60,4 +61,11 @@ export interface Resource {
      * separadamente.
      */
     getFlowDescriptors?(): readonly FlowDescriptor[];
+
+    /**
+     * Contribuições do Resource para pontos de cena (spec 031, R4): ex. a sombra para `light_visibility`, a água para
+     * `light_transmission`. A C2 compõe as contribuições presentes e troca o pronto de cada ponto em todo pipeline que
+     * o contém; os estágios não conhecem os contribuintes.
+     */
+    getSceneContributions?(): readonly SceneContribution[];
 }

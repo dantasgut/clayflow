@@ -1,5 +1,7 @@
-import { colliderSet, noise } from '../gpu/shaders/math';
+import { colliderSet, finite, noise } from '../gpu/shaders/math';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { wgslModule } from '../../scene/shaders/WgslModule';
+import { wgslResource } from '../../scene/shaders/WgslResource';
 import { POINT_PARAMS, wgslPoint } from '../../scene/shaders/WgslPoint';
 import emitPointTypesSource from '../gpu/wgsl/kernels/emit_point_types.wgsl?raw';
 import emitFnReadySource from '../gpu/wgsl/kernels/emit_fn_ready.wgsl?raw';
@@ -9,6 +11,43 @@ import emitCollideSource from '../gpu/wgsl/kernels/emit_collide.wgsl?raw';
 import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import { ComputeParticleEmitter } from './ComputeParticleEmitter';
 import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
+
+/**
+ * Recursos dos emissores (spec 031): privados do `EmitterFlow` (por pipeline: cada emissor tem os seus). Os parâmetros
+ * de cada passo (`emit_params`, uma região por passo, offset dinâmico) mudam entre despachos (`draw`).
+ */
+export const emitResources = Object.freeze({
+    params: wgslResource({
+        name: 'emit_params',
+        binding: { uniform: true },
+        type: { schema: EmitterParamsSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    particles: wgslResource({
+        name: 'emit_particles',
+        binding: { storage: 'read_write' },
+        type: { schema: ComputeParticleEmitter.schema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    vertices: wgslResource({
+        name: 'emit_vertices',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'f32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** Registros das `EmitFunction` (o pool, ou um substituto quando nenhum emissor tem função). */
+    fnRecords: wgslResource({
+        name: 'emit_fn_records',
+        binding: { storage: 'read' },
+        type: { schema: EmitFnRecordSchema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+});
+const R = emitResources;
 
 /** Tipos do ponto `emit`: `EmittedParticle` e o sorteio `emit_rand(i, semente, canal)`. */
 export const emitPointTypes = wgslModule({
@@ -21,7 +60,7 @@ export const emitPointTypes = wgslModule({
 export const emitFnReady = wgslModule({
     name: 'emit_fn_ready',
     source: emitFnReadySource,
-    requires: [emitPointTypes],
+    requires: [emitPointTypes, R.params],
     structs: [EmitterParamsSchema, EmitFnRecordSchema],
 });
 
@@ -30,7 +69,16 @@ export const emitSpawn = wgslModule({
     name: 'emit_spawn',
     source: emitSpawnSource,
     // `emit_rand` e o ruído ficam à mão da função do usuário.
-    requires: [emitPointTypes, noise, emitFnReady],
+    requires: [
+        emitPointTypes,
+        noise,
+        emitFnReady,
+        finite,
+        WORKGROUP_SIZE.module,
+        R.params,
+        R.particles,
+        R.fnRecords,
+    ],
     structs: [EmitterParamsSchema, ComputeParticleEmitter.schema, EmitFnRecordSchema],
 });
 
@@ -38,7 +86,14 @@ export const emitSpawn = wgslModule({
 export const emitUpdate = wgslModule({
     name: 'emit_update',
     source: emitUpdateSource,
-    requires: [fieldPointTypes, fieldAccelReady],
+    requires: [
+        fieldPointTypes,
+        fieldAccelReady,
+        WORKGROUP_SIZE.module,
+        R.params,
+        R.particles,
+        R.vertices,
+    ],
     structs: [EmitterParamsSchema, ComputeParticleEmitter.schema, FieldFnRecordSchema],
 });
 
@@ -46,7 +101,7 @@ export const emitUpdate = wgslModule({
 export const emitCollide = wgslModule({
     name: 'emit_collide',
     source: emitCollideSource,
-    requires: [colliderSet],
+    requires: [colliderSet, WORKGROUP_SIZE.module, R.params, R.particles, R.vertices],
     structs: [EmitterParamsSchema, ComputeParticleEmitter.schema],
 });
 

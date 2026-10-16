@@ -1,11 +1,7 @@
 import type { Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
-import type {
-    BindingSources,
-    BoundFlow,
-    TransitionContext,
-} from '../../../scene/flows/FlowBinding';
+import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
@@ -16,10 +12,12 @@ import {
     type SingletonSlot,
     type SlotMap,
 } from '../../../scene/flows/slots';
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Time } from '../../../scene/time/Time';
 import { GravityField } from '../forcefields/GravityField';
 import { FEMSimParamsSchema } from '../schemas/simParams';
-import { femCollide, femPredict, femVelocityUpdate } from '../shaders/fem';
+import { femCollide, femPredict, femResources, femVelocityUpdate } from '../shaders/fem';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
@@ -66,14 +64,14 @@ type Ctx = TransitionContext<FEMSlots>;
  * `time.steps × substeps` iterações, cada uma com a sua região de `FEMSimParams` (`dt_sub = stepDt / substeps`,
  * `dt_frame = stepDt`) ligada por offset dinâmico.
  *
- * Slots: o pool de nós do `bodyType` do registro, o `Time` e o `GravityField` (opcional). Pipelines declarados com
- * `consumes`; parâmetros por iteração escritos em `framePrepare` — o `dispatch` só grava.
+ * Slots: o pool de nós do `bodyType` do registro, o `Time` e o `GravityField` (opcional). Pipelines declarados (o pool vem
+ * do slot `bodies`); parâmetros por iteração escritos em `framePrepare` — o `dispatch` só grava.
  */
 export class FEMFlow extends Flow<FEMSlots, 'running'> {
     readonly type = 'FEMFlow';
     readonly slots = slots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: BindingSources;
+    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<FEMSlots>> = {
         '*': {
@@ -129,7 +127,6 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
 
     constructor(ctx: FlowContext, options: FEMFlowOptions = {}) {
         super();
-        const bodyType = ctx.bodyType ?? 'FEMSchema';
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.mu = options.mu ?? 5e3;
         this.lambda = options.lambda ?? 5e3;
@@ -139,7 +136,9 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
             schema: FEMSimParamsSchema,
         });
         this.params.reserve(this.substeps);
-        this.bindings = { fem_params: this.params.source() };
+        this.bindings = new Map<WgslResource, BindingSource>([
+            [femResources.params, this.params.source()],
+        ]);
         this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
             discriminator: 'fem_colliders',
         });
@@ -149,21 +148,21 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
                 role: 'compute',
                 shader: femPredict,
                 entryPoints: ['fem_predict_main'],
-                consumes: [bodyType, `${bodyType}.live`],
+                consumes: [],
             },
             {
                 id: 'fem_collide',
                 role: 'compute',
                 shader: femCollide,
                 entryPoints: ['fem_collide_main'],
-                consumes: [bodyType, `${bodyType}.live`],
+                consumes: [],
             },
             {
                 id: 'fem_velocity_update',
                 role: 'compute',
                 shader: femVelocityUpdate,
                 entryPoints: ['fem_velocity_update_main'],
-                consumes: [bodyType, `${bodyType}.live`],
+                consumes: [],
             },
         ];
     }
@@ -179,20 +178,20 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         for (let i = 0; i < iterations; i++) {
             const offset = [this.params.offset(i)];
             frame.compute('FEMFlow.predict', (pass) => {
-                pass.bind.setPipeline(predict.spec).setBindGroup(0, predict.groups[0]!, offset);
-                pass.dispatch.invocations(count, 64);
+                pass.bind.setPipeline(predict.spec);
+                predict.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
             if (this.collide)
                 frame.compute('FEMFlow.collide', (pass) => {
                     pass.bind.setPipeline(collide.spec);
-                    collide.groups.forEach((bg, g) =>
-                        pass.bind.setBindGroup(g, bg, collide.dynamic[g] ? offset : undefined),
-                    );
-                    pass.dispatch.invocations(count, 64);
+                    collide.bindTo(pass.bind, { draw: offset });
+                    pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
                 });
             frame.compute('FEMFlow.velocity_update', (pass) => {
-                pass.bind.setPipeline(velocity.spec).setBindGroup(0, velocity.groups[0]!, offset);
-                pass.dispatch.invocations(count, 64);
+                pass.bind.setPipeline(velocity.spec);
+                velocity.bindTo(pass.bind, { draw: offset });
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
         }
     }
@@ -223,7 +222,8 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         const bound = ctx.bound;
         const iterations = this.iterations(bound);
         if (iterations === 0) return;
-        if (this.params.reserve(iterations)) ctx.bind({ fem_params: this.params.source() });
+        if (this.params.reserve(iterations))
+            ctx.bind(new Map([[femResources.params, this.params.source()]]));
         const time = bound.slots.time.resource as Time;
         const stepDt = time.stepDt;
         const accel = (

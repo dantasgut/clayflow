@@ -2,14 +2,10 @@
 // Paralelo por contato: soma no corpo A a correção de penetração (acima da folga) ponderada pelo peso do contato
 // (1 / contatos do mesmo par — o manifold de cantos de uma caixa corrige uma vez por par) e conta o contato, em
 // ponto fixo (atomics inteiros). `body_correction` é zerado (Frame.clear) antes deste passe; `rb_lcp_commit` o lê.
-@group(0) @binding(0) var<uniform>             rb_params:       RBSimParams;
-@group(0) @binding(1) var<storage, read>       contacts:        array<RBContact>;
-@group(0) @binding(2) var<storage, read>       contact_counter: array<u32>;
-@group(0) @binding(3) var<storage, read_write> body_correction: array<RBBodyCorrection>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn rb_contact_accumulate_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let ci = gid3.x + gid3.y * nwg.x * 64u;
+    let ci = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (ci >= min(contact_counter[0], rb_params.max_contacts)) { return; }
     let i = contacts[ci].rb_idx;
     if (i >= rb_params.body_count) { return; }
