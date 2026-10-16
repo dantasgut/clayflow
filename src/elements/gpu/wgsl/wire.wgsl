@@ -2,13 +2,14 @@
 // geometria, em espaço de objeto (descritor `wireEdges`, pares de índices de vértice) — amostradas antes da projeção.
 // Cada aresta vira um quad de `lineWidth` pixels na tela (6 vértices; `vertex_index / 6` é a aresta), com a posição
 // dos dois vértices lida do vertex buffer da geometria como storage (`array<MeshVertex>`). A instância é a entidade do
-// grupo (registro `Renderable`). Borda suavizada por `fwidth` + `smoothstep`, com mistura alfa.
+// grupo (registro `Renderable`). Sem mistura: o arame escreve profundidade como um opaco (a ordem de desenho não
+// importa); a borda do quad é suavizada pelo MSAA, como a de qualquer triângulo, e o alfa da cor vira a fração das
+// amostras cobertas (alpha-to-coverage).
 // Vértices e arestas da geometria do pipeline (bindings privados por geometria).
 
 struct WireOut {
     @builtin(position) clip_position: vec4f,
-    @location(0) side: f32,
-    @location(1) @interpolate(flat) material_slot: u32,
+    @location(0) @interpolate(flat) material_slot: u32,
 }
 
 fn wire_vertex(index: u32) -> vec3f {
@@ -38,16 +39,11 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     let perp_ndc = vec2f(-dir.y, dir.x) / half_screen;
     let half_width = material.lineWidth * 0.5;
     out.clip_position = vec4f(clip.xy + perp_ndc * side * half_width * clip.w, clip.z, clip.w);
-    out.side = side;
     out.material_slot = r.materialSlot;
     return out;
 }
 
 @fragment
 fn fs_main(in: WireOut) -> @location(0) vec4f {
-    let material = materials[in.material_slot];
-    let d = abs(in.side);
-    let fw = fwidth(d);
-    let alpha = 1.0 - smoothstep(1.0 - fw, 1.0 + fw, d);
-    return vec4f(material.color.rgb, material.color.a * alpha);
+    return materials[in.material_slot].color;
 }

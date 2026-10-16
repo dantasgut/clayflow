@@ -76,18 +76,6 @@ const VERTEX_LAYOUT = [
     },
 ];
 
-/** Mistura alfa do arame (borda suavizada). */
-const ALPHA_BLEND = {
-    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-} as const;
-
-/**
- * Ordem das duas voltas pelos grupos: os opacos (que escrevem profundidade) e depois o arame (misturado, sem escrever
- * profundidade): desenhado antes, o arame seria coberto por um opaco de trás que viesse depois na ordem dos grupos.
- */
-const BLENDED_LAST = [false, true] as const;
-
 /** Onde o forward desenha a cor: a cor da cena (`FrameTargets`, lida pelo pós) ou direto no canvas. */
 export type ForwardOutput = 'scene' | 'canvas';
 
@@ -513,68 +501,65 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             let current: PreparedRender | undefined;
             // Bind group atual de cada índice: só o que muda é religado ao trocar de pipeline (spec 031).
             const boundGroups: (BindGroupSpec | undefined)[] = [];
-            for (const blended of BLENDED_LAST)
-                for (const group of groups) {
-                    const entry = group.representative;
-                    const draw = this.materialDraw.get(entry.get(Material));
-                    if (draw === undefined) continue;
-                    const topology = draw.topology;
-                    if ((topology === 'line-list') !== blended) continue;
-                    const id =
-                        draw.pipelines !== undefined
-                            ? entry.get(Transform).mirrored
-                                ? draw.pipelines.cw
-                                : draw.pipelines.ccw
-                            : this.geometryPipelineOf(entry);
-                    if (id === undefined) continue;
-                    const fnId = this.materialFnPipelineOf(bound, entry, id);
-                    const prepared =
-                        this.projected(bound, fnId ?? id) ?? bound.pipelines.get(fnId ?? id);
-                    if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
-                    // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).
-                    const geometry = entry.get(Geometry);
-                    const vertices = this.resources.bufferOf(geometry, 'vertices');
-                    if (vertices?.subkind !== 'vertex') continue;
-                    const edges =
-                        topology === 'line-list'
-                            ? this.resources.bufferOf(geometry, 'wireEdges')
-                            : undefined;
-                    if (topology === 'line-list' && edges?.subkind !== 'index') continue;
-                    if (prepared !== current) {
-                        pass.bind.setPipeline(prepared.spec);
-                        for (const frequency of BINDING_FREQUENCIES) {
-                            for (const g of prepared.groupsOf(frequency)) {
-                                if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
-                                pass.bind.setBindGroup(g.index, g.spec);
-                                boundGroups[g.index] = g.spec;
-                            }
+            for (const group of groups) {
+                const entry = group.representative;
+                const draw = this.materialDraw.get(entry.get(Material));
+                if (draw === undefined) continue;
+                const topology = draw.topology;
+                const id =
+                    draw.pipelines !== undefined
+                        ? entry.get(Transform).mirrored
+                            ? draw.pipelines.cw
+                            : draw.pipelines.ccw
+                        : this.geometryPipelineOf(entry);
+                if (id === undefined) continue;
+                const fnId = this.materialFnPipelineOf(bound, entry, id);
+                const prepared =
+                    this.projected(bound, fnId ?? id) ?? bound.pipelines.get(fnId ?? id);
+                if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
+                // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).
+                const geometry = entry.get(Geometry);
+                const vertices = this.resources.bufferOf(geometry, 'vertices');
+                if (vertices?.subkind !== 'vertex') continue;
+                const edges =
+                    topology === 'line-list'
+                        ? this.resources.bufferOf(geometry, 'wireEdges')
+                        : undefined;
+                if (topology === 'line-list' && edges?.subkind !== 'index') continue;
+                if (prepared !== current) {
+                    pass.bind.setPipeline(prepared.spec);
+                    for (const frequency of BINDING_FREQUENCIES) {
+                        for (const g of prepared.groupsOf(frequency)) {
+                            if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
+                            pass.bind.setBindGroup(g.index, g.spec);
+                            boundGroups[g.index] = g.spec;
                         }
-                        current = prepared;
                     }
-                    if (topology === 'point-list') {
-                        // Um quad (6 vértices) por vértice da geometria, lida como storage pelo shader.
-                        pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
-                        continue;
-                    }
-                    const indirect = this.indirectArgs.get(group.key)?.args;
-                    if (edges?.subkind === 'index') {
-                        // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
-                        if (indirect !== undefined) pass.draw.indirect(indirect, 20);
-                        else
-                            pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
-                        continue;
-                    }
-                    pass.geometry.vertex(0, vertices);
-                    const indices = this.resources.bufferOf(geometry, 'indices');
-                    if (indices?.subkind === 'index') {
-                        pass.geometry.index(indices);
-                        if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
-                        else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
-                    } else {
-                        // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
-                        pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
-                    }
+                    current = prepared;
                 }
+                if (topology === 'point-list') {
+                    // Um quad (6 vértices) por vértice da geometria, lida como storage pelo shader.
+                    pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
+                    continue;
+                }
+                const indirect = this.indirectArgs.get(group.key)?.args;
+                if (edges?.subkind === 'index') {
+                    // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
+                    if (indirect !== undefined) pass.draw.indirect(indirect, 20);
+                    else pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
+                    continue;
+                }
+                pass.geometry.vertex(0, vertices);
+                const indices = this.resources.bufferOf(geometry, 'indices');
+                if (indices?.subkind === 'index') {
+                    pass.geometry.index(indices);
+                    if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
+                    else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
+                } else {
+                    // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
+                    pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
+                }
+            }
         });
     }
 
@@ -732,6 +717,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const vertices = this.resources.bufferOf(geometry, 'vertices');
         if (vertices?.subkind !== 'vertex' || this.geometryOfEntity.has(entity)) return;
         const wire = desc.topology === 'line-list';
+        const samples = ctx.bound.slots.target.sampleCount;
         // As arestas do arame só são alocadas quando um material de arame as usa.
         const edges = wire ? this.resources.ensureAllocated(geometry, 'wireEdges') : undefined;
         if (wire && edges?.subkind !== 'index') {
@@ -759,13 +745,14 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 id,
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [wire ? { format, blend: ALPHA_BLEND } : { format }],
-                depth: {
-                    format: 'depth24plus',
-                    depthWriteEnabled: !wire,
-                    depthCompare: wire ? 'less-equal' : 'less',
+                colorTargets: [{ format }],
+                depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+                // Arame sem mistura: escreve profundidade como um opaco e a ordem de desenho não importa. A borda é
+                // suavizada pelo MSAA; o alfa da cor vira a fração das amostras cobertas (alpha-to-coverage).
+                multisample: {
+                    count: samples,
+                    ...(wire && samples > 1 ? { alphaToCoverageEnabled: true } : {}),
                 },
-                multisample: { count: ctx.bound.slots.target.sampleCount },
                 ...(this.preferAsync ? { preferAsync: true } : {}),
             });
             pipeline = { id, users: 0 };
