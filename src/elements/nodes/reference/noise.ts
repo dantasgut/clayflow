@@ -1,5 +1,5 @@
 // Referência em CPU do módulo WGSL `noise` (spec 005, R7): mesma aritmética inteira (u32) e a mesma interpolação, para
-// o smoke `shaderLibrary` comparar com a GPU.
+// os smokes `shaderLibrary` e `nodeGraphs` compararem com a GPU (e referência do nó `noise.gradient3`, spec 031).
 
 export function pcgHash(v: number): number {
     const state = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;

@@ -110,17 +110,7 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
     private count = 0;
     private written = '';
     /** Pipelines das `CameraFunction` presentes (um por código). */
-    private readonly fnPipelines = new ExtensionPipelines<CameraFunction>(
-        'camera_fn:',
-        (module, fn) => ({
-            id: '',
-            role: 'compute',
-            shader: bindPoints(cameraComposeFn, new Map([[cameraPoint, module]])),
-            entryPoints: ['camera_compose_fn_main'],
-            verify: true,
-            extensions: [fn],
-        }),
-    );
+    private readonly fnPipelines = new ExtensionPipelines<CameraFunction>();
     private fnDirty = false;
     private fnGroups: readonly {
         readonly id: string;
@@ -171,9 +161,10 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
                 slotChanged: fnChanged,
                 pipelinesCompiled: {
                     to: 'idle',
-                    run: (e) => {
+                    run: (e, c) => {
                         if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        if (this.fnPipelines.compiled(e.pipeline)) this.fnDirty = true;
+                        if (this.fnPipelines.compiled(e.pipeline, c).length > 0)
+                            this.fnDirty = true;
                     },
                 },
                 pipelineRejected: {
@@ -239,14 +230,29 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
         if (!this.fnDirty) return;
         this.fnDirty = false;
         const { functions, params, worlds, fnRecords } = ctx.bound.slots;
-        this.fnPipelines.sync(
-            ctx,
-            functions.entries.map((e) => e.get(CameraFunction)),
-        );
+        const present = functions.entries.map((e) => e.get(CameraFunction));
+        // Um pipeline por código (`camera_fn:<módulo>`), compartilhado pelas funções com o mesmo código.
+        for (const fn of present) {
+            const module = fn.module;
+            this.fnPipelines.select(
+                fn,
+                { key: module.name, id: `camera_fn:${module.name}` },
+                ({ id }) =>
+                    ctx.prepare({
+                        id,
+                        role: 'compute',
+                        shader: bindPoints(cameraComposeFn, new Map([[cameraPoint, module]])),
+                        entryPoints: ['camera_compose_fn_main'],
+                        verify: true,
+                        extensions: [fn],
+                    }).ready,
+            );
+        }
+        this.fnPipelines.retain(ctx, present);
         const byId = new Map<string, number[]>();
         if (fnRecords !== undefined) {
             for (const entry of functions.entries) {
-                const id = this.fnPipelines.active(entry.get(CameraFunction));
+                const id = this.fnPipelines.active(entry.get(CameraFunction))?.id;
                 if (id === undefined) continue;
                 const c = params.slotOf(entry.entityId);
                 const t = worlds.slotOf(entry.entityId);

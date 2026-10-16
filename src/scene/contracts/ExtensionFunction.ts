@@ -1,34 +1,22 @@
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import { EXTENSION_PARAMS_CAPACITY } from '../descriptors/ExtensionRecord';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
+import type { NodeGraph } from '../graph/NodeGraph';
+import type { ExtensionParamType, ExtensionParamValue } from './ExtensionParams';
+import { renameTokens } from '../shaders/instantiate';
 import { wgslModule, type WgslModule } from '../shaders/WgslModule';
 import type { PointImplementation, WgslPoint } from '../shaders/WgslPoint';
 import { Entity } from './Entity';
 import type { Resource } from './Resource';
 import { ResourceState } from './ResourceState';
 
-/** Tipo de um parâmetro de função de ponto. */
-export type ExtensionParamType =
-    | 'f32'
-    | 'u32'
-    | 'i32'
-    | 'vec2f'
-    | 'vec3f'
-    | 'vec4f'
-    | 'vec2u'
-    | 'vec3u'
-    | 'vec4u'
-    | 'vec2i'
-    | 'vec3i'
-    | 'vec4i';
+export type { ExtensionParamType, ExtensionParamValue } from './ExtensionParams';
 
-/** Valor de um parâmetro: número (escalar) ou lista (vetor). */
-export type ExtensionParamValue = number | readonly number[];
-
-/** Opções de uma função de ponto. */
-export interface ExtensionFunctionOptions {
+/** Opções de uma função de ponto escrita em WGSL. */
+export interface ExtensionCodeOptions {
     /** Código WGSL com a função do ponto (e auxiliares). Usa o struct de parâmetros pelo alias do ponto. */
     readonly code: string;
+    readonly graph?: undefined;
     /** Parâmetros: nome → tipo (até 32 escalares no total). */
     readonly params?: Readonly<Record<string, ExtensionParamType>>;
     /** Valores iniciais (default 0). */
@@ -36,6 +24,20 @@ export interface ExtensionFunctionOptions {
     /** Módulos do núcleo que o código usa (ex.: `wgslLib.quat`, `wgslLib.noise`). */
     readonly requires?: readonly WgslModule[];
 }
+
+/**
+ * Opções de uma função de ponto montada por um grafo de nós (spec 031, US2): o código é gerado do grafo (um `let` por
+ * nó), os parâmetros são os dos nós (`nó_parâmetro`) e os módulos, os dos nós.
+ */
+export interface ExtensionGraphOptions {
+    readonly graph: NodeGraph;
+    readonly code?: undefined;
+    /** Valores iniciais por cima dos do grafo (`nó_parâmetro`). */
+    readonly values?: Readonly<Record<string, ExtensionParamValue>>;
+}
+
+/** Opções de uma função de ponto: código WGSL ou grafo de nós. */
+export type ExtensionFunctionOptions = ExtensionCodeOptions | ExtensionGraphOptions;
 
 /** Dado de uma função de ponto (layout de `extensionRecordSchema`). */
 export interface ExtensionParamsData {
@@ -78,6 +80,9 @@ const built = new Map<
     string,
     { readonly module: WgslModule; readonly prefix: number; readonly optionals: Set<string> }
 >();
+
+/** Pontos já avisados de grafo sem saída (aviso único por ponto). */
+const warnedEmpty = new Set<string>();
 
 /** FNV-1a de 32 bits em hexadecimal. */
 function fnv(text: string): string {
@@ -131,68 +136,74 @@ export abstract class ExtensionFunction
     state: ResourceState = ResourceState.Uninitialized;
     /** Ponto de extensão. */
     readonly point: WgslPoint;
-    /** Parâmetros declarados (nome → tipo). */
-    readonly params: Readonly<Record<string, ExtensionParamType>>;
-    /** Valores dos parâmetros por nome (leitura e escrita; escrever envia no quadro seguinte). */
-    readonly values: Record<string, ExtensionParamValue>;
-    /** Módulos do núcleo que o código usa. */
-    readonly requires: readonly WgslModule[];
     /** Renomeia a função, o alias e o carregador com o hash (ponto de cena: várias funções no mesmo shader). */
     readonly renamed: boolean;
 
+    #params: Readonly<Record<string, ExtensionParamType>>;
+    #values: Record<string, ExtensionParamValue>;
+    #requires: readonly WgslModule[];
+    #graph: NodeGraph | undefined;
     #code: string;
     #module: WgslModule;
     #prefixLines = 0;
     #hash = '';
     /** Funções opcionais do ponto que o código atual define. */
     #optionals = new Set<string>();
-    readonly #slots: readonly ParamSlot[];
+    #slots: readonly ParamSlot[];
 
     protected constructor(point: WgslPoint, options: ExtensionFunctionOptions) {
         super();
         this.point = point;
         // Pontos de cena compõem várias funções no mesmo shader: nomes com o sufixo do hash.
-        const renamed = point.scene !== undefined;
-        this.params = Object.freeze({ ...(options.params ?? {}) });
-        this.requires = Object.freeze([...(options.requires ?? [])]);
-        this.renamed = renamed;
-        const slots: ParamSlot[] = [];
-        let first = 0;
-        for (const [name, type] of Object.entries(this.params)) {
-            if (!IDENT.test(name))
-                throw new TypeError(
-                    `${point.name}: parâmetro '${name}' não é um identificador WGSL`,
-                );
-            // Tipo vindo de JavaScript sem checagem: confere em tempo de execução.
-            const s = (SCALAR as Partial<Record<string, ['f' | 'u' | 'i', number]>>)[type];
-            if (s === undefined)
-                throw new TypeError(
-                    `${point.name}: parâmetro '${name}' com tipo '${type}' não suportado`,
-                );
-            slots.push({ name, type, kind: s[0], first, size: s[1] });
-            first += s[1];
-        }
-        if (first > EXTENSION_PARAMS_CAPACITY) {
-            throw new RangeError(
-                `${point.name}: ${first} escalares de parâmetros (máximo ${EXTENSION_PARAMS_CAPACITY})`,
-            );
-        }
-        this.#slots = Object.freeze(slots);
+        this.renamed = point.scene !== undefined;
+        const graph = options.graph;
+        const code =
+            graph === undefined ? options.code : ExtensionFunction.#graphCode(graph, point);
+        this.#graph = graph;
+        this.#params = Object.freeze({
+            ...(graph === undefined ? (options.params ?? {}) : graph.params()),
+        });
+        this.#requires = Object.freeze([
+            ...(graph === undefined ? (options.requires ?? []) : graph.modules()),
+        ]);
+        this.#slots = this.#layout(this.#params);
         const data = point.record.applyDefaults({}) as unknown as ExtensionParamsData;
         for (let k = 0; k < 8; k++)
             (data as unknown as Record<string, number[]>)[`v${k}`] = [0, 0, 0, 0];
         this.data = data;
-        this.values = this.#valuesAccessor();
-        for (const [name, value] of Object.entries(options.values ?? {})) {
-            if (!(name in this.params))
-                throw new TypeError(`${point.name}: valor para parâmetro desconhecido '${name}'`);
-            this.values[name] = value;
-        }
-        this.#code = options.code;
-        this.#module = this.#build(options.code);
+        this.#values = this.#valuesAccessor();
+        this.#assign({ ...(graph?.values() ?? {}), ...(options.values ?? {}) });
+        this.#code = code;
+        this.#module =
+            graph?.output === undefined && graph !== undefined ? this.#ready() : this.#build(code);
     }
 
-    /** Código WGSL atual. */
+    /** Parâmetros declarados (nome → tipo); num grafo, `nó_parâmetro`. */
+    get params(): Readonly<Record<string, ExtensionParamType>> {
+        return this.#params;
+    }
+
+    /** Valores dos parâmetros por nome (leitura e escrita; escrever envia no quadro seguinte). */
+    get values(): Record<string, ExtensionParamValue> {
+        return this.#values;
+    }
+
+    /** Módulos que o código usa (num grafo, os módulos dos nós). */
+    get requires(): readonly WgslModule[] {
+        return this.#requires;
+    }
+
+    /** Tem função própria; `false` com um grafo sem saída (usa a implementação pronta do ponto). */
+    get implemented(): boolean {
+        return this.#graph === undefined || this.#graph.output !== undefined;
+    }
+
+    /** Grafo de nós que gera o código, ou `undefined` (código escrito à mão). */
+    get graph(): NodeGraph | undefined {
+        return this.#graph;
+    }
+
+    /** Código WGSL atual (num grafo, o gerado). */
     get code(): string {
         return this.#code;
     }
@@ -241,9 +252,53 @@ export abstract class ExtensionFunction
      * estágio dono compila o módulo novo.
      */
     setCode(code: string): void {
+        if (this.#graph !== undefined)
+            throw new TypeError(
+                `${this.point.name}: função montada por grafo — troque com setGraph`,
+            );
         const module = this.#build(code);
         this.#code = code;
         this.#module = module;
+        this.data.revision = this.rawData.revision + 1;
+    }
+
+    /**
+     * Troca o grafo (topologia nova: spec 031, US2). Valida e gera na hora (lança como na criação, e o grafo anterior
+     * continua); parâmetros de mesmo nome e tipo mantêm o valor, os novos recebem o do grafo; a revisão sobe e o estágio
+     * dono compila em transição. Mudar só valores não passa por aqui (`values`, sem recompilar).
+     */
+    setGraph(graph: NodeGraph): void {
+        if (this.#graph === undefined)
+            throw new TypeError(`${this.point.name}: função escrita em WGSL — troque com setCode`);
+        const params = Object.freeze({ ...graph.params() });
+        const slots = this.#layout(params);
+        const kept: Record<string, ExtensionParamValue> = {};
+        for (const [name, type] of Object.entries(params))
+            if (this.#params[name] === type) kept[name] = this.#values[name]!;
+        const code = ExtensionFunction.#graphCode(graph, this.point);
+        const previous = {
+            params: this.#params,
+            slots: this.#slots,
+            requires: this.#requires,
+            values: this.#values,
+        };
+        this.#params = params;
+        this.#slots = slots;
+        this.#requires = Object.freeze([...graph.modules()]);
+        let module: WgslModule;
+        try {
+            module = graph.output === undefined ? this.#ready() : this.#build(code);
+        } catch (error) {
+            this.#params = previous.params;
+            this.#slots = previous.slots;
+            this.#requires = previous.requires;
+            throw error;
+        }
+        this.#graph = graph;
+        this.#code = code;
+        this.#module = module;
+        this.#values = this.#valuesAccessor();
+        this.#assign({ ...graph.values(), ...kept });
         this.data.revision = this.rawData.revision + 1;
     }
 
@@ -255,9 +310,71 @@ export abstract class ExtensionFunction
         return [];
     }
 
+    /** Posição dos escalares de cada parâmetro no registro (valida nomes, tipos e capacidade). */
+    #layout(params: Readonly<Record<string, ExtensionParamType>>): readonly ParamSlot[] {
+        const point = this.point;
+        const slots: ParamSlot[] = [];
+        let first = 0;
+        for (const [name, type] of Object.entries(params)) {
+            if (!IDENT.test(name))
+                throw new TypeError(
+                    `${point.name}: parâmetro '${name}' não é um identificador WGSL`,
+                );
+            // Tipo vindo de JavaScript sem checagem: confere em tempo de execução.
+            const s = (SCALAR as Partial<Record<string, ['f' | 'u' | 'i', number]>>)[type];
+            if (s === undefined)
+                throw new TypeError(
+                    `${point.name}: parâmetro '${name}' com tipo '${type}' não suportado`,
+                );
+            slots.push({ name, type, kind: s[0], first, size: s[1] });
+            first += s[1];
+        }
+        if (first > EXTENSION_PARAMS_CAPACITY) {
+            throw new RangeError(
+                `${point.name}: ${first} escalares de parâmetros (máximo ${EXTENSION_PARAMS_CAPACITY})`,
+            );
+        }
+        return Object.freeze(slots);
+    }
+
+    /** Atribui valores por nome (nome desconhecido lança). */
+    #assign(values: Readonly<Record<string, ExtensionParamValue>>): void {
+        for (const [name, value] of Object.entries(values)) {
+            if (!(name in this.#params))
+                throw new TypeError(
+                    `${this.point.name}: valor para parâmetro desconhecido '${name}'`,
+                );
+            this.#values[name] = value;
+        }
+    }
+
+    /** Código de um grafo para o ponto; grafo sem saída: vazio (a função usa a pronta, com aviso único). */
+    static #graphCode(graph: NodeGraph, point: WgslPoint): string {
+        if (graph.output !== undefined) return graph.compile(point);
+        if (!warnedEmpty.has(point.name)) {
+            warnedEmpty.add(point.name);
+            console.warn(
+                `[ExtensionFunction] grafo sem saída no ponto '${point.name}': usa a implementação pronta até a saída ser ligada.`,
+            );
+        }
+        return '';
+    }
+
+    /**
+     * A implementação pronta do ponto como módulo da função (grafo sem saída): os estágios montam o mesmo que sem a
+     * função; nos pontos de cena a função não entra na composição (`implemented`).
+     */
+    #ready(): WgslModule {
+        const point = this.point;
+        this.#optionals = new Set();
+        this.#prefixLines = 0;
+        this.#hash = fnv(`${point.name}|ready`);
+        return point.ready;
+    }
+
     #build(code: string): WgslModule {
         const point = this.point;
-        const sig = Object.entries(this.params)
+        const sig = Object.entries(this.#params)
             .map(([n, t]) => `${n}:${t}`)
             .join(',');
         const requires = this.requires.map((m) => m.name).join(',');
@@ -302,13 +419,19 @@ export abstract class ExtensionFunction
                 `    return ${struct}(${args.join(', ')});`,
                 '}',
             ];
-            let body = code;
-            if (renamed) {
-                // A função obrigatória, as opcionais e o alias com o sufixo: várias funções no mesmo shader.
-                for (const name of [point.required.name, ...point.optional.map((o) => o.name)])
-                    body = body.replace(new RegExp(`\\b${name}\\b`, 'g'), `${name}${suffix}`);
-                body = body.replace(new RegExp(`\\b${point.paramsAlias}\\b`, 'g'), alias);
-            }
+            // A função obrigatória, as opcionais e o alias com o sufixo, por token (spec 031, R7): várias funções no
+            // mesmo shader.
+            const body = renamed
+                ? renameTokens(
+                      renameTokens(
+                          code,
+                          new Set([point.required.name, ...point.optional.map((o) => o.name)]),
+                          suffix,
+                      ),
+                      new Set([point.paramsAlias]),
+                      `${suffix}_alias`,
+                  )
+                : code;
             const module = wgslModule({
                 name: `${point.name}_fn_${hash}`,
                 source: `${prefix.join('\n')}\n${body}`,

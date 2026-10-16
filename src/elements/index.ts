@@ -27,5 +27,6 @@ export { wgslLib } from './gpu/shaders/index';
 export { ELEMENT_CONSUMERS } from './consumers';
 export * from './physics/flows/index';
 export * from './extension/index';
+export { nodes, defaultNodeRegistry } from './nodes/index';
 export * from './particles/index';
 export * from './gpu/index';

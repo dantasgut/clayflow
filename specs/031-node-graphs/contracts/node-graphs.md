@@ -67,37 +67,34 @@ class WaterSurface /* … */ {
 ```ts
 const noise3 = defineNode({
   name: 'noise.gradient3',
-  level: 'point',
   inputs: { p: 'vec3f' },
   outputs: { value: 'f32' },
-  params: { scale: FieldType.f32, seed: FieldType.u32 },
-  code: noiseGradientModule, // fn noise_gradient3(p: vec3f, prm: NoiseGradient3Params) -> f32
+  params: { scale: { type: 'f32', default: 1 }, offset: { type: 'vec3f' } },
+  code: nodeNoise, // fn node_noise_gradient3(p: vec3f, scale: f32, offset: vec3f) -> f32
+  fn: 'node_noise_gradient3',
   contexts: ['fragment', 'vertex', 'compute'],
 });
 
-const graph = new NodeGraph({
-  target: materialPoint, // implementa o ponto `material` da 009
+// Grafo de ponto: a forma (imutável). Entradas do ponto são argumentos (`s` = SurfaceSample do ponto `material`).
+const look = new NodeGraph({
   nodes: {
-    s: nodes.input.surfaceSample(),
+    s: nodes.input.surfaceSample(), // graphArgument('s', { world_position: 'vec3f', … })
     n: noise3.with({ scale: 4 }),
-    c: nodes.color.ramp.with({
-      stops: [
-        [0, [0.1, 0.1, 0.1, 1]],
-        [1, [0.9, 0.6, 0.2, 1]],
-      ],
-    }),
-    out: nodes.output.surfaceParams(),
+    c: nodes.color.ramp.with({ color_a: [0.1, 0.1, 0.1], color_b: [0.9, 0.6, 0.2] }),
+    out: nodes.output.surfaceParams, // entradas sem ligação: as constantes do material (`m`)
   },
   links: [
-    ['s.position', 'n.p'],
+    ['s.world_position', 'n.p'],
     ['n.value', 'c.t'],
-    ['c.color', 'out.albedo'],
+    ['c.color', 'out.base_color'],
     ['n.value', 'out.roughness'], // saída usada duas vezes → avaliada uma vez
   ],
+  output: 'out.value',
 });
-entity.add(graph); // no lugar de uma MaterialFunction
-graph.values.n.scale = 8; // quadro seguinte, sem recompilar
-graph.link('n.value', 'out.metallic'); // topologia nova → recompila em transição
+const material = new MaterialFunction({ graph: look }); // a função da 009, montada pelo grafo
+entity.add(material);
+material.values.n_scale = 8; // quadro seguinte, sem recompilar
+material.setGraph(other); // topologia nova → revisão +1, recompila em transição; falha mantém a anterior
 
 // Grafo de conjunto → Flow
 const terrainScatter = new NodeGraph({

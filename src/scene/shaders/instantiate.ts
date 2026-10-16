@@ -9,7 +9,7 @@ const IDENT_PART = /[A-Za-z0-9_]/;
  * Renomeia, por token, os identificadores de `names` em `source` (fora de comentários e de acessos a membro `.x`),
  * acrescentando `suffix`. Não é substituição de texto: só identificadores inteiros que são símbolos do módulo mudam.
  */
-function renameTokens(source: string, names: ReadonlySet<string>, suffix: string): string {
+export function renameTokens(source: string, names: ReadonlySet<string>, suffix: string): string {
     let out = '';
     let i = 0;
     let depth = 0;

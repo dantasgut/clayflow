@@ -51,7 +51,12 @@ import { ForwardFrameParamsSchema } from '../elements/material/forwardSchemas';
 import { ShadowMap } from '../elements/scene/ShadowMap';
 import { ParticleMaterial } from '../elements/physics/materials/ParticleMaterial';
 import * as Render from '../presentation/flows/renderSchemas';
-import { gradientNoise2, gradientNoise3, valueNoise2, valueNoise3 } from './support/noiseReference';
+import {
+    gradientNoise2,
+    gradientNoise3,
+    valueNoise2,
+    valueNoise3,
+} from '../elements/nodes/reference/noise';
 
 function log(msg: string): void {
     console.log(`[shaderLibrary] ${msg}`);
@@ -664,7 +669,7 @@ async function main(): Promise<void> {
                     discriminator: `shaderlib_compile_${key}`,
                     shader: probe,
                     entryPoint: 'compile_main',
-                    bindings: {},
+                    bindings: new Map(),
                 });
                 destroyComputeKernel(app.core, k);
             });

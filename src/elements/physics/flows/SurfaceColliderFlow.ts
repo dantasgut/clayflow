@@ -9,6 +9,7 @@ import type {
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../../scene/contracts/gpu';
+import { ExtensionPipelines, type PipelineVariant } from '../../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
     BoundFlow,
@@ -25,7 +26,6 @@ import {
     type SlotMap,
 } from '../../../scene/flows/slots';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
-import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import { Time } from '../../../scene/time/Time';
 import type { EntityId } from '../../../scene/world/EntityId';
 import { SurfaceFunction } from '../../extension/SurfaceFunction';
@@ -108,7 +108,7 @@ interface Shape {
     readonly jfa: readonly number[];
 }
 
-/** Estado de um colisor: forma, rascunho, parâmetros, pipelines e o que construir no quadro. */
+/** Estado de um colisor: forma, rascunho, parâmetros e o que construir no quadro (a amostragem fica em `pointPipelines`). */
 interface ColliderState {
     readonly id: EntityId;
     shape: Shape;
@@ -118,9 +118,6 @@ interface ColliderState {
     bounds: StorageBufferSpec;
     cells: StorageBufferSpec;
     ids: StorageBufferSpec;
-    /** Pipeline da amostragem em uso (pela função da entidade) e o que aguarda compilar. */
-    active: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
-    pending: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
     /** Construir no próximo quadro (entrou, mudou, campo realocado). */
     stale: boolean;
     /** Cópias a construir neste quadro (0: nada). */
@@ -153,6 +150,8 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     private readonly dummyRecords: StorageBufferSpec;
     private readonly dummyWorlds: StorageBufferSpec;
     private readonly warnedSteps = new Set<EntityId>();
+    /** Pipeline da amostragem de cada colisor (pela função da entidade, ou a pronta), ativo ao compilar. */
+    private readonly pointPipelines = new ExtensionPipelines<EntityId>();
     private dirty = true;
 
     constructor(ctx: FlowContext) {
@@ -207,23 +206,19 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 bindGroupReplaced: 'ignore',
                 pipelinesCompiled: {
                     to: 'idle',
-                    run: (e) => {
+                    run: (e, c) => {
                         if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        for (const st of this.states.values()) {
-                            if (st.pending?.id !== e.pipeline) continue;
-                            st.active = st.pending;
-                            st.pending = undefined;
-                            st.stale = true;
+                        for (const id of this.pointPipelines.compiled(e.pipeline, c)) {
+                            const st = this.states.get(id);
+                            if (st !== undefined) st.stale = true;
                         }
                     },
                 },
                 pipelineRejected: {
                     to: 'idle',
                     run: (e, c) => {
-                        if (e.type !== 'pipelineRejected') return;
-                        for (const st of this.states.values())
-                            if (st.pending?.id === e.pipeline) st.pending = undefined;
-                        c.release(e.pipeline);
+                        if (e.type === 'pipelineRejected')
+                            this.pointPipelines.rejected(e.pipeline, c);
                     },
                 },
                 framePrepare: {
@@ -240,8 +235,9 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     /** Grava as passadas dos colliders a construir neste quadro. */
     dispatch(frame: Frame, bound: BoundFlow<SurfaceColliderSlots>): void {
         for (const st of this.states.values()) {
-            if (st.copies === 0 || st.active === undefined) continue;
-            const points = bound.pipelines.get(st.active.id);
+            const active = this.pointPipelines.active(st.id);
+            if (st.copies === 0 || active === undefined) continue;
+            const points = bound.pipelines.get(active.id);
             if (points?.role !== 'compute' || !points.ready) continue;
             const build = (entry: string): PreparedCompute | undefined => {
                 const p = bound.pipelines.get(buildId(st.id, entry));
@@ -299,7 +295,8 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             const shape = shapeOf(entry.get(SurfaceCollider));
             let st = this.states.get(id);
             if (st !== undefined && st.shape.key !== shape.key) {
-                this.releasePipelines(ctx, st);
+                this.releaseBuild(ctx, st);
+                this.pointPipelines.forget(ctx, id);
                 this.destroyState(st);
                 this.states.delete(id);
                 st = undefined;
@@ -310,19 +307,14 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             }
             st.stale = true;
             const fn = functions.entry(id)?.get(SurfaceFunction);
-            const module = fn?.module;
-            const known = st.pending ?? st.active;
-            const pointsId =
-                known === undefined || known.module !== module
-                    ? `scb_points:${id}:${module?.name ?? 'preset'}`
-                    : undefined;
+            const key = fn?.module.name ?? 'preset';
+            const next: PipelineVariant = { key, id: `scb_points:${id}:${key}` };
             const shared: [WgslResource, BindingSource][] = [
                 [B.bake, st.bake.source()],
                 [B.points, st.points],
                 [B.bounds, st.bounds],
             ];
-            for (const pid of [st.active?.id, st.pending?.id, pointsId]) {
-                if (pid === undefined) continue;
+            for (const { id: pid } of this.pointPipelines.bindable(id, next)) {
                 ctx.bind(
                     prefixed(pid, [
                         ...shared,
@@ -349,7 +341,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                     entryPoints: [`${entryName}_main`],
                 });
             }
-            if (pointsId !== undefined) {
+            this.pointPipelines.select(id, next, ({ id: pointsId }) => {
                 const impls = new Map([[surfacePoint, fn?.module ?? surfacePoint.ready]]);
                 const shader =
                     fn === undefined
@@ -360,28 +352,22 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                                   ? new Map([...impls, [surfaceTangents, surfaceTangentsAnalytic]])
                                   : impls,
                           );
-                const prepared = ctx.prepare({
+                return ctx.prepare({
                     id: pointsId,
                     role: 'compute',
                     shader,
                     entryPoints: ['scb_points_main'],
                     ...(fn === undefined ? {} : { verify: true, extensions: [fn] }),
-                });
-                const next = { id: pointsId, module };
-                if (prepared.ready) {
-                    if (st.active !== undefined && st.active.id !== pointsId)
-                        ctx.release(st.active.id);
-                    st.active = next;
-                    st.pending = undefined;
-                } else st.pending = next;
-            }
+                }).ready;
+            });
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
-            this.releasePipelines(ctx, st);
+            this.releaseBuild(ctx, st);
             this.destroyState(st);
             this.states.delete(id);
         }
+        this.pointPipelines.retain(ctx, present);
     }
 
     /** Decide quem constrói neste quadro, quantas cópias e em que tempos, e escreve os parâmetros. */
@@ -521,19 +507,15 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 'ids',
                 shape.mode === 'distance' ? shape.copies * 2 * shape.cells * 4 : 16,
             ),
-            active: undefined,
-            pending: undefined,
             stale: true,
             copies: 0,
             world: undefined,
         };
     }
 
-    private releasePipelines(ctx: Ctx, st: ColliderState): void {
-        for (const pid of [st.active?.id, st.pending?.id]) if (pid !== undefined) ctx.release(pid);
+    /** Libera as passadas da construção do colisor (a amostragem é de `pointPipelines`). */
+    private releaseBuild(ctx: Ctx, st: ColliderState): void {
         for (const entry of BUILD_ENTRIES[st.shape.mode]) ctx.release(buildId(st.id, entry));
-        st.active = undefined;
-        st.pending = undefined;
     }
 
     private destroyState(st: ColliderState): void {

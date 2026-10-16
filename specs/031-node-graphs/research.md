@@ -180,6 +180,21 @@ validação e troca da 009.
 **Alternativas**: interpretador de grafo na GPU (bytecode) — mais lento e sem especialização; um pipeline por nó — passes
 intermediários.
 
+**Como ficou (US2, 2026-10-16)**: o grafo de ponto é hospedado pela própria função de ponto — `new MaterialFunction({
+graph })` (e as outras seis) no lugar de `{ code }`; `setGraph` troca a topologia (revisão +1, compila em transição,
+falha mantém o anterior) e `values['nó_parâmetro']` muda valores sem recompilar. Assim os estágios, que acham as
+funções pela classe (`slot.entities({ all: [ParametricSurface, SurfaceFunction] })`), servem grafos sem mudança, e a
+validação, os pools, a troca e a rejeição são os da 009 — um caminho só. O `NodeGraph` é a forma imutável (nós,
+ligações, saída) com `compile(point)`; a função gerada tem o nome e a assinatura do ponto (não `graph_<hash>`), um
+`let` por nó dos que a saída alcança, parâmetros por `data.<nó>_<parâmetro>`. As entradas do ponto são nós
+`graphArgument(nome, campos)` (saída `value` e uma por campo do struct, ex. `s.world_position`); a saída é a porta
+`output`, convertida ao retorno do ponto (escalar → vetor por repetição é a única conversão implícita). Padrões de
+entrada são expressões WGSL no escopo da função — o nó `output.surfaceParams` usa as constantes do material (`m`), e o
+grafo sem ligações reproduz a função pronta. A função escrita em WGSL não é reescrita como grafo de um nó: código e
+grafo são as duas fontes do mesmo módulo gerado; a renomeação nos pontos de cena passou de regex para a renomeação por
+token (R7). O saneamento `finite` fica onde a 009 o pôs, nos hospedeiros (transform, camera, emit, surface), igual
+para código e grafo. O registro tipado sem teto (R8) chega com a US4; até lá, grafos usam o registro da 009.
+
 ### R10 — Grafo de nós de conjunto compilado num Flow
 
 **Decisão**: nós de conjunto (`level: 'set'`) declaram kernels (módulos com ponto de entrada), conjuntos de saída

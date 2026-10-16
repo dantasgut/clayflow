@@ -1,6 +1,7 @@
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { EngineCore, Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import { ExtensionPipelines, type PipelineVariant } from '../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../scene/flows/Flow';
 import type {
     BindingKey,
@@ -19,7 +20,6 @@ import {
     type SlotMap,
 } from '../../scene/flows/slots';
 import { bindPoints } from '../../scene/shaders/bindPoints';
-import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Time } from '../../scene/time/Time';
 import type { EntityId } from '../../scene/world/EntityId';
@@ -69,7 +69,7 @@ const slots: EmitterSlots = {
 
 type Ctx = TransitionContext<EmitterSlots>;
 
-/** Estado de um emissor: parâmetros por passo, anel, acumulador e pipelines. */
+/** Estado de um emissor: parâmetros por passo, anel, acumulador e pipelines fixos (a criação fica em `spawnPipelines`). */
 interface EmitterState {
     readonly id: EntityId;
     readonly params: PerStepUniforms;
@@ -78,9 +78,6 @@ interface EmitterState {
     accumulator: number;
     head: number;
     emitted: number;
-    /** Pipeline de criação em uso e o que aguarda compilar (função nova ou código trocado). */
-    spawnActive: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
-    spawnPending: { readonly id: string; readonly module: WgslModule | undefined } | undefined;
     readonly updateId: string;
     /** Pipeline da colisão com os colliders (spec 010). */
     readonly collideId: string;
@@ -106,6 +103,8 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
     private readonly states = new Map<EntityId, EmitterState>();
     /** Substituto do pool de registros das funções (emissores sem `EmitFunction`). */
     private readonly dummyRecords: StorageBufferSpec;
+    /** Pipeline de criação de cada emissor (pela forma ou pela `EmitFunction`), ativo ao compilar. */
+    private readonly spawnPipelines = new ExtensionPipelines<EntityId>();
     private dirty = true;
     private readonly colliderSet: ColliderSet;
     /** Colliders na cena no quadro: grava a colisão depois de cada passo (spec 010). */
@@ -144,22 +143,16 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 bindGroupReplaced: 'ignore',
                 pipelinesCompiled: {
                     to: 'idle',
-                    run: (e) => {
-                        if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        for (const st of this.states.values()) {
-                            if (st.spawnPending?.id !== e.pipeline) continue;
-                            st.spawnActive = st.spawnPending;
-                            st.spawnPending = undefined;
-                        }
+                    run: (e, c) => {
+                        if (e.type === 'pipelinesCompiled' && e.pipeline !== undefined)
+                            this.spawnPipelines.compiled(e.pipeline, c);
                     },
                 },
                 pipelineRejected: {
                     to: 'idle',
                     run: (e, c) => {
-                        if (e.type !== 'pipelineRejected') return;
-                        for (const st of this.states.values())
-                            if (st.spawnPending?.id === e.pipeline) st.spawnPending = undefined;
-                        c.release(e.pipeline);
+                        if (e.type === 'pipelineRejected')
+                            this.spawnPipelines.rejected(e.pipeline, c);
                     },
                 },
                 framePrepare: {
@@ -180,8 +173,8 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
         for (const st of this.states.values()) {
             const update = bound.pipelines.get(st.updateId);
             if (update?.role !== 'compute' || !update.ready) continue;
-            const spawn =
-                st.spawnActive === undefined ? undefined : bound.pipelines.get(st.spawnActive.id);
+            const spawnId = this.spawnPipelines.active(st.id)?.id;
+            const spawn = spawnId === undefined ? undefined : bound.pipelines.get(spawnId);
             const capacity = this.capacityOf(bound, st.id);
             st.spawn.forEach((n, k) => {
                 const offsets = { draw: [st.params.offset(k)] };
@@ -244,8 +237,6 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                     accumulator: 0,
                     head: 0,
                     emitted: 0,
-                    spawnActive: undefined,
-                    spawnPending: undefined,
                     updateId: `emit_update:${id}`,
                     collideId: `emit_collide:${id}`,
                 };
@@ -282,14 +273,9 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                 entryPoints: ['emit_collide_main'],
             });
             const fn = functions.entry(id)?.get(EmitFunction);
-            const module = fn?.module;
-            const known = st.spawnPending ?? st.spawnActive;
-            const spawnId =
-                known === undefined || known.module !== module
-                    ? `emit_spawn:${id}:${module?.name ?? 'shape'}`
-                    : undefined;
-            for (const pid of [st.spawnActive?.id, st.spawnPending?.id, spawnId]) {
-                if (pid === undefined) continue;
+            const key = fn?.module.name ?? 'shape';
+            const next: PipelineVariant = { key, id: `emit_spawn:${id}:${key}` };
+            for (const { id: pid } of this.spawnPipelines.bindable(id, next)) {
                 ctx.bind(
                     at(pid, [
                         [R.params, params],
@@ -298,33 +284,29 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                     ]),
                 );
             }
-            if (spawnId !== undefined) {
-                const prepared = ctx.prepare({
-                    id: spawnId,
-                    role: 'compute',
-                    shader:
-                        fn === undefined
-                            ? emitSpawn
-                            : bindPoints(emitSpawn, new Map([[emitPoint, fn.module]])),
-                    entryPoints: ['emit_spawn_main'],
-                    ...(fn === undefined ? {} : { verify: true, extensions: [fn] }),
-                });
-                const next = { id: spawnId, module };
-                if (prepared.ready) {
-                    if (st.spawnActive !== undefined && st.spawnActive.id !== spawnId)
-                        ctx.release(st.spawnActive.id);
-                    st.spawnActive = next;
-                    st.spawnPending = undefined;
-                } else st.spawnPending = next;
-            }
+            this.spawnPipelines.select(
+                id,
+                next,
+                ({ id: spawnId }) =>
+                    ctx.prepare({
+                        id: spawnId,
+                        role: 'compute',
+                        shader:
+                            fn === undefined
+                                ? emitSpawn
+                                : bindPoints(emitSpawn, new Map([[emitPoint, fn.module]])),
+                        entryPoints: ['emit_spawn_main'],
+                        ...(fn === undefined ? {} : { verify: true, extensions: [fn] }),
+                    }).ready,
+            );
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
-            for (const pid of [st.updateId, st.collideId, st.spawnActive?.id, st.spawnPending?.id])
-                if (pid !== undefined) ctx.release(pid);
+            for (const pid of [st.updateId, st.collideId]) ctx.release(pid);
             st.params.dispose();
             this.states.delete(id);
         }
+        this.spawnPipelines.retain(ctx, present);
     }
 
     /** Partículas a criar em cada passo (acumulador por passo) e os parâmetros de cada passo, por emissor. */
@@ -347,13 +329,9 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
             const hasFn = functions.entry(st.id) !== undefined && record !== undefined;
             if (st.params.reserve(Math.max(1, steps))) {
                 const params = st.params.source();
-                for (const pid of [
-                    st.spawnActive?.id,
-                    st.spawnPending?.id,
-                    st.updateId,
-                    st.collideId,
-                ])
-                    if (pid !== undefined) ctx.bind(at(pid, [[R.params, params]]));
+                const spawns = this.spawnPipelines.bindable(st.id).map((v) => v.id);
+                for (const pid of [...spawns, st.updateId, st.collideId])
+                    ctx.bind(at(pid, [[R.params, params]]));
             }
             st.spawn = [];
             for (let k = 0; k < steps; k++) {

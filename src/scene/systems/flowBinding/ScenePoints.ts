@@ -238,7 +238,7 @@ export class ScenePoints {
             for (const fn of entry.functions) {
                 const slot = this.slotOf(fn);
                 entry.revisions.set(fn, fn.revision);
-                if (slot === undefined) continue;
+                if (slot === undefined || !fn.implemented) continue;
                 entry.slots.set(fn, slot);
                 entries.push({ impl: fn, slot });
             }

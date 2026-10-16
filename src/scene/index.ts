@@ -36,10 +36,35 @@ export type {
     PoolInfo,
     ResourceDirectory,
     ExtensionFunctionOptions,
+    ExtensionCodeOptions,
+    ExtensionGraphOptions,
     ExtensionParamType,
     ExtensionParamValue,
     ExtensionParamsData,
 } from './contracts/index';
+
+export {
+    defineNode,
+    structFields,
+    NodeGraph,
+    graphArgument,
+    NodeGraphError,
+    NodeRegistry,
+} from './graph/index';
+export type {
+    NodeDefinition,
+    NodeDefinitionOptions,
+    NodeUse,
+    NodeParam,
+    NodeContext,
+    PortType,
+    NodeGraphOptions,
+    GraphNode,
+    GraphLink,
+    GraphArgument,
+    ResolvedNode,
+    NodeGraphErrorKind,
+} from './graph/index';
 
 export type {
     GPUDescriptor,

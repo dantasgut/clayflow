@@ -153,6 +153,11 @@ export interface PointImplementation {
     readonly module: WgslModule;
     /** Revisão do código. */
     readonly revision: number;
+    /**
+     * A implementação tem função própria. `false` (grafo sem saída, spec 031): o módulo é o pronto do ponto e, nos
+     * pontos de cena, a função não entra na composição.
+     */
+    readonly implemented: boolean;
     /** Nome da função obrigatória no módulo (com o sufixo do hash nos pontos de cena). */
     readonly functionName: string;
     /** Nome do carregador de parâmetros no módulo. */
@@ -289,6 +294,7 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
                                   point,
                                   module,
                                   revision: 0,
+                                  implemented: true,
                                   functionName: options.required.name,
                                   loaderName: `${options.required.name}_params`,
                                   optionalName: (name) =>

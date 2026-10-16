@@ -19,6 +19,7 @@ import type {
     TransitionContext,
 } from '../../scene/flows/FlowBinding';
 import { sameBindGroup } from '../../scene/flows/FlowBinding';
+import { ExtensionPipelines, type PipelineVariant } from '../../scene/flows/ExtensionPipelines';
 import type { BindGroupSpec } from '../../scene/contracts/gpu';
 import { BINDING_FREQUENCIES, type WgslResource } from '../../scene/shaders/WgslResource';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
@@ -125,6 +126,16 @@ export function forwardGroupKey(entry: EntityEntry): string {
     const fn = materialFunctionOf(entry);
     const program = fn === undefined ? '' : `|${fn.module.name}`;
     return `${geometry}|${shader}|${topology}|${face}${program}`;
+}
+
+/**
+ * Variante de uma função `material` sobre o pipeline base de uma entidade: as duas orientações (a `ccw` é a principal),
+ * com os pipelines base a que correspondem.
+ */
+interface MaterialFnVariant extends PipelineVariant {
+    readonly base: { readonly ccw: string; readonly cw: string };
+    readonly ccw: string;
+    readonly cw: string;
 }
 
 /** A `MaterialFunction` da entidade, se tem. */
@@ -266,7 +277,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private syncMaterialFunctions(ctx: Ctx): void {
         if (!this.materialFnDirty) return;
         this.materialFnDirty = false;
-        const used = new Set<string>();
+        const present: EntityId[] = [];
         let any = false;
         for (const entry of ctx.bound.slots.renderables.entries) {
             const fn = materialFunctionOf(entry);
@@ -278,51 +289,45 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 this.materialFnDirty = true;
                 continue;
             }
-            const key = this.materialFnKey(draw.pipelines.ccw, fn);
-            used.add(key);
-            if (this.materialFnPipelines.has(key)) continue;
-            const variant = (baseId: string): string => {
-                const base = this.baseDescriptors.get(baseId)!;
-                const id = `${baseId}|material:${fn.module.name}`;
-                const descriptor: PipelineDescriptor = {
-                    ...base,
-                    id,
-                    shader: bindPoints(
-                        base.shader,
-                        new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
-                    ),
-                    verify: true,
-                    extensions: [...(base.extensions ?? []), fn],
-                };
-                ctx.prepare(descriptor);
-                // Projeção de ponto da câmera ativa também sobre a variante da função.
-                this.baseDescriptors.set(id, descriptor);
-                this.prepareVariant(ctx, descriptor);
-                return id;
+            present.push(entry.entityId);
+            const base = draw.pipelines;
+            const name = fn.module.name;
+            const ccw = `${base.ccw}|material:${name}`;
+            const cw = `${base.cw}|material:${name}`;
+            const next: MaterialFnVariant = {
+                key: `${base.ccw}|${name}`,
+                id: ccw,
+                ids: [ccw, cw],
+                base,
+                ccw,
+                cw,
             };
-            this.materialFnPipelines.set(key, {
-                ccw: variant(draw.pipelines.ccw),
-                cw: variant(draw.pipelines.cw),
+            this.materialFns.select(entry.entityId, next, () => {
+                const variant = (baseId: string, id: string): boolean => {
+                    const b = this.baseDescriptors.get(baseId)!;
+                    const descriptor: PipelineDescriptor = {
+                        ...b,
+                        id,
+                        shader: bindPoints(
+                            b.shader,
+                            new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
+                        ),
+                        verify: true,
+                        extensions: [...(b.extensions ?? []), fn],
+                    };
+                    const ready = ctx.prepare(descriptor).ready;
+                    // Projeção de ponto da câmera ativa também sobre a variante da função.
+                    this.baseDescriptors.set(id, descriptor);
+                    this.prepareVariant(ctx, descriptor);
+                    return ready;
+                };
+                const ready = variant(base.ccw, ccw);
+                variant(base.cw, cw);
+                return ready;
             });
         }
-        for (const [key, ids] of [...this.materialFnPipelines]) {
-            if (used.has(key)) continue;
-            for (const id of [ids.ccw, ids.cw]) {
-                const projected = this.projection?.variants.get(id);
-                if (projected !== undefined) {
-                    ctx.release(projected);
-                    this.projection?.variants.delete(id);
-                }
-                ctx.release(id);
-                this.baseDescriptors.delete(id);
-            }
-            this.materialFnPipelines.delete(key);
-        }
+        this.materialFns.retain(ctx, present);
         this.usesTime = any;
-    }
-
-    private materialFnKey(baseCcw: string, fn: MaterialFunction): string {
-        return `${baseCcw}|${fn.module.name}`;
     }
 
     /** O pipeline da função `material` da entidade para o pipeline base `id`, se pronto. */
@@ -331,13 +336,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         entry: EntityEntry,
         id: string,
     ): string | undefined {
-        const fn = materialFunctionOf(entry);
-        if (fn === undefined) return undefined;
-        const draw = this.materialDraw.get(entry.get(Material));
-        if (draw?.pipelines === undefined) return undefined;
-        const ids = this.materialFnPipelines.get(this.materialFnKey(draw.pipelines.ccw, fn));
-        if (ids === undefined) return undefined;
-        const fnId = id === draw.pipelines.cw ? ids.cw : ids.ccw;
+        if (materialFunctionOf(entry) === undefined) return undefined;
+        const v = this.materialFns.active(entry.entityId);
+        if (v === undefined) return undefined;
+        const fnId = id === v.base.cw ? v.cw : id === v.base.ccw ? v.ccw : undefined;
+        if (fnId === undefined) return undefined;
         const prepared = bound.pipelines.get(fnId);
         return prepared?.role === 'render' && prepared.ready ? fnId : undefined;
     }
@@ -359,13 +362,20 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     /** Há função `material` na cena: o tempo simulado vai aos parâmetros do quadro. */
     private usesTime = false;
     /**
-     * Pipelines das funções `material` (spec 009), por (pipeline base, código): as duas orientações; até compilar, as
-     * entidades com a função desenham com a base (as constantes do material).
+     * Pipelines das funções `material` (spec 009), por entidade: as duas orientações do pipeline base com o adaptador
+     * da função (compartilhadas por (pipeline base, código)), ativas ao compilar; até a primeira compilar, a entidade
+     * desenha com a base (as constantes do material). Ao liberar uma variante, sai também a projeção sobre ela.
      */
-    private readonly materialFnPipelines = new Map<
-        string,
-        { readonly ccw: string; readonly cw: string }
-    >();
+    private readonly materialFns = new ExtensionPipelines<EntityId, MaterialFnVariant>(
+        (id, ctx) => {
+            const projected = this.projection?.variants.get(id);
+            if (projected !== undefined) {
+                ctx.release(projected);
+                this.projection?.variants.delete(id);
+            }
+            this.baseDescriptors.delete(id);
+        },
+    );
     /** As funções `material` (conjunto ou código) mudaram desde a última sincronização. */
     private materialFnDirty = true;
 
@@ -428,12 +438,22 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     },
                 },
                 slotLost: 'ignore',
-                pipelinesCompiled: 'ignore',
-                // Variante de projeção rejeitada: o desenho segue com a projeção linear (a cena já anunciou).
+                // Variante de função `material` compilada: passa a valer.
+                pipelinesCompiled: {
+                    to: 'idle',
+                    run: (e, c) => {
+                        if (e.type === 'pipelinesCompiled' && e.pipeline !== undefined)
+                            this.materialFns.compiled(e.pipeline, c);
+                    },
+                },
+                // Variante de função `material` rejeitada: a entidade segue com a anterior (ou a base). Variante de
+                // projeção rejeitada: o desenho segue com a projeção linear (a cena já anunciou).
                 pipelineRejected: {
                     to: 'idle',
-                    run: (e) => {
-                        if (e.type !== 'pipelineRejected' || this.projection === undefined) return;
+                    run: (e, c) => {
+                        if (e.type !== 'pipelineRejected') return;
+                        this.materialFns.rejected(e.pipeline, c);
+                        if (this.projection === undefined) return;
                         if ([...this.projection.variants.values()].includes(e.pipeline))
                             this.projection.rejected = true;
                     },

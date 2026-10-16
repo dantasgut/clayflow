@@ -9,6 +9,7 @@ import type {
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import { ExtensionPipelines, type PipelineVariant } from '../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../scene/flows/Flow';
 import type {
     BindingKey,
@@ -112,19 +113,17 @@ const slots: SurfaceSlots = {
 /** Passadas da malha adaptativa (entradas do `surface_adapt.wgsl`), na ordem. */
 const ADAPT_ENTRIES = ['level', 'budget', 'scan', 'emit'] as const;
 
-/** Id do pipeline de uma passada da malha adaptativa (o estado guarda o da emissão). */
+/** Id do pipeline de uma passada da malha adaptativa (a variante tem o da emissão como principal). */
 function adaptId(emitId: string, entry: (typeof ADAPT_ENTRIES)[number]): string {
     return `${emitId.slice(0, -'#emit'.length)}#${entry}`;
 }
 
 type Ctx = TransitionContext<SurfaceSlots>;
 
-/** Estado de uma superfície: parâmetros, pipeline em uso e o que aguarda compilar, avaliação pendente. */
+/** Estado de uma superfície: parâmetros, avaliação pendente e a malha adaptativa (o pipeline fica em `pipelines`). */
 interface SurfaceState {
     readonly id: EntityId;
     readonly params: UniformBufferSpec;
-    active: { readonly id: string; readonly key: string } | undefined;
-    pending: { readonly id: string; readonly key: string } | undefined;
     /** Avaliar no próximo quadro. */
     stale: boolean;
     /** Avaliar neste quadro (decidido no `framePrepare`). */
@@ -162,6 +161,11 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     private readonly world: World;
     private readonly events: EventBus;
     private readonly warnedAdaptive = new Set<EntityId>();
+    /**
+     * Pipeline de avaliação de cada superfície (por função, adaptadores e jato; na malha adaptativa, as quatro
+     * passadas, com a emissão como principal), ativo ao compilar.
+     */
+    private readonly evalPipelines = new ExtensionPipelines<EntityId>();
     private dirty = true;
 
     constructor(ctx: FlowContext) {
@@ -212,23 +216,19 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 bindGroupReplaced: 'ignore',
                 pipelinesCompiled: {
                     to: 'idle',
-                    run: (e) => {
+                    run: (e, c) => {
                         if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        for (const st of this.states.values()) {
-                            if (st.pending?.id !== e.pipeline) continue;
-                            st.active = st.pending;
-                            st.pending = undefined;
-                            st.stale = true;
+                        for (const id of this.evalPipelines.compiled(e.pipeline, c)) {
+                            const st = this.states.get(id);
+                            if (st !== undefined) st.stale = true;
                         }
                     },
                 },
                 pipelineRejected: {
                     to: 'idle',
                     run: (e, c) => {
-                        if (e.type !== 'pipelineRejected') return;
-                        for (const st of this.states.values())
-                            if (st.pending?.id === e.pipeline) st.pending = undefined;
-                        c.release(e.pipeline);
+                        if (e.type === 'pipelineRejected')
+                            this.evalPipelines.rejected(e.pipeline, c);
                     },
                 },
                 framePrepare: {
@@ -245,14 +245,15 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     /** Uma avaliação por superfície marcada neste quadro. */
     dispatch(frame: Frame, bound: BoundFlow<SurfaceSlots>): void {
         for (const st of this.states.values()) {
-            if (!st.evaluate || st.active === undefined) continue;
+            const active = this.evalPipelines.active(st.id);
+            if (!st.evaluate || active === undefined) continue;
             const surface = bound.slots.surfaces.entry(st.id)?.get(ParametricSurface);
             if (surface === undefined) continue;
             if (surface.adaptive !== undefined && st.adapt !== undefined) {
-                this.dispatchAdaptive(frame, bound, st, surface.adaptive);
+                this.dispatchAdaptive(frame, bound, st, active, surface.adaptive);
                 continue;
             }
-            const p = bound.pipelines.get(st.active.id);
+            const p = bound.pipelines.get(active.id);
             if (p?.role !== 'compute' || !p.ready) continue;
             frame.compute('SurfaceFlow', (pass) => {
                 pass.bind.setPipeline(p.spec);
@@ -268,9 +269,10 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         frame: Frame,
         bound: BoundFlow<SurfaceSlots>,
         st: SurfaceState,
+        active: PipelineVariant,
         a: AdaptiveConfig,
     ): void {
-        const ps = ADAPT_ENTRIES.map((e) => bound.pipelines.get(adaptId(st.active!.id, e)));
+        const ps = ADAPT_ENTRIES.map((e) => bound.pipelines.get(adaptId(active.id, e)));
         if (ps.some((p) => p?.role !== 'compute' || !p.ready)) return;
         const [level, budget, scan, emit] = ps as PreparedCompute[];
         const patches = a.patches[0] * a.patches[1];
@@ -305,14 +307,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 this.core.destroy(b);
     }
 
-    private releasePipelines(ctx: Ctx, st: SurfaceState, adaptive: boolean): void {
-        for (const pid of [st.active?.id, st.pending?.id]) {
-            if (pid === undefined) continue;
-            if (adaptive) for (const e of ADAPT_ENTRIES) ctx.release(adaptId(pid, e));
-            else ctx.release(pid);
-        }
-    }
-
     /** Superfícies presentes: estado, bindings e pipeline (pela função, ou pela pronta). */
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
@@ -334,8 +328,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                         discriminator: `surface_params:${id}`,
                         byteSize: SurfaceParamsSchema.stride,
                     }),
-                    active: undefined,
-                    pending: undefined,
                     stale: true,
                     evaluate: false,
                     adapt: undefined,
@@ -378,15 +370,15 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                       ? surfaceJetAnalytic
                       : undefined;
             const key = `${module?.name ?? 'preset'}|${surface.differential ? (jet?.name ?? 'numeric') : '-'}`;
-            const known = st.pending ?? st.active;
             const adaptive = surface.adaptive !== undefined;
-            const pipelineId =
-                known?.key !== key
-                    ? `surface_eval:${id}:${key}${adaptive ? '#emit' : ''}`
-                    : undefined;
+            const emitId = `surface_eval:${id}:${key}${adaptive ? '#emit' : ''}`;
+            const next: PipelineVariant = {
+                key,
+                id: emitId,
+                ...(adaptive ? { ids: ADAPT_ENTRIES.map((e) => adaptId(emitId, e)) } : {}),
+            };
             const records = fnRecords?.buffer ?? this.dummyRecords;
-            for (const pid of [st.active?.id, st.pending?.id, pipelineId]) {
-                if (pid === undefined) continue;
+            for (const { id: pid } of this.evalPipelines.bindable(id, next)) {
                 if (adaptive) {
                     this.bindAdaptive(ctx, st, surface, pid, vertices, records);
                     continue;
@@ -403,34 +395,34 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     ]),
                 );
             }
-            if (pipelineId === undefined) continue;
-            const base = adaptive
-                ? surfaceAdapt
-                : surface.differential
-                  ? surfaceEvalDiff
-                  : surfaceEval;
-            const impls = new Map<BindablePoint, WgslModule>([
-                [surfacePoint, fn?.module ?? surfacePoint.ready],
-            ]);
-            if (fn?.analytic === true) impls.set(surfaceTangents, surfaceTangentsAnalytic);
-            if (jet !== undefined) impls.set(surfaceJet, jet);
-            const shader = fn === undefined && jet === undefined ? base : bindPoints(base, impls);
-            const extra = fn === undefined ? {} : { verify: true, extensions: [fn] };
-            let ready: boolean;
-            if (adaptive) {
-                // As quatro passadas compartilham o shader; a de emissão (a última preparada) marca o estado.
-                ready = ADAPT_ENTRIES.map(
-                    (e) =>
-                        ctx.prepare({
-                            id: adaptId(pipelineId, e),
-                            role: 'compute',
-                            shader,
-                            entryPoints: [`surface_adapt_${e}_main`],
-                            ...extra,
-                        }).ready,
-                ).every(Boolean);
-            } else {
-                ready = ctx.prepare({
+            this.evalPipelines.select(id, next, ({ id: pipelineId }) => {
+                const base = adaptive
+                    ? surfaceAdapt
+                    : surface.differential
+                      ? surfaceEvalDiff
+                      : surfaceEval;
+                const impls = new Map<BindablePoint, WgslModule>([
+                    [surfacePoint, fn?.module ?? surfacePoint.ready],
+                ]);
+                if (fn?.analytic === true) impls.set(surfaceTangents, surfaceTangentsAnalytic);
+                if (jet !== undefined) impls.set(surfaceJet, jet);
+                const shader =
+                    fn === undefined && jet === undefined ? base : bindPoints(base, impls);
+                const extra = fn === undefined ? {} : { verify: true, extensions: [fn] };
+                if (adaptive) {
+                    // As quatro passadas compartilham o shader; a de emissão é a principal (marca a compilação).
+                    return ADAPT_ENTRIES.map(
+                        (e) =>
+                            ctx.prepare({
+                                id: adaptId(pipelineId, e),
+                                role: 'compute',
+                                shader,
+                                entryPoints: [`surface_adapt_${e}_main`],
+                                ...extra,
+                            }).ready,
+                    ).every(Boolean);
+                }
+                return ctx.prepare({
                     id: pipelineId,
                     role: 'compute',
                     shader,
@@ -439,23 +431,14 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     ],
                     ...extra,
                 }).ready;
-            }
-            const next = { id: pipelineId, key };
-            if (ready) {
-                if (st.active !== undefined && st.active.id !== pipelineId) {
-                    const old = { ...st, pending: undefined };
-                    this.releasePipelines(ctx, old, adaptive);
-                }
-                st.active = next;
-                st.pending = undefined;
-            } else st.pending = next;
+            });
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
-            this.releasePipelines(ctx, st, st.adapt !== undefined);
             this.destroyState(st);
             this.states.delete(id);
         }
+        this.evalPipelines.retain(ctx, present);
     }
 
     /** Fontes das passadas da malha adaptativa (pelo id da emissão). */

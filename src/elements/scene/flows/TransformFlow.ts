@@ -158,17 +158,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
     /** `gpuOwned` do pool na última reconstrução (posse nova pode atingir um filho). */
     private ownedAtBuild = 0;
     /** Pipelines das `TransformFunction` presentes (um por código). */
-    private readonly fnPipelines = new ExtensionPipelines<TransformFunction>(
-        'transform_fn:',
-        (module, fn) => ({
-            id: '',
-            role: 'compute',
-            shader: bindPoints(transformComposeFn, new Map([[transformPoint, module]])),
-            entryPoints: ['transform_compose_fn_main'],
-            verify: true,
-            extensions: [fn],
-        }),
-    );
+    private readonly fnPipelines = new ExtensionPipelines<TransformFunction>();
     /** As funções (conjunto, códigos ou slots) mudaram desde a última sincronização. */
     private fnDirty = false;
     /** Grupos ativos (função compilada), na ordem da lista de pares. */
@@ -229,9 +219,10 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
                 // Uma função compilada passa a valer; a rejeitada sai (a anterior continua).
                 pipelinesCompiled: {
                     to: 'stale',
-                    run: (e) => {
+                    run: (e, c) => {
                         if (e.type !== 'pipelinesCompiled' || e.pipeline === undefined) return;
-                        if (this.fnPipelines.compiled(e.pipeline)) this.fnDirty = true;
+                        if (this.fnPipelines.compiled(e.pipeline, c).length > 0)
+                            this.fnDirty = true;
                     },
                 },
                 pipelineRejected: {
@@ -339,7 +330,24 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         if (!this.fnDirty) return;
         this.fnDirty = false;
         const present = ctx.bound.slots.functions.entries.map((e) => e.get(TransformFunction));
-        this.fnPipelines.sync(ctx, present);
+        // Um pipeline por código (`transform_fn:<módulo>`), compartilhado pelas funções com o mesmo código.
+        for (const fn of present) {
+            const module = fn.module;
+            this.fnPipelines.select(
+                fn,
+                { key: module.name, id: `transform_fn:${module.name}` },
+                ({ id }) =>
+                    ctx.prepare({
+                        id,
+                        role: 'compute',
+                        shader: bindPoints(transformComposeFn, new Map([[transformPoint, module]])),
+                        entryPoints: ['transform_compose_fn_main'],
+                        verify: true,
+                        extensions: [fn],
+                    }).ready,
+            );
+        }
+        this.fnPipelines.retain(ctx, present);
         this.rebuildPairs(ctx);
     }
 
@@ -350,7 +358,7 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
         const withFn = new Set<EntityId>();
         if (fnRecords !== undefined) {
             for (const entry of functions.entries) {
-                const id = this.fnPipelines.active(entry.get(TransformFunction));
+                const id = this.fnPipelines.active(entry.get(TransformFunction))?.id;
                 if (id === undefined) continue;
                 const t = transforms.slotOf(entry.entityId);
                 const r = fnRecords.slotOf(entry.entityId);
