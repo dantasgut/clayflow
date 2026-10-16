@@ -5,7 +5,7 @@
 @compute @workgroup_size(256)
 fn compact_atomic_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * 256u;
-    if (i >= compact.count || !compact_keep(i)) { return; }
+    if (i >= compact_count() || !compact_keep(i)) { return; }
     let k = atomic_alloc(&compact_counter, compact.capacity);
     if (k == ATOMIC_ALLOC_FULL) { return; }
     compact_out[k] = compact_value(i);

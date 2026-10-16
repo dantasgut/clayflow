@@ -4,6 +4,6 @@
 @compute @workgroup_size(256)
 fn compact_flags_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * 256u;
-    if (i >= compact.count) { return; }
+    if (i >= compact_count()) { return; }
     compact_flags[i] = select(0u, 1u, compact_keep(i));
 }

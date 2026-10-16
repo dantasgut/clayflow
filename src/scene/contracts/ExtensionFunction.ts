@@ -1,8 +1,8 @@
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
-import { EXTENSION_PARAMS_CAPACITY } from '../descriptors/ExtensionRecord';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
 import type { NodeGraph } from '../graph/NodeGraph';
 import type { ExtensionParamType, ExtensionParamValue } from './ExtensionParams';
+import { paramSlots, paramValues, type ParamSlot } from './ParamRecord';
 import { renameTokens } from '../shaders/instantiate';
 import { wgslModule, type WgslModule } from '../shaders/WgslModule';
 import type { PointImplementation, WgslPoint } from '../shaders/WgslPoint';
@@ -55,23 +55,6 @@ export interface ExtensionParamsData {
     _pad2: number;
 }
 
-const SCALAR: Record<ExtensionParamType, ['f' | 'u' | 'i', number]> = {
-    f32: ['f', 1],
-    u32: ['u', 1],
-    i32: ['i', 1],
-    vec2f: ['f', 2],
-    vec3f: ['f', 3],
-    vec4f: ['f', 4],
-    vec2u: ['u', 2],
-    vec3u: ['u', 3],
-    vec4u: ['u', 4],
-    vec2i: ['i', 2],
-    vec3i: ['i', 3],
-    vec4i: ['i', 4],
-};
-
-const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
 /**
  * Módulos já gerados e validados, por ponto, hash (ponto, parâmetros, código, módulos exigidos) e variante: instâncias
  * com o mesmo código compartilham o módulo (e portanto o shader montado) e a validação roda uma vez.
@@ -92,29 +75,6 @@ function fnv(text: string): string {
         h = Math.imul(h, 0x01000193) >>> 0;
     }
     return h.toString(16).padStart(8, '0');
-}
-
-/** Parâmetro com a posição dos seus escalares no registro. */
-interface ParamSlot {
-    readonly name: string;
-    readonly type: ExtensionParamType;
-    readonly kind: 'f' | 'u' | 'i';
-    readonly first: number;
-    readonly size: number;
-}
-
-const bits = new DataView(new ArrayBuffer(4));
-function toBits(kind: 'f' | 'u' | 'i', value: number): number {
-    if (kind === 'f') bits.setFloat32(0, value, true);
-    else if (kind === 'i') bits.setInt32(0, value, true);
-    else bits.setUint32(0, value, true);
-    return bits.getUint32(0, true);
-}
-function fromBits(kind: 'f' | 'u' | 'i', raw: number): number {
-    bits.setUint32(0, raw, true);
-    if (kind === 'f') return bits.getFloat32(0, true);
-    if (kind === 'i') return bits.getInt32(0, true);
-    return raw;
 }
 
 /**
@@ -312,29 +272,7 @@ export abstract class ExtensionFunction
 
     /** Posição dos escalares de cada parâmetro no registro (valida nomes, tipos e capacidade). */
     #layout(params: Readonly<Record<string, ExtensionParamType>>): readonly ParamSlot[] {
-        const point = this.point;
-        const slots: ParamSlot[] = [];
-        let first = 0;
-        for (const [name, type] of Object.entries(params)) {
-            if (!IDENT.test(name))
-                throw new TypeError(
-                    `${point.name}: parâmetro '${name}' não é um identificador WGSL`,
-                );
-            // Tipo vindo de JavaScript sem checagem: confere em tempo de execução.
-            const s = (SCALAR as Partial<Record<string, ['f' | 'u' | 'i', number]>>)[type];
-            if (s === undefined)
-                throw new TypeError(
-                    `${point.name}: parâmetro '${name}' com tipo '${type}' não suportado`,
-                );
-            slots.push({ name, type, kind: s[0], first, size: s[1] });
-            first += s[1];
-        }
-        if (first > EXTENSION_PARAMS_CAPACITY) {
-            throw new RangeError(
-                `${point.name}: ${first} escalares de parâmetros (máximo ${EXTENSION_PARAMS_CAPACITY})`,
-            );
-        }
-        return Object.freeze(slots);
+        return paramSlots(this.point.name, params);
     }
 
     /** Atribui valores por nome (nome desconhecido lança). */
@@ -453,42 +391,13 @@ export abstract class ExtensionFunction
     }
 
     #valuesAccessor(): Record<string, ExtensionParamValue> {
-        const out: Record<string, ExtensionParamValue> = {};
-        for (const s of this.#slots) {
-            Object.defineProperty(out, s.name, {
-                enumerable: true,
-                get: (): ExtensionParamValue => {
-                    const raw = this.rawData as unknown as Record<string, number[]>;
-                    const read = (k: number): number =>
-                        fromBits(s.kind, raw[`v${Math.floor(k / 4)}`]![k % 4]!);
-                    return s.size === 1
-                        ? read(s.first)
-                        : Array.from({ length: s.size }, (_, c) => read(s.first + c));
-                },
-                set: (value: ExtensionParamValue): void => {
-                    const list = typeof value === 'number' ? [value] : value;
-                    if (list.length !== s.size || list.some((v) => !Number.isFinite(v))) {
-                        throw new TypeError(
-                            `${this.point.name}: '${s.name}' (${s.type}) espera ${s.size} número(s) finito(s)`,
-                        );
-                    }
-                    const touched = new Set<number>();
-                    const raw = this.rawData as unknown as Record<string, number[]>;
-                    const next = new Map<number, number[]>();
-                    for (let c = 0; c < s.size; c++) {
-                        const k = s.first + c;
-                        const v = Math.floor(k / 4);
-                        touched.add(v);
-                        const row = next.get(v) ?? [...raw[`v${v}`]!];
-                        row[k % 4] = toBits(s.kind, list[c]!);
-                        next.set(v, row);
-                    }
-                    // Atribui o vetor inteiro: a C2 vê a mutação e envia o registro.
-                    const data = this.data as unknown as Record<string, number[]>;
-                    for (const v of touched) data[`v${v}`] = next.get(v)!;
-                },
-            });
-        }
-        return Object.freeze(out);
+        return paramValues(
+            this.point.name,
+            this.#slots,
+            () => this.rawData as unknown as Record<string, number[]>,
+            (v, row) => {
+                (this.data as unknown as Record<string, number[]>)[`v${v}`] = row;
+            },
+        );
     }
 }

@@ -3,6 +3,7 @@ import { wgslResource, type WgslResourceType } from '../../../scene/shaders/Wgsl
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import softFaceNormalsSource from '../../gpu/wgsl/kernels/soft_face_normals.wgsl?raw';
 import softVertexWriteSource from '../../gpu/wgsl/kernels/soft_vertex_write.wgsl?raw';
+import { MeshVertexSchema } from '../../geometry/MeshVertexSchema';
 import { SoftSurfaceParamsSchema } from '../schemas/softSurface';
 
 // Kernels da superfície de corpo mole (spec 008): normais de face e escrita dos vértices.
@@ -38,7 +39,7 @@ export const softSurfaceResources = Object.freeze({
     adjacency: buffer('adjacency', 'read', { wgsl: 'u32', array: true }),
     faceNormalsWrite: buffer('face_normals', 'read_write', { wgsl: 'vec4f', array: true }),
     faceNormalsRead: buffer('face_normals', 'read', { wgsl: 'vec4f', array: true }),
-    vertices: buffer('vertices', 'read_write', { wgsl: 'f32', array: true }),
+    vertices: buffer('vertices', 'read_write', { schema: MeshVertexSchema, array: true }),
 });
 
 const R = softSurfaceResources;

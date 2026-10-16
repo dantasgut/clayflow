@@ -1,8 +1,9 @@
 import type { ExtensionParamType, ExtensionParamValue } from '../contracts/ExtensionParams';
 import type { WgslModule } from '../shaders/WgslModule';
-import { POINT_PARAMS, type WgslPoint } from '../shaders/WgslPoint';
+import { POINT_PARAMS } from '../shaders/WgslPoint';
 import type { NodeDefinition, NodeUse, PortType } from './NodeDefinition';
 import { NodeGraphError } from './NodeGraphError';
+import type { PointTarget, SetNodeDefinition, SetNodeUse, SetPointInput, SetType } from './SetNode';
 
 /**
  * Argumento da função do ponto alvo lido pelo grafo (ex.: a amostra de superfície `s` do ponto `material`). Saídas:
@@ -16,8 +17,11 @@ export interface GraphArgument {
     readonly fields: Readonly<Record<string, PortType>>;
 }
 
-/** Nó do grafo: uso de uma definição (com valores), a definição (valores padrão) ou um argumento do ponto. */
-export type GraphNode = NodeUse | NodeDefinition | GraphArgument;
+/**
+ * Nó do grafo: uso de uma definição de ponto ou de conjunto (com valores), a definição (valores padrão) ou um argumento
+ * do ponto.
+ */
+export type GraphNode = NodeUse | NodeDefinition | SetNodeUse | SetNodeDefinition | GraphArgument;
 
 /** Uma ligação: `['origem.porta', 'destino.porta']`. */
 export type GraphLink = readonly [string, string];
@@ -46,13 +50,21 @@ export function graphArgument(
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const norm = (t: string): string => t.replace(/\s+/g, '');
 
-/** Um nó resolvido: id, definição (ou argumento) e valores. */
+/** Um nó resolvido: id, definição de ponto, de conjunto ou argumento, e valores. */
 export interface ResolvedNode {
     readonly id: string;
     readonly definition: NodeDefinition | undefined;
+    readonly set: SetNodeDefinition | undefined;
     readonly argument: GraphArgument | undefined;
     readonly values: Readonly<Record<string, ExtensionParamValue>>;
 }
+
+/** Portas de entrada de um nó resolvido (de ponto ou de conjunto). */
+function inputsOf(node: ResolvedNode): readonly string[] {
+    return Object.keys(node.definition?.inputs ?? node.set?.inputs ?? {});
+}
+
+const isPointInput = (t: SetType | SetPointInput): t is SetPointInput => 'kind' in t;
 
 /** Conversões implícitas declaradas: escalar → vetor do mesmo tipo de componente (repetido). */
 const SPLAT: Readonly<Record<string, string>> = {
@@ -68,9 +80,11 @@ const SPLAT: Readonly<Record<string, string>> = {
 };
 
 /**
- * Grafo de nós de ponto (spec 031, US2): nós ligados por portas tipadas, avaliados por amostra. Imutável; validado na
- * criação — nós e portas existentes, uma ligação por entrada, toda entrada ligada ou com padrão, sem ciclos (com o
- * caminho) — e, para um ponto alvo, os tipos e os estágios (`compile`). A identidade é a forma: definições, ligações e
+ * Grafo de nós (spec 031): nós ligados por portas tipadas. Imutável; validado na criação — nós e portas existentes,
+ * uma ligação por entrada, toda entrada ligada ou com padrão, conjuntos ligados a conjuntos do mesmo tipo, sem ciclos
+ * (com o caminho). De ponto (US2): avaliado por amostra, compilado para um ponto alvo (`compile`, que confere tipos e
+ * estágios). De conjunto (US3): nós de conjunto em ordem (`setOrder`), com os grafos de ponto das entradas de ponto
+ * (`pointGraphFor`) fundidos nos kernels — o `SetGraph` o executa. A identidade é a forma: definições, ligações e
  * saída; os valores dos parâmetros não entram (mudar um valor não recompila).
  */
 export class NodeGraph {
@@ -107,7 +121,18 @@ export class NodeGraph {
             this.#sources.set(to, from);
         }
         if (this.output !== undefined) this.#port(this.output, 'out');
+        for (const [from, to] of this.links) this.#checkLevels(from, to);
         for (const node of this.#resolved.values()) {
+            if (node.set !== undefined) {
+                for (const [input, type] of Object.entries(node.set.inputs)) {
+                    if (isPointInput(type) || this.#sources.has(`${node.id}.${input}`)) continue;
+                    throw new NodeGraphError(
+                        'unconnected-input',
+                        `NodeGraph: a entrada de conjunto '${node.id}.${input}' (${node.set.name}) não tem ligação`,
+                        [node.id, input],
+                    );
+                }
+            }
             if (node.definition === undefined) continue;
             for (const input of Object.keys(node.definition.inputs)) {
                 const key = `${node.id}.${input}`;
@@ -140,15 +165,83 @@ export class NodeGraph {
             if (done.has(id)) return;
             done.add(id);
             const node = this.#resolved.get(id)!;
-            if (node.definition !== undefined) {
-                for (const input of Object.keys(node.definition.inputs)) {
-                    const src = this.#sources.get(`${id}.${input}`);
-                    if (src !== undefined) visit(src.slice(0, src.indexOf('.')));
-                }
+            for (const input of inputsOf(node)) {
+                const src = this.#sources.get(`${id}.${input}`);
+                if (src !== undefined) visit(src.slice(0, src.indexOf('.')));
             }
             out.push(id);
         };
         if (this.output !== undefined) visit(this.output.slice(0, this.output.indexOf('.')));
+        return out;
+    }
+
+    /** Ids dos nós de conjunto em ordem topológica (dependências antes; empates pela ordem de declaração). */
+    setOrder(): readonly string[] {
+        const out: string[] = [];
+        const done = new Set<string>();
+        const visit = (id: string): void => {
+            if (done.has(id)) return;
+            done.add(id);
+            const node = this.#resolved.get(id)!;
+            if (node.set === undefined) return;
+            for (const [input, type] of Object.entries(node.set.inputs)) {
+                if (isPointInput(type)) continue;
+                const src = this.#sources.get(`${id}.${input}`);
+                if (src !== undefined) visit(split(src)[0]);
+            }
+            out.push(id);
+        };
+        for (const [id, node] of this.#resolved) if (node.set !== undefined) visit(id);
+        return out;
+    }
+
+    /**
+     * O grafo de ponto ligado à entrada de ponto `nó.porta` de um nó de conjunto: os nós de ponto e argumentos de que a
+     * origem depende, com a origem como saída; `undefined` sem ligação.
+     */
+    pointGraphFor(input: string): NodeGraph | undefined {
+        const src = this.#sources.get(input);
+        if (src === undefined) return undefined;
+        const ids = new Set<string>();
+        const visit = (id: string): void => {
+            if (ids.has(id)) return;
+            ids.add(id);
+            for (const port of inputsOf(this.#resolved.get(id)!)) {
+                const from = this.#sources.get(`${id}.${port}`);
+                if (from !== undefined) visit(split(from)[0]);
+            }
+        };
+        visit(split(src)[0]);
+        return new NodeGraph({
+            nodes: Object.fromEntries([...ids].map((id) => [id, this.nodes[id]!])),
+            links: this.links.filter(([, to]) => ids.has(split(to)[0])),
+            output: src,
+        });
+    }
+
+    /** Parâmetros (`nó_parâmetro` → tipo) de todos os nós com definição, na ordem de declaração. */
+    allParams(): Readonly<Record<string, ExtensionParamType>> {
+        const out: Record<string, ExtensionParamType> = {};
+        for (const [id, node] of this.#resolved) {
+            for (const [name, p] of Object.entries(
+                node.definition?.params ?? node.set?.params ?? {},
+            ))
+                out[`${id}_${name}`] = p.type;
+        }
+        return out;
+    }
+
+    /** Valores iniciais (o uso, ou o padrão) dos parâmetros de todos os nós com definição. */
+    allValues(): Readonly<Record<string, ExtensionParamValue>> {
+        const out: Record<string, ExtensionParamValue> = {};
+        for (const [id, node] of this.#resolved) {
+            for (const [name, p] of Object.entries(
+                node.definition?.params ?? node.set?.params ?? {},
+            )) {
+                const v = node.values[name] ?? p.default;
+                if (v !== undefined) out[`${id}_${name}`] = v;
+            }
+        }
         return out;
     }
 
@@ -195,7 +288,7 @@ export class NodeGraph {
      * @throws NodeGraphError tipos incompatíveis, argumento inexistente, nó fora do estágio do ponto, saída de tipo
      *   diferente do retorno do ponto.
      */
-    compile(point: WgslPoint): string {
+    compile(point: PointTarget): string {
         const output = this.output;
         if (output === undefined) {
             throw new NodeGraphError(
@@ -252,6 +345,13 @@ export class NodeGraph {
         const lines: string[] = [];
         for (const id of this.order()) {
             const node = this.#resolved.get(id)!;
+            if (node.set !== undefined) {
+                throw new NodeGraphError(
+                    'target',
+                    `NodeGraph: o nó de conjunto '${id}' (${node.set.name}) não entra no grafo de ponto '${point.name}'`,
+                    [id, node.set.name],
+                );
+            }
             const def = node.definition;
             if (def === undefined) continue;
             if (!def.contexts.includes(point.context)) {
@@ -295,15 +395,43 @@ export class NodeGraph {
         }
         if (node.argument !== undefined) {
             if (side === 'out' && (port === 'value' || port in node.argument.fields)) return;
-        } else if (
-            side === 'out' ? port in node.definition!.outputs : port in node.definition!.inputs
-        )
-            return;
+        } else {
+            const def = node.definition ?? node.set!;
+            if (side === 'out' ? port in def.outputs : port in def.inputs) return;
+        }
         throw new NodeGraphError(
             'unknown-port',
             `NodeGraph: '${ref}' não é ${side === 'out' ? 'saída' : 'entrada'} do nó '${id}'`,
             [id, port],
         );
+    }
+
+    /**
+     * Níveis de uma ligação: conjunto só liga em conjunto do mesmo tipo; valor de ponto só em entrada de ponto (de nó de
+     * ponto ou entrada de ponto de nó de conjunto).
+     */
+    #checkLevels(from: string, to: string): void {
+        const [fid, fport] = split(from);
+        const [tid, tport] = split(to);
+        const source = this.#resolved.get(fid)!;
+        const dest = this.#resolved.get(tid)!;
+        const fromSet = source.set?.outputs[fport];
+        const toInput = dest.set?.inputs[tport];
+        const mismatch = (why: string): never => {
+            throw new NodeGraphError(
+                'type-mismatch',
+                `NodeGraph: '${from}' não liga em '${to}' (${why})`,
+                [from, to],
+            );
+        };
+        if (fromSet !== undefined) {
+            if (toInput === undefined || isPointInput(toInput))
+                return mismatch(`conjunto '${fromSet.name}' em entrada de ponto`);
+            if (toInput.name !== fromSet.name)
+                mismatch(`conjunto '${fromSet.name}' em '${toInput.name}'`);
+        } else if (toInput !== undefined && !isPointInput(toInput)) {
+            mismatch(`valor de ponto em conjunto '${toInput.name}'`);
+        }
     }
 
     #checkCycles(): void {
@@ -319,8 +447,7 @@ export class NodeGraph {
             }
             state.set(id, 'visiting');
             path.push(id);
-            const def = this.#resolved.get(id)!.definition;
-            for (const input of Object.keys(def?.inputs ?? {})) {
+            for (const input of inputsOf(this.#resolved.get(id)!)) {
                 const src = this.#sources.get(`${id}.${input}`);
                 if (src !== undefined) visit(split(src)[0]);
             }
@@ -339,10 +466,13 @@ function split(ref: string): [string, string] {
 }
 
 function resolve(id: string, node: GraphNode): ResolvedNode {
-    if ('kind' in node) return { id, definition: undefined, argument: node, values: {} };
-    if ('definition' in node)
-        return { id, definition: node.definition, argument: undefined, values: node.values };
-    return { id, definition: node, argument: undefined, values: {} };
+    if ('kind' in node)
+        return { id, definition: undefined, set: undefined, argument: node, values: {} };
+    const def = 'definition' in node ? node.definition : node;
+    const values = 'definition' in node ? node.values : {};
+    return def.level === 'set'
+        ? { id, definition: undefined, set: def, argument: undefined, values }
+        : { id, definition: def, set: undefined, argument: undefined, values };
 }
 
 /** Tipo de porta usado na definição (reexport para quem monta grafos). */

@@ -10,6 +10,7 @@ import {
 } from './forwardSchemas';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
+import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
 import { WireframeMaterialSchema } from './WireframeMaterialSchema';
 
 // Recursos dos desenhos de material (spec 031): câmeras, mundo, registros e instâncias vêm de `scene/resources`; aqui,
@@ -65,12 +66,12 @@ const vertices = (name: string): ReturnType<typeof wgslResource> =>
     wgslResource({
         name,
         binding: { storage: 'read' },
-        type: { wgsl: 'f32', array: true },
+        type: { schema: MeshVertexSchema, array: true },
         frequency: 'draw',
         provider: 'private',
     });
 
-/** Vértices da geometria de um pipeline de sprites (8 floats por vértice), lidos como storage. */
+/** Vértices da geometria de um pipeline de sprites (`array<MeshVertex>`), lidos como storage. */
 export const pointVerticesResource = vertices('point_vertices');
 /** Vértices da geometria de um pipeline de arame. */
 export const wireVerticesResource = vertices('wire_vertices');

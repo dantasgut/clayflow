@@ -10,6 +10,7 @@ import emitUpdateSource from '../gpu/wgsl/kernels/emit_update.wgsl?raw';
 import emitCollideSource from '../gpu/wgsl/kernels/emit_collide.wgsl?raw';
 import { FieldFnRecordSchema, fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import { ComputeParticleEmitter } from './ComputeParticleEmitter';
+import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
 import { EmitFnRecordSchema, EmitterParamsSchema } from './EmitterSchemas';
 
 /**
@@ -34,7 +35,7 @@ export const emitResources = Object.freeze({
     vertices: wgslResource({
         name: 'emit_vertices',
         binding: { storage: 'read_write' },
-        type: { wgsl: 'f32', array: true },
+        type: { schema: MeshVertexSchema, array: true },
         frequency: 'stage',
         provider: 'private',
     }),

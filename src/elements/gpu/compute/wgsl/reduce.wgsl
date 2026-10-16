@@ -13,7 +13,7 @@ fn reduce_main(
 ) {
     let i     = gid3.x + gid3.y * nwg.x * 256u;
     let group = wgid.x + wgid.y * nwg.x;
-    let n     = reduce_level.count;
+    let n     = reduce_count();
     let li    = lid.x;
 
     var v = REDUCE_IDENTITY;

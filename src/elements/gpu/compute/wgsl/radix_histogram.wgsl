@@ -15,7 +15,7 @@ fn radix_histogram_main(
     let group = wgid.x + wgid.y * nwg.x;
     if (lid.x < 16u) { atomicStore(&radix_hist_wg[lid.x], 0u); }
     workgroupBarrier();
-    if (i < radix.count) {
+    if (i < radix_count()) {
         atomicAdd(&radix_hist_wg[(keys[i] >> radix.shift) & 15u], 1u);
     }
     workgroupBarrier();

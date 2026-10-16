@@ -31,14 +31,14 @@ fn emit_update_main(
         }
         emit_particles[i] = q;
     }
-    let o = i * 8u;
+    let o = i;
     let p = select(vec3f(0.0, EMIT_FAR, 0.0), q.position.xyz, alive);
-    emit_vertices[o] = p.x;
-    emit_vertices[o + 1u] = p.y;
-    emit_vertices[o + 2u] = p.z;
-    emit_vertices[o + 3u] = 0.0;
-    emit_vertices[o + 4u] = 1.0;
-    emit_vertices[o + 5u] = 0.0;
-    emit_vertices[o + 6u] = q.params.x;
-    emit_vertices[o + 7u] = q.params.y;
+    emit_vertices[o].px = p.x;
+    emit_vertices[o].py = p.y;
+    emit_vertices[o].pz = p.z;
+    emit_vertices[o].nx = 0.0;
+    emit_vertices[o].ny = 1.0;
+    emit_vertices[o].nz = 0.0;
+    emit_vertices[o].u = q.params.x;
+    emit_vertices[o].v = q.params.y;
 }

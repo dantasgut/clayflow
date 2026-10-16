@@ -23,18 +23,18 @@ fn surface_eval_main(
     let v = mix(surface_params.v0, surface_params.v1, sv);
     let time = surface_params.time;
     let data = surface_fn_params(surface_fn_records[surface_params.record_slot]);
-    let o = i * 8u;
-    let prev = vec3f(surface_vertices[o + 3u], surface_vertices[o + 4u], surface_vertices[o + 5u]);
+    let o = i;
+    let prev = vec3f(surface_vertices[o].nx, surface_vertices[o].ny, surface_vertices[o].nz);
     let at = surface_at(u, v, sv, time, data, prev);
     if (!at.finite) { return; }
     let x = at.position;
     let m = at.normal;
-    surface_vertices[o] = x.x;
-    surface_vertices[o + 1u] = x.y;
-    surface_vertices[o + 2u] = x.z;
-    surface_vertices[o + 3u] = m.x;
-    surface_vertices[o + 4u] = m.y;
-    surface_vertices[o + 5u] = m.z;
-    surface_vertices[o + 6u] = su;
-    surface_vertices[o + 7u] = sv;
+    surface_vertices[o].px = x.x;
+    surface_vertices[o].py = x.y;
+    surface_vertices[o].pz = x.z;
+    surface_vertices[o].nx = m.x;
+    surface_vertices[o].ny = m.y;
+    surface_vertices[o].nz = m.z;
+    surface_vertices[o].u = su;
+    surface_vertices[o].v = sv;
 }

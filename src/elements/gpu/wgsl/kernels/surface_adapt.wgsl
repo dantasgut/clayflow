@@ -238,18 +238,18 @@ fn surface_adapt_emit_main(
     let uv = adapt_uv(pi, qi, f32(jj) / f32(n), f32(kk) / f32(n));
     let data = surface_fn_params(surface_fn_records[surface_params.record_slot]);
     let vi = pd.y + k * (n + 1u) + j;
-    let o = vi * 8u;
-    let prev = vec3f(adapt_vertices[o + 3u], adapt_vertices[o + 4u], adapt_vertices[o + 5u]);
+    let o = vi;
+    let prev = vec3f(adapt_vertices[o].nx, adapt_vertices[o].ny, adapt_vertices[o].nz);
     let at = surface_at(uv.u, uv.v, uv.sv, surface_params.time, data, select(prev, vec3f(0.0, 1.0, 0.0), dot(prev, prev) == 0.0));
     if (at.finite) {
-        adapt_vertices[o] = at.position.x;
-        adapt_vertices[o + 1u] = at.position.y;
-        adapt_vertices[o + 2u] = at.position.z;
-        adapt_vertices[o + 3u] = at.normal.x;
-        adapt_vertices[o + 4u] = at.normal.y;
-        adapt_vertices[o + 5u] = at.normal.z;
-        adapt_vertices[o + 6u] = uv.su;
-        adapt_vertices[o + 7u] = uv.sv;
+        adapt_vertices[o].px = at.position.x;
+        adapt_vertices[o].py = at.position.y;
+        adapt_vertices[o].pz = at.position.z;
+        adapt_vertices[o].nx = at.normal.x;
+        adapt_vertices[o].ny = at.normal.y;
+        adapt_vertices[o].nz = at.normal.z;
+        adapt_vertices[o].u = uv.su;
+        adapt_vertices[o].v = uv.sv;
     }
     surface_diff[adapt.diff_first + vi] = adapt_forms(uv, data);
     if (j < n && k < n) {

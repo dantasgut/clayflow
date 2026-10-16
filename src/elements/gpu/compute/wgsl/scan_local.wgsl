@@ -13,7 +13,7 @@ fn scan_local_main(
     // Índice linear: despacho distribuído em x/y (Dispatcher.invocations).
     let i     = gid3.x + gid3.y * nwg.x * SCAN_GROUP;
     let group = wgid.x + wgid.y * nwg.x;
-    let n     = level.count;
+    let n     = scan_count();
     let li    = lid.x;
 
     var v = 0u;

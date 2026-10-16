@@ -22,8 +22,8 @@ fn emit_collide_main(
     q.position = vec4f(p, q.position.w);
     q.velocity = vec4f(v, q.velocity.w);
     emit_particles[i] = q;
-    let o = i * 8u;
-    emit_vertices[o] = p.x;
-    emit_vertices[o + 1u] = p.y;
-    emit_vertices[o + 2u] = p.z;
+    let o = i;
+    emit_vertices[o].px = p.x;
+    emit_vertices[o].py = p.y;
+    emit_vertices[o].pz = p.z;
 }

@@ -28,16 +28,16 @@ fn surface_eval_diff_main(
         forms = surface_forms(surface_jet(u, v + inward * surface_params.h_v, time, data));
     }
     surface_diff[surface_params.diff_first + i] = forms;
-    let o = i * 8u;
-    let prev = vec3f(surface_vertices[o + 3u], surface_vertices[o + 4u], surface_vertices[o + 5u]);
+    let o = i;
+    let prev = vec3f(surface_vertices[o].nx, surface_vertices[o].ny, surface_vertices[o].nz);
     let at = surface_at(u, v, sv, time, data, prev);
     if (!at.finite) { return; }
-    surface_vertices[o] = at.position.x;
-    surface_vertices[o + 1u] = at.position.y;
-    surface_vertices[o + 2u] = at.position.z;
-    surface_vertices[o + 3u] = at.normal.x;
-    surface_vertices[o + 4u] = at.normal.y;
-    surface_vertices[o + 5u] = at.normal.z;
-    surface_vertices[o + 6u] = su;
-    surface_vertices[o + 7u] = sv;
+    surface_vertices[o].px = at.position.x;
+    surface_vertices[o].py = at.position.y;
+    surface_vertices[o].pz = at.position.z;
+    surface_vertices[o].nx = at.normal.x;
+    surface_vertices[o].ny = at.normal.y;
+    surface_vertices[o].nz = at.normal.z;
+    surface_vertices[o].u = su;
+    surface_vertices[o].v = sv;
 }

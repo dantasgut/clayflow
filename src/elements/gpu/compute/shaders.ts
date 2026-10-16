@@ -1,4 +1,5 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
+import type { BindablePoint } from '../../../scene/shaders/bindPoints';
 import { wgslResource, type WgslResource } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { SCAN_GROUP } from '../shaders/constants';
@@ -19,6 +20,17 @@ import gcInitSource from './wgsl/gc_init.wgsl?raw';
 import gcRoundSource from './wgsl/gc_round.wgsl?raw';
 import gcGroupSource from './wgsl/gc_group.wgsl?raw';
 import spatialHashSource from './wgsl/spatial_hash.wgsl?raw';
+import countToArgsSource from './wgsl/count_to_args.wgsl?raw';
+import setCountSource from './wgsl/set_count.wgsl?raw';
+import scanCountSource from './wgsl/scan_count.wgsl?raw';
+import scanCountGpuSource from './wgsl/scan_count_gpu.wgsl?raw';
+import radixCountSource from './wgsl/radix_count.wgsl?raw';
+import radixCountGpuSource from './wgsl/radix_count_gpu.wgsl?raw';
+import compactCountSource from './wgsl/compact_count.wgsl?raw';
+import compactCountGpuSource from './wgsl/compact_count_gpu.wgsl?raw';
+import reduceCountSource from './wgsl/reduce_count.wgsl?raw';
+import reduceCountGpuSource from './wgsl/reduce_count_gpu.wgsl?raw';
+import { SetCountSchema } from '../../../scene/graph/SetCountSchema';
 import shCountSource from './wgsl/sh_count.wgsl?raw';
 import shScatterSource from './wgsl/sh_scatter.wgsl?raw';
 import { noise } from '../shaders/math';
@@ -26,6 +38,7 @@ import {
     AtomicAllocCounterSchema,
     ColorRangeSchema,
     CompactParamsSchema,
+    CountToArgsParamsSchema,
     GraphColorParamsSchema,
     GraphColorStatusSchema,
     HashGridParamsSchema,
@@ -105,6 +118,100 @@ export const reduceResources = Object.freeze({
     output: stageBuffer('reduce_out', 'read_write', { wgsl: 'ReduceT', array: true }),
 });
 
+/** Registros `SetCount` (descritor `indirect`) lidos pelas variantes de contagem da GPU (spec 031). */
+export const setCountResources = Object.freeze({
+    counts: stageBuffer('set_counts', 'read', { schema: SetCountSchema, array: true }),
+});
+
+/** Contagem do nível `depth` de um registro `SetCount` (`set_count_level`), lida na GPU (spec 031, R10). */
+export const setCount = wgslModule({
+    name: 'set_count',
+    source: setCountSource,
+    requires: [SCAN_GROUP.module, setCountResources.counts],
+    structs: [SetCountSchema],
+});
+
+// Contagens das primitivas como pontos vinculáveis (spec 031, R7): os kernels chamam `scan_count()`, `radix_count()`,
+// `compact_count()` e `reduce_count()` e requerem o pronto, que lê o campo `count` do uniform (contagem da CPU). A
+// variante de contagem da GPU é o kernel com o pronto trocado pelo módulo `*Gpu` (`bindPoints`), que lê o registro
+// `SetCount` de índice `count_index` do uniform — a mesma aritmética, só a origem da contagem muda.
+
+/** `fn scan_count() -> u32` — contagem do nível da soma de prefixos. */
+export const scanCountPoint: BindablePoint = Object.freeze({
+    name: 'scan_count',
+    ready: wgslModule({
+        name: 'scan_count',
+        source: scanCountSource,
+        requires: [scanResources.level],
+        structs: [ScanLevelSchema],
+    }),
+});
+
+/** `scan_count` lida do registro `SetCount` (`level.count_index`, nível `level.depth`). */
+export const scanCountGpu = wgslModule({
+    name: 'scan_count_gpu',
+    source: scanCountGpuSource,
+    requires: [setCount, scanResources.level],
+    structs: [ScanLevelSchema],
+});
+
+/** `fn radix_count() -> u32` — elementos da ordenação radix. */
+export const radixCountPoint: BindablePoint = Object.freeze({
+    name: 'radix_count',
+    ready: wgslModule({
+        name: 'radix_count',
+        source: radixCountSource,
+        requires: [radixResources.radix],
+        structs: [RadixParamsSchema],
+    }),
+});
+
+/** `radix_count` lida do registro `SetCount` (`radix.count_index`). */
+export const radixCountGpu = wgslModule({
+    name: 'radix_count_gpu',
+    source: radixCountGpuSource,
+    requires: [setCount, radixResources.radix],
+    structs: [RadixParamsSchema],
+});
+
+/** `fn compact_count() -> u32` — elementos de entrada da compactação. */
+export const compactCountPoint: BindablePoint = Object.freeze({
+    name: 'compact_count',
+    ready: wgslModule({
+        name: 'compact_count',
+        source: compactCountSource,
+        requires: [compactResources.compact],
+        structs: [CompactParamsSchema],
+    }),
+});
+
+/** `compact_count` lida do registro `SetCount` (`compact.count_index`). */
+export const compactCountGpu = wgslModule({
+    name: 'compact_count_gpu',
+    source: compactCountGpuSource,
+    requires: [setCount, compactResources.compact],
+    structs: [CompactParamsSchema],
+});
+
+/** `fn reduce_count() -> u32` — contagem do nível da redução. */
+export const reduceCountPoint: BindablePoint = Object.freeze({
+    name: 'reduce_count',
+    ready: wgslModule({
+        name: 'reduce_count',
+        source: reduceCountSource,
+        requires: [reduceResources.level],
+        structs: [ReduceLevelSchema],
+    }),
+});
+
+/** `reduce_count` lida do registro `SetCount` (`reduce_level.count_index`, nível `reduce_level.depth`). */
+export const reduceCountGpu = wgslModule({
+    name: 'reduce_count_gpu',
+    source: reduceCountGpuSource,
+    requires: [setCount, reduceResources.level],
+    structs: [ReduceLevelSchema],
+});
+
 /** Recursos da coloração de arestas. */
 export const graphColorResources = Object.freeze({
     gc: callUniform('gc', { schema: GraphColorParamsSchema }),
@@ -160,6 +267,7 @@ export const scanLocal = wgslModule({
     source: scanLocalSource,
     requires: [
         SCAN_GROUP.module,
+        scanCountPoint.ready,
         scanResources.level,
         scanResources.values,
         scanResources.groupSums,
@@ -171,7 +279,7 @@ export const scanLocal = wgslModule({
 export const scanTop = wgslModule({
     name: 'scan_top',
     source: scanTopSource,
-    requires: [SCAN_GROUP.module, scanResources.level, scanResources.values],
+    requires: [SCAN_GROUP.module, scanCountPoint.ready, scanResources.level, scanResources.values],
     structs: [ScanLevelSchema],
 });
 
@@ -181,6 +289,7 @@ export const scanCombine = wgslModule({
     source: scanCombineSource,
     requires: [
         SCAN_GROUP.module,
+        scanCountPoint.ready,
         scanResources.level,
         scanResources.values,
         scanResources.groupPrefix,
@@ -192,7 +301,12 @@ export const scanCombine = wgslModule({
 export const radixHistogram = wgslModule({
     name: 'radix_histogram',
     source: radixHistogramSource,
-    requires: [radixResources.radix, radixResources.keys, radixResources.histWrite],
+    requires: [
+        radixCountPoint.ready,
+        radixResources.radix,
+        radixResources.keys,
+        radixResources.histWrite,
+    ],
     structs: [RadixParamsSchema],
 });
 
@@ -202,6 +316,7 @@ export const radixScatter = wgslModule({
     source: radixScatterSource,
     requires: [
         NONE.module,
+        radixCountPoint.ready,
         radixResources.radix,
         radixResources.keysIn,
         radixResources.keysOut,
@@ -245,6 +360,7 @@ export function compactionModules(predicate: WgslModule): CompactionModules {
             requires: [
                 atomicAlloc,
                 predicate,
+                compactCountPoint.ready,
                 compactResources.compact,
                 compactResources.out,
                 compactResources.counter,
@@ -254,7 +370,12 @@ export function compactionModules(predicate: WgslModule): CompactionModules {
         flags: wgslModule({
             name: `compact_flags:${predicate.name}`,
             source: compactFlagsSource,
-            requires: [predicate, compactResources.compact, compactResources.flags],
+            requires: [
+                predicate,
+                compactCountPoint.ready,
+                compactResources.compact,
+                compactResources.flags,
+            ],
             structs: [CompactParamsSchema],
         }),
         scatter: wgslModule({
@@ -262,6 +383,7 @@ export function compactionModules(predicate: WgslModule): CompactionModules {
             source: compactScatterSource,
             requires: [
                 predicate,
+                compactCountPoint.ready,
                 compactResources.compact,
                 compactResources.out,
                 compactResources.counter,
@@ -327,6 +449,7 @@ export function reduceKernel(op: ReduceOpName, type: ReduceType): WgslModule {
             source: reduceSource,
             requires: [
                 reduceOp(op, type),
+                reduceCountPoint.ready,
                 reduceResources.level,
                 reduceResources.input,
                 reduceResources.output,
@@ -425,4 +548,18 @@ export const shScatter = wgslModule({
         hashGridResources.cursors,
         hashGridResources.cellItems,
     ],
+});
+
+/** Recursos da conversão contagem → argumentos. */
+export const countToArgsResources = Object.freeze({
+    params: callUniform('p', { schema: CountToArgsParamsSchema }),
+    counts: stageBuffer('set_counts', 'read_write', { schema: SetCountSchema, array: true }),
+});
+
+/** Contagem → argumentos de despacho e de desenho, no próprio registro `SetCount` (spec 031). */
+export const countToArgs = wgslModule({
+    name: 'count_to_args',
+    source: countToArgsSource,
+    requires: [countToArgsResources.params, countToArgsResources.counts],
+    structs: [CountToArgsParamsSchema, SetCountSchema],
 });

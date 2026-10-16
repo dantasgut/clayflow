@@ -11,7 +11,7 @@ var<workgroup> radix_start_wg: array<u32, 16>;
 // Destino na saída do elemento que ficou na posição local `li` após a ordenação do grupo (`dest.x`), com o índice
 // de origem (`dest.y`); `dest.x = NONE` para posições sem elemento (cauda do último grupo).
 fn radix_local_sort(i: u32, li: u32, group: u32) -> vec2u {
-    let n = radix.count;
+    let n = radix_count();
     // Fora do domínio: chave máxima, índice ≥ n — ficam no fim (são as últimas posições do último grupo).
     var key = NONE;
     if (i < n) { key = keys_in[i]; }

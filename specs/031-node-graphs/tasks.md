@@ -155,14 +155,14 @@ importações cruzadas (FR-001–FR-012).
 
 - [ ] T067 [P] [US3] Testes de `src/scene/graph/__tests__/compileSetGraph.test.ts`: kernels em ordem topológica; descritores intermediários `onDemand` com capacidade pela regra; `SetCount` como descritor `indirect` escrito só pela GPU; grafo de ponto numa entrada fundido no kernel do nó (nenhum pipeline extra)
 - [ ] T068 [P] [US3] Testes de `src/scene/graph/__tests__/GraphFlow.test.ts`: slots das entradas e saídas; `flowReady` com slots prontos; `stale` por `poolWritten` do registro, `resourceReady`/`poolWritten` de entrada e nó de tempo; `frameRecorded` → `clean`; `dispatch` não grava nada em `clean`; despacho indireto para contagem `gpu`; posse (`owns`) da `GraphGeometry`
-- [ ] T069 [P] [US3] Testes de `src/elements/gpu/compute/__tests__/gpuCount.test.ts`: `CountToArgs` (contagem → despacho e desenho); `PrefixSum`, `RadixSort`, `Compaction`, `Reduce` com contagem lida do `SetCount` (variante GPU) e com contagem da CPU (inalterada)
-- [ ] T070 [P] [US3] Testes de `src/elements/geometry/__tests__/MeshVertex.test.ts`: `MeshVertexSchema` com 8 `f32` escalares = 32 B, igual ao layout de vértice; `GraphGeometry` com descritores `upload: 'never'` e `indirect`
+- [x] T069 [P] [US3] Testes de `src/elements/gpu/compute/__tests__/gpuCount.test.ts`: `CountToArgs` (contagem → despacho e desenho); `PrefixSum`, `RadixSort`, `Compaction`, `Reduce` com contagem lida do `SetCount` (variante GPU) e com contagem da CPU (inalterada)
+- [x] T070 [P] [US3] Testes de `src/elements/geometry/__tests__/MeshVertex.test.ts`: `MeshVertexSchema` com 8 `f32` escalares = 32 B, igual ao layout de vértice; `GraphGeometry` com descritores `upload: 'never'` e `indirect`
 
 ### Implementação
 
-- [ ] T071 [US3] `src/scene/graph/SetCountSchema.ts` e `src/elements/gpu/compute/CountToArgs.ts` + `wgsl/count_to_args.wgsl`
-- [ ] T072 [US3] Variante de contagem da GPU em `PrefixSum.ts`, `RadixSort.ts`, `Compaction.ts`, `Reduce.ts` (despacho indireto, contagem lida no kernel)
-- [ ] T073 [US3] `src/elements/geometry/MeshVertexSchema.ts` e `GraphGeometry.ts`; migrar `wire.wgsl` e `point_sprite.wgsl` para `array<MeshVertex>` (sem `index * 8u`)
+- [x] T071 [US3] `src/scene/graph/SetCountSchema.ts` e `src/elements/gpu/compute/CountToArgs.ts` + `wgsl/count_to_args.wgsl`
+- [x] T072 [US3] Variante de contagem da GPU em `PrefixSum.ts`, `RadixSort.ts`, `Compaction.ts`, `Reduce.ts` (despacho indireto, contagem lida no kernel)
+- [x] T073 [US3] `src/elements/geometry/MeshVertexSchema.ts` e `GraphGeometry.ts`; migrar `wire.wgsl` e `point_sprite.wgsl` para `array<MeshVertex>` (sem `index * 8u`)
 - [ ] T074 [US3] `src/scene/graph/compileSetGraph.ts`: nós de conjunto (kernels, conjuntos, regras de capacidade e contagem), descritores do `NodeGraph`, fusão das entradas de ponto (via T062)
 - [ ] T075 [US3] `src/scene/graph/GraphFlow.ts` (subclasse de `Flow`): slots, estados `stale/clean`, transições, `dispatch` em ordem topológica com `workgroupsIndirect`, registro por fábrica com a fase do grafo
 - [ ] T076 [US3] Desenho da `GraphGeometry` pelo caminho indireto da `ParametricSurface` em `ForwardFlow.ts` e `ShadowFlow.ts` (sem estágio por origem)

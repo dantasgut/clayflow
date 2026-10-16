@@ -1,7 +1,7 @@
 // Arame com espessura (spec 008, `WireframeMaterial`; o desenho do legado na arquitetura atual): as arestas são da
 // geometria, em espaço de objeto (descritor `wireEdges`, pares de índices de vértice) — amostradas antes da projeção.
 // Cada aresta vira um quad de `lineWidth` pixels na tela (6 vértices; `vertex_index / 6` é a aresta), com a posição
-// dos dois vértices lida do vertex buffer da geometria como storage (8 floats por vértice). A instância é a entidade do
+// dos dois vértices lida do vertex buffer da geometria como storage (`array<MeshVertex>`). A instância é a entidade do
 // grupo (registro `Renderable`). Borda suavizada por `fwidth` + `smoothstep`, com mistura alfa.
 // Vértices e arestas da geometria do pipeline (bindings privados por geometria).
 
@@ -12,8 +12,8 @@ struct WireOut {
 }
 
 fn wire_vertex(index: u32) -> vec3f {
-    let o = index * 8u;
-    return vec3f(wire_vertices[o], wire_vertices[o + 1u], wire_vertices[o + 2u]);
+    let m = wire_vertices[index];
+    return vec3f(m.px, m.py, m.pz);
 }
 
 @vertex

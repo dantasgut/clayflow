@@ -4,7 +4,7 @@ var<workgroup> scan_top_wg: array<u32, SCAN_GROUP>;
 
 @compute @workgroup_size(SCAN_GROUP)
 fn scan_top_main(@builtin(local_invocation_id) lid: vec3u) {
-    let n  = level.count;
+    let n  = scan_count();
     let li = lid.x;
 
     var v = 0u;

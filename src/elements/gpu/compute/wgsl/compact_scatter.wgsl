@@ -4,7 +4,7 @@
 @compute @workgroup_size(256)
 fn compact_scatter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * 256u;
-    let n = compact.count;
+    let n = compact_count();
     if (i >= n) { return; }
     let keep = compact_keep(i);
     let pos  = compact_positions[i];

@@ -1,14 +1,17 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 
-/** Parâmetros de um nível da soma de prefixos (`PrefixSum`): contagem e modo (inclusiva só no nível 0). */
+/**
+ * Parâmetros de um nível da soma de prefixos (`PrefixSum`): contagem e modo (inclusiva só no nível 0); na variante de
+ * contagem da GPU (spec 031), a profundidade do nível e o índice do registro `SetCount` de onde a contagem vem.
+ */
 export const ScanLevelSchema = new StructSchema(
     'ScanLevel',
     {
         count: FieldType.u32,
         inclusive: FieldType.u32,
-        _pad0: FieldType.u32,
-        _pad1: FieldType.u32,
+        depth: FieldType.u32,
+        count_index: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -19,38 +22,47 @@ export const AtomicAllocCounterSchema = new StructSchema('AtomicAllocCounter', {
     overflow: FieldType.atomicU32,
 });
 
-/** Parâmetros de um passe da ordenação radix (`RadixSort`): elementos, deslocamento do dígito e grupos de 256. */
+/**
+ * Parâmetros de um passe da ordenação radix (`RadixSort`): elementos, deslocamento do dígito, grupos de 256 e, na
+ * variante de contagem da GPU (spec 031), o índice do registro `SetCount` de onde os elementos vêm.
+ */
 export const RadixParamsSchema = new StructSchema(
     'RadixParams',
     {
         count: FieldType.u32,
         shift: FieldType.u32,
         groups: FieldType.u32,
-        _pad0: FieldType.u32,
+        count_index: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
 
-/** Parâmetros de uma compactação (`Compaction`): elementos de entrada e capacidade da saída. */
+/**
+ * Parâmetros de uma compactação (`Compaction`): elementos de entrada, capacidade da saída e, na variante de contagem
+ * da GPU (spec 031), o índice do registro `SetCount` de onde os elementos vêm.
+ */
 export const CompactParamsSchema = new StructSchema(
     'CompactParams',
     {
         count: FieldType.u32,
         capacity: FieldType.u32,
-        _pad0: FieldType.u32,
+        count_index: FieldType.u32,
         _pad1: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
 
-/** Parâmetros de um nível da redução (`Reduce`): elementos e índice de saída do primeiro grupo. */
+/**
+ * Parâmetros de um nível da redução (`Reduce`): elementos e índice de saída do primeiro grupo; na variante de contagem
+ * da GPU (spec 031), a profundidade do nível e o índice do registro `SetCount` de onde a contagem vem.
+ */
 export const ReduceLevelSchema = new StructSchema(
     'ReduceLevel',
     {
         count: FieldType.u32,
         out_index: FieldType.u32,
-        _pad0: FieldType.u32,
-        _pad1: FieldType.u32,
+        depth: FieldType.u32,
+        count_index: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -99,6 +111,22 @@ export const HashGridParamsSchema = new StructSchema(
         table_mask: FieldType.u32,
         cell_size: FieldType.f32,
         _pad0: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
+/** Parâmetros de uma conversão contagem → argumentos (`CountToArgs`, spec 031). */
+export const CountToArgsParamsSchema = new StructSchema(
+    'CountToArgsParams',
+    {
+        index: FieldType.u32,
+        group_size: FieldType.u32,
+        per_element: FieldType.u32,
+        instances: FieldType.u32,
+        instanced: FieldType.u32,
+        max_x: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

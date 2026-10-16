@@ -22,15 +22,15 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     );
     let corner = corners[index % 6u];
     let point = index / 6u;
-    let v = point * 8u;
+    let m = point_vertices[point];
     let r = renderables[instances[instance].renderable];
     let material = materials[r.materialSlot];
     let camera = cameras[forward_frame.cameraSlot];
-    let local = vec3f(point_vertices[v], point_vertices[v + 1u], point_vertices[v + 2u]);
+    let local = vec3f(m.px, m.py, m.pz);
     out.corner = corner;
     out.material_slot = r.materialSlot;
-    out.kind = point_vertices[v + 6u];
-    out.life = point_vertices[v + 7u];
+    out.kind = m.u;
+    out.life = m.v;
     out.id = point;
     if (!all(abs(local) < vec3f(1e8))) {
         out.clip_position = vec4f(2.0, 2.0, 2.0, 1.0);

@@ -21,6 +21,7 @@ import surfaceJetMappedSource from '../gpu/wgsl/kernels/surface_jet_mapped.wgsl?
 import surfaceJetNumericSource from '../gpu/wgsl/kernels/surface_jet_numeric.wgsl?raw';
 import surfaceJetPresetSource from '../gpu/wgsl/kernels/surface_jet_preset.wgsl?raw';
 import { combineSpaceFunctions } from '../extension/combineSpace';
+import { MeshVertexSchema } from './MeshVertexSchema';
 import {
     SpaceFnRecordSchema,
     SurfaceAdaptParamsSchema,
@@ -62,7 +63,7 @@ export const surfaceResources = Object.freeze({
         frequency: 'frame',
         provider: { scene: 'space' },
     }),
-    vertices: priv('surface_vertices', 'read_write', { wgsl: 'f32', array: true }),
+    vertices: priv('surface_vertices', 'read_write', { schema: MeshVertexSchema, array: true }),
     diff: priv('surface_diff', 'read_write', { schema: SurfaceDiffSchema, array: true }),
     adapt: wgslResource({
         name: 'adapt',
@@ -73,7 +74,7 @@ export const surfaceResources = Object.freeze({
     }),
     adaptPatches: priv('adapt_patches', 'read_write', { wgsl: 'vec4u', array: true }),
     adaptHist: priv('adapt_hist', 'read_write', { wgsl: 'atomic<u32>', array: true }),
-    adaptVertices: priv('adapt_vertices', 'read_write', { wgsl: 'f32', array: true }),
+    adaptVertices: priv('adapt_vertices', 'read_write', { schema: MeshVertexSchema, array: true }),
     adaptIndices: priv('adapt_indices', 'read_write', { wgsl: 'u32', array: true }),
     adaptEdges: priv('adapt_edges', 'read_write', { wgsl: 'u32', array: true }),
     adaptDraw: priv('adapt_draw', 'read_write', { wgsl: 'u32', array: true }),

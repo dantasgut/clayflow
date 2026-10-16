@@ -11,6 +11,8 @@ export { ParametricGeometry, type ParametricGeometryData } from './ParametricGeo
 export type { ParametricFunction } from './ParametricGeometry';
 export { ParametricSurfaceGeometry } from './ParametricSurfaceGeometry';
 export { SurfaceGeometry, type SurfaceGeometryData } from './SurfaceGeometry';
+export { GraphGeometry, type GraphGeometryData, type GraphGeometryOptions } from './GraphGeometry';
+export { MeshVertexSchema } from './MeshVertexSchema';
 export {
     ParametricSurface,
     SURFACE_PRESET_INDEX,

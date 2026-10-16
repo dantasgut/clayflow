@@ -1,5 +1,5 @@
 // Sprites nos vértices de uma geometria (spec 008, `PointSpriteMaterial` no forward): um quad virado para a câmera por
-// vértice, com a posição lida do vertex buffer da geometria como storage (8 floats por vértice: posição, normal, uv) —
+// vértice, com a posição lida do vertex buffer da geometria como storage (`array<MeshVertex>`: posição, normal, uv) —
 // geometria da CPU ou escrita por um estágio (`PointCloudGeometry`). `vertex_index / 6` é o vértice; a instância é a
 // entidade do grupo (registro `Renderable`: matriz de mundo e material). A direção da luz vem do ponto de cena
 // `scene_light_direction` (spec 031).
@@ -19,11 +19,11 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
         vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0),
     );
     let corner = corners[index % 6u];
-    let v = (index / 6u) * 8u;
+    let m = point_vertices[index / 6u];
     let r = renderables[instances[instance].renderable];
     let material = materials[r.materialSlot];
     let camera = cameras[forward_frame.cameraSlot];
-    let local = vec3f(point_vertices[v], point_vertices[v + 1u], point_vertices[v + 2u]);
+    let local = vec3f(m.px, m.py, m.pz);
     out.corner = corner;
     out.material_slot = r.materialSlot;
     if (!all(abs(local) < vec3f(1e30))) {

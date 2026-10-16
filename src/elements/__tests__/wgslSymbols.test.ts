@@ -26,6 +26,14 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'lugar dos parâmetros de superfície do forward (spec 009): o pronto e o adaptador da função material — bindPoints troca um pelo outro',
     surface_tangents:
         'lugar das tangentes da superfície (spec 009): numéricas (pronto) ou analíticas — bindPoints troca uma pela outra',
+    scan_count:
+        'contagem da soma de prefixos (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
+    radix_count:
+        'contagem da ordenação radix (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
+    compact_count:
+        'contagem da compactação (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
+    reduce_count:
+        'contagem da redução (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
     surface_jet:
         'lugar do jato da superfície (spec 010): numérico (pronto), analítico, das prontas ou do mapa com o espaço — bindPoints troca um pelo outro',
 };

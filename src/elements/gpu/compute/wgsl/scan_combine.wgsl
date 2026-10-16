@@ -7,6 +7,6 @@ fn scan_combine_main(
     @builtin(num_workgroups)       nwg:  vec3u,
 ) {
     let i = gid3.x + gid3.y * nwg.x * SCAN_GROUP;
-    if (i >= level.count) { return; }
+    if (i >= scan_count()) { return; }
     values[i] += group_prefix[wgid.x + wgid.y * nwg.x];
 }
