@@ -1,11 +1,13 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
+import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { linalg, noise } from '../../gpu/shaders/math';
 import surfaceColliderBuildSource from '../../gpu/wgsl/kernels/surface_collider_build.wgsl?raw';
 import surfaceColliderCommonSource from '../../gpu/wgsl/kernels/surface_collider_common.wgsl?raw';
 import surfaceColliderPointsSource from '../../gpu/wgsl/kernels/surface_collider_points.wgsl?raw';
-import { surfaceAt } from '../../geometry/shaders';
+import { surfaceAt, surfaceResources } from '../../geometry/shaders';
 import {
     SpaceFnRecordSchema,
     SurfaceFnRecordSchema,
@@ -53,10 +55,45 @@ export const SurfaceBakeParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
+const bakeBuffer = (
+    name: string,
+    access: 'read' | 'read_write',
+    type: WgslResourceType,
+): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type,
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+/**
+ * Recursos da construção de um colisor de superfície (spec 031): privados do `SurfaceColliderFlow`; o uniforme de cada
+ * passada (`bake`, uma região por passada) muda entre despachos (`draw`).
+ */
+export const surfaceBakeResources = Object.freeze({
+    bake: wgslResource({
+        name: 'bake',
+        binding: { uniform: true },
+        type: { schema: SurfaceBakeParamsSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    points: bakeBuffer('bake_points', 'read_write', { wgsl: 'vec4f', array: true }),
+    bounds: bakeBuffer('bake_bounds', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    cells: bakeBuffer('bake_cells', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    ids: bakeBuffer('bake_ids', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    field: bakeBuffer('bake_field', 'read_write', { wgsl: 'f32', array: true }),
+    worlds: bakeBuffer('bake_worlds', 'read', { schema: Transform.worldSchema, array: true }),
+});
+const B = surfaceBakeResources;
+
 /** Codificação em ordem total, tempos das cópias, triângulos da amostragem, ponto mais próximo de um triângulo. */
 export const surfaceColliderCommon = wgslModule({
     name: 'surface_collider_common',
     source: surfaceColliderCommonSource,
+    requires: [NONE.module, B.bake],
     structs: [SurfaceBakeParamsSchema],
 });
 
@@ -65,7 +102,18 @@ export const surfaceColliderPoints = wgslModule({
     name: 'surface_collider_points',
     source: surfaceColliderPointsSource,
     // `noise` e `linalg` ficam à mão das funções do usuário (como no `surface_eval`).
-    requires: [noise, linalg, surfaceAt, surfaceColliderCommon],
+    requires: [
+        noise,
+        linalg,
+        surfaceAt,
+        surfaceColliderCommon,
+        WORKGROUP_SIZE.module,
+        surfaceResources.params,
+        surfaceResources.fnRecords,
+        surfaceResources.spaceRecords,
+        B.points,
+        B.bounds,
+    ],
     structs: [
         SurfaceBakeParamsSchema,
         SurfaceParamsSchema,
@@ -78,6 +126,16 @@ export const surfaceColliderPoints = wgslModule({
 export const surfaceColliderBuild = wgslModule({
     name: 'surface_collider_build',
     source: surfaceColliderBuildSource,
-    requires: [linalg, surfaceColliderCommon],
+    requires: [
+        linalg,
+        surfaceColliderCommon,
+        WORKGROUP_SIZE.module,
+        B.points,
+        B.bounds,
+        B.cells,
+        B.ids,
+        B.field,
+        B.worlds,
+    ],
     structs: [SurfaceBakeParamsSchema, Transform.worldSchema],
 });

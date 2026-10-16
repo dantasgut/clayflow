@@ -1,3 +1,6 @@
+import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
+import { surfaceResources } from '../../geometry/shaders';
 import { NONE as ENGINE_NONE } from '../../../scene/shaders/engineConstants';
 import type {
     EngineCore,
@@ -41,6 +44,7 @@ import {
     SurfaceBakeParamsSchema,
     surfaceColliderBuild,
     surfaceColliderPoints,
+    surfaceBakeResources as B,
 } from '../shaders/surfaceCollider';
 
 const WORKGROUP = 64;
@@ -248,13 +252,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             const run = (p: PreparedCompute, region: number, count: number): void => {
                 frame.compute('SurfaceColliderFlow', (pass) => {
                     pass.bind.setPipeline(p.spec);
-                    p.groups.forEach((bg, g) =>
-                        pass.bind.setBindGroup(
-                            g,
-                            bg,
-                            p.dynamic[g] ? [st.bake.offset(region)] : undefined,
-                        ),
-                    );
+                    p.bindTo(pass.bind, { draw: [st.bake.offset(region)] });
                     // As cópias ficam em sequência no índice linear.
                     pass.dispatch.invocations(count * st.copies, WORKGROUP);
                 });
@@ -317,31 +315,31 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 known === undefined || known.module !== module
                     ? `scb_points:${id}:${module?.name ?? 'preset'}`
                     : undefined;
-            const shared = {
-                bake: st.bake.source(),
-                bake_points: st.points,
-                bake_bounds: st.bounds,
-            };
+            const shared: [WgslResource, BindingSource][] = [
+                [B.bake, st.bake.source()],
+                [B.points, st.points],
+                [B.bounds, st.bounds],
+            ];
             for (const pid of [st.active?.id, st.pending?.id, pointsId]) {
                 if (pid === undefined) continue;
                 ctx.bind(
-                    prefixed(pid, {
+                    prefixed(pid, [
                         ...shared,
-                        surface_params: st.surfaceParams,
-                        surface_fn_records: fnRecords?.buffer ?? this.dummyRecords,
-                    }),
+                        [surfaceResources.params, st.surfaceParams],
+                        [surfaceResources.fnRecords, fnRecords?.buffer ?? this.dummyRecords],
+                    ]),
                 );
             }
             for (const entryName of BUILD_ENTRIES[shape.mode]) {
                 const pid = buildId(id, entryName);
                 ctx.bind(
-                    prefixed(pid, {
+                    prefixed(pid, [
                         ...shared,
-                        bake_cells: st.cells,
-                        bake_ids: st.ids,
-                        bake_field: fields.buffer,
-                        bake_worlds: worlds?.buffer ?? this.dummyWorlds,
-                    }),
+                        [B.cells, st.cells],
+                        [B.ids, st.ids],
+                        [B.field, fields.buffer],
+                        [B.worlds, worlds?.buffer ?? this.dummyWorlds],
+                    ]),
                 );
                 ctx.prepare({
                     id: pid,
@@ -552,10 +550,12 @@ function buildId(id: EntityId, entry: string): string {
     return `${entry}:${id}`;
 }
 
-function prefixed(pid: string, sources: Record<string, unknown>): Record<string, never> {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(sources)) out[`${pid}:${k}`] = v;
-    return out as Record<string, never>;
+/** As fontes ligadas só no pipeline `pid`. */
+function prefixed(
+    pid: string,
+    sources: readonly (readonly [WgslResource, BindingSource])[],
+): Map<BindingKey, BindingSource> {
+    return new Map(sources.map(([resource, source]) => [{ pipeline: pid, resource }, source]));
 }
 
 /** Forma do colisor: amostragem, contagens, cópias e passos do jump flooding. */

@@ -11,10 +11,6 @@ struct SurfaceAt {
     finite: bool,
 }
 
-fn surface_finite(v: vec3f) -> bool {
-    return all(v == v) && all(abs(v) < vec3f(3.4e38));
-}
-
 fn surface_at(u: f32, v: f32, sv: f32, time: f32, data: SurfaceFnParams, fallback: vec3f) -> SurfaceAt {
     let p = surface_fn(u, v, time, data);
     let t = surface_tangents(u, v, time, data);
@@ -30,8 +26,8 @@ fn surface_at(u: f32, v: f32, sv: f32, time: f32, data: SurfaceFnParams, fallbac
     }
     let len = length(raw);
     var n = fallback;
-    if (len > 1e-12 && surface_finite(raw)) { n = raw / len; }
+    if (len > 1e-12 && finite3(raw)) { n = raw / len; }
     let x = space_map(p, time);
     let m = space_normal(p, time, n);
-    return SurfaceAt(x, m, surface_finite(x) && surface_finite(m));
+    return SurfaceAt(x, m, finite3(x) && finite3(m));
 }

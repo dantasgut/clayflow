@@ -6,17 +6,12 @@
 // Requer: structs SurfaceParams, SurfaceFnRecord, SpaceFnRecord; surface_at (com os pontos surface, surface_tangents e
 // space); global `space_records`.
 
-@group(0) @binding(0) var<uniform>             surface_params:  SurfaceParams;
-@group(0) @binding(1) var<storage, read_write> surface_vertices: array<f32>;
-@group(0) @binding(2) var<storage, read>       surface_fn_records: array<SurfaceFnRecord>;
-@group(0) @binding(3) var<storage, read>       space_records: array<SpaceFnRecord>;
-
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn surface_eval_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let i = gid3.x + gid3.y * nwg.x * 64u;
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let nu = surface_params.nu;
     let nv = surface_params.nv;
     if (i >= nu * nv) { return; }

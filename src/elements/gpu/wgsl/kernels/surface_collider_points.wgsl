@@ -4,19 +4,12 @@
 // atomicMin/atomicMax em ordem total. Amostra não finita fica fora (w = 0).
 // Requer: structs SurfaceBakeParams, SurfaceParams, SurfaceFnRecord, SpaceFnRecord; surface_at; surface_collider_common.
 
-@group(0) @binding(0) var<uniform>             bake:               SurfaceBakeParams;
-@group(0) @binding(1) var<uniform>             surface_params:     SurfaceParams;
-@group(0) @binding(2) var<storage, read>       surface_fn_records: array<SurfaceFnRecord>;
-@group(0) @binding(3) var<storage, read>       space_records:      array<SpaceFnRecord>;
-@group(0) @binding(4) var<storage, read_write> bake_points:        array<vec4f>;
-@group(0) @binding(5) var<storage, read_write> bake_bounds:        array<atomic<u32>>;
-
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_points_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, bake.samples);
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, bake.samples);
     let i = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }

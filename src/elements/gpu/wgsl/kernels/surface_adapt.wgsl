@@ -13,21 +13,7 @@
 // Requer: structs SurfaceParams, SurfaceFnRecord, SpaceFnRecord, SurfaceDiff, SurfaceAdaptParams, CameraMatrices,
 // WorldTransform; surface_at; surface_jet; surface_forms; global `space_records`.
 
-@group(0) @binding(0)  var<uniform>             surface_params:     SurfaceParams;
-@group(0) @binding(1)  var<uniform>             adapt:              SurfaceAdaptParams;
-@group(0) @binding(2)  var<storage, read>       surface_fn_records: array<SurfaceFnRecord>;
-@group(0) @binding(3)  var<storage, read>       space_records:      array<SpaceFnRecord>;
-@group(0) @binding(4)  var<storage, read_write> adapt_patches:      array<vec4u>;
-@group(0) @binding(5)  var<storage, read_write> adapt_hist:         array<atomic<u32>>;
-@group(0) @binding(6)  var<storage, read_write> adapt_vertices:     array<f32>;
-@group(0) @binding(7)  var<storage, read_write> adapt_indices:      array<u32>;
-@group(0) @binding(8)  var<storage, read_write> adapt_edges:        array<u32>;
-@group(0) @binding(9)  var<storage, read_write> adapt_draw:         array<u32>;
-@group(0) @binding(10) var<storage, read_write> surface_diff:       array<SurfaceDiff>;
-@group(0) @binding(11) var<storage, read>       adapt_cameras:      array<CameraMatrices>;
-@group(0) @binding(12) var<storage, read>       adapt_worlds:       array<WorldTransform>;
-
-const ADAPT_NONE: u32 = 0xFFFFFFFFu;
+const ADAPT_NONE: u32 = NONE;
 // Posição do viés no histograma (os níveis ocupam 0..7).
 const ADAPT_BIAS: u32 = 15u;
 
@@ -69,12 +55,12 @@ fn adapt_world() -> mat4x4f {
     return w;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn surface_adapt_level_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    let idx = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let count = adapt.patches_u * adapt.patches_v;
     if (idx >= count) { return; }
     var level = adapt.max_level;
@@ -225,12 +211,12 @@ fn adapt_snap(i: u32, l: u32, e: u32) -> u32 {
     return (i / s) * s;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn surface_adapt_emit_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    let idx = gid3.x + gid3.y * nwg.x * 64u;
+    let idx = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let side = adapt.side;
     let pid = idx / (side * side);
     if (pid >= adapt.patches_u * adapt.patches_v) { return; }

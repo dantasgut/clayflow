@@ -1,4 +1,6 @@
-import { linalg, noise } from '../gpu/shaders/math';
+import { finite, linalg, noise } from '../gpu/shaders/math';
+import { wgslResource, type WgslResourceType } from '../../scene/shaders/WgslResource';
+import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { wgslModule } from '../../scene/shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../../scene/shaders/WgslPoint';
@@ -27,11 +29,64 @@ import {
     SurfaceParamsSchema,
 } from './SurfaceSchemas';
 
+// Recursos da avaliação de superfícies (spec 031): todos privados do `SurfaceFlow` (por pipeline: cada superfície tem os
+// seus), exceto os registros das funções `space` da cena (ponto de cena).
+
+const priv = (
+    name: string,
+    access: 'read' | 'read_write',
+    type: WgslResourceType,
+): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type,
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+/** Recursos das superfícies paramétricas. */
+export const surfaceResources = Object.freeze({
+    params: wgslResource({
+        name: 'surface_params',
+        binding: { uniform: true },
+        type: { schema: SurfaceParamsSchema },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    fnRecords: priv('surface_fn_records', 'read', { schema: SurfaceFnRecordSchema, array: true }),
+    spaceRecords: wgslResource({
+        name: 'space_records',
+        binding: { storage: 'read' },
+        type: { schema: SpaceFnRecordSchema, array: true },
+        frequency: 'frame',
+        provider: { scene: 'space' },
+    }),
+    vertices: priv('surface_vertices', 'read_write', { wgsl: 'f32', array: true }),
+    diff: priv('surface_diff', 'read_write', { schema: SurfaceDiffSchema, array: true }),
+    adapt: wgslResource({
+        name: 'adapt',
+        binding: { uniform: true },
+        type: { schema: SurfaceAdaptParamsSchema },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    adaptPatches: priv('adapt_patches', 'read_write', { wgsl: 'vec4u', array: true }),
+    adaptHist: priv('adapt_hist', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    adaptVertices: priv('adapt_vertices', 'read_write', { wgsl: 'f32', array: true }),
+    adaptIndices: priv('adapt_indices', 'read_write', { wgsl: 'u32', array: true }),
+    adaptEdges: priv('adapt_edges', 'read_write', { wgsl: 'u32', array: true }),
+    adaptDraw: priv('adapt_draw', 'read_write', { wgsl: 'u32', array: true }),
+    adaptCameras: priv('adapt_cameras', 'read', { schema: Camera.matricesSchema, array: true }),
+    adaptWorlds: priv('adapt_worlds', 'read', { schema: Transform.worldSchema, array: true }),
+});
+const R = surfaceResources;
+
 /** Superfícies prontas (plano, esfera, toro, terreno por ruído) — o pronto do ponto `surface`. */
 export const surfaceFnReady = wgslModule({
     name: 'surface_fn_ready',
     source: surfaceFnReadySource,
-    requires: [noise],
+    requires: [noise, R.params],
     structs: [SurfaceParamsSchema, SurfaceFnRecordSchema],
 });
 
@@ -39,6 +94,7 @@ export const surfaceFnReady = wgslModule({
 export const surfaceTangentsNumeric = wgslModule({
     name: 'surface_tangents_numeric',
     source: surfaceTangentsNumericSource,
+    requires: [R.params],
 });
 
 /** Lugar das tangentes no `surface_eval`: numéricas (pronto) ou as derivadas analíticas da função. */
@@ -63,7 +119,7 @@ export const spaceReady = wgslModule({ name: 'space_ready', source: spaceReadySo
 export const surfaceAt = wgslModule({
     name: 'surface_at',
     source: surfaceAtSource,
-    requires: [surfaceFnReady, surfaceTangentsNumeric, spaceReady],
+    requires: [surfaceFnReady, surfaceTangentsNumeric, spaceReady, finite, R.params],
 });
 
 /** Avaliação de uma superfície paramétrica na grade (posição, normal, uv), com o espaço da cena. */
@@ -71,7 +127,16 @@ export const surfaceEval = wgslModule({
     name: 'surface_eval',
     source: surfaceEvalSource,
     // `noise` e `linalg` ficam à mão das funções do usuário.
-    requires: [noise, linalg, surfaceAt],
+    requires: [
+        noise,
+        linalg,
+        surfaceAt,
+        WORKGROUP_SIZE.module,
+        R.params,
+        R.vertices,
+        R.fnRecords,
+        R.spaceRecords,
+    ],
     structs: [SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema],
 });
 
@@ -79,7 +144,7 @@ export const surfaceEval = wgslModule({
 export const surfaceJetCommon = wgslModule({
     name: 'surface_jet_common',
     source: surfaceJetCommonSource,
-    requires: [surfaceFnReady, surfaceTangentsNumeric, spaceReady],
+    requires: [surfaceFnReady, surfaceTangentsNumeric, spaceReady, R.params],
 });
 
 /** Jato pronto: primeiras pelo lugar das tangentes, segundas por diferenças. */
@@ -103,7 +168,7 @@ export const surfaceJetAnalytic = wgslModule({
 export const surfaceJetPreset = wgslModule({
     name: 'surface_jet_preset',
     source: surfaceJetPresetSource,
-    requires: [surfaceJetCommon],
+    requires: [surfaceJetCommon, R.params],
 });
 
 /** Jato do mapa composto `space_map ∘ surface_fn` (espaço na cena), todo por diferenças. */
@@ -117,7 +182,7 @@ export const surfaceJetMapped = wgslModule({
 export const surfaceForms = wgslModule({
     name: 'surface_forms',
     source: surfaceFormsSource,
-    requires: [surfaceJetCommon],
+    requires: [surfaceJetCommon, finite],
     structs: [SurfaceDiffSchema],
 });
 
@@ -125,7 +190,19 @@ export const surfaceForms = wgslModule({
 export const surfaceEvalDiff = wgslModule({
     name: 'surface_eval_diff',
     source: surfaceEvalDiffSource,
-    requires: [noise, linalg, surfaceAt, surfaceJetNumeric, surfaceForms],
+    requires: [
+        noise,
+        linalg,
+        surfaceAt,
+        surfaceJetNumeric,
+        surfaceForms,
+        WORKGROUP_SIZE.module,
+        R.params,
+        R.vertices,
+        R.fnRecords,
+        R.spaceRecords,
+        R.diff,
+    ],
     structs: [SurfaceParamsSchema, SurfaceFnRecordSchema, SpaceFnRecordSchema, SurfaceDiffSchema],
 });
 
@@ -133,7 +210,28 @@ export const surfaceEvalDiff = wgslModule({
 export const surfaceAdapt = wgslModule({
     name: 'surface_adapt',
     source: surfaceAdaptSource,
-    requires: [noise, linalg, surfaceAt, surfaceJetNumeric, surfaceForms],
+    requires: [
+        noise,
+        linalg,
+        surfaceAt,
+        surfaceJetNumeric,
+        surfaceForms,
+        NONE.module,
+        WORKGROUP_SIZE.module,
+        R.params,
+        R.adapt,
+        R.fnRecords,
+        R.spaceRecords,
+        R.adaptPatches,
+        R.adaptHist,
+        R.adaptVertices,
+        R.adaptIndices,
+        R.adaptEdges,
+        R.adaptDraw,
+        R.diff,
+        R.adaptCameras,
+        R.adaptWorlds,
+    ],
     structs: [
         SurfaceParamsSchema,
         SurfaceFnRecordSchema,
@@ -188,6 +286,6 @@ export const spacePoint = wgslPoint({
     hosts: () => [surfaceEval],
     scene: {
         globals: { space_records: { pool: SpaceFnRecordSchema } },
-        combine: (entries) => combineSpaceFunctions(entries, [linalg]),
+        combine: (entries) => combineSpaceFunctions(entries, [linalg, R.spaceRecords]),
     },
 });

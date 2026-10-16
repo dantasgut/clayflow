@@ -1,3 +1,4 @@
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { NONE as ENGINE_NONE } from '../../scene/shaders/engineConstants';
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type {
@@ -10,7 +11,8 @@ import type {
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../scene/flows/Flow';
 import type {
-    BindingSources,
+    BindingKey,
+    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -52,6 +54,7 @@ import {
     surfacePoint,
     surfaceTangents,
     surfaceTangentsAnalytic,
+    surfaceResources as R,
 } from './shaders';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
@@ -253,7 +256,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             if (p?.role !== 'compute' || !p.ready) continue;
             frame.compute('SurfaceFlow', (pass) => {
                 pass.bind.setPipeline(p.spec);
-                p.groups.forEach((bg, g) => pass.bind.setBindGroup(g, bg));
+                p.bindTo(pass.bind);
                 pass.dispatch.invocations(surface.vertexCount, WORKGROUP_SIZE);
             });
             st.stale = false;
@@ -275,7 +278,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         const run = (label: string, p: PreparedCompute, count: number | 'one'): void => {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
-                p.groups.forEach((bg, g) => pass.bind.setBindGroup(g, bg));
+                p.bindTo(pass.bind);
                 if (count === 'one') pass.dispatch.workgroups(1);
                 else pass.dispatch.invocations(count, WORKGROUP_SIZE);
             });
@@ -388,14 +391,17 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     this.bindAdaptive(ctx, st, surface, pid, vertices, records);
                     continue;
                 }
-                ctx.bind({
-                    [`${pid}:surface_params`]: st.params,
-                    [`${pid}:surface_vertices`]: vertices,
-                    [`${pid}:surface_fn_records`]: records,
-                    ...(surface.differential && diffs !== undefined
-                        ? { [`${pid}:surface_diff`]: diffs.buffer }
-                        : {}),
-                });
+                const at = (resource: WgslResource): BindingKey => ({ pipeline: pid, resource });
+                ctx.bind(
+                    new Map<BindingKey, BindingSource>([
+                        [at(R.params), st.params],
+                        [at(R.vertices), vertices],
+                        [at(R.fnRecords), records],
+                        ...(surface.differential && diffs !== undefined
+                            ? ([[at(R.diff), diffs.buffer]] as [BindingKey, BindingSource][])
+                            : []),
+                    ]),
+                );
             }
             if (pipelineId === undefined) continue;
             const base = adaptive
@@ -476,20 +482,23 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             return;
         for (const e of ADAPT_ENTRIES) {
             const pid = adaptId(emitId, e);
-            ctx.bind({
-                [`${pid}:surface_params`]: st.params,
-                [`${pid}:adapt`]: st.adapt.params,
-                [`${pid}:surface_fn_records`]: records,
-                [`${pid}:adapt_patches`]: st.adapt.patches,
-                [`${pid}:adapt_hist`]: st.adapt.hist,
-                [`${pid}:adapt_vertices`]: vertices,
-                [`${pid}:adapt_indices`]: indices,
-                [`${pid}:adapt_edges`]: edges,
-                [`${pid}:adapt_draw`]: draw,
-                [`${pid}:surface_diff`]: diffs?.buffer ?? this.dummyPool,
-                [`${pid}:adapt_cameras`]: cameras?.buffer ?? this.dummyPool,
-                [`${pid}:adapt_worlds`]: worlds?.buffer ?? this.dummyPool,
-            } as BindingSources);
+            const at = (resource: WgslResource): BindingKey => ({ pipeline: pid, resource });
+            ctx.bind(
+                new Map<BindingKey, BindingSource>([
+                    [at(R.params), st.params],
+                    [at(R.adapt), st.adapt.params],
+                    [at(R.fnRecords), records as BindingSource],
+                    [at(R.adaptPatches), st.adapt.patches],
+                    [at(R.adaptHist), st.adapt.hist],
+                    [at(R.adaptVertices), vertices as BindingSource],
+                    [at(R.adaptIndices), indices as BindingSource],
+                    [at(R.adaptEdges), edges as BindingSource],
+                    [at(R.adaptDraw), draw as BindingSource],
+                    [at(R.diff), diffs?.buffer ?? this.dummyPool],
+                    [at(R.adaptCameras), cameras?.buffer ?? this.dummyPool],
+                    [at(R.adaptWorlds), worlds?.buffer ?? this.dummyPool],
+                ]),
+            );
         }
     }
 

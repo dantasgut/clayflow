@@ -6,14 +6,6 @@
 // Layout do campo: ver `surface_collider_hit.wgsl`.
 // Requer: structs SurfaceBakeParams, WorldTransform; surface_collider_common; linalg.
 
-@group(0) @binding(0) var<uniform>             bake:        SurfaceBakeParams;
-@group(0) @binding(4) var<storage, read_write> bake_points: array<vec4f>;
-@group(0) @binding(5) var<storage, read_write> bake_bounds: array<atomic<u32>>;
-@group(0) @binding(6) var<storage, read_write> bake_cells:  array<atomic<u32>>;
-@group(0) @binding(7) var<storage, read_write> bake_ids:    array<atomic<u32>>;
-@group(0) @binding(8) var<storage, read_write> bake_field:  array<f32>;
-@group(0) @binding(9) var<storage, read>       bake_worlds: array<WorldTransform>;
-
 const SCB_HEADER: u32 = 64u;
 // Nós por eixo que um triângulo pode cobrir (amostragem muito mais grossa que o campo: o excesso é ignorado).
 const SCB_MAX_SPAN: u32 = 64u;
@@ -59,9 +51,9 @@ fn scb_normal(k: u32, s: u32) -> vec3f {
     return bake_points[(k * bake.samples + s) * 2u + 1u].xyz;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, max(bake.cells, 8u));
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, max(bake.cells, 8u));
     let i = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }
@@ -78,9 +70,9 @@ fn scb_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
 }
 
 // Uma thread por cópia: caixa (com banda no modo distância), matrizes e escala.
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_header_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let k = gid3.x + gid3.y * nwg.x * 64u;
+    let k = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (k >= bake.copies) { return; }
     let b = k * 8u;
     var lo = vec3f(
@@ -163,9 +155,9 @@ fn scb_header_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_work
 }
 
 // Altura: cada triângulo da amostragem escreve nos nós xz que cobre a altura interpolada (máximo entre triângulos).
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_height_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, bake.tris);
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, bake.tris);
     let t = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }
@@ -200,9 +192,9 @@ fn scb_height_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_work
     }
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_height_finish_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, bake.cells);
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, bake.cells);
     let i = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }
@@ -242,9 +234,9 @@ fn scb_range(k: u32, t: u32) -> ScbRange {
     return ScbRange(i0, i1, a.w != 0.0 && b.w != 0.0 && c.w != 0.0);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_seed_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, bake.tris);
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, bake.tris);
     let t = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }
@@ -262,9 +254,9 @@ fn scb_seed_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
 }
 
 // Entre os triângulos à distância mínima do nó, o de menor índice.
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_seed_id_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, bake.tris);
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, bake.tris);
     let t = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }
@@ -286,9 +278,9 @@ fn scb_seed_id_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
 
 // Uma passada de jump flooding: o nó fica com o triângulo mais próximo entre o seu e os dos 26 vizinhos a `pass_step`
 // nós (empate: menor índice). Lê a metade `parity` e escreve a outra.
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_jfa_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, bake.cells);
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, bake.cells);
     let i = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }
@@ -322,9 +314,9 @@ fn scb_jfa_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgro
 
 // Distância com sinal final: exata ao triângulo do nó; dentro (lado oposto à normal interpolada no ponto mais
 // próximo) é negativa. Nó sem triângulo (nenhuma amostra válida): longe.
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn scb_distance_finish_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let it = scb_item(gid3.x + gid3.y * nwg.x * 64u, bake.cells);
+    let it = scb_item(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, bake.cells);
     let i = it.i;
     let k = it.k;
     if (k >= bake.copies) { return; }
