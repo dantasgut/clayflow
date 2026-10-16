@@ -136,6 +136,31 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 - Limites: só a luz direcional que projeta sombra gera cáusticas (spot e pontuais quando tiverem sombra, F4/013); a
   reflexão usa a cor refletida do material (IBL na F4); água atrás de água soma à espessura, sem refração própria.
 
+### Notas da 031
+
+- Contrato de shader estruturado: recursos declarados pelos módulos (`wgslResource`), ligações atribuídas pela
+  montagem (nenhum `@group/@binding` à mão: `manual-binding`), globais implícitos rejeitados
+  (`unresolved-reference`), ligação pela identidade do recurso (sem `consumes` nem nomes em texto), gravação por
+  `groupsOf`/`bindTo` (sem índices de grupo nos estágios), limites do device conferidos, constantes com fonte única
+  (`sharedConstant`), instanciação por token no lugar de regex, pontos de cena com contribuições (a sombra e a água
+  chegam ao forward por `light_visibility`/`light_transmission`), registros tipados por forma no lugar do registro de
+  bits da 009. Fixtures de imagem e trajetória sem regravar.
+- Grafos de nós: de ponto (fundidos numa função, hospedados nas funções da 009 por `{ graph }`/`setGraph`) e de
+  conjunto (`SetGraph` + `GraphFlow`, contagens na GPU, `GraphGeometry`), sub-grafos, serialização e registro.
+
+### Pendências novas (levantadas na 031)
+
+| #   | Pendência                                                  | Estado atual (evidência)                                                                                                                                                                                                                                                                                                                                                                                                                            | Fase     |
+| --- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| N1  | Alias por alvo em grafos de ponto fundidos                 | `fusePoint` (`scene/graph/compileSetGraph.ts`) emite `alias <paramsAlias do alvo> = <struct>` e o recurso `<fn>_params` pelo alvo e pela entrada: um kernel com duas entradas de ponto do mesmo alvo (ou dois grafos fundidos com o mesmo alias) daria `symbol-conflict`. Hoje cada kernel da biblioteca tem uma entrada de ponto; falta o sufixo por entrada (instanciação por token)                                                              | F8 (032) |
+| N2  | Alvo de saída que aparece depois da criação                | O `GraphFlow` acha o alvo (`GraphGeometry`) da entidade só ao começar a acompanhá-la (`track`), e os nós de saída leem `ctx.target` em `create`: uma geometria acrescentada depois (`World.attach`) só é vista quando a entidade entra de novo no conjunto do slot (`entitiesChanged` com ela em `added`) — `setGraph` e valores novos reconstroem com o alvo já guardado. Sem alvo, `set.meshOutput`/`set.pointsOutput` não gravam nada, sem aviso | F8 (032) |
+| N3  | Limite das contagens da GPU é pré-condição                 | Contagens decididas na GPU não voltam à CPU, então não são conferidas: os nós limitam pela capacidade do plano (o excedente é descartado ou contado, como o `overflow` da `Compaction`); `Compaction` estável exige contagem ≤ `inputCapacity`; a `GraphGeometry` é dimensionada pelo usuário (vértices além da capacidade não são copiados). Uma contagem acima da capacidade não gera erro, só resultado truncado                                 | F8 (032) |
+| N4  | ~~Sprites de corpos de partículas fora dos pontos de luz~~ | **Resolvida na 031**: `particle_sprite` lê a luz pelo ponto de cena `scene_any_light_direction` (primeira luz viva, contribuição de toda `Light`); o `ParticleFlow` não conhece o pool de luzes                                                                                                                                                                                                                                                     | ✅ 031   |
+| N5  | ~~"Produzido no quadro" ainda privado da água~~            | **Resolvida na 031**: estado genérico da C2 — o produtor marca `ctx.produced(resource, descId, …)` (um produtor por descritor) e os leitores consultam `ResourceDirectory.isProduced`; a água usa `WaterSurface.producedDescriptor`                                                                                                                                                                                                                 | ✅ 031   |
+| N6  | Tipos de porta da biblioteca não exportados                | `MESH`, `POINTS`, `U32S`, `MeshTriangleSchema`, `SetPointSchema` (`elements/nodes/set/schemas.ts`) não saem pelo pacote: um nó de conjunto escrito fora do motor precisa do caminho interno para ligar nas portas da biblioteca                                                                                                                                                                                                                     | F8 (032) |
+| N7  | ~~Comentários de código com a forma antiga~~               | **Resolvida na 031**: doc-comments atualizados para recursos declarados e fornecedores; o campo morto `FlowBindingErrorDetails.consumes` saiu                                                                                                                                                                                                                                                                                                       | ✅ 031   |
+| N8  | Profundidade de projeção na convenção do OpenGL            | `camera_perspective` e `camera_orthographic` (`math/camera.wgsl`, e a conta equivalente na CPU) mapeiam a profundidade para [-1, 1]; o WebGPU recorta em [0, 1], então só a metade de longe de [near, far] aparece (uma ortográfica a 10 m com near pequeno não desenha nada). Corrigir muda a profundidade de todas as cenas: fixtures de imagem regravadas com justificativa visual                                                               | F4 (011) |
+
 ### Pendências novas (levantadas na 007)
 
 | #   | Pendência                                 | Estado atual (evidência)                                                                                                                                                                                                                                   | Fase |
@@ -172,5 +197,6 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 ## 5. Ordem do ROADMAP
 
 F1 (004, 005, 006) concluída; F2 (007 — ponte compute↔render; 008 — geometria em compute) bloqueia o resto; F3, F4 e
-F5 podem andar em paralelo depois. As pendências P1–P5, P7–P9, E1 e E4 são da F5 (P10 resolvida na 017); P6 da F9; G1 e G2 da F4; G3 (débito do p99 da 007) da F10, ao fim das fases programadas. E2, E3 e E5
+F5 podem andar em paralelo depois. A F3b (031 — contrato de shader estruturado e grafos de nós) é a fundação da F4, da F5 e
+da F8; N1–N3 e N6 vão com a 032; N4, N5 e N7 foram resolvidas na 031. As pendências P1–P5, P7–P9, E1 e E4 são da F5 (P10 resolvida na 017); P6 da F9; G1 e G2 da F4; G3 (débito do p99 da 007) da F10, ao fim das fases programadas. E2, E3 e E5
 foram resolvidas na 007 (F2); a geometria em compute, na 008 (F2 concluída).

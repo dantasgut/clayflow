@@ -70,6 +70,41 @@ describe('serialização (spec 031, T080)', () => {
         expect(third.node('d').definition).toBe(again.node('d').definition);
     });
 
+    it('nós do usuário do mesmo módulo voltam com um módulo só (dois módulos com o mesmo nome não se montam)', () => {
+        const shared = wgslModule({
+            name: 'user_pair',
+            source: [
+                'fn user_inc(x: f32) -> f32 { return x + 1.0; }',
+                'fn user_dec(x: f32) -> f32 { return x - 1.0; }',
+            ].join('\n'),
+        });
+        const inc = defineNode({
+            name: 'user.inc',
+            inputs: { x: 'f32' },
+            outputs: { value: 'f32' },
+            code: shared,
+            fn: 'user_inc',
+        });
+        const dec = defineNode({
+            name: 'user.dec',
+            inputs: { x: 'f32' },
+            outputs: { value: 'f32' },
+            code: shared,
+            fn: 'user_dec',
+        });
+        const g = new NodeGraph({
+            nodes: { s: graphArgument('s', { time: 'f32' }), i: inc, d: dec },
+            links: [
+                ['s.time', 'i.x'],
+                ['i.value', 'd.x'],
+            ],
+            output: 'd.value',
+        });
+        const again = fromJSON(JSON.parse(JSON.stringify(toJSON(g, registry))), registry);
+        expect(again.node('i').definition!.code).toBe(again.node('d').definition!.code);
+        expect(again.modules()).toHaveLength(1);
+    });
+
     it('grafo de conjunto com sub-grafo de conjunto e entradas abertas', () => {
         const sub = Subgraph.set(
             new NodeGraph({

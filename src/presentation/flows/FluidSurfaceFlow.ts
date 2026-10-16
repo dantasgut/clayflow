@@ -440,11 +440,22 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
         return water;
     }
 
+    /**
+     * Declara à C2 se a superfície desta vista foi produzida no quadro (spec 031, R5: `depth` na vista da câmera,
+     * `lightDepth` na da luz) — os consumidores (`WaterFlow`, `CausticsFlow`) consultam `isProduced`. A vista da luz
+     * também liga as cáusticas na transmissão da luz.
+     */
+    private produced(ctx: Ctx, water: WaterSurface | undefined, produced: boolean): void {
+        if (water === undefined) return;
+        ctx.produced(water, WaterSurface.producedDescriptor[this.view], produced);
+        if (this.view === 'light') water.setCaustics(produced);
+    }
+
     /** Antes da gravação: pipelines, regiões, parâmetros e a cadeia de suavização (refeita quando uma fonte muda). */
     private prepareFrame(ctx: Ctx): void {
         if (this.bodies.size === 0) {
             // Sem água: nada a preparar (custo zero por quadro).
-            if (this.active) this.water?.markProduced(this.view, false);
+            if (this.active) this.produced(ctx, this.water, false);
             this.active = false;
             return;
         }
@@ -457,10 +468,10 @@ export class FluidSurfaceFlow extends Flow<FluidSurfaceSlots, 'idle'> {
                 : shadowSlot !== undefined && slots.shadowMatrices !== undefined);
         this.active = ready;
         if (!ready) {
-            this.water?.markProduced(this.view, false);
+            this.produced(ctx, this.water, false);
             return;
         }
-        this.allocate(ctx).markProduced(this.view, true);
+        this.produced(ctx, this.allocate(ctx), true);
         ctx.bind(new Map<WgslResource, BindingSource>([[R.lightMatrix, this.lightMatrix()]]));
         if (this.view === 'camera') {
             const depth = slots.sceneDepth!;

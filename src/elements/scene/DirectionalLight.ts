@@ -1,5 +1,6 @@
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { Light, type LightValues } from './Light';
+import { anyLightContribution } from './points/anyLightContribution';
 import { shadowCasterContributions } from './points/shadowContribution';
 import { ShadowMap, type ShadowMapOptions } from './ShadowMap';
 
@@ -27,13 +28,19 @@ export class DirectionalLight extends Light {
         if (this.shadowMap !== undefined) this.add(this.shadowMap);
         this.contributions =
             this.shadowMap === undefined
-                ? []
-                : shadowCasterContributions(() => this.data.castShadow === 1);
+                ? [anyLightContribution]
+                : [
+                      anyLightContribution,
+                      ...shadowCasterContributions(() => this.data.castShadow === 1),
+                  ];
     }
 
     private readonly contributions: readonly SceneContribution[];
 
-    /** Com o mapa de sombra: a direção e a sombra desta luz nos pontos de cena do sombreamento (spec 031). */
+    /**
+     * A primeira luz viva da cena (sprites) e, com o mapa de sombra, a direção e a sombra desta luz nos pontos de cena do
+     * sombreamento (spec 031).
+     */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;
     }

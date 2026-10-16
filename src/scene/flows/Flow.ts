@@ -40,8 +40,8 @@ interface FlowAccess {
 let access: FlowAccess | undefined;
 
 /**
- * Unidade de trabalho do quadro (um estágio): declara o que consome (`slots`, `pipelines` com `consumes`, bindings
- * privados por nome) e grava comandos em `dispatch`. A Camada 2 resolve os slots, infere layouts do WGSL, cria
+ * Unidade de trabalho do quadro (um estágio): declara o que consome (`slots`, `pipelines` cujos shaders requerem
+ * recursos declarados, fontes privadas por recurso) e grava comandos em `dispatch`. A Camada 2 resolve os slots, infere layouts do WGSL, cria
  * pipelines e bind groups, mantém tudo atualizado e entrega o resultado (`BoundFlow`) a cada quadro. O Flow nunca
  * cria layout nem bind group de dado consumido.
  *

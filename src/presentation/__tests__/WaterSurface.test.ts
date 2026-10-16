@@ -53,9 +53,9 @@ describe('WaterSurface (spec 017)', () => {
         expect(c!.point).toBe(lightTransmissionPoint);
         expect(c!.pools).toEqual([]);
         expect(c!.build(() => undefined)).toBeUndefined();
-        s.water.markProduced('light', true);
+        s.water.setCaustics(true);
         expect(c!.build(() => undefined)).toBe(waterTransmission);
-        s.water.markProduced('light', false);
+        s.water.setCaustics(false);
         expect(c!.build(() => undefined)).toBeUndefined();
         for (const id of ['caustics', 'lightDepth', 'lightMatrix'])
             s.rs.ensureAllocated(s.water, id);
@@ -133,17 +133,36 @@ describe('WaterSurface (spec 017)', () => {
         expect(s.rs.textureOf(s.water, 'lightDepth')).toBe(light);
     });
 
-    it('lightSize validado; sinal de produção por vista', () => {
+    it('lightSize validado; produção por vista é estado da C2 (um produtor por descritor)', () => {
         expect(() => new WaterSurface({ lightSize: 8 })).toThrow(/lightSize/);
         expect(() => new WaterSurface({ lightSize: 100.5 })).toThrow(/lightSize/);
-        const w = new WaterSurface();
-        expect(w.lightSize).toBe(512);
-        expect([w.isProduced('camera'), w.isProduced('light')]).toEqual([false, false]);
-        w.markProduced('light', true);
-        expect([w.isProduced('camera'), w.isProduced('light')]).toEqual([false, true]);
+        expect(new WaterSurface().lightSize).toBe(512);
+        const s = setup();
+        const { camera, light } = WaterSurface.producedDescriptor;
+        const producer = {};
+        expect([s.rs.isProduced(s.water, camera), s.rs.isProduced(s.water, light)]).toEqual([
+            false,
+            false,
+        ]);
+        s.rs.markProduced(producer, s.water, light, true);
+        expect([s.rs.isProduced(s.water, camera), s.rs.isProduced(s.water, light)]).toEqual([
+            false,
+            true,
+        ]);
+        // Outro produtor do mesmo descritor no mesmo quadro: erro; "não produzi" de quem não é produtor é ignorado.
+        expect(() => {
+            s.rs.markProduced({}, s.water, light, true);
+        }).toThrow(/outro produtor/);
+        s.rs.markProduced({}, s.water, light, false);
+        expect(s.rs.isProduced(s.water, light)).toBe(true);
+        s.rs.markProduced(producer, s.water, light, false);
+        expect(s.rs.isProduced(s.water, light)).toBe(false);
+        expect(() => {
+            s.rs.markProduced(producer, s.water, 'nope', true);
+        }).toThrow(/não é descritor/);
     });
 
-    it('a vista da luz liga as cáusticas no estado, enviado só quando muda', () => {
+    it('as cáusticas ligadas no estado, enviado só quando muda', () => {
         const s = setup();
         const state = s.rs.bufferOf(s.water, 'state')!;
         const writes = () =>
@@ -154,16 +173,15 @@ describe('WaterSurface (spec 017)', () => {
         expect(s.water.data.caustics).toBe(0);
         flush();
         const before = writes();
-        s.water.markProduced('camera', true);
         flush();
         expect([s.water.data.caustics, writes()]).toEqual([0, before]);
-        s.water.markProduced('light', true);
+        s.water.setCaustics(true);
         flush();
         expect([s.water.data.caustics, writes()]).toEqual([1, before + 1]);
-        s.water.markProduced('light', true);
+        s.water.setCaustics(true);
         flush();
         expect(writes()).toBe(before + 1);
-        s.water.markProduced('light', false);
+        s.water.setCaustics(false);
         flush();
         expect([s.water.data.caustics, writes()]).toEqual([0, before + 2]);
     });

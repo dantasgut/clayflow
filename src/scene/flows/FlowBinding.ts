@@ -10,19 +10,20 @@ import type {
 import type { BindableBufferSpec, ResolvedSource } from '../consumers/ResolvedSource';
 import type { PipelineDescriptor } from '../descriptors/PipelineDescriptor';
 import type { BindingFrequency, WgslResource } from '../shaders/WgslResource';
+import type { Resource } from '../contracts/Resource';
 import type { InferredLayout } from '../systems/LayoutInferencer';
 import type { BoundSlots, SlotMap } from './slots';
 
 /**
- * Fonte de um binding **privado** do Flow, pelo nome da variável no WGSL: uma fonte completa (`ResolvedSource`, ex.:
- * uniform com offset dinâmico) ou, abreviado, o buffer, a view ou o sampler.
+ * Fonte de um recurso **privado** do Flow (`provider: 'private'`): uma fonte completa (`ResolvedSource`, ex.: uniform
+ * com offset dinâmico) ou, abreviado, o buffer, a view ou o sampler.
  */
 export type BindingSource = ResolvedSource | BindableBufferSpec | TextureViewSpec | SamplerSpec;
 
 /**
- * Bindings privados por nome de variável WGSL. A chave `variável` vale para todos os pipelines do Flow; a chave
- * `pipeline:variável` vale só para o pipeline de id `pipeline` e vence a anterior (ex.: a mesma variável `np_params`
- * com um buffer por variante de narrowphase).
+ * Fontes privadas pela identidade do recurso declarado (spec 031). A chave recurso vale para todos os pipelines do
+ * Flow; a chave `{ pipeline, resource }` vale só para o pipeline de id `pipeline` e vence a anterior (ex.: o mesmo
+ * recurso `np_params` com um buffer por variante de narrowphase).
  */
 export type BindingSources = ReadonlyMap<BindingKey, BindingSource>;
 
@@ -174,7 +175,7 @@ export interface TransitionContext<TSlots extends SlotMap = SlotMap> {
     /** Slots e pipelines atuais. */
     readonly bound: BoundFlow<TSlots>;
     /**
-     * Liga (ou troca) bindings privados por nome de variável. A C2 recria os bind groups que os usam antes da próxima
+     * Liga (ou troca) fontes privadas por recurso declarado. A C2 recria os bind groups que os usam antes da próxima
      * gravação; use ao recriar um recurso privado (ex.: contatos após o crescimento do pool de corpos).
      */
     bind(sources: BindingSources): void;
@@ -185,4 +186,9 @@ export interface TransitionContext<TSlots extends SlotMap = SlotMap> {
     prepare(descriptor: PipelineDescriptor): PreparedPipeline;
     /** Libera um pipeline preparado em transição (e os seus bind groups). */
     release(id: string): void;
+    /**
+     * Declara se este Flow produziu o descritor `descId` de `resource` neste quadro (spec 031, R5; em `framePrepare`,
+     * antes da gravação). Quem lê consulta `ResourceDirectory.isProduced`. Um descritor tem um produtor só.
+     */
+    produced(resource: Resource, descId: string, produced: boolean): void;
 }

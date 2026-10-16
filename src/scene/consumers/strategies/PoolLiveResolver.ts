@@ -7,7 +7,7 @@ import type { ResolvedSource } from '../ResolvedSource';
  * primeiro uso.
  */
 export class PoolLiveResolver implements ConsumerResolver {
-    /** Nome em `consumes`: `<chave do pool>.live`. */
+    /** Nome do fornecedor: `<chave do pool>.live`. */
     readonly name: string;
     /** Elemento do `array<u32>`. */
     readonly typeName = 'u32';

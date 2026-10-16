@@ -96,19 +96,30 @@ Para forçar limpeza imediata sem reload, você pode chamar
 
 Um Flow é uma unidade de execução por frame, normalmente uma compute pass
 ou render pass. Ele declara slots, pipelines, recursos privados e uma tabela
-de transições; a C2 infere os layouts do WGSL, liga os bind groups e decide
-quando o Flow entra no quadro. Guia completo: [Flows](./flows.md). Esqueleto:
+de transições; a C2 atribui as ligações dos recursos declarados pelos módulos,
+liga os bind groups e decide quando o Flow entra no quadro. Guia completo: [Flows](./flows.md). Esqueleto:
 
 ```ts
-import { Flow, wgslModule, wgslLib } from 'webgpu-engine';
+import { Flow, wgslModule, wgslResource, wgslLib, WORKGROUP_SIZE } from 'webgpu-engine';
 import type {
     BindingSources, BoundFlow, FlowTransitions, Frame, PipelineDescriptor, StorageBufferSpec, TransitionContext,
 } from 'webgpu-engine';
 import mySource from './my_flow.wgsl?raw';
 
-// Módulo de entrada: dependências por `requires`, structs gerados dos schemas em `structs`.
-// O WGSL declara `@group(0) @binding(0) var<storage, read_write> data: array<f32>;`.
-const myShader = wgslModule({ name: 'my_flow', source: mySource, requires: [wgslLib.quat] });
+// O recurso é declarado (spec 031): o fonte usa `data` sem escrever `@group/@binding` — a montagem emite a linha.
+const dataResource = wgslResource({
+    name: 'data',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'f32', array: true },
+    frequency: 'stage',
+    provider: 'private', // o Flow liga pelo objeto do recurso
+});
+// Módulo de entrada: dependências (inclusive recursos e constantes) por `requires`, structs gerados em `structs`.
+const myShader = wgslModule({
+    name: 'my_flow',
+    source: mySource, // @compute @workgroup_size(WORKGROUP_SIZE) fn my_main(…) { data[i] = … }
+    requires: [wgslLib.quat, WORKGROUP_SIZE.module, dataResource],
+});
 
 const slots = {};
 type Ctx = TransitionContext<typeof slots>;
@@ -116,9 +127,9 @@ type Ctx = TransitionContext<typeof slots>;
 export class MyFlow extends Flow<typeof slots, 'idle'> {
     readonly type = 'MyFlow';
     readonly slots = slots;
-    // Compilado antes de o Flow ficar pronto; layout inferido do WGSL.
+    // Compilado antes de o Flow ficar pronto; layout lido das declarações do shader montado.
     override readonly pipelines: readonly PipelineDescriptor[] = [
-        { id: 'my', role: 'compute', shader: myShader, entryPoints: ['my_main'], consumes: [] },
+        { id: 'my', role: 'compute', shader: myShader, entryPoints: ['my_main'] },
     ];
     override readonly bindings: BindingSources;
     protected readonly initialState = 'idle' as const;
@@ -128,14 +139,15 @@ export class MyFlow extends Flow<typeof slots, 'idle'> {
 
     constructor(data: StorageBufferSpec, private readonly count: number) {
         super();
-        this.bindings = { data }; // privado, pelo nome da variável no WGSL
+        this.bindings = new Map([[dataResource, data]]); // privado, pela identidade do recurso
     }
 
     dispatch(frame: Frame, bound: BoundFlow<typeof slots>) {
         const p = bound.compute('my'); // bind groups da C2 — leia a cada quadro, não guarde
         frame.compute('MyFlow', (pass) => {
-            pass.bind.setPipeline(p.spec).setBindGroup(0, p.groups[0]!);
-            pass.dispatch.invocations(this.count, 64); // o shader indexa por num_workgroups
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind); // todos os grupos, sem índices escritos aqui
+            pass.dispatch.invocations(this.count, WORKGROUP_SIZE.value); // o shader indexa por num_workgroups
         });
     }
 }
@@ -152,7 +164,8 @@ app.use({
 ```
 
 Para um kernel avulso fora de um Flow, `createComputeKernel(core, { discriminator, shader, entryPoint, bindings })`
-recebe as fontes **pelo nome da variável** (`bindings: { data: dataBuffer }`) e infere o layout do mesmo jeito.
+recebe as fontes **pela identidade do recurso** (`bindings: new Map([[dataResource, dataBuffer]])`) e lê o layout do
+mesmo jeito; `kernel.bindTo(pass.bind)` grava os grupos.
 
 ## Adicionando um Resource novo
 

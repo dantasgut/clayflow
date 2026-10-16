@@ -13,6 +13,16 @@ export const sceneLightDirectionReady = wgslModule({
     source: 'fn scene_light_direction() -> vec3f {\n    return DEFAULT_LIGHT_DIRECTION;\n}',
 });
 
+/**
+ * `fn scene_any_light_direction() -> vec3f` — direção da primeira luz viva da cena, com ou sem sombra (a luz dos sprites
+ * de partículas); pronto, sem luz: a direção padrão.
+ */
+export const sceneAnyLightDirectionReady = wgslModule({
+    name: 'scene_any_light_direction_ready',
+    requires: [DEFAULT_LIGHT_DIRECTION.module],
+    source: 'fn scene_any_light_direction() -> vec3f {\n    return DEFAULT_LIGHT_DIRECTION;\n}',
+});
+
 /** `fn light_visibility(p: vec3f, n_dot_l: f32) -> f32` — visibilidade da luz no ponto; pronto: 1 (sem sombra). */
 export const lightVisibilityReady = wgslModule({
     name: 'light_visibility_ready',
@@ -86,6 +96,21 @@ export const lightTransmissionPoint: ContributionPoint = {
                             : `light_transmission_${k}(p, 0.0, 1.0)`,
                     )
                     .join(' * ')};\n}`,
+            }),
+        ),
+};
+
+/** Direção da primeira luz viva: todo contribuinte entrega o mesmo módulo (vale o primeiro). */
+export const sceneAnyLightDirectionPoint: ContributionPoint = {
+    name: 'scene_any_light_direction',
+    ready: sceneAnyLightDirectionReady,
+    functionName: 'scene_any_light_direction',
+    combine: (modules) =>
+        memo(`any:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_any_light_direction:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: 'fn scene_any_light_direction() -> vec3f {\n    return scene_any_light_direction_0();\n}',
             }),
         ),
 };

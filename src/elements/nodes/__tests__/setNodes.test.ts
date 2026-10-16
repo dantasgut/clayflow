@@ -392,12 +392,12 @@ describe('nós de conjunto — grafo', () => {
         });
         const d = plan.nodes.find((n) => n.id === 'd')!;
         const fused = d.points.get('height')!;
-        expect(fused.params).toEqual(['h_scale', 'h_offset']);
+        expect(fused.params).toEqual(['h_scale', 'h_offset', 'h_seed']);
         expect(fused.module.source).toContain(
             'fn displace_height(position: vec3f, normal: vec3f, uv: vec2f) -> f32',
         );
         expect(fused.module.source).toContain(
-            'node_noise_gradient3(position, data.h_scale, data.h_offset)',
+            'node_noise_gradient3(position, data.h_scale, data.h_offset, data.h_seed)',
         );
         expect(plan.nodes.find((n) => n.id === 's')!.points.get('density')).toBeDefined();
     });

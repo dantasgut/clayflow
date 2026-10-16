@@ -36,18 +36,15 @@ import { Geometry } from '../../elements/geometry/Geometry';
 import {
     particleDrawResource,
     particleFrameResource,
-    particleLightsResource,
     particlePoolResource,
 } from '../../elements/material/renderResources';
 import {
     ParticleFrameParamsSchema,
-    NO_LIGHT_SLOT,
     ParticleDrawParamsSchema,
 } from '../../elements/material/forwardSchemas';
 import { particleSprite } from '../../elements/material/shaders';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
 import { Camera } from '../../elements/scene/Camera';
-import { Light } from '../../elements/scene/Light';
 import { FrameTargets } from '../app/FrameTargets';
 
 /** Slots do desenho de corpos de partículas. */
@@ -56,8 +53,6 @@ export interface ParticleSlots extends SlotMap {
     readonly camera: SingletonSlot<false>;
     /** Pool `CameraMatrices` (produzido na GPU pelo estágio de câmera). */
     readonly cameras: PoolSlot<false>;
-    /** Pool `Light` (direção da luz que ilumina; opcional). */
-    readonly lights: PoolSlot<true>;
     /** Corpos de partículas com material (só `PointSpriteMaterial` é desenhado). */
     readonly bodies: EntitiesSlot;
     /** Cor e profundidade da cena (`FrameTargets`), carregadas: o desenho vem depois do forward. */
@@ -67,7 +62,6 @@ export interface ParticleSlots extends SlotMap {
 const slots: ParticleSlots = {
     camera: slot.singleton(Camera.schema),
     cameras: slot.pool(Camera.matricesSchema.name),
-    lights: slot.pool(Light.schema.name, { optional: true }),
     bodies: slot.entities({ all: [ParticleBody, Material] }),
     target: slot.target({
         color: { schema: FrameTargets.schema, descId: 'color' },
@@ -90,7 +84,8 @@ interface DrawnBody {
  * 008, research R4): **um desenho por corpo** (`draw.vertices(6, N)`), com o vertex shader lendo a posição de cada
  * partícula direto do pool do corpo pelo índice da instância — sem cópia para vertex buffer nem leitura de volta.
  *
- *   - grupo 0: o pool `CameraMatrices`, os parâmetros do quadro (slots da câmera e da luz) e o pool `Light`;
+ *   - grupo 0: o pool `CameraMatrices` e os parâmetros do quadro (slot da câmera); a luz vem do ponto de cena
+ *     `scene_any_light_direction` (spec 031);
  *   - grupo 1: o pool do corpo (`array<vec4f>`, ligado por pipeline — um pipeline por pool de partícula) e o pool
  *     `PointSpriteMaterial`;
  *   - grupo 2: a região `ParticleDrawParams` do corpo (início da faixa, stride e deslocamento do campo `pos` em
@@ -112,7 +107,6 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
     private readonly world: World;
     private readonly resources: ResourceDirectory;
     private readonly frameParams: UniformBufferSpec;
-    private readonly dummyLights: StorageBufferSpec;
     private readonly draws: PerStepUniforms;
     private readonly bodies = new Map<EntityId, DrawnBody>();
     /** Buffer ligado a cada pool de partícula (religado quando o pool cresce). */
@@ -134,12 +128,6 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             discriminator: 'particle_frame_params',
             byteSize: ParticleFrameParamsSchema.stride,
         });
-        this.dummyLights = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'particle_lights_dummy',
-            byteSize: Light.schema.stride,
-        });
         this.draws = new PerStepUniforms(ctx.core, {
             discriminator: 'particle_draw_params',
             schema: ParticleDrawParamsSchema,
@@ -147,32 +135,13 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         this.draws.reserve(1);
         this.bindings = new Map<BindingKey, BindingSource>([
             [particleFrameResource, this.frameParams],
-            [particleLightsResource, this.dummyLights],
             [particleDrawResource, this.draws.source()],
         ]);
-        const lights = {
-            to: 'idle' as const,
-            run: (_e: unknown, c: Ctx) => {
-                c.bind(
-                    new Map([
-                        [particleLightsResource, c.bound.slots.lights?.buffer ?? this.dummyLights],
-                    ]),
-                );
-            },
-        };
         this.transitions = {
             '*': {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
-                        c.bind(
-                            new Map([
-                                [
-                                    particleLightsResource,
-                                    c.bound.slots.lights?.buffer ?? this.dummyLights,
-                                ],
-                            ]),
-                        );
                         this.track(
                             c,
                             c.bound.slots.bodies.entries.map((e) => e.entityId),
@@ -180,8 +149,8 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
                         );
                     },
                 },
-                slotChanged: lights,
-                poolReallocated: lights,
+                slotChanged: 'ignore',
+                poolReallocated: 'ignore',
                 entitiesChanged: {
                     to: 'idle',
                     run: (e, c) => {
@@ -252,7 +221,6 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
     override dispose(): void {
         this.draws.dispose();
         this.core.destroy(this.frameParams);
-        this.core.destroy(this.dummyLights);
     }
 
     /** Corpos que entraram (pipeline do pool preparado) e saíram do conjunto. */
@@ -355,24 +323,14 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         this.draws.flush(this.order.length);
     }
 
-    /** Slots da câmera ativa e da luz que ilumina (a primeira luz viva do pool), escritos quando mudam. */
+    /** Slot da câmera ativa, escrito quando muda (a luz dos sprites vem do ponto `scene_any_light_direction`). */
     private writeFrameParams(ctx: Ctx): void {
         const slots = ctx.bound.slots;
         const cameraId = this.world.entityIdOfResource(slots.camera.resource);
         const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
-        const lights = slots.lights;
-        let lightSlot = NO_LIGHT_SLOT;
-        for (let s = 0; lights !== undefined && s < lights.count; s++) {
-            if (lights.entityAt(s) === undefined) continue;
-            lightSlot = s;
-            break;
-        }
-        const key = `${cameraSlot}:${lightSlot}`;
+        const key = `${cameraSlot}`;
         if (key === this.writtenFrame) return;
-        this.core.write(
-            this.frameParams,
-            ParticleFrameParamsSchema.pack({ cameraSlot, lightSlot }),
-        );
+        this.core.write(this.frameParams, ParticleFrameParamsSchema.pack({ cameraSlot }));
         this.writtenFrame = key;
     }
 }

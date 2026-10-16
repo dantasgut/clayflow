@@ -26,7 +26,7 @@ import type { BindingFrequency, WgslResource } from '../shaders/WgslResource';
 
 /**
  * Kernel de compute criado pela C2: pipeline do módulo de entrada, layouts inferidos do WGSL e bind groups ligados
- * às fontes por nome de variável. Use durante a gravação:
+ * às fontes de cada recurso declarado. Use durante a gravação:
  * ```ts
  * pass.bind.setPipeline(kernel.pipeline);
  * kernel.bindGroups.forEach((bg, i) => pass.bind.setBindGroup(i, bg, kernel.dynamic[i] ? [offset] : undefined));
@@ -53,7 +53,7 @@ export interface ComputeKernel {
 
 /**
  * Opções de `createComputeKernel`: módulo WGSL de entrada (montado por `composeWgsl`), entry point e as fontes de cada
- * binding **pelo nome da variável no WGSL** — buffer de qualquer papel (uniform, storage, vértice, índice, indireto),
+ * recurso declarado **pela identidade** (spec 031) — buffer de qualquer papel (uniform, storage, vértice, índice, indireto),
  * view de textura, sampler, ou fonte completa (com `dynamic`, `offset`, `size`). Grupos, índices, tipo e visibilidade
  * vêm do shader (`LayoutInferencer.infer`).
  */
@@ -68,8 +68,8 @@ export interface ComputeKernelOptions {
     /** Nome da função `@compute @workgroup_size(...)`, definida no módulo de entrada. */
     readonly entryPoint: string;
     /**
-     * Fontes por nome de variável WGSL. Cada binding usado pela entrada precisa de uma fonte; nome que não é binding
-     * usado pela entrada é erro.
+     * Fontes por recurso declarado. Cada recurso usado pela entrada precisa de uma fonte; recurso que a entrada não usa é
+     * erro.
      */
     readonly bindings: BindingSources;
     /** Constantes `override` do shader. */

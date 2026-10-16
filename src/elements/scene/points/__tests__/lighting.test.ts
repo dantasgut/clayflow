@@ -4,11 +4,13 @@ import { instantiateModule } from '../../../../scene/shaders/instantiate';
 import { wgslModule } from '../../../../scene/shaders/WgslModule';
 import { DirectionalLight } from '../../DirectionalLight';
 import { Light } from '../../Light';
+import { PointLight } from '../../PointLight';
 import { ShadowMap } from '../../ShadowMap';
 import {
     lightTransmissionPoint,
     lightTransmissionReady,
     lightVisibilityPoint,
+    sceneAnyLightDirectionPoint,
     lightVisibilityReady,
     sceneLightDirectionPoint,
     sceneLightDirectionReady,
@@ -64,9 +66,10 @@ describe('pontos de cena do sombreamento (spec 031, T041)', () => {
         );
     });
 
-    it('a direcional que projeta sombra contribui com a direção e a sombra pelos slots dela; sem projetar, não', () => {
+    it('toda luz contribui com a primeira luz viva; a que projeta sombra, também com a direção e a sombra pelos slots dela', () => {
         const casting = new DirectionalLight({ castShadow: true });
-        const [direction, visibility] = casting.getSceneContributions();
+        const [any, direction, visibility] = casting.getSceneContributions();
+        expect(any!.point).toBe(sceneAnyLightDirectionPoint);
         expect(direction!.point).toBe(sceneLightDirectionPoint);
         expect(visibility!.point).toBe(lightVisibilityPoint);
         expect(direction!.pools).toEqual([Light.schema, ShadowMap.schema]);
@@ -80,6 +83,11 @@ describe('pontos de cena do sombreamento (spec 031, T041)', () => {
         // Deixou de projetar: não contribui.
         casting.data.castShadow = 0;
         expect(visibility!.build(slots(3, 1))).toBeUndefined();
-        expect(new DirectionalLight({ castShadow: false }).getSceneContributions()).toEqual([]);
+        // Sem projetar: só a primeira luz viva (a luz dos sprites), com ou sem sombra, também na pontual.
+        expect(new DirectionalLight({ castShadow: false }).getSceneContributions()).toEqual([any]);
+        expect(new PointLight().getSceneContributions()).toEqual([any]);
+        const pool = any!.build(() => undefined)!;
+        expect(pool.source).toContain('if (pool_live(light_live[i >> 5u], i))');
+        expect(() => composeWgsl(pool)).not.toThrow();
     });
 });

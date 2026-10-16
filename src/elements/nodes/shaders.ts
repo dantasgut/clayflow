@@ -1,23 +1,74 @@
 import { wgslModule } from '../../scene/shaders/WgslModule';
-import { noise } from '../gpu/shaders/math';
+import {
+    NODE_COMPARE_EQUAL,
+    NODE_COMPARE_GREATER,
+    NODE_COMPARE_GREATER_EQUAL,
+    NODE_COMPARE_LESS,
+    NODE_COMPARE_LESS_EQUAL,
+    NODE_COMPARE_NOT_EQUAL,
+} from '../gpu/shaders/constants';
+import { linalg, noise } from '../gpu/shaders/math';
 import { materialPointTypes } from '../material/point/shaders';
+import { fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import mathSource from '../gpu/wgsl/nodes/math.wgsl?raw';
+import mapSource from '../gpu/wgsl/nodes/map.wgsl?raw';
 import noiseSource from '../gpu/wgsl/nodes/noise.wgsl?raw';
 import colorSource from '../gpu/wgsl/nodes/color.wgsl?raw';
+import conditionSource from '../gpu/wgsl/nodes/condition.wgsl?raw';
+import spaceSource from '../gpu/wgsl/nodes/space.wgsl?raw';
+import fieldSource from '../gpu/wgsl/nodes/field.wgsl?raw';
 import surfaceSource from '../gpu/wgsl/nodes/surface.wgsl?raw';
+import outputSource from '../gpu/wgsl/nodes/output.wgsl?raw';
 
-/** Nós de matemática (spec 031). */
+/** Nós de matemática (spec 031): aritmética, interpolação, potência, trigonometria, vetores, separar/combinar. */
 export const nodeMath = wgslModule({ name: 'node_math', source: mathSource });
 
-/** Nó de ruído de gradiente 3D (spec 031). */
+/** Nós de mapeamento (spec 031): faixa e curva por pontos. */
+export const nodeMap = wgslModule({ name: 'node_map', source: mapSource });
+
+/** Nós de ruído (spec 031): valor, gradiente, celular e fBm com semente, sobre a `wgslLib.noise`. */
 export const nodeNoise = wgslModule({ name: 'node_noise', source: noiseSource, requires: [noise] });
 
-/** Nó de rampa de cor (spec 031). */
+/** Nós de rampa de cor (spec 031). */
 export const nodeColor = wgslModule({ name: 'node_color', source: colorSource });
 
+/** Nós de condição (spec 031): comparação (operações das constantes `NODE_COMPARE_*`) e escolha. */
+export const nodeCondition = wgslModule({
+    name: 'node_condition',
+    source: conditionSource,
+    requires: [
+        NODE_COMPARE_LESS.module,
+        NODE_COMPARE_LESS_EQUAL.module,
+        NODE_COMPARE_GREATER.module,
+        NODE_COMPARE_GREATER_EQUAL.module,
+        NODE_COMPARE_EQUAL.module,
+        NODE_COMPARE_NOT_EQUAL.module,
+    ],
+});
+
+/** Nós de conversão de espaço (spec 031): ponto, direção, normal, inversa afim, projeção. */
+export const nodeSpace = wgslModule({
+    name: 'node_space',
+    source: spaceSource,
+    requires: [linalg],
+});
+
+/**
+ * Nó de amostragem do campo da cena (spec 031): chama o `field_accel` pronto, que a C2 troca pela composição da cena
+ * (ponto de cena `field`) em todo shader que o contém.
+ */
+export const nodeField = wgslModule({
+    name: 'node_field',
+    source: fieldSource,
+    requires: [fieldPointTypes, fieldAccelReady],
+});
+
+/** Nós de geometria diferencial (spec 031): métrica, curvaturas, direções principais da amostra de superfície. */
+export const nodeSurface = wgslModule({ name: 'node_surface', source: surfaceSource });
+
 /** Nó de saída do ponto `material` (spec 031). */
-export const nodeSurface = wgslModule({
-    name: 'node_surface',
-    source: surfaceSource,
+export const nodeOutput = wgslModule({
+    name: 'node_output',
+    source: outputSource,
     requires: [materialPointTypes],
 });

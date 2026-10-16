@@ -1,7 +1,7 @@
 // Sprites de partículas (spec 008): um quad virado para a câmera por partícula, com a posição lida direto do pool do
 // corpo (`array<vec4f>`, stride e deslocamento do campo `pos` em `ParticleDrawParams`) pelo índice da instância — sem
-// cópia para vertex buffer. Desenhado como esfera impostora (normal reconstruída no fragmento) iluminada pela luz do
-// pool `Light` (a primeira luz viva). Structs `CameraMatrices`, `Light`, `PointSpriteMaterial`, `ParticleFrameParams`
+// cópia para vertex buffer. Desenhado como esfera impostora (normal reconstruída no fragmento) iluminada pela primeira
+// luz viva da cena (ponto `scene_any_light_direction`, spec 031). Structs `CameraMatrices`, `PointSpriteMaterial`, `ParticleFrameParams`
 // e `ParticleDrawParams` gerados dos schemas; recursos declarados pelo módulo (spec 031): o pool do corpo (o do
 // pipeline), o dos materiais de sprite e a região do corpo desenhado (offset dinâmico).
 
@@ -48,10 +48,7 @@ fn fs_main(in: SpriteOut) -> @location(0) vec4f {
     let camera = cameras[particle_frame.cameraSlot];
     // Normal da esfera impostora, no espaço da câmera.
     let n = vec3f(in.corner, sqrt(1.0 - r2));
-    var light_dir = DEFAULT_LIGHT_DIRECTION;
-    if (particle_frame.lightSlot != NONE) {
-        light_dir = lights[particle_frame.lightSlot].direction.xyz;
-    }
+    let light_dir = scene_any_light_direction();
     let l = normalize((camera.view * vec4f(-light_dir, 0.0)).xyz);
     return vec4f(lambert_lit(material.color.rgb, lambert_diffuse(n, l), 1.0), material.color.a);
 }

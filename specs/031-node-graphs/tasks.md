@@ -185,7 +185,7 @@ importações cruzadas (FR-001–FR-012).
 - [x] T081 [P] [US4] Testes de `src/scene/__tests__/typedRecords.test.ts`: registro gerado dos `params` de cada função da 009 (tipos, sem `bitcast`, acima de 32 escalares), pool por forma `<ponto>:<hash>`; `FieldBuiltinRecord`; `CameraFnEntry` e `TransformFnPair` no lugar de `vec4u`/`vec2u`
 - [x] T082 [US4] `src/scene/graph/Subgraph.ts` e `src/scene/graph/serialize.ts`
 - [x] T083 [US4] Registros tipados: remover `src/scene/descriptors/ExtensionRecord.ts`; schemas por forma nas funções; `FieldBuiltinRecord` em `src/elements/physics/shaders/fields.ts` e `field_builtin.wgsl`; `combineFields.ts`/`combineSpace.ts` com um pool por função (limites conferidos por T016); `CameraFnEntry` em `CameraFlow.ts`/`camera_compose_fn.wgsl`; `TransformFnPair` em `TransformFlow.ts`/`transform_compose_fn.wgsl`
-- [ ] T084 [US4] Smoke `nodeGraphs` (partes c e e): 1 000 entidades com o mesmo sub-grafo e valores diferentes → 1 compilação, 1 pipeline, valores corretos por entidade; grafo serializado e lido → mesma identidade e imagem bit a bit; `npm run smoke -- extensionPoints,parametricSurfaces,trajectories --headless` sem regravar
+- [x] T084 [US4] Smoke `nodeGraphs` (partes c e e): 1 000 entidades com o mesmo sub-grafo e valores diferentes → 1 compilação, 1 pipeline, valores corretos por entidade; grafo serializado e lido → mesma identidade e imagem bit a bit; `npm run smoke -- extensionPoints,parametricSurfaces,trajectories --headless` sem regravar
 
 **Checkpoint**: US4 completa.
 
@@ -195,13 +195,13 @@ importações cruzadas (FR-001–FR-012).
 
 **Goal**: nós prontos para o uso comum, cada um testado contra referência (FR-028; R12).
 
-- [ ] T085 [P] [US5] Entradas de contexto em `src/elements/nodes/input/`: amostra de superfície, vértice, partícula, célula, tempo, câmera, posição de mundo
-- [ ] T086 [P] [US5] Matemática em `src/elements/nodes/math/`: aritmética, `mix`, `clamp`, `smoothstep`, potência, trigonometria, produto escalar e vetorial, normalizar, comprimento, separar/combinar vetores
-- [ ] T087 [P] [US5] Mapeamentos em `src/elements/nodes/map/`: faixa, curva por pontos, rampa de cor
-- [ ] T088 [P] [US5] Ruídos em `src/elements/nodes/noise/`: valor, gradiente, celular, fBm (sobre `wgslLib.noise`), mesma semente → mesma saída na GPU e na referência
-- [ ] T089 [P] [US5] Condições e conversões em `src/elements/nodes/condition/` e `src/elements/nodes/space/` (comparação, `select`, objeto/mundo/vista)
-- [ ] T090 [P] [US5] Campo e superfície em `src/elements/nodes/field/` e `src/elements/nodes/surface/` (amostrar campo da cena; métrica, curvaturas, direção principal da 010)
-- [ ] T091 [US5] Testes de `src/elements/nodes/__tests__/library.test.ts`: cada nó contra a referência de CPU em amostras fixas, com tolerância documentada por nó; smoke `nodeGraphs` (parte f) avaliando todos os nós na GPU contra a referência
+- [x] T085 [P] [US5] Entradas de contexto em `src/elements/nodes/input/`: amostra de superfície, vértice, partícula, célula, tempo, câmera, posição de mundo
+- [x] T086 [P] [US5] Matemática em `src/elements/nodes/math/`: aritmética, `mix`, `clamp`, `smoothstep`, potência, trigonometria, produto escalar e vetorial, normalizar, comprimento, separar/combinar vetores
+- [x] T087 [P] [US5] Mapeamentos em `src/elements/nodes/map/`: faixa, curva por pontos, rampa de cor
+- [x] T088 [P] [US5] Ruídos em `src/elements/nodes/noise/`: valor, gradiente, celular, fBm (sobre `wgslLib.noise`), mesma semente → mesma saída na GPU e na referência
+- [x] T089 [P] [US5] Condições e conversões em `src/elements/nodes/condition/` e `src/elements/nodes/space/` (comparação, `select`, objeto/mundo/vista)
+- [x] T090 [P] [US5] Campo e superfície em `src/elements/nodes/field/` e `src/elements/nodes/surface/` (amostrar campo da cena; métrica, curvaturas, direção principal da 010)
+- [x] T091 [US5] Testes de `src/elements/nodes/__tests__/library.test.ts`: cada nó contra a referência de CPU em amostras fixas, com tolerância documentada por nó; smoke `nodeGraphs` (parte f) avaliando todos os nós na GPU contra a referência
 
 **Checkpoint**: US5 completa.
 
@@ -209,22 +209,22 @@ importações cruzadas (FR-001–FR-012).
 
 ## Phase 8: User Story 6 — Arquitetura documentada e migração completa (P2)
 
-- [ ] T092 [US6] Reescrever a seção de shaders de `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: recursos declarados, frequências, providers, constantes, instanciação, pontos de cena com contribuições; remover `consumes` e o `LayoutInferencer` por regex
-- [ ] T093 [US6] Seção nova de grafos no documento de arquitetura: nós de ponto e de conjunto, compilação, `GraphFlow`, relação com Flows, slots e pontos da 009, sub-grafos, serialização
-- [ ] T094 [P] [US6] Guia `clay-engine-doc/docs/guides/node-graphs.md` (autoria, biblioteca, exemplos do quickstart) e atualização dos guias de extensão da 009
-- [ ] T095 [P] [US6] `specs/ROADMAP.md` (F3b ✅, §4.2 e §4.3 atualizados, N2 com grafos) e `specs/PENDENCIAS.md`
-- [ ] T096 [US6] Revisão do documento contra o código e varreduras finais (T028–T033) verdes
+- [x] T092 [US6] Reescrever a seção de shaders de `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: recursos declarados, frequências, providers, constantes, instanciação, pontos de cena com contribuições; remover `consumes` e o `LayoutInferencer` por regex
+- [x] T093 [US6] Seção nova de grafos no documento de arquitetura: nós de ponto e de conjunto, compilação, `GraphFlow`, relação com Flows, slots e pontos da 009, sub-grafos, serialização
+- [x] T094 [P] [US6] Guia `clay-engine-doc/docs/guides/node-graphs.md` (autoria, biblioteca, exemplos do quickstart) e atualização dos guias de extensão da 009
+- [x] T095 [P] [US6] `specs/ROADMAP.md` (F3b ✅, §4.2 e §4.3 atualizados, N2 com grafos) e `specs/PENDENCIAS.md`
+- [x] T096 [US6] Revisão do documento contra o código e varreduras finais (T028–T033) verdes
 
 ---
 
 ## Phase 9: Polish & Cross-Cutting
 
-- [ ] T097 Cena de bench `bench/scenes/graph-geometry` (clayflow) e registro em `bench/core/catalog.ts`
-- [ ] T098 `npm run ci` verde (lint, format, madge, knip, tsc, testes, doc-coverage, build)
-- [ ] T099 Todos os smokes no fonte e com `--dist` (`npm run smoke -- <todos> --headless` e `--dist`), fixtures existentes **sem regravar**
-- [ ] T100 `npm run bench:check` sem regressão relevante; baseline regravado (`bench/baselines/`) com a cena nova
-- [ ] T101 Vídeos (padrão `zzVideo`, mp4 ≤ 30 MiB, enviados ao usuário ao final da implementação): **regressivos** (as cenas visuais dos smokes existentes depois da migração — pilha de corpos rígidos, fluidos SPH/PBF/MPM com superfície e cáusticas, pano XPBD e FEM, lago paramétrico, forward com materiais, arame e pontos); geometria procedural da US3 animada; grafo de ponto animando cor e deslocamento; parâmetro mudando ao vivo; apagar `zz-vid-*` e `zzVideo.ts`
-- [ ] T102 Conferir que não sobrou Chrome nem crashpad órfão dos smokes e do bench
+- [x] T097 Cena de bench `bench/scenes/graph-geometry` (clayflow) e registro em `bench/core/catalog.ts`
+- [x] T098 `npm run ci` verde (lint, format, madge, knip, tsc, testes, doc-coverage, build)
+- [x] T099 Todos os smokes no fonte e com `--dist` (`npm run smoke -- <todos> --headless` e `--dist`), fixtures existentes **sem regravar**
+- [x] T100 `npm run bench:check` sem regressão relevante; baseline regravado (`bench/baselines/`) com a cena nova — **dispensado pelo usuário em 2026-10-16** (máquina carregada: o gate acusou ruído; repetidas, as variantes de fluido bateram com o baseline — 64k-water 15,51 × 15,63 ms GPU); baseline não regravado nesta spec
+- [x] T101 Vídeos (padrão `zzVideo`, mp4 ≤ 30 MiB, enviados ao usuário ao final da implementação): **regressivos** (as cenas visuais dos smokes existentes depois da migração — pilha de corpos rígidos, fluidos SPH/PBF/MPM com superfície e cáusticas, pano XPBD e FEM, lago paramétrico, forward com materiais, arame e pontos); geometria procedural da US3 animada; grafo de ponto animando cor e deslocamento; parâmetro mudando ao vivo; apagar `zz-vid-*` e `zzVideo.ts`
+- [x] T102 Conferir que não sobrou Chrome nem crashpad órfão dos smokes e do bench
 
 ---
 

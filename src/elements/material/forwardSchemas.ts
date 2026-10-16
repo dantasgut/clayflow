@@ -1,4 +1,3 @@
-import { NONE } from '../../scene/shaders/engineConstants';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
@@ -29,22 +28,19 @@ export const ForwardFrameParamsSchema = new StructSchema(
 );
 
 /**
- * Parâmetros do quadro do desenho de partículas (uniform privado do `ParticleFlow`): o slot da câmera ativa e o da luz
- * que ilumina os sprites (a primeira luz viva do pool `Light`; `NONE` = direção padrão).
+ * Parâmetros do quadro do desenho de partículas (uniform privado do `ParticleFlow`): o slot da câmera ativa. A luz dos
+ * sprites vem do ponto de cena `scene_any_light_direction` (spec 031).
  */
 export const ParticleFrameParamsSchema = new StructSchema(
     'ParticleFrameParams',
     {
         cameraSlot: FieldType.u32,
-        lightSlot: FieldType.u32,
         _pad0: FieldType.u32,
         _pad1: FieldType.u32,
+        _pad2: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
-
-/** `lightSlot` sem luz viva: os sprites usam a direção padrão. */
-export const NO_LIGHT_SLOT = NONE.value;
 
 /**
  * Desenho de um corpo de partículas em sprites (spec 008, uma região por corpo, com offset dinâmico): o primeiro slot da

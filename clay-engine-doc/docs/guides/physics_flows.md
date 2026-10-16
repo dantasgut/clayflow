@@ -284,7 +284,7 @@ taxas de 30/60/144 Hz) sem vetor local por partícula. Com 64 000 partículas SP
 - **Slots, não consultas**: cada solver declara os seus slots (`slot.bodies()`, `slot.singleton(Time.schema)`, pools
   opcionais de restrições e colliders…); a C2 os resolve e entrega ao `dispatch(frame, bound)` — contagem, buffer e
   slot de cada entidade, sempre atuais.
-- **Bind groups da C2**: layouts inferidos do WGSL e bind groups criados pela C2 (privados por nome + `consumes`).
+- **Bind groups da C2**: layouts das declarações de recursos (`wgslResource`, spec 031) e bind groups criados pela C2 (fontes pelo fornecedor de cada recurso: slots, pools, resolvers ou privados pela identidade do recurso).
   Quando um pool dobra de capacidade, a C2 recria os grupos afetados (`bindGroupReplaced`) antes da próxima gravação;
   o solver só religa os seus recursos privados que dependem do tamanho (numa transição, com `ctx.bind`).
 - **Parâmetros fora da gravação**: uniforms por passo são escritos em `framePrepare`; o `dispatch` só grava.

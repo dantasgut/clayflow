@@ -124,7 +124,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<WaterSlots>): void {
         const water = this.water;
         if (!this.active || water === undefined || this.pipeline === undefined) return;
-        if (!water.isProduced('camera')) return;
+        if (!this.resources.isProduced(water, WaterSurface.producedDescriptor.camera)) return;
         const prepared = bound.pipelines.get(this.pipeline);
         if (prepared?.role !== 'render' || !prepared.ready) return;
         const target = bound.slots.target;
@@ -159,7 +159,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         const slots = ctx.bound.slots;
         const water = slots.water.resource as WaterSurface;
         this.water = water;
-        if (!water.isProduced('camera')) {
+        if (!this.resources.isProduced(water, WaterSurface.producedDescriptor.camera)) {
             this.active = false;
             return;
         }

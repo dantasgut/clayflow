@@ -11,11 +11,11 @@ export class PoolResolver implements ConsumerResolver {
     readonly typeName: string;
 
     /**
-     * @param name - Chave do pool (nome em `consumes`).
+     * @param name - Chave do pool (fornecedor `{ pool }`).
      * @param schema - Schema do elemento do pool.
      */
     constructor(
-        /** Chave do pool (nome em `consumes`). */
+        /** Chave do pool (fornecedor `{ pool }`). */
         readonly name: string,
         private readonly schema: Schema,
     ) {

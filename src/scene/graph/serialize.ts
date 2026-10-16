@@ -1,5 +1,5 @@
 import type { ExtensionParamValue } from '../contracts/ExtensionParams';
-import { wgslModule } from '../shaders/WgslModule';
+import { wgslModule, type WgslModule } from '../shaders/WgslModule';
 import {
     defineNode,
     type NodeContext,
@@ -173,6 +173,12 @@ export function toJSON(graph: NodeGraph, registry: NodeRegistry): GraphJSON {
 const inline = new Map<string, NodeDefinition>();
 
 /**
+ * Módulos dos nós WGSL do usuário, por nome e código: nós que vinham do mesmo módulo voltam a compartilhar um módulo
+ * (dois módulos distintos com o mesmo nome não se montam no mesmo shader).
+ */
+const inlineModules = new Map<string, WgslModule>();
+
+/**
  * JSON → grafo (spec 031, R11): resolve os tipos pelo `registry`, reconstrói os nós WGSL do usuário pelo código e os
  * sub-grafos pela estrutura. Validado como qualquer grafo.
  *
@@ -233,6 +239,16 @@ export function fromJSON(json: GraphJSON, registry: NodeRegistry): NodeGraph {
     });
 }
 
+function inlineModule(name: string, source: string): WgslModule {
+    const key = `${name}\u0000${source}`;
+    let module = inlineModules.get(key);
+    if (module === undefined) {
+        module = wgslModule({ name, source });
+        inlineModules.set(key, module);
+    }
+    return module;
+}
+
 function inlineNode(d: InlineNodeJSON): NodeDefinition {
     const key = JSON.stringify(d);
     let def = inline.get(key);
@@ -243,7 +259,7 @@ function inlineNode(d: InlineNodeJSON): NodeDefinition {
             outputs: d.outputs,
             params: d.params,
             defaults: d.defaults,
-            code: wgslModule({ name: d.module, source: d.code }),
+            code: inlineModule(d.module, d.code),
             fn: d.fn,
             contexts: d.contexts,
         });

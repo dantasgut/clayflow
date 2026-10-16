@@ -23,3 +23,16 @@ export const FIELD_VORTEX = sharedConstant('FIELD_VORTEX', 3, 'u32');
 export const FIELD_DRAG = sharedConstant('FIELD_DRAG', 4, 'u32');
 /** Campo de força pronto: empuxo. */
 export const FIELD_BUOYANCY = sharedConstant('FIELD_BUOYANCY', 5, 'u32');
+
+/** Operação do nó `condition.compare` (spec 031): `a < b`. */
+export const NODE_COMPARE_LESS = sharedConstant('NODE_COMPARE_LESS', 0, 'u32');
+/** Operação do nó `condition.compare`: `a ≤ b`. */
+export const NODE_COMPARE_LESS_EQUAL = sharedConstant('NODE_COMPARE_LESS_EQUAL', 1, 'u32');
+/** Operação do nó `condition.compare`: `a > b`. */
+export const NODE_COMPARE_GREATER = sharedConstant('NODE_COMPARE_GREATER', 2, 'u32');
+/** Operação do nó `condition.compare`: `a ≥ b`. */
+export const NODE_COMPARE_GREATER_EQUAL = sharedConstant('NODE_COMPARE_GREATER_EQUAL', 3, 'u32');
+/** Operação do nó `condition.compare`: `|a − b| ≤ epsilon`. */
+export const NODE_COMPARE_EQUAL = sharedConstant('NODE_COMPARE_EQUAL', 4, 'u32');
+/** Operação do nó `condition.compare`: `|a − b| > epsilon`. */
+export const NODE_COMPARE_NOT_EQUAL = sharedConstant('NODE_COMPARE_NOT_EQUAL', 5, 'u32');

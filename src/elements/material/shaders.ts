@@ -1,9 +1,9 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
-import { DEFAULT_LIGHT_DIRECTION } from '../gpu/shaders/constants';
 import {
     lightTransmissionReady,
+    sceneAnyLightDirectionReady,
     lightVisibilityReady,
     sceneLightDirectionReady,
 } from '../scene/points/lighting';
@@ -18,7 +18,6 @@ import {
     forwardFrameResource,
     particleDrawResource,
     particleFrameResource,
-    particleLightsResource,
     particlePoolResource,
     pointSpriteMaterialsResource,
     pointVerticesResource,
@@ -42,7 +41,6 @@ import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
 import { ForwardFrameParamsSchema, ParticleDrawParamsSchema } from './forwardSchemas';
-import { Light } from '../scene/Light';
 import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
@@ -116,28 +114,21 @@ export const forward = wgslModule({
 
 /**
  * Sprites de partículas (spec 008): quad por partícula com a posição lida do pool do corpo pelo índice da instância,
- * esfera impostora iluminada pela luz do pool. Usado pelo estágio de desenho de corpos de partículas.
+ * esfera impostora iluminada pela primeira luz viva (ponto de cena). Usado pelo estágio de desenho de corpos de partículas.
  */
 export const particleSprite = wgslModule({
     name: 'particle_sprite',
     source: particleSpriteSource,
     requires: [
         brdf,
-        NONE.module,
-        DEFAULT_LIGHT_DIRECTION.module,
+        sceneAnyLightDirectionReady,
         camerasResource,
-        particleLightsResource,
         particleFrameResource,
         particlePoolResource,
         pointSpriteMaterialsResource,
         particleDrawResource,
     ],
-    structs: [
-        Camera.matricesSchema,
-        Light.schema,
-        PointSpriteMaterialSchema,
-        ParticleDrawParamsSchema,
-    ],
+    structs: [Camera.matricesSchema, PointSpriteMaterialSchema, ParticleDrawParamsSchema],
 });
 
 /**

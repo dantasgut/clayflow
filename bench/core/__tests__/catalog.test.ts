@@ -16,7 +16,7 @@ const scene = (over: Partial<SceneDefinition> = {}): SceneDefinition => ({
 });
 
 describe('catálogo real', () => {
-    it('as 5 cenas da F0 e a de partículas da F2 (com as variantes de água da 017 e de coesão da 030) a de funções da 009 nas instâncias, o terreno da 010 nas partículas e a de superfícies da 010, 19 variantes', () => {
+    it('as 5 cenas da F0 e a de partículas da F2 (com as variantes de água da 017 e de coesão da 030) a de funções da 009 nas instâncias, o terreno da 010 nas partículas a de superfícies da 010 e a de geometria por grafo da 031, 21 variantes', () => {
         expect(CATALOG.map((s) => s.id)).toEqual([
             'instances',
             'unique-objects',
@@ -25,8 +25,9 @@ describe('catálogo real', () => {
             'rigid-bodies',
             'particles',
             'surfaces',
+            'graph-geometry',
         ]);
-        expect(CATALOG.reduce((n, s) => n + s.variants.length, 0)).toBe(19);
+        expect(CATALOG.reduce((n, s) => n + s.variants.length, 0)).toBe(21);
         expect(findScene('instances')?.variants.map((v) => v.id)).toEqual([
             '10k',
             '100k',
@@ -47,6 +48,7 @@ describe('catálogo real', () => {
             'wave-uniform',
             'wave-adaptive',
         ]);
+        expect(findScene('graph-geometry')?.variants.map((v) => v.id)).toEqual(['static', 'live']);
     });
 
     it('não suportados declarados com motivo e fase', () => {

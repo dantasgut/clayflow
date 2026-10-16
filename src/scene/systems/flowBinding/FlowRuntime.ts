@@ -55,6 +55,7 @@ export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
     releaseEntityRecords(declaration: EntityRecordDeclaration): void;
     acquireOwnership(owner: object, resource: Resource, descId: string): void;
     releaseOwnership(owner: object, resource: Resource, descId: string): void;
+    markProduced(owner: object, resource: Resource, descId: string, produced: boolean): void;
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined;
 }
 
@@ -175,6 +176,9 @@ export class FlowRuntime {
             prepare: (descriptor) => this.prepare(descriptor, false).asPrepared(),
             release: (id) => {
                 this.releasePipeline(id);
+            },
+            produced: (resource, descId, produced) => {
+                this.host.resources.markProduced(this.flow, resource, descId, produced);
             },
         };
     }

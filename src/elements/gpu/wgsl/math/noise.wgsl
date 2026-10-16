@@ -1,6 +1,7 @@
 // Ruído determinístico (spec 005, R7): hash PCG de 32 bits e ruído de valor e de gradiente (Perlin) em 2D e 3D com
 // interpolação quíntica. Saída em [-1, 1]. Gradientes por direções fixas escolhidas pelo hash (sem trigonometria), para
-// que a referência em CPU reproduza os valores da GPU.
+// que a referência em CPU reproduza os valores da GPU. Cada ruído tem a forma por célula (`*_cell(c, f)`: a célula
+// inteira da rede e a posição dentro dela), que os nós de ruído (spec 031) usam com a célula deslocada pela semente.
 
 // PCG (O'Neill), variante RXS-M-XS de 32 bits.
 fn pcg_hash(v: u32) -> u32 {
@@ -36,8 +37,10 @@ fn noise_cell3(p: vec3f) -> vec3u {
 }
 
 fn value_noise2(p: vec2f) -> f32 {
-    let c = noise_cell2(p);
-    let f = fract(p);
+    return value_noise2_cell(noise_cell2(p), fract(p));
+}
+
+fn value_noise2_cell(c: vec2u, f: vec2f) -> f32 {
     let a = hash_signed(hash2(c));
     let b = hash_signed(hash2(c + vec2u(1u, 0u)));
     let d = hash_signed(hash2(c + vec2u(0u, 1u)));
@@ -47,8 +50,10 @@ fn value_noise2(p: vec2f) -> f32 {
 }
 
 fn value_noise3(p: vec3f) -> f32 {
-    let c = noise_cell3(p);
-    let f = fract(p);
+    return value_noise3_cell(noise_cell3(p), fract(p));
+}
+
+fn value_noise3_cell(c: vec3u, f: vec3f) -> f32 {
     let u = vec3f(noise_fade(f.x), noise_fade(f.y), noise_fade(f.z));
     let v000 = hash_signed(hash3(c));
     let v100 = hash_signed(hash3(c + vec3u(1u, 0u, 0u)));
@@ -76,8 +81,10 @@ fn noise_grad2(h: u32, f: vec2f) -> f32 {
 }
 
 fn gradient_noise2(p: vec2f) -> f32 {
-    let c = noise_cell2(p);
-    let f = fract(p);
+    return gradient_noise2_cell(noise_cell2(p), fract(p));
+}
+
+fn gradient_noise2_cell(c: vec2u, f: vec2f) -> f32 {
     let a = noise_grad2(hash2(c), f);
     let b = noise_grad2(hash2(c + vec2u(1u, 0u)), f - vec2f(1.0, 0.0));
     let d = noise_grad2(hash2(c + vec2u(0u, 1u)), f - vec2f(0.0, 1.0));
@@ -95,8 +102,10 @@ fn noise_grad3(h: u32, f: vec3f) -> f32 {
 }
 
 fn gradient_noise3(p: vec3f) -> f32 {
-    let c = noise_cell3(p);
-    let f = fract(p);
+    return gradient_noise3_cell(noise_cell3(p), fract(p));
+}
+
+fn gradient_noise3_cell(c: vec3u, f: vec3f) -> f32 {
     let u = vec3f(noise_fade(f.x), noise_fade(f.y), noise_fade(f.z));
     let g000 = noise_grad3(hash3(c), f);
     let g100 = noise_grad3(hash3(c + vec3u(1u, 0u, 0u)), f - vec3f(1.0, 0.0, 0.0));

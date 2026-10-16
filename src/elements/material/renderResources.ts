@@ -1,6 +1,5 @@
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
-import { Light } from '../scene/Light';
 import { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
 import {
     ForwardFrameParamsSchema,
@@ -98,14 +97,5 @@ export const particleDrawResource = wgslResource({
     binding: { uniform: true },
     type: { schema: ParticleDrawParamsSchema },
     frequency: 'draw',
-    provider: 'private',
-});
-
-/** Pool `Light` dos sprites de partículas (o estágio liga o pool ou um substituto, para desenhar sem luzes na cena). */
-export const particleLightsResource = wgslResource({
-    name: 'lights',
-    binding: { storage: 'read' },
-    type: { schema: Light.schema, array: true },
-    frequency: 'frame',
     provider: 'private',
 });

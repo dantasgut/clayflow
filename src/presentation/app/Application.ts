@@ -86,7 +86,7 @@ export interface ApplicationOptions {
      */
     maxFramesInFlight?: number;
     /**
-     * Registra resolvers de `consumes` próprios da aplicação (ex.: `r.register(new SingletonResolver(Wind.schema,
+     * Registra fornecedores (`{ consumer }`) próprios da aplicação (ex.: `r.register(new SingletonResolver(Wind.schema,
      * 'wind'))`). Roda depois dos padrão do motor; `register` de um nome existente o substitui.
      */
     consumers?: (registry: ConsumerResolverRegistry) => void;

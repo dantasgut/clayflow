@@ -1,5 +1,6 @@
 // Referência em CPU do módulo WGSL `noise` (spec 005, R7): mesma aritmética inteira (u32) e a mesma interpolação, para
-// os smokes `shaderLibrary` e `nodeGraphs` compararem com a GPU (e referência do nó `noise.gradient3`, spec 031).
+// os smokes `shaderLibrary` e `nodeGraphs` compararem com a GPU (e referência dos nós de ruído, spec 031). Cada ruído tem
+// a forma por célula (`*Cell`: a célula inteira u32 e a posição dentro dela), como no WGSL.
 
 export function pcgHash(v: number): number {
     const state = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
@@ -16,17 +17,22 @@ export function hash3(x: number, y: number, z: number): number {
     return pcgHash((x ^ pcgHash((y ^ pcgHash(z)) >>> 0)) >>> 0);
 }
 
-const hashSigned = (h: number): number => (h >>> 8) * (2 / 16777215) - 1;
+/** `hash_signed`: hash → [-1, 1]. */
+export const hashSigned = (h: number): number => (h >>> 8) * (2 / 16777215) - 1;
 const fade = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
 const mix = (a: number, b: number, t: number): number => a * (1 - t) + b * t;
-const cell = (v: number): number => Math.floor(v) >>> 0;
-const fract = (v: number): number => v - Math.floor(v);
+/** `noise_cell*` por componente: a célula inteira como u32 (o bitcast do i32). */
+export const noiseCell = (v: number): number => Math.floor(v) >>> 0;
+/** `fract` do WGSL: `v − floor(v)`. */
+export const noiseFract = (v: number): number => v - Math.floor(v);
+const cell = noiseCell;
+const fract = noiseFract;
 
 export function valueNoise2(x: number, y: number): number {
-    const cx = cell(x);
-    const cy = cell(y);
-    const fx = fract(x);
-    const fy = fract(y);
+    return valueNoise2Cell(cell(x), cell(y), fract(x), fract(y));
+}
+
+export function valueNoise2Cell(cx: number, cy: number, fx: number, fy: number): number {
     const a = hashSigned(hash2(cx, cy));
     const b = hashSigned(hash2((cx + 1) >>> 0, cy));
     const d = hashSigned(hash2(cx, (cy + 1) >>> 0));
@@ -35,8 +41,13 @@ export function valueNoise2(x: number, y: number): number {
 }
 
 export function valueNoise3(x: number, y: number, z: number): number {
-    const c = [cell(x), cell(y), cell(z)] as const;
-    const f = [fract(x), fract(y), fract(z)] as const;
+    return valueNoise3Cell([cell(x), cell(y), cell(z)], [fract(x), fract(y), fract(z)]);
+}
+
+export function valueNoise3Cell(
+    c: readonly [number, number, number],
+    f: readonly [number, number, number],
+): number {
     const u = f.map(fade);
     const v = (dx: number, dy: number, dz: number): number =>
         hashSigned(hash3((c[0] + dx) >>> 0, (c[1] + dy) >>> 0, (c[2] + dz) >>> 0));
@@ -65,10 +76,10 @@ function grad2(h: number, fx: number, fy: number): number {
 }
 
 export function gradientNoise2(x: number, y: number): number {
-    const cx = cell(x);
-    const cy = cell(y);
-    const fx = fract(x);
-    const fy = fract(y);
+    return gradientNoise2Cell(cell(x), cell(y), fract(x), fract(y));
+}
+
+export function gradientNoise2Cell(cx: number, cy: number, fx: number, fy: number): number {
     const a = grad2(hash2(cx, cy), fx, fy);
     const b = grad2(hash2((cx + 1) >>> 0, cy), fx - 1, fy);
     const d = grad2(hash2(cx, (cy + 1) >>> 0), fx, fy - 1);
@@ -85,8 +96,13 @@ function grad3(h: number, fx: number, fy: number, fz: number): number {
 }
 
 export function gradientNoise3(x: number, y: number, z: number): number {
-    const c = [cell(x), cell(y), cell(z)] as const;
-    const f = [fract(x), fract(y), fract(z)] as const;
+    return gradientNoise3Cell([cell(x), cell(y), cell(z)], [fract(x), fract(y), fract(z)]);
+}
+
+export function gradientNoise3Cell(
+    c: readonly [number, number, number],
+    f: readonly [number, number, number],
+): number {
     const u = f.map(fade);
     const g = (dx: number, dy: number, dz: number): number =>
         grad3(

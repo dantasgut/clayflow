@@ -72,24 +72,16 @@ export class WaterSurface extends Entity<WaterSurfaceData> implements Resource {
         this.data = { caustics: 0, _pad0: 0, _pad1: 0, _pad2: 0 };
     }
 
-    /** Vistas com superfície produzida no quadro corrente (marcadas pelos produtores em `framePrepare`). */
-    private readonly produced = { camera: false, light: false };
-
     /**
-     * Um produtor declara se escreveu a superfície da `view` neste quadro (em `framePrepare`, antes da gravação). Os
-     * consumidores (`WaterFlow`, `CausticsFlow`) só gravam com a vista produzida; a vista da luz liga as cáusticas na
-     * transmissão da luz (estado `caustics`, escrito só quando muda).
+     * Descritor que marca a superfície de cada vista como produzida no quadro (spec 031, R5: estado genérico da C2,
+     * `TransitionContext.produced` pelo produtor e `ResourceDirectory.isProduced` pelos consumidores).
      */
-    markProduced(view: 'camera' | 'light', produced: boolean): void {
-        this.produced[view] = produced;
-        if (view !== 'light') return;
-        const caustics = produced ? 1 : 0;
-        if (this.rawData.caustics !== caustics) this.data.caustics = caustics;
-    }
+    static readonly producedDescriptor = { camera: 'depth', light: 'lightDepth' } as const;
 
-    /** A superfície da `view` foi produzida neste quadro? */
-    isProduced(view: 'camera' | 'light'): boolean {
-        return this.produced[view];
+    /** Liga ou desliga as cáusticas na transmissão da luz (estado `caustics`, escrito só quando muda). */
+    setCaustics(on: boolean): void {
+        const caustics = on ? 1 : 0;
+        if (this.rawData.caustics !== caustics) this.data.caustics = caustics;
     }
 
     /** A transmissão da luz pela água (cáusticas) no ponto de cena `light_transmission` — sempre, sem slots. */

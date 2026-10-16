@@ -126,7 +126,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         const kernels = this.kernels;
         if (!this.active || kernels === undefined) return;
         const water = bound.slots.water.resource as WaterSurface;
-        if (!water.isProduced('light')) return;
+        if (!this.resources.isProduced(water, WaterSurface.producedDescriptor.light)) return;
         const n = this.size;
         frame.compute('CausticsFlow', (pass) => {
             const run = (kernel: ComputeKernel, dispatch: () => void): void => {
@@ -153,7 +153,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         const slots = ctx.bound.slots;
         const water = slots.water.resource as WaterSurface;
         // Sem a superfície vista pela luz (sem água ou sem luz com sombra): nada a preparar.
-        if (!water.isProduced('light')) {
+        if (!this.resources.isProduced(water, WaterSurface.producedDescriptor.light)) {
             this.active = false;
             return;
         }
