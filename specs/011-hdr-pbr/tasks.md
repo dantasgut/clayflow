@@ -24,11 +24,11 @@ bit a bit.
 
 ## Phase 1: Setup (Base)
 
-- [ ] T001 Registrar o estado de partida em `specs/011-hdr-pbr/baseline-check.md`: `npm run ci`, todos os smokes `--headless` (fonte e `--dist`) e `npm run bench:check` com a máquina livre (números de partida do bench, inclusive tempo do quadro a 1280×720 com MSAA 4×)
-- [ ] T002 [P] Criar `src/__smokes__/support/imageMeasures.ts` com as medidas de imagem reutilizadas pelos smokes da 011: maior passo entre vizinhos e comprimento de sequências iguais (faixas), platôs com borda reta (degraus de texel), variância temporal da luminância (cintilação), energia de alta frequência nas silhuetas (serrilhado), leitura de um alvo `rgba16float` para valores lineares
+- [x] T001 Registrar o estado de partida em `specs/011-hdr-pbr/baseline-check.md`: `npm run ci`, todos os smokes `--headless` (fonte e `--dist`) e `npm run bench:check` com a máquina livre (números de partida do bench, inclusive tempo do quadro a 1280×720 com MSAA 4×)
+- [x] T002 [P] Criar `src/__smokes__/support/imageMeasures.ts` com as medidas de imagem reutilizadas pelos smokes da 011: maior passo entre vizinhos e comprimento de sequências iguais (faixas), platôs com borda reta (degraus de texel), variância temporal da luminância (cintilação), energia de alta frequência nas silhuetas (serrilhado), leitura de um alvo `rgba16float` para valores lineares
 - [ ] T003 [P] Criar os smokes vazios `src/__smokes__/hdr.ts`, `src/__smokes__/lighting.ts`, `src/__smokes__/materials.ts` e `src/__smokes__/support/materialScenes.ts`, registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
-- [ ] T004 [P] Criar `src/elements/material/reference/` (referências de CPU, só para testes e smokes): `bsdf.ts` (GGX iso/aniso, Smith correlacionado, Schlick, F82, F0 do IOR, Charlie, filme fino de Belcour-Barla, Oren-Nayar energético, Burley com wrap), `tonemap.ts` (AgX, ACES de Hill, Khronos PBR Neutral, sRGB) e `dfg.ts` (integração de E(μ, α) e do albedo do sheen por Monte Carlo determinístico)
-- [ ] T005 [P] Atualizar o ROADMAP §3.3 em `specs/ROADMAP.md`: a matriz normal já existe (A5); a 011 só mede
+- [x] T004 [P] Criar `src/elements/material/reference/` (referências de CPU, só para testes e smokes): `bsdf.ts` (GGX iso/aniso, Smith correlacionado, Schlick, F82, F0 do IOR, Charlie, filme fino de Belcour-Barla, Oren-Nayar energético, Burley com wrap), `tonemap.ts` (AgX, ACES de Hill, Khronos PBR Neutral, sRGB) e `dfg.ts` (integração de E(μ, α) e do albedo do sheen por Monte Carlo determinístico)
+- [x] T005 [P] Atualizar o ROADMAP §3.3 em `specs/ROADMAP.md`: a matriz normal já existe (A5); a 011 só mede
 
 ---
 
@@ -38,22 +38,22 @@ bit a bit.
 
 ### Testes
 
-- [ ] T006 [P] Testes de `src/presentation/app/__tests__/FrameTargets.hdr.test.ts`: `color` e `samples` em `rgba16float`; `sceneCopy` (`rgba16float`, cadeia de mips) e `transmissionDepth` alocados só quando há consumidor; MSAA desligado (só `color`); redimensionamento recria todos
-- [ ] T007 [P] Testes de `src/presentation/flows/__tests__/present.test.ts`: a apresentação é sempre o último passe; sem efeitos lê a cor multiamostrada (resolve por amostra), com efeitos lê a saída do último efeito em HDR; pingue-pongue em `rgba16float`; `PresentationParams` (operador, 2^EV, pontilhamento, saída, amostras) atualizado sem recriar pipeline; não existe mais passthrough nem o efeito `ToneMapping` sobre LDR
-- [ ] T008 [P] Testes de `src/core/gpu/__tests__/canvasOptions.test.ts`: `CanvasOptions.toneMapping`/`format` configuram o contexto; sem suporte, a C2 recebe o recuo e a C4 emite `presentationFallback { requested: 'hdr', reason }` uma vez
-- [ ] T009 [P] Testes de referência em `src/elements/material/reference/__tests__/tonemap.test.ts`: AgX, ACES e neutro contra valores publicados dos operadores; sRGB ida e volta
+- [x] T006 [P] Testes em `src/presentation/app/__tests__/FrameTargets.test.ts`: `color` e `samples` em `rgba16float`; `sceneCopy` (`rgba16float`, cadeia de mips `'full'`) alocada só sob demanda (o `transmissionDepth` entra com o passe de transmissivos, T072); MSAA desligado (só `color`); redimensionamento recria todos
+- [x] T007 [P] Testes de `src/presentation/flows/__tests__/present.test.ts`: a apresentação é sempre o último passe; sem efeitos lê a cor multiamostrada (resolve por amostra), com efeitos lê a saída do último efeito em HDR; pingue-pongue em `rgba16float`; `PresentationParams` (operador, 2^EV, pontilhamento, saída, amostras) atualizado sem recriar pipeline; não existe mais passthrough nem o efeito `ToneMapping` sobre LDR
+- [x] T008 [P] Testes em `src/core/gpu/__tests__/GpuEngineCore.options.test.ts` e `src/presentation/flows/__tests__/present.test.ts`: `CanvasOptions.toneMapping`/`format` configuram o contexto; sem suporte, a C2 recebe o recuo e a C4 emite `presentationFallback { requested: 'hdr', reason }` uma vez
+- [x] T009 [P] Testes de referência em `src/elements/material/reference/__tests__/tonemap.test.ts`: AgX, ACES e neutro contra valores publicados dos operadores; sRGB ida e volta
 
 ### Implementação
 
-- [ ] T010 Acrescentar `toneMapping` e `format` a `CanvasOptions` em `src/core/contracts/EngineCore.ts` e aplicar na configuração do contexto em `src/core/gpu/GpuEngineCore.ts` (com detecção de suporte e recuo anunciado à C2)
-- [ ] T011 `FrameTargets` em `src/presentation/app/FrameTargets.ts`: `color`/`samples` em `rgba16float`; novos alvos `sceneCopy` (mips) e `transmissionDepth` declarados no Resource e alocados sob demanda
-- [ ] T012 [P] Criar `src/elements/gpu/wgsl/math/present.wgsl` (um símbolo por função): `tonemap_agx`, `tonemap_aces`, `tonemap_neutral`, `present_dither` (ruído triangular por gradiente intercalado), `srgb_encode`; remover `tonemap_exposure`/`gamma_encode` de `math/color.wgsl` se não tiverem outro consumidor
-- [ ] T013 Transformar o efeito em apresentação: `src/presentation/flows/effects/ToneMapping.ts` vira o Resource de apresentação da cena (`operator`, `exposure` em EV, `dither`, `output`), inserido pelos estágios padrão e exposto em `defaults.presentation` (`src/presentation/flows/defaults.ts`); validação dos campos
-- [ ] T014 Criar `src/presentation/flows/effects/present.wgsl` (passe de tela cheia: exposição, operador, sRGB, pontilhamento; variante multiamostrada que mapeia cada amostra e faz a média; saída `hdr` sem compressão acima de 1)
-- [ ] T015 `PostFlow` em `src/presentation/flows/PostFlow.ts`: pingue-pongue em `rgba16float`; a apresentação substitui o passthrough como último passe; leitura multiamostrada só sem efeitos; efeitos existentes operando em HDR (`effects.wgsl`)
-- [ ] T016 Cópia de fundo da água em HDR: `src/presentation/app/WaterSurface.ts` e `src/presentation/flows/WaterFlow.ts` com a vista `background` em `rgba16float` (a troca pela `sceneCopy` é na US4)
-- [ ] T017 Conferir que forward, sprites, arame, UI e água pegam o formato do slot de alvo (`src/presentation/flows/ForwardFlow.ts`, `ParticleFlow.ts`, `UIFlow.ts`, `FluidSurfaceFlow.ts`, `DebugFlow.ts`) e corrigir os que fixam o formato do canvas
-- [ ] T018 Exportar `ToneMapping`/apresentação e os tipos novos nos barrels (`src/presentation/index.ts`, `src/index.ts`); `npm run ci` verde
+- [x] T010 Acrescentar `toneMapping` e `format` a `CanvasOptions` em `src/core/contracts/EngineCore.ts` e aplicar na configuração do contexto em `src/core/gpu/GpuEngineCore.ts` (com detecção de suporte e recuo anunciado à C2)
+- [x] T011 `FrameTargets` em `src/presentation/app/FrameTargets.ts`: `color`/`samples` em `rgba16float`; novo alvo `sceneCopy` (mips `'full'`, storage para os níveis) declarado no Resource e alocado sob demanda; `TextureShape.mipLevelCount: 'full'` na C2
+- [x] T012 [P] Criar `src/elements/gpu/wgsl/math/present.wgsl` (um símbolo por função): `tonemap_agx`, `tonemap_aces`, `tonemap_neutral`, `present_dither` (ruído triangular por gradiente intercalado), `srgb_encode`; remover `tonemap_exposure`/`gamma_encode` de `math/color.wgsl` se não tiverem outro consumidor
+- [x] T013 Transformar o efeito em apresentação: `src/presentation/flows/effects/ToneMapping.ts` vira o Resource de apresentação da cena (`operator`, `exposure` em EV, `dither`, `output`), inserido pelos estágios padrão e exposto em `defaults.presentation` (`src/presentation/flows/defaults.ts`); validação dos campos
+- [x] T014 Criar `src/presentation/flows/effects/present.wgsl` (passe de tela cheia: exposição, operador, sRGB, pontilhamento; variante multiamostrada que mapeia cada amostra e faz a média; saída `hdr` sem compressão acima de 1)
+- [x] T015 `PostFlow` em `src/presentation/flows/PostFlow.ts`: pingue-pongue em `rgba16float`; a apresentação substitui o passthrough como último passe; leitura multiamostrada só sem efeitos; efeitos existentes operando em HDR (`effects.wgsl`)
+- [x] T016 Cópia de fundo da água em HDR: `src/presentation/app/WaterSurface.ts` e `src/presentation/flows/WaterFlow.ts` com a vista `background` em `rgba16float` (a troca pela `sceneCopy` é na US4)
+- [x] T017 Conferir que forward, sprites, arame, UI e água pegam o formato do slot de alvo (`src/presentation/flows/ForwardFlow.ts`, `ParticleFlow.ts`, `UIFlow.ts`, `FluidSurfaceFlow.ts`, `DebugFlow.ts`) e corrigir os que fixam o formato do canvas
+- [x] T018 Exportar `ToneMapping`/apresentação e os tipos novos nos barrels (`src/presentation/index.ts`, `src/index.ts`); `npm run ci` verde
 
 **Checkpoint**: a cena desenha em HDR e a apresentação mapeia para a tela; as imagens mudam (fixtures regravadas só na fase 10).
 
@@ -66,12 +66,12 @@ saída HDR estendida quando suportada.
 
 **Independent Test**: `npm run smoke -- hdr --headless` (fonte e `--dist`) com as medidas no relatório.
 
-- [ ] T019 [US1] Caso `hdr-range` em `src/__smokes__/hdr.ts`: duas superfícies com 20× de diferença de irradiância, distinguíveis na saída; leitura do alvo HDR confirma valores > 1 antes da apresentação (SC-001)
-- [ ] T020 [US1] Caso `hdr-ramp`: gradiente lento de luminância em tela cheia; nenhum passo > 1 nível de código e sem faixas, com e sem pontilhamento (o sem pontilhamento documenta o ganho) (SC-002)
-- [ ] T021 [US1] Caso `hdr-exposure`: +1 EV dobra a luminância linear antes do mapeamento (erro ≤ 1 %) (SC-003)
-- [ ] T022 [US1] Caso `hdr-operators`: rampa conhecida por AgX, ACES, neutro e linear contra `reference/tonemap.ts` (≤ 1 nível de código) (SC-003)
-- [ ] T023 [US1] Caso `hdr-output`: pedido `output: 'hdr'` — com suporte, valores acima do branco de referência chegam ao canvas `rgba16float`; sem suporte (headless), recuo para `sdr` com `presentationFallback` e imagem igual à do padrão
-- [ ] T024 [US1] Caso `hdr-msaa`: borda de alto contraste (fonte forte contra fundo escuro) com resolve por amostra versus resolve linear — energia de alta frequência menor; MSAA desligado continua desenhando
+- [x] T019 [US1] Caso `hdr-range` em `src/__smokes__/hdr.ts`: duas superfícies com 20× de diferença de irradiância, distinguíveis na saída; leitura do alvo HDR confirma valores > 1 antes da apresentação (SC-001)
+- [x] T020 [US1] Caso `hdr-ramp`: gradiente lento de luminância em tela cheia; nenhum passo > 1 nível de código e sem faixas, com e sem pontilhamento (o sem pontilhamento documenta o ganho) (SC-002)
+- [x] T021 [US1] Caso `hdr-exposure`: +1 EV dobra a luminância linear antes do mapeamento (erro ≤ 1 %) (SC-003)
+- [x] T022 [US1] Caso `hdr-operators`: rampa conhecida por AgX, ACES, neutro e linear contra `reference/tonemap.ts` (≤ 1 nível de código) (SC-003)
+- [x] T023 [US1] Caso `hdr-output`: pedido `output: 'hdr'` — com suporte, valores acima do branco de referência chegam ao canvas `rgba16float`; sem suporte (headless), recuo para `sdr` com `presentationFallback` e imagem igual à do padrão
+- [x] T024 [US1] Caso `hdr-msaa`: borda de alto contraste (fonte forte contra fundo escuro) com resolve por amostra versus resolve linear — energia de alta frequência menor; MSAA desligado continua desenhando
 
 **Checkpoint**: US1 verificável sozinha.
 

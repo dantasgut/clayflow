@@ -16,8 +16,11 @@ export interface TextureShape {
     readonly height?: number;
     /** Camadas (2d-array) ou fatias (3d). Default 1. */
     readonly depthOrArrayLayers?: number;
-    /** Níveis de mip. Default 1. */
-    readonly mipLevelCount?: number;
+    /**
+     * Níveis de mip. Default 1. `'full'`: a cadeia completa até 1×1, calculada do tamanho na alocação (útil com
+     * `sizeFromCanvas`, cujo tamanho muda).
+     */
+    readonly mipLevelCount?: number | 'full';
     /** Amostras (MSAA). Default 1. */
     readonly sampleCount?: 1 | 4;
     /** Acesso de shader para `storage-texture`. Default `'write-only'`. */

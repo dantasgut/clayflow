@@ -52,6 +52,12 @@ import { ShadowMap } from '../elements/scene/ShadowMap';
 import { ParticleMaterial } from '../elements/physics/materials/ParticleMaterial';
 import * as Render from '../presentation/flows/renderSchemas';
 import {
+    srgbEncode,
+    tonemapAces,
+    tonemapAgx,
+    tonemapNeutral,
+} from '../elements/material/reference/tonemap';
+import {
     gradientNoise2,
     gradientNoise3,
     valueNoise2,
@@ -304,20 +310,38 @@ const CASES: readonly ReferenceCase[] = [
         tol: 2e-5,
     },
     {
-        name: 'color (exposição, gama, luminância)',
+        name: 'color (gama, luminância)',
         requires: [wgslLib.color],
-        body: 'return vec4f(tonemap_exposure(a.xyz, 1.5).x, gamma_encode(a.xyz, 2.2).y, luminance(a.xyz), 0.0);',
+        body: 'return vec4f(gamma_encode(a.xyz, 2.2).x, gamma_encode(a.xyz, 2.2).y, luminance(a.xyz), 0.0);',
         input: (r) => [
             [r() * 2, r(), r(), 0],
             [0, 0, 0, 0],
         ],
         cpu: (a) => [
-            1 - Math.exp(-a[0] * 1.5),
+            a[0] ** (1 / 2.2),
             a[1] ** (1 / 2.2),
             0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2],
             0,
         ],
         tol: 2e-5,
+    },
+    {
+        // Spec 011: os operadores da apresentação contra a referência de CPU (a cor de entrada em HDR, até 64).
+        name: 'present (AgX, ACES, neutro, sRGB)',
+        requires: [wgslLib.present],
+        body: `let c = a.xyz;
+            return vec4f(tonemap_agx(c).y, tonemap_aces(c).x, tonemap_neutral(c).z, srgb_encode(b.xyz).x);`,
+        input: (r) => [
+            [Math.pow(2, r() * 12 - 6), Math.pow(2, r() * 12 - 6), Math.pow(2, r() * 12 - 6), 0],
+            [r(), 0, 0, 0],
+        ],
+        cpu: (a, b) => [
+            tonemapAgx([a[0], a[1], a[2]])[1],
+            tonemapAces([a[0], a[1], a[2]])[0],
+            tonemapNeutral([a[0], a[1], a[2]])[2],
+            srgbEncode(b[0]),
+        ],
+        tol: 2e-4,
     },
     {
         name: 'brdf (Lambert com ambiente)',

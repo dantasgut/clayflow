@@ -12,11 +12,15 @@ export interface FrameTargetsOptions {
     readonly samples?: 1 | 4;
 }
 
+/** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
+export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
+
 /**
- * Alvos da cena do quadro (Camada 4): a cor (`color`, no formato do canvas, lida pelo pós) e a profundidade (`depth`,
- * `depth24plus`), do tamanho do canvas e recriadas pela C2 quando ele muda. Com MSAA (spec 008, `samples: 4`, o
- * padrão), também a cor multiamostrada (`samples`): os passes da cena desenham nela e resolvem na `color`; a
- * profundidade tem as mesmas amostras. Um por cena, inserido pela aplicação.
+ * Alvos da cena do quadro (Camada 4): a cor (`color`, HDR em `rgba16float`, lida pelo pós e pela apresentação) e a
+ * profundidade (`depth`, `depth24plus`), do tamanho do canvas e recriadas pela C2 quando ele muda. Com MSAA (spec 008,
+ * `samples: 4`, o padrão), também a cor multiamostrada (`samples`): os passes da cena desenham nela e resolvem na
+ * `color`; a profundidade tem as mesmas amostras. A cópia da cena com mips (`sceneCopy`, spec 011) é alocada sob
+ * demanda, por quem a lê (refração da água e dos transmissivos). Um por cena, inserido pela aplicação.
  */
 export class FrameTargets extends Entity<Record<string, never>> implements Resource {
     /** Identidade dos alvos na cena (o World indexa pelo schema da classe); sem dados de GPU próprios. */
@@ -37,7 +41,19 @@ export class FrameTargets extends Entity<Record<string, never>> implements Resou
             {
                 id: 'color',
                 role: 'texture',
-                textureShape: { format: 'canvas', sizeFromCanvas: true },
+                textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true },
+            },
+            {
+                // Cópia da cor resolvida com a cadeia de mips (borrada por nível): o que está atrás, para refratar.
+                id: 'sceneCopy',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: SCENE_COLOR_FORMAT,
+                    sizeFromCanvas: true,
+                    mipLevelCount: 'full',
+                    access: 'write-only',
+                },
             },
             {
                 id: 'depth',
@@ -54,7 +70,7 @@ export class FrameTargets extends Entity<Record<string, never>> implements Resou
                           id: 'samples',
                           role: 'texture' as const,
                           textureShape: {
-                              format: 'canvas' as const,
+                              format: SCENE_COLOR_FORMAT,
                               sizeFromCanvas: true,
                               sampleCount: samples,
                           },

@@ -11,7 +11,6 @@ import {
     Application,
     Bloom,
     Blur,
-    ToneMapping,
     Fxaa,
     Ssao,
     Vignette,
@@ -97,7 +96,6 @@ async function main(): Promise<void> {
         .addEffect(new Blur({ strength: 0.2 }))
         .addEffect(new ChromaticAberration({ strength: 0.003 }))
         .addEffect(new ColorGrading({ strength: 1.05 }))
-        .addEffect(new ToneMapping({ strength: 1.0 }))
         .addEffect(new Fxaa({}))
         .addEffect(new Vignette({ strength: 0.4 }));
     log('post: 8 effects registered');

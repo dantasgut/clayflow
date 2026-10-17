@@ -317,6 +317,7 @@ export type {
     FrameRetiredPayload,
     DeviceRecoveredPayload,
     MemoryWarningPayload,
+    PresentationFallbackPayload,
 } from './events/index';
 
 export type {

@@ -91,8 +91,9 @@ pelo harness da F0, como consequência da arquitetura.
 ### 3.3 Qualidade e correção
 
 - Shader único Lambert para todos os materiais; roughness/metallic, cor/intensidade de luz, pool de luzes, UVs
-  ignorados; normal sem matriz normal (`forward.wgsl`, `vs_main`/`fs_main`). (Topologia do material ignorada: resolvido
-  na 008 — `Material.topology` na chave do grupo, arame e sprites.)
+  ignorados (`forward.wgsl`, `vs_main`/`fs_main`). (Topologia do material ignorada: resolvido na 008 —
+  `Material.topology` na chave do grupo, arame e sprites. Matriz normal: já existe — `WorldTransform.normal = R·S⁻¹`
+  aplicada no `vs_main`; a 011 só mede, com escala (1, 3, 1).)
 - Cena em LDR 8 bits; SSAO/FXAA falsos; tone mapping sobre LDR (`effects.wgsl`). (MSAA: resolvido na 008, puxado da
   F4/011 — 4 amostras por padrão.)
 - `Transform.model` nunca derivado de posição/rotação/escala (`Transform.ts:25-33`); sombra com frustum fixo ±10.

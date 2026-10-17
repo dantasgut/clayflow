@@ -135,6 +135,14 @@ export interface EntitiesRemovedPayload {
     readonly entityIds: readonly EntityId[];
 }
 
+/** Payload do evento `presentationFallback` (spec 011): a saída pedida e o motivo de ter caído no padrão. */
+export interface PresentationFallbackPayload {
+    /** Saída pedida. */
+    readonly requested: 'hdr';
+    /** Motivo (ex.: navegador ou tela sem mapeamento de tons estendido). */
+    readonly reason: string;
+}
+
 /**
  * Payload do evento `profilerStats` — emitido periodicamente (throttle
  * 250ms) pelo `DebugFlow` quando habilitado. Permite UI overlays exibirem
@@ -278,6 +286,8 @@ export interface EventMap {
     deviceRecovered: DeviceRecoveredPayload;
     /** Application emite quando memoryBudgetMB threshold é cruzado. */
     memoryWarning: MemoryWarningPayload;
+    /** A apresentação emite (uma vez) quando a saída pedida não é suportada e cai no padrão (spec 011). */
+    presentationFallback: PresentationFallbackPayload;
 }
 
 /** União dos nomes de evento conhecidos (chaves do EventMap). */

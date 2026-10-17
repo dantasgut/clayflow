@@ -3,12 +3,23 @@ import { FrameTargets } from '../FrameTargets';
 import { renderScene } from '../../flows/__tests__/helpers/renderHarness';
 
 describe('FrameTargets', () => {
-    it('descritores: cor no formato do canvas e profundidade depth24plus, ambas do tamanho do canvas (sem MSAA)', () => {
+    it('descritores (spec 011): cor HDR rgba16float, cópia com mips sob demanda e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
         expect(new FrameTargets({ samples: 1 }).getDescriptors()).toEqual([
             {
                 id: 'color',
                 role: 'texture',
-                textureShape: { format: 'canvas', sizeFromCanvas: true },
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true },
+            },
+            {
+                id: 'sceneCopy',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    sizeFromCanvas: true,
+                    mipLevelCount: 'full',
+                    access: 'write-only',
+                },
             },
             {
                 id: 'depth',
@@ -23,6 +34,7 @@ describe('FrameTargets', () => {
             new FrameTargets().getDescriptors().map((d) => [d.id, d.textureShape?.sampleCount]),
         ).toEqual([
             ['color', undefined],
+            ['sceneCopy', undefined],
             ['depth', 4],
             ['samples', 4],
         ]);
@@ -31,23 +43,30 @@ describe('FrameTargets', () => {
         s.scene.world.insert(targets);
         s.step();
         const samples = s.scene.resourceSystem.textureOf(targets, 'samples')!;
-        expect([samples.sampleCount, samples.format]).toEqual([4, s.core.canvasFormat]);
+        expect([samples.sampleCount, samples.format]).toEqual([4, 'rgba16float']);
         // Multiamostrada: só alvo de render e leitura.
         expect(samples.usage).toBe(
             GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         );
     });
 
-    it('a C2 aloca as duas texturas no tamanho e no formato do canvas', async () => {
+    it('a C2 aloca a cor HDR e a profundidade no tamanho do canvas; a cópia com mips só sob demanda', async () => {
         const s = await renderScene();
         const targets = new FrameTargets();
         s.scene.world.insert(targets);
         s.step();
         const color = s.scene.resourceSystem.textureOf(targets, 'color')!;
         const depth = s.scene.resourceSystem.textureOf(targets, 'depth')!;
-        expect([color.width, color.height, color.format]).toEqual([800, 600, s.core.canvasFormat]);
+        expect([color.width, color.height, color.format]).toEqual([800, 600, 'rgba16float']);
         expect([depth.width, depth.height, depth.format]).toEqual([800, 600, 'depth24plus']);
         expect(s.scene.resourceSystem.textureViewOf(targets, 'color')).toBeDefined();
+        expect(s.scene.resourceSystem.textureOf(targets, 'sceneCopy')).toBeUndefined();
+        s.scene.resourceSystem.ensureAllocated(targets, 'sceneCopy');
+        const copy = s.scene.resourceSystem.textureOf(targets, 'sceneCopy')!;
+        // 800×600 → cadeia completa até 1×1: ⌊log2 800⌋ + 1 = 10 níveis; storage para os mips, cópia para a base.
+        expect([copy.format, copy.mipLevelCount]).toEqual(['rgba16float', 10]);
+        expect(copy.usage & GPUTextureUsage.STORAGE_BINDING).toBeTruthy();
+        expect(copy.usage & GPUTextureUsage.COPY_DST).toBeTruthy();
     });
 
     it('canvasReconfigured recria as texturas no novo tamanho e destrói as antigas', async () => {

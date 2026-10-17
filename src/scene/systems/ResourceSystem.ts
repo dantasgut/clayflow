@@ -1701,7 +1701,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             ...(shape.depthOrArrayLayers !== undefined
                 ? { depthOrArrayLayers: shape.depthOrArrayLayers }
                 : {}),
-            ...(shape.mipLevelCount !== undefined ? { mipLevelCount: shape.mipLevelCount } : {}),
+            ...(shape.mipLevelCount === 'full'
+                ? { mipLevelCount: fullMipCount(size.width, size.height) }
+                : shape.mipLevelCount !== undefined
+                  ? { mipLevelCount: shape.mipLevelCount }
+                  : {}),
             ...(shape.sampleCount !== undefined ? { sampleCount: shape.sampleCount } : {}),
         });
         allocation.texture = texture;
@@ -2322,6 +2326,11 @@ function textureUsage(
         return U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST;
     if (isDepthOrStencil(format)) return U.RENDER_ATTACHMENT | U.TEXTURE_BINDING;
     return U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT;
+}
+
+/** Níveis de mip da cadeia completa de uma textura `width`×`height` (até 1×1). */
+function fullMipCount(width: number, height: number): number {
+    return Math.floor(Math.log2(Math.max(width, height, 1))) + 1;
 }
 
 function isDepthOrStencil(format: GPUTextureFormat): boolean {

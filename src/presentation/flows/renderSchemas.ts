@@ -21,6 +21,21 @@ export const EffectParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
+/**
+ * Parâmetros da apresentação (spec 011): operador (`toneOperator`: 0 AgX, 1 ACES, 2 neutro, 3 linear), exposição linear (2^EV),
+ * pontilhamento (0/1) e saída (0 padrão, 1 HDR estendido).
+ */
+export const PresentationParamsSchema = new StructSchema(
+    'PresentationParams',
+    {
+        toneOperator: FieldType.u32,
+        exposure: FieldType.f32,
+        dither: FieldType.u32,
+        output: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
 /** Tamanho da tela em pixels (UI). */
 export const ScreenParamsSchema = new StructSchema(
     'ScreenParams',

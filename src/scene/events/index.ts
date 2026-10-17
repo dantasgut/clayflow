@@ -17,6 +17,7 @@ export type {
     FrameRetiredPayload,
     DeviceRecoveredPayload,
     MemoryWarningPayload,
+    PresentationFallbackPayload,
 } from './EventMap';
 export { DefaultEventBus } from './DefaultEventBus';
 export type { ChangedEvent } from './ChangedEvent';

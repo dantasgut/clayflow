@@ -1,5 +1,6 @@
 import type {
     CanvasOptions,
+    CanvasOutput,
     DeviceLostHandler,
     DeviceLostInfo,
     EngineCore,
@@ -140,7 +141,7 @@ export class GpuEngineCore implements EngineCore {
     private inFlightGeneration = 0;
     private readonly frameRetiredHandlers = new Set<(framesInFlight: number) => void>();
     /** Opções da última inicialização — reaplicadas em recuperação e reconfiguração. */
-    private canvasOptions: CanvasOptions | undefined;
+    private storedCanvasOptions: CanvasOptions | undefined;
     private deviceOptions: DeviceOptions | undefined;
     private lastCanvas: HTMLCanvasElement | null = null;
     private shuttingDown = false;
@@ -148,6 +149,10 @@ export class GpuEngineCore implements EngineCore {
     private readonly pendingPipelines = new Map<string, Promise<void>>();
     /** Specs liberadas por `destroy` enquanto a compilação delas ainda estava em andamento. */
     private readonly releasedWhilePending = new WeakSet<ResourceSpec>();
+    /** Formato preferido do canvas (`getPreferredCanvasFormat`), guardado para voltar da saída HDR. */
+    private preferredFormat: GPUTextureFormat | undefined;
+    /** Mapeamento de tons da tela efetivamente configurado. */
+    private canvasToneMapping: 'standard' | 'extended' = 'standard';
 
     get profiler(): Profiler {
         return this.profilerSystem;
@@ -157,21 +162,30 @@ export class GpuEngineCore implements EngineCore {
         return this.requireContext().canvasFormat;
     }
 
+    get canvasOptions(): CanvasOptions {
+        return this.storedCanvasOptions ?? {};
+    }
+
+    get canvasOutput(): CanvasOutput {
+        return { format: this.requireContext().canvasFormat, toneMapping: this.canvasToneMapping };
+    }
+
     async initialize(
         canvas?: HTMLCanvasElement,
         canvasOptions?: CanvasOptions,
         device?: DeviceOptions,
     ): Promise<void> {
-        if (canvasOptions !== undefined) this.canvasOptions = canvasOptions;
+        if (canvasOptions !== undefined) this.storedCanvasOptions = canvasOptions;
         if (device !== undefined) this.deviceOptions = device;
         if (canvas !== undefined) this.lastCanvas = canvas;
         if (this.context !== null) {
-            this.applyCanvas(this.context, canvas ?? null, this.canvasOptions);
+            this.applyCanvas(this.context, canvas ?? null, this.storedCanvasOptions);
             return;
         }
         this.shuttingDown = false;
         const created = await createGpuContext(this.deviceOptions);
         const { queue, canvasFormat, capabilities } = created;
+        this.preferredFormat = canvasFormat;
         const ctx: GpuContext = {
             device: created.device,
             queue,
@@ -180,7 +194,7 @@ export class GpuEngineCore implements EngineCore {
             canvasFormat,
             capabilities,
         };
-        this.applyCanvas(ctx, canvas ?? null, this.canvasOptions);
+        this.applyCanvas(ctx, canvas ?? null, this.storedCanvasOptions);
         this.context = ctx;
         this.profilerSystem.attach(created.device);
         this.warnIfProfilingUnsupported();
@@ -243,8 +257,8 @@ export class GpuEngineCore implements EngineCore {
         if (ctx.canvas === null || ctx.canvasContext === null) {
             throw new Error('GpuEngineCore: no canvas attached to reconfigure.');
         }
-        if (options !== undefined) this.canvasOptions = options;
-        this.configureCanvasContext(ctx, this.canvasOptions);
+        if (options !== undefined) this.storedCanvasOptions = options;
+        this.configureCanvasContext(ctx, this.storedCanvasOptions);
     }
 
     create<S extends ResourceSpec>(spec: S): S {
@@ -534,15 +548,34 @@ export class GpuEngineCore implements EngineCore {
         this.configureCanvasContext(ctx, options);
     }
 
+    /**
+     * Configura o contexto do canvas. A saída HDR (`toneMapping: 'extended'`) é conferida depois de configurar
+     * (`getConfiguration`): sem suporte, reconfigura no padrão (formato preferido, `standard`).
+     */
     private configureCanvasContext(ctx: GpuContext, options: CanvasOptions | undefined): void {
         if (ctx.canvasContext === null) return;
-        const config: GPUCanvasConfiguration = {
-            device: ctx.device,
-            format: ctx.canvasFormat,
-            alphaMode: options?.alphaMode ?? 'opaque',
-            ...(options?.colorSpace !== undefined ? { colorSpace: options.colorSpace } : {}),
+        const preferred = this.preferredFormat ?? ctx.canvasFormat;
+        const extended = options?.toneMapping === 'extended';
+        const configure = (format: GPUTextureFormat, hdr: boolean): void => {
+            ctx.canvasContext!.configure({
+                device: ctx.device,
+                format,
+                alphaMode: options?.alphaMode ?? 'opaque',
+                ...(options?.colorSpace !== undefined ? { colorSpace: options.colorSpace } : {}),
+                ...(hdr ? { toneMapping: { mode: 'extended' } } : {}),
+            });
+            ctx.canvasFormat = format;
         };
-        ctx.canvasContext.configure(config);
+        const format = options?.format === 'rgba16float' ? 'rgba16float' : preferred;
+        configure(format, extended);
+        this.canvasToneMapping = 'standard';
+        if (!extended) return;
+        const applied = ctx.canvasContext.getConfiguration?.() ?? null;
+        if (applied?.toneMapping?.mode === 'extended') {
+            this.canvasToneMapping = 'extended';
+            return;
+        }
+        configure(preferred, false);
     }
 
     private requireBuffer(spec: AnyBufferSpec): GPUBuffer {

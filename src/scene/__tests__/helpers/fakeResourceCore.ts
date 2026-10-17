@@ -38,6 +38,8 @@ export function fakeResourceCore(): {
         }),
         submit: vi.fn(),
         canvasFormat: 'bgra8unorm',
+        canvasOutput: { format: 'bgra8unorm', toneMapping: 'standard' },
+        canvasOptions: {},
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
         capabilities: vi.fn(defaultCapabilities),

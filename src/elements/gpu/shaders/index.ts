@@ -1,5 +1,6 @@
 import {
     brdf,
+    bsdf,
     camera,
     color,
     fem,
@@ -9,6 +10,7 @@ import {
     mat,
     mpmWeights,
     noise,
+    present,
     quat,
     sdf,
     sphKernels,
@@ -33,6 +35,8 @@ export const wgslLib = Object.freeze({
     fem,
     noise,
     color,
+    present,
+    bsdf,
     brdf,
     finite,
     fixedPoint,
