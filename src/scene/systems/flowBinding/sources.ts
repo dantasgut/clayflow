@@ -98,6 +98,8 @@ export function layoutEntryOf(
         return `binding de cor recebeu textura de profundidade '${format}'`;
     }
     if (sampleType === 'float' && UNFILTERABLE.has(format)) sampleType = 'unfilterable-float';
+    // Textura multiamostrada de cor só se lê por `textureLoad`: o WebGPU exige `unfilterable-float`.
+    if (sampleType === 'float' && r.texture.multisampled) sampleType = 'unfilterable-float';
     return {
         ...base,
         kind: 'texture',

@@ -1,9 +1,5 @@
-// Cor (spec 005, R7): exposição, codificação gama e luminância usadas pelo pós-processamento.
-
-// Mapeamento de tons por exposição: 1 − e^(−c·exposição).
-fn tonemap_exposure(c: vec3f, exposure: f32) -> vec3f {
-    return vec3<f32>(1.0) - exp(-c * exposure);
-}
+// Cor (spec 005, R7): codificação gama e luminância usadas pelo pós-processamento. O mapeamento de tons e o sRGB da
+// apresentação estão no módulo `present` (spec 011).
 
 // Codificação gama: c^(1/γ).
 fn gamma_encode(c: vec3f, gamma: f32) -> vec3f {

@@ -1,6 +1,7 @@
 // Kernel de validação do ponto `material` (spec 009): chama `material_eval` pelo adaptador do forward — uma
-// `MaterialFunction` é conferida contra ele na criação (o mesmo código que o desenho usa). Não é despachado.
-// Requer: structs StandardMaterial; material_point_types; o adaptador (`forward_material_fn`) com o ponto `material`.
+// `MaterialFunction` é conferida contra ele na criação (o mesmo código que o desenho usa). Não é despachado. O
+// adaptador é o da forma da função (`SurfaceParams` ou `Closure`, spec 011).
+// Requer: structs StandardMaterial; material_point_types; closure; o adaptador com o ponto `material`.
 
 @compute @workgroup_size(1)
 fn material_check_main() {
@@ -13,6 +14,6 @@ fn material_check_main() {
         vec4f(0.0),
         vec3f(0.0),
     );
-    let p = material_eval(s, material_check_materials[0], 0u);
-    material_check_out[3] = p.base_color + vec4f(p.emissive, p.roughness + p.metallic);
+    let c = material_eval(s, material_check_materials[0], 0u);
+    material_check_out[3] = vec4f(c.diffuse_color + c.emission, c.specular_roughness + c.opacity);
 }

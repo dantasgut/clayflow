@@ -12,8 +12,11 @@ export interface PointSubgraphOptions {
     readonly name: string;
     /** Entradas: argumento do grafo (`graphArgument`) → tipo, na ordem das portas. */
     readonly inputs?: Readonly<Record<string, PortType>>;
-    /** Parâmetros expostos (`nó.parâmetro`): viram parâmetros do nó, com valor por uso. Os outros ficam no código. */
-    readonly expose?: readonly string[];
+    /**
+     * Parâmetros expostos (`nó.parâmetro`, nome `nó_parâmetro`; ou `['nó.parâmetro', 'nome']`, com nome próprio — spec
+     * 011: o OpenPBR expõe `base_color`): viram parâmetros do nó, com valor por uso. Os outros ficam no código.
+     */
+    readonly expose?: readonly (string | readonly [string, string])[];
 }
 
 /** Opções de um sub-grafo de conjunto. */
@@ -81,6 +84,21 @@ function exposed(graph: NodeGraph, name: string, expose: readonly string[]): str
     });
 }
 
+/** Nome externo de cada parâmetro exposto (`nó_parâmetro` → o nome próprio, ou ele mesmo). */
+function exposedNames(expose: readonly (string | readonly [string, string])[]): {
+    readonly refs: string[];
+    readonly alias: Map<string, string>;
+} {
+    const refs: string[] = [];
+    const alias = new Map<string, string>();
+    for (const e of expose) {
+        const [ref, external] = typeof e === 'string' ? [e, undefined] : e;
+        refs.push(ref);
+        if (external !== undefined) alias.set(ref.replace('.', '_'), external);
+    }
+    return { refs, alias };
+}
+
 /** Sub-grafos (spec 031, US4): um grafo usado como nó de outro grafo. */
 export const Subgraph = {
     /**
@@ -100,7 +118,16 @@ export const Subgraph = {
                 [options.name],
             );
         const inputs = options.inputs ?? {};
-        const keys = exposed(graph, options.name, options.expose ?? []);
+        const { refs, alias } = exposedNames(options.expose ?? []);
+        const keys = exposed(graph, options.name, refs);
+        const outer = (k: string): string => alias.get(k) ?? k;
+        const externals = keys.map(outer);
+        if (new Set(externals).size !== externals.length)
+            throw new NodeGraphError(
+                'unknown-port',
+                `Subgraph('${options.name}'): nomes expostos repetidos (${externals.join(', ')})`,
+                [options.name],
+            );
         const params = graph.params();
         const values = graph.values();
         const contexts = (['fragment', 'vertex', 'compute'] as const).filter((c) =>
@@ -135,7 +162,7 @@ export const Subgraph = {
             links: graph.links,
             output,
             inputs,
-            keys,
+            keys: keys.map((k) => [k, outer(k)]),
             baked: Object.fromEntries(Object.entries(values).filter(([k]) => !keys.includes(k))),
             defs: graph.order().map((id) => graph.node(id).definition?.name ?? 'arg'),
         });
@@ -163,14 +190,16 @@ export const Subgraph = {
                 : fields.map(([n, t]) => `    ${n}: ${t},`)),
             '}',
             code,
-            `fn ${fn}(${[...names.map((n) => `${n}: ${inputs[n]}`), ...keys.map((k) => `${k}: ${params[k]}`)].join(', ')}) -> ${returns} {`,
+            `fn ${fn}(${[...names.map((n) => `${n}: ${inputs[n]}`), ...keys.map((k) => `${outer(k)}: ${params[k]}`)].join(', ')}) -> ${returns} {`,
             `    return ${fn}_impl(${[
                 ...names,
                 `${struct}(${
                     fields.length === 0
                         ? '0u'
                         : fields
-                              .map(([n, t]) => (keys.includes(n) ? n : literal(t, values[n] ?? 0)))
+                              .map(([n, t]) =>
+                                  keys.includes(n) ? outer(n) : literal(t, values[n] ?? 0),
+                              )
                               .join(', ')
                 })`,
             ].join(', ')});`,
@@ -182,11 +211,13 @@ export const Subgraph = {
             inputs,
             outputs: { value: returns },
             params: Object.fromEntries(
-                keys.map((k) => [k, { type: params[k]!, default: values[k] ?? 0 }]),
+                keys.map((k) => [outer(k), { type: params[k]!, default: values[k] ?? 0 }]),
             ),
             code: module,
             fn,
             contexts,
+            // As marcas dos nós de dentro valem para o sub-grafo (ex.: os lobos de um material pronto).
+            tags: [...graph.tags()],
         });
         origins.set(definition, { graph, options });
         return definition;
@@ -198,7 +229,16 @@ export const Subgraph = {
      * @throws NodeGraphError entrada ou saída que não é porta de nó de conjunto de dentro, parâmetro exposto inexistente.
      */
     set(graph: NodeGraph, options: SetSubgraphOptions): SetSubgraph {
-        const keys = exposed(graph, options.name, options.expose ?? []);
+        const { refs, alias } = exposedNames(options.expose ?? []);
+        const keys = exposed(graph, options.name, refs);
+        const outer = (k: string): string => alias.get(k) ?? k;
+        const externals = keys.map(outer);
+        if (new Set(externals).size !== externals.length)
+            throw new NodeGraphError(
+                'unknown-port',
+                `Subgraph('${options.name}'): nomes expostos repetidos (${externals.join(', ')})`,
+                [options.name],
+            );
         const all = graph.allParams();
         const values = graph.allValues();
         const check = (ref: string, side: 'inputs' | 'outputs'): void => {

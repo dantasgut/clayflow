@@ -27,5 +27,22 @@ const surfaceParams = defineNode({
     contexts: ['fragment'],
 });
 
+/**
+ * Saída de fechamento do ponto `material` (spec 011): o fechamento composto pelos nós `bsdf.*`/`closure.*`. Sem
+ * ligação, o fechamento pronto das constantes do material da entidade. Só em `fragment`.
+ */
+const closure = defineNode({
+    name: 'output.closure',
+    inputs: { closure: 'Closure' },
+    outputs: { value: 'Closure' },
+    defaults: {
+        closure:
+            'closure_from_params(SurfaceParams(m.albedo, m.roughness, m.metallic, vec3f(0.0)))',
+    },
+    code: nodeOutput,
+    fn: 'node_output_closure',
+    contexts: ['fragment'],
+});
+
 /** Saídas de pontos. */
-export const output = { surfaceParams } as const;
+export const output = { surfaceParams, closure } as const;

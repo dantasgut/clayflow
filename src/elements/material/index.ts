@@ -13,3 +13,5 @@ export {
     type FluidSurfaceMaterialData,
     type FluidSurfaceMaterialOptions,
 } from './FluidSurfaceMaterial';
+export { PbrTables } from './pbr/PbrTables';
+export { LOBES, type LobeName } from './pbr/lobes';

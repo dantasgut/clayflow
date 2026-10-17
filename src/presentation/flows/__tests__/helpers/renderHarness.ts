@@ -24,6 +24,7 @@ import { WaterSurface } from '../../../app/WaterSurface';
 import { FluidSurfaceFlow } from '../../FluidSurfaceFlow';
 import { CausticsFlow } from '../../CausticsFlow';
 import { WaterFlow } from '../../WaterFlow';
+import { PbrTables } from '../../../../elements/material/pbr/PbrTables';
 
 /** Bind group ligado num desenho, com os offsets dinâmicos. */
 export interface BoundGroup {
@@ -272,6 +273,8 @@ export async function renderScene(
         withErrorScope: vi.fn(<T>(_f: unknown, body: () => T) => Promise.resolve(body())),
         memoryUsage: vi.fn(() => ({ bufferBytes: 0, textureBytes: 0, totalBytes: 0, top: [] })),
         canvasFormat: 'bgra8unorm',
+        canvasOutput: { format: 'bgra8unorm', toneMapping: 'standard' },
+        canvasOptions: {},
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
@@ -378,6 +381,8 @@ export function registerStages(
             ? new FrameTargets()
             : undefined;
     if (frameTargets !== undefined) scene.world.insert(frameTargets);
+    // Tabelas do sombreamento físico (spec 011): o fechamento as lê em todo desenho iluminado.
+    if (frameTargets !== undefined) scene.world.insert(new PbrTables());
     const forward =
         output === undefined
             ? undefined

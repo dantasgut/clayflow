@@ -1,4 +1,10 @@
-import { Application, Camera, Transform, type FrameCompleteEvent } from 'clayflow';
+import {
+    Application,
+    Camera,
+    DirectionalLight,
+    Transform,
+    type FrameCompleteEvent,
+} from 'clayflow';
 import type { EngineAdapter, FrameSample, SceneImplementation } from '../core/types';
 
 /** Handle do clayflow entregue às cenas. */
@@ -53,6 +59,10 @@ export function createClayflowAdapter(options: {
                 }),
             );
             app.world.insert(camera);
+            // Spec 011: a luz é explícita (sem luz, só o hemisfério ilumina) — a direção que o desenho usava por padrão.
+            app.world.insert(
+                new DirectionalLight({ direction: [0.4, -1, 0.6, 0], intensity: Math.PI }),
+            );
             const handle: ClayflowHandle = { app, camera, last: null };
             app.events.on('frameComplete', (e) => {
                 handle.last = e;

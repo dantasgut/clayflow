@@ -1,18 +1,5 @@
-// Iluminação (spec 005, R7): o modelo que o forward usa hoje — Lambert com termo ambiente — e a sombra por PCF 3×3. O
-// PBR completo é da F4. Funções puras: o mapa de sombra e o sampler entram como parâmetros.
-
-const BRDF_AMBIENT: f32 = 0.18;
-const BRDF_DIFFUSE: f32 = 0.82;
-
-// Cosseno de Lambert (n e l normalizados), limitado a 0.
-fn lambert_diffuse(n: vec3f, l: vec3f) -> f32 {
-    return max(dot(n, l), 0.0);
-}
-
-// Cor iluminada: ambiente + difuso atenuado pela sombra.
-fn lambert_lit(albedo: vec3f, n_dot_l: f32, shadow: f32) -> vec3f {
-    return (BRDF_AMBIENT + n_dot_l * BRDF_DIFFUSE * shadow) * albedo;
-}
+// Sombra (spec 005, R7): a visibilidade da luz por PCF 3×3 no mapa de sombra. O sombreamento físico está nos módulos
+// `bsdf`, `closure` e `closure_eval` (spec 011). Função pura: o mapa de sombra e o sampler entram como parâmetros.
 
 // Visibilidade da luz por PCF 3×3 no mapa de sombra (1 = iluminado). Viés inclinado pelo ângulo com a luz; fora do
 // frustum da luz ou com a sombra desligada (`enabled` < 0.5) devolve 1. Sem desvio de fluxo dependente de dados.

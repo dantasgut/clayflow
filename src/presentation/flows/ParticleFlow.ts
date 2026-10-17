@@ -19,6 +19,7 @@ import type { BindGroupSpec } from '../../scene/contracts/gpu';
 import { BINDING_FREQUENCIES } from '../../scene/shaders/WgslResource';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
+import { PARAMS_LOBES } from '../../elements/material/pbr/lobes';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
@@ -85,7 +86,7 @@ interface DrawnBody {
  * partícula direto do pool do corpo pelo índice da instância — sem cópia para vertex buffer nem leitura de volta.
  *
  *   - grupo 0: o pool `CameraMatrices` e os parâmetros do quadro (slot da câmera); a luz vem do ponto de cena
- *     `scene_any_light_direction` (spec 031);
+ *     `scene_lighting` (spec 011);
  *   - grupo 1: o pool do corpo (`array<vec4f>`, ligado por pipeline — um pipeline por pool de partícula) e o pool
  *     `PointSpriteMaterial`;
  *   - grupo 2: a região `ParticleDrawParams` do corpo (início da faixa, stride e deslocamento do campo `pos` em
@@ -266,6 +267,8 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             role: 'render',
             shader: particleSprite,
             entryPoints: ['vs_main', 'fs_main'],
+            // Lobos do fechamento da partícula (spec 011): difuso, especular e emissão.
+            constants: { CLOSURE_LOBES: PARAMS_LOBES },
             topology: 'triangle-list',
             cullMode: 'none',
             colorTargets: [{ format }],
@@ -323,7 +326,7 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         this.draws.flush(this.order.length);
     }
 
-    /** Slot da câmera ativa, escrito quando muda (a luz dos sprites vem do ponto `scene_any_light_direction`). */
+    /** Slot da câmera ativa, escrito quando muda (a luz dos sprites vem do ponto `scene_lighting`). */
     private writeFrameParams(ctx: Ctx): void {
         const slots = ctx.bound.slots;
         const cameraId = this.world.entityIdOfResource(slots.camera.resource);

@@ -82,7 +82,11 @@ describe('Integração — redimensionamento do canvas', () => {
         s.resetCounts();
         s.resize(1600, 1200);
         const passes = s.step();
-        expect(passes.map((p) => p.label)).toEqual(['ForwardFlow', 'PostFlow.Vignette']);
+        expect(passes.map((p) => p.label)).toEqual([
+            'ForwardFlow',
+            'PostFlow.Vignette',
+            'PostFlow.present',
+        ]);
         const destroyed = new Set<unknown>(s.destroys());
         expect(referenced(passes).filter((r) => destroyed.has(r))).toEqual([]);
     });

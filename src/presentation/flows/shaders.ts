@@ -2,11 +2,18 @@ import { wgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
 import effectsSource from './effects/effects.wgsl?raw';
+import fullscreenSource from './effects/fullscreen.wgsl?raw';
+import presentSource from './effects/present.wgsl?raw';
+import presentSingleSource from './effects/present_single.wgsl?raw';
+import presentMsSource from './effects/present_ms.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
-import { color } from '../../elements/gpu/shaders/math';
+import sceneCopyMipsSource from './scene_copy_mips.wgsl?raw';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { color, present } from '../../elements/gpu/shaders/math';
 import { shadowMatricesResource, worldsResource } from '../../elements/scene/resources';
 import {
     EffectParamsSchema,
+    PresentationParamsSchema,
     ScreenParamsSchema,
     ShadowDepthParamsSchema,
     ShadowInstanceSchema,
@@ -74,6 +81,9 @@ export const effectResources = {
     }),
 } as const;
 
+/** Triângulo de tela cheia (`VsOut`, `vs_fullscreen`) dos passes de tela. */
+export const fullscreen = wgslModule({ name: 'fullscreen', source: fullscreenSource });
+
 /**
  * Base do pós-processamento: recursos da textura de origem, do amostrador e dos parâmetros, `vs_fullscreen` e os
  * fragmentos dos efeitos padrão. Efeitos próprios declaram um módulo com `requires: [effectsBase]` e o seu fragmento.
@@ -81,7 +91,53 @@ export const effectResources = {
 export const effectsBase = wgslModule({
     name: 'effects_base',
     source: effectsSource,
-    requires: [color, effectResources.source, effectResources.sampler, effectResources.params],
+    requires: [
+        fullscreen,
+        color,
+        effectResources.source,
+        effectResources.sampler,
+        effectResources.params,
+    ],
+});
+
+/** Recursos da apresentação (spec 011), privados do `PostFlow`. */
+export const presentResources = {
+    /** Parâmetros (`PresentationParams`), empacotados do `ToneMapping` da cena. */
+    params: wgslResource({
+        name: 'presentation',
+        binding: { uniform: true },
+        type: { schema: PresentationParamsSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    /** A cor multiamostrada da cena (`FrameTargets.samples`), para o resolve mapeado por amostra. */
+    samples: wgslResource({
+        name: 'src_ms',
+        binding: { texture: { sample: 'f32', multisampled: true } },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+} as const;
+
+/** Mapeamento e saída da apresentação (comum às duas entradas). */
+const presentCommon = wgslModule({
+    name: 'present_common',
+    source: presentSource,
+    requires: [present, presentResources.params],
+});
+
+/** Apresentação de uma imagem resolvida (a cor da cena sem MSAA, ou a saída do último efeito). */
+export const presentSingle = wgslModule({
+    name: 'present_single',
+    source: presentSingleSource,
+    requires: [fullscreen, presentCommon, effectResources.source],
+});
+
+/** Apresentação com resolve mapeado por amostra (MSAA, sem efeitos). */
+export const presentMultisampled = wgslModule({
+    name: 'present_ms',
+    source: presentMsSource,
+    requires: [fullscreen, presentCommon, presentResources.samples],
 });
 
 /** Recursos da UI (spec 031, R1), privados do `UIFlow` (`UiGpuPipeline`). */
@@ -123,4 +179,41 @@ export const ui = wgslModule({
     name: 'ui',
     source: uiSource,
     requires: [uiResources.screen, uiResources.quads, uiResources.atlas, uiResources.sampler],
+});
+
+/** Recursos do kernel dos mips da cópia da cena (spec 011), privados do estágio. */
+export const sceneMipResources = {
+    /** O nível anterior (view de um nível). */
+    src: wgslResource({
+        name: 'scene_mip_src',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** O nível escrito (view de storage de um nível). */
+    dst: wgslResource({
+        name: 'scene_mip_dst',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** Amostrador linear. */
+    sampler: wgslResource({
+        name: 'scene_mip_sampler',
+        binding: { sampler: 'filtering' },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+} as const;
+
+/** Redução de um nível da cópia da cena (tenda 4×4). */
+export const sceneCopyMips = wgslModule({
+    name: 'scene_copy_mips',
+    source: sceneCopyMipsSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        sceneMipResources.src,
+        sceneMipResources.dst,
+        sceneMipResources.sampler,
+    ],
 });

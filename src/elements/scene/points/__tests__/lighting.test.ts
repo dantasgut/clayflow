@@ -3,91 +3,130 @@ import { composeWgsl } from '../../../../scene/shaders/composeWgsl';
 import { instantiateModule } from '../../../../scene/shaders/instantiate';
 import { wgslModule } from '../../../../scene/shaders/WgslModule';
 import { DirectionalLight } from '../../DirectionalLight';
+import { HemisphereLight } from '../../HemisphereLight';
 import { Light } from '../../Light';
 import { PointLight } from '../../PointLight';
 import { ShadowMap } from '../../ShadowMap';
+import { SpotLight } from '../../SpotLight';
 import {
     lightTransmissionPoint,
     lightTransmissionReady,
     lightVisibilityPoint,
-    sceneAnyLightDirectionPoint,
     lightVisibilityReady,
-    sceneLightDirectionPoint,
-    sceneLightDirectionReady,
+    sceneLightingPoint,
+    sceneLightingReady,
 } from '../lighting';
+import { hemisphereContribution, LIGHT_LIMIT, poolLightContribution } from '../lightContributions';
 
-describe('pontos de cena do sombreamento (spec 031, T041)', () => {
-    it('prontos: direção padrão, visibilidade 1, transmissão ambiente + direta — e montam sozinhos', () => {
-        expect(sceneLightDirectionReady.source).toContain('return DEFAULT_LIGHT_DIRECTION;');
-        expect(lightVisibilityReady.source).toContain('return 1.0;');
-        expect(lightTransmissionReady.source).toContain('return vec3f(ambient + direct);');
-        for (const m of [sceneLightDirectionReady, lightVisibilityReady, lightTransmissionReady]) {
+describe('pontos de cena do sombreamento (spec 011, T039)', () => {
+    it('prontos: nenhuma luz (0), visibilidade 1, transmissão 1 — e montam sozinhos', () => {
+        expect(sceneLightingReady.source).toContain('return vec3f(0.0);');
+        expect(lightVisibilityReady.source).toContain(
+            'fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32',
+        );
+        expect(lightTransmissionReady.source).toContain(
+            'fn light_transmission(light: u32, p: vec3f) -> vec3f',
+        );
+        for (const m of [sceneLightingReady, lightVisibilityReady, lightTransmissionReady]) {
             expect(() => composeWgsl(m)).not.toThrow();
         }
     });
 
-    it('vários contribuintes: direção do primeiro; visibilidade é o produto em ordem; transmissão com o ambiente só no primeiro', () => {
+    it('vários contribuintes: iluminação é a soma; visibilidade e transmissão, produtos por luz, em ordem', () => {
         const fn = (name: string, body: string, sig: string) =>
             wgslModule({ name, source: `fn ${sig} { ${body} }` });
+        const lit = [0, 1].map((k) =>
+            instantiateModule(
+                fn(
+                    `lit${k}`,
+                    'return vec3f(0.0);',
+                    'scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f',
+                ),
+                `_${k}`,
+            ),
+        );
+        expect(sceneLightingPoint.combine(lit).source).toContain(
+            'return scene_lighting_0(c, p, n, v) + scene_lighting_1(c, p, n, v);',
+        );
         const vis = [0, 1].map((k) =>
             instantiateModule(
                 fn(
                     `vis${k}`,
-                    `return ${k + 2}.0;`,
-                    'light_visibility(p: vec3f, n_dot_l: f32) -> f32',
+                    'return 1.0;',
+                    'light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32',
                 ),
                 `_${k}`,
             ),
         );
         expect(lightVisibilityPoint.combine(vis).source).toContain(
-            'return light_visibility_0(p, n_dot_l) * light_visibility_1(p, n_dot_l);',
-        );
-        const dirs = [0, 1].map((k) =>
-            instantiateModule(
-                fn(`dir${k}`, 'return vec3f(0.0);', 'scene_light_direction() -> vec3f'),
-                `_${k}`,
-            ),
-        );
-        expect(sceneLightDirectionPoint.combine(dirs).source).toContain(
-            'return scene_light_direction_0();',
+            'return light_visibility_0(light, p, n_dot_l) * light_visibility_1(light, p, n_dot_l);',
         );
         const trans = [0, 1].map((k) =>
             instantiateModule(
                 fn(
                     `tr${k}`,
-                    'return vec3f(ambient + direct);',
-                    'light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f',
+                    'return vec3f(1.0);',
+                    'light_transmission(light: u32, p: vec3f) -> vec3f',
                 ),
                 `_${k}`,
             ),
         );
         expect(lightTransmissionPoint.combine(trans).source).toContain(
-            'return light_transmission_0(p, ambient, direct) * light_transmission_1(p, 0.0, 1.0);',
+            'return light_transmission_0(light, p) * light_transmission_1(light, p);',
         );
     });
 
-    it('toda luz contribui com a primeira luz viva; a que projeta sombra, também com a direção e a sombra pelos slots dela', () => {
+    it('toda luz do pool contribui o mesmo laço; a que projeta sombra, também a sombra só para ela', () => {
         const casting = new DirectionalLight({ castShadow: true });
-        const [any, direction, visibility] = casting.getSceneContributions();
-        expect(any!.point).toBe(sceneAnyLightDirectionPoint);
-        expect(direction!.point).toBe(sceneLightDirectionPoint);
+        const [pool, visibility] = casting.getSceneContributions();
+        expect(pool).toBe(poolLightContribution);
+        expect(pool!.point).toBe(sceneLightingPoint);
         expect(visibility!.point).toBe(lightVisibilityPoint);
-        expect(direction!.pools).toEqual([Light.schema, ShadowMap.schema]);
-        const slots = (light?: number, shadow?: number) => (pool: { name: string }) =>
-            pool.name === 'Light' ? light : shadow;
-        expect(direction!.build(slots(3, 1))!.source).toContain('return lights[3u].direction.xyz;');
-        expect(visibility!.build(slots(3, 1))!.source).toContain('let sm = shadow_maps[1u];');
-        expect(() => composeWgsl(visibility!.build(slots(3, 1))!)).not.toThrow();
-        // Slot ainda ausente: não contribui.
-        expect(direction!.build(slots(undefined, 1))).toBeUndefined();
-        // Deixou de projetar: não contribui.
+        expect(visibility!.pools).toEqual([Light.schema, ShadowMap.schema]);
+        const slots = (light?: number, shadow?: number) => (p: { name: string }) =>
+            p.name === 'Light' ? light : shadow;
+        const shadow = visibility!.build(slots(3, 1))!;
+        expect(shadow.source).toContain('if (light != 3u) { return 1.0; }');
+        expect(shadow.source).toContain('let sm = shadow_maps[1u];');
+        expect(() => composeWgsl(shadow)).not.toThrow();
+        // Slot ainda ausente ou deixou de projetar: não contribui.
+        expect(visibility!.build(slots(undefined, 1))).toBeUndefined();
         casting.data.castShadow = 0;
         expect(visibility!.build(slots(3, 1))).toBeUndefined();
-        // Sem projetar: só a primeira luz viva (a luz dos sprites), com ou sem sombra, também na pontual.
-        expect(new DirectionalLight({ castShadow: false }).getSceneContributions()).toEqual([any]);
-        expect(new PointLight().getSceneContributions()).toEqual([any]);
-        const pool = any!.build(() => undefined)!;
-        expect(pool.source).toContain('if (pool_live(light_live[i >> 5u], i))');
-        expect(() => composeWgsl(pool)).not.toThrow();
+        // Sem projetar, a pontual e a spot: só o laço do pool (o mesmo módulo para todas).
+        for (const light of [new DirectionalLight(), new PointLight(), new SpotLight()])
+            expect(light.getSceneContributions()).toEqual([poolLightContribution]);
+        const loop = pool!.build(() => 0)!;
+        expect(loop).toBe(pool!.build(() => 5));
+        expect(loop.source).toContain('if (!pool_live(light_live[i >> 5u], i)) { continue; }');
+        expect(loop.source).toContain('min(arrayLength(&lights), LIGHT_LIMIT)');
+        expect(loop.source).toContain(
+            'light_visibility(i, p, dot(n, l)) * light_transmission(i, p)',
+        );
+        expect(() => composeWgsl(loop)).not.toThrow();
+    });
+
+    it('o hemisfério contribui depois das luzes, pela transmissão da luz ambiente (NONE)', () => {
+        const contributions = new HemisphereLight().getSceneContributions();
+        expect(contributions).toEqual([hemisphereContribution]);
+        expect(hemisphereContribution.order).toBeGreaterThan(poolLightContribution.order);
+        const m = hemisphereContribution.build(() => undefined)!;
+        expect(m.source).toContain('closure_ambient(');
+        expect(m.source).toContain('light_transmission(NONE, p)');
+        expect(() => composeWgsl(m)).not.toThrow();
+    });
+
+    it('teto de luzes: o slot acima do limite avisa uma vez e continua no mesmo laço', () => {
+        const warn = console.warn;
+        const calls: unknown[][] = [];
+        console.warn = (...args: unknown[]) => calls.push(args);
+        try {
+            poolLightContribution.build(() => LIGHT_LIMIT.value + 3);
+            poolLightContribution.build(() => LIGHT_LIMIT.value + 4);
+        } finally {
+            console.warn = warn;
+        }
+        expect(calls).toHaveLength(1);
+        expect(String(calls[0]![0])).toContain('lightLimit');
     });
 });

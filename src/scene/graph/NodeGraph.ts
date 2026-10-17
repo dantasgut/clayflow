@@ -190,7 +190,12 @@ export class NodeGraph {
             if (node.definition === undefined) continue;
             for (const input of Object.keys(node.definition.inputs)) {
                 const key = `${node.id}.${input}`;
-                if (this.#sources.has(key) || input in node.definition.defaults) continue;
+                if (
+                    this.#sources.has(key)
+                    || input in node.definition.defaults
+                    || input in node.definition.params
+                )
+                    continue;
                 throw new NodeGraphError(
                     'unconnected-input',
                     `NodeGraph: a entrada '${key}' (${node.definition.name}) não tem ligação nem padrão`,
@@ -324,6 +329,17 @@ export class NodeGraph {
         return out;
     }
 
+    /**
+     * União das marcas (`tags`) dos nós do grafo (spec 011), sub-grafos inclusive: o consumidor do grafo as interpreta
+     * (ex.: a máscara de lobos de um material). Nós sem marca não contribuem.
+     */
+    tags(): ReadonlySet<string> {
+        const out = new Set<string>();
+        for (const id of this.order())
+            for (const tag of this.#resolved.get(id)!.definition?.tags ?? []) out.add(tag);
+        return out;
+    }
+
     /** Módulos dos nós de que a saída depende (cada um uma vez). */
     modules(): readonly WgslModule[] {
         const out: WgslModule[] = [];
@@ -415,22 +431,28 @@ export class NodeGraph {
                     [id, def.name, point.context],
                 );
             }
+            // Entrada sem ligação: o valor dela (parâmetro de mesmo nome), senão o padrão.
             const args = Object.entries(def.inputs).map(([input, type]) => {
                 const src = this.#sources.get(`${id}.${input}`);
-                return src === undefined
-                    ? def.defaults[input]!
-                    : convert(src, type, `${id}.${input}`);
+                if (src !== undefined) return convert(src, type, `${id}.${input}`);
+                return input in def.params ? `data.${id}_${input}` : def.defaults[input]!;
             });
-            for (const name of Object.keys(def.params)) args.push(`data.${id}_${name}`);
+            for (const name of Object.keys(def.params))
+                if (!(name in def.inputs)) args.push(`data.${id}_${name}`);
             lines.push(`    let v_${id} = ${def.fn}(${args.join(', ')});`);
         }
         const params = sig.params
             .map((t, k) => `${names[k]}: ${t === POINT_PARAMS ? point.paramsAlias : t}`)
             .join(', ');
-        const ret = convert(output, sig.returns, `retorno de ${sig.name}`);
+        // Retorno alternativo do ponto (spec 011): a saída de um tipo aceito vira o retorno, sem conversão.
+        const outType = typeOf(output);
+        const returns = (sig.alternatives ?? []).map(norm).includes(outType)
+            ? outType
+            : sig.returns;
+        const ret = convert(output, returns, `retorno de ${sig.name}`);
         return [
             `// Grafo de nós (spec 031): ${this.order().length} nós, um 'let' por nó.`,
-            `fn ${sig.name}(${params}) -> ${sig.returns} {`,
+            `fn ${sig.name}(${params}) -> ${returns} {`,
             ...lines,
             `    return ${ret};`,
             '}',

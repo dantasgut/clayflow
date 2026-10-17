@@ -51,6 +51,13 @@ import { ForwardFrameParamsSchema } from '../elements/material/forwardSchemas';
 import { ShadowMap } from '../elements/scene/ShadowMap';
 import { ParticleMaterial } from '../elements/physics/materials/ParticleMaterial';
 import * as Render from '../presentation/flows/renderSchemas';
+import * as bsdfRef from '../elements/material/reference/bsdf';
+import {
+    srgbEncode,
+    tonemapAces,
+    tonemapAgx,
+    tonemapNeutral,
+} from '../elements/material/reference/tonemap';
 import {
     gradientNoise2,
     gradientNoise3,
@@ -304,15 +311,15 @@ const CASES: readonly ReferenceCase[] = [
         tol: 2e-5,
     },
     {
-        name: 'color (exposição, gama, luminância)',
+        name: 'color (gama, luminância)',
         requires: [wgslLib.color],
-        body: 'return vec4f(tonemap_exposure(a.xyz, 1.5).x, gamma_encode(a.xyz, 2.2).y, luminance(a.xyz), 0.0);',
+        body: 'return vec4f(gamma_encode(a.xyz, 2.2).x, gamma_encode(a.xyz, 2.2).y, luminance(a.xyz), 0.0);',
         input: (r) => [
             [r() * 2, r(), r(), 0],
             [0, 0, 0, 0],
         ],
         cpu: (a) => [
-            1 - Math.exp(-a[0] * 1.5),
+            a[0] ** (1 / 2.2),
             a[1] ** (1 / 2.2),
             0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2],
             0,
@@ -320,24 +327,74 @@ const CASES: readonly ReferenceCase[] = [
         tol: 2e-5,
     },
     {
-        name: 'brdf (Lambert com ambiente)',
-        requires: [wgslLib.brdf],
-        body: `let n = normalize(a.xyz);
-            let l = normalize(b.xyz);
-            let ndl = lambert_diffuse(n, l);
-            return vec4f(lambert_lit(vec3f(0.8, 0.5, 0.2), ndl, a.w), ndl);`,
+        // Spec 011: os operadores da apresentação contra a referência de CPU (a cor de entrada em HDR, até 64).
+        name: 'present (AgX, ACES, neutro, sRGB)',
+        requires: [wgslLib.present],
+        body: `let c = a.xyz;
+            return vec4f(tonemap_agx(c).y, tonemap_aces(c).x, tonemap_neutral(c).z, srgb_encode(b.xyz).x);`,
         input: (r) => [
-            [r() - 0.5, r() - 0.5, r() - 0.5, r()],
-            [r() - 0.5, r() - 0.5, r() - 0.5, 0],
+            [Math.pow(2, r() * 12 - 6), Math.pow(2, r() * 12 - 6), Math.pow(2, r() * 12 - 6), 0],
+            [r(), 0, 0, 0],
+        ],
+        cpu: (a, b) => [
+            tonemapAgx([a[0], a[1], a[2]])[1],
+            tonemapAces([a[0], a[1], a[2]])[0],
+            tonemapNeutral([a[0], a[1], a[2]])[2],
+            srgbEncode(b[0]),
+        ],
+        tol: 2e-4,
+    },
+    {
+        // Spec 011: as funções físicas contra a referência de CPU (a = n·h, n·v, n·l, rugosidade; b = cos, espessura).
+        name: 'bsdf (GGX, Smith, F82, Charlie)',
+        requires: [wgslLib.bsdf],
+        body: `let a2 = bsdf_alpha2(a.w);
+            return vec4f(
+                bsdf_d_ggx(a.x, a2),
+                bsdf_v_smith_correlated(a.y, a.z, a2),
+                bsdf_f82(vec3f(0.9, 0.6, 0.3), vec3f(0.5, 0.8, 1.0), b.x).y,
+                bsdf_d_charlie(a.x, max(a.w, 0.2)),
+            );`,
+        input: (r) => [
+            [0.3 + 0.7 * r(), 0.1 + 0.9 * r(), 0.1 + 0.9 * r(), 0.1 + 0.9 * r()],
+            [r(), 0, 0, 0],
         ],
         cpu: (a, b) => {
-            const la = Math.hypot(a[0], a[1], a[2]);
-            const lb = Math.hypot(b[0], b[1], b[2]);
-            const ndl = Math.max((a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb), 0);
-            const k = 0.18 + ndl * 0.82 * a[3];
-            return [k * 0.8, k * 0.5, k * 0.2, ndl];
+            const a2 = bsdfRef.alpha2Of(a[3]);
+            return [
+                bsdfRef.dGgx(a[0], a2),
+                bsdfRef.vSmithCorrelated(a[1], a[2], a2),
+                bsdfRef.f82([0.9, 0.6, 0.3], [0.5, 0.8, 1], b[0])[1],
+                bsdfRef.dCharlie(a[0], Math.max(a[3], 0.2)),
+            ];
         },
-        tol: 2e-5,
+        tol: 2e-3,
+    },
+    {
+        // Spec 011: difuso energético, wrap da subsuperfície, filme fino e Fresnel exato contra a referência de CPU.
+        name: 'bsdf (Oren-Nayar energético, wrap, filme fino, Fresnel)',
+        requires: [wgslLib.bsdf],
+        body: `return vec4f(
+                bsdf_oren_nayar_energy(vec3f(0.8), a.w, a.x, a.y, a.z).x,
+                bsdf_burley_wrap(vec3f(0.9), vec3f(0.5), a.x - 0.3).x,
+                bsdf_thin_film(b.x, 300.0 + 400.0 * b.y, 1.3, vec3f(0.04)).y,
+                bsdf_f_dielectric(b.x, 1.5),
+            );`,
+        input: (r) => {
+            const nl = 0.1 + 0.9 * r();
+            const nv = 0.1 + 0.9 * r();
+            return [
+                [nl, nv, nl * nv - 0.2 * r(), r()],
+                [0.05 + 0.95 * r(), r(), 0, 0],
+            ];
+        },
+        cpu: (a, b) => [
+            bsdfRef.orenNayarEnergy([0.8, 0.8, 0.8], a[3], a[0], a[1], a[2])[0],
+            bsdfRef.burleyWrap([0.9, 0.9, 0.9], [0.5, 0.5, 0.5], a[0] - 0.3)[0],
+            bsdfRef.thinFilm(b[0], 300 + 400 * b[1], 1.3, [0.04, 0.04, 0.04])[1],
+            bsdfRef.fDielectric(b[0], 1.5),
+        ],
+        tol: 2e-3,
     },
     {
         // Spec 007: projeções do estágio de câmera (clip z em [0, 1]).

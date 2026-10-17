@@ -38,7 +38,9 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
     readonly type = 'UIFlow';
     readonly slots = slots;
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
-    override readonly pipelines: readonly PipelineDescriptor[];
+    /** Pipeline preparado para o formato atual do canvas (muda com a saída HDR, spec 011). */
+    private pipelineId = '';
+    private readonly prepared = new Set<string>();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<UISlots>>;
 
@@ -52,32 +54,6 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
         this.core = ctx.core;
         this.gpu = new UiGpuPipeline(ctx.core);
         this.bindings = this.gpu.sources();
-        this.pipelines = [
-            {
-                id: PIPELINE,
-                role: 'render',
-                shader: ui,
-                entryPoints: ['vs_main', 'fs_main'],
-                topology: 'triangle-list',
-                colorTargets: [
-                    {
-                        format: ctx.core.canvasFormat,
-                        blend: {
-                            color: {
-                                srcFactor: 'src-alpha',
-                                dstFactor: 'one-minus-src-alpha',
-                                operation: 'add',
-                            },
-                            alpha: {
-                                srcFactor: 'one',
-                                dstFactor: 'one-minus-src-alpha',
-                                operation: 'add',
-                            },
-                        },
-                    },
-                ],
-            },
-        ];
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -114,7 +90,7 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<UISlots>): void {
         const count = this.gpu.quadCount;
         const canvas = this.colorView(frame, bound.slots.target);
-        const prepared = bound.pipelines.get(PIPELINE);
+        const prepared = bound.pipelines.get(this.pipelineId);
         if (count === 0 || canvas === undefined || prepared?.role !== 'render' || !prepared.ready)
             return;
         const target: RenderTarget = {
@@ -132,8 +108,47 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
         this.gpu.dispose();
     }
 
-    /** Antes da gravação: atlas novo religado, árvore achatada e enviada. */
+    /** Quads de UI desenhados por cima no canvas, no formato atual dele. */
+    private descriptor(format: GPUTextureFormat): PipelineDescriptor {
+        return {
+            id: `${PIPELINE}:${format}`,
+            role: 'render',
+            shader: ui,
+            entryPoints: ['vs_main', 'fs_main'],
+            topology: 'triangle-list',
+            colorTargets: [
+                {
+                    format,
+                    blend: {
+                        color: {
+                            srcFactor: 'src-alpha',
+                            dstFactor: 'one-minus-src-alpha',
+                            operation: 'add',
+                        },
+                        alpha: {
+                            srcFactor: 'one',
+                            dstFactor: 'one-minus-src-alpha',
+                            operation: 'add',
+                        },
+                    },
+                },
+            ],
+        };
+    }
+
+    /**
+     * Antes da gravação: o pipeline do formato atual do canvas (preparado uma vez por formato), atlas novo religado,
+     * árvore achatada e enviada.
+     */
     private prepare(ctx: Ctx): void {
+        const id = `${PIPELINE}:${this.core.canvasFormat}`;
+        if (id !== this.pipelineId) {
+            if (!this.prepared.has(id)) {
+                ctx.prepare(this.descriptor(this.core.canvasFormat));
+                this.prepared.add(id);
+            }
+            this.pipelineId = id;
+        }
         const atlas = this.gpu.takeAtlasChange();
         if (atlas !== undefined) ctx.bind(new Map([[uiResources.atlas, atlas]]));
         const quads = this.tree.root.children.length === 0 ? [] : this.flattener.flatten(this.tree);

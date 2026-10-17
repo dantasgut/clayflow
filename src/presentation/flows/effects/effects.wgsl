@@ -1,24 +1,6 @@
-// Pós-processamento. Struct `EffectParams` gerado do schema (`p0 = strength, aux0, aux1, aux2`).
-
-struct VsOut {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_fullscreen(@builtin(vertex_index) vid: u32) -> VsOut {
-    var out: VsOut;
-    let x = f32((vid << 1u) & 2u);
-    let y = f32(vid & 2u);
-    out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    out.uv = vec2<f32>(x, y);
-    return out;
-}
-
-@fragment
-fn fs_passthrough(in: VsOut) -> @location(0) vec4<f32> {
-    return textureSample(src_tex, src_smp, in.uv);
-}
+// Pós-processamento em HDR (spec 011): os efeitos leem e escrevem a cor linear em `rgba16float`, sem corte em [0, 1];
+// a apresentação (`present_*`) é o último passe. Struct `EffectParams` gerado do schema
+// (`p0 = strength, aux0, aux1, aux2`); `VsOut` e `vs_fullscreen` vêm do módulo `fullscreen`.
 
 @fragment
 fn fs_vignette(in: VsOut) -> @location(0) vec4<f32> {
@@ -38,14 +20,6 @@ fn fs_fxaa(in: VsOut) -> @location(0) vec4<f32> {
     let cc = textureSample(src_tex, src_smp, in.uv).rgb;
     let avg = (nw + ne + sw + se + cc) * 0.2;
     return vec4<f32>(mix(cc, avg, params.p0.x), 1.0);
-}
-
-@fragment
-fn fs_tonemap(in: VsOut) -> @location(0) vec4<f32> {
-    let c = textureSample(src_tex, src_smp, in.uv).rgb;
-    let exposure = params.p0.x;
-    let mapped = tonemap_exposure(c, exposure);
-    return vec4<f32>(mapped, 1.0);
 }
 
 @fragment
@@ -95,11 +69,11 @@ fn fs_chromatic(in: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_color_grading(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(src_tex, src_smp, in.uv).rgb;
-    // p0 = (strength, lift, gain, gamma) — `ColorGrading` em vocabulário de domínio.
+    // p0 = (strength, lift, gain, gamma) — `ColorGrading` em vocabulário de domínio. Sem teto: o HDR passa inteiro.
     let lift = params.p0.y;
     let gain = params.p0.z;
     let gamma = max(params.p0.w, 0.01);
-    let graded = gamma_encode(clamp((c - lift) * gain, vec3<f32>(0.0), vec3<f32>(1.0)), gamma);
+    let graded = gamma_encode(max((c - lift) * gain, vec3<f32>(0.0)), gamma);
     return vec4<f32>(mix(c, graded, params.p0.x), 1.0);
 }
 

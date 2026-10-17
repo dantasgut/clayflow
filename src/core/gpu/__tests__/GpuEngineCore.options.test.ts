@@ -29,9 +29,19 @@ function installGpu() {
     return { requestAdapter };
 }
 
-function fakeCanvas() {
-    const configure = vi.fn();
-    const ctx = { configure, unconfigure: vi.fn() };
+function fakeCanvas(extendedSupported = true) {
+    let last: GPUCanvasConfiguration | undefined;
+    const configure = vi.fn((c: GPUCanvasConfiguration) => {
+        last = c;
+    });
+    // `getConfiguration` devolve o que valeu: sem suporte, o navegador descarta o `toneMapping`.
+    const getConfiguration = () =>
+        last === undefined
+            ? null
+            : extendedSupported
+              ? last
+              : { ...last, toneMapping: { mode: 'standard' as const } };
+    const ctx = { configure, unconfigure: vi.fn(), getConfiguration };
     const canvas = document.createElement('canvas');
     canvas.getContext = vi.fn(() => ctx) as unknown as typeof canvas.getContext;
     return { canvas, configure };
@@ -80,6 +90,39 @@ describe('GpuEngineCore — opções de canvas e de device preservadas', () => {
         core.reconfigureCanvas({ alphaMode: 'premultiplied' });
         core.reconfigureCanvas();
         expect(configure.mock.calls.at(-1)![0]).toMatchObject({ alphaMode: 'premultiplied' });
+    });
+
+    it('saída HDR: rgba16float com toneMapping extended quando a tela suporta', async () => {
+        installGpu();
+        const { canvas, configure } = fakeCanvas(true);
+        const core = new GpuEngineCore();
+        await core.initialize(canvas, { toneMapping: 'extended', format: 'rgba16float' });
+        expect(configure.mock.calls.at(-1)![0]).toMatchObject({
+            format: 'rgba16float',
+            toneMapping: { mode: 'extended' },
+        });
+        expect(core.canvasFormat).toBe('rgba16float');
+        expect(core.canvasOutput).toEqual({ format: 'rgba16float', toneMapping: 'extended' });
+    });
+
+    it('saída HDR sem suporte: volta ao formato preferido e a standard', async () => {
+        installGpu();
+        const { canvas, configure } = fakeCanvas(false);
+        const core = new GpuEngineCore();
+        await core.initialize(canvas, { toneMapping: 'extended', format: 'rgba16float' });
+        expect(configure).toHaveBeenCalledTimes(2);
+        expect(configure.mock.calls[1]![0]).toMatchObject({ format: 'bgra8unorm' });
+        expect(configure.mock.calls[1]![0]).not.toHaveProperty('toneMapping');
+        expect(core.canvasOutput).toEqual({ format: 'bgra8unorm', toneMapping: 'standard' });
+    });
+
+    it('reconfigurar de volta ao padrão restaura o formato preferido', async () => {
+        installGpu();
+        const { canvas } = fakeCanvas(true);
+        const core = new GpuEngineCore();
+        await core.initialize(canvas, { toneMapping: 'extended', format: 'rgba16float' });
+        core.reconfigureCanvas({});
+        expect(core.canvasOutput).toEqual({ format: 'bgra8unorm', toneMapping: 'standard' });
     });
 
     it('capabilities() antes de initialize lança', () => {

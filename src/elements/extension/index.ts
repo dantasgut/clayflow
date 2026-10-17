@@ -5,3 +5,4 @@ export { EmitFunction } from './EmitFunction';
 export { SurfaceFunction } from './SurfaceFunction';
 export { SpaceFunction } from './SpaceFunction';
 export { MaterialFunction } from './MaterialFunction';
+export type { MaterialFunctionOptions } from './MaterialFunction';

@@ -15,6 +15,8 @@ import lcpStateSource from '../wgsl/math/lcp_state.wgsl?raw';
 import femSource from '../wgsl/math/fem.wgsl?raw';
 import noiseSource from '../wgsl/math/noise.wgsl?raw';
 import colorSource from '../wgsl/math/color.wgsl?raw';
+import presentSource from '../wgsl/math/present.wgsl?raw';
+import bsdfSource from '../wgsl/math/bsdf.wgsl?raw';
 import brdfSource from '../wgsl/math/brdf.wgsl?raw';
 import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
 import cameraSource from '../wgsl/math/camera.wgsl?raw';
@@ -141,5 +143,14 @@ export const noise = wgslModule({ name: 'noise', source: noiseSource });
 /** Cor: exposição, codificação gama, luminância. */
 export const color = wgslModule({ name: 'color', source: colorSource });
 
-/** Iluminação: Lambert com ambiente e sombra por PCF 3×3. */
+/** Apresentação (spec 011): AgX, ACES, neutro, sRGB (padrão e estendido) e pontilhamento. */
+export const present = wgslModule({ name: 'present', source: presentSource });
+
+/**
+ * Funções físicas de espalhamento (spec 011): GGX iso/aniso, Smith correlacionado, Schlick, F82, Fresnel dielétrico
+ * exato, Oren-Nayar energético, sheen, wrap da subsuperfície, filme fino, serrilhado especular e multiespalhamento.
+ */
+export const bsdf = wgslModule({ name: 'bsdf', source: bsdfSource });
+
+/** Sombra por PCF 3×3 (o sombreamento físico está em `bsdf` e no fechamento, spec 011). */
 export const brdf = wgslModule({ name: 'brdf', source: brdfSource });

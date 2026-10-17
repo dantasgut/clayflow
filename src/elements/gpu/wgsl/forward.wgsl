@@ -1,10 +1,10 @@
 // Desenho forward. Structs `CameraMatrices`, `WorldTransform`, `Renderable`, `RenderInstance`, `SurfaceDiff`,
 // `StandardMaterial` e `ForwardFrameParams` gerados dos schemas; os recursos (câmeras, mundo, registros, instâncias,
 // geometria diferencial, material, parâmetros do quadro) são declarados pelo módulo (spec 031). Projeção pelo ponto
-// `camera_clip` (pronta: `viewProjection`; spec 009); parâmetros de superfície pelo ponto `material_eval` (pronto: as
-// constantes). A luz chega pelos pontos de cena (spec 031): `scene_light_direction` (pronta: a direção padrão),
-// `light_visibility` (pronta: 1 — sem sombra) e `light_transmission` (pronta: ambiente + direta) — a luz que projeta sombra
-// e a água contribuem sem o desenho conhecê-las.
+// `camera_clip` (pronta: `viewProjection`; spec 009); o fechamento de espalhamento pelo ponto `material_eval` (pronto: o
+// das constantes do material; spec 011). A luz chega pelo ponto de cena `scene_lighting` (spec 011): as luzes do pool,
+// o hemisfério, a sombra e a água contribuem sem o desenho conhecê-los. Sombreamento físico em HDR: a cor sai linear,
+// sem corte (a apresentação mapeia).
 
 struct VsIn {
     @location(0) position: vec3<f32>,
@@ -24,6 +24,8 @@ struct VsOut {
     @location(5) metric: vec3<f32>,
     @location(6) curvature: vec4<f32>,
     @location(7) principal: vec3<f32>,
+    // Origem do objeto em mundo (spec 011: a corda dos transmissivos convexos simétricos em torno dela).
+    @location(8) @interpolate(flat) origin: vec3<f32>,
 }
 
 @vertex
@@ -42,6 +44,7 @@ fn vs_main(
     out.material_slot = r.materialSlot;
     out.uv = in.uv;
     out.fn_slot = r.fnSlot;
+    out.origin = w.world[3].xyz;
     if (r.diffSlot != NONE) {
         let d = surface_diff[r.diffSlot + vertex];
         out.metric = d.metric.xyz;
@@ -52,11 +55,19 @@ fn vs_main(
     return out;
 }
 
+// Direção para o observador no ponto `p`: da posição da câmera (perspectiva) ou o eixo da vista (ortográfica).
+fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {
+    let axis = vec3f(cam.view[0].z, cam.view[1].z, cam.view[2].z);
+    return select(normalize(cam.position.xyz - p), normalize(axis), cam.projection[3].w == 1.0);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let material = materials[in.material_slot];
     let n = normalize(in.world_normal);
-    // Parâmetros de superfície pelo ponto `material` (spec 009; pronto: as constantes do material, sem emissão).
+    // Variância da normal na tela (controle de serrilhado especular) em fluxo uniforme, antes de qualquer ramo.
+    let variance = bsdf_normal_variance(n);
+    // Fechamento pelo ponto `material` (spec 009/011; pronto: o das constantes do material).
     let sample = SurfaceSample(
         in.world_position,
         n,
@@ -66,13 +77,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         in.curvature,
         in.principal,
     );
-    let surface = material_eval(sample, material, in.fn_slot);
-    let albedo = surface.base_color;
-    let l = normalize(-scene_light_direction());
-    let n_dot_l = lambert_diffuse(n, l);
-    let shadow_factor = light_visibility(in.world_position, n_dot_l);
-    var color = light_transmission(in.world_position, BRDF_AMBIENT, n_dot_l * BRDF_DIFFUSE * shadow_factor)
-        * albedo.rgb;
-    if (any(surface.emissive != vec3f(0.0))) { color += surface.emissive; }
-    return vec4<f32>(color, albedo.a);
+    let c = closure_specular_aa(material_eval(sample, material, in.fn_slot), variance);
+    let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
+    let color = scene_lighting(c, in.world_position, n, v) + closure_emitted(c, n, v);
+    return vec4<f32>(color, c.opacity);
 }

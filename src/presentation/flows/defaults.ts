@@ -13,6 +13,10 @@ import { ShadowMatrixFlow } from '../../elements/scene/flows/ShadowMatrixFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
 import { WaterSurface } from '../app/WaterSurface';
+import { ToneMapping } from '../resources/ToneMapping';
+import { PbrTables } from '../../elements/material/pbr/PbrTables';
+import { PbrTablesFlow } from '../../elements/material/pbr/PbrTablesFlow';
+import { HemisphereLight } from '../../elements/scene/HemisphereLight';
 import { FluidSurfaceFlow } from './FluidSurfaceFlow';
 import { CausticsFlow } from './CausticsFlow';
 import { WaterFlow } from './WaterFlow';
@@ -62,6 +66,18 @@ export interface PresentationDefaults {
     readonly ui: UIFlow;
     /** Debug overlay — emite profilerStats event quando habilitado. */
     readonly debug: DebugFlow;
+    /**
+     * Apresentação da cena (spec 011): exposição, mapeamento de tons e saída — ajuste em `data`
+     * (`defaults.presentation.data.exposure = 1`).
+     */
+    readonly presentation: ToneMapping;
+    /**
+     * Luz ambiente da cena (spec 011): o hemisfério céu/chão no lugar da constante escondida — ajuste em `data`
+     * (`defaults.ambient.data.intensity = 0.5`) ou remova do World (só as luzes diretas iluminam).
+     */
+    readonly ambient: HemisphereLight;
+    /** Alvos HDR da cena (cor, amostras, profundidade e a cópia com mips). */
+    readonly targets: FrameTargets;
 }
 
 /** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
@@ -70,6 +86,9 @@ interface RegisteredDefaults {
     readonly registrations: readonly FlowRegistration[];
     readonly frameTargets: FrameTargets;
     readonly waterSurface: WaterSurface;
+    readonly presentation: ToneMapping;
+    readonly pbrTables: PbrTables;
+    readonly ambient: HemisphereLight;
     readonly world: World;
     users: number;
 }
@@ -104,12 +123,30 @@ export function registerPresentationDefaults(
     // Superfície de água (spec 017): texturas sob demanda, alocadas só quando entra água.
     const waterSurface = new WaterSurface();
     options.world.insert(waterSurface);
-    const { defaults, registrations } = createPresentationDefaults(flows);
+    // Apresentação (spec 011): o último passo do quadro, lido pelo pós pelo slot.
+    const presentation = new ToneMapping();
+    options.world.insert(presentation);
+    // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
+    const pbrTables = new PbrTables();
+    options.world.insert(pbrTables);
+    // Luz ambiente de hemisfério (spec 011): no lugar da constante 0,18 do desenho Lambert.
+    const ambient = new HemisphereLight();
+    options.world.insert(ambient);
+    const { flows: stages, registrations } = createPresentationDefaults(flows);
+    const defaults: PresentationDefaults = {
+        ...stages,
+        presentation,
+        ambient,
+        targets: frameTargets,
+    };
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
         registrations,
         frameTargets,
         waterSurface,
+        presentation,
+        pbrTables,
+        ambient,
         world: options.world,
         users: 1,
     });
@@ -127,13 +164,16 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
     for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
+    entry.world.remove(entry.ambient);
+    entry.world.remove(entry.pbrTables);
+    entry.world.remove(entry.presentation);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.frameTargets);
     return true;
 }
 
 function createPresentationDefaults(flows: FlowRegistry): {
-    defaults: PresentationDefaults;
+    flows: Omit<PresentationDefaults, 'presentation' | 'ambient' | 'targets'>;
     registrations: readonly FlowRegistration[];
 } {
     const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {
@@ -141,6 +181,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
     });
     const transform = transformRegistration.flow!;
+    // Tabelas do sombreamento físico antes de tudo (mesma fase, prioridade maior): integradas uma vez.
+    const pbrTablesRegistration = flows.register(() => new PbrTablesFlow(), {
+        type: 'pbrTables',
+        phase: 'transform',
+        priority: 10,
+    });
     // Câmera depois da composição dos Transform (mesma fase, prioridade menor): lê a matriz de mundo da câmera.
     const cameraRegistration = flows.register((ctx) => new CameraFlow(ctx), {
         type: 'camera',
@@ -233,7 +279,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
-        defaults: {
+        flows: {
             transform,
             camera: cameraRegistration.flow!,
             shadowMatrix: shadowMatrixRegistration.flow!,
@@ -250,6 +296,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
         },
         registrations: [
             transformRegistration,
+            pbrTablesRegistration,
             cameraRegistration,
             shadowMatrixRegistration,
             softSurfaceRegistration,

@@ -108,6 +108,8 @@ export function countingCore(): {
         shutdown: vi.fn(),
         memoryUsage: vi.fn(() => ({ bufferBytes: 0, textureBytes: 0, totalBytes: 0, top: [] })),
         canvasFormat: 'bgra8unorm',
+        canvasOutput: { format: 'bgra8unorm', toneMapping: 'standard' },
+        canvasOptions: {},
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),

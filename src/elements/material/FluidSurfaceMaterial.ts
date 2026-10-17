@@ -9,13 +9,16 @@ export interface FluidSurfaceMaterialData {
     color: number[];
     /** Absorção por metro em cada canal (`rgb`; `w` sem uso): a luz transmitida cai como `exp(−absorção · espessura)`. */
     absorption: number[];
-    /** Cor refletida pela superfície (ambiente/céu até a iluminação de ambiente da F4), RGBA linear. */
+    /**
+     * @deprecated Spec 011: a superfície reflete o hemisfério e as luzes da cena (`HemisphereLight`), não uma cor
+     * constante. Ignorado pelo desenho.
+     */
     ambient: number[];
-    /** Índice de refração (Fresnel, refração na tela e nas cáusticas). */
+    /** Índice de refração (Fresnel exato, especular, refração na tela e nas cáusticas). */
     ior: number;
-    /** Escala da parcela refletida. */
+    /** @deprecated Spec 011: a parcela refletida é a do Fresnel físico. Ignorado pelo desenho. */
     reflectivity: number;
-    /** Expoente do brilho especular. */
+    /** @deprecated Spec 011: use `roughness` (convertido na construção quando `roughness` não vem). */
     shininess: number;
     /** Raio da esfera de cada partícula em mundo; 0 = automático (0,6 × espaçamento do `ParticleMaterial`). */
     particleRadius: number;
@@ -40,8 +43,8 @@ export interface FluidSurfaceMaterialData {
     rippleSize: number;
     /** Escala da velocidade das ondulações (1 = dispersão de águas profundas). */
     rippleSpeed: number;
-    /** Preenchimento do layout. */
-    _pad0: number;
+    /** Rugosidade do especular da superfície (GGX, spec 011): 0,02 = água calma. */
+    roughness: number;
     /** Preenchimento do layout. */
     _pad1: number;
     /** Preenchimento do layout. */
@@ -52,23 +55,38 @@ export interface FluidSurfaceMaterialData {
 export interface FluidSurfaceMaterialOptions extends Partial<
     Omit<
         FluidSurfaceMaterialData,
-        'caustics' | 'color' | 'absorption' | 'ambient' | '_pad0' | '_pad1' | '_pad2'
+        'caustics' | 'color' | 'absorption' | 'ambient' | '_pad1' | '_pad2'
     >
 > {
     /** Cor da dispersão interna, RGBA linear. */
     readonly color?: readonly number[];
     /** Absorção por metro (rgb). */
     readonly absorption?: readonly number[];
-    /** Cor refletida, RGBA linear. */
+    /** @deprecated Spec 011: a superfície reflete o hemisfério e as luzes da cena. */
     readonly ambient?: readonly number[];
     /** Cáusticas ligadas. Padrão `true`. */
     readonly caustics?: boolean;
 }
 
+/** Campos obsoletos já avisados (aviso único por campo). */
+const warnedObsolete = new Set<string>();
+
+/** Avisa uma vez por campo obsoleto (spec 011) usado nas opções. */
+function warnObsolete(options: FluidSurfaceMaterialOptions): void {
+    for (const field of ['ambient', 'reflectivity', 'shininess'] as const) {
+        if (options[field] === undefined || warnedObsolete.has(field)) continue;
+        warnedObsolete.add(field);
+        console.warn(
+            `[FluidSurfaceMaterial] '${field}' está obsoleto (spec 011): a água reflete as luzes e o hemisfério da cena com Fresnel físico${field === 'shininess' ? '; convertido em `roughness`' : ''}.`,
+        );
+    }
+}
+
 /**
  * Material de água (spec 017) para corpos de partículas (`FluidBody`, e também `SoftBody`): o corpo é desenhado como uma
- * superfície contínua — não como esferas — com refração do que está atrás, absorção pela espessura, reflexão com
- * Fresnel e, sob a luz que projeta sombra, cáusticas no fundo e nos objetos submersos.
+ * superfície contínua — não como esferas — com refração do que está atrás, absorção pela espessura (Beer-Lambert), a
+ * superfície como dielétrico físico (Fresnel exato pelo IOR, especular GGX com `roughness`, refletindo as luzes e o
+ * hemisfério em HDR) e, sob a luz que projeta sombra, cáusticas no fundo e nos objetos submersos.
  *
  * Desenhado pelos estágios da água (`FluidSurfaceFlow`, `CausticsFlow`, `WaterFlow`); não tem shader de forward (numa
  * `Geometry`, não é desenhado) e não projeta sombra: a água atenua a luz que passa, não a bloqueia.
@@ -83,6 +101,13 @@ export class FluidSurfaceMaterial extends Material<FluidSurfaceMaterialData> {
         super();
         const ior = options.ior ?? 1.333;
         if (!(ior >= 1)) throw new Error(`FluidSurfaceMaterial: ior deve ser ≥ 1 (recebeu ${ior})`);
+        warnObsolete(options);
+        // `shininess` (Blinn-Phong) → rugosidade equivalente do GGX: α = √(2 / (s + 2)), rugosidade = √α.
+        const roughness =
+            options.roughness
+            ?? (options.shininess !== undefined
+                ? Math.sqrt(Math.sqrt(2 / (Math.max(options.shininess, 0) + 2)))
+                : 0.02);
         this.data = {
             color: vec4('color', options.color ?? [0.1, 0.45, 0.6, 1]),
             absorption: vec4('absorption', options.absorption ?? [0.45, 0.09, 0.06, 0], true),
@@ -100,7 +125,7 @@ export class FluidSurfaceMaterial extends Material<FluidSurfaceMaterialData> {
             rippleStrength: nonNegative('rippleStrength', options.rippleStrength ?? 0.3),
             rippleSize: positive('rippleSize', options.rippleSize ?? 0.06),
             rippleSpeed: nonNegative('rippleSpeed', options.rippleSpeed ?? 1),
-            _pad0: 0,
+            roughness: Math.min(nonNegative('roughness', roughness), 1),
             _pad1: 0,
             _pad2: 0,
         };

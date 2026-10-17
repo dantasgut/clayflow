@@ -28,7 +28,11 @@ export interface NodeDefinitionOptions {
      * e os tipos das saídas.
      */
     readonly outputs: Readonly<Record<string, PortType>>;
-    /** Parâmetros: nome → tipo e padrão; entram na função depois das entradas, na ordem declarada. */
+    /**
+     * Parâmetros: nome → tipo e padrão; entram na função depois das entradas, na ordem declarada. Um parâmetro com o
+     * nome de uma entrada é o **valor da entrada** (spec 011, como no Blender): sem ligação, a entrada usa o parâmetro
+     * (muda sem recompilar, exponível num sub-grafo); ligada, a ligação. Esse parâmetro não é argumento extra da função.
+     */
     readonly params?: Readonly<Record<string, NodeParam>>;
     /** Expressão WGSL de uma entrada sem ligação (ex.: `'0.0'`); entrada sem ligação nem padrão é erro. */
     readonly defaults?: Readonly<Record<string, string>>;
@@ -38,6 +42,12 @@ export interface NodeDefinitionOptions {
     readonly fn: string;
     /** Estágios em que o nó vale (padrão: todos). Ex.: derivadas de tela só em `fragment`. */
     readonly contexts?: readonly NodeContext[];
+    /**
+     * Marcas livres do nó (spec 011), unidas pela compilação do grafo (`NodeGraph.tags()`): quem consome o grafo decide
+     * o que significam — ex.: os lobos de espalhamento que um nó de material produz, para especializar o shader. O núcleo
+     * do grafo não interpreta.
+     */
+    readonly tags?: readonly string[];
 }
 
 /** Definição de um nó de ponto (imutável): portas, parâmetros, código. */
@@ -52,6 +62,8 @@ export interface NodeDefinition {
     readonly code: WgslModule;
     readonly fn: string;
     readonly contexts: readonly NodeContext[];
+    /** Marcas livres do nó (ver `NodeDefinitionOptions.tags`). */
+    readonly tags: readonly string[];
     /** Uso do nó com valores de parâmetros próprios (o código é o mesmo). */
     with(values: Readonly<Record<string, ExtensionParamValue>>): NodeUse;
 }
@@ -102,9 +114,15 @@ export function defineNode(options: NodeDefinitionOptions): NodeDefinition {
     if (Object.keys(outputs).length === 0) fail('nenhuma saída');
     const fn = parseWgslFunctions(options.code.source).get(options.fn);
     if (fn === undefined) fail(`função '${options.fn}' não está no módulo '${options.code.name}'`);
-    const expected = [...Object.values(inputs), ...Object.values(params).map((p) => p.type)].map(
-        norm,
-    );
+    for (const [name, p] of Object.entries(params))
+        if (name in inputs && norm(inputs[name]!) !== norm(p.type))
+            fail(`o valor da entrada '${name}' é '${p.type}'; a entrada é '${inputs[name]}'`);
+    const expected = [
+        ...Object.values(inputs),
+        ...Object.entries(params)
+            .filter(([name]) => !(name in inputs))
+            .map(([, p]) => p.type),
+    ].map(norm);
     if (fn!.params.length !== expected.length || fn!.params.some((t, k) => t !== expected[k])) {
         fail(
             `'${options.fn}' recebe (${fn!.params.join(', ')}); as portas pedem (${expected.join(', ')})`,
@@ -135,6 +153,7 @@ export function defineNode(options: NodeDefinitionOptions): NodeDefinition {
         code: options.code,
         fn: options.fn,
         contexts: Object.freeze([...(options.contexts ?? ['fragment', 'vertex', 'compute'])]),
+        tags: Object.freeze([...new Set(options.tags ?? [])]),
         with(values: Readonly<Record<string, ExtensionParamValue>>): NodeUse {
             for (const k of Object.keys(values))
                 if (!(k in params)) fail(`valor para parâmetro desconhecido '${k}'`);

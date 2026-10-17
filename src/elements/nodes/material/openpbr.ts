@@ -1,0 +1,183 @@
+import { NodeGraph } from '../../../scene/graph/NodeGraph';
+import { Subgraph } from '../../../scene/graph/Subgraph';
+import { bsdf } from '../bsdf';
+import { closure } from '../closure';
+import { math } from '../math';
+
+// OpenPBR Surface 1.1 como sub-grafo (spec 011, R5): um grupo de nós pronto sobre os nós de espalhamento e de
+// composição — não o modelo do motor. Os parâmetros da norma são expostos com os nomes dela; usado inteiro, decomposto
+// ou como nó de outro grafo.
+
+const f = (value: number) => math.value.with({ value });
+const v3 = (value: readonly [number, number, number]) => math.value3.with({ value: [...value] });
+
+/**
+ * O grafo do OpenPBR: base dielétrica (especular sobre a mistura de difuso, subsuperfície e transmissão — ou a parede
+ * fina) misturada ao condutor pela metalicidade; filme fino; verniz em camada; fuzz (sheen) por cima; emissão; opacidade.
+ */
+function openPbrGraph(): NodeGraph {
+    return new NodeGraph({
+        nodes: {
+            base_weight: f(1),
+            base_color: v3([0.8, 0.8, 0.8]),
+            base_metalness: f(0),
+            specular_weight: f(1),
+            specular_color: v3([1, 1, 1]),
+            specular_roughness: f(0.3),
+            specular_ior: f(1.5),
+            specular_anisotropy: f(0),
+            transmission_weight: f(0),
+            transmission_color: v3([1, 1, 1]),
+            transmission_depth: f(0),
+            transmission_abbe: f(0),
+            subsurface_weight: f(0),
+            subsurface_color: v3([0.8, 0.8, 0.8]),
+            subsurface_radius: v3([1, 0.5, 0.25]),
+            coat_weight: f(0),
+            coat_color: v3([1, 1, 1]),
+            coat_roughness: f(0),
+            coat_ior: f(1.6),
+            fuzz_weight: f(0),
+            fuzz_color: v3([1, 1, 1]),
+            fuzz_roughness: f(0.5),
+            thin_film_weight: f(0),
+            thin_film_thickness: f(500),
+            thin_film_ior: f(1.4),
+            emission_luminance: f(0),
+            emission_color: v3([1, 1, 1]),
+            geometry_opacity: f(1),
+            geometry_thin_walled: f(0),
+            albedo: math.scale3,
+            tint: math.scale3,
+            diffuse: bsdf.diffuse.with({ roughness: 0 }),
+            subsurface: bsdf.subsurface,
+            transmission: bsdf.transmission,
+            thin: bsdf.translucent,
+            through: closure.mix,
+            scatter: closure.mix,
+            under: closure.mix,
+            dielectric: bsdf.dielectric,
+            dielectric_base: closure.add,
+            conductor: bsdf.conductor,
+            base: closure.mix,
+            filmed: closure.thinFilm,
+            film: closure.mix,
+            coat_top: bsdf.dielectric.with({ tint: [1, 1, 1], anisotropy: 0 }),
+            coated: closure.layer,
+            fuzz: bsdf.sheen,
+            fuzz_add: closure.add,
+            fuzzed: closure.mix,
+            emission: bsdf.emission,
+            emitted: closure.add,
+            out: closure.opacity,
+        },
+        links: [
+            ['base_color.value', 'albedo.v'],
+            ['base_weight.value', 'albedo.s'],
+            ['specular_color.value', 'tint.v'],
+            ['specular_weight.value', 'tint.s'],
+            ['albedo.value', 'diffuse.color'],
+            ['subsurface_color.value', 'subsurface.color'],
+            ['subsurface_radius.value', 'subsurface.radius'],
+            ['specular_ior.value', 'transmission.ior'],
+            ['transmission_color.value', 'transmission.color'],
+            ['transmission_depth.value', 'transmission.depth'],
+            ['transmission_abbe.value', 'transmission.abbe'],
+            ['specular_roughness.value', 'transmission.roughness'],
+            ['transmission_color.value', 'thin.color'],
+            ['transmission.value', 'through.a'],
+            ['thin.value', 'through.b'],
+            ['geometry_thin_walled.value', 'through.t'],
+            ['diffuse.value', 'scatter.a'],
+            ['subsurface.value', 'scatter.b'],
+            ['subsurface_weight.value', 'scatter.t'],
+            ['scatter.value', 'under.a'],
+            ['through.value', 'under.b'],
+            ['transmission_weight.value', 'under.t'],
+            ['specular_ior.value', 'dielectric.ior'],
+            ['tint.value', 'dielectric.tint'],
+            ['specular_roughness.value', 'dielectric.roughness'],
+            ['specular_anisotropy.value', 'dielectric.anisotropy'],
+            ['dielectric.value', 'dielectric_base.a'],
+            ['under.value', 'dielectric_base.b'],
+            ['albedo.value', 'conductor.color'],
+            ['tint.value', 'conductor.edge_tint'],
+            ['specular_roughness.value', 'conductor.roughness'],
+            ['specular_anisotropy.value', 'conductor.anisotropy'],
+            ['dielectric_base.value', 'base.a'],
+            ['conductor.value', 'base.b'],
+            ['base_metalness.value', 'base.t'],
+            ['base.value', 'filmed.c'],
+            ['thin_film_thickness.value', 'filmed.thickness'],
+            ['thin_film_ior.value', 'filmed.ior'],
+            ['base.value', 'film.a'],
+            ['filmed.value', 'film.b'],
+            ['thin_film_weight.value', 'film.t'],
+            ['coat_ior.value', 'coat_top.ior'],
+            ['coat_roughness.value', 'coat_top.roughness'],
+            ['coat_top.value', 'coated.top'],
+            ['film.value', 'coated.base'],
+            ['coat_color.value', 'coated.top_color'],
+            ['coat_weight.value', 'coated.top_weight'],
+            ['fuzz_color.value', 'fuzz.color'],
+            ['fuzz_roughness.value', 'fuzz.roughness'],
+            ['coated.value', 'fuzz_add.a'],
+            ['fuzz.value', 'fuzz_add.b'],
+            ['coated.value', 'fuzzed.a'],
+            ['fuzz_add.value', 'fuzzed.b'],
+            ['fuzz_weight.value', 'fuzzed.t'],
+            ['emission_color.value', 'emission.color'],
+            ['emission_luminance.value', 'emission.luminance'],
+            ['fuzzed.value', 'emitted.a'],
+            ['emission.value', 'emitted.b'],
+            ['emitted.value', 'out.c'],
+            ['geometry_opacity.value', 'out.alpha'],
+        ],
+        output: 'out.value',
+    });
+}
+
+/** Parâmetros expostos: cada nó de valor com o nome da norma OpenPBR 1.1 (e a rugosidade difusa no nó difuso). */
+const EXPOSED: readonly (readonly [string, string])[] = [
+    ...[
+        'base_weight',
+        'base_color',
+        'base_metalness',
+        'specular_weight',
+        'specular_color',
+        'specular_roughness',
+        'specular_ior',
+        'specular_anisotropy',
+        'transmission_weight',
+        'transmission_color',
+        'transmission_depth',
+        'transmission_abbe',
+        'subsurface_weight',
+        'subsurface_color',
+        'subsurface_radius',
+        'coat_weight',
+        'coat_color',
+        'coat_roughness',
+        'coat_ior',
+        'fuzz_weight',
+        'fuzz_color',
+        'fuzz_roughness',
+        'thin_film_weight',
+        'thin_film_thickness',
+        'thin_film_ior',
+        'emission_luminance',
+        'emission_color',
+        'geometry_opacity',
+        'geometry_thin_walled',
+    ].map((name) => [`${name}.value`, name] as const),
+    ['diffuse.roughness', 'base_diffuse_roughness'],
+];
+
+/**
+ * `material.openpbr` — o OpenPBR Surface 1.1 como nó (sem entradas; os parâmetros da norma com valor por uso):
+ * `nodes.material.openpbr.with({ base_metalness: 0.9, coat_weight: 1, coat_roughness: 0.03 })`. Devolve o fechamento.
+ */
+export const openpbr = Subgraph.point(openPbrGraph(), {
+    name: 'material.openpbr',
+    expose: EXPOSED,
+});

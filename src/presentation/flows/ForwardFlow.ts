@@ -5,8 +5,12 @@ import type {
     Frame,
     IndexBufferSpec,
     IndirectBufferSpec,
+    RenderPass,
     RenderTarget,
+    SamplerSpec,
     StorageBufferSpec,
+    TextureSpec,
+    TextureViewSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
@@ -54,7 +58,21 @@ import { bindPoints } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import { Time } from '../../scene/time/Time';
 import { CameraFunction } from '../../elements/extension/CameraFunction';
-import { forwardCameraAdapter, forwardCameraClip } from '../../elements/material/shaders';
+import {
+    forwardCameraAdapter,
+    forwardCameraClip,
+    forwardTransmission,
+    transmissionResources,
+} from '../../elements/material/shaders';
+import { LOBES } from '../../elements/material/pbr/lobes';
+import {
+    createComputeKernel,
+    destroyComputeKernel,
+    type ComputeKernel,
+} from '../../scene/flows/createComputeKernel';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { SCENE_COLOR_FORMAT } from '../app/FrameTargets';
+import { sceneCopyMips, sceneMipResources } from './shaders';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
 import {
     forwardMaterial,
@@ -63,6 +81,9 @@ import {
 } from '../../elements/material/point/shaders';
 
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
+
+/** Lobos que vão ao passe de transmissivos (spec 011, R6): o que está atrás aparece através do material. */
+const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
 
 const VERTEX_LAYOUT = [
     {
@@ -100,6 +121,8 @@ export interface ForwardSlots extends SlotMap {
     readonly cameraFunctions: EntitiesSlot;
     /** Relógio da cena (tempo das funções `material`; opcional). */
     readonly time: SingletonSlot<true>;
+    /** Os alvos da cena (a cópia com mips e a espessura dos transmissivos, spec 011; opcional). */
+    readonly targets: SingletonSlot<true>;
 }
 
 /**
@@ -127,6 +150,26 @@ interface MaterialFnVariant extends PipelineVariant {
     readonly base: { readonly ccw: string; readonly cw: string };
     readonly ccw: string;
     readonly cw: string;
+    /** Transmissivos (spec 011): os pipelines das faces de trás e da frente, por orientação. */
+    readonly transmission?: {
+        readonly back: { readonly ccw: string; readonly cw: string };
+        readonly front: { readonly ccw: string; readonly cw: string };
+    };
+}
+
+/** A função `material` faz da entidade um transmissivo (spec 011): lobo de transmissão, parede fina ou opacidade. */
+function isTransmissive(fn: MaterialFunction | undefined): boolean {
+    return fn !== undefined && (fn.lobeMask & TRANSMISSIVE_LOBES) !== 0;
+}
+
+/** Cópia da cena com mips e os kernels da redução, por textura (recriados quando ela muda). */
+interface SceneCopyState {
+    readonly texture: TextureSpec;
+    readonly view: TextureViewSpec;
+    readonly levelViews: readonly TextureViewSpec[];
+    readonly storageViews: readonly TextureViewSpec[];
+    readonly kernels: readonly ComputeKernel[];
+    readonly sizes: readonly number[];
 }
 
 /** A `MaterialFunction` da entidade, se tem. */
@@ -161,6 +204,7 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
         ),
         cameraFunctions: slot.entities({ all: [Camera, CameraFunction] }),
         time: slot.singleton(Time.schema, { optional: true }),
+        targets: slot.singleton(FrameTargets.schema, { optional: true }),
     };
 }
 
@@ -285,13 +329,32 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const name = fn.module.name;
             const ccw = `${base.ccw}|material:${name}`;
             const cw = `${base.cw}|material:${name}`;
+            const transmissive = isTransmissive(fn) && this.ensureTransmission(ctx);
+            const transmission = transmissive
+                ? {
+                      back: { ccw: `${ccw}|back`, cw: `${cw}|back` },
+                      front: { ccw: `${ccw}|front`, cw: `${cw}|front` },
+                  }
+                : undefined;
             const next: MaterialFnVariant = {
-                key: `${base.ccw}|${name}`,
-                id: ccw,
-                ids: [ccw, cw],
+                key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}`,
+                id: transmission?.front.ccw ?? ccw,
+                ids: [
+                    ccw,
+                    cw,
+                    ...(transmission === undefined
+                        ? []
+                        : [
+                              transmission.back.ccw,
+                              transmission.back.cw,
+                              transmission.front.ccw,
+                              transmission.front.cw,
+                          ]),
+                ],
                 base,
                 ccw,
                 cw,
+                ...(transmission !== undefined ? { transmission } : {}),
             };
             this.materialFns.select(entry.entityId, next, () => {
                 const variant = (baseId: string, id: string): boolean => {
@@ -305,6 +368,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         ),
                         verify: true,
                         extensions: [...(b.extensions ?? []), fn],
+                        // Os lobos da função (spec 011): o avaliador só com os que o grafo ou o código usam.
+                        constants: { ...b.constants, CLOSURE_LOBES: fn.lobeMask },
                     };
                     const ready = ctx.prepare(descriptor).ready;
                     // Projeção de ponto da câmera ativa também sobre a variante da função.
@@ -314,7 +379,41 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 };
                 const ready = variant(base.ccw, ccw);
                 variant(base.cw, cw);
-                return ready;
+                if (transmission === undefined) return ready;
+                // Transmissivos: as duas camadas sobre a variante da função (o mesmo adaptador e os mesmos lobos).
+                const layer = (fromId: string, id: string, side: 'back' | 'front'): boolean => {
+                    const f = this.baseDescriptors.get(fromId)!;
+                    return ctx.prepare({
+                        ...f,
+                        id,
+                        shader: bindPoints(
+                            ctx.bound.slots.target.sampleCount > 1
+                                ? forwardTransmission.multisampled
+                                : forwardTransmission.single,
+                            new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
+                        ),
+                        entryPoints: [
+                            'vs_main',
+                            side === 'back' ? 'fs_transmission_back' : 'fs_transmission_front',
+                        ],
+                        cullMode: side === 'back' ? 'front' : 'back',
+                        colorTargets:
+                            side === 'back'
+                                ? [{ format: SCENE_COLOR_FORMAT }, { format: 'r16float' }]
+                                : [{ format: SCENE_COLOR_FORMAT }],
+                        // Trás: a mais distante por pixel na profundidade própria (descasque); frente: a da cena.
+                        depth: {
+                            format: 'depth24plus',
+                            depthWriteEnabled: true,
+                            depthCompare: side === 'back' ? 'greater' : 'less',
+                        },
+                    }).ready;
+                };
+                layer(ccw, transmission.back.ccw, 'back');
+                layer(cw, transmission.back.cw, 'back');
+                const frontReady = layer(ccw, transmission.front.ccw, 'front');
+                layer(cw, transmission.front.cw, 'front');
+                return ready && frontReady;
             });
         }
         this.materialFns.retain(ctx, present);
@@ -369,6 +468,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     );
     /** As funções `material` (conjunto ou código) mudaram desde a última sincronização. */
     private materialFnDirty = true;
+    /** Amostrador linear com mips da cópia da cena (transmissivos, spec 011). */
+    private copySampler: SamplerSpec | undefined;
+    /** Cópia da cena com mips e os kernels da redução. */
+    private sceneCopy: SceneCopyState | undefined;
+    /** Views ligadas às variáveis dos transmissivos (religadas quando mudam). */
+    private transmissionBound: readonly unknown[] = [];
 
     constructor(ctx: FlowContext, options: ForwardFlowOptions = {}) {
         super();
@@ -458,6 +563,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
                         this.syncMaterialFunctions(c);
+                        this.syncSceneCopy(c);
                         this.syncProjection(c);
                         this.prepareIndirect(c);
                         this.writeFrameParams(c);
@@ -469,7 +575,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
 
     /**
      * Grava o passe principal: um desenho por grupo de instâncias; grupos de bind compartilhados uma vez; pipeline e
-     * grupo do material só quando o pipeline muda.
+     * grupo do material só quando o pipeline muda. Com transmissivos (spec 011), eles saem do passe principal e vão a
+     * duas camadas depois dele: a cor resolvida é copiada para a cópia com mips, as faces de trás desenham (com a
+     * distância delas), a cópia é refeita e as faces da frente desenham sobre ela.
      */
     dispatch(frame: Frame, bound: BoundFlow<ForwardSlots>): void {
         const target = bound.slots.target;
@@ -497,70 +605,172 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             frame.copy(source, args, 4, 0, 0);
             frame.copy(source, args, 4, 20, 20);
         }
+        const transmissive = groups.filter(
+            (g) => this.transmissionOf(g.representative) !== undefined,
+        );
+        const opaque =
+            transmissive.length === 0 ? groups : groups.filter((g) => !transmissive.includes(g));
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
-            let current: PreparedRender | undefined;
-            // Bind group atual de cada índice: só o que muda é religado ao trocar de pipeline (spec 031).
-            const boundGroups: (BindGroupSpec | undefined)[] = [];
-            for (const group of groups) {
-                const entry = group.representative;
-                const draw = this.materialDraw.get(entry.get(Material));
-                if (draw === undefined) continue;
-                const topology = draw.topology;
-                const id =
-                    draw.pipelines !== undefined
-                        ? entry.get(Transform).mirrored
-                            ? draw.pipelines.cw
-                            : draw.pipelines.ccw
-                        : this.geometryPipelineOf(entry);
-                if (id === undefined) continue;
-                const fnId = this.materialFnPipelineOf(bound, entry, id);
-                const prepared =
-                    this.projected(bound, fnId ?? id) ?? bound.pipelines.get(fnId ?? id);
-                if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
-                // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).
-                const geometry = entry.get(Geometry);
-                const vertices = this.resources.bufferOf(geometry, 'vertices');
-                if (vertices?.subkind !== 'vertex') continue;
-                const edges =
-                    topology === 'line-list'
-                        ? this.resources.bufferOf(geometry, 'wireEdges')
-                        : undefined;
-                if (topology === 'line-list' && edges?.subkind !== 'index') continue;
-                if (prepared !== current) {
-                    pass.bind.setPipeline(prepared.spec);
-                    for (const frequency of BINDING_FREQUENCIES) {
-                        for (const g of prepared.groupsOf(frequency)) {
-                            if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
-                            pass.bind.setBindGroup(g.index, g.spec);
-                            boundGroups[g.index] = g.spec;
-                        }
-                    }
-                    current = prepared;
-                }
-                if (topology === 'point-list') {
-                    // Um quad (6 vértices) por vértice da geometria, lida como storage pelo shader.
-                    pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
-                    continue;
-                }
-                const indirect = this.indirectArgs.get(group.key)?.args;
-                if (edges?.subkind === 'index') {
-                    // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
-                    if (indirect !== undefined) pass.draw.indirect(indirect, 20);
-                    else pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
-                    continue;
-                }
-                pass.geometry.vertex(0, vertices);
-                const indices = this.resources.bufferOf(geometry, 'indices');
-                if (indices?.subkind === 'index') {
-                    pass.geometry.index(indices);
-                    if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
-                    else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
-                } else {
-                    // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
-                    pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
-                }
-            }
+            this.recordGroups(
+                pass,
+                bound,
+                opaque,
+                (entry, id) => this.materialFnPipelineOf(bound, entry, id) ?? id,
+            );
         });
+        if (transmissive.length > 0) this.recordTransmission(frame, bound, transmissive);
+    }
+
+    /** Pipelines de transmissivo da entidade (as duas camadas), se a função dela os tem e estão prontos. */
+    private transmissionOf(entry: EntityEntry):
+        | {
+              readonly back: { ccw: string; cw: string };
+              readonly front: { ccw: string; cw: string };
+          }
+        | undefined {
+        if (!isTransmissive(materialFunctionOf(entry))) return undefined;
+        return this.materialFns.active(entry.entityId)?.transmission;
+    }
+
+    /**
+     * As duas camadas dos transmissivos (spec 011, R6). Sem a cópia da cena ou com os pipelines compilando, os
+     * transmissivos esperam (não desenham pela metade).
+     */
+    private recordTransmission(
+        frame: Frame,
+        bound: BoundFlow<ForwardSlots>,
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): void {
+        const target = bound.slots.target;
+        const targets = bound.slots.targets?.resource;
+        const colorView = this.colorView(frame, target);
+        if (targets === undefined || colorView === undefined || target.depth === undefined) return;
+        const colorTexture = colorView.source;
+        const depthResolved = this.resources.textureViewOf(targets, 'transmissionDepth');
+        const depthSamples = this.resources.textureViewOf(targets, 'transmissionSamples');
+        const backZ = this.resources.textureViewOf(targets, 'transmissionZ');
+        if (this.sceneCopy === undefined || depthResolved === undefined || backZ === undefined)
+            return;
+        const color = this.colorAttachment(frame, target, { loadOp: 'load' })!;
+        const distance =
+            target.samples !== undefined && depthSamples !== undefined
+                ? { view: depthSamples, resolveTarget: depthResolved }
+                : { view: depthResolved };
+        const depth = {
+            view: target.depth,
+            depthLoadOp: 'load' as const,
+            depthStoreOp: 'store' as const,
+        };
+        const pick =
+            (side: 'back' | 'front') =>
+            (entry: EntityEntry, id: string): string | undefined => {
+                const t = this.transmissionOf(entry);
+                if (t === undefined) return undefined;
+                const v = this.materialFns.active(entry.entityId)!;
+                return id === v.base.cw ? t[side].cw : t[side].ccw;
+            };
+        this.recordSceneCopy(frame, colorTexture);
+        frame.render(
+            {
+                colorAttachments: [
+                    color,
+                    { ...distance, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+                ],
+                // Profundidade própria limpa em 0: o teste `greater` guarda a face de trás mais distante.
+                depthStencilAttachment: {
+                    view: backZ,
+                    depthClearValue: 0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
+            },
+            'ForwardFlow.transmissionBack',
+            (pass) => {
+                this.recordGroups(pass, bound, groups, pick('back'));
+            },
+        );
+        this.recordSceneCopy(frame, colorTexture);
+        frame.render(
+            { colorAttachments: [color], depthStencilAttachment: depth },
+            'ForwardFlow.transmissionFront',
+            (pass) => {
+                this.recordGroups(pass, bound, groups, pick('front'));
+            },
+        );
+    }
+
+    /**
+     * Um desenho por grupo de instâncias, com o pipeline escolhido por `pipelineFor` a partir do pipeline base do grupo
+     * (`undefined`: o grupo não desenha neste passe); bind groups religados só quando mudam.
+     */
+    private recordGroups(
+        pass: RenderPass,
+        bound: BoundFlow<ForwardSlots>,
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+        pipelineFor: (entry: EntityEntry, baseId: string) => string | undefined,
+    ): void {
+        let current: PreparedRender | undefined;
+        // Bind group atual de cada índice: só o que muda é religado ao trocar de pipeline (spec 031).
+        const boundGroups: (BindGroupSpec | undefined)[] = [];
+        for (const group of groups) {
+            const entry = group.representative;
+            const draw = this.materialDraw.get(entry.get(Material));
+            if (draw === undefined) continue;
+            const topology = draw.topology;
+            const id =
+                draw.pipelines !== undefined
+                    ? entry.get(Transform).mirrored
+                        ? draw.pipelines.cw
+                        : draw.pipelines.ccw
+                    : this.geometryPipelineOf(entry);
+            if (id === undefined) continue;
+            const chosen = pipelineFor(entry, id);
+            if (chosen === undefined) continue;
+            const prepared = this.projected(bound, chosen) ?? bound.pipelines.get(chosen);
+            if (prepared?.role !== 'render' || !prepared.ready) continue; // compilando em segundo plano
+            // A geometria do grupo é a mesma cópia para todos os membros (mesma chave de conteúdo).
+            const geometry = entry.get(Geometry);
+            const vertices = this.resources.bufferOf(geometry, 'vertices');
+            if (vertices?.subkind !== 'vertex') continue;
+            const edges =
+                topology === 'line-list'
+                    ? this.resources.bufferOf(geometry, 'wireEdges')
+                    : undefined;
+            if (topology === 'line-list' && edges?.subkind !== 'index') continue;
+            if (prepared !== current) {
+                pass.bind.setPipeline(prepared.spec);
+                for (const frequency of BINDING_FREQUENCIES) {
+                    for (const g of prepared.groupsOf(frequency)) {
+                        if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
+                        pass.bind.setBindGroup(g.index, g.spec);
+                        boundGroups[g.index] = g.spec;
+                    }
+                }
+                current = prepared;
+            }
+            if (topology === 'point-list') {
+                // Um quad (6 vértices) por vértice da geometria, lida como storage pelo shader.
+                pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
+                continue;
+            }
+            const indirect = this.indirectArgs.get(group.key)?.args;
+            if (edges?.subkind === 'index') {
+                // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
+                if (indirect !== undefined) pass.draw.indirect(indirect, 20);
+                else pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
+                continue;
+            }
+            pass.geometry.vertex(0, vertices);
+            const indices = this.resources.bufferOf(geometry, 'indices');
+            if (indices?.subkind === 'index') {
+                pass.geometry.index(indices);
+                if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
+                else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
+            } else {
+                // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
+                pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
+            }
+        }
     }
 
     /**
@@ -614,8 +824,130 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         }
     }
 
+    /**
+     * Prepara os recursos dos transmissivos (spec 011): aloca a cópia da cena com mips e a espessura nos alvos, cria o
+     * amostrador e liga as três variáveis privadas — antes de preparar o primeiro pipeline de transmissivo. `false` sem
+     * os alvos da cena (desenho direto no canvas: sem transmissivos).
+     */
+    private ensureTransmission(ctx: Ctx): boolean {
+        const targets = ctx.bound.slots.targets?.resource;
+        if (targets === undefined) return false;
+        for (const id of ['sceneCopy', 'transmissionDepth', 'transmissionSamples', 'transmissionZ'])
+            if (targets.getDescriptors().some((d) => d.id === id))
+                this.resources.ensureAllocated(targets, id);
+        this.copySampler ??= this.core.create<SamplerSpec>({
+            kind: 'sampler',
+            discriminator: 'forward_scene_copy_sampler',
+            desc: {
+                magFilter: 'linear',
+                minFilter: 'linear',
+                mipmapFilter: 'linear',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+            },
+        });
+        this.syncSceneCopy(ctx);
+        return this.sceneCopy !== undefined;
+    }
+
+    /**
+     * Cópia da cena com mips (spec 011): com transmissivos, views por nível e um kernel de redução por nível, refeitos
+     * quando a textura muda (redimensionamento); as variáveis dos transmissivos religadas quando as views mudam.
+     */
+    private syncSceneCopy(ctx: Ctx): void {
+        const targets = ctx.bound.slots.targets?.resource;
+        if (targets === undefined || this.copySampler === undefined) return;
+        const texture = this.resources.textureOf(targets, 'sceneCopy');
+        const depthView = this.resources.textureViewOf(targets, 'transmissionDepth');
+        if (texture === undefined || depthView === undefined) return;
+        if (this.sceneCopy?.texture !== texture) {
+            this.releaseSceneCopy();
+            const levels = texture.mipLevelCount ?? 1;
+            const view = (base: number, count: number | undefined, tag: string): TextureViewSpec =>
+                this.core.create<TextureViewSpec>({
+                    kind: 'textureview',
+                    discriminator: `forward_scene_copy_${tag}:${texture.width}x${texture.height}`,
+                    source: texture,
+                    baseMipLevel: base,
+                    ...(count !== undefined ? { mipLevelCount: count } : {}),
+                });
+            const levelViews = Array.from({ length: levels }, (_, l) => view(l, 1, `l${l}`));
+            const storageViews = levelViews;
+            const sampler = this.copySampler;
+            const kernels = Array.from({ length: Math.max(levels - 1, 0) }, (_, k) =>
+                createComputeKernel(this.core, {
+                    discriminator: `forward_scene_mip_${k + 1}:${texture.width}x${texture.height}`,
+                    shader: sceneCopyMips,
+                    entryPoint: 'scene_copy_down',
+                    bindings: new Map<WgslResource, BindingSource>([
+                        [sceneMipResources.src, levelViews[k]!],
+                        [sceneMipResources.dst, storageViews[k + 1]!],
+                        [sceneMipResources.sampler, sampler],
+                    ]),
+                }),
+            );
+            const sizes = Array.from(
+                { length: levels },
+                (_, l) => Math.max(texture.width >> l, 1) * Math.max(texture.height >> l, 1),
+            );
+            this.sceneCopy = {
+                texture,
+                view: view(0, undefined, 'all'),
+                levelViews,
+                storageViews,
+                kernels,
+                sizes,
+            };
+        }
+        const sceneDepth = ctx.bound.slots.target.depth;
+        if (sceneDepth === undefined) return;
+        const sources = [this.sceneCopy.view, this.copySampler, depthView, sceneDepth];
+        if (sources.some((v, k) => v !== this.transmissionBound[k])) {
+            ctx.bind(
+                new Map<BindingKey, BindingSource>([
+                    [transmissionResources.sceneCopy, this.sceneCopy.view],
+                    [transmissionResources.sampler, this.copySampler],
+                    [transmissionResources.depth, depthView],
+                    [
+                        ctx.bound.slots.target.sampleCount > 1
+                            ? transmissionResources.sceneDepthMs
+                            : transmissionResources.sceneDepth,
+                        sceneDepth,
+                    ],
+                ]),
+            );
+            this.transmissionBound = sources;
+        }
+    }
+
+    private releaseSceneCopy(): void {
+        const copy = this.sceneCopy;
+        if (copy === undefined) return;
+        for (const k of copy.kernels) destroyComputeKernel(this.core, k);
+        for (const v of copy.levelViews) this.core.destroy(v);
+        this.core.destroy(copy.view);
+        this.sceneCopy = undefined;
+    }
+
+    /** Copia a cor resolvida da cena para a cópia e reduz os mips (compute). */
+    private recordSceneCopy(frame: Frame, color: TextureSpec): void {
+        const copy = this.sceneCopy;
+        if (copy === undefined) return;
+        frame.copyTextureToTexture(color, copy.texture, [copy.texture.width, copy.texture.height]);
+        if (copy.kernels.length === 0) return;
+        frame.compute('ForwardFlow.sceneCopy', (pass) => {
+            copy.kernels.forEach((kernel, k) => {
+                pass.bind.setPipeline(kernel.pipeline);
+                kernel.bindTo(pass.bind);
+                pass.dispatch.invocations(copy.sizes[k + 1]!, WORKGROUP_SIZE.value);
+            });
+        });
+    }
+
     /** Libera os recursos privados. */
     override dispose(): void {
+        this.releaseSceneCopy();
+        if (this.copySampler !== undefined) this.core.destroy(this.copySampler);
         for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
         this.indirectArgs.clear();
         for (const spec of [this.frameParams, this.dummyDiff]) this.core.destroy(spec);

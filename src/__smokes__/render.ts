@@ -25,7 +25,6 @@ import {
     SphereGeometry,
     Ssao,
     StandardMaterial,
-    ToneMapping,
     Transform,
     UiPanel,
     Vignette,
@@ -108,7 +107,6 @@ const SCENES: readonly RenderScene[] = [
             ['color-grading', () => new ColorGrading({})],
             ['fxaa', () => new Fxaa({})],
             ['ssao', () => new Ssao({})],
-            ['tone-mapping', () => new ToneMapping({ strength: 1.0 })],
             ['vignette', () => new Vignette({ strength: 0.3 })],
         ] as const
     ).map(
@@ -120,6 +118,15 @@ const SCENES: readonly RenderScene[] = [
             },
         }),
     ),
+    {
+        // Spec 011: a apresentação deixou de ser efeito; a variante troca o operador e a exposição.
+        name: 'post-tone-mapping',
+        build: (app) => {
+            baseScene(app);
+            app.defaults.presentation.data.operator = 'aces';
+            app.defaults.presentation.data.exposure = 1;
+        },
+    },
     {
         name: 'ui',
         build: (app) => {

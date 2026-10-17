@@ -63,6 +63,22 @@ export interface CanvasOptions {
     readonly alphaMode?: 'opaque' | 'premultiplied';
     /** Color space do canvas. Default: srgb. Use display-p3 para wide-gamut. */
     readonly colorSpace?: 'srgb' | 'display-p3';
+    /**
+     * Mapeamento de tons da tela (spec 011): `standard` (default) corta em [0, 1]; `extended` deixa valores acima do
+     * branco de referência chegarem a uma tela HDR. Sem suporte do navegador ou da tela, a configuração volta a
+     * `standard` com o formato preferido, e `canvasOutput.toneMapping` diz o que valeu.
+     */
+    readonly toneMapping?: 'standard' | 'extended';
+    /** Formato do canvas: `preferred` (default, o de `getPreferredCanvasFormat`) ou `rgba16float` (saída HDR). */
+    readonly format?: 'preferred' | 'rgba16float';
+}
+
+/** Saída do canvas efetivamente configurada (spec 011): o formato e o mapeamento de tons da tela. */
+export interface CanvasOutput {
+    /** Formato do canvas em uso. */
+    readonly format: GPUTextureFormat;
+    /** Mapeamento de tons da tela em uso (`standard` quando o pedido `extended` não é suportado). */
+    readonly toneMapping: 'standard' | 'extended';
 }
 
 /**
@@ -100,8 +116,12 @@ export type FrameProfilingGranularity = 'passes' | 'frame';
 export interface EngineCore {
     /** Profiler de timestamp-query (no-op se device não suporta a feature). */
     readonly profiler: Profiler;
-    /** Formato preferido do canvas (e.g. 'bgra8unorm'). Setado em initialize. */
+    /** Formato do canvas em uso (o preferido, e.g. 'bgra8unorm', ou `rgba16float` na saída HDR). Setado em initialize. */
     readonly canvasFormat: GPUTextureFormat;
+    /** Formato e mapeamento de tons do canvas efetivamente configurados (spec 011). */
+    readonly canvasOutput: CanvasOutput;
+    /** Opções de canvas guardadas (as de `initialize` ou do último `reconfigureCanvas` com opções). */
+    readonly canvasOptions: CanvasOptions;
 
     /**
      * Adquire GPUAdapter + GPUDevice (assíncrono) aplicando `device` (potência, features, limites) e configura o

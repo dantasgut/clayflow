@@ -14,6 +14,7 @@ import type {
 } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
+import { LOBES } from '../../elements/material/pbr/lobes';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
@@ -58,8 +59,8 @@ type Ctx = TransitionContext<WaterSlots>;
  * escrever nela. Por pixel: normal da profundidade suavizada, refração, absorção pela espessura, dispersão, Fresnel com
  * a cor de ambiente do material, especular e a sombra da cena. Só grava quando a superfície foi produzida no quadro.
  *
- * A luz que ilumina e a sombra vêm dos pontos de cena do sombreamento (`scene_light_direction`, `light_visibility`,
- * spec 031): o estágio não conhece luzes nem mapas de sombra.
+ * A luz vem do ponto de cena `scene_lighting` (spec 011), com a sombra e as cáusticas por luz: o estágio não conhece
+ * luzes nem mapas de sombra.
  */
 export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
     readonly type = 'WaterFlow';
@@ -180,6 +181,8 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
                 role: 'render',
                 shader: samples > 1 ? waterComposite.sceneMs : waterComposite.scene,
                 entryPoints: ['water_composite_vs', 'water_composite_fs'],
+                // Lobos da superfície e do volume (spec 011): o especular dielétrico e o difuso espalhado.
+                constants: { CLOSURE_LOBES: LOBES.specular | LOBES.diffuse },
                 topology: 'triangle-list',
                 cullMode: 'none',
                 colorTargets: [{ format: slots.target.format ?? this.core.canvasFormat }],

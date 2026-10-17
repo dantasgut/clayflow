@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { PointSpriteMaterialSchema } from './PointSpriteMaterialSchema';
 import { pointSprite } from './shaders';
+import { PARAMS_LOBES } from './pbr/lobes';
 import { Material } from './Material';
 
 /** Dado de um `PointSpriteMaterial` (layout de `PointSpriteMaterial.schema`). */
@@ -53,6 +54,8 @@ export class PointSpriteMaterial extends Material<PointSpriteMaterialData> {
         return [
             {
                 id: 'pipeline_pointsprite',
+                // Lobos do fechamento deste desenho (spec 011): o avaliador é especializado só com eles.
+                constants: { CLOSURE_LOBES: PARAMS_LOBES },
                 role: 'render',
                 shader: pointSprite,
                 entryPoints: ['vs_main', 'fs_main'],

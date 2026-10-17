@@ -3,7 +3,12 @@ import { NodeRegistry } from '../../scene/graph/NodeRegistry';
 import { condition } from './condition';
 import { field } from './field';
 import { input } from './input';
-import { color, map } from './map';
+import { map } from './map';
+import { color } from './color';
+import { bsdf } from './bsdf';
+import { closure } from './closure';
+import { geometry } from './geometry';
+import { material } from './material';
 import { math } from './math';
 import { noise } from './noise';
 import { output } from './output';
@@ -60,16 +65,35 @@ export const nodes = {
     space,
     field,
     surface,
+    geometry,
+    bsdf,
+    closure,
     output,
+    material,
     set,
 } as const;
 
 /** Os nós de ponto da biblioteca (os de `nodes`, menos as entradas e os de conjunto). */
 export const pointNodes: readonly NodeDefinition[] = Object.freeze(
-    [math, map, color, noise, condition, space, field, surface, output].flatMap((group) =>
-        Object.values(group),
-    ),
+    [
+        math,
+        map,
+        color,
+        noise,
+        condition,
+        space,
+        field,
+        surface,
+        geometry,
+        bsdf,
+        closure,
+        output,
+    ].flatMap((group) => Object.values(group)),
 );
 
 /** Registro com os nós da C3 — de ponto e de conjunto (serialização: `fromJSON`). */
-export const defaultNodeRegistry = new NodeRegistry([...pointNodes, ...Object.values(set)]);
+export const defaultNodeRegistry = new NodeRegistry([
+    ...pointNodes,
+    ...Object.values(set),
+    ...Object.values(material),
+]);

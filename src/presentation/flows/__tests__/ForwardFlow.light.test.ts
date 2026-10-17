@@ -1,8 +1,8 @@
 /**
- * Spec 007 (US6) e 031 (R4): o render principal lê a direção da luz no pool `Light` e a sombra do mapa da direcional
- * que projeta — nenhum dado da luz é lido na CPU nem passa pelos parâmetros do quadro. A luz chega pelos pontos de cena
- * `scene_light_direction` e `light_visibility`, compostos pela C2 com a contribuição da luz (pelos slots dela); sem luz
- * que projeta sombra, os prontos (direção padrão, visibilidade 1).
+ * Spec 007 (US6), 031 (R4) e 011 (R7): o render principal não conhece luz nenhuma — nenhum dado da luz é lido na CPU nem
+ * passa pelos parâmetros do quadro. A luz chega pelo ponto de cena `scene_lighting` (o laço das luzes do pool, composto
+ * uma vez pela C2) e a sombra por `light_visibility`, só para a luz que projeta (pelos slots dela); sem luz que projeta
+ * sombra, a visibilidade pronta (1).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
@@ -30,28 +30,31 @@ function forwardSource(s: Awaited<ReturnType<typeof scene>>): string {
 }
 
 describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
-    it('a direção vem do slot no pool Light da direcional que projeta; a sombra do slot do mapa dela', async () => {
+    it('as luzes pelo laço do pool (uma vez para as duas direcionais); a sombra só para a luz que projeta', async () => {
         const s = await scene(true);
         s.step();
         s.step();
         s.step();
         const rs = s.scene.resourceSystem;
         const src = forwardSource(s);
+        expect(
+            src.match(/if \(!pool_live\(light_live\[i >> 5u\], i\)\) \{ continue; \}/g),
+        ).toHaveLength(1);
         expect(src).toContain(
-            `return lights[${rs.poolSlotOf('Light', s.lightId)}u].direction.xyz;`,
+            `if (light != ${rs.poolSlotOf('Light', s.lightId)}u) { return 1.0; }`,
         );
         expect(src).toContain(`let sm = shadow_maps[${rs.poolSlotOf('ShadowMap', s.lightId)}u];`);
         expect(src).toContain('sample_shadow_pcf(shadow_map, shadow_sampler');
+        expect(src).not.toContain('scene_light_direction');
     });
 
-    it('sem direcional que projeta sombra: a direção padrão e visibilidade 1 (os prontos)', async () => {
+    it('sem direcional que projeta sombra: visibilidade 1 (o pronto)', async () => {
         const s = await scene(false);
         s.step();
         s.step();
         const src = forwardSource(s);
-        expect(src).toContain('return DEFAULT_LIGHT_DIRECTION;');
         expect(src).toMatch(
-            /fn light_visibility\(p: vec3f, n_dot_l: f32\) -> f32 \{\s*return 1\.0;/,
+            /fn light_visibility\(light: u32, p: vec3f, n_dot_l: f32\) -> f32 \{\s*return 1\.0;/,
         );
         expect(src).not.toMatch(/var shadow_map|shadow_maps\[/);
     });

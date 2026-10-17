@@ -1,12 +1,9 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
-import {
-    lightTransmissionReady,
-    sceneAnyLightDirectionReady,
-    lightVisibilityReady,
-    sceneLightDirectionReady,
-} from '../scene/points/lighting';
+import { sceneLightingReady } from '../scene/points/lighting';
+import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
     instancesResource,
@@ -27,7 +24,7 @@ import {
     wireframeMaterialsResource,
     wireVerticesResource,
 } from './renderResources';
-import { brdf, camera } from '../gpu/shaders/math';
+import { bsdf, camera } from '../gpu/shaders/math';
 import { cameraPointTypes } from '../scene/flows/shaders';
 import { forwardMaterialReady, materialPointTypes } from './point/shaders';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
@@ -37,6 +34,7 @@ import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
 import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
+import forwardTransmissionSource from '../gpu/wgsl/forward_transmission.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
@@ -85,14 +83,14 @@ export const forward = wgslModule({
     name: 'forward',
     source: forwardSource,
     requires: [
-        brdf,
+        bsdf,
         NONE.module,
         forwardCameraReady,
         materialPointTypes,
+        closure,
+        closureEval,
         forwardMaterialReady,
-        sceneLightDirectionReady,
-        lightVisibilityReady,
-        lightTransmissionReady,
+        sceneLightingReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -114,14 +112,16 @@ export const forward = wgslModule({
 
 /**
  * Sprites de partículas (spec 008): quad por partícula com a posição lida do pool do corpo pelo índice da instância,
- * esfera impostora iluminada pela primeira luz viva (ponto de cena). Usado pelo estágio de desenho de corpos de partículas.
+ * esfera impostora iluminada pelo ponto de cena `scene_lighting` (spec 011). Usado pelo estágio de desenho de corpos de
+ * partículas.
  */
 export const particleSprite = wgslModule({
     name: 'particle_sprite',
     source: particleSpriteSource,
     requires: [
-        brdf,
-        sceneAnyLightDirectionReady,
+        materialPointTypes,
+        closure,
+        sceneLightingReady,
         camerasResource,
         particleFrameResource,
         particlePoolResource,
@@ -139,8 +139,9 @@ export const pointSprite = wgslModule({
     name: 'point_sprite',
     source: pointSpriteSource,
     requires: [
-        brdf,
-        sceneLightDirectionReady,
+        materialPointTypes,
+        closure,
+        sceneLightingReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -164,8 +165,9 @@ export const diffuseSprite = wgslModule({
     name: 'diffuse_sprite',
     source: diffuseSpriteSource,
     requires: [
-        brdf,
-        sceneLightDirectionReady,
+        materialPointTypes,
+        closure,
+        sceneLightingReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -210,3 +212,68 @@ export const wire = wgslModule({
         ForwardFrameParamsSchema,
     ],
 });
+
+/** Recursos do passe de transmissivos (spec 011, R6), privados do estágio que o grava. */
+export const transmissionResources = {
+    /** Cópia da cena com mips (o que está atrás, em HDR). */
+    sceneCopy: wgslResource({
+        name: 'scene_copy',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Amostrador linear com mips da cópia. */
+    sampler: wgslResource({
+        name: 'scene_copy_sampler',
+        binding: { sampler: 'filtering' },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Profundidade dos opacos (sem amostras), para a camada de trás ficar à frente deles. */
+    sceneDepth: wgslResource({
+        name: 'scene_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Profundidade dos opacos com amostras (MSAA): a amostra 0. */
+    sceneDepthMs: wgslResource({
+        name: 'scene_depth',
+        binding: { texture: { sample: 'depth', multisampled: true } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Distância da câmera às faces de trás dos transmissivos (a espessura da camada da frente). */
+    depth: wgslResource({
+        name: 'transmission_depth',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+} as const;
+
+/**
+ * Transmissivos em duas camadas (spec 011, R6): o vértice do forward e os fragmentos das faces de trás e da frente, que
+ * refratam a cópia da cena com mips (Beer-Lambert, dispersão, parede fina, opacidade).
+ */
+export const forwardTransmission = {
+    /** Alvos sem amostras. */
+    single: transmissionModule(false),
+    /** Alvos com MSAA. */
+    multisampled: transmissionModule(true),
+} as const;
+
+function transmissionModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'forward_transmission_ms' : 'forward_transmission',
+        source: forwardTransmissionSource,
+        requires: [
+            forward,
+            closureEval,
+            transmissionResources.sceneCopy,
+            transmissionResources.sampler,
+            transmissionResources.depth,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}

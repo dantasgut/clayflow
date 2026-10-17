@@ -11,3 +11,10 @@ fn node_output_surface_params(
 ) -> SurfaceParams {
     return SurfaceParams(vec4f(base_color, alpha), roughness, metallic, emissive);
 }
+
+// Nó de saída de fechamento do ponto `material` (spec 011): o fechamento composto pelos nós.
+// Requer: closure.
+
+fn node_output_closure(closure: Closure) -> Closure {
+    return closure;
+}

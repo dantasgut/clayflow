@@ -18,3 +18,10 @@ export * from './ui/index';
 export type * from './plugins/index';
 export { PostProcessEffect } from './resources/PostProcessEffect';
 export type { PostProcessData, PostProcessOptions } from './resources/PostProcessEffect';
+export { ToneMapping } from './resources/ToneMapping';
+export type {
+    PresentationOutput,
+    ToneMappingData,
+    ToneMappingOptions,
+    ToneOperator,
+} from './resources/ToneMapping';

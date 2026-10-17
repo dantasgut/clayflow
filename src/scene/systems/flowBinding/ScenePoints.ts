@@ -142,9 +142,19 @@ export class ScenePoints {
             impls.set(entry.point, entry.combined);
             extensions.push(...entry.functions);
         }
-        for (const [point, module] of this.contributed) {
-            if (!contains(shader, point.ready)) continue;
-            impls.set(point, module);
+        // Pontos de contribuição no shader ou dentro de uma contribuição já escolhida (spec 011: o laço das luzes chama a
+        // sombra e a água por luz), até nada mudar.
+        for (let added = true; added; ) {
+            added = false;
+            for (const [point, module] of this.contributed) {
+                if (impls.has(point)) continue;
+                const reached =
+                    contains(shader, point.ready)
+                    || [...impls.values()].some((m) => contains(m, point.ready));
+                if (!reached) continue;
+                impls.set(point, module);
+                added = true;
+            }
         }
         return impls.size === 0
             ? { shader, extensions }
@@ -202,7 +212,11 @@ export class ScenePoints {
         return false;
     }
 
-    /** Módulo de cada ponto de contribuição: o do contribuinte, ou a combinação dos contribuintes em ordem. */
+    /**
+     * Módulo de cada ponto de contribuição: o do contribuinte, ou a combinação dos contribuintes em ordem. O mesmo módulo
+     * vindo de vários contribuintes entra uma vez (spec 011: cada classe de luz contribui o mesmo laço sobre o pool, não
+     * um módulo por luz), na menor ordem em que aparece.
+     */
     private composeContributions(): Map<ContributionPoint, WgslModule> {
         const byPoint = new Map<ContributionPoint, { order: number; module: WgslModule }[]>();
         for (const r of this.contributors) {
@@ -215,7 +229,9 @@ export class ScenePoints {
                 if (module === undefined) continue;
                 let list = byPoint.get(c.point);
                 if (list === undefined) byPoint.set(c.point, (list = []));
-                list.push({ order: c.order, module });
+                const same = list.find((e) => e.module === module);
+                if (same === undefined) list.push({ order: c.order, module });
+                else same.order = Math.min(same.order, c.order);
             }
         }
         const out = new Map<ContributionPoint, WgslModule>();
