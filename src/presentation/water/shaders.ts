@@ -183,6 +183,7 @@ export const caustics = wgslModule({
     name: 'caustics',
     source: causticsSource,
     requires: [
+        closure,
         waterView,
         waterRipple,
         WATER_DEPTH_LIMIT.module,

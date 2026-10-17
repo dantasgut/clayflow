@@ -124,37 +124,45 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     let n_rippled = normalize(n_world + vec3f(-slope.x, 0.0, -slope.y));
     let n = normalize(vec3f(dot(r0, n_rippled), dot(r1, n_rippled), dot(r2, n_rippled)));
     let incident = vec3f(0.0, 0.0, 1.0);
-    let eta = 1.0 / max(material.ior, 1.0);
-    var dir = refract(incident, n, eta);
-    if (dot(dir, dir) < 1e-8) { dir = incident; }
     // Intensidade do padrão: 0 = luz reta (só atenuação), 1 = refração física.
     let k = select(0.0, material.causticIntensity, material.caustics != 0u);
-    dir = normalize(mix(incident, dir, k));
     let cos_i = max(-dot(incident, n), 0.0);
-    let f0 = pow((material.ior - 1.0) / (material.ior + 1.0), 2.0);
-    let fresnel = f0 + (1.0 - f0) * pow(1.0 - cos_i, 5.0);
-    // Encontro com o receptor: t = (z_r(xy(t)) − z0) / d.z, ponto fixo.
-    let dz = max(dir.z, 1e-3);
-    var s = max(zr0 - z0, 0.0) / dz;
-    for (var it: i32 = 0; it < CAUSTIC_ITERATIONS; it = it + 1) {
-        let zr = caustic_receiver(xy0 + dir.xy * s, lvp, scale);
-        if (zr >= WATER_DEPTH_LIMIT) { break; }
-        s = max(zr - z0, 0.0) / dz;
-    }
-    let hit = xy0 + dir.xy * s;
-    let transmit = exp(-material.absorption.rgb * s) * (1.0 - fresnel);
-    // Ponto de chegada em texels (contínuo) e depósito B-spline quadrático 3×3 (partição da unidade e suave: sem o
-    // batimento do depósito bilinear quando a densidade de fótons varia devagar).
-    let hit_ndc = hit * scale.xy;
-    let hit_uv = vec2f(hit_ndc.x * 0.5 + 0.5, 0.5 - hit_ndc.y * 0.5);
-    let f = hit_uv * vec2f(dims);
-    let center = vec2i(floor(f));
-    let d = f - floor(f) - 0.5;
-    let wx = caustic_bspline(d.x);
-    let wy = caustic_bspline(d.y);
-    for (var j: i32 = 0; j < 3; j = j + 1) {
-        for (var i: i32 = 0; i < 3; i = i + 1) {
-            caustic_deposit(center + vec2i(i - 1, j - 1), transmit * (wx[i] * wy[j]));
+    // Com dispersão (número de Abbe), cada cor refrata pelo seu IOR e chega num ponto próprio: as franjas coloridas
+    // das cáusticas. Sem ela, um fóton com as três.
+    let iors = closure_dispersion_iors(material.ior, material.abbe);
+    let colors = select(1u, 3u, material.abbe > 0.0 && k > 0.0);
+    for (var channel = 0u; channel < colors; channel++) {
+        let ior = select(material.ior, iors[channel], colors == 3u);
+        var dir = refract(incident, n, 1.0 / max(ior, 1.0));
+        if (dot(dir, dir) < 1e-8) { dir = incident; }
+        dir = normalize(mix(incident, dir, k));
+        let f0 = (ior - 1.0) * (ior - 1.0) / ((ior + 1.0) * (ior + 1.0));
+        let fresnel = f0 + (1.0 - f0) * pow(1.0 - cos_i, 5.0);
+        // Encontro com o receptor: t = (z_r(xy(t)) − z0) / d.z, ponto fixo.
+        let dz = max(dir.z, 1e-3);
+        var s = max(zr0 - z0, 0.0) / dz;
+        for (var it: i32 = 0; it < CAUSTIC_ITERATIONS; it = it + 1) {
+            let zr = caustic_receiver(xy0 + dir.xy * s, lvp, scale);
+            if (zr >= WATER_DEPTH_LIMIT) { break; }
+            s = max(zr - z0, 0.0) / dz;
+        }
+        let hit = xy0 + dir.xy * s;
+        var mask = vec3f(1.0);
+        if (colors == 3u) { mask = vec3f(f32(channel == 0u), f32(channel == 1u), f32(channel == 2u)); }
+        let transmit = exp(-material.absorption.rgb * s) * (1.0 - fresnel) * mask;
+        // Ponto de chegada em texels (contínuo) e depósito B-spline quadrático 3×3 (partição da unidade e suave: sem o
+        // batimento do depósito bilinear quando a densidade de fótons varia devagar).
+        let hit_ndc = hit * scale.xy;
+        let hit_uv = vec2f(hit_ndc.x * 0.5 + 0.5, 0.5 - hit_ndc.y * 0.5);
+        let f = hit_uv * vec2f(dims);
+        let center = vec2i(floor(f));
+        let d = f - floor(f) - 0.5;
+        let wx = caustic_bspline(d.x);
+        let wy = caustic_bspline(d.y);
+        for (var j: i32 = 0; j < 3; j = j + 1) {
+            for (var i: i32 = 0; i < 3; i = i + 1) {
+                caustic_deposit(center + vec2i(i - 1, j - 1), transmit * (wx[i] * wy[j]));
+            }
         }
     }
 }

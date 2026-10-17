@@ -45,18 +45,18 @@ export interface FluidSurfaceMaterialData {
     rippleSpeed: number;
     /** Rugosidade do especular da superfície (GGX, spec 011): 0,02 = água calma. */
     roughness: number;
-    /** Preenchimento do layout. */
-    _pad1: number;
+    /**
+     * Número de Abbe (dispersão: o IOR por cor, as cores se separam na refração e nas cáusticas); 55,7 = água, 0 = sem
+     * dispersão.
+     */
+    abbe: number;
     /** Preenchimento do layout. */
     _pad2: number;
 }
 
 /** Opções do `FluidSurfaceMaterial`: os campos do dado, com `caustics` booleano. */
 export interface FluidSurfaceMaterialOptions extends Partial<
-    Omit<
-        FluidSurfaceMaterialData,
-        'caustics' | 'color' | 'absorption' | 'ambient' | '_pad1' | '_pad2'
-    >
+    Omit<FluidSurfaceMaterialData, 'caustics' | 'color' | 'absorption' | 'ambient' | '_pad2'>
 > {
     /** Cor da dispersão interna, RGBA linear. */
     readonly color?: readonly number[];
@@ -126,7 +126,7 @@ export class FluidSurfaceMaterial extends Material<FluidSurfaceMaterialData> {
             rippleSize: positive('rippleSize', options.rippleSize ?? 0.06),
             rippleSpeed: nonNegative('rippleSpeed', options.rippleSpeed ?? 1),
             roughness: Math.min(nonNegative('roughness', roughness), 1),
-            _pad1: 0,
+            abbe: nonNegative('abbe', options.abbe ?? 55.7),
             _pad2: 0,
         };
         this.castsShadow = false;

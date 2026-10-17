@@ -31,9 +31,8 @@ fn transmission_background(uv: vec2f, roughness: f32) -> vec3f {
 fn transmission_light(c: Closure, cam: CameraMatrices, p: vec3f, n: vec3f, v: vec3f, thickness: f32, uv_here: vec2f, absorb_path: f32) -> vec3f {
     var out = vec3f(0.0);
     if (closure_has(CLOSURE_TRANSMISSION) && c.transmission_weight > 0.0) {
-        // IOR por canal (R, G, B) pelo número de Abbe: n(λ) ≈ n_d + (n_d − 1)/V · k, k em −0,5…0,5.
-        let dispersion = select(0.0, (c.transmission_ior - 1.0) / max(c.transmission_abbe, 10.0), c.transmission_abbe > 0.0);
-        let iors = vec3f(c.transmission_ior) + dispersion * vec3f(-0.5, 0.0, 0.5);
+        // IOR por canal (R, G, B) pelo número de Abbe.
+        let iors = closure_dispersion_iors(c.transmission_ior, c.transmission_abbe);
         var bg = vec3f(0.0);
         for (var k = 0; k < 3; k = k + 1) {
             let refr = refract(-v, n, 1.0 / iors[k]);

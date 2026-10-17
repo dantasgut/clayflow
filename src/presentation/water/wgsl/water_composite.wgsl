@@ -59,10 +59,16 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     // Espessura atravessada (limitada: dentro da água ela continua finita).
     let thickness = clamp(stored.w, 0.0, 1e3);
     // Refração: desloca a leitura da cena pela inclinação; o que está na frente da água não é refratado.
+    // Com dispersão, cada cor desloca na proporção do seu IOR (as bordas do fundo refratado ganham franjas coloridas).
     let shift = vec2f(nv.x, -nv.y) * material.refraction * min(thickness, 1.0) * size.y;
-    var pr = clamp(vec2i(frag.xy + shift), vec2i(0), size_i - 1);
-    if (water_scene_linear(vec2f(pr), proj) < z) { pr = pi; }
-    let background = textureLoad(water_background, pr, 0).rgb;
+    let iors = closure_dispersion_iors(material.ior, material.abbe);
+    let spread = (iors - vec3f(1.0)) / max(material.ior - 1.0, 1e-4);
+    var background = vec3f(0.0);
+    for (var k = 0; k < 3; k++) {
+        var pr = clamp(vec2i(frag.xy + shift * spread[k]), vec2i(0), size_i - 1);
+        if (water_scene_linear(vec2f(pr), proj) < z) { pr = pi; }
+        background[k] = textureLoad(water_background, pr, 0)[k];
+    }
     // Superfície: dielétrico de IOR do material (Fresnel e GGX), refletindo as luzes e o hemisfério.
     let surface = closure_dielectric(material.ior, vec3f(1.0), material.roughness, 0.0, vec3f(0.0));
     let reflected = scene_lighting(surface, pw, n, v);

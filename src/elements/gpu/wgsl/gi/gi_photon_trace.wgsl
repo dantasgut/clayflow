@@ -117,6 +117,8 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     let color = src.color.rgb / max(max(src.color.r, src.color.g), max(src.color.b, 1e-6));
     var throughput = color;
     var specular = 0u;
+    // Cor do fóton depois de um material com dispersão (3 = as três juntas).
+    var channel = 3u;
     for (var bounce = 0u; bounce < GI_PHOTON_BOUNCES; bounce++) {
         let hit = ray_scene_hit(o, d, 1e6);
         let water = ray_volume_hit(o, d, min(hit.t, 1e6));
@@ -128,7 +130,14 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         let p = hit.position;
         if (c.transmission_weight > 0.5 && c.transmission_roughness < GI_PHOTON_ROUGH) {
             // Interface dielétrica: Fresnel de Schlick; reflete ou refrata.
-            let ior = c.transmission_ior;
+            // Dispersão: na primeira interface com número de Abbe o fóton fica com uma cor (escolhida ao acaso; a vazão
+            // vai ×3 nela) e segue com o IOR dela.
+            if (channel == 3u && c.transmission_abbe > 0.0) {
+                channel = min(u32(gi_photon_random(&state) * 3.0), 2u);
+                throughput *= 3.0 * vec3f(f32(channel == 0u), f32(channel == 1u), f32(channel == 2u));
+            }
+            var ior = c.transmission_ior;
+            if (channel < 3u) { ior = closure_dispersion_iors(c.transmission_ior, c.transmission_abbe)[channel]; }
             let nn = select(-n, n, outside);
             let eta = select(ior, 1.0 / ior, outside);
             let cosi = clamp(-dot(d, nn), 0.0, 1.0);

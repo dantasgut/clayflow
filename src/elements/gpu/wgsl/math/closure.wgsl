@@ -122,6 +122,13 @@ fn closure_dielectric(ior: f32, tint: vec3f, roughness: f32, anisotropy: f32, ta
     return c;
 }
 
+// IOR por canal (R, G, B) pelo número de Abbe `abbe` (0 = sem dispersão): n(λ) ≈ n_d + (n_d − 1)/V · k, k de −½ (vermelho,
+// linha C) a ½ (azul, linha F).
+fn closure_dispersion_iors(ior: f32, abbe: f32) -> vec3f {
+    let dispersion = select(0.0, (ior - 1.0) / max(abbe, 10.0), abbe > 0.0);
+    return vec3f(ior) + dispersion * vec3f(-0.5, 0.0, 0.5);
+}
+
 // Transmissão com refração: IOR (≥ 1), cor atingida a `depth` unidades de percurso (Beer-Lambert; `depth` 0 = sem
 // absorção), número de Abbe (0 = sem dispersão) e rugosidade (borra a refração).
 fn closure_transmission(ior: f32, color: vec3f, depth: f32, abbe: f32, roughness: f32) -> Closure {
