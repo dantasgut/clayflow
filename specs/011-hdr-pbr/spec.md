@@ -370,7 +370,10 @@ medindo serrilhado, faixas, conservação de energia e cintilação.
 
 - O MSAA 4× da 008 continua o padrão; o HDR é aplicado sobre ele.
 - A luz ambiente desta spec é o hemisfério (céu e chão uniformes); o céu físico, a iluminação por imagem e os reflexos
-  de ambiente são da 013. O teste de forno usa o hemisfério uniforme.
+  de ambiente são da 013. O hemisfério é uma aproximação, não luz rebatida: a iluminação global (fótons do sol e do
+  céu rastreados na cena, reunidos em sondas) é da 033, depois da 013 e da 014, e entra como mais uma contribuição ao
+  ponto `scene_lighting`, sem mudar materiais nem desenho. O teste de forno usa o hemisfério uniforme, em que ele é
+  exato.
 - Sem traçado de raios em hardware no WebGPU: a refração usa a imagem do que está atrás (espaço de tela) e a
   transmissão sobre transmissão é aproximada; a limitação é documentada.
 - Unidades físicas das luzes: direcional em lux, pontual e spot em candela, emissão em nits; a exposição padrão é
