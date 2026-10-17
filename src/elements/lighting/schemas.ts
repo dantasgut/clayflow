@@ -45,7 +45,7 @@ export const GlobalIlluminationSchema = new StructSchema(
         counts: FieldType.vec4u,
         /** Coleta final na tela (R2 adendo): (ladrilhos em x, em y, raios por sonda de tela, slot da câmera ativa). */
         screen: FieldType.vec4u,
-        /** (0, metade do histórico escrita no quadro, ligada, 0). */
+        /** (período do rodízio das sondas de tela, metade do histórico escrita no quadro, ligada, 0). */
         screen1: FieldType.vec4u,
         /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, histerese das sondas de tela). */
         screenSize: FieldType.vec4f,
@@ -61,6 +61,6 @@ export const GlobalIlluminationSchema = new StructSchema(
 export const ProbeStateSchema = new StructSchema('ProbeState', {
     offset: FieldType.vec4f,
     coord: FieldType.vec4i,
-    /** Estado da histerese adaptativa (`gi_response`): média rápida e lenta da luminância, ruído e quadros. */
+    /** Estado da histerese adaptativa (`gi_response`): média rápida e lenta do maior canal, ruído e quadros. */
     response: FieldType.vec4f,
 });

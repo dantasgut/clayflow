@@ -30,16 +30,25 @@ export const GI_QUALITY: Readonly<
             photons: number;
             screenRays: number;
             screenTile: number;
+            screenFraction: number;
         }
     >
 > = {
-    low: { raysPerProbe: 64, probeFraction: 0.125, photons: 65536, screenRays: 8, screenTile: 16 },
+    low: {
+        raysPerProbe: 64,
+        probeFraction: 0.0625,
+        photons: 65536,
+        screenRays: 8,
+        screenTile: 16,
+        screenFraction: 0.25,
+    },
     medium: {
-        raysPerProbe: 128,
-        probeFraction: 0.25,
+        raysPerProbe: 64,
+        probeFraction: 0.125,
         photons: 262144,
-        screenRays: 16,
+        screenRays: 8,
         screenTile: 8,
+        screenFraction: 0.5,
     },
     high: {
         raysPerProbe: 256,
@@ -47,6 +56,7 @@ export const GI_QUALITY: Readonly<
         photons: 1048576,
         screenRays: 32,
         screenTile: 4,
+        screenFraction: 1,
     },
 };
 
@@ -92,6 +102,11 @@ export interface GlobalIlluminationValues {
      */
     readonly screenTile?: number;
     /**
+     * Fração das sondas de tela que lançam raios por quadro (substitui a da qualidade): 1, 0,5 (xadrez) ou 0,25 (2 × 2).
+     * As outras herdam o histórico reprojetado; a recém-descoberta (sem histórico) sempre lança.
+     */
+    readonly screenFraction?: number;
+    /**
      * Centro fixo do volume de sondas (m). Sem ele, as cascatas acompanham a câmera — o certo para cenas abertas; um
      * interior visto de fora (a câmera fora do volume que importa) fixa o centro nele.
      */
@@ -112,6 +127,7 @@ export interface GlobalIlluminationData {
     screenGather: boolean;
     screenRays: number;
     screenTile: number;
+    screenFraction: number;
     /** Centro fixo do volume de sondas, ou vazio (as cascatas acompanham a câmera). */
     center: number[];
     /**
@@ -124,6 +140,7 @@ export interface GlobalIlluminationData {
 const RAYS = [32, 64, 128, 256] as const;
 const SCREEN_RAYS = [4, 8, 16, 32, 64] as const;
 const SCREEN_TILES = [4, 8, 16] as const;
+const SCREEN_FRACTIONS = [1, 0.5, 0.25] as const;
 
 /** Lado do atlas de um mapa octaédrico de `texels` com borda de 1 texel. */
 export function giAtlasSize(texels: number): readonly [number, number] {
@@ -169,6 +186,10 @@ function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
         `screenTile ${d.screenTile} fora de {4, 8, 16}`,
     );
     check(
+        (SCREEN_FRACTIONS as readonly number[]).includes(d.screenFraction),
+        `screenFraction ${d.screenFraction} fora de {1, 0,5, 0,25}`,
+    );
+    check(
         Number.isInteger(d.photons) && d.photons >= 0,
         `photons ${d.photons} deve ser inteiro ≥ 0`,
     );
@@ -210,6 +231,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             screenGather: values.screenGather ?? true,
             screenRays: values.screenRays ?? q.screenRays,
             screenTile: values.screenTile ?? q.screenTile,
+            screenFraction: values.screenFraction ?? q.screenFraction,
             center: values.center === undefined ? [] : [...values.center],
         };
         validate(data);
@@ -227,6 +249,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         this.data.photons = v.photons;
         this.data.screenRays = v.screenRays;
         this.data.screenTile = v.screenTile;
+        this.data.screenFraction = v.screenFraction;
     }
 
     /** Valida os valores atuais (o estágio chama antes de usá-los; um valor inválido mantém o anterior). */

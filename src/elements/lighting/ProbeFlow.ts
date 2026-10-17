@@ -266,7 +266,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const traces = this.readyTraces(bound);
         const fixed = FIXED.map((d) => bound.pipelines.get(d.id));
         if (traces === undefined || fixed.some((p) => p?.role !== 'compute' || !p.ready)) return;
-        const { updated, rays, tilesX, tilesY } = this.buffers.sizes;
+        const { updated, rays, tilesX, tilesY, screenRays } = this.buffers.sizes;
         const tiles = this.screenActive ? tilesX * tilesY : 0;
         const run = (
             pass: Parameters<Parameters<Frame['compute']>[1]>[0],
@@ -290,7 +290,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 4, updated * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
             run(pass, 5, updated, W);
             run(pass, 6, tiles, W);
-            run(pass, -2, tiles, W);
+            run(pass, -2, tiles * screenRays, W);
             run(pass, 7, tiles, W);
             run(pass, 9, tiles, W);
             run(pass, 8, tiles > 0 ? 1 : 0, 1);
@@ -527,7 +527,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 extra: [1, coarsest * 0.25, d.photons, time],
                 counts: [this.resources.poolCount(Light.schema.name), 0, 0, 0],
                 screen: [sizes.tilesX, sizes.tilesY, sizes.screenRays, cameraSlot],
-                screen1: [0, this.frame & 1, this.screenActive ? 1 : 0, 0],
+                screen1: [
+                    Math.round(1 / d.screenFraction),
+                    this.frame & 1,
+                    this.screenActive ? 1 : 0,
+                    0,
+                ],
                 screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
             },
         ];

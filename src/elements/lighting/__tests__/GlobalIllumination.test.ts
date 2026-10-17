@@ -21,10 +21,14 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         const gi = new GlobalIllumination();
         expect(gi.data).toMatchObject({
             bounces: 3,
-            raysPerProbe: 128,
-            probeFraction: 0.25,
+            raysPerProbe: 64,
+            probeFraction: 0.125,
             cascades: 3,
+            screenRays: 8,
+            screenTile: 8,
+            screenFraction: 0.5,
         });
+        expect(() => new GlobalIllumination({ screenFraction: 0.3 })).toThrow(RangeError);
         expect(new GlobalIllumination({ quality: 'low' }).data.raysPerProbe).toBe(
             GI_QUALITY.low.raysPerProbe,
         );

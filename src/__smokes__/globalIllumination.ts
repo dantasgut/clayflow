@@ -33,6 +33,12 @@ import {
     pathTracedScene,
     whiteFurnace,
     windowRoom,
+    insertCloth,
+    insertCurtain,
+    insertGraphTerrain,
+    livingStage,
+    projectPoint,
+    type Vec3,
     skyFloor,
     type BuiltGiScene,
     type GiScene,
@@ -78,7 +84,11 @@ async function giReady(app: Application, ready: { revision: number; at: number }
 }
 
 /** Uma aplicação com a cena montada e a iluminação global: avança quadros e lê o alvo HDR. */
-interface EngineSession {
+interface EngineSession<T = void> {
+    /** O que o montador extra devolveu (geometria viva). */
+    readonly extra: T;
+    /** Leituras de volta da GPU feitas pelo motor durante os quadros (as das medidas ficam de fora). */
+    readonly readbacks: () => number;
     readonly app: Application;
     readonly gi: GlobalIllumination;
     readonly built: BuiltGiScene;
@@ -90,8 +100,22 @@ interface EngineSession {
 }
 
 /** Abre a cena no motor com ou sem a iluminação global; com ela, espera os kernels prontos. */
-async function openEngine(scene: GiScene, size: Size, withGi: boolean): Promise<EngineSession> {
+async function openEngine<T = void>(
+    scene: GiScene,
+    size: Size,
+    withGi: boolean,
+    extra?: (app: Application) => T,
+): Promise<EngineSession<T>> {
     const { app, canvas } = await giApp(size.width, size.height, engineErrors);
+    // Conta as leituras de volta do motor durante os quadros (SC-007).
+    let stepping = false;
+    let readbacks = 0;
+    const core = app.core as unknown as { readback: (...args: unknown[]) => Promise<ArrayBuffer> };
+    const original = core.readback.bind(core);
+    core.readback = (...args: unknown[]): Promise<ArrayBuffer> => {
+        if (stepping) readbacks++;
+        return original(...args);
+    };
     app.events.on('deviceLost', (e) => engineErrors.push(`deviceLost: ${JSON.stringify(e)}`));
     const ready = { revision: -1, at: 0 };
     app.events.on('globalIlluminationReady', (e) => {
@@ -99,6 +123,7 @@ async function openEngine(scene: GiScene, size: Size, withGi: boolean): Promise<
         ready.at = performance.now();
     });
     const built = buildGiScene(app, scene, size.width / size.height);
+    const extraValue = extra === undefined ? (undefined as T) : extra(app);
     const gi = new GlobalIllumination({
         quality: 'high',
         bounces: BOUNCES,
@@ -106,7 +131,6 @@ async function openEngine(scene: GiScene, size: Size, withGi: boolean): Promise<
         cascades: 1,
         center: scene.probeCenter,
         enabled: withGi,
-        screenGather: new URLSearchParams(location.search).get('sg') !== '0',
     });
     app.world.insert(gi);
     // Tempo real para os pipelines do desenho compilarem (as funções `material`).
@@ -116,9 +140,13 @@ async function openEngine(scene: GiScene, size: Size, withGi: boolean): Promise<
         app,
         gi,
         built,
+        extra: extraValue,
+        readbacks: () => readbacks,
         async step(frames) {
             for (let i = 0; i < frames; i++) {
+                stepping = true;
                 app.step(1 / 60);
+                stepping = false;
                 if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
             }
         },
@@ -575,6 +603,262 @@ async function responseScene(): Promise<void> {
     );
 }
 
+/** Média rgb da janela de tela que contém a projeção dos cantos de uma caixa de mundo. */
+function worldWindow(img: HdrImage, scene: GiScene, min: Vec3, max: Vec3): number[] {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let k = 0; k < 8; k++) {
+        const p: Vec3 = [k & 1 ? max[0] : min[0], k & 2 ? max[1] : min[1], k & 4 ? max[2] : min[2]];
+        const [x, y] = projectPoint(scene, img.width, img.height, p);
+        xs.push(x);
+        ys.push(y);
+    }
+    const [x0, x1] = [
+        Math.max(0, Math.floor(Math.min(...xs))),
+        Math.min(img.width, Math.ceil(Math.max(...xs))),
+    ];
+    const [y0, y1] = [
+        Math.max(0, Math.floor(Math.min(...ys))),
+        Math.min(img.height, Math.ceil(Math.max(...ys))),
+    ];
+    const sum = [0, 0, 0];
+    let n = 0;
+    for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+            const c = hdrAt(img, x, y);
+            for (let k = 0; k < 3; k++) sum[k]! += c[k]!;
+            n++;
+        }
+    return sum.map((v) => v / Math.max(1, n));
+}
+
+const redness = (c: readonly number[]): number => c[0]! / Math.max(c[1]!, 1e-6);
+const greenness = (c: readonly number[]): number => c[1]! / Math.max(c[0]!, 1e-6);
+
+/**
+ * Geometria viva (US3, SC-006/SC-007): a cortina vermelha paramétrica (escrita na GPU) muda de lugar e de forma; o
+ * tingimento vermelho da luz rebatida no chão segue para o lugar novo — em 0,25 s, ≥ 95 % do caminho até o convergido —
+ * e some do lugar velho; nenhuma leitura de volta nos quadros.
+ */
+async function livingScene(): Promise<void> {
+    const size = { width: 320, height: 240 };
+    const scene = livingStage();
+    const lit = await openEngine(scene, size, true, (app) => insertCurtain(app, -0.6));
+    const plain = await openEngine(scene, size, false, (app) => insertCurtain(app, -0.6));
+    const both = async (frames: number): Promise<void> => {
+        await lit.step(frames);
+        await plain.step(frames);
+    };
+    const indirect = async (): Promise<HdrImage> => minus(await lit.read(), await plain.read());
+    // O chão à esquerda da cortina (o lado que o sol ilumina rebate para lá).
+    const near = (offset: number): [Vec3, Vec3] => [
+        [offset - 0.6, 0, -1.15],
+        [offset - 0.12, 0, -0.45],
+    ];
+    await both(300);
+    const before = await indirect();
+    const [a0, b0] = [
+        redness(worldWindow(before, scene, ...near(-0.6))),
+        redness(worldWindow(before, scene, ...near(0.6))),
+    ];
+    for (const s of [lit, plain]) {
+        s.extra.values.offset = 0.6;
+        s.extra.values.phase = 1.7;
+    }
+    await both(15);
+    const early = await indirect();
+    const [a15, b15] = [
+        redness(worldWindow(early, scene, ...near(-0.6))),
+        redness(worldWindow(early, scene, ...near(0.6))),
+    ];
+    await both(300);
+    const after = await indirect();
+    const [a1, b1] = [
+        redness(worldWindow(after, scene, ...near(-0.6))),
+        redness(worldWindow(after, scene, ...near(0.6))),
+    ];
+    const gone = (a0 - a15) / Math.max(a0 - a1, 1e-9);
+    const came = (b15 - b0) / Math.max(b1 - b0, 1e-9);
+    log(
+        `living: tingimento vermelho no chão junto à cortina — lugar velho ${a0.toFixed(3)} → ${a15.toFixed(3)} (0,25 s) → ${a1.toFixed(3)}, lugar novo ${b0.toFixed(3)} → ${b15.toFixed(3)} → ${b1.toFixed(3)}; leituras de volta ${lit.readbacks()}`,
+    );
+    check(b1 - b0 > 0.1 && a0 - a1 > 0.1, 'living: a cortina não tinge o chão');
+    check(
+        came >= 0.95 && gone >= 0.95,
+        `living: em 0,25 s só ${(Math.min(came, gone) * 100).toFixed(1)} % da mudança`,
+    );
+    check(lit.readbacks() === 0, `living: ${lit.readbacks()} leituras de volta nos quadros`);
+    lit.close();
+    plain.close();
+}
+
+/**
+ * Corpo mole e grafo (US3, SC-007): o pano vermelho (XPBD) e o terreno verde de grafo de nós, escritos na GPU, rebatem
+ * a cor deles na parede do fundo (mais vermelha atrás do pano, mais verde atrás do terreno, que longe deles) e recebem
+ * luz rebatida; nenhuma leitura de volta nos quadros.
+ */
+async function softGraphScene(): Promise<void> {
+    const size = { width: 320, height: 240 };
+    const scene = livingStage();
+    const add = (app: Application): void => {
+        insertCloth(app);
+        insertGraphTerrain(app);
+    };
+    const lit = await openEngine(scene, size, true, add);
+    const plain = await openEngine(scene, size, false, add);
+    for (let k = 0; k < 20; k++) {
+        await lit.step(20);
+        await plain.step(20);
+    }
+    const ind = minus(await lit.read(), await plain.read());
+    const behindCloth = worldWindow(ind, scene, [-1.3, 0.3, -1.5], [-0.5, 1.0, -1.5]);
+    const behindGraph = worldWindow(ind, scene, [0.4, 0.1, -1.5], [1.4, 0.6, -1.5]);
+    const far = worldWindow(ind, scene, [-0.15, 0.3, -1.5], [0.15, 1.0, -1.5]);
+    const graph = worldWindow(ind, scene, [0.4, 0.1, -1.1], [1.4, 0.15, -0.1]);
+    log(
+        `softgraph: parede atrás do pano vermelho/verde ${redness(behindCloth).toFixed(3)} (longe ${redness(far).toFixed(3)}); atrás do terreno verde/vermelho ${greenness(behindGraph).toFixed(3)} (longe ${greenness(far).toFixed(3)}); luz rebatida no terreno ${lum(graph).toFixed(4)}; leituras de volta ${lit.readbacks()}`,
+    );
+    check(
+        redness(behindCloth) > 1.1 * redness(far),
+        'softgraph: o pano (corpo mole) não rebate a cor dele',
+    );
+    check(
+        greenness(behindGraph) > 1.05 * greenness(far),
+        'softgraph: o terreno (grafo) não rebate a cor dele',
+    );
+    check(lum(graph) > 0.01, 'softgraph: o terreno (grafo) não recebe luz rebatida');
+    check(lit.readbacks() === 0, `softgraph: ${lit.readbacks()} leituras de volta nos quadros`);
+    lit.close();
+    plain.close();
+}
+
+/**
+ * Orçamento (SC-010): a cena do bench `global-illumination` (onda animada de 1 milhão de triângulos, caixas, sol e céu
+ * físico, qualidade média) a 1280×720 — o tempo de GPU por quadro (a medida de desempenho, `profiling: 'frame'`; a por
+ * passe distorce neste hardware) com e sem a iluminação global; a diferença é o custo dela (≤ 4 ms). O número de
+ * referência é o do bench (aquecimento e janela de medida); aqui, a conferência.
+ */
+async function budgetScene(): Promise<void> {
+    const lib = await import('clayflow');
+    const run = async (gi: boolean): Promise<Map<string, number>> => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280;
+        canvas.height = 720;
+        document.body.appendChild(canvas);
+        const app = await lib.Application.create({
+            canvas,
+            scene: lib.createScene(),
+            autoResize: false,
+            captureErrors: true,
+            profiling: 'frame',
+        });
+        app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
+        const ready = { revision: -1, at: 0 };
+        app.events.on('globalIlluminationReady', (e) => {
+            ready.revision = e.revision;
+            ready.at = performance.now();
+        });
+        const e = (40 * Math.PI) / 180;
+        const sun = new lib.DirectionalLight({
+            direction: [-Math.cos(e) * 0.6, -Math.sin(e), -Math.cos(e) * 0.8, 0],
+            intensity: 100000,
+            castShadow: true,
+        });
+        app.world.insert(sun);
+        app.world.insert(new lib.Sky({ sun }));
+        app.world.insert(
+            new lib.ParametricSurface({
+                domain: [-4, 4, -4, 4],
+                animated: true,
+                resolution: [707, 707],
+            })
+                .add(
+                    new lib.SurfaceFunction({
+                        code: `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return vec3f(v, data.amp * sin(1.2 * v + time) * cos(1.2 * u + 0.7 * time), u);
+}`,
+                        params: { amp: 'f32' },
+                        values: { amp: 0.15 },
+                    }),
+                )
+                .add(new lib.StandardMaterial({ albedo: [0.6, 0.6, 0.58, 1], roughness: 0.9 }))
+                .add(new lib.Transform()),
+        );
+        for (let k = 0; k < 8; k++) {
+            const a = (k / 8) * Math.PI * 2;
+            app.world.insert(
+                new lib.BoxGeometry({ size: [0.6, 1, 0.6] })
+                    .add(
+                        new lib.StandardMaterial({
+                            albedo: [0.3 + (k % 3) * 0.3, 0.5, 0.8 - (k % 2) * 0.4, 1],
+                            roughness: 0.5,
+                        }),
+                    )
+                    .add(
+                        new lib.Transform({
+                            position: [2.2 * Math.cos(a), 0.6, 2.2 * Math.sin(a), 1],
+                        }),
+                    ),
+            );
+        }
+        const eye = [0, 2.4, 6.5] as const;
+        app.world.insert(
+            new lib.Camera({
+                fov: (55 * Math.PI) / 180,
+                aspect: 1280 / 720,
+                aspectMode: 'fixed',
+                near: 0.1,
+                far: 100,
+            }).add(
+                new lib.Transform({
+                    position: [...eye, 1],
+                    rotation: lib.Transform.lookRotation(eye, [0, 0.3, 0]),
+                }),
+            ),
+        );
+        const giRes = new lib.GlobalIllumination({ quality: 'medium' });
+        app.events.on('globalIlluminationUnsupported', (e) =>
+            engineErrors.push(`unsupported: ${e.reason}`),
+        );
+        if (gi) app.world.insert(giRes);
+        await settle(app, 2500);
+        if (gi) await giReady(app, ready);
+        const stages = new Map<string, number>();
+        let frames = 0;
+        app.events.on('frameComplete', (f) => {
+            if (f.stats.gpuTimeMs === undefined) return;
+            frames++;
+            stages.set('total', (stages.get('total') ?? 0) + f.stats.gpuTimeMs);
+            for (const [k, v] of Object.entries(f.stats.stagesNs))
+                stages.set(k, (stages.get(k) ?? 0) + v / 1e6);
+        });
+        for (let i = 0; i < 240; i++) {
+            app.step(1 / 60);
+            if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
+        }
+        await settle(app, 300);
+        app.dispose();
+        canvas.remove();
+        for (const [k, v] of stages) stages.set(k, v / Math.max(1, frames));
+        return stages;
+    };
+    const off = await run(false);
+    const on = await run(true);
+    const fmt = (m: Map<string, number>): string =>
+        [...m]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([k, v]) => `${k} ${v.toFixed(2)}`)
+            .join(' · ');
+    log(`budget: sem iluminação global — ${fmt(off)}`);
+    log(`budget: com iluminação global (média) — ${fmt(on)}`);
+    const cost = (on.get('total') ?? 0) - (off.get('total') ?? 0);
+    log(
+        `budget: custo da iluminação global ${cost.toFixed(2)} ms/quadro a 1280×720 (orçamento 4 ms)`,
+    );
+    check(cost <= 4, `budget: iluminação global a ${cost.toFixed(2)} ms/quadro (orçamento 4 ms)`);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     cornell: () =>
         compareScene(
@@ -606,10 +890,13 @@ const CASES: Record<string, () => Promise<void>> = {
     window: () =>
         compareScene('window', windowRoom(), { width: 640, height: 480 }, 512, 0.1, windowChecks),
     skyfloor: () => compareScene('skyfloor', skyFloor(), { width: 320, height: 240 }, 256, 0.1),
+    living: livingScene,
+    softgraph: softGraphScene,
     stability: stabilityScene,
     moving: movingScene,
     leak: leakScene,
     response: responseScene,
+    budget: budgetScene,
     dark: darkScene,
     furnace: furnaceScene,
 };

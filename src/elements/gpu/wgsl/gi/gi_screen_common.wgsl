@@ -15,6 +15,19 @@ fn gi_screen_count() -> u32 {
     return gi.screen.x * gi.screen.y;
 }
 
+/**
+ * A sonda `i` lança raios neste quadro? Rodízio pela fração das sondas (`gi.screen1.x` = período): todas com 1, xadrez
+ * com 2, 2 × 2 com 4 — as outras herdam o histórico reprojetado.
+ */
+fn gi_screen_scheduled(i: u32) -> bool {
+    let period = max(gi.screen1.x, 1u);
+    if (period == 1u) { return true; }
+    let tx = i % gi.screen.x;
+    let ty = i / gi.screen.x;
+    let phase = select((tx & 1u) + 2u * (ty & 1u), (tx + ty) & 1u, period == 2u);
+    return phase == gi.rays.y % period;
+}
+
 /** Índice no buffer de trabalho da posição da sonda `i` (a normal vem logo depois). */
 fn gi_screen_probe_at(i: u32) -> u32 {
     return 2u * i;

@@ -16,7 +16,7 @@ const scene = (over: Partial<SceneDefinition> = {}): SceneDefinition => ({
 });
 
 describe('catálogo real', () => {
-    it('as 5 cenas da F0 e a de partículas da F2 (com as variantes de água da 017 e de coesão da 030) a de funções da 009 nas instâncias, o terreno da 010 nas partículas a de superfícies da 010 e a de geometria por grafo da 031, 21 variantes', () => {
+    it('as 5 cenas da F0 e a de partículas da F2 (com as variantes de água da 017 e de coesão da 030) a de funções da 009 nas instâncias, o terreno da 010 nas partículas a de superfícies da 010, a de geometria por grafo da 031 e a de iluminação global da 033, 23 variantes', () => {
         expect(CATALOG.map((s) => s.id)).toEqual([
             'instances',
             'unique-objects',
@@ -26,8 +26,13 @@ describe('catálogo real', () => {
             'particles',
             'surfaces',
             'graph-geometry',
+            'global-illumination',
         ]);
-        expect(CATALOG.reduce((n, s) => n + s.variants.length, 0)).toBe(21);
+        expect(CATALOG.reduce((n, s) => n + s.variants.length, 0)).toBe(23);
+        expect(findScene('global-illumination')?.variants.map((v) => v.id)).toEqual([
+            'off',
+            'medium',
+        ]);
         expect(findScene('instances')?.variants.map((v) => v.id)).toEqual([
             '10k',
             '100k',

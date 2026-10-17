@@ -27,12 +27,17 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     let found = gi_screen_history_found(taps);
     var state = vec4f(0.0);
     if (found) {
-        state = gi_screen_history_gather(taps, 2u);
-        state.w = floor(state.w);
+        // O estado da resposta da sonda anterior mais pesada (a contagem não se mistura entre sondas).
+        var best = 0u;
+        for (var o = 1u; o < 4u; o++) { if (taps.w[o] > taps.w[best]) { best = o; } }
+        state = gi_screen_history[taps.at[best] + 2u];
     }
-    // A histerese pela luminância de todos os rebatimentos (a última geração), a mesma para todas as gerações.
+    // A histerese pelo maior canal de todos os rebatimentos (a última geração), a mesma para todas as gerações.
+    // Fora da vez no rodízio (sem raios no quadro): o histórico reprojetado, sem mistura e com o estado como estava.
+    let inherit = found && gi_screen_work[gi_screen_fresh_at(i, 0u)].w < 0.0;
     let last = gi_screen_work[gi_screen_fresh_at(i, bounces - 1u)].rgb;
-    let response = gi_response(state, gi_response_luminance(last), gi.screenSize.w);
+    var response = GiResponse(1.0, state);
+    if (!inherit) { response = gi_response(state, gi_response_value(last), gi.screenSize.w); }
     var e = vec3f(0.0);
     for (var g = 0u; g < bounces; g++) {
         let fresh = gi_screen_work[gi_screen_fresh_at(i, g)].rgb;
@@ -53,8 +58,9 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
  * σ · √((1 − h)/(1 + h)) com a histerese em que a sonda está.
  */
 fn gi_screen_noise(state: vec4f) -> f32 {
-    let h = min(state.w / (state.w + 1.0), gi.screenSize.w);
-    return sqrt(state.z * (1.0 - h) / (1.0 + h));
+    // Nos quadros de resposta (contagem negativa), a histerese de resposta.
+    let h = select(min(state.w / (state.w + 1.0), gi.screenSize.w), GI_RESPONSE_HYSTERESIS, state.w < 0.0);
+    return sqrt(max(state.z * (1.0 - h) / (1.0 + h), 0.0));
 }
 
 /**

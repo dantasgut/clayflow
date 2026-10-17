@@ -6,7 +6,17 @@
 import {
     Application,
     BoxGeometry,
+    compileSetGraph,
+    graphArgument,
+    GraphGeometry,
+    GravityField,
+    NodeGraph,
+    nodes,
+    ParametricSurface,
+    SetGraph,
     Sky,
+    SoftBody,
+    SurfaceFunction,
     Camera,
     createScene,
     DirectionalLight,
@@ -420,4 +430,167 @@ function skyTableOf(toSun: Vec3, illuminance: number): PtSkyTable {
                 table.rgb[(j * table.width + i) * 3 + k] = l[k]! * illuminance;
         }
     return table;
+}
+
+/** Palco das cenas de geometria viva (US3): chão e parede do fundo brancos, sol de lado; a câmera de frente. */
+export function livingStage(): GiScene {
+    const white: Vec3 = [0.75, 0.75, 0.75];
+    return {
+        slabs: [
+            { id: 1, min: [-2.5, -T, -1.5], max: [2.5, 0, 2], color: white },
+            { id: 2, min: [-2.5, 0, -1.5 - T], max: [2.5, 2, -1.5], color: white },
+        ],
+        sun: { direction: sunFrom(45, 180), illuminance: 100 },
+        camera: { position: [0, 1.3, 3.2], target: [0, 0.5, -0.8], fovY: (55 * Math.PI) / 180 },
+        probeCenter: [0, 1, -0.4],
+        regions: new Map([
+            [1, 'chão'],
+            [2, 'parede do fundo'],
+        ]),
+    };
+}
+
+/**
+ * Código da cortina: uma folha vertical ondulada em x = `offset`, de 1,2 m de altura, entre z = −1,2 e −0,4, com a face
+ * da frente (as faces de trás não são desenhadas nem rebatem) virada para −x, o lado do sol.
+ */
+const CURTAIN_CODE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return vec3f(data.offset + 0.06 * sin(u * 9.0 + data.phase), v, u - 0.8);
+}`;
+
+/**
+ * Cortina vermelha paramétrica escrita na GPU (spec 010) no palco: a forma vem da função (posição `offset` e fase da
+ * ondulação), mudada pelos valores — a geometria muda sem nenhuma leitura de volta. Devolve a função.
+ */
+export function insertCurtain(app: Application, offset: number): SurfaceFunction {
+    const fn = new SurfaceFunction({
+        code: CURTAIN_CODE,
+        params: { offset: 'f32', phase: 'f32' },
+        values: { offset, phase: 0 },
+    });
+    app.world.insert(
+        new ParametricSurface({ resolution: [48, 24], domain: [-0.4, 0.4, 0, 1.2], animated: true })
+            .add(fn)
+            .add(new StandardMaterial({ albedo: [0.85, 0.08, 0.06, 1], roughness: 1 }))
+            .add(new Transform()),
+    );
+    return fn;
+}
+
+/** Pano vermelho (corpo mole XPBD, escrito na GPU) preso pelos dois cantos de trás, caindo sobre o palco em x = −0,9. */
+export function insertCloth(app: Application): void {
+    const side = 16;
+    const spacing = 0.05;
+    const position: number[] = [];
+    const mass: number[] = [];
+    const uvs: number[] = [];
+    for (let j = 0; j < side; j++)
+        for (let i = 0; i < side; i++) {
+            position.push(-0.9 + (i - (side - 1) / 2) * spacing, 1.3, -1.0 + j * spacing);
+            mass.push(j === 0 && (i === 0 || i === side - 1) ? 0 : 0.01);
+            uvs.push(i / (side - 1), j / (side - 1));
+        }
+    const at = (i: number, j: number): number => j * side + i;
+    const a: number[] = [];
+    const b: number[] = [];
+    const triangles: number[] = [];
+    for (let j = 0; j < side; j++)
+        for (let i = 0; i < side; i++) {
+            if (i + 1 < side) {
+                a.push(at(i, j));
+                b.push(at(i + 1, j));
+            }
+            if (j + 1 < side) {
+                a.push(at(i, j));
+                b.push(at(i, j + 1));
+            }
+            if (i + 1 < side && j + 1 < side) {
+                a.push(at(i, j), at(i + 1, j));
+                b.push(at(i + 1, j + 1), at(i, j + 1));
+                triangles.push(
+                    at(i, j),
+                    at(i, j + 1),
+                    at(i + 1, j),
+                    at(i + 1, j),
+                    at(i, j + 1),
+                    at(i + 1, j + 1),
+                );
+            }
+        }
+    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+    app.world.insert(
+        new SoftBody({
+            algorithm: 'XPBD',
+            position,
+            mass,
+            edges: { a, b },
+            surface: { triangles, uvs },
+        })
+            .add(new StandardMaterial({ albedo: [0.85, 0.1, 0.08, 1], roughness: 1 }))
+            .add(new Transform()),
+    );
+}
+
+/** Terreno verde de grafo de nós (spec 031, escrito na GPU) em x ∈ [0,3; 1,5], z ∈ [−1,2; 0]: ruído deslocando uma grade. */
+export function insertGraphTerrain(app: Application): void {
+    const shape = new NodeGraph({
+        nodes: {
+            g: nodes.set.grid.with({ resolution: [32, 32], size: [1.2, 1.2] }),
+            p: graphArgument('position'),
+            h: nodes.noise.gradient3.with({ scale: 3, offset: [0.4, 1.1, 0.7] }),
+            d: nodes.set.displace.with({ scale: 0.12 }),
+            n: nodes.set.recomputeNormals,
+            o: nodes.set.meshOutput,
+        },
+        links: [
+            ['g.mesh', 'd.mesh'],
+            ['p.value', 'h.p'],
+            ['h.value', 'd.height'],
+            ['d.mesh', 'n.mesh'],
+            ['n.mesh', 'o.mesh'],
+        ],
+    });
+    const graph = new SetGraph({ graph: shape });
+    const plan = compileSetGraph(shape, (id) => graph.valuesOf(id));
+    const cap = (key: string): number => plan.sets.find((x) => x.key === key)?.capacity ?? 0;
+    app.world.insert(
+        graph
+            .add(
+                new GraphGeometry({
+                    vertexCapacity: cap('n.mesh.vertices'),
+                    indexCapacity: cap('n.mesh.triangles') * 3,
+                }),
+            )
+            .add(new StandardMaterial({ albedo: [0.1, 0.7, 0.12, 1], roughness: 1 }))
+            .add(new Transform({ position: [0.9, 0.12, -0.6, 1] })),
+    );
+}
+
+/** Pixel (x, y) da projeção de um ponto de mundo pela câmera da cena (a mesma convenção do traçador de caminhos). */
+export function projectPoint(
+    scene: GiScene,
+    width: number,
+    height: number,
+    p: Vec3,
+): [number, number] {
+    const c = scene.camera;
+    const f = [0, 1, 2].map((k) => c.target[k]! - c.position[k]!);
+    const fl = Math.hypot(...f);
+    const fw = f.map((v) => v / fl);
+    const r = [-fw[2]!, 0, fw[0]!];
+    const rl = Math.hypot(...r);
+    const rt = r.map((v) => v / rl);
+    const up = [
+        rt[1]! * fw[2]! - rt[2]! * fw[1]!,
+        rt[2]! * fw[0]! - rt[0]! * fw[2]!,
+        rt[0]! * fw[1]! - rt[1]! * fw[0]!,
+    ];
+    const d = [0, 1, 2].map((k) => p[k]! - c.position[k]!);
+    const z = d[0]! * fw[0]! + d[1]! * fw[1]! + d[2]! * fw[2]!;
+    const x = (d[0]! * rt[0]! + d[1]! * rt[1]! + d[2]! * rt[2]!) / z;
+    const y = (d[0]! * up[0]! + d[1]! * up[1]! + d[2]! * up[2]!) / z;
+    const tanY = Math.tan(c.fovY / 2);
+    const tanX = tanY * (width / height);
+    return [((x / tanX + 1) / 2) * width, ((1 - y / tanY) / 2) * height];
 }

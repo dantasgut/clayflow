@@ -178,8 +178,28 @@ erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 **Independent Test**: superfície deformando ao lado de uma parede; a luz indireta muda junto.
 
-- [ ] T040 [US3] Smoke `globalIllumination.ts` parte c: superfície paramétrica animada com a sombra indireta e o tingimento seguindo a forma em ≤ 0,25 s; corpo mole e geometria de grafo recebendo e rebatendo luz; contador de leituras de volta zero por quadro (SC-007); vídeo da geometria viva
-- [ ] T041 [US3] Cena de bench `bench/scenes/global-illumination/` (1 milhão de triângulos, sol, céu, GI `medium`, superfície animada) com o tempo de GPU da GI separado (build, refit, TLAS, sondas) — alvo ≤ 4 ms a 1280×720 (R9, SC-010)
+- [x] T040 [US3] Smoke `globalIllumination.ts` parte c: superfície paramétrica animada com a sombra indireta e o tingimento seguindo a forma em ≤ 0,25 s; corpo mole e geometria de grafo recebendo e rebatendo luz; contador de leituras de volta zero por quadro (SC-007); vídeo da geometria viva
+- [x] T041 [US3] Cena de bench `bench/scenes/global-illumination/` (1 milhão de triângulos, sol, céu, GI `medium`, superfície animada) com o tempo de GPU da GI separado (build, refit, TLAS, sondas) — alvo ≤ 4 ms a 1280×720 (R9, SC-010)
+
+**Notas da implementação (US3)**:
+
+- Smoke parte c: a cortina paramétrica (escrita na GPU) muda de lugar e de forma — o tingimento no chão chega ao lugar
+  novo e some do velho em 0,25 s (≥ 95 % do caminho; medido 97 %); o pano XPBD e o terreno de grafo rebatem a cor deles
+  na parede e recebem luz rebatida; zero leituras de volta do motor nos quadros (contadas na `core.readback`). As faces
+  de trás das listas de triângulos não são desenhadas nem rebatem (como no desenho): a cortina tem a face da frente
+  virada para o sol.
+- Orçamento (SC-010): cena do bench `global-illumination` (onda de 1 milhão de triângulos animada, sol, céu; `off` e
+  `medium`). O custo começou em ~20 ms (bench) e caiu para ~3 ms: o desenho lê só as sondas de tela (as do mundo só sem
+  nenhuma sonda de tela válida em volta; a mais próxima para quem não vira pixel — encobertos e auxiliares do quad, que
+  pagavam a leitura cara); a especular das sondas do mundo só nos lobos brilhantes (rugosidade < 0,5); os raios das
+  sondas de tela uma invocação por raio com a soma no grupo; o acúmulo das sondas do mundo num passo pelos raios; a
+  qualidade média com 64 raios por sonda do mundo, 1/8 delas por quadro, 8 raios por sonda de tela e metade delas por
+  quadro (rodízio em xadrez, as outras herdam o histórico reprojetado). Bench: `off` 1,29 ms, `medium` 4,44 ms.
+- O tempo por passe distorce neste hardware (a apresentação espelha o desenho): a medida é o total do quadro
+  (`profiling: 'frame'`) e o bench; o detalhamento da GI no bench é a diferença entre as variantes.
+- Resposta: o valor acompanhado é o maior canal (uma mudança de cor aparece nele); depois de uma mudança, 3 quadros com a
+  histerese de resposta antes de a contagem seguir (os rebatimentos encadeados atrasam um quadro por geração); limiar
+  2,5 desvios.
 
 ---
 
