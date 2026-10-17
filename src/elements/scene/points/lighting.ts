@@ -1,42 +1,37 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
-import { DEFAULT_LIGHT_DIRECTION } from '../../gpu/shaders/constants';
+import { closure } from '../../material/pbr/shaders';
 
-// Pontos de cena do sombreamento (spec 031, R4): o desenho chama estas funções sem conhecer quem as implementa. Sem
-// contribuinte, fica o pronto; a luz que projeta sombra (`DirectionalLight` com `ShadowMap`) e a água (`WaterSurface`)
-// contribuem. Cada ponto recebe o valor que o desenho já calculou, para que a conta seja a mesma de antes.
+// Pontos de cena do sombreamento (spec 031, R4; spec 011, R7): o desenho chama estas funções sem conhecer quem as
+// implementa. As luzes contribuem para `scene_lighting` (soma); a sombra de cada luz para `light_visibility` e a água
+// para `light_transmission` (produtos, por luz). Sem contribuinte, fica o pronto.
 
-/** `fn scene_light_direction() -> vec3f` — direção da luz que ilumina; pronto: a direção padrão. */
-export const sceneLightDirectionReady = wgslModule({
-    name: 'scene_light_direction_ready',
-    requires: [DEFAULT_LIGHT_DIRECTION.module],
-    source: 'fn scene_light_direction() -> vec3f {\n    return DEFAULT_LIGHT_DIRECTION;\n}',
+/**
+ * `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` pelo fechamento
+ * `c` no ponto `p` (normal `n`) sob todas as luzes da cena; pronto: nenhuma luz (0).
+ */
+export const sceneLightingReady = wgslModule({
+    name: 'scene_lighting_ready',
+    requires: [closure],
+    source: 'fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
 });
 
 /**
- * `fn scene_any_light_direction() -> vec3f` — direção da primeira luz viva da cena, com ou sem sombra (a luz dos sprites
- * de partículas); pronto, sem luz: a direção padrão.
+ * `fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32` — visibilidade da luz `light` (slot no pool `Light`,
+ * ou `NONE` para a ambiente) no ponto; pronto: 1 (sem sombra).
  */
-export const sceneAnyLightDirectionReady = wgslModule({
-    name: 'scene_any_light_direction_ready',
-    requires: [DEFAULT_LIGHT_DIRECTION.module],
-    source: 'fn scene_any_light_direction() -> vec3f {\n    return DEFAULT_LIGHT_DIRECTION;\n}',
-});
-
-/** `fn light_visibility(p: vec3f, n_dot_l: f32) -> f32` — visibilidade da luz no ponto; pronto: 1 (sem sombra). */
 export const lightVisibilityReady = wgslModule({
     name: 'light_visibility_ready',
-    source: 'fn light_visibility(p: vec3f, n_dot_l: f32) -> f32 {\n    return 1.0;\n}',
+    source: 'fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32 {\n    return 1.0;\n}',
 });
 
 /**
- * `fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f` — a luz que chega ao ponto: o ambiente mais a
- * direta `direct` (já atenuada pela sombra) depois de atravessar o meio (ex.: a água e as cáusticas); pronto:
- * `vec3f(ambient + direct)`. O contribuinte devolve a soma inteira, para a conta ser a mesma de antes em cada ramo.
+ * `fn light_transmission(light: u32, p: vec3f) -> vec3f` — o fator do meio que a luz `light` atravessa até o ponto (ex.:
+ * a água e as cáusticas); pronto: 1.
  */
 export const lightTransmissionReady = wgslModule({
     name: 'light_transmission_ready',
-    source: 'fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f {\n    return vec3f(ambient + direct);\n}',
+    source: 'fn light_transmission(light: u32, p: vec3f) -> vec3f {\n    return vec3f(1.0);\n}',
 });
 
 const combined = new Map<string, WgslModule>();
@@ -47,17 +42,19 @@ function memo(key: string, make: () => WgslModule): WgslModule {
     return m;
 }
 
-/** Direção da luz da cena: o primeiro contribuinte (a ordem decide). */
-export const sceneLightDirectionPoint: ContributionPoint = {
-    name: 'scene_light_direction',
-    ready: sceneLightDirectionReady,
-    functionName: 'scene_light_direction',
+/** Iluminação da cena: a soma das contribuições (cada classe de luz, o hemisfério). */
+export const sceneLightingPoint: ContributionPoint = {
+    name: 'scene_lighting',
+    ready: sceneLightingReady,
+    functionName: 'scene_lighting',
     combine: (modules) =>
-        memo(`dir:${modules.map((m) => m.name).join('+')}`, () =>
+        memo(`light:${modules.map((m) => m.name).join('+')}`, () =>
             wgslModule({
-                name: `scene_light_direction:${modules.map((m) => m.name).join('+')}`,
-                requires: modules,
-                source: 'fn scene_light_direction() -> vec3f {\n    return scene_light_direction_0();\n}',
+                name: `scene_lighting:${modules.map((m) => m.name).join('+')}`,
+                requires: [closure, ...modules],
+                source: `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return ${modules
+                    .map((_, k) => `scene_lighting_${k}(c, p, n, v)`)
+                    .join(' + ')};\n}`,
             }),
         ),
 };
@@ -72,14 +69,14 @@ export const lightVisibilityPoint: ContributionPoint = {
             wgslModule({
                 name: `light_visibility:${modules.map((m) => m.name).join('+')}`,
                 requires: modules,
-                source: `fn light_visibility(p: vec3f, n_dot_l: f32) -> f32 {\n    return ${modules
-                    .map((_, k) => `light_visibility_${k}(p, n_dot_l)`)
+                source: `fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32 {\n    return ${modules
+                    .map((_, k) => `light_visibility_${k}(light, p, n_dot_l)`)
                     .join(' * ')};\n}`,
             }),
         ),
 };
 
-/** Transmissão da luz: o primeiro contribuinte com o ambiente e a direta; os seguintes como fatores (sem ambiente). */
+/** Transmissão da luz: o produto dos contribuintes, em ordem. */
 export const lightTransmissionPoint: ContributionPoint = {
     name: 'light_transmission',
     ready: lightTransmissionReady,
@@ -89,28 +86,9 @@ export const lightTransmissionPoint: ContributionPoint = {
             wgslModule({
                 name: `light_transmission:${modules.map((m) => m.name).join('+')}`,
                 requires: modules,
-                source: `fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f {\n    return ${modules
-                    .map((_, k) =>
-                        k === 0
-                            ? 'light_transmission_0(p, ambient, direct)'
-                            : `light_transmission_${k}(p, 0.0, 1.0)`,
-                    )
+                source: `fn light_transmission(light: u32, p: vec3f) -> vec3f {\n    return ${modules
+                    .map((_, k) => `light_transmission_${k}(light, p)`)
                     .join(' * ')};\n}`,
-            }),
-        ),
-};
-
-/** Direção da primeira luz viva: todo contribuinte entrega o mesmo módulo (vale o primeiro). */
-export const sceneAnyLightDirectionPoint: ContributionPoint = {
-    name: 'scene_any_light_direction',
-    ready: sceneAnyLightDirectionReady,
-    functionName: 'scene_any_light_direction',
-    combine: (modules) =>
-        memo(`any:${modules.map((m) => m.name).join('+')}`, () =>
-            wgslModule({
-                name: `scene_any_light_direction:${modules.map((m) => m.name).join('+')}`,
-                requires: modules,
-                source: 'fn scene_any_light_direction() -> vec3f {\n    return scene_any_light_direction_0();\n}',
             }),
         ),
 };

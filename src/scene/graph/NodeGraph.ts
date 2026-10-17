@@ -325,6 +325,17 @@ export class NodeGraph {
     }
 
     /** Módulos dos nós de que a saída depende (cada um uma vez). */
+    /**
+     * União das marcas (`tags`) dos nós do grafo (spec 011), sub-grafos inclusive: o consumidor do grafo as interpreta
+     * (ex.: a máscara de lobos de um material). Nós sem marca não contribuem.
+     */
+    tags(): ReadonlySet<string> {
+        const out = new Set<string>();
+        for (const id of this.order())
+            for (const tag of this.#resolved.get(id)!.definition?.tags ?? []) out.add(tag);
+        return out;
+    }
+
     modules(): readonly WgslModule[] {
         const out: WgslModule[] = [];
         for (const id of this.order()) {
@@ -427,10 +438,15 @@ export class NodeGraph {
         const params = sig.params
             .map((t, k) => `${names[k]}: ${t === POINT_PARAMS ? point.paramsAlias : t}`)
             .join(', ');
-        const ret = convert(output, sig.returns, `retorno de ${sig.name}`);
+        // Retorno alternativo do ponto (spec 011): a saída de um tipo aceito vira o retorno, sem conversão.
+        const outType = typeOf(output);
+        const returns = (sig.alternatives ?? []).map(norm).includes(outType)
+            ? outType
+            : sig.returns;
+        const ret = convert(output, returns, `retorno de ${sig.name}`);
         return [
             `// Grafo de nós (spec 031): ${this.order().length} nós, um 'let' por nó.`,
-            `fn ${sig.name}(${params}) -> ${sig.returns} {`,
+            `fn ${sig.name}(${params}) -> ${returns} {`,
             ...lines,
             `    return ${ret};`,
             '}',

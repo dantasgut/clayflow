@@ -5,14 +5,15 @@ import {
     type WgslResource,
     type WgslResourceType,
 } from '../../scene/shaders/WgslResource';
-import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import { brdf } from '../../elements/gpu/shaders/math';
+import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { FluidSurfaceMaterialSchema } from '../../elements/material/FluidSurfaceMaterialSchema';
+import { sceneLightingReady } from '../../elements/scene/points/lighting';
 import {
-    lightVisibilityReady,
-    sceneLightDirectionReady,
-} from '../../elements/scene/points/lighting';
-import { camerasResource, shadowMatricesResource } from '../../elements/scene/resources';
+    camerasResource,
+    lightsResource,
+    shadowMatricesResource,
+} from '../../elements/scene/resources';
+import { closure, closureEval } from '../../elements/material/pbr/shaders';
 import { WATER_DEPTH_LIMIT, WATER_NO_DEPTH } from './constants';
 import {
     CausticParamsSchema,
@@ -280,10 +281,10 @@ function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
         requires: [
             waterView,
             scene,
-            brdf,
+            closure,
+            closureEval,
             waterRipple,
-            sceneLightDirectionReady,
-            lightVisibilityReady,
+            sceneLightingReady,
             WATER_DEPTH_LIMIT.module,
             camerasResource,
             R.materials,
@@ -297,9 +298,8 @@ function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
 }
 
 /**
- * Composição óptica da água nos alvos da cena, sem e com MSAA (spec 017). A direção da luz e a sombra vêm dos pontos
- * de cena `scene_light_direction` e `light_visibility` (spec 031): a C2 troca os prontos pelas contribuições da luz que
- * projeta sombra.
+ * Composição óptica da água nos alvos da cena, sem e com MSAA (spec 017). A luz vem do ponto de cena `scene_lighting`
+ * (spec 011): a C2 troca o pronto pelas contribuições das luzes, do hemisfério, da sombra e das cáusticas.
  */
 export const waterComposite = {
     scene: waterCompositeModule('water_composite_pass', waterSceneSingle),
@@ -307,10 +307,9 @@ export const waterComposite = {
 } as const;
 
 /**
- * Contribuição da água ao ponto `light_transmission` (spec 031): `fn light_transmission(p, ambient, direct)` devolve
- * `vec3f(ambient + direct)` com as cáusticas desligadas no estado do `WaterSurface` e
- * `ambient + direct × water_caustic_factor(p, …)` com
- * elas ligadas.
+ * Contribuição da água ao ponto `light_transmission` (por luz, spec 011): `fn light_transmission(light, p)` devolve o mapa
+ * de cáusticas para a luz que projeta sombra abaixo da superfície (com as cáusticas ligadas no estado do
+ * `WaterSurface`) e 1 para as outras luzes e a ambiente.
  */
 export const waterTransmission = wgslModule({
     name: 'water_transmission',
@@ -320,5 +319,7 @@ export const waterTransmission = wgslModule({
         waterTransmissionResources.causticMap,
         waterTransmissionResources.lightDepth,
         waterTransmissionResources.lightMatrix,
+        lightsResource,
+        NONE.module,
     ],
 });

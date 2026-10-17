@@ -24,6 +24,7 @@ import { WaterSurface } from '../../../app/WaterSurface';
 import { FluidSurfaceFlow } from '../../FluidSurfaceFlow';
 import { CausticsFlow } from '../../CausticsFlow';
 import { WaterFlow } from '../../WaterFlow';
+import { PbrTables } from '../../../../elements/material/pbr/PbrTables';
 
 /** Bind group ligado num desenho, com os offsets dinâmicos. */
 export interface BoundGroup {
@@ -380,6 +381,8 @@ export function registerStages(
             ? new FrameTargets()
             : undefined;
     if (frameTargets !== undefined) scene.world.insert(frameTargets);
+    // Tabelas do sombreamento físico (spec 011): o fechamento as lê em todo desenho iluminado.
+    if (frameTargets !== undefined) scene.world.insert(new PbrTables());
     const forward =
         output === undefined
             ? undefined

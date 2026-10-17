@@ -1,10 +1,11 @@
 // Composição óptica da água (spec 017, research R5): um triângulo de tela cheia sobre os alvos da cena. Por pixel com
 // água: normal reconstruída da profundidade suavizada, refração da cena de antes da água (`background`, nunca o que
 // está na frente da superfície), absorção pela espessura (Beer-Lambert por canal), dispersão interna iluminada,
-// reflexão do ambiente com Fresnel e brilho especular sob a sombra da cena. Consome a superfície genérica
-// (profundidade, espessura e material por pixel) — não sabe de partículas. As ondulações do material
-// (`water_ripple.wgsl`) somam o detalhe fino à normal. A luz vem dos pontos de cena do sombreamento
-// (`scene_light_direction`, `light_visibility`): a composição não sabe qual luz ilumina nem de onde vem a sombra.
+// e a superfície como dielétrico físico (spec 011, R9): o especular GGX de IOR do material reflete todas as luzes e o
+// hemisfério pelo ponto de cena `scene_lighting` (o sol estoura em HDR, sem corte), e só a energia que não reflete
+// segue para a refração. Consome a superfície genérica (profundidade, espessura e material por pixel) — não sabe de
+// partículas. As ondulações do material (`water_ripple.wgsl`) somam o detalhe fino à normal. A composição não sabe
+// qual luz ilumina nem de onde vem a sombra.
 // Structs `CameraMatrices`, `FluidSurfaceMaterial` e `WaterCompositeParams` gerados dos schemas; recursos declarados em
 // `water/shaders.ts`; a profundidade da cena vem do módulo da variante (com ou sem amostras).
 
@@ -85,26 +86,19 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     var pr = clamp(vec2i(frag.xy + shift), vec2i(0), size_i - 1);
     if (water_scene_linear(vec2f(pr), proj) < z) { pr = pi; }
     let background = textureLoad(water_background, pr, 0).rgb;
-    // Luz que ilumina e sombra da cena na superfície (pontos de cena: direção padrão e visibilidade 1 sem luz que
-    // projeta sombra).
-    let light_dir = scene_light_direction();
-    let l = normalize(-light_dir);
-    let n_dot_l = max(dot(n, l), 0.0);
-    let shadow = light_visibility(pw, n_dot_l);
+    // Superfície: dielétrico de IOR do material (Fresnel e GGX), refletindo as luzes e o hemisfério.
+    let surface = closure_dielectric(material.ior, vec3f(1.0), material.roughness, 0.0, vec3f(0.0));
+    let reflected = scene_lighting(surface, pw, n, v);
+    let cos_v = clamp(dot(n, v), 1e-4, 1.0);
+    let into = vec3f(1.0) - closure_base_albedo(surface, cos_v);
+    // Dentro: o fundo atenuado por Beer-Lambert e a luz espalhada no volume, na cor da água.
     let absorb = exp(-material.absorption.rgb * thickness);
-    let lit = BRDF_AMBIENT + BRDF_DIFFUSE * n_dot_l * shadow;
-    let transmitted = background * absorb + material.color.rgb * (1.0 - absorb) * lit;
-    let f0 = pow((material.ior - 1.0) / (material.ior + 1.0), 2.0);
-    let cos_v = clamp(dot(n, v), 0.0, 1.0);
-    let fresnel = clamp((f0 + (1.0 - f0) * pow(1.0 - cos_v, 5.0)) * material.reflectivity, 0.0, 1.0);
-    let h = normalize(l + v);
-    // Brilho da luz refletida: como a reflexão, escalado pela refletividade do material.
-    let specular = pow(max(dot(n, h), 0.0), max(material.shininess, 1.0)) * shadow
-        * (material.shininess + 8.0) / 64.0 * material.reflectivity;
-    var color = mix(transmitted, material.ambient.rgb, fresnel) + vec3f(specular);
-    if (!all(abs(color) < vec3f(1e30))) { color = material.color.rgb; }
+    let scattered = scene_lighting(closure_diffuse(material.color.rgb, 0.0), pw, n, v);
+    let transmitted = background * absorb + scattered * (1.0 - absorb);
+    var color = reflected + into * transmitted;
+    if (!all(abs(color) < vec3f(6.5e4))) { color = material.color.rgb; }
     var out: CompositeOut;
-    out.color = vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), 1.0);
+    out.color = vec4f(max(color, vec3f(0.0)), 1.0);
     out.depth = clamp(water_ndc_depth(pv, proj), 0.0, 1.0);
     return out;
 }

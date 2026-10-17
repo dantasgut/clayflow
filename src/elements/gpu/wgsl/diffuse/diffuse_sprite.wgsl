@@ -2,7 +2,7 @@
 // vértice da nuvem de pontos (posição; uv = tipo e fração de vida), com a aparência do tipo — spray: gotícula
 // (esfera com reflexo especular e Fresnel, tom de água); espuma: disco branco que se dissolve com a vida (descarte
 // pontilhado, sem mistura); bolha: anel claro. Morta: fora do recorte. Direção da luz pelo ponto de cena
-// `scene_light_direction` (spec 031).
+// `scene_lighting` (spec 011): cada tipo com o seu fechamento sobre a normal do impostor, o mesmo modelo do forward.
 
 struct DiffuseOut {
     @builtin(position) clip_position: vec4f,
@@ -11,6 +11,7 @@ struct DiffuseOut {
     @location(2) @interpolate(flat) kind: f32,
     @location(3) @interpolate(flat) life: f32,
     @location(4) @interpolate(flat) id: u32,
+    @location(5) center: vec3f,
 }
 
 @vertex
@@ -37,7 +38,9 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
         return out;
     }
     let radius = material.radii[u32(clamp(out.kind, 0.0, 2.0))];
-    let view = camera.view * worlds[r.transformSlot].world * vec4f(local, 1.0);
+    let world = worlds[r.transformSlot].world * vec4f(local, 1.0);
+    out.center = world.xyz;
+    let view = camera.view * world;
     out.clip_position = camera.projection * vec4f(view.xy + corner * radius, view.z, 1.0);
     return out;
 }
@@ -56,23 +59,31 @@ fn fs_main(in: DiffuseOut) -> @location(0) vec4f {
     if (r2 > 1.0) { discard; }
     let material = materials[in.material_slot];
     let camera = cameras[forward_frame.cameraSlot];
-    let l = normalize((camera.view * vec4f(-scene_light_direction(), 0.0)).xyz);
-    let n = vec3f(in.corner, sqrt(1.0 - r2));
+    let n_view = vec3f(in.corner, sqrt(1.0 - r2));
+    let n = normalize(transpose(mat3x3f(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz)) * n_view);
+    let radius = material.radii[u32(clamp(in.kind, 0.0, 2.0))];
+    let p = in.center + n * radius;
+    let v = normalize(camera.position.xyz - p);
     if (in.kind < 0.5) {
-        // Spray: gotícula — tom de água, Fresnel na borda e reflexo especular.
-        let fresnel = pow(1.0 - n.z, 3.0);
-        let h = normalize(l + vec3f(0.0, 0.0, 1.0));
-        let spec = pow(max(dot(n, h), 0.0), 64.0);
-        let base = lambert_lit(material.spray_color.rgb, lambert_diffuse(n, l), 1.0);
-        return vec4f(mix(base, vec3f(1.0), fresnel * 0.6) + vec3f(spec), 1.0);
+        // Spray: gotícula — água (dielétrico liso de IOR 1,33) sobre o tom do spray.
+        let c = closure_add(
+            closure_diffuse(material.spray_color.rgb, 0.0),
+            closure_dielectric(1.33, vec3f(1.0), 0.05, 0.0, vec3f(0.0)),
+        );
+        return vec4f(scene_lighting(c, p, n, v), 1.0);
     }
     if (in.kind < 1.5) {
-        // Espuma: some com a vida (descarte pontilhado) e é mais rala na borda.
+        // Espuma: some com a vida (descarte pontilhado) e é mais rala na borda; difusa e translúcida.
         let keep = in.life * (1.0 - r2 * 0.6);
         if (diffuse_dither(in.clip_position.xy, in.id) > keep) { discard; }
-        return vec4f(lambert_lit(material.foam_color.rgb, 0.6 + 0.4 * lambert_diffuse(n, l), 1.0), 1.0);
+        let c = closure_add(closure_diffuse(material.foam_color.rgb, 1.0), closure_scale(closure_translucent(material.foam_color.rgb), 0.4));
+        return vec4f(scene_lighting(c, p, n, v), 1.0);
     }
-    // Bolha: anel claro (centro vazado).
+    // Bolha: anel (centro vazado) que reflete como água.
     if (r2 < 0.55) { discard; }
-    return vec4f(material.bubble_color.rgb * (0.7 + 0.3 * n.z), 1.0);
+    let c = closure_add(
+        closure_scale(closure_diffuse(material.bubble_color.rgb, 0.0), 0.3),
+        closure_dielectric(1.33, vec3f(1.0), 0.05, 0.0, vec3f(0.0)),
+    );
+    return vec4f(scene_lighting(c, p, n, v), 1.0);
 }

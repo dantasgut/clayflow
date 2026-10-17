@@ -38,7 +38,9 @@ export function bindPoints(
         const direct = swap.get(m);
         if (direct !== undefined) {
             found.add(m);
-            return direct;
+            // A implementação também pode chamar outros pontos (spec 011: o laço das luzes chama a sombra e a água
+            // por luz): os prontos dentro dela são trocados também — menos o deste ponto, que ela substitui.
+            return swap.has(direct) ? direct : visit(direct);
         }
         const done = rewritten.get(m);
         if (done !== undefined) return done;

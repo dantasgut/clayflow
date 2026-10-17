@@ -12,9 +12,9 @@ export interface LightData {
     kind: number;
     /** Projeta sombra (1/0 no layout; booleano nos valores). */
     castShadow: number;
-    /** Intensidade. */
+    /** Intensidade: lux na direcional; candela na pontual e na spot (spec 011). */
     intensity: number;
-    /** Alcance (luzes pontuais). */
+    /** Alcance (pontual e spot): a luz vai a zero suavemente até ele; 0 = sem alcance. */
     range: number;
     /** Posição. */
     position: number[];
@@ -22,20 +22,22 @@ export interface LightData {
     direction: number[];
     /** Cor RGBA linear. */
     color: number[];
+    /** Cones da spot em radianos (`[interno, externo, 0, 0]`); zeros nas outras. */
+    cones: number[];
 }
 
 /** Valores do construtor das luzes: os campos do dado exceto `kind`, com `castShadow` booleano. */
-export interface LightValues extends Partial<Omit<LightData, 'kind' | 'castShadow'>> {
+export interface LightValues extends Partial<Omit<LightData, 'kind' | 'castShadow' | 'cones'>> {
     /** Projeta sombra (1/0 no layout; booleano nos valores). */
     castShadow?: boolean;
 }
 
 /**
- * Light é a base de todos os tipos de luz (DirectionalLight, PointLight,
- * SpotLight). Compartilham um struct comum coalescível em pool — múltiplas
- * lights são lidas simultaneamente por shaders no fragment stage.
+ * Base dos tipos de luz (`DirectionalLight`, `PointLight`, `SpotLight`): um struct comum num pool, lido pela
+ * contribuição das luzes ao ponto de cena `scene_lighting` (spec 011) — o desenho não conhece nenhuma classe de luz.
+ * Cor e intensidade em unidades físicas: lux na direcional, candela na pontual e na spot.
  *
- * `kind` enum interno: 0 = directional, 1 = point, 2 = spot.
+ * `kind`: 0 = direcional, 1 = pontual, 2 = spot.
  */
 export abstract class Light extends Entity<LightData> implements Resource {
     /** Schema unified — todos os tipos de light usam o mesmo layout. */
@@ -47,11 +49,12 @@ export abstract class Light extends Entity<LightData> implements Resource {
         position: FieldType.vec4f,
         direction: FieldType.vec4f,
         color: FieldType.vec4f,
+        cones: FieldType.vec4f,
     });
 
     state: ResourceState = ResourceState.Uninitialized;
 
-    /** Pool storage read-only — fragment shaders iteram sobre o array de lights. */
+    /** Pool de leitura: a contribuição das luzes itera os slots vivos. */
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
@@ -63,7 +66,7 @@ export abstract class Light extends Entity<LightData> implements Resource {
         ];
     }
 
-    /** Sem pipelines próprios — Light é dado, ForwardFlow é quem itera. */
+    /** Sem pipelines próprios: a luz é dado, a contribuição de cena é quem itera. */
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];
     }

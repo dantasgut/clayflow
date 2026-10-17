@@ -22,6 +22,11 @@ export interface WgslPointSignature {
     /** Tipo de retorno (`''` = sem retorno). */
     readonly returns: string;
     /**
+     * Retornos alternativos aceitos (spec 011): a função pode devolver um deles no lugar de `returns`; quem hospeda o
+     * ponto escolhe o adaptador pelo retorno lido (ex.: o ponto `material` aceita `SurfaceParams` ou `Closure`).
+     */
+    readonly alternatives?: readonly string[];
+    /**
      * Nomes dos parâmetros (spec 031: os argumentos que um grafo de nós lê pelo nome); padrão `a0`, `a1`… O parâmetro
      * de `POINT_PARAMS` é sempre `data`.
      */
@@ -259,7 +264,7 @@ export function parseWgslFunctions(source: string): Map<string, ParsedFn> {
 }
 
 const show = (s: WgslPointSignature): string =>
-    `fn ${s.name}(${s.params.join(', ')})${s.returns === '' ? '' : ` -> ${s.returns}`}`;
+    `fn ${s.name}(${s.params.join(', ')})${s.returns === '' ? '' : ` -> ${[s.returns, ...(s.alternatives ?? [])].join(' | ')}`}`;
 
 /** Pontos de cena pelo módulo pronto (os kernels exigem o pronto; a C2 acha o ponto pela árvore do shader). */
 const sceneByReady = new WeakMap<WgslModule, WgslPoint>();
@@ -288,7 +293,11 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
     const schemas = new WeakSet<Schema>();
     const matches = (sig: WgslPointSignature, fn: ParsedFn, paramsStruct: string): boolean => {
         if (fn.params.length !== sig.params.length) return false;
-        if (norm(sig.returns) !== fn.returns) return false;
+        if (
+            norm(sig.returns) !== fn.returns
+            && !(sig.alternatives ?? []).map(norm).includes(fn.returns)
+        )
+            return false;
         return sig.params.every((t, k) =>
             t === POINT_PARAMS
                 ? fn.params[k] === paramsStruct || fn.params[k] === options.paramsAlias

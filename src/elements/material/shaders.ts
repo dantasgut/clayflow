@@ -1,12 +1,8 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
-import {
-    lightTransmissionReady,
-    sceneAnyLightDirectionReady,
-    lightVisibilityReady,
-    sceneLightDirectionReady,
-} from '../scene/points/lighting';
+import { sceneLightingReady } from '../scene/points/lighting';
+import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
     instancesResource,
@@ -27,7 +23,7 @@ import {
     wireframeMaterialsResource,
     wireVerticesResource,
 } from './renderResources';
-import { brdf, camera } from '../gpu/shaders/math';
+import { bsdf, camera } from '../gpu/shaders/math';
 import { cameraPointTypes } from '../scene/flows/shaders';
 import { forwardMaterialReady, materialPointTypes } from './point/shaders';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
@@ -85,14 +81,14 @@ export const forward = wgslModule({
     name: 'forward',
     source: forwardSource,
     requires: [
-        brdf,
+        bsdf,
         NONE.module,
         forwardCameraReady,
         materialPointTypes,
+        closure,
+        closureEval,
         forwardMaterialReady,
-        sceneLightDirectionReady,
-        lightVisibilityReady,
-        lightTransmissionReady,
+        sceneLightingReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -114,14 +110,16 @@ export const forward = wgslModule({
 
 /**
  * Sprites de partículas (spec 008): quad por partícula com a posição lida do pool do corpo pelo índice da instância,
- * esfera impostora iluminada pela primeira luz viva (ponto de cena). Usado pelo estágio de desenho de corpos de partículas.
+ * esfera impostora iluminada pelo ponto de cena `scene_lighting` (spec 011). Usado pelo estágio de desenho de corpos de
+ * partículas.
  */
 export const particleSprite = wgslModule({
     name: 'particle_sprite',
     source: particleSpriteSource,
     requires: [
-        brdf,
-        sceneAnyLightDirectionReady,
+        materialPointTypes,
+        closure,
+        sceneLightingReady,
         camerasResource,
         particleFrameResource,
         particlePoolResource,
@@ -139,8 +137,9 @@ export const pointSprite = wgslModule({
     name: 'point_sprite',
     source: pointSpriteSource,
     requires: [
-        brdf,
-        sceneLightDirectionReady,
+        materialPointTypes,
+        closure,
+        sceneLightingReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -164,8 +163,9 @@ export const diffuseSprite = wgslModule({
     name: 'diffuse_sprite',
     source: diffuseSpriteSource,
     requires: [
-        brdf,
-        sceneLightDirectionReady,
+        materialPointTypes,
+        closure,
+        sceneLightingReady,
         camerasResource,
         worldsResource,
         renderablesResource,

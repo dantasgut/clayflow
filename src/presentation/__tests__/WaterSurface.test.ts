@@ -60,7 +60,7 @@ describe('WaterSurface (spec 017)', () => {
         for (const id of ['caustics', 'lightDepth', 'lightMatrix'])
             s.rs.ensureAllocated(s.water, id);
         expect(waterTransmission.source).toContain(
-            'fn light_transmission(p: vec3f, ambient: f32, direct: f32) -> vec3f',
+            'fn light_transmission(light: u32, p: vec3f) -> vec3f',
         );
         const resources = waterTransmission.requires.filter(isWgslResource);
         expect(
@@ -69,6 +69,7 @@ describe('WaterSurface (spec 017)', () => {
                 .map((r) => [r.name, r.resource.provider]),
         ).toEqual([
             ['caustic_map', { consumer: 'WaterSurface.caustics' }],
+            ['lights', { pool: 'Light' }],
             ['water_light_depth', { consumer: 'WaterSurface.lightDepth' }],
             ['water_light_matrix', { consumer: 'WaterSurface.lightMatrix' }],
             ['water_state', { consumer: 'WaterSurface.state' }],

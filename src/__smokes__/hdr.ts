@@ -88,8 +88,13 @@ async function createApp(
     return { app, canvas };
 }
 
-/** Plano emissivo de 4×2 visto de cima: x ∈ [−1, 1] ocupa a largura da tela. */
+/**
+ * Plano emissivo de 4×2 visto de cima: x ∈ [−1, 1] ocupa a largura da tela. Sem luz nenhuma (a ambiente sai): a imagem é
+ * só a emissão.
+ */
 function emissivePlane(app: Application, emission: Emission): void {
+    if (app.world.entityIdOfResource(app.defaults.ambient) !== undefined)
+        app.world.remove(app.defaults.ambient);
     app.world.insert(
         new Camera({ projection: 'orthographic', orthoHeight: 1, near: 0.1, far: 10 }).add(
             new Transform({

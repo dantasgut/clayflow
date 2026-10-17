@@ -16,6 +16,7 @@ import { ParticleFlow } from '../ParticleFlow';
 import { TransformFlow } from '../../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../../elements/scene/flows/CameraFlow';
 import { renderScene } from './helpers/renderHarness';
+import { PbrTables } from '../../../elements/material/pbr/PbrTables';
 
 async function scene(samples: 1 | 4) {
     const s = await renderScene();
@@ -36,6 +37,7 @@ async function scene(samples: 1 | 4) {
     });
     const targets = new FrameTargets({ samples });
     s.scene.world.insert(targets);
+    s.scene.world.insert(new PbrTables());
     s.scene.world.insert(new Camera().add(new Transform()));
     s.scene.world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
     s.scene.world.insert(

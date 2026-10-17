@@ -3,18 +3,17 @@ import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { POINT_PARAMS, wgslPoint } from '../../../scene/shaders/WgslPoint';
-import materialPointTypesSource from '../../gpu/wgsl/material_point_types.wgsl?raw';
 import forwardMaterialReadySource from '../../gpu/wgsl/forward_material_ready.wgsl?raw';
 import forwardMaterialFnSource from '../../gpu/wgsl/forward_material_fn.wgsl?raw';
+import forwardMaterialFnClosureSource from '../../gpu/wgsl/forward_material_fn_closure.wgsl?raw';
 import materialFnReadySource from '../../gpu/wgsl/material_fn_ready.wgsl?raw';
 import materialCheckSource from '../../gpu/wgsl/material_check.wgsl?raw';
+import { parseWgslFunctions } from '../../../scene/shaders/WgslPoint';
 import { StandardMaterialSchema } from '../StandardMaterialSchema';
+import { closure } from '../pbr/shaders';
+import { materialPointTypes } from './types/shaders';
 
-/** Tipos do ponto `material`: `SurfaceSample` e `SurfaceParams`. */
-export const materialPointTypes = wgslModule({
-    name: 'material_point_types',
-    source: materialPointTypesSource,
-});
+export { materialPointTypes } from './types/shaders';
 
 /** Função pronta do ponto `material` (as constantes do material). */
 export const materialFnReady = wgslModule({
@@ -24,15 +23,15 @@ export const materialFnReady = wgslModule({
     structs: [StandardMaterialSchema],
 });
 
-/** Parâmetros de superfície prontos do forward: os da função pronta (as constantes do material). */
+/** Fechamento pronto do forward: o das constantes do material, pela função pronta (spec 011). */
 export const forwardMaterialReady = wgslModule({
     name: 'forward_material_ready',
     source: forwardMaterialReadySource,
-    requires: [materialPointTypes, materialFnReady],
+    requires: [materialPointTypes, materialFnReady, closure],
     structs: [StandardMaterialSchema],
 });
 
-/** Lugar dos parâmetros de superfície no forward: o pronto ou o adaptador da função da entidade. */
+/** Lugar do fechamento no forward (`material_eval`): o pronto ou o adaptador da função da entidade. */
 export const forwardMaterial: BindablePoint = {
     name: 'material_eval',
     ready: forwardMaterialReady,
@@ -45,7 +44,41 @@ export const forwardMaterial: BindablePoint = {
 export const forwardMaterialFn = wgslModule({
     name: 'forward_material_fn',
     source: forwardMaterialFnSource,
-    requires: [materialPointTypes, materialFnReady],
+    requires: [materialPointTypes, materialFnReady, closure],
+    structs: [StandardMaterialSchema],
+});
+
+/** Adaptador do forward para uma função `material` de fechamento (`-> Closure`, spec 011). */
+const forwardMaterialFnClosure = wgslModule({
+    name: 'forward_material_fn_closure',
+    source: forwardMaterialFnClosureSource,
+    requires: [materialPointTypes, materialFnReady, closure],
+    structs: [StandardMaterialSchema],
+});
+
+/** Recursos do kernel de validação (privados, nunca ligados: o kernel não é despachado). */
+const materialCheckResources = [
+    wgslResource({
+        name: 'material_check_materials',
+        binding: { storage: 'read' },
+        type: { schema: StandardMaterialSchema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    wgslResource({
+        name: 'material_check_out',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'vec4f', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+];
+
+/** Kernel de validação das `MaterialFunction` de fechamento (spec 011; não é despachado). */
+const materialCheckClosure = wgslModule({
+    name: 'material_check_closure',
+    source: materialCheckSource,
+    requires: [materialPointTypes, forwardMaterialFnClosure, ...materialCheckResources],
     structs: [StandardMaterialSchema],
 });
 
@@ -53,36 +86,27 @@ export const forwardMaterialFn = wgslModule({
 export const materialCheck = wgslModule({
     name: 'material_check',
     source: materialCheckSource,
-    requires: [
-        materialPointTypes,
-        forwardMaterialFn,
-        wgslResource({
-            name: 'material_check_materials',
-            binding: { storage: 'read' },
-            type: { schema: StandardMaterialSchema, array: true },
-            frequency: 'stage',
-            provider: 'private',
-        }),
-        wgslResource({
-            name: 'material_check_out',
-            binding: { storage: 'read_write' },
-            type: { wgsl: 'vec4f', array: true },
-            frequency: 'stage',
-            provider: 'private',
-        }),
-    ],
+    requires: [materialPointTypes, forwardMaterialFn, ...materialCheckResources],
     structs: [StandardMaterialSchema],
 });
 
-/** Adaptador do forward para a função `material` `fnModule`: o adaptador com a função no lugar da pronta. */
+/**
+ * Adaptador do forward para a função `material` `fnModule`, pelo retorno dela (spec 011): `-> Closure` vai direto,
+ * `-> SurfaceParams` passa pela base do OpenPBR; com a função no lugar da pronta.
+ */
 export function forwardMaterialAdapter(fnModule: WgslModule): WgslModule {
-    return bindPoints(forwardMaterialFn, new Map([[materialPoint, fnModule]]));
+    const closureFn = parseWgslFunctions(fnModule.source).get('material_fn')?.returns === 'Closure';
+    return bindPoints(
+        closureFn ? forwardMaterialFnClosure : forwardMaterialFn,
+        new Map([[materialPoint, fnModule]]),
+    );
 }
 
 /**
- * Ponto `material` (spec 009): `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) ->
- * SurfaceParams` — os parâmetros de superfície no fragmento (cor base, rugosidade, metalicidade, emissão) a partir da
- * amostra (posição de mundo, normal, uv, tempo) e das constantes do material. Pronta: as constantes.
+ * Ponto `material` (spec 009, 011): `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) ->
+ * Closure` (o fechamento de espalhamento) ou `-> SurfaceParams` (cor base, rugosidade, metalicidade, emissão — a forma
+ * da 009, adaptada à base do OpenPBR) a partir da amostra (posição de mundo, normal, uv, tempo, geometria diferencial)
+ * e das constantes do material. Pronta: as constantes.
  */
 export const materialPoint = wgslPoint({
     name: 'material',
@@ -90,10 +114,11 @@ export const materialPoint = wgslPoint({
         name: 'material_fn',
         params: ['SurfaceSample', 'StandardMaterial', POINT_PARAMS],
         returns: 'SurfaceParams',
+        alternatives: ['Closure'],
         names: ['s', 'm', 'data'],
     },
     paramsAlias: 'MaterialFnParams',
     context: 'fragment',
     ready: materialFnReady,
-    hosts: () => [materialCheck],
+    hosts: () => [materialCheck, materialCheckClosure],
 });

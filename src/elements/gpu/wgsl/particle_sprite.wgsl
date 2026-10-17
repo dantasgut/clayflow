@@ -1,7 +1,7 @@
 // Sprites de partículas (spec 008): um quad virado para a câmera por partícula, com a posição lida direto do pool do
 // corpo (`array<vec4f>`, stride e deslocamento do campo `pos` em `ParticleDrawParams`) pelo índice da instância — sem
-// cópia para vertex buffer. Desenhado como esfera impostora (normal reconstruída no fragmento) iluminada pela primeira
-// luz viva da cena (ponto `scene_any_light_direction`, spec 031). Structs `CameraMatrices`, `PointSpriteMaterial`, `ParticleFrameParams`
+// cópia para vertex buffer. Desenhado como esfera impostora (normal reconstruída no fragmento) iluminada pelo mesmo
+// modelo do forward (ponto `scene_lighting`, spec 011: o fechamento da cor do material sobre a normal do impostor). Structs `CameraMatrices`, `PointSpriteMaterial`, `ParticleFrameParams`
 // e `ParticleDrawParams` gerados dos schemas; recursos declarados pelo módulo (spec 031): o pool do corpo (o do
 // pipeline), o dos materiais de sprite e a região do corpo desenhado (offset dinâmico).
 
@@ -9,6 +9,7 @@ struct SpriteOut {
     @builtin(position) clip_position: vec4f,
     @location(0) corner: vec2f,
     @location(1) @interpolate(flat) material_slot: u32,
+    @location(2) center: vec3f,
 }
 
 // Cantos do quad (dois triângulos).
@@ -30,6 +31,7 @@ fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instance
     let corner = sprite_corner(vertex);
     out.corner = corner;
     out.material_slot = particle_draw.materialSlot;
+    out.center = center;
     // Posição não finita (explosão numérica): o quad sai do volume de recorte e não é desenhado.
     if (!all(abs(center) < vec3f(1e30))) {
         out.clip_position = vec4f(2.0, 2.0, 2.0, 1.0);
@@ -46,9 +48,11 @@ fn fs_main(in: SpriteOut) -> @location(0) vec4f {
     if (r2 > 1.0) { discard; }
     let material = materials[in.material_slot];
     let camera = cameras[particle_frame.cameraSlot];
-    // Normal da esfera impostora, no espaço da câmera.
-    let n = vec3f(in.corner, sqrt(1.0 - r2));
-    let light_dir = scene_any_light_direction();
-    let l = normalize((camera.view * vec4f(-light_dir, 0.0)).xyz);
-    return vec4f(lambert_lit(material.color.rgb, lambert_diffuse(n, l), 1.0), material.color.a);
+    // Normal da esfera impostora (espaço da câmera → mundo) e o ponto na superfície dela.
+    let n_view = vec3f(in.corner, sqrt(1.0 - r2));
+    let n = normalize(transpose(mat3x3f(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz)) * n_view);
+    let p = in.center + n * material.radius;
+    let v = normalize(camera.position.xyz - p);
+    let c = closure_from_params(SurfaceParams(material.color, 0.5, 0.0, vec3f(0.0)));
+    return vec4f(scene_lighting(c, p, n, v), material.color.a);
 }

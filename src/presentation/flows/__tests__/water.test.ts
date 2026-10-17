@@ -105,7 +105,13 @@ describe('estágios da água (spec 017)', () => {
         const shaders = forwardShaders(s);
         expect(shaders.length).toBeGreaterThan(0);
         expect(shaders.some((src) => src.includes('fn water_caustic_factor('))).toBe(false);
-        expect(shaders.every((src) => src.includes('return vec3f(ambient + direct);'))).toBe(true);
+        expect(
+            shaders.some((src) =>
+                src.includes(
+                    'fn light_transmission(light: u32, p: vec3f) -> vec3f {\n    return vec3f(1.0);',
+                ),
+            ),
+        ).toBe(true);
     });
 
     it('com água: esferas (um desenho por corpo), espessura, suavização e composição; sprites não desenham o corpo', async () => {

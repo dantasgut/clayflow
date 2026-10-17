@@ -187,6 +187,8 @@ export const Subgraph = {
             code: module,
             fn,
             contexts,
+            // As marcas dos nós de dentro valem para o sub-grafo (ex.: os lobos de um material pronto).
+            tags: [...graph.tags()],
         });
         origins.set(definition, { graph, options });
         return definition;

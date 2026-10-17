@@ -1,6 +1,6 @@
 // Referência em CPU da tabela DFG (spec 011, R3): a mesma integração determinística do kernel `pbr_dfg_build`, para os
-// testes e o smoke `lighting`. Eixos da tabela: μ = n·v e a rugosidade perceptual r (α = r²), ambos em [0, 1] pelos
-// centros dos texels.
+// testes e o smoke `lighting`. Eixos da tabela: μ = n·v e a rugosidade perceptual r (α = r²), ambos em [0, 1]; os
+// texels das pontas valem 0 e 1 (a leitura mapeia [0, 1] nos centros dos texels).
 
 import { MIN_ROUGHNESS, dCharlie, vNeubelt, vSmithCorrelated } from './bsdf';
 
@@ -68,5 +68,5 @@ export function dfgTexel(mu: number, roughness: number, samples = DFG_SAMPLES): 
     return { a: a / samples, b: b / samples, sheen: Math.min(sheen / samples, 1) };
 }
 
-/** Coordenada do centro do texel `i` de um eixo da tabela. */
-export const dfgAxis = (i: number): number => (i + 0.5) / DFG_SIZE;
+/** Valor do eixo no texel `i` da tabela (as pontas são 0 e 1). */
+export const dfgAxis = (i: number): number => i / (DFG_SIZE - 1);

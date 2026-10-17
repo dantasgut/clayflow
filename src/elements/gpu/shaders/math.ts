@@ -152,5 +152,5 @@ export const present = wgslModule({ name: 'present', source: presentSource });
  */
 export const bsdf = wgslModule({ name: 'bsdf', source: bsdfSource });
 
-/** Iluminação: Lambert com ambiente e sombra por PCF 3×3. */
+/** Sombra por PCF 3×3 (o sombreamento físico está em `bsdf` e no fechamento, spec 011). */
 export const brdf = wgslModule({ name: 'brdf', source: brdfSource });

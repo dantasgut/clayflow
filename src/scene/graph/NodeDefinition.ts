@@ -38,6 +38,12 @@ export interface NodeDefinitionOptions {
     readonly fn: string;
     /** Estágios em que o nó vale (padrão: todos). Ex.: derivadas de tela só em `fragment`. */
     readonly contexts?: readonly NodeContext[];
+    /**
+     * Marcas livres do nó (spec 011), unidas pela compilação do grafo (`NodeGraph.tags()`): quem consome o grafo decide
+     * o que significam — ex.: os lobos de espalhamento que um nó de material produz, para especializar o shader. O núcleo
+     * do grafo não interpreta.
+     */
+    readonly tags?: readonly string[];
 }
 
 /** Definição de um nó de ponto (imutável): portas, parâmetros, código. */
@@ -52,6 +58,8 @@ export interface NodeDefinition {
     readonly code: WgslModule;
     readonly fn: string;
     readonly contexts: readonly NodeContext[];
+    /** Marcas livres do nó (ver `NodeDefinitionOptions.tags`). */
+    readonly tags: readonly string[];
     /** Uso do nó com valores de parâmetros próprios (o código é o mesmo). */
     with(values: Readonly<Record<string, ExtensionParamValue>>): NodeUse;
 }
@@ -135,6 +143,7 @@ export function defineNode(options: NodeDefinitionOptions): NodeDefinition {
         code: options.code,
         fn: options.fn,
         contexts: Object.freeze([...(options.contexts ?? ['fragment', 'vertex', 'compute'])]),
+        tags: Object.freeze([...new Set(options.tags ?? [])]),
         with(values: Readonly<Record<string, ExtensionParamValue>>): NodeUse {
             for (const k of Object.keys(values))
                 if (!(k in params)) fail(`valor para parâmetro desconhecido '${k}'`);
