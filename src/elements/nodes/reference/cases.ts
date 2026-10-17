@@ -32,6 +32,11 @@ export interface NodeCase {
     readonly reference: (x: NodeValues) => NodeValues;
     /** Recurso de cena que o nó lê. */
     readonly scene?: NodeCaseScene;
+    /**
+     * O nó usa derivadas de tela (só no fragmento): o kernel de compute da parte f não o avalia; a GPU o confere no
+     * smoke que o desenha (spec 011: `geometry.tangentUv` no `materials`).
+     */
+    readonly derivatives?: true;
 }
 
 /** Amostras por caso. */

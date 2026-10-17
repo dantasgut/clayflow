@@ -1062,6 +1062,7 @@ function structOf(module: WgslModule, name: string): [string, string][] | undefi
         const match = new RegExp(`struct\\s+${name}\\s*\\{([^}]*)\\}`).exec(m.source);
         if (match !== null)
             return match[1]!
+                .replace(/\/\/[^\n]*/g, '')
                 .split(',')
                 .map((f) => f.split(':').map((t) => t.trim()) as [string, string])
                 .filter(([n, t]) => n !== undefined && n.length > 0 && t !== undefined);
@@ -1134,10 +1135,22 @@ interface CaseResult {
 /** Avalia o nó do caso na GPU (um kernel de compute que chama a função do nó) e mede contra a referência. */
 async function runNodeCase(app: Application, c: NodeCase, index: number): Promise<CaseResult> {
     const def = defaultNodeRegistry.get(c.node) as NodeDefinition;
+    // Entradas e parâmetros na ordem da função; o valor de uma entrada (spec 011) é a própria entrada.
     const ports: [string, string][] = [
         ...Object.entries(def.inputs),
-        ...Object.entries(def.params).map(([n, p]) => [n, p.type] as [string, string]),
+        ...Object.entries(def.params)
+            .filter(([n]) => !(n in def.inputs))
+            .map(([n, p]) => [n, p.type] as [string, string]),
     ];
+    // Tipos de cada porta, campo a campo (struct de entrada, spec 011: `Closure`, construído no kernel).
+    const fieldsOf = (type: string): string[] => {
+        if (type in LANES) return [type];
+        const fields = structOf(def.code, type);
+        if (fields === undefined) throw new Error(`(f) ${c.node}: struct '${type}' não achado`);
+        return fields.map(([, t]) => t);
+    };
+    const slotsOf = (type: string): number =>
+        fieldsOf(type).reduce((n, t) => n + LANES[t]!.slots, 0);
     // Saídas: um pedaço (tipo, expressão) por porta; struct (fora das saídas múltiplas) por campo.
     const single = Object.keys(def.outputs).length === 1;
     const pieces: { port: string; type: string; expr: string }[] = [];
@@ -1150,7 +1163,7 @@ async function runNodeCase(app: Application, c: NodeCase, index: number): Promis
             for (const [f, t] of fields) pieces.push({ port, type: t, expr: `${expr}.${f}` });
         }
     }
-    const slotsIn = ports.reduce((s, [, t]) => s + LANES[t]!.slots, 0);
+    const slotsIn = ports.reduce((n, [, t]) => n + slotsOf(t), 0);
     const writes = pieces.flatMap((p) => writeExprs(p.type, p.expr));
     const samples = caseSamples(c, 1000 + index);
     const n = samples.length;
@@ -1159,20 +1172,28 @@ async function runNodeCase(app: Application, c: NodeCase, index: number): Promis
         let slot = i * slotsIn;
         for (const [name, type] of ports) {
             const v = x[name]!;
-            const values = typeof v === 'number' ? [v] : v;
-            const lanes = LANES[type]!;
-            if (lanes.slots === 1) inData.set(values, slot * 4);
-            else
-                for (let col = 0; col < lanes.slots; col++)
-                    inData.set(values.slice(col * 4, col * 4 + 4), (slot + col) * 4);
-            slot += lanes.slots;
+            const all = typeof v === 'number' ? [v] : v;
+            let used = 0;
+            for (const ft of fieldsOf(type)) {
+                const lanes = LANES[ft]!;
+                const values = all.slice(used, used + lanes.n);
+                used += lanes.n;
+                if (lanes.slots === 1) inData.set(values, slot * 4);
+                else
+                    for (let col = 0; col < lanes.slots; col++)
+                        inData.set(values.slice(col * 4, col * 4 + 4), (slot + col) * 4);
+                slot += lanes.slots;
+            }
         }
     });
     let offset = 0;
     const args = ports.map(([, type]) => {
-        const e = readExpr(type, `b + ${offset}u`);
-        offset += LANES[type]!.slots;
-        return e;
+        const reads = fieldsOf(type).map((ft) => {
+            const e = readExpr(ft, `b + ${offset}u`);
+            offset += LANES[ft]!.slots;
+            return e;
+        });
+        return type in LANES ? reads[0]! : `${type}(${reads.join(', ')})`;
     });
     const module = wgslModule({
         name: `node_case_${index}`,
@@ -1341,7 +1362,13 @@ async function libraryScene(withField: boolean): Promise<ImageData> {
 async function partF(failures: string[]): Promise<void> {
     const app = await createApp();
     const results: CaseResult[] = [];
+    let derivative = 0;
     for (const [k, c] of nodeCases.entries()) {
+        // Derivadas de tela só no fragmento: conferido no smoke que desenha o nó (spec 011).
+        if (c.derivatives === true) {
+            derivative++;
+            continue;
+        }
         try {
             results.push(await runNodeCase(app, c, k));
         } catch (err) {
@@ -1361,7 +1388,7 @@ async function partF(failures: string[]): Promise<void> {
     }
     const bad = results.filter((r) => !(r.worst <= r.tolerance));
     log(
-        `(f) ${results.length} de ${nodeCases.length} nós avaliados na GPU, ${nodeCases.length > 0 ? caseSamples(nodeCases[0]!, 0).length : 0} amostras cada; ${bad.length} fora da tolerância`,
+        `(f) ${results.length} de ${nodeCases.length} nós avaliados na GPU, ${nodeCases.length > 0 ? caseSamples(nodeCases[0]!, 0).length : 0} amostras cada; ${bad.length} fora da tolerância; ${derivative} de derivadas de tela conferido(s) no smoke materials`,
     );
     for (const r of bad)
         failures.push(`(f) ${r.node}: erro ${r.worst.toExponential(2)} > ${r.tolerance}`);

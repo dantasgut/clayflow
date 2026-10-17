@@ -19,6 +19,10 @@ import spaceSource from '../gpu/wgsl/nodes/space.wgsl?raw';
 import fieldSource from '../gpu/wgsl/nodes/field.wgsl?raw';
 import surfaceSource from '../gpu/wgsl/nodes/surface.wgsl?raw';
 import outputSource from '../gpu/wgsl/nodes/output.wgsl?raw';
+import bsdfSource from '../gpu/wgsl/nodes/bsdf.wgsl?raw';
+import closureSource from '../gpu/wgsl/nodes/closure.wgsl?raw';
+import geometrySource from '../gpu/wgsl/nodes/geometry.wgsl?raw';
+import { closure } from '../material/pbr/shaders';
 
 /** Nós de matemática (spec 031): aritmética, interpolação, potência, trigonometria, vetores, separar/combinar. */
 export const nodeMath = wgslModule({ name: 'node_math', source: mathSource });
@@ -66,9 +70,22 @@ export const nodeField = wgslModule({
 /** Nós de geometria diferencial (spec 031): métrica, curvaturas, direções principais da amostra de superfície. */
 export const nodeSurface = wgslModule({ name: 'node_surface', source: surfaceSource });
 
-/** Nó de saída do ponto `material` (spec 031). */
+/** Nós de saída do ponto `material` (spec 031; o de fechamento, spec 011). */
 export const nodeOutput = wgslModule({
     name: 'node_output',
     source: outputSource,
-    requires: [materialPointTypes],
+    requires: [materialPointTypes, closure],
 });
+
+/** Nós de espalhamento (spec 011): um lobo cada, sobre os construtores do fechamento. */
+export const nodeBsdf = wgslModule({ name: 'node_bsdf', source: bsdfSource, requires: [closure] });
+
+/** Nós de composição de fechamentos (spec 011). */
+export const nodeClosure = wgslModule({
+    name: 'node_closure',
+    source: closureSource,
+    requires: [closure],
+});
+
+/** Nó de tangente pelo uv (spec 011): referencial cotangente das derivadas de tela (só `fragment`). */
+export const nodeGeometry = wgslModule({ name: 'node_geometry', source: geometrySource });

@@ -37,6 +37,7 @@ import {
 } from '../reference/index';
 import { hash3, hashSigned, valueNoise3 } from '../reference/noise';
 import { FIELD_BUOYANCY, FIELD_DRAG, FIELD_GRAVITY_POINT } from '../../gpu/shaders/constants';
+import { CLOSURE_SIZE } from '../../material/reference/closureNodes';
 
 // Biblioteca base de nós de ponto (spec 031, T091): cada nó com um caso de teste (amostras, referência da CPU,
 // tolerância documentada) cuja assinatura é a do nó; as referências contra valores conhecidos; cada nó compila num grafo;
@@ -53,6 +54,7 @@ const SIZE: Readonly<Record<string, number>> = {
     vec4f: 4,
     mat4x4f: 16,
     SurfaceParams: 9,
+    Closure: CLOSURE_SIZE,
 };
 const size = (v: NodeValue): number => (typeof v === 'number' ? 1 : v.length);
 const close = (a: readonly number[], b: readonly number[], tol = 1e-9): void => {
@@ -128,7 +130,9 @@ describe('biblioteca base de nós (spec 031, T085–T091)', () => {
             });
             const code = graph.compile(target);
             expect(code).toContain(`let v_n = ${def.fn}(`);
-            for (const p of Object.keys(def.params)) expect(code).toContain(`data.n_${p}`);
+            // Os parâmetros que são valor de uma entrada ligada não entram (spec 011: a ligação vence).
+            for (const p of Object.keys(def.params))
+                if (!(p in def.inputs)) expect(code).toContain(`data.n_${p}`);
         },
     );
 

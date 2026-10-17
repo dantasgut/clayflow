@@ -42,7 +42,7 @@ const curve4 = defineNode({
 });
 
 /** Rampa de cor de dois pontos: `color_a` em `low`, `color_b` em `high`, linear, presa nos extremos. */
-const ramp = defineNode({
+export const ramp = defineNode({
     name: 'color.ramp',
     inputs: { t: 'f32' },
     outputs: { color: 'vec3f' },
@@ -60,7 +60,7 @@ const ramp = defineNode({
  * Rampa de cor de quatro paradas: `stopK.rgb` na posição `stopK.w` (posições crescentes), linear por trecho, presa nos
  * extremos. Padrão: preto, vermelho, amarelo, branco em 0, 1/3, 2/3, 1.
  */
-const ramp4 = defineNode({
+export const ramp4 = defineNode({
     name: 'color.ramp4',
     inputs: { t: 'f32' },
     outputs: { color: 'vec3f' },
@@ -78,4 +78,3 @@ const ramp4 = defineNode({
 export const map = { range, curve4 } as const;
 
 /** Rampas de cor: dois pontos e quatro paradas. */
-export const color = { ramp, ramp4 } as const;

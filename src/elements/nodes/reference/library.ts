@@ -9,6 +9,7 @@ import { noiseCases } from './noiseNodes';
 import { outputCases } from './output';
 import { spaceCases } from './space';
 import { surfaceCases } from './surface';
+import { materialCases } from './material';
 
 /** Um caso por nó de ponto da biblioteca. */
 export const nodeCases: readonly NodeCase[] = [
@@ -20,4 +21,5 @@ export const nodeCases: readonly NodeCase[] = [
     ...fieldCases,
     ...surfaceCases,
     ...outputCases,
+    ...materialCases,
 ];
