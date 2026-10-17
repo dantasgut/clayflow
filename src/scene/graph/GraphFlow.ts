@@ -116,8 +116,16 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
                 resourceReady: 'ignore',
                 framePrepare: {
                     to: 'idle',
-                    run: () => {
-                        for (const r of this.running.values()) if (r.plan.animated) r.stale = true;
+                    run: (_e, c) => {
+                        for (const r of this.running.values()) {
+                            if (r.plan.animated) r.stale = true;
+                            // Quem lê a geometria escrita (a estrutura de raios, spec 033) a refaz nos quadros em que
+                            // o grafo a escreve.
+                            if (
+                                r.target?.getDescriptors().some((d) => d.id === 'vertices') === true
+                            )
+                                c.produced(r.target, 'vertices', r.stale);
+                        }
                     },
                 },
                 frameRecorded: {

@@ -2,6 +2,7 @@
 // leitura dos valores lineares do alvo HDR da cena (`FrameTargets.color`, `rgba16float`). A leitura de volta é só do
 // teste, no fim do caso.
 import type { Application, StagingBufferSpec, TextureSpec } from 'clayflow';
+import type { HdrImage, Rect } from './spectralMeasures';
 
 /** Decodifica um meio-float IEEE 754 (16 bits). */
 export function halfToFloat(h: number): number {
@@ -13,12 +14,7 @@ export function halfToFloat(h: number): number {
     return s * Math.pow(2, e - 15) * (1 + f / 1024);
 }
 
-/** Imagem HDR lida: RGBA linear por pixel. */
-export interface HdrImage {
-    readonly width: number;
-    readonly height: number;
-    readonly data: Float32Array;
-}
+export type { HdrImage, Rect } from './spectralMeasures';
 
 /** Valor RGB linear do pixel. */
 export function hdrAt(img: HdrImage, x: number, y: number): [number, number, number] {
@@ -84,14 +80,6 @@ export function rowLevels(
     const out: number[] = [];
     for (let x = x0; x < x1; x++) out.push(img.data[(y * img.width + x) * 4 + channel]!);
     return out;
-}
-
-/** Retângulo de pixels. */
-export interface Rect {
-    readonly x: number;
-    readonly y: number;
-    readonly w: number;
-    readonly h: number;
 }
 
 /**

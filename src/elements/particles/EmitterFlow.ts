@@ -151,6 +151,9 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
                         this.collide = this.colliderSet.totalCount > 0;
                         this.sync(c);
                         this.writeSteps(c);
+                        // Os pontos são escritos a cada quadro (quem lê a geometria escrita sabe, spec 033).
+                        for (const e of c.bound.slots.emitters.entries)
+                            c.produced(e.get(PointCloudGeometry), 'vertices', true);
                     },
                 },
             },

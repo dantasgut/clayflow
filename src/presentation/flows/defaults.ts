@@ -25,6 +25,8 @@ import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
 import { GraphGeometry } from '../../elements/geometry/GraphGeometry';
 import { GraphFlow } from '../../scene/graph/GraphFlow';
+import { RaySceneFlow } from '../../elements/raytrace/RaySceneFlow';
+import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -220,6 +222,19 @@ function createPresentationDefaults(flows: FlowRegistry): {
             }),
         { type: 'setGraph', phase: 'transform', priority: -50 },
     );
+    // Céu físico (spec 033) na mesma fase: tabelas da atmosfera e a vista do céu, antes da iluminação global e do desenho.
+    const skyRegistration = flows.register((ctx) => new SkyFlow(ctx), {
+        type: 'sky',
+        phase: 'transform',
+        priority: -55,
+    });
+    // Estrutura de raios (spec 033) depois de toda geometria escrita na GPU: registrada depois dos estágios que a
+    // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
+    const raySceneRegistration = flows.register((ctx) => new RaySceneFlow(ctx), {
+        type: 'rayScene',
+        phase: 'transform',
+        priority: -60,
+    });
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
@@ -302,6 +317,8 @@ function createPresentationDefaults(flows: FlowRegistry): {
             softSurfaceRegistration,
             surfaceRegistration,
             graphRegistration,
+            skyRegistration,
+            raySceneRegistration,
             shadowRegistration,
             forwardRegistration,
             particleRegistration,

@@ -111,9 +111,12 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
                 poolReallocated: 'ignore',
                 framePrepare: {
                     to: 'idle',
-                    run: () => {
+                    run: (_e, c) => {
                         this.refreshPools();
                         this.writeParams();
+                        // Os vértices são escritos a cada quadro (a estrutura de raios os reajusta, spec 033).
+                        for (const surface of this.surfaces.values())
+                            c.produced(surface.geometry, 'vertices', true);
                     },
                 },
             },

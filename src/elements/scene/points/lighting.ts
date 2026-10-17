@@ -34,6 +34,24 @@ export const lightTransmissionReady = wgslModule({
     source: 'fn light_transmission(light: u32, p: vec3f) -> vec3f {\n    return vec3f(1.0);\n}',
 });
 
+/**
+ * `fn scene_environment(dir: vec3f) -> vec3f` — a radiância do ambiente vinda da direção `dir` (unitária, mundo): o que
+ * um raio que escapa da cena vê (spec 033: o céu físico); pronto: nada (0).
+ */
+export const sceneEnvironmentReady = wgslModule({
+    name: 'scene_environment_ready',
+    source: 'fn scene_environment(dir: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
+ * `fn scene_background(dir: vec3f) -> vec3f` — o fundo visível na direção `dir` (spec 033: o céu com o disco do sol); o
+ * desenho só o pinta quando há contribuinte (pronto: 0, o fundo fica o da limpeza).
+ */
+export const sceneBackgroundReady = wgslModule({
+    name: 'scene_background_ready',
+    source: 'fn scene_background(dir: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -91,4 +109,34 @@ export const lightTransmissionPoint: ContributionPoint = {
                     .join(' * ')};\n}`,
             }),
         ),
+};
+
+/** Soma de contribuintes de um ponto de direção (`fn <name>(dir: vec3f) -> vec3f`). */
+function sumOfDirection(name: string): ContributionPoint['combine'] {
+    return (modules) =>
+        memo(`${name}:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `${name}:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ${name}(dir: vec3f) -> vec3f {\n    return ${modules
+                    .map((_, k) => `${name}_${k}(dir)`)
+                    .join(' + ')};\n}`,
+            }),
+        );
+}
+
+/** Ambiente da cena (raios que escapam): a soma dos contribuintes. */
+export const sceneEnvironmentPoint: ContributionPoint = {
+    name: 'scene_environment',
+    ready: sceneEnvironmentReady,
+    functionName: 'scene_environment',
+    combine: sumOfDirection('scene_environment'),
+};
+
+/** Fundo visível da cena: a soma dos contribuintes. */
+export const sceneBackgroundPoint: ContributionPoint = {
+    name: 'scene_background',
+    ready: sceneBackgroundReady,
+    functionName: 'scene_background',
+    combine: sumOfDirection('scene_background'),
 };

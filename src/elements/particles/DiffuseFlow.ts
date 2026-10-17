@@ -154,6 +154,9 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
                         if (this.colliderSet.refresh()) c.bind(this.colliderSet.sources());
                         this.sync(c);
                         this.writeParams(c);
+                        // Os pontos são escritos a cada quadro (quem lê a geometria escrita sabe, spec 033).
+                        for (const e of c.bound.slots.diffuse.entries)
+                            c.produced(e.get(PointCloudGeometry), 'vertices', true);
                     },
                 },
             },

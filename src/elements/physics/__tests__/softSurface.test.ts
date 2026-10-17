@@ -65,6 +65,8 @@ describe('SoftSurfaceFlow (spec 008)', () => {
         s.scene.world.insert(b);
         s.step();
         expect(s.scene.resourceSystem.hasGpuWriter(a.surface!, 'vertices')).toBe(true);
+        // Os vértices são escritos a cada quadro: produzidos (spec 033).
+        expect(s.scene.resourceSystem.isProduced(a.surface!, 'vertices')).toBe(true);
         s.resetCounts();
         s.step();
         expect(s.computes().filter((c) => c.startsWith('SoftSurfaceFlow'))).toEqual([

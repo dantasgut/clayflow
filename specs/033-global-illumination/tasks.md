@@ -26,11 +26,11 @@ quadro; um símbolo WGSL por pipeline; só `shaders.ts` importa `.wgsl`; C3/C4 i
 
 ## Phase 1: Setup (Base)
 
-- [ ] T001 Registrar o estado de partida em `specs/033-global-illumination/baseline-check.md`: `npm run ci`, todos os smokes `--headless` (fonte e `--dist`, anotando os que já falham por fixture pendente da 011) e `npm run bench:check` com a máquina livre (números de partida, inclusive `particles/64k-water` e tempo do quadro a 1280×720)
-- [ ] T002 [P] Criar `src/elements/raytrace/reference/bvh.ts` (só testes e smokes): Morton de 30 bits, LBVH de Karras (hierarquia por prefixos comuns), caixas de baixo para cima, refit, travessia com pilha, raio–caixa (lâminas), raio–triângulo (Möller–Trumbore estável), raio–esfera; com `bvh.test.ts` contra força bruta em nuvens aleatórias determinísticas
-- [ ] T003 [P] Criar `src/elements/scene/reference/atmosphere.ts`: integração numérica do modelo de Hillaire (Rayleigh, Mie, ozônio; transmitância, espalhamento simples e o múltiplo da tabela) em direções de amostra; `atmosphere.test.ts` (céu azul ao meio-dia, avermelhando no horizonte, transmitância monótona)
-- [ ] T004 [P] Criar `src/__smokes__/support/pathTracer.ts`: traçador de caminhos determinístico (estratificado) para cenas pequenas (caixas, esferas, planos) com os materiais base da 011 (difuso para a Cornell box), luzes da 011, céu da referência de T003, número de rebatimentos fixo, meio participante homogêneo e por grade (espalhamento simples e múltiplo, Henyey-Greenstein); saída da radiância média por região (máscara por instância) e imagem HDR; `pathTracer.test.ts` (forno branco, série de rebatimentos analítica num ambiente fechado, Beer-Lambert)
-- [ ] T005 [P] Estender `src/__smokes__/support/imageMeasures.ts`: energia espectral numa faixa de frequência (escala das partículas) ao longo de uma silhueta e numa região, ondulação de contorno, continuidade de realce (pontos isolados), degraus entre vizinhos, radiância média por máscara
+- [x] T001 Registrar o estado de partida em `specs/033-global-illumination/baseline-check.md`: `npm run ci`, todos os smokes `--headless` (fonte e `--dist`, anotando os que já falham por fixture pendente da 011) e `npm run bench:check` com a máquina livre (números de partida, inclusive `particles/64k-water` e tempo do quadro a 1280×720)
+- [x] T002 [P] Criar `src/elements/raytrace/reference/bvh.ts` (só testes e smokes): Morton de 30 bits, LBVH de Karras (hierarquia por prefixos comuns), caixas de baixo para cima, refit, travessia com pilha, raio–caixa (lâminas), raio–triângulo (Möller–Trumbore estável), raio–esfera; com `bvh.test.ts` contra força bruta em nuvens aleatórias determinísticas
+- [x] T003 [P] Criar `src/elements/scene/reference/atmosphere.ts`: integração numérica do modelo de Hillaire (Rayleigh, Mie, ozônio; transmitância, espalhamento simples e o múltiplo da tabela) em direções de amostra; `atmosphere.test.ts` (céu azul ao meio-dia, avermelhando no horizonte, transmitância monótona)
+- [x] T004 [P] Criar `src/elements/lighting/reference/pathTracer.ts` (referência de CPU, como as da 011; testes em `reference/__tests__`): traçador de caminhos determinístico (estratificado) para cenas pequenas (caixas, esferas, planos) com os materiais base da 011 (difuso para a Cornell box), luzes da 011, céu da referência de T003, número de rebatimentos fixo, meio participante homogêneo e por grade (espalhamento simples e múltiplo, Henyey-Greenstein); saída da radiância média por região (máscara por instância) e imagem HDR; `pathTracer.test.ts` (forno branco, série de rebatimentos analítica num ambiente fechado, Beer-Lambert)
+- [x] T005 [P] Medidas novas em `src/__smokes__/support/spectralMeasures.ts` (puras, testadas em `src/__tests__/smokes/`): energia espectral numa faixa de frequência (escala das partículas) ao longo de uma silhueta e numa região, ondulação de contorno, continuidade de realce (pontos isolados), degraus entre vizinhos, radiância média por máscara
 - [ ] T006 [P] Criar os smokes vazios `src/__smokes__/rayScene.ts`, `sky.ts`, `globalIllumination.ts`, `fluidField.ts`, `fog.ts` e `src/__smokes__/support/giScenes.ts` (Cornell box, cômodo com janela, caixa fechada de paredes finas, ambiente branco fechado, canto côncavo), registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
 
 ---
@@ -41,21 +41,29 @@ quadro; um símbolo WGSL por pipeline; só `shaders.ts` importa `.wgsl`; C3/C4 i
 
 ### Testes
 
-- [ ] T007 [P] `src/elements/raytrace/RayScene.test.ts`: descritores e estados (`pending` → `built` → `refit` | `rebuild`), uma BLAS por chave de conteúdo (A2), refit só quando a geometria marca `produced('vertices')`, rebuild com topologia nova, TLAS por quadro com instâncias, esferas para corpos de partículas sem `FluidSurfaceMaterial`, recursos declarados do módulo `ray_scene`
-- [ ] T008 [P] Testes da marcação `produced('vertices')` em `src/elements/geometry/SurfaceFlow.test.ts`, `src/scene/graph/GraphFlow.test.ts` e `src/elements/physics/flows/SoftSurfaceFlow.test.ts` (marca no quadro em que escreve; nada muda no desenho)
+- [x] T007 [P] `src/elements/raytrace/RayScene.test.ts`: descritores e estados (`pending` → `built` → `refit` | `rebuild`), uma BLAS por chave de conteúdo (A2), refit só quando a geometria marca `produced('vertices')`, rebuild com topologia nova, TLAS por quadro com instâncias, esferas para corpos de partículas sem `FluidSurfaceMaterial`, recursos declarados do módulo `ray_scene`
+- [x] T008 [P] Testes da marcação `produced('vertices')` em `src/elements/geometry/SurfaceFlow.test.ts`, `src/scene/graph/GraphFlow.test.ts` e `src/elements/physics/flows/SoftSurfaceFlow.test.ts` (marca no quadro em que escreve; nada muda no desenho)
 
 ### Implementação
 
-- [ ] T009 Marcar `produced('vertices')` nos estágios que escrevem geometria na GPU (A3): `src/elements/geometry/SurfaceFlow.ts`, `src/scene/graph/GraphFlow.ts`, `src/elements/physics/flows/SoftSurfaceFlow.ts`, `EmitterFlow`/`DiffuseFlow` das nuvens de pontos
-- [ ] T010 [P] WGSL de construção em `src/elements/gpu/wgsl/raytrace/`: `ray_gather.wgsl` (cópia de triângulos para o buffer único de primitivas em espaço de objeto, u16 lidos aos pares, contagem do registro indireto, A1/A4/A9; esferas das partículas por `pos` e raio do material, A7), `ray_bounds.wgsl` (caixa por primitiva e caixa da geometria por redução), `ray_morton.wgsl`, `ray_lbvh.wgsl` (hierarquia de Karras), `ray_refit.wgsl` (caixas de baixo para cima com contadores atômicos), `ray_tlas.wgsl` (caixas de mundo das instâncias pelo pool `WorldTransform` e o registro `Renderable`, A5)
+- [x] T009 Marcar `produced('vertices')` nos estágios que escrevem geometria na GPU (A3): `src/elements/geometry/SurfaceFlow.ts`, `src/scene/graph/GraphFlow.ts`, `src/elements/physics/flows/SoftSurfaceFlow.ts`, `EmitterFlow`/`DiffuseFlow` das nuvens de pontos
+- [x] T010 [P] WGSL de construção em `src/elements/gpu/wgsl/raytrace/`: `ray_gather.wgsl` (cópia de triângulos para o buffer único de primitivas em espaço de objeto, u16 lidos aos pares, contagem do registro indireto, A1/A4/A9; esferas das partículas por `pos` e raio do material, A7), `ray_bounds.wgsl` (caixa por primitiva e caixa da geometria por redução), `ray_morton.wgsl`, `ray_lbvh.wgsl` (hierarquia de Karras), `ray_refit.wgsl` (caixas de baixo para cima com contadores atômicos), `ray_tlas.wgsl` (caixas de mundo das instâncias pelo pool `WorldTransform` e o registro `Renderable`, A5)
 - [ ] T011 [P] `src/elements/gpu/wgsl/raytrace/ray_scene.wgsl`: `RayHit`, `BvhNode`, `RayInstance`, travessia de dois níveis com pilha de 32, `ray_scene_hit`, `ray_scene_occluded`; o ramo de instâncias de volume chama os pontos `ray_volume_hit`/`ray_volume_transmittance` (preenchidos por contribuição na US7 e na US8; sem contribuição, a caixa é ignorada)
-- [ ] T012 `src/elements/raytrace/RayScene.ts` (Resource gerado da cena, buffers de nós, primitivas, instâncias, contadores) e `src/elements/raytrace/shaders.ts` (módulos e recursos declarados)
-- [ ] T013 `src/elements/raytrace/RaySceneFlow.ts`: por geometria, gather → bounds → Morton → `RadixSort` (A6) → LBVH → caixas na primeira vez e na topologia nova; refit nos quadros com `produced('vertices')`; TLAS por LBVH a cada quadro; entradas e saídas de entidade por evento; despacho linear (`invocations` com `WORKGROUP_SIZE`)
-- [ ] T014 Limites do dispositivo (R10) em `RaySceneFlow`: conferir tamanho de binding e buffers por estágio; sem limites, evento `globalIlluminationUnsupported { reason }` uma vez em `src/scene/events/EventMap.ts`
-- [ ] T015 Exportar `RayScene` e o módulo `ray_scene` em `src/index.ts`
+- [x] T012 `src/elements/raytrace/RayScene.ts` (Resource gerado da cena, buffers de nós, primitivas, instâncias, contadores) e `src/elements/raytrace/shaders.ts` (módulos e recursos declarados)
+- [x] T013 `src/elements/raytrace/RaySceneFlow.ts`: por geometria, gather → bounds → Morton → `RadixSort` (A6) → LBVH → caixas na primeira vez e na topologia nova; refit nos quadros com `produced('vertices')`; TLAS por LBVH a cada quadro; entradas e saídas de entidade por evento; despacho linear (`invocations` com `WORKGROUP_SIZE`)
+- [x] T014 Limites do dispositivo (R10) em `RaySceneFlow`: conferir tamanho de binding e buffers por estágio; sem limites, evento `globalIlluminationUnsupported { reason }` uma vez em `src/scene/events/EventMap.ts`
+- [x] T015 Exportar `RayScene` e o módulo `ray_scene` em `src/index.ts`
 - [ ] T016 Smoke `src/__smokes__/rayScene.ts`: estágio de teste que consulta raios em cenas de esferas, caixas e superfícies paramétricas conhecidas e compara ponto e normal com a interseção analítica (≤ 1 % do tamanho, SC-009); superfície animada (refit) segue a forma no mesmo quadro; geometria de grafo e corpo mole (só GPU) atingida sem leitura de volta; 1 milhão de triângulos: tempos de build, refit (≤ 1 ms) e TLAS de 10 mil instâncias (≤ 0,3 ms) no relatório
 
 **Checkpoint**: estrutura de raios consultável por qualquer estágio.
+
+**Decisões da implementação (Fase 2)**: os dados vivem em pools da C2 (crescem por realocação, os consumidores são
+religados); folhas de 8 triângulos consecutivos em ordem de Morton (os triângulos são reordenados na construção) — um
+oitavo dos nós, reajuste de 1 milhão de triângulos em ~0,9 ms; caixas do reajuste por um temporário atômico (a escrita
+comum de outro grupo não é vista no Metal); caixa do conjunto reduzida no grupo de trabalho; hierarquia de cima com
+chaves de 24 bits, topologia nova quando o conjunto muda e a cada 8 quadros (nos outros, só as caixas: 10 mil instâncias
+em ~0,25 ms de média); ordenação radix e soma de prefixos gravam num passe já aberto (dois passes por quadro em vez de
+dezenas). Medidas no smoke `rayScene`.
 
 ---
 

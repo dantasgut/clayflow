@@ -144,6 +144,15 @@ export interface PresentationFallbackPayload {
 }
 
 /**
+ * Payload do evento `globalIlluminationUnsupported` (spec 033, R10): o dispositivo não comporta a estrutura de raios
+ * (ou a iluminação global) da cena; ela se desliga e a cena segue com o hemisfério.
+ */
+export interface GlobalIlluminationUnsupportedPayload {
+    /** Motivo (o limite do dispositivo que faltou). */
+    readonly reason: string;
+}
+
+/**
  * Payload do evento `profilerStats` — emitido periodicamente (throttle
  * 250ms) pelo `DebugFlow` quando habilitado. Permite UI overlays exibirem
  * FPS, frame time e tempo gasto por stage GPU (via timestamp-query).
@@ -288,6 +297,8 @@ export interface EventMap {
     memoryWarning: MemoryWarningPayload;
     /** A apresentação emite (uma vez) quando a saída pedida não é suportada e cai no padrão (spec 011). */
     presentationFallback: PresentationFallbackPayload;
+    /** A estrutura de raios ou a iluminação global emite (uma vez) quando o dispositivo não a comporta (spec 033). */
+    globalIlluminationUnsupported: GlobalIlluminationUnsupportedPayload;
 }
 
 /** União dos nomes de evento conhecidos (chaves do EventMap). */

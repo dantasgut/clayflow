@@ -115,6 +115,8 @@ export const WGSL_BUILTIN_CALLABLES: ReadonlySet<string> = new Set([
     'all',
     // bit
     'countOneBits',
+    'countLeadingZeros',
+    'countTrailingZeros',
     'reverseBits',
     'firstLeadingBit',
     'firstTrailingBit',

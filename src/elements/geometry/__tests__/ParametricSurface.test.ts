@@ -65,6 +65,25 @@ describe('SurfaceFlow (spec 009)', () => {
         expect(s.evals()).toBe(1);
     });
 
+    it('marca os vértices como produzidos nos quadros em que avalia (spec 033: a estrutura de raios reajusta)', async () => {
+        const s = await scene(false);
+        const produced = (): boolean => s.scene.resourceSystem.isProduced(s.surface, 'vertices');
+        s.step();
+        expect(produced()).toBe(true);
+        s.step();
+        expect(produced()).toBe(false);
+        s.surface.data.params = [2, 0.5];
+        s.step();
+        expect(produced()).toBe(true);
+        const animated = await scene(true);
+        for (let i = 0; i < 3; i++) {
+            animated.step();
+            expect(animated.scene.resourceSystem.isProduced(animated.surface, 'vertices')).toBe(
+                true,
+            );
+        }
+    });
+
     it('com animated, avalia a cada quadro', async () => {
         const s = await scene(true);
         s.step();

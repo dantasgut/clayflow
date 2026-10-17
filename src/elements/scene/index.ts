@@ -26,3 +26,7 @@ export { CameraFlow } from './flows/CameraFlow';
 export type { CameraSlots } from './flows/CameraFlow';
 export { ShadowMatrixFlow } from './flows/ShadowMatrixFlow';
 export type { ShadowMatrixSlots } from './flows/ShadowMatrixFlow';
+export { Sky, type SkyData, type SkyValues } from './sky/Sky';
+export { SkyFlow, type SkySlots } from './sky/SkyFlow';
+export { SkySchema } from './sky/SkySchema';
+export { sky as skyModule } from './sky/shaders';
