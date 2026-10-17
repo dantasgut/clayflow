@@ -207,7 +207,9 @@ normal da superfície, e a ausência de padrões da escala das partículas.
    não depende da resolução do campo além do documentado; sem pixelização ampliada).
 6. **Given** o fundo do tanque sob a água iluminado pelo sol, **When** desenhado, **Then** a sombra e a borda das
    cáusticas que a água projeta no fundo são contínuas (sem o serrilhado em semicírculos da cobertura da água vista pela
-   luz, que o bench mostra hoje): nenhuma ondulação na escala das partículas acima do limiar documentado.
+   luz, que o bench mostra hoje): nenhuma ondulação na escala das partículas acima do limiar documentado; o padrão das
+   cáusticas inteiro é refratado na superfície lisa do campo (sem serrilhado nem blocos, contínuo de perto) — a malha de
+   cáusticas da 011 passa a refratar no campo.
 7. **Given** a superfície por campo de distância, **When** a luz rebatida, os reflexos, a refração e as cáusticas a
    consultam, **Then** é a mesma superfície vista pela câmera (os raios a atingem com erro ≤ meio espaçamento de
    partícula).
