@@ -4,7 +4,7 @@
 // de luzes que se moveram não ficam ocupando baldes).
 // Requer: WORKGROUP_SIZE, gi, gi_photon_common, gi_caustics_atomic.
 
-const GI_PHOTON_HYSTERESIS: f32 = 0.9;
+const GI_PHOTON_HYSTERESIS: f32 = 0.95;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_photon_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {

@@ -9,7 +9,9 @@
 
 const GI_PHOTON_HEADER: u32 = 8u;
 const GI_PHOTON_WORDS: u32 = 8u;
-const GI_PHOTON_ONE: f32 = 65536.0;
+// Unidade do ponto fixo das somas: até 2²¹ fótons inteiros numa célula sem estourar o u32 (o foco do vidro concentra
+// boa parte dos fótons do quadro em poucas células).
+const GI_PHOTON_ONE: f32 = 2048.0;
 const GI_PHOTON_EMPTY: u32 = 0u;
 const GI_PHOTON_PROBES: u32 = 32u;
 

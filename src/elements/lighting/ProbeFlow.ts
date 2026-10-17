@@ -107,12 +107,15 @@ const FIXED = [
 const SCREEN_HISTORY_HEADER = 5;
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
-/** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela) de uma revisão. */
-const traceIds = (revision: number): readonly [string, string, string] => [
+/** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela, alvos e fótons) de uma revisão. */
+const traceIds = (revision: number): readonly [string, string, string, string] => [
     `gi_trace:${revision}`,
     `gi_screen_trace:${revision}`,
     `gi_photon_trace:${revision}`,
+    `gi_photon_targets:${revision}`,
 ];
+/** f32 da lista dos alvos dos fótons (`gi_photon_trace.wgsl`: cabeçalho, 64 caixas, áreas de 8 luzes × 64). */
+const PHOTON_TARGET_WORDS = 8 + 8 * 64 + 8 * 64;
 
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
 const NORMAL_BIAS = 0.1;
@@ -147,6 +150,7 @@ interface Buffers {
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
     readonly screenHistory: StorageBufferSpec;
+    readonly photonTargets: StorageBufferSpec;
 }
 
 /** Composição das funções `material` nos acertos (um `switch` pelo índice da função da instância). */
@@ -305,6 +309,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         });
         // Cáusticas por fótons (US5): os fótons do quadro e o acúmulo no hash.
         frame.compute('ProbeFlow.photons', (pass) => {
+            run(pass, -4, this.photons > 0 ? W : 0, W);
             run(pass, -3, Math.max(this.photons, 1), W);
             run(pass, 10, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
         });
@@ -433,6 +438,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     + sizes.tilesX * sizes.tilesY * (SCREEN_HISTORY_FIXED + sizes.bounces) * 2)
                     * 16,
             ),
+            photonTargets: storage('photonTargets', PHOTON_TARGET_WORDS * 4),
         };
     }
 
@@ -459,6 +465,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenWork, b.screenWork],
                 [R.screenWorkRead, b.screenWork],
                 [R.screenHistory, b.screenHistory],
+                [R.photonTargets, b.photonTargets],
             ]),
         );
     }
@@ -482,12 +489,13 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             fns.length === 0
                 ? shader
                 : bindPoints(shader, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]]));
-        const [probeId, screenId, photonId] = traceIds(this.materialRevision);
+        const [probeId, screenId, photonId, targetsId] = traceIds(this.materialRevision);
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);
         c.prepare(compute(probeId, compose(giProbeTrace), 'gi_probe_trace_main'));
         c.prepare(compute(screenId, compose(giScreenTrace), 'gi_screen_trace_main'));
         c.prepare(compute(photonId, compose(giPhotonTrace), 'gi_photon_trace_main'));
+        c.prepare(compute(targetsId, compose(giPhotonTrace), 'gi_photon_targets_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
         else this.nextTraceRevision = this.materialRevision;
     }
@@ -535,7 +543,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
-                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, d.caustics ? 1 : 0],
+                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, this.photons > 0 ? 1 : 0],
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,
@@ -582,6 +590,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             b.visibility,
             b.screenWork,
             b.screenHistory,
+            b.photonTargets,
         ])
             this.core.destroy(buf);
         this.buffers = undefined;

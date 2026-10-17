@@ -264,10 +264,19 @@ erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 **Independent Test**: foco da esfera de vidro contra a óptica; cardioide do anel.
 
-- [ ] T051 [P] [US5] Teste de `src/elements/lighting/PhotonFlow.test.ts`: fótons distribuídos pela potência das fontes, orçamento por qualidade, hash com acúmulo, sem duplicar a água da 011
-- [ ] T052 [P] [US5] WGSL em `src/elements/gpu/wgsl/gi/`: `gi_photon_emit.wgsl`, `gi_photon_trace.wgsl` (especular e transmissivo pelo fechamento, volumes de campo e meios atravessados), `gi_photon_hash.wgsl` (depósito em ponto fixo, acúmulo temporal), `gi_caustics.wgsl` (leitura na contribuição)
-- [ ] T053 [US5] `src/elements/lighting/PhotonFlow.ts` e as cáusticas somadas em `giContribution.ts`; as cáusticas da água da 011 passam pelo mesmo mecanismo quando há GI (sem duplicar)
-- [ ] T054 [US5] Smoke `globalIllumination.ts` parte d: esfera de vidro (IOR 1,5) com foco na distância focal a ≤ 10 % e mais claro que o chão (SC-008); anel metálico com a cardioide; cáusticas da água sem luz duplicada; vídeo das cáusticas
+- [x] T051 [P] [US5] Teste de `src/elements/lighting/PhotonFlow.test.ts`: fótons distribuídos pela potência das fontes, orçamento por qualidade, hash com acúmulo, sem duplicar a água da 011
+- [x] T052 [P] [US5] WGSL em `src/elements/gpu/wgsl/gi/`: `gi_photon_emit.wgsl`, `gi_photon_trace.wgsl` (especular e transmissivo pelo fechamento, volumes de campo e meios atravessados), `gi_photon_hash.wgsl` (depósito em ponto fixo, acúmulo temporal), `gi_caustics.wgsl` (leitura na contribuição)
+- [x] T053 [US5] `src/elements/lighting/PhotonFlow.ts` e as cáusticas somadas em `giContribution.ts`; as cáusticas da água da 011 passam pelo mesmo mecanismo quando há GI (sem duplicar)
+- [x] T054 [US5] Smoke `globalIllumination.ts` parte d: esfera de vidro (IOR 1,5) com foco na distância focal a ≤ 10 % e mais claro que o chão (SC-008); anel metálico com a cardioide; cáusticas da água sem luz duplicada; vídeo das cáusticas
+      Feito no `ProbeFlow` (passe `ProbeFlow.photons`; o teste em `src/elements/lighting/__tests__/PhotonFlow.test.ts`) e
+      em `gi_photon_common/trace/resolve.wgsl` + `gi_photon.wgsl` (leitura trilinear em `gi_scene_lighting`). Os fótons das
+      direcionais saem só sobre a projeção das caixas das instâncias que fazem cáustica (kernel `gi_photon_targets_main`
+      avaliando o material composto no centro de cada uma: vidro ou metal liso), escolhidas pela área, a potência dividida
+      onde as projeções se sobrepõem; depósito trilinear em ponto fixo (1/2048) num hash de 2¹⁹ baldes, média móvel 0,95.
+      Com os fótons ligados a coleta (sondas do mundo e de tela) não lê o especular direto de vidro e metal liso: era o
+      mesmo caminho luz → especular → difusa achado por sorte (vaga-lumes) e contado duas vezes. Na água o fóton para (as
+      cáusticas dela seguem pela vista da luz). Smoke: foco a 0,9–1,0 f, 7,4× o chão aceso; cúspide do anel em (0,235; 0)
+      com R/2 = 0,20, medida no hash; água com/sem fótons 0,194/0,194. Vídeo enviado.
 
 ---
 

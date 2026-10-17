@@ -126,6 +126,8 @@ export const giResources = Object.freeze({
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
     screenWorkRead: priv('gi_screen_work', 'read', { wgsl: 'vec4f', array: true }),
     screenHistory: priv('gi_screen_history', 'read_write', { wgsl: 'vec4f', array: true }),
+    // As instâncias capazes de cáustica e as áreas das projeções delas (privado do `ProbeFlow`; US5).
+    photonTargets: priv('gi_photon_targets', 'read_write', { wgsl: 'f32', array: true }),
     // Cáusticas por fótons (US5): o hash em mundo — leitura no desenho, atômicos nos fótons e no acúmulo.
     caustics: wgslResource({
         name: 'gi_caustics',
@@ -389,6 +391,7 @@ export const giPhotonTrace = wgslModule({
         R.params,
         giPhotonCommon,
         R.causticsWrite,
+        R.photonTargets,
         rayScene,
         giHit,
         giDirect,

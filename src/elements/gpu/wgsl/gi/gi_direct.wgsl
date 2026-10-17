@@ -15,6 +15,15 @@ fn gi_hash(x: u32) -> u32 {
     return (w >> 22u) ^ w;
 }
 
+/** Rugosidade abaixo da qual vidro e metal fazem cáustica: os fótons levam a luz pelo caminho especular (US5). */
+const GI_PHOTON_ROUGH: f32 = 0.3;
+
+/** O fechamento faz cáustica (transmissão ou metal liso, `GI_PHOTON_ROUGH`)? */
+fn gi_photon_caustic_capable(c: Closure) -> bool {
+    return (c.transmission_weight > 0.5 && c.transmission_roughness < GI_PHOTON_ROUGH)
+        || (c.conductor_weight > 0.5 && c.specular_roughness < GI_PHOTON_ROUGH);
+}
+
 fn gi_luminance(c: vec3f) -> f32 {
     return dot(c, vec3f(0.2126, 0.7152, 0.0722));
 }
