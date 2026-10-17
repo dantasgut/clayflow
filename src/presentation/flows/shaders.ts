@@ -7,6 +7,8 @@ import presentSource from './effects/present.wgsl?raw';
 import presentSingleSource from './effects/present_single.wgsl?raw';
 import presentMsSource from './effects/present_ms.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
+import sceneCopyMipsSource from './scene_copy_mips.wgsl?raw';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { color, present } from '../../elements/gpu/shaders/math';
 import { shadowMatricesResource, worldsResource } from '../../elements/scene/resources';
 import {
@@ -177,4 +179,41 @@ export const ui = wgslModule({
     name: 'ui',
     source: uiSource,
     requires: [uiResources.screen, uiResources.quads, uiResources.atlas, uiResources.sampler],
+});
+
+/** Recursos do kernel dos mips da cópia da cena (spec 011), privados do estágio. */
+export const sceneMipResources = {
+    /** O nível anterior (view de um nível). */
+    src: wgslResource({
+        name: 'scene_mip_src',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** O nível escrito (view de storage de um nível). */
+    dst: wgslResource({
+        name: 'scene_mip_dst',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** Amostrador linear. */
+    sampler: wgslResource({
+        name: 'scene_mip_sampler',
+        binding: { sampler: 'filtering' },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+} as const;
+
+/** Redução de um nível da cópia da cena (tenda 4×4). */
+export const sceneCopyMips = wgslModule({
+    name: 'scene_copy_mips',
+    source: sceneCopyMipsSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        sceneMipResources.src,
+        sceneMipResources.dst,
+        sceneMipResources.sampler,
+    ],
 });

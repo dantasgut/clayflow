@@ -56,6 +56,13 @@ export class FrameTargets extends Entity<Record<string, never>> implements Resou
                 },
             },
             {
+                // Distância às faces de trás dos transmissivos (spec 011): a espessura da camada da frente.
+                id: 'transmissionDepth',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'r16float', sizeFromCanvas: true },
+            },
+            {
                 id: 'depth',
                 role: 'texture',
                 textureShape: {
@@ -71,6 +78,17 @@ export class FrameTargets extends Entity<Record<string, never>> implements Resou
                           role: 'texture' as const,
                           textureShape: {
                               format: SCENE_COLOR_FORMAT,
+                              sizeFromCanvas: true,
+                              sampleCount: samples,
+                          },
+                      },
+                      {
+                          // A distância das faces de trás com as amostras do passe (resolvida em `transmissionDepth`).
+                          id: 'transmissionSamples',
+                          role: 'texture' as const,
+                          allocation: 'onDemand' as const,
+                          textureShape: {
+                              format: 'r16float' as const,
                               sizeFromCanvas: true,
                               sampleCount: samples,
                           },

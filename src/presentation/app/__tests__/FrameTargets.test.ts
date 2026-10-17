@@ -22,6 +22,12 @@ describe('FrameTargets', () => {
                 },
             },
             {
+                id: 'transmissionDepth',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'r16float', sizeFromCanvas: true },
+            },
+            {
                 id: 'depth',
                 role: 'texture',
                 textureShape: { format: 'depth24plus', sizeFromCanvas: true },
@@ -35,8 +41,10 @@ describe('FrameTargets', () => {
         ).toEqual([
             ['color', undefined],
             ['sceneCopy', undefined],
+            ['transmissionDepth', undefined],
             ['depth', 4],
             ['samples', 4],
+            ['transmissionSamples', 4],
         ]);
         const s = await renderScene();
         const targets = new FrameTargets();

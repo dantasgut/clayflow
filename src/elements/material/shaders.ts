@@ -1,4 +1,5 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { sceneLightingReady } from '../scene/points/lighting';
@@ -33,6 +34,7 @@ import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
 import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
+import forwardTransmissionSource from '../gpu/wgsl/forward_transmission.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
@@ -208,5 +210,46 @@ export const wire = wgslModule({
         RenderInstanceSchema,
         WireframeMaterialSchema,
         ForwardFrameParamsSchema,
+    ],
+});
+
+/** Recursos do passe de transmissivos (spec 011, R6), privados do estágio que o grava. */
+export const transmissionResources = {
+    /** Cópia da cena com mips (o que está atrás, em HDR). */
+    sceneCopy: wgslResource({
+        name: 'scene_copy',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Amostrador linear com mips da cópia. */
+    sampler: wgslResource({
+        name: 'scene_copy_sampler',
+        binding: { sampler: 'filtering' },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Distância da câmera às faces de trás dos transmissivos (a espessura da camada da frente). */
+    depth: wgslResource({
+        name: 'transmission_depth',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+} as const;
+
+/**
+ * Transmissivos em duas camadas (spec 011, R6): o vértice do forward e os fragmentos das faces de trás e da frente, que
+ * refratam a cópia da cena com mips (Beer-Lambert, dispersão, parede fina, opacidade).
+ */
+export const forwardTransmission = wgslModule({
+    name: 'forward_transmission',
+    source: forwardTransmissionSource,
+    requires: [
+        forward,
+        closureEval,
+        transmissionResources.sceneCopy,
+        transmissionResources.sampler,
+        transmissionResources.depth,
     ],
 });
