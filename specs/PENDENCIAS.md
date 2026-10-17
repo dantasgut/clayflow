@@ -201,6 +201,8 @@ F5 podem andar em paralelo depois. A F3b (031 — contrato de shader estruturado
 da F8; N1–N3 e N6 vão com a 032; N4, N5, N7 e N8 foram resolvidas na 031. As pendências P1–P5, P7–P9, E1 e E4 são da F5 (P10 resolvida na 017); P6 da F9; G1 resolvida na 031 (a N8); G2 da F4; G3 (débito do p99 da 007) da F10, ao fim das fases programadas. E2, E3 e E5
 foram resolvidas na 007 (F2); a geometria em compute, na 008 (F2 concluída).
 
-- **R1 (011) — refração com o fundo pixelado**: o vidro lê a cópia da cena na resolução da tela; quando a refração amplia
-  (esfera como lente), aparecem os pixels e os degraus das bordas. O usuário pediu imagem lisa — a refração deve
-  recalcular o que está atrás, não ampliar a cópia. Corrigir depois do OpenPBR (US3), com a proposta apresentada antes.
+- **R1 (011) — refração com o fundo pixelado — DÉBITO IMEDIATO, corrigir logo após a 033**: o vidro lê a cópia da cena
+  na resolução da tela; quando a refração amplia (esfera como lente), aparecem os pixels e os degraus das bordas. O
+  usuário pediu imagem lisa. Decisão (2026-10-17): a correção usa a estrutura de raios da 033 — o raio refratado acha a
+  superfície de trás e recalcula o material dela (nítido em qualquer ampliação), com a leitura lisa da cópia (bicúbica,
+  sem blocos) e o deslocamento pela profundidade da cena. Primeira tarefa depois do fechamento da 033.
