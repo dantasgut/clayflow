@@ -1,6 +1,6 @@
 // Referência em CPU do céu físico (spec 033, R4): o modelo de atmosfera de Hillaire (2020) — espalhamento de Rayleigh
 // e de Mie, absorção do ozônio, múltiplo espalhamento pela aproximação isotrópica de segunda ordem (Ψms) — integrado
-// numericamente, sem tabelas. Os módulos WGSL `sky_*` calculam o mesmo por tabelas; o teste e o smoke `sky` comparam.
+// numericamente, sem tabelas, em passos quadráticos (as camadas densas ficam perto do chão). Os módulos WGSL `sky_*` calculam o mesmo por tabelas; o teste e o smoke `sky` comparam.
 // Distâncias em km; o planeta centrado na origem, o "para cima" é +y (o da cena).
 
 export type Vec3 = readonly [number, number, number];
@@ -114,14 +114,26 @@ export function segmentLength(p: AtmosphereParams, r: number, mu: number): numbe
     return Math.max(0, distanceToSphere(r, mu, p.topRadius, true));
 }
 
+/**
+ * Passos quadráticos de [0, `length`] (mais curtos perto da origem, onde ficam as camadas densas): o meio e o
+ * comprimento de cada passo.
+ */
+function quadraticSteps(length: number, steps: number): { t: number; dt: number }[] {
+    const out: { t: number; dt: number }[] = [];
+    for (let i = 0; i < steps; i++) {
+        const t0 = length * (i / steps) ** 2;
+        const t1 = length * ((i + 1) / steps) ** 2;
+        out.push({ t: (t0 + t1) * 0.5, dt: t1 - t0 });
+    }
+    return out;
+}
+
 /** Transmitância de `r`, `mu` até o topo da atmosfera (0 se o raio atinge o chão). */
 export function transmittanceToTop(p: AtmosphereParams, r: number, mu: number, steps = 256): Vec3 {
     if (hitsGround(p, r, mu)) return [0, 0, 0];
     const length = Math.max(0, distanceToSphere(r, mu, p.topRadius, true));
-    const dt = length / steps;
     let depth: Vec3 = [0, 0, 0];
-    for (let i = 0; i < steps; i++) {
-        const t = (i + 0.5) * dt;
+    for (const { t, dt } of quadraticSteps(length, steps)) {
         const ri = Math.sqrt(r * r + t * t + 2 * r * mu * t);
         depth = add(depth, scale(mediumAt(p, ri - p.bottomRadius).extinction, dt));
     }
@@ -152,12 +164,10 @@ export function multipleScattering(
         const dir: Vec3 = [s * Math.cos(phi), z, s * Math.sin(phi)];
         const mu = dot(pos, dir) / r;
         const length = segmentLength(p, r, mu);
-        const dt = length / steps;
         let throughput: Vec3 = [1, 1, 1];
         let lum: Vec3 = [0, 0, 0];
         let fmsDir: Vec3 = [0, 0, 0];
-        for (let i = 0; i < steps; i++) {
-            const t = (i + 0.5) * dt;
+        for (const { t, dt } of quadraticSteps(length, steps)) {
             const x = add(pos, scale(dir, t));
             const rx = len(x);
             const m = mediumAt(p, rx - p.bottomRadius);
@@ -206,15 +216,13 @@ export function skyRadiance(
     const pos: Vec3 = [0, r, 0];
     const mu = view[1];
     const length = segmentLength(p, r, mu);
-    const dt = length / steps;
     const cosTheta = dot(view, sun);
     const pr = rayleighPhase(cosTheta);
     const pm = miePhase(cosTheta, p.mieG);
     const msOf = ms ?? ((rr: number, muS: number): Vec3 => multipleScattering(p, rr, muS, 32, 24));
     let throughput: Vec3 = [1, 1, 1];
     let lum: Vec3 = [0, 0, 0];
-    for (let i = 0; i < steps; i++) {
-        const t = (i + 0.5) * dt;
+    for (const { t, dt } of quadraticSteps(length, steps)) {
         const x = add(pos, scale(view, t));
         const rx = len(x);
         const m = mediumAt(p, rx - p.bottomRadius);
@@ -228,6 +236,17 @@ export function skyRadiance(
         const multi = mul(m.scattering, msOf(rx, muSx));
         lum = add(lum, mul(mul(throughput, add(single, multi)), integ));
         throughput = mul(throughput, stepT);
+    }
+    // Abaixo do horizonte: o chão do planeta iluminado pelo sol (Lambert), atenuado até o observador.
+    if (hitsGround(p, r, mu)) {
+        const x = add(pos, scale(view, length));
+        const n = scale(x, 1 / len(x));
+        const muS = dot(n, sun);
+        const sunT = transmittanceToTop(p, p.bottomRadius, muS);
+        lum = add(
+            lum,
+            scale(mul(mul(throughput, sunT), p.groundAlbedo), Math.max(muS, 0) / Math.PI),
+        );
     }
     return lum;
 }

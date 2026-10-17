@@ -59,6 +59,7 @@ import type { WgslModule } from '../../scene/shaders/WgslModule';
 import { Time } from '../../scene/time/Time';
 import { CameraFunction } from '../../elements/extension/CameraFunction';
 import {
+    forwardBackground,
     forwardCameraAdapter,
     forwardCameraClip,
     forwardTransmission,
@@ -255,6 +256,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     /** Conteúdo escrito em `ForwardFrameParams` (comparado para escrever só quando muda). */
     private writtenFrame = '';
     /** Pipelines (por orientação) do shader de cada material, preparados quando o material aparece. */
+    /** Pipeline do fundo preparado (formato e amostras do alvo). */
+    private backgroundId: string | undefined;
     private readonly materialPipelines = new Map<
         string,
         { readonly ccw: string; readonly cw: string }
@@ -565,6 +568,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         this.syncMaterialFunctions(c);
                         this.syncSceneCopy(c);
                         this.syncProjection(c);
+                        this.prepareBackground(c);
                         this.prepareIndirect(c);
                         this.writeFrameParams(c);
                     },
@@ -617,8 +621,46 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 opaque,
                 (entry, id) => this.materialFnPipelineOf(bound, entry, id) ?? id,
             );
+            this.recordBackground(pass, bound);
         });
         if (transmissive.length > 0) this.recordTransmission(frame, bound, transmissive);
+    }
+
+    /**
+     * Prepara o pipeline do fundo (spec 033) para o formato e as amostras do alvo: triângulo no plano distante, depois
+     * dos opacos, profundidade `less-equal` sem escrita. O ponto `scene_background` decide a cor; preparado de novo se o
+     * alvo muda.
+     */
+    private prepareBackground(ctx: Ctx): void {
+        const format = ctx.bound.slots.target.format ?? this.core.canvasFormat;
+        const samples = ctx.bound.slots.target.sampleCount;
+        const id = `forward:background:${format}:${samples}`;
+        if (this.backgroundId === id) return;
+        if (this.backgroundId !== undefined) ctx.release(this.backgroundId);
+        ctx.prepare({
+            id,
+            role: 'render',
+            shader: forwardBackground,
+            entryPoints: ['vs_background', 'fs_background'],
+            topology: 'triangle-list',
+            cullMode: 'none',
+            colorTargets: [{ format }],
+            depth: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
+            multisample: { count: samples },
+        });
+        this.backgroundId = id;
+    }
+
+    /** Desenha o fundo no passe principal quando algum Resource contribui ao ponto `scene_background`. */
+    private recordBackground(pass: RenderPass, bound: BoundFlow<ForwardSlots>): void {
+        const id = this.backgroundId;
+        if (id === undefined) return;
+        const p = bound.pipelines.get(id);
+        // Sem contribuinte o shader é o do pronto: nada a desenhar (fica a cor da limpeza).
+        if (p?.role !== 'render' || !p.ready || p.descriptor.shader === forwardBackground) return;
+        pass.bind.setPipeline(p.spec);
+        p.bindTo(pass.bind);
+        pass.draw.vertices(3);
     }
 
     /** Pipelines de transmissivo da entidade (as duas camadas), se a função dela os tem e estão prontos. */

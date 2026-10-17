@@ -1,6 +1,7 @@
 // Tabela da vista do céu (spec 033, R4; Hillaire 2020, §5.3): por direção de vista na parametrização não linear em
 // torno do horizonte, o espalhamento simples (Rayleigh e Mie com a transmitância até o sol) mais o múltiplo (Ψms), por
-// unidade de iluminância do sol, vistos da altitude do observador — 30 passos. Regerada a cada quadro (o sol se move).
+// unidade de iluminância do sol, vistos da altitude do observador — 32 passos em distribuição quadrática — e, abaixo do
+// horizonte, o chão do planeta iluminado pelo sol. Regerada a cada quadro (o sol se move).
 // Despacho linear: um texel por invocação.
 // Requer: WORKGROUP_SIZE, sky_atmosphere, sky_lookup, sky, sky_view_out.
 
@@ -20,15 +21,18 @@ fn sky_view_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
     let view = vec3f(sz * cos(angles.y), cos(angles.x), sz * sin(angles.y));
     let pos = vec3f(0.0, r, 0.0);
     let seg = sky_segment(r, view.y);
-    let steps = 30.0;
-    let dt = seg / steps;
+    let steps = 32.0;
     let c = dot(view, sun);
     let pr = sky_rayleigh_phase(c);
     let pm = sky_mie_phase(c);
     var throughput = vec3f(1.0);
     var lum = vec3f(0.0);
     for (var i = 0.0; i < steps; i += 1.0) {
-        let x = pos + view * ((i + 0.5) * dt);
+        // Passos quadráticos (Hillaire 2020): mais amostras perto do observador, onde ficam os aerossóis.
+        let t0 = seg * (i / steps) * (i / steps);
+        let t1 = seg * ((i + 1.0) / steps) * ((i + 1.0) / steps);
+        let dt = t1 - t0;
+        let x = pos + view * (t0 + dt * 0.5);
         let rx = length(x);
         let m = sky_medium(rx - sky_bottom());
         let step_t = exp(-m.extinction * dt);
@@ -38,6 +42,13 @@ fn sky_view_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
         let multi = m.scattering * sky_multiscatter(rx, mu_s);
         lum += throughput * (single + multi) * integ;
         throughput *= step_t;
+    }
+    // Abaixo do horizonte, o chão do planeta iluminado pelo sol (Lambert, albedo do chão), atenuado até o observador.
+    if (sky_hits_ground(r, view.y)) {
+        let x = pos + view * seg;
+        let n = normalize(x);
+        let mu_s = dot(n, sun);
+        lum += throughput * sky_transmittance(sky_bottom(), mu_s) * sky.ground.rgb * max(mu_s, 0.0) / SKY_PI;
     }
     textureStore(sky_view_out, texel, vec4f(lum, 1.0));
 }

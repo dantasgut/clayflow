@@ -25,13 +25,19 @@ fn sky_sun_transmittance(p: vec3f) -> vec3f {
     return sky_transmittance(sky_radius_at(p), clamp(sky.sunDirection.y, -1.0, 1.0));
 }
 
-/** Fundo visível: o céu e, dentro do raio angular do sol, o disco atenuado pela atmosfera. */
+/** Teto da radiância do disco do sol no fundo: o alvo da cena é meio-float (máx. 65504). */
+const SKY_SUN_DISK_MAX: f32 = 60000.0;
+
+/**
+ * Fundo visível: o céu e, dentro do raio angular do sol, o disco atenuado pela atmosfera — a radiância física do disco
+ * (iluminância / ângulo sólido, ~10⁹ nits com o sol a 100 mil lux) é limitada ao teto do alvo meio-float.
+ */
 fn sky_background(dir: vec3f) -> vec3f {
     var l = sky_radiance(dir);
     let radius = sky.sunIlluminance.w;
     if (sky.sunDisk != 0u && dot(dir, sky.sunDirection.xyz) > cos(radius)) {
         let solid = SKY_PI * radius * radius;
-        l += sky.sunIlluminance.rgb * sky_sun_transmittance(vec3f(0.0)) / solid;
+        l += min(sky.sunIlluminance.rgb * sky_sun_transmittance(vec3f(0.0)) / solid, vec3f(SKY_SUN_DISK_MAX));
     }
-    return l;
+    return min(l, vec3f(SKY_SUN_DISK_MAX));
 }

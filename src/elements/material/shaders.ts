@@ -2,7 +2,7 @@ import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
-import { sceneLightingReady } from '../scene/points/lighting';
+import { sceneBackgroundReady, sceneLightingReady } from '../scene/points/lighting';
 import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
@@ -35,6 +35,7 @@ import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
 import forwardTransmissionSource from '../gpu/wgsl/forward_transmission.wgsl?raw';
+import forwardBackgroundSource from '../gpu/wgsl/forward_background.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
@@ -108,6 +109,17 @@ export const forward = wgslModule({
         ForwardFrameParamsSchema,
         SurfaceDiffSchema,
     ],
+});
+
+/**
+ * Fundo da cena (spec 033): triângulo de tela cheia no plano distante com a cor do ponto de cena `scene_background`
+ * (o céu físico) pela direção de cada pixel da câmera ativa. O forward o desenha depois dos opacos, só com contribuinte.
+ */
+export const forwardBackground = wgslModule({
+    name: 'forward_background',
+    source: forwardBackgroundSource,
+    requires: [sceneBackgroundReady, camerasResource, forwardFrameResource],
+    structs: [Camera.matricesSchema, ForwardFrameParamsSchema],
 });
 
 /**

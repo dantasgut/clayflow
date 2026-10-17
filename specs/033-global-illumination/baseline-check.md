@@ -13,5 +13,5 @@
   10 %): **regressões** em quase todas as cenas, vindas do código da 011 já mesclado (alvos HDR, resolve por amostra,
   avaliação do fechamento) — o `bench:check` e o baseline da 011 estavam pendentes. Exemplos (GPU ms, baseline →
   agora): instances/100k 0,35 → 0,98; surfaces/wave-uniform 0,45 → 1,36; particles/64k-water 15,63 → 20,91 (p99 17,4 →
-  54,0). Log completo: [bench-start.log](./bench-start.log). O fechamento da 033 compara contra estes números (as cenas
+  54,0). Log completo: [bench-start.md](./bench-start.md). O fechamento da 033 compara contra estes números (as cenas
   sem iluminação global não podem piorar além deles) e regrava o baseline.

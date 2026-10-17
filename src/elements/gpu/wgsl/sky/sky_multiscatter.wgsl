@@ -27,12 +27,14 @@ fn sky_multiscatter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
         let dir = vec3f(s * cos(phi), z, s * sin(phi));
         let mu = dir.y;
         let seg = sky_segment(r, mu);
-        let dt = seg / steps;
         var throughput = vec3f(1.0);
         var lum = vec3f(0.0);
         var fms_dir = vec3f(0.0);
         for (var i = 0.0; i < steps; i += 1.0) {
-            let x = pos + dir * ((i + 0.5) * dt);
+            let t0 = seg * (i / steps) * (i / steps);
+            let t1 = seg * ((i + 1.0) / steps) * ((i + 1.0) / steps);
+            let dt = t1 - t0;
+            let x = pos + dir * (t0 + dt * 0.5);
             let rx = length(x);
             let m = sky_medium(rx - sky_bottom());
             let step_t = exp(-m.extinction * dt);

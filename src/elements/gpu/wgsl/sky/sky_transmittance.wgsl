@@ -15,10 +15,13 @@ fn sky_transmittance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     let mu = rm.y;
     let seg = sky_distance_to_top(r, mu);
     let steps = 40.0;
-    let dt = seg / steps;
     var depth = vec3f(0.0);
     for (var i = 0.0; i < steps; i += 1.0) {
-        let t = (i + 0.5) * dt;
+        // Passos quadráticos: mais amostras nas camadas baixas, densas.
+        let t0 = seg * (i / steps) * (i / steps);
+        let t1 = seg * ((i + 1.0) / steps) * ((i + 1.0) / steps);
+        let dt = t1 - t0;
+        let t = t0 + dt * 0.5;
         let ri = sqrt(r * r + t * t + 2.0 * r * mu * t);
         depth += sky_medium(ri - sky_bottom()).extinction * dt;
     }

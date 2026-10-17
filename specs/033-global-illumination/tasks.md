@@ -75,18 +75,23 @@ dezenas). Medidas no smoke `rayScene`.
 
 ### Testes
 
-- [ ] T017 [P] [US2] `src/elements/scene/Sky.test.ts`: validação, ligação à `DirectionalLight`, tabelas regeneradas só por mudança de parâmetro ou movimento do sol acima do limiar, contribuição a `light_transmission` só para a luz do sol, sem recompilar ao mudar valores
+- [x] T017 [P] [US2] `src/elements/scene/Sky.test.ts`: validação, ligação à `DirectionalLight`, tabelas regeneradas só por mudança de parâmetro ou movimento do sol acima do limiar, contribuição a `light_transmission` só para a luz do sol, sem recompilar ao mudar valores
 
 ### Implementação
 
-- [ ] T018 [P] [US2] WGSL em `src/elements/gpu/wgsl/sky/`: `sky_transmittance.wgsl` (256×64), `sky_multiscatter.wgsl` (32×32), `sky_view.wgsl` (192×108 por latitude-longitude), `sky.wgsl` (`sky_radiance`, `sky_sun_transmittance`)
-- [ ] T019 [US2] `src/elements/scene/Sky.ts` (+ schema) e `src/elements/scene/SkyFlow.ts`: tabelas `rgba16float` em compute por transição; uniform do sol
-- [ ] T020 [US2] `src/elements/scene/points/skyContribution.ts`: contribuição do `Sky` ao ponto `light_transmission` (cor física do sol pela atmosfera)
-- [ ] T021 [US2] `src/presentation/flows/SkyPassFlow.ts`: céu desenhado como fundo onde a profundidade é a do plano distante, depois dos opacos, no `FrameTargets`; registrado em `src/presentation/flows/defaults.ts`; sem `Sky`, o fundo e o hemisfério da 011 seguem iguais
-- [ ] T022 [US2] Exportar `Sky` em `src/index.ts`
-- [ ] T023 [US2] Smoke `src/__smokes__/sky.ts`: sol a 60° com radiância em direções de amostra a ≤ 5 % da referência (SC-003); varredura até o horizonte com razão vermelho/azul monótona e intensidade caindo; mudar a direção do sol atualiza no mesmo quadro sem recompilar; cena sem `Sky` igual à 011; vídeo do céu ao longo do dia
+- [x] T018 [P] [US2] WGSL em `src/elements/gpu/wgsl/sky/`: `sky_transmittance.wgsl` (256×64), `sky_multiscatter.wgsl` (32×32), `sky_view.wgsl` (192×108 por latitude-longitude), `sky.wgsl` (`sky_radiance`, `sky_sun_transmittance`)
+- [x] T019 [US2] `src/elements/scene/Sky.ts` (+ schema) e `src/elements/scene/SkyFlow.ts`: tabelas `rgba16float` em compute por transição; uniform do sol
+- [x] T020 [US2] `src/elements/scene/points/skyContribution.ts`: contribuição do `Sky` ao ponto `light_transmission` (cor física do sol pela atmosfera)
+- [x] T021 [US2] Céu como fundo pelo ponto de cena `scene_background`: o `ForwardFlow` desenha um triângulo no plano distante depois dos opacos no mesmo passe (MSAA incluído), só quando há contribuinte (`forward_background.wgsl`); sem `Sky`, o fundo e o hemisfério da 011 seguem iguais. Também o ponto `scene_environment` (raios que escapam)
+- [x] T022 [US2] Exportar `Sky` em `src/index.ts`
+- [x] T023 [US2] Smoke `src/__smokes__/sky.ts`: sol a 60° com radiância em direções de amostra a ≤ 5 % da referência (SC-003); varredura até o horizonte com razão vermelho/azul monótona e intensidade caindo; mudar a direção do sol atualiza no mesmo quadro sem recompilar; cena sem `Sky` igual à 011; vídeo do céu ao longo do dia
 
 **Checkpoint**: céu físico como fonte e fundo.
+
+**Decisões (US2)**: as integrações da atmosfera (GPU e referência de CPU) usam passos quadráticos com amostra no meio
+do passo — a camada de aerossóis fica no primeiro quilômetro; com passos uniformes o erro passava de 10 %. Abaixo do
+horizonte, o chão do planeta iluminado pelo sol. O disco do sol é limitado a 60 000 nits (alvo meio-float). Smoke `sky`:
+erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 ---
 
