@@ -84,10 +84,10 @@ saída HDR estendida quando suportada.
 ### Testes
 
 - [ ] T025 [P] Testes de referência em `src/elements/material/reference/__tests__/bsdf.test.ts`: D GGX normalizada (∫ D·cos = 1), Smith correlacionado simétrico, F82 coincide com Schlick quando a tinta é branca, filme fino com espessura 0 = Fresnel do substrato, Charlie normalizado
-- [ ] T026 [P] Testes em `src/scene/graph/__tests__/NodeDefinition.tags.test.ts`: metadado genérico de definição (`tags`) preservado, unido na compilação do grafo (conjunto dos nós presentes, sub-grafos inclusive) e exposto no resultado; a C2 não conhece nomes de lobo
-- [ ] T027 [P] Testes em `src/elements/material/__tests__/materialPoint.closure.test.ts`: função de código `-> SurfaceParams` adaptada por `closure_from_params`; `-> Closure` direta; grafo com `output.surfaceParams` e com `output.closure`; sem `MaterialFunction` → `closure_ready`; máscara de lobos (grafo, `lobes` do código, pronto) na chave do pipeline; mudar valores não muda a chave; tipo de retorno inválido → erro tipado
-- [ ] T028 [P] Testes em `src/elements/material/__tests__/PbrTables.test.ts`: Resource gerado uma vez no primeiro `framePrepare` (`Uninitialized` → `Ready`), nunca regenerado; descritor `rg16float` 32×32 e kernel de compute registrado
-- [ ] T029 [P] Testes de varredura em `src/__tests__/scan/wgslSymbols.011.test.ts`: `lambert_diffuse`, `BRDF_AMBIENT`, `BRDF_DIFFUSE`, `scene_light_direction` e `scene_any_light_direction` não existem; cada símbolo novo (`bsdf_*`, `closure_*`, `tonemap_*`) definido uma vez
+- [x] T026 [P] Testes em `src/scene/graph/__tests__/NodeDefinition.tags.test.ts`: metadado genérico de definição (`tags`) preservado, unido na compilação do grafo (conjunto dos nós presentes, sub-grafos inclusive) e exposto no resultado; a C2 não conhece nomes de lobo
+- [x] T027 [P] Testes em `src/elements/material/__tests__/materialPoint.closure.test.ts`: função de código `-> SurfaceParams` adaptada por `closure_from_params`; `-> Closure` direta; grafo com `output.surfaceParams` e com `output.closure`; sem `MaterialFunction` → `closure_ready`; máscara de lobos (grafo, `lobes` do código, pronto) na chave do pipeline; mudar valores não muda a chave; tipo de retorno inválido → erro tipado
+- [x] T028 [P] Testes em `src/elements/material/__tests__/PbrTables.test.ts`: Resource gerado uma vez no primeiro `framePrepare` (`Uninitialized` → `Ready`), nunca regenerado; descritor `rg16float` 32×32 e kernel de compute registrado
+- [x] T029 [P] Testes de varredura em `src/__tests__/scan/lighting011.test.ts`: `lambert_diffuse`, `BRDF_AMBIENT`, `BRDF_DIFFUSE`, `scene_light_direction` e `scene_any_light_direction` não existem; cada símbolo novo (`bsdf_*`, `closure_*`, `tonemap_*`) definido uma vez
 
 ### Implementação
 
@@ -115,9 +115,9 @@ saída HDR estendida quando suportada.
 ### Testes
 
 - [x] T039 [P] [US2] Testes em `src/elements/scene/points/__tests__/lighting.test.ts` (reescrito): ponto `scene_lighting` com combinação por soma e pronto zero; contribuições de `DirectionalLight`, `PointLight`, `SpotLight`, `HemisphereLight` presentes só quando há a luz; `light_visibility(light, p, n·l)` por produto com a `ShadowMap` da luz que projeta; `light_transmission(light, p)` por produto com a água; os pontos antigos não existem
-- [ ] T040 [P] [US2] Testes em `src/elements/scene/__tests__/SpotLight.test.ts` e `HemisphereLight.test.ts`: schema (`cones: vec4f`), validação (0 < interno ≤ externo ≤ π/2; interno > externo corrigido com aviso), `kind = 2`; hemisfério singleton nos estágios padrão, exposto em `defaults.ambient`, removível
-- [ ] T041 [P] [US2] Testes em `src/elements/scene/__tests__/lightLimit.test.ts`: acima de 1024 luzes, excedentes ignoradas com `lightLimit { count, limit: 1024 }` uma vez; `ForwardFrameParams.lightCount`
-- [ ] T042 [P] [US2] Teste de varredura em `src/__tests__/scan/noLightClasses.test.ts`: nenhum arquivo de `src/presentation/flows/`, dos sprites ou da água importa `DirectionalLight`, `PointLight`, `SpotLight`, `HemisphereLight` ou `Light`
+- [x] T040 [P] [US2] Testes em `src/elements/scene/__tests__/SpotHemisphere.test.ts`: schema (`cones: vec4f`), validação (0 < interno ≤ externo ≤ π/2; interno > externo corrigido com aviso), `kind = 2`; hemisfério singleton nos estágios padrão, exposto em `defaults.ambient`, removível
+- [x] T041 [P] [US2] Teste do teto em `src/elements/scene/points/__tests__/lighting.test.ts`: slot acima de 1024 avisa `lightLimit` uma vez (console) e o laço para em `LIGHT_LIMIT`; o forward não recebe contagem de luzes (não conhece luzes)
+- [x] T042 [P] [US2] Teste de varredura em `src/__tests__/scan/lighting011.test.ts`: nenhum arquivo de `src/presentation/flows/`, dos sprites ou da água importa `DirectionalLight`, `PointLight`, `SpotLight`, `HemisphereLight` ou `Light`
 - [x] T043 [P] [US2] Atualizar `src/presentation/flows/__tests__/ForwardFlow.light.test.ts` e `ParticleFlow.test.ts` para o ponto `scene_lighting`
 
 ### Implementação
@@ -132,11 +132,11 @@ saída HDR estendida quando suportada.
 - [x] T051 [P] [US2] Sprites no modelo novo: `src/elements/gpu/wgsl/particle_sprite.wgsl`, `point_sprite.wgsl` e `diffuse/diffuse_sprite.wgsl` com o fechamento do material da partícula sobre a normal do impostor e `scene_lighting`
 - [x] T052 [US2] Remover `lambert_diffuse`, `BRDF_AMBIENT`, `BRDF_DIFFUSE` de `src/elements/gpu/wgsl/math/brdf.wgsl` (fica só o que a sombra usa, ou o arquivo sai) e atualizar `src/__smokes__/shaderLibrary.ts`
 - [x] T053 [US2] `HemisphereLight` e `PbrTables` nos estágios padrão (`src/presentation/flows/defaults.ts`), `defaults.ambient` com os valores que deixam as cenas atuais equivalentes; limite de luzes e evento `lightLimit`
-- [ ] T054 [US2] Luz explícita onde se dependia da direção padrão: smokes (`src/__smokes__/*.ts`, `support/*.ts`) e cenas de bench (`bench/scenes/*/clayflow.ts`, `bench/engines/clayflow.ts`)
-- [ ] T055 [US2] Casos em `src/__smokes__/lighting.ts`: `brdf-reference` (grade 5×5 rugosidade × metalicidade contra `reference/bsdf.ts`, erro ≤ 2 %, SC-004) e `furnace` (hemisfério branco uniforme, rugosidade 0→1, ≤ 3 %, SC-005)
-- [ ] T056 [US2] Casos `point-falloff` (inverso do quadrado ≤ 2 % e janela até o alcance), `spot-cones` (pleno, transição, zero), `light-sum` (vermelho + verde) (SC-006)
-- [ ] T057 [US2] Casos `normal-scale` (escala (1, 3, 1), normais ≤ 1° da analítica, SC-007) e `specular-aa` (esfera brilhante com detalhe fino sob câmera girando devagar: variância temporal abaixo do limiar registrado)
-- [ ] T058 [US2] Caso `sprites-lit`: partículas em sprite e partículas secundárias iluminadas pelo mesmo modelo (comparação com a esfera de malha equivalente)
+- [x] T054 [US2] Luz explícita onde se dependia da direção padrão: smokes (`src/__smokes__/*.ts`, `support/*.ts`) e cenas de bench (`bench/scenes/*/clayflow.ts`, `bench/engines/clayflow.ts`)
+- [x] T055 [US2] Casos em `src/__smokes__/lighting.ts`: `brdf-reference` (grade 5×5 rugosidade × metalicidade contra `reference/bsdf.ts`, erro ≤ 2 %, SC-004) e `furnace` (hemisfério branco uniforme, rugosidade 0→1, ≤ 3 %, SC-005)
+- [x] T056 [US2] Casos `point-falloff` (inverso do quadrado ≤ 2 % e janela até o alcance), `spot-cones` (pleno, transição, zero), `light-sum` (vermelho + verde) (SC-006)
+- [x] T057 [US2] Casos `normal-scale` (escala (1, 3, 1), normais ≤ 1° da analítica, SC-007) e `specular-aa` (esfera brilhante com detalhe fino sob câmera girando devagar: variância temporal abaixo do limiar registrado)
+- [x] T058 [US2] Caso `sprites-lit`: partículas em sprite e partículas secundárias iluminadas pelo mesmo modelo (comparação com a esfera de malha equivalente)
 
 **Checkpoint**: US2 verificável sozinha; nenhum caminho Lambert resta.
 

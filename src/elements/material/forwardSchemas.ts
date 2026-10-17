@@ -29,7 +29,7 @@ export const ForwardFrameParamsSchema = new StructSchema(
 
 /**
  * Parâmetros do quadro do desenho de partículas (uniform privado do `ParticleFlow`): o slot da câmera ativa. A luz dos
- * sprites vem do ponto de cena `scene_any_light_direction` (spec 031).
+ * sprites vem do ponto de cena `scene_lighting` (spec 011).
  */
 export const ParticleFrameParamsSchema = new StructSchema(
     'ParticleFrameParams',

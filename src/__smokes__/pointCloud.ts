@@ -15,6 +15,7 @@ import {
     createComputeKernel,
     createScene,
     destroyComputeKernel,
+    DirectionalLight,
     FieldType,
     Flow,
     PointCloudGeometry,
@@ -219,6 +220,8 @@ async function run(): Promise<Capture> {
             }),
         ),
     );
+    // Spec 011: a luz é explícita (sem luz na cena, só o hemisfério ilumina).
+    app.world.insert(new DirectionalLight({ direction: [0.4, -1, 0.6, 0], intensity: Math.PI }));
     const cloud = new PointCloudGeometry({ maxPoints: POINTS });
     app.world.insert(
         cloud

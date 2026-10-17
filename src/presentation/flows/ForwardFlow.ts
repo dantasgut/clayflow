@@ -305,6 +305,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         ),
                         verify: true,
                         extensions: [...(b.extensions ?? []), fn],
+                        // Os lobos da função (spec 011): o avaliador só com os que o grafo ou o código usam.
+                        constants: { ...b.constants, CLOSURE_LOBES: fn.lobeMask },
                     };
                     const ready = ctx.prepare(descriptor).ready;
                     // Projeção de ponto da câmera ativa também sobre a variante da função.

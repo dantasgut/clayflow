@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
 import { Material } from './Material';
+import { LOBES } from './pbr/lobes';
 import { diffuseSprite } from './shaders';
 
 /** Dado de um `DiffuseMaterial` (layout de `DiffuseMaterial.schema`). */
@@ -66,6 +67,8 @@ export class DiffuseMaterial extends Material<DiffuseMaterialData> {
         return [
             {
                 id: 'pipeline_diffuse',
+                // Lobos do fechamento deste desenho (spec 011): o avaliador é especializado só com eles.
+                constants: { CLOSURE_LOBES: LOBES.diffuse | LOBES.specular | LOBES.translucent },
                 role: 'render',
                 shader: diffuseSprite,
                 entryPoints: ['vs_main', 'fs_main'],

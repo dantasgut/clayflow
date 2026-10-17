@@ -19,6 +19,14 @@ const slots: PbrTablesSlots = { tables: slot.singleton(PbrTables.schema) };
 
 type Ctx = TransitionContext<PbrTablesSlots>;
 
+/** Kernel da integração. */
+const BUILD: PipelineDescriptor = {
+    id: 'pbr_dfg_build',
+    role: 'compute',
+    shader: pbrDfgBuild,
+    entryPoints: ['pbr_dfg_build'],
+};
+
 /**
  * Estágio das tabelas do sombreamento físico (spec 011): integra a tabela DFG do `PbrTables` na GPU no primeiro quadro
  * em que o estágio grava com as tabelas presentes, e nunca mais — um `PbrTables` novo volta a pedir a integração. Fase
@@ -27,50 +35,37 @@ type Ctx = TransitionContext<PbrTablesSlots>;
 export class PbrTablesFlow extends Flow<PbrTablesSlots, 'idle'> {
     readonly type = 'PbrTablesFlow';
     readonly slots = slots;
-    override readonly pipelines: readonly PipelineDescriptor[] = [
-        {
-            id: 'pbr_dfg_build',
-            role: 'compute',
-            shader: pbrDfgBuild,
-            entryPoints: ['pbr_dfg_build'],
-        },
-    ];
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    /** A tabela ainda não foi integrada para o `PbrTables` atual. */
+    /** A tabela ainda não foi integrada para a textura ligada. */
     private pending = true;
     /** Gravar a integração neste quadro (decidido no `framePrepare`). */
     private build = false;
+    /** Textura da tabela ligada à saída do kernel (outra textura: integra de novo). */
+    private bound: unknown;
 
     constructor() {
         super();
-        const rebind = (c: Ctx): void => {
-            const view = c.bound.slots.tables.textureViewOf('dfg');
-            if (view !== undefined) c.bind(new Map([[pbrDfgOutResource, view]]));
-            this.pending = true;
-        };
         this.transitions = {
             '*': {
                 framePrepare: {
                     to: 'idle',
-                    run: () => {
-                        this.build = this.pending;
-                    },
-                },
-                slotsResolved: {
-                    to: 'idle',
                     run: (_e, c) => {
-                        rebind(c);
+                        const view = c.bound.slots.tables.textureViewOf('dfg');
+                        if (view !== undefined && view !== this.bound) {
+                            c.bind(new Map([[pbrDfgOutResource, view]]));
+                            // Preparado depois da primeira ligação (a saída é privada e só existe com as tabelas).
+                            if (this.bound === undefined) c.prepare(BUILD);
+                            this.bound = view;
+                            this.pending = true;
+                        }
+                        this.build = this.pending && this.bound !== undefined;
                     },
                 },
-                slotChanged: {
-                    to: 'idle',
-                    run: (_e, c) => {
-                        rebind(c);
-                    },
-                },
+                slotsResolved: 'ignore',
+                slotChanged: 'ignore',
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
@@ -80,8 +75,8 @@ export class PbrTablesFlow extends Flow<PbrTablesSlots, 'idle'> {
 
     /** Grava a integração da tabela (uma vez por `PbrTables`: gravada, deixa de estar pendente). */
     dispatch(frame: Frame, bound: BoundFlow<PbrTablesSlots>): void {
-        if (!this.build) return;
-        const p = bound.compute('pbr_dfg_build');
+        const p = bound.pipelines.get(BUILD.id);
+        if (!this.build || p?.role !== 'compute' || !p.ready) return;
         frame.compute('PbrTablesFlow', (pass) => {
             pass.bind.setPipeline(p.spec);
             p.bindTo(pass.bind);

@@ -6,13 +6,6 @@ export const SCAN_GROUP = sharedConstant('SCAN_GROUP', 256, 'u32');
 /** Máximo de colisores de superfície no conjunto de colisores (`ColliderSet`, `collider_set.wgsl`). */
 export const MAX_SURFACE_COLLIDERS = sharedConstant('MAX_SURFACE_COLLIDERS', 16, 'u32');
 
-/** Direção da luz quando a cena não tem luz (normalizada no shader). */
-export const DEFAULT_LIGHT_DIRECTION = sharedConstant(
-    'DEFAULT_LIGHT_DIRECTION',
-    [0.4, -1, 0.6],
-    'vec3f',
-);
-
 /** Campo de força pronto: gravidade de fonte pontual (`kind` do registro de campo). */
 export const FIELD_GRAVITY_POINT = sharedConstant('FIELD_GRAVITY_POINT', 1, 'u32');
 /** Campo de força pronto: vento. */

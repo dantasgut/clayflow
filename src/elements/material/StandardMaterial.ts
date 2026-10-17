@@ -2,6 +2,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { forward } from './shaders';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
+import { PARAMS_LOBES } from './pbr/lobes';
 import { Material } from './Material';
 
 /** Dado de um `StandardMaterial` (layout de `StandardMaterial.schema`). */
@@ -52,6 +53,8 @@ export class StandardMaterial extends Material<StandardMaterialData> {
         return [
             {
                 id: 'pipeline_standard',
+                // Lobos do fechamento deste desenho (spec 011): o avaliador é especializado só com eles.
+                constants: { CLOSURE_LOBES: PARAMS_LOBES },
                 role: 'render',
                 shader: forward,
                 entryPoints: ['vs_main', 'fs_main'],
