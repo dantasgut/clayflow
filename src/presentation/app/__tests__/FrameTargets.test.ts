@@ -28,6 +28,12 @@ describe('FrameTargets', () => {
                 textureShape: { format: 'r16float', sizeFromCanvas: true },
             },
             {
+                id: 'transmissionZ',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'depth24plus', sizeFromCanvas: true },
+            },
+            {
                 id: 'depth',
                 role: 'texture',
                 textureShape: { format: 'depth24plus', sizeFromCanvas: true },
@@ -42,6 +48,7 @@ describe('FrameTargets', () => {
             ['color', undefined],
             ['sceneCopy', undefined],
             ['transmissionDepth', undefined],
+            ['transmissionZ', 4],
             ['depth', 4],
             ['samples', 4],
             ['transmissionSamples', 4],

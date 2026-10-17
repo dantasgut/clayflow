@@ -8,6 +8,7 @@ import { color } from './color';
 import { bsdf } from './bsdf';
 import { closure } from './closure';
 import { geometry } from './geometry';
+import { material } from './material';
 import { math } from './math';
 import { noise } from './noise';
 import { output } from './output';
@@ -68,6 +69,7 @@ export const nodes = {
     bsdf,
     closure,
     output,
+    material,
     set,
 } as const;
 
@@ -90,4 +92,8 @@ export const pointNodes: readonly NodeDefinition[] = Object.freeze(
 );
 
 /** Registro com os nós da C3 — de ponto e de conjunto (serialização: `fromJSON`). */
-export const defaultNodeRegistry = new NodeRegistry([...pointNodes, ...Object.values(set)]);
+export const defaultNodeRegistry = new NodeRegistry([
+    ...pointNodes,
+    ...Object.values(set),
+    ...Object.values(material),
+]);

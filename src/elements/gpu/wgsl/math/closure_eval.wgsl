@@ -37,10 +37,15 @@ fn closure_default_tangent(n: vec3f) -> vec3f {
     return vec3f(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
 }
 
+// F90 do dielétrico: 1 nas interfaces reais, indo a 0 com o F0 (IOR → 1 não reflete nada, nem rasante).
+fn closure_dielectric_f90(f0: f32) -> f32 {
+    return clamp(50.0 * f0, 0.0, 1.0);
+}
+
 // Refletância do especular de base na direção `cos_t` (sem a distribuição): dielétrico + condutor, com o filme fino.
 fn closure_base_fresnel(c: Closure, cos_t: f32) -> vec3f {
     let f0d = vec3f(bsdf_f0_from_ior(c.dielectric_ior));
-    var f = c.dielectric_weight * c.dielectric_tint * bsdf_f_schlick(f0d, vec3f(1.0), cos_t)
+    var f = c.dielectric_weight * c.dielectric_tint * bsdf_f_schlick(f0d, vec3f(closure_dielectric_f90(f0d.x)), cos_t)
         + c.conductor_weight * bsdf_f82(c.conductor_f0, c.conductor_tint, cos_t);
     if (closure_has(CLOSURE_THIN_FILM) && c.film_weight > 0.0) {
         let ws = c.dielectric_weight + c.conductor_weight;
@@ -57,7 +62,7 @@ fn closure_base_albedo(c: Closure, n_dot_v: f32) -> vec3f {
     let dfg = closure_dfg(n_dot_v, c.specular_roughness);
     let e_ss = dfg.x + dfg.y;
     let f0d = vec3f(bsdf_f0_from_ior(c.dielectric_ior));
-    let ed = c.dielectric_tint * (f0d * dfg.x + dfg.y);
+    let ed = c.dielectric_tint * (f0d * dfg.x + closure_dielectric_f90(f0d.x) * dfg.y);
     let ec = c.conductor_f0 * dfg.x + dfg.y;
     let film_mix = select(0.0, clamp(c.film_weight, 0.0, 1.0), closure_has(CLOSURE_THIN_FILM));
     let film = bsdf_thin_film(n_dot_v, c.film_thickness, c.film_ior, mix(f0d, c.conductor_f0, c.conductor_weight / max(c.dielectric_weight + c.conductor_weight, 1e-6))) * e_ss;
@@ -70,7 +75,8 @@ fn closure_base_albedo(c: Closure, n_dot_v: f32) -> vec3f {
 fn closure_dielectric_albedo(c: Closure, n_dot_v: f32) -> vec3f {
     let dfg = closure_dfg(n_dot_v, c.specular_roughness);
     let f0d = vec3f(bsdf_f0_from_ior(c.dielectric_ior));
-    return c.dielectric_tint * (f0d * dfg.x + dfg.y) * bsdf_multiscatter(f0d * c.dielectric_tint, dfg.x + dfg.y);
+    return c.dielectric_tint * (f0d * dfg.x + closure_dielectric_f90(f0d.x) * dfg.y)
+        * bsdf_multiscatter(f0d * c.dielectric_tint, dfg.x + dfg.y);
 }
 
 // Fração dos lobos de baixo (difuso, subsuperfície, parede fina, transmissão) que passa pelo especular dielétrico: o
@@ -85,7 +91,7 @@ fn closure_under_dielectric(c: Closure, n_dot_v: f32) -> vec3f {
 fn closure_coat_albedo(c: Closure, n_dot_v: f32) -> f32 {
     let dfg = closure_dfg(n_dot_v, c.coat_roughness);
     let f0 = bsdf_f0_from_ior(c.coat_ior);
-    return (f0 * dfg.x + dfg.y) * bsdf_multiscatter(vec3f(f0), dfg.x + dfg.y).x;
+    return (f0 * dfg.x + closure_dielectric_f90(f0) * dfg.y) * bsdf_multiscatter(vec3f(f0), dfg.x + dfg.y).x;
 }
 
 // O que atravessa o verniz até a base (ida): a perda pela reflexão e a cor de absorção.
@@ -132,8 +138,10 @@ fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> ve
             let t0 = select(closure_default_tangent(nb), c.tangent, dot(c.tangent, c.tangent) > 1e-12);
             let t = normalize(t0 - nb * dot(nb, t0));
             let b = cross(nb, t);
-            let at = max(alpha * (1.0 + c.specular_anisotropy), 1e-3);
-            let ab = max(alpha * (1.0 - c.specular_anisotropy), 1e-3);
+            // A tangente é a direção das ranhuras (metal escovado, fio da seda): anisotropia positiva alisa ao longo
+            // dela e aspera através dela — o realce se alonga perpendicular à tangente.
+            let at = max(alpha * (1.0 - c.specular_anisotropy), 1e-3);
+            let ab = max(alpha * (1.0 + c.specular_anisotropy), 1e-3);
             dv = bsdf_d_ggx_aniso(dot(t, h), dot(b, h), nh, at, ab)
                 * bsdf_v_smith_correlated_aniso(at, ab, dot(t, v), dot(b, v), dot(t, l), dot(b, l), nv, nl);
         } else {
@@ -171,7 +179,7 @@ fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> ve
             let a2 = r * r * r * r;
             let f0 = bsdf_f0_from_ior(c.coat_ior);
             let dfg = closure_dfg(ncv, c.coat_roughness);
-            let f = bsdf_f_schlick(vec3f(f0), vec3f(1.0), vh).x;
+            let f = bsdf_f_schlick(vec3f(f0), vec3f(closure_dielectric_f90(f0)), vh).x;
             coat = vec3f(clamp(c.coat_weight, 0.0, 1.0) * f * bsdf_d_ggx(max(dot(nc, h), 0.0), a2)
                 * bsdf_v_smith_correlated(ncv, ncl, a2) * ncl * bsdf_multiscatter(vec3f(f0), dfg.x + dfg.y).x);
         }

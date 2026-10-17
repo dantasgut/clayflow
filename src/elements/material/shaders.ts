@@ -229,6 +229,20 @@ export const transmissionResources = {
         frequency: 'frame',
         provider: 'private',
     }),
+    /** Profundidade dos opacos (sem amostras), para a camada de trás ficar à frente deles. */
+    sceneDepth: wgslResource({
+        name: 'scene_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Profundidade dos opacos com amostras (MSAA): a amostra 0. */
+    sceneDepthMs: wgslResource({
+        name: 'scene_depth',
+        binding: { texture: { sample: 'depth', multisampled: true } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
     /** Distância da câmera às faces de trás dos transmissivos (a espessura da camada da frente). */
     depth: wgslResource({
         name: 'transmission_depth',
@@ -242,14 +256,24 @@ export const transmissionResources = {
  * Transmissivos em duas camadas (spec 011, R6): o vértice do forward e os fragmentos das faces de trás e da frente, que
  * refratam a cópia da cena com mips (Beer-Lambert, dispersão, parede fina, opacidade).
  */
-export const forwardTransmission = wgslModule({
-    name: 'forward_transmission',
-    source: forwardTransmissionSource,
-    requires: [
-        forward,
-        closureEval,
-        transmissionResources.sceneCopy,
-        transmissionResources.sampler,
-        transmissionResources.depth,
-    ],
-});
+export const forwardTransmission = {
+    /** Alvos sem amostras. */
+    single: transmissionModule(false),
+    /** Alvos com MSAA. */
+    multisampled: transmissionModule(true),
+} as const;
+
+function transmissionModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'forward_transmission_ms' : 'forward_transmission',
+        source: forwardTransmissionSource,
+        requires: [
+            forward,
+            closureEval,
+            transmissionResources.sceneCopy,
+            transmissionResources.sampler,
+            transmissionResources.depth,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}

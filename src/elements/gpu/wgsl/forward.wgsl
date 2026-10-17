@@ -24,6 +24,8 @@ struct VsOut {
     @location(5) metric: vec3<f32>,
     @location(6) curvature: vec4<f32>,
     @location(7) principal: vec3<f32>,
+    // Origem do objeto em mundo (spec 011: a corda dos transmissivos convexos simétricos em torno dela).
+    @location(8) @interpolate(flat) origin: vec3<f32>,
 }
 
 @vertex
@@ -42,6 +44,7 @@ fn vs_main(
     out.material_slot = r.materialSlot;
     out.uv = in.uv;
     out.fn_slot = r.fnSlot;
+    out.origin = w.world[3].xyz;
     if (r.diffSlot != NONE) {
         let d = surface_diff[r.diffSlot + vertex];
         out.metric = d.metric.xyz;

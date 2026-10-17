@@ -63,6 +63,17 @@ export class FrameTargets extends Entity<Record<string, never>> implements Resou
                 textureShape: { format: 'r16float', sizeFromCanvas: true },
             },
             {
+                // Profundidade própria da camada de trás dos transmissivos (spec 011): a face mais distante por pixel.
+                id: 'transmissionZ',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'depth24plus',
+                    sizeFromCanvas: true,
+                    ...(samples > 1 ? { sampleCount: samples } : {}),
+                },
+            },
+            {
                 id: 'depth',
                 role: 'texture',
                 textureShape: {

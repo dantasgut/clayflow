@@ -387,7 +387,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         ...f,
                         id,
                         shader: bindPoints(
-                            forwardTransmission,
+                            ctx.bound.slots.target.sampleCount > 1
+                                ? forwardTransmission.multisampled
+                                : forwardTransmission.single,
                             new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
                         ),
                         entryPoints: [
@@ -399,10 +401,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             side === 'back'
                                 ? [{ format: SCENE_COLOR_FORMAT }, { format: 'r16float' }]
                                 : [{ format: SCENE_COLOR_FORMAT }],
+                        // Trás: a mais distante por pixel na profundidade própria (descasque); frente: a da cena.
                         depth: {
                             format: 'depth24plus',
-                            depthWriteEnabled: side === 'front',
-                            depthCompare: 'less',
+                            depthWriteEnabled: true,
+                            depthCompare: side === 'back' ? 'greater' : 'less',
                         },
                     }).ready;
                 };
@@ -619,9 +622,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     }
 
     /** Pipelines de transmissivo da entidade (as duas camadas), se a função dela os tem e estão prontos. */
-    private transmissionOf(
-        entry: EntityEntry,
-    ):
+    private transmissionOf(entry: EntityEntry):
         | {
               readonly back: { ccw: string; cw: string };
               readonly front: { ccw: string; cw: string };
@@ -647,7 +648,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const colorTexture = colorView.source;
         const depthResolved = this.resources.textureViewOf(targets, 'transmissionDepth');
         const depthSamples = this.resources.textureViewOf(targets, 'transmissionSamples');
-        if (this.sceneCopy === undefined || depthResolved === undefined) return;
+        const backZ = this.resources.textureViewOf(targets, 'transmissionZ');
+        if (this.sceneCopy === undefined || depthResolved === undefined || backZ === undefined)
+            return;
         const color = this.colorAttachment(frame, target, { loadOp: 'load' })!;
         const distance =
             target.samples !== undefined && depthSamples !== undefined
@@ -673,7 +676,13 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     color,
                     { ...distance, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
                 ],
-                depthStencilAttachment: depth,
+                // Profundidade própria limpa em 0: o teste `greater` guarda a face de trás mais distante.
+                depthStencilAttachment: {
+                    view: backZ,
+                    depthClearValue: 0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
             },
             'ForwardFlow.transmissionBack',
             (pass) => {
@@ -823,7 +832,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private ensureTransmission(ctx: Ctx): boolean {
         const targets = ctx.bound.slots.targets?.resource;
         if (targets === undefined) return false;
-        for (const id of ['sceneCopy', 'transmissionDepth', 'transmissionSamples'])
+        for (const id of ['sceneCopy', 'transmissionDepth', 'transmissionSamples', 'transmissionZ'])
             if (targets.getDescriptors().some((d) => d.id === id))
                 this.resources.ensureAllocated(targets, id);
         this.copySampler ??= this.core.create<SamplerSpec>({
@@ -890,13 +899,21 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 sizes,
             };
         }
-        const sources = [this.sceneCopy.view, this.copySampler, depthView];
+        const sceneDepth = ctx.bound.slots.target.depth;
+        if (sceneDepth === undefined) return;
+        const sources = [this.sceneCopy.view, this.copySampler, depthView, sceneDepth];
         if (sources.some((v, k) => v !== this.transmissionBound[k])) {
             ctx.bind(
                 new Map<BindingKey, BindingSource>([
                     [transmissionResources.sceneCopy, this.sceneCopy.view],
                     [transmissionResources.sampler, this.copySampler],
                     [transmissionResources.depth, depthView],
+                    [
+                        ctx.bound.slots.target.sampleCount > 1
+                            ? transmissionResources.sceneDepthMs
+                            : transmissionResources.sceneDepth,
+                        sceneDepth,
+                    ],
                 ]),
             );
             this.transmissionBound = sources;
