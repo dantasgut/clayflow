@@ -1,5 +1,5 @@
 // Cáusticas por fótons em espaço da luz (spec 017, research R7): um fóton por texel da superfície de água vista pela
-// luz é refratado pela normal da superfície, segue até o receptor (o mapa de sombra: fundo e objetos submersos) por
+// luz é refratado pela normal da superfície (a do campo dos fluidos na vista da luz, spec 033), segue até o receptor (o mapa de sombra: fundo e objetos submersos) por
 // iteração de ponto fixo e deposita a energia transmitida (Fresnel × absorção no percurso) em volta do ponto de
 // chegada (B-spline quadrático 3×3), em ponto fixo (`atomicAdd`): a soma inteira não depende da ordem — imagem determinística. A
 // resolução converte para o fator de transmissão da luz (rgb) com um borrão em tenda 3×3. Espaço métrico da luz: NDC da
@@ -56,26 +56,6 @@ fn caustic_receiver(xy: vec2f, m: mat4x4f, scale: vec3f) -> f32 {
     return (depth - c.z) / sz;
 }
 
-// Profundidade da água num texel (sem água: muito longe).
-fn caustic_water(t: vec2i) -> f32 {
-    let dims = vec2i(i32(caustic_params.width), i32(caustic_params.height));
-    let q = clamp(t, vec2i(0), dims - 1);
-    if (textureLoad(light_material, q, 0).x == 0u) { return 2.0 * WATER_DEPTH_LIMIT; }
-    return textureLoad(light_depth, q, 0).x;
-}
-
-// Inclinação da superfície ao longo de um eixo: diferença central, ou de um lado só na borda da água.
-fn caustic_slope(t: vec2i, axis: vec2i, z: f32, texel: f32, limit: f32) -> f32 {
-    let zp = caustic_water(t + axis);
-    let zm = caustic_water(t - axis);
-    let okp = abs(zp - z) < limit;
-    let okm = abs(zm - z) < limit;
-    if (okp && okm) { return (zp - zm) / (2.0 * texel); }
-    if (okp) { return (zp - z) / texel; }
-    if (okm) { return (z - zm) / texel; }
-    return 0.0;
-}
-
 // Pesos do B-spline quadrático nos texels −1, 0, +1 para o deslocamento `d` ∈ [−½, ½] do centro do texel.
 fn caustic_bspline(d: f32) -> vec3f {
     return vec3f(0.5 * (0.5 - d) * (0.5 - d), 0.75 - d * d, 0.5 * (0.5 + d) * (0.5 + d));
@@ -110,22 +90,18 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     // Um objeto entre a luz e a água: a água está na sombra, nenhum fóton.
     let zr0 = caustic_receiver(xy0, lvp, scale);
     if (zr0 < z0 || zr0 >= WATER_DEPTH_LIMIT) { return; }
-    let texel = vec2f(2.0) / (vec2f(dims) * scale.xy);
-    let limit = 4.0 * max(texel.x, texel.y) + 0.05;
-    let sx = caustic_slope(t, vec2i(1, 0), z0, texel.x, limit);
-    // y da textura desce, y métrico sobe.
-    let sy = -caustic_slope(t, vec2i(0, 1), z0, texel.y, limit);
-    var n = normalize(vec3f(sx, sy, -1.0));
-    // Ondulações do material: a normal vai ao mundo (linhas da matriz da luz normalizadas), recebe a inclinação das
-    // ondas no ponto da superfície e volta — as cáusticas finas vêm delas.
+    // Normal em mundo da vista da luz; as ondulações do material somam a inclinação das ondas no ponto da superfície e
+    // a normal vai à base métrica da luz (linhas da matriz normalizadas) — as cáusticas finas vêm delas.
     let r0 = normalize(vec3f(lvp[0].x, lvp[1].x, lvp[2].x));
     let r1 = normalize(vec3f(lvp[0].y, lvp[1].y, lvp[2].y));
     let r2 = normalize(vec3f(lvp[0].z, lvp[1].z, lvp[2].z));
-    let n_world = normalize(r0 * n.x + r1 * n.y + r2 * n.z);
+    let stored = textureLoad(light_normal, t, 0);
+    var n_world = -r2;
+    if (dot(stored.xyz, stored.xyz) > 1e-8) { n_world = normalize(stored.xyz); }
     let p_world = caustic_to_world(vec3f(xy0, z0), lvp, scale);
     let slope = water_ripple_slope(p_world.xz, caustic_params.time, material) * water_ripple_weight(n_world);
     let n_rippled = normalize(n_world + vec3f(-slope.x, 0.0, -slope.y));
-    n = normalize(vec3f(dot(r0, n_rippled), dot(r1, n_rippled), dot(r2, n_rippled)));
+    let n = normalize(vec3f(dot(r0, n_rippled), dot(r1, n_rippled), dot(r2, n_rippled)));
     let incident = vec3f(0.0, 0.0, 1.0);
     let eta = 1.0 / max(material.ior, 1.0);
     var dir = refract(incident, n, eta);

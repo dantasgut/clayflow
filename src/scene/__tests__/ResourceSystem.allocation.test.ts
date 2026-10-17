@@ -6,6 +6,7 @@ import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import { FieldType } from '../descriptors/FieldType';
 import { StructSchema } from '../descriptors/StructSchema';
 import { DefaultEventBus } from '../events/DefaultEventBus';
+import { SetCountSchema } from '../graph/SetCountSchema';
 import { ResourceSystem } from '../systems/ResourceSystem';
 import { World } from '../world/World';
 import { fakeResourceCore } from './helpers/fakeResourceCore';
@@ -40,6 +41,33 @@ class BagResource extends Entity implements Resource {
     }
     getPipelineDescriptors() {
         return [];
+    }
+}
+
+/** Recurso de capacidade variável: os descritores seguem `data.capacity` (como `RayScene`/`FluidField`). */
+class GrowingResource extends Entity<{ capacity: number }> implements Resource {
+    state: ResourceState = ResourceState.Uninitialized;
+    constructor() {
+        super();
+        this.data = { capacity: 4 };
+    }
+    getDescriptors(): readonly GPUDescriptor[] {
+        return [
+            {
+                id: 'cells',
+                role: 'storage-rw',
+                schema: Item,
+                count: this.rawData.capacity,
+                upload: 'never',
+            },
+            { id: 'fixed', role: 'storage-rw', schema: Item, count: 2, upload: 'never' },
+        ];
+    }
+    getPipelineDescriptors() {
+        return [];
+    }
+    grow(capacity: number): void {
+        this.redescribe(this.getDescriptors(), { capacity });
     }
 }
 
@@ -120,6 +148,34 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
         const field = system.textureOf(r, 'field')!;
         expect(field.usage & GPUTextureUsage.STORAGE_BINDING).toBeTruthy();
         expect(vi.mocked(core.create).mock.calls.length).toBeGreaterThanOrEqual(7);
+    });
+
+    it('indirect com schema: registros do tamanho do schema (contagem e argumentos juntos, SetCount)', () => {
+        const { world, system } = setup();
+        const r = new BagResource([
+            { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 2, upload: 'never' },
+        ]);
+        world.insert(r);
+        expect(system.bufferOf(r, 'counts') as IndirectBufferSpec).toMatchObject({
+            subkind: 'indirect',
+            byteSize: 2 * SetCountSchema.stride,
+        });
+    });
+
+    it('redescribe: descritor próprio que mudou de forma é realocado (o antigo destruído); os iguais ficam', () => {
+        const { world, system, core } = setup();
+        const r = new GrowingResource();
+        world.insert(r);
+        const cells = system.bufferOf(r, 'cells')!;
+        const fixed = system.bufferOf(r, 'fixed')!;
+        expect(cells.byteSize).toBe(4 * Item.stride);
+        r.grow(16);
+        const grown = system.bufferOf(r, 'cells')!;
+        expect(grown).not.toBe(cells);
+        expect(grown.byteSize).toBe(16 * Item.stride);
+        expect(system.bufferOf(r, 'fixed')).toBe(fixed);
+        expect(vi.mocked(core.destroy)).toHaveBeenCalledWith(cells);
+        expect(vi.mocked(core.destroy)).not.toHaveBeenCalledWith(fixed);
     });
 
     it('texture sizeFromCanvas usa o canvas e é recriada no resize (anterior destruída)', () => {

@@ -20,11 +20,11 @@ export interface FluidSurfaceMaterialData {
     reflectivity: number;
     /** @deprecated Spec 011: use `roughness` (convertido na construção quando `roughness` não vem). */
     shininess: number;
-    /** Raio da esfera de cada partícula em mundo; 0 = automático (0,6 × espaçamento do `ParticleMaterial`). */
+    /** @deprecated Spec 033: a superfície é a do campo dos fluidos (núcleos pelo espaçamento). Ignorado. */
     particleRadius: number;
-    /** Raio da suavização da superfície em múltiplos do raio da partícula. */
+    /** @deprecated Spec 033: sem suavização na tela (a superfície do campo é contínua). Ignorado. */
     smoothingRadius: number;
-    /** Descontinuidade de silhueta em múltiplos do raio: além dela a suavização não mistura profundidades. */
+    /** @deprecated Spec 033: sem suavização na tela (a superfície do campo é contínua). Ignorado. */
     depthThreshold: number;
     /** Escala da espessura acumulada (absorção e dispersão). */
     thicknessScale: number;
@@ -88,7 +88,7 @@ function warnObsolete(options: FluidSurfaceMaterialOptions): void {
  * superfície como dielétrico físico (Fresnel exato pelo IOR, especular GGX com `roughness`, refletindo as luzes e o
  * hemisfério em HDR) e, sob a luz que projeta sombra, cáusticas no fundo e nos objetos submersos.
  *
- * Desenhado pelos estágios da água (`FluidSurfaceFlow`, `CausticsFlow`, `WaterFlow`); não tem shader de forward (numa
+ * Desenhado pelos estágios da água (`FluidFieldPassFlow`, `CausticsFlow`, `WaterFlow`); não tem shader de forward (numa
  * `Geometry`, não é desenhado) e não projeta sombra: a água atenua a luz que passa, não a bloqueia.
  *
  *     body.add(new FluidSurfaceMaterial({ absorption: [0.45, 0.09, 0.06, 0], caustics: true }));

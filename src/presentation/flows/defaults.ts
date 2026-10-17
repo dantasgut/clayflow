@@ -21,7 +21,7 @@ import { ToneMapping } from '../resources/ToneMapping';
 import { PbrTables } from '../../elements/material/pbr/PbrTables';
 import { PbrTablesFlow } from '../../elements/material/pbr/PbrTablesFlow';
 import { HemisphereLight } from '../../elements/scene/HemisphereLight';
-import { FluidSurfaceFlow } from './FluidSurfaceFlow';
+import { FluidFieldPassFlow } from './FluidFieldPassFlow';
 import { CausticsFlow } from './CausticsFlow';
 import { WaterFlow } from './WaterFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
@@ -30,6 +30,8 @@ import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
 import { GraphGeometry } from '../../elements/geometry/GraphGeometry';
 import { GraphFlow } from '../../scene/graph/GraphFlow';
 import { RaySceneFlow } from '../../elements/raytrace/RaySceneFlow';
+import { FluidField } from '../../elements/fields/FluidField';
+import { FluidFieldFlow } from '../../elements/fields/FluidFieldFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
@@ -61,10 +63,10 @@ export interface PresentationDefaults {
     readonly forward: ForwardFlow;
     /** Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos. */
     readonly particles: ParticleFlow;
-    /** Superfície de água das partículas vista pela câmera (fase `forward`, depois dos sprites; spec 017). */
-    readonly fluidSurface: FluidSurfaceFlow;
-    /** Superfície de água das partículas vista pela luz que projeta sombra (fase `shadow`, depois do mapa). */
-    readonly fluidLightSurface: FluidSurfaceFlow;
+    /** Superfície de água vista pela câmera, pela marcha no campo dos fluidos (fase `forward`, depois dos sprites). */
+    readonly fluidSurface: FluidFieldPassFlow;
+    /** Superfície de água vista pela luz que projeta sombra, pela marcha no campo (fase `shadow`, depois do mapa). */
+    readonly fluidLightSurface: FluidFieldPassFlow;
     /** Cáusticas da água em espaço da luz (fase `shadow`, depois da superfície vista pela luz). */
     readonly caustics: CausticsFlow;
     /** Composição óptica da água nos alvos da cena (fase `forward`, depois da superfície). */
@@ -97,6 +99,7 @@ interface RegisteredDefaults {
     readonly registrations: readonly FlowRegistration[];
     readonly frameTargets: FrameTargets;
     readonly waterSurface: WaterSurface;
+    readonly fluidField: FluidField;
     readonly presentation: ToneMapping;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
@@ -136,6 +139,9 @@ export function registerPresentationDefaults(
     // Superfície de água (spec 017): texturas sob demanda, alocadas só quando entra água.
     const waterSurface = new WaterSurface();
     options.world.insert(waterSurface);
+    // Campo dos fluidos (spec 033, R11): a superfície contínua dos corpos com `FluidSurfaceMaterial`, na GPU.
+    const fluidField = new FluidField();
+    options.world.insert(fluidField);
     // Apresentação (spec 011): o último passo do quadro, lido pelo pós pelo slot.
     const presentation = new ToneMapping();
     options.world.insert(presentation);
@@ -161,6 +167,7 @@ export function registerPresentationDefaults(
         registrations,
         frameTargets,
         waterSurface,
+        fluidField,
         presentation,
         pbrTables,
         ambient,
@@ -188,6 +195,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.pbrTables);
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.waterSurface);
+    entry.world.remove(entry.fluidField);
     entry.world.remove(entry.frameTargets);
     return true;
 }
@@ -268,6 +276,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
     });
     // Estrutura de raios (spec 033) depois de toda geometria escrita na GPU: registrada depois dos estágios que a
     // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
+    // Campo dos fluidos (spec 033, R11) depois da física, antes da estrutura de raios (a caixa do volume).
+    const fluidFieldRegistration = flows.register((ctx) => new FluidFieldFlow(ctx), {
+        type: 'fluidField',
+        phase: 'transform',
+        priority: -50,
+    });
     const raySceneRegistration = flows.register((ctx) => new RaySceneFlow(ctx), {
         type: 'rayScene',
         phase: 'transform',
@@ -293,10 +307,11 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -50,
     });
-    // Água (spec 017): superfície vista pela luz e cáusticas depois do mapa de sombra; superfície vista pela câmera e
-    // composição depois dos opacos e dos sprites (lê a profundidade da cena), antes da depuração.
+    // Água (spec 017; superfície pelo campo dos fluidos, spec 033): superfície vista pela luz e cáusticas depois do mapa
+    // de sombra; superfície vista pela câmera e composição depois dos opacos e dos sprites (lê a profundidade da cena),
+    // antes da depuração.
     const fluidLightRegistration = flows.register(
-        (ctx) => new FluidSurfaceFlow(ctx, { view: 'light' }),
+        (ctx) => new FluidFieldPassFlow(ctx, { view: 'light' }),
         { type: 'fluidLightSurface', phase: 'shadow', priority: -10 },
     );
     const causticsRegistration = flows.register((ctx) => new CausticsFlow(ctx), {
@@ -305,7 +320,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
         priority: -20,
     });
     const fluidRegistration = flows.register(
-        (ctx) => new FluidSurfaceFlow(ctx, { view: 'camera' }),
+        (ctx) => new FluidFieldPassFlow(ctx, { view: 'camera' }),
         { type: 'fluidSurface', phase: 'forward', priority: -60 },
     );
     const waterRegistration = flows.register((ctx) => new WaterFlow(ctx), {
@@ -362,6 +377,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             surfaceRegistration,
             graphRegistration,
             skyRegistration,
+            fluidFieldRegistration,
             raySceneRegistration,
             shadowRegistration,
             probeRegistration,

@@ -169,7 +169,7 @@ async function caseBrdfReference(): Promise<void> {
             intensity,
             intensity,
         ]);
-        for (let k = 0; k < 3; k++) worst = Math.max(worst, relErr(got[k], exp[k], 0.01));
+        for (let k = 0; k < 3; k++) worst = Math.max(worst, relErr(got[k]!, exp[k]!, 0.01));
     }
     log(
         `brdf-reference: maior erro ${(100 * worst).toFixed(2)} % em 25 materiais (rugosidade × metalicidade)`,

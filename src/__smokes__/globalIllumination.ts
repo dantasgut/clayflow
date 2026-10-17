@@ -829,7 +829,7 @@ async function budgetScene(): Promise<void> {
             if (f.stats.gpuTimeMs === undefined) return;
             frames++;
             stages.set('total', (stages.get('total') ?? 0) + f.stats.gpuTimeMs);
-            for (const [k, v] of Object.entries(f.stats.stagesNs))
+            for (const [k, v] of Object.entries(f.stats.stagesNs ?? {}))
                 stages.set(k, (stages.get(k) ?? 0) + v / 1e6);
         });
         for (let i = 0; i < 240; i++) {

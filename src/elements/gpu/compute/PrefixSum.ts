@@ -48,6 +48,8 @@ export interface PrefixSumOptions {
     readonly discriminator: string;
     /** Maior `count` aceito por `record` (dimensiona os buffers dos níveis). */
     readonly capacity: number;
+    /** Prefixo dos rótulos dos passes (perfil por passo). Padrão `'PrefixSum'`. */
+    readonly label?: string;
 }
 
 /** Argumentos de `PrefixSum.record`. */
@@ -108,6 +110,7 @@ type LevelDispatch = number | GpuCount | null;
  */
 export class PrefixSum {
     private readonly disc: string;
+    private readonly label: string;
     private readonly capacity: number;
     private readonly levelCapacity: readonly number[];
     private readonly params: FrameUniforms;
@@ -126,6 +129,7 @@ export class PrefixSum {
             );
         }
         this.disc = options.discriminator;
+        this.label = options.label ?? 'PrefixSum';
         this.capacity = options.capacity;
         this.levelCapacity = scanLevelCounts(options.capacity);
         this.params = new FrameUniforms(core, {
@@ -257,18 +261,18 @@ export class PrefixSum {
         for (let k = 0; k < top; k++) {
             this.run(
                 frame,
-                'PrefixSum.scan_local',
+                `${this.label}.scan_local`,
                 kernels(k).local!,
                 offsets[k]!,
                 dispatches[k]!,
                 pass,
             );
         }
-        this.run(frame, 'PrefixSum.scan_top', kernels(top).top!, offsets[top]!, null, pass);
+        this.run(frame, `${this.label}.scan_top`, kernels(top).top!, offsets[top]!, null, pass);
         for (let k = top - 1; k >= 0; k--) {
             this.run(
                 frame,
-                'PrefixSum.scan_combine',
+                `${this.label}.scan_combine`,
                 kernels(k).combine!,
                 offsets[k]!,
                 dispatches[k]!,

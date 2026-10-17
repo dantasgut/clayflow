@@ -5,7 +5,7 @@
 // (`gi_screen_history_taps`, exata de perto), a das sondas do mundo (`gi_generation_irradiance`) quando não. Raio que escapa: o ambiente da cena
 // (`scene_environment`, o céu). Face de trás: distância negativa (a sonda está dentro da geometria) e sem luz.
 // Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, gi_hit, gi_shade, gi_screen_reproject, closure_eval,
-// scene_environment, gi_rays.
+// scene_environment, ray_volume_transmittance, gi_rays.
 
 fn gi_trace_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -32,8 +32,10 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let origin = gi_probe_world(index);
     let dir = gi_ray_dir(k);
     let hit = ray_scene_hit(origin, dir, max_dist);
+    // Os volumes atravessados (a água) atenuam o que o raio traz.
+    let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist));
     if (hit.t >= max_dist) {
-        let env = scene_environment(dir);
+        let env = scene_environment(dir) * through;
         for (var b = 0u; b < bounces; b++) { gi_rays[out_base + b] = vec4f(env, max_dist); }
         return;
     }
@@ -47,7 +49,7 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let p = hit.position;
     let n = hit.normal;
     let direct = gi_shade_direct(c, p, n, v, i * 9781u + gi.rays.y * 6271u);
-    gi_rays[out_base] = vec4f(direct, hit.t);
+    gi_rays[out_base] = vec4f(direct * through, hit.t);
     if (bounces < 2u) { return; }
     // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
     let taps = gi_screen_history_taps(p, n);
@@ -60,6 +62,6 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
         } else {
             indirect = gi_shade_indirect(c, p, n, v, b - 1u);
         }
-        gi_rays[out_base + b] = vec4f(direct + indirect, hit.t);
+        gi_rays[out_base + b] = vec4f((direct + indirect) * through, hit.t);
     }
 }

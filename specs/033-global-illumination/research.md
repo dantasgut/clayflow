@@ -209,6 +209,13 @@ não do material da 011.
 - A mesma superfície serve à câmera, à vista da luz (as cáusticas da 011 passam a refratar nela), à luz rebatida e aos
   reflexos e refrações (R1 híbrida). As partículas continuam a simulação (inalterada).
 
+**Adendo da implementação (US7)**: a distância com sinal sai do método rápido da eikonal (Jacobi a partir da
+interface de Chopp, 6 iterações) em vez do Sussman — mais exata na faixa e 4× mais barata; o nível da superfície é
+realimentado na GPU para o volume do campo igualar o das partículas (conservação em movimento); a densidade é
+filtrada (binomial 3³) antes; os raios enxergam o fluido pelos pontos de cena `ray_volume_hit` e
+`ray_volume_transmittance` (a caixa do campo corta os raios, no lugar de uma instância de volume na TLAS); a marcha
+pula o vazio por superblocos de 4³ blocos.
+
 **Alternativas**: melhorar a reconstrução na tela (filtro bilateral mais largo, curvatura): ataca o sintoma, depende da
 resolução e continua sem existir para os raios; marching cubes para malha (malha nova a cada quadro, facetas de
 perto, custo de geração); só núcleos isotrópicos (superfícies "de bolhas", o favo de mel volta).

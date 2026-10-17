@@ -164,6 +164,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
             this.resources.textureViewOf(water, id);
         const lightDepth = tex('lightDepth');
         const lightMaterial = tex('lightMaterial');
+        const lightNormal = tex('lightNormal');
         const out = tex('caustics');
         const photons = this.resources.bufferOf(water, 'photons');
         const lightMatrix = this.resources.bufferOf(water, 'lightMatrix');
@@ -175,6 +176,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
             shadowSlot === undefined
             || lightDepth === undefined
             || lightMaterial === undefined
+            || lightNormal === undefined
             || out === undefined
             || photons === undefined
             || lightMatrix === undefined
@@ -189,6 +191,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         const sources = [
             lightDepth,
             lightMaterial,
+            lightNormal,
             out,
             photons,
             materials,
@@ -205,6 +208,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
             this.kernels = this.createKernels(
                 lightDepth,
                 lightMaterial,
+                lightNormal,
                 out,
                 photons,
                 materials,
@@ -229,6 +233,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
     private createKernels(
         lightDepth: TextureViewSpec,
         lightMaterial: TextureViewSpec,
+        lightNormal: TextureViewSpec,
         out: TextureViewSpec,
         photons: AnyBufferSpec,
         materials: AnyBufferSpec,
@@ -258,6 +263,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
                 [R.causticParams, this.params],
                 [R.lightDepth, lightDepth],
                 [R.lightMaterial, lightMaterial],
+                [R.lightNormal, lightNormal],
                 [R.causticShadow, shadow],
                 [R.photons, photons],
             ]),

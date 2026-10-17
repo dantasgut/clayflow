@@ -5,7 +5,7 @@
 // quando o ponto é uma superfície visível (`gi_screen_history_taps`: exata de perto também), a das sondas do mundo
 // quando não. Raio que escapa: o ambiente da cena em todas as gerações. Face de trás: sem luz. Grava E_g = π · média.
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_screen_common, gi_screen_reproject, ray_scene, gi_hit,
-// gi_shade, gi_direct, closure_eval, scene_environment, gi_screen_work.
+// gi_shade, gi_direct, closure_eval, scene_environment, ray_volume_transmittance, gi_screen_work.
 
 /** Gerações no máximo (os rebatimentos da `GlobalIllumination`). */
 const GI_SCREEN_MAX_BOUNCES: u32 = 8u;
@@ -67,18 +67,20 @@ fn gi_screen_trace_main(
         let max_dist = gi.tuning.w;
         let dir = gi_screen_ray_dir(i, k, n0);
         let hit = ray_scene_hit(origin, dir, max_dist);
+        // Os volumes atravessados (a água) atenuam o que o raio traz.
+        let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist));
         if (hit.t >= max_dist) {
-            let env = scene_environment(dir);
+            let env = scene_environment(dir) * through;
             for (var g = 0u; g < bounces; g++) { sums[g] = env; }
         } else if (hit.face >= 0.0) {
             let v = -dir;
             let c = gi_hit_closure(hit);
             let direct = gi_shade_direct(c, hit.position, hit.normal, v, j * 7919u + gi.rays.y * 104729u);
-            sums[0] = direct;
+            sums[0] = direct * through;
             if (bounces > 1u) {
                 let taps = gi_screen_history_taps(hit.position, hit.normal);
                 for (var g = 1u; g < bounces; g++) {
-                    sums[g] = direct + gi_screen_bounce(c, hit.position, hit.normal, v, g - 1u, taps);
+                    sums[g] = (direct + gi_screen_bounce(c, hit.position, hit.normal, v, g - 1u, taps)) * through;
                 }
             }
         }

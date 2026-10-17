@@ -385,7 +385,9 @@ async function main(): Promise<void> {
         const lit = ratios(r.frames[0]!, ref.frames[0]!, top);
         const spread = quantile(lit, 0.95) - quantile(lit, 0.05);
         log(`caixa submersa: razão ${quantile(lit, 0.5).toFixed(3)}, faixa ${spread.toFixed(3)}`);
-        if (lit.length === 0 || Math.abs(quantile(lit, 0.5) - 1) < 1e-3)
+        // A luz transmitida chega à face: o padrão das cáusticas nela (com a água límpida e plana, Fresnel e a
+        // concentração do feixe refratado se compensam e a razão média fica perto de 1).
+        if (lit.length === 0 || spread < 0.02)
             failures.push('caixa submersa: a face de cima não recebe a luz transmitida');
         await fixture(
             'submerged-box',
@@ -427,9 +429,10 @@ async function main(): Promise<void> {
         const img = r.frames[0]!;
         for (let i = 0; i < img.data.length; i += 4)
             if (
+                // Vermelho dominante (os sprites iluminados pelo PBR da 011 perdem saturação).
                 img.data[i]! > 80
-                && img.data[i]! > 2.2 * img.data[i + 1]!
-                && img.data[i]! > 2.2 * img.data[i + 2]!
+                && img.data[i]! > 1.8 * img.data[i + 1]!
+                && img.data[i]! > 1.8 * img.data[i + 2]!
             )
                 red++;
         const water = changed(img, empty.frames[0]!).reduce((a, v) => a + v, 0);

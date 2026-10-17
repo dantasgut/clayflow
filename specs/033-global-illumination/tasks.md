@@ -211,18 +211,50 @@ erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 ### Testes
 
-- [ ] T042 [P] [US7] `src/elements/fields/FluidField.test.ts`: o campo é criado para corpos com `FluidSurfaceMaterial` (sem mudança de autoria), blocos 8³ com voxel de ½ espaçamento, transições por quadro, volume na TLAS, contribuições a `ray_volume_hit`
-- [ ] T043 [P] [US7] Referência de CPU `src/elements/fields/reference/field.ts` (+ teste): núcleo anisotrópico de Yu & Turk, redistanciamento, B-spline tricúbica, marcha com secante; gotas separadas não fundem; plano fica plano
+- [x] T042 [P] [US7] `src/elements/fields/FluidField.test.ts`: o campo é criado para corpos com `FluidSurfaceMaterial` (sem mudança de autoria), blocos 8³ com voxel de ½ espaçamento, transições por quadro, volume na TLAS, contribuições a `ray_volume_hit`
+- [x] T043 [P] [US7] Referência de CPU `src/elements/fields/reference/field.ts` (+ teste): núcleo anisotrópico de Yu & Turk, redistanciamento, B-spline tricúbica, marcha com secante; gotas separadas não fundem; plano fica plano
 
 ### Implementação
 
-- [ ] T044 [P] [US7] WGSL em `src/elements/gpu/wgsl/fields/`: `field_bricks.wgsl` (hash dos blocos ocupados + `Compaction`), `field_covariance.wgsl` (covariância dos vizinhos), `field_density.wgsl` (núcleos anisotrópicos), `field_redistance.wgsl` (faixa estreita, |∇φ| ≈ 1), `fields.wgsl` (`field_sample` tricúbica, `field_normal`, marcha com secante)
-- [ ] T045 [US7] `src/elements/fields/FluidField.ts` e `src/elements/fields/FluidFieldFlow.ts`: construção por quadro depois da física; contagem só na GPU; despacho indireto
-- [ ] T046 [US7] Contribuição do campo ao ponto `ray_volume_hit` (instância de volume na TLAS) em `src/elements/fields/points/fieldRayContribution.ts`
-- [ ] T047 [US7] `src/presentation/flows/FluidFieldPassFlow.ts`: superfície desenhada por marcha com o material da água da 011 (refração, absorção, reflexo) e profundidade escrita; substitui a reconstrução na tela de `src/presentation/flows/FluidSurfaceFlow.ts` (removida com o que só ela usa)
-- [ ] T048 [US7] Vista da luz pelo campo: sombra e cobertura da água no fundo pela marcha a partir da luz; a malha de cáusticas da 011 (`WaterFlow`) refrata na superfície do campo (`field_normal`)
-- [ ] T049 [US7] Smoke `src/__smokes__/fluidField.ts`: de perto (partícula ≥ 20 px) sem ondulação na escala das partículas na silhueta e na normal acima do limiar (sem semicírculos nem favo de mel); realce da borda contínuo; volume a ±5 % das partículas em movimento; resolução dobrada igualmente lisa; sombra e borda das cáusticas no fundo contínuas, padrão refratado sem blocos (SC-013); raios atingem a superfície com erro ≤ ½ espaçamento; gotas separadas; fluido encostando no sólido; tempos (campo ≤ 1,5 ms com 64 mil, marcha ≤ 1 ms)
-- [ ] T050 [US7] `particles/64k-water` do bench lado a lado com a versão da 017 (capturas e vídeo de perto e de longe) e números do `bench:check`
+- [x] T044 [P] [US7] WGSL em `src/elements/gpu/wgsl/fields/`: `field_bricks.wgsl` (hash dos blocos ocupados + `Compaction`), `field_covariance.wgsl` (covariância dos vizinhos), `field_density.wgsl` (núcleos anisotrópicos), `field_redistance.wgsl` (faixa estreita, |∇φ| ≈ 1), `fields.wgsl` (`field_sample` tricúbica, `field_normal`, marcha com secante)
+- [x] T045 [US7] `src/elements/fields/FluidField.ts` e `src/elements/fields/FluidFieldFlow.ts`: construção por quadro depois da física; contagem só na GPU; despacho indireto
+- [x] T046 [US7] Contribuição do campo ao ponto `ray_volume_hit` (instância de volume na TLAS) em `src/elements/fields/points/fieldRayContribution.ts`
+- [x] T047 [US7] `src/presentation/flows/FluidFieldPassFlow.ts`: superfície desenhada por marcha com o material da água da 011 (refração, absorção, reflexo) e profundidade escrita; substitui a reconstrução na tela de `src/presentation/flows/FluidSurfaceFlow.ts` (removida com o que só ela usa)
+- [x] T048 [US7] Vista da luz pelo campo: sombra e cobertura da água no fundo pela marcha a partir da luz; a malha de cáusticas da 011 (`WaterFlow`) refrata na superfície do campo (`field_normal`)
+- [x] T049 [US7] Smoke `src/__smokes__/fluidField.ts`: de perto (partícula ≥ 20 px) sem ondulação na escala das partículas na silhueta e na normal acima do limiar (sem semicírculos nem favo de mel); realce da borda contínuo; volume a ±5 % das partículas em movimento; resolução dobrada igualmente lisa; sombra e borda das cáusticas no fundo contínuas, padrão refratado sem blocos (SC-013); raios atingem a superfície com erro ≤ ½ espaçamento; gotas separadas; fluido encostando no sólido; tempos (campo ≤ 1,5 ms com 64 mil, marcha ≤ 1 ms)
+- [x] T050 [US7] `particles/64k-water` do bench lado a lado com a versão da 017 (capturas e vídeo de perto e de longe) e números do `bench:check`
+
+**Notas da implementação (US7)**:
+
+- Campo na GPU por quadro (`FluidField` + `FluidFieldFlow`): junção das partículas, grade hash (célula = raio do núcleo),
+  cópia na ordem das células, núcleos de Yu & Turk (somas dos vizinhos em ponto fixo inteiro: o campo sai idêntico bit a
+  bit apesar da ordem variável dos vizinhos), marcação dos blocos 8³ (voxel ½ espaçamento) com deduplicação no grupo e
+  uma tabela de superblocos 4³, densidade por espalhamento em ponto fixo, filtro binomial 3³ separável (zera a ondulação
+  de 2 voxels), φ₀ e a distância pelo método rápido da eikonal (Jacobi, interface de Chopp, 6 iterações: |∇φ| entre
+  0,97 e 1,0 em ±4 voxels — o Sussman de 16–32 iterações saía pior e 4× mais caro), borda de 2 voxels.
+- Parâmetros ajustados com a referência: λ = 0,5 (0,9 encolhia a superfície; menor também fica mais plano),
+  N_ε = 8 (com raio de 2 espaçamentos a vizinhança cheia tem ~33: o 25 de Yu & Turk punha a superfície toda no núcleo
+  isotrópico), nível 0,42. O volume conserva por realimentação na GPU: o volume do campo somado no quadro corrige o nível
+  do seguinte para igualar N·espaçamento³ (agitada, a superfície perdia ~11 %) — a ±4,5 % em movimento.
+- O que as consultas leem fica num buffer só (`FluidField.data`): a GI usava 7 dos 10 buffers de storage por estágio.
+  O pipeline padrão de superfície da 017 (esferas + suavização) saiu: `FluidFieldPassFlow` marcha câmera e luz e escreve
+  profundidade, material e normal (a espessura em w — o composto com GI estourava 16 texturas); composição e cáusticas
+  usam a normal do campo; a vista da luz se enquadra pela caixa do campo.
+- T046: no lugar de uma instância de volume na TLAS, os pontos de cena `ray_volume_hit` (cruzamento, normal, material) e
+  `ray_volume_transmittance` (absorção pelos trechos dentro da água) com a contribuição do `FluidField` (só com fluido),
+  já usados pelos raios das sondas e da tela da GI; a caixa do campo faz o corte que a instância faria. A C2 passou a
+  realocar descritores próprios que mudam de forma no `redescribe` (antes só os de pool: a estrutura de raios também
+  dependia disso) e os buffers indiretos aceitam o tamanho do schema (`SetCount`).
+- Smoke `fluidField` (limiares documentados no cabeçalho): campo = referência de CPU (p95 0,15 voxel), gotas separadas,
+  raios e profundidade da câmera a ≤ 0,15 espaçamento, silhueta de perto 0,003 p (a 017 dá 0,018 p; limiar 0,008),
+  favo de mel na normal 0,002, realce contínuo, volume ±4,5 %, borda das cáusticas 0,006 p, contato com a caixa 100 %,
+  e a água (campo + marchas + composição + cáusticas − sprites) 2,3 ms a 64 mil. No Apple o perfil por passo não
+  atualiza (só a primeira leitura resolve): os tempos são pela diferença do tempo por quadro.
+- Bench `particles/64k-water`: GPU 15,6 → 16–17 ms (a água custa ~2,2 ms acima dos sprites; a 017 custava 1,8); o p95 do
+  quadro passa a cruzar o vsync de 60 Hz em parte dos quadros (a 017 já estava a 1 ms dele). `4k-water` 3,11 → 2,94 ms.
+  Vídeo lado a lado 017 × campo enviado. O smoke da 017 foi regravado (água determinística); a caixa submersa passa a
+  medir o padrão das cáusticas na face e os sprites o vermelho dominante (1,8×, a iluminação da 011); "cáusticas
+  agitadas ≥ 1,3×" segue falhando como na base (1,29×; a base dava 1,26×).
 
 ---
 

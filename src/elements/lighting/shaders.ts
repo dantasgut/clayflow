@@ -30,6 +30,7 @@ import { materialPointTypes } from '../material/point/types/shaders';
 import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
 import { rayInstanceRead, rayScene } from '../raytrace/shaders';
 import { lightTransmissionReady, sceneEnvironmentReady } from '../scene/points/lighting';
+import { rayVolumeTransmittanceReady } from '../raytrace/points';
 import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { camerasResource, lightsResource } from '../scene/resources';
 import { GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
@@ -237,6 +238,7 @@ export const giProbeTrace = wgslModule({
         giScreenReproject,
         closureEval,
         sceneEnvironmentReady,
+        rayVolumeTransmittanceReady,
         R.rays,
     ],
 });
@@ -311,6 +313,7 @@ export const giScreenTrace = wgslModule({
         giDirect,
         closureEval,
         sceneEnvironmentReady,
+        rayVolumeTransmittanceReady,
         R.screenWork,
     ],
 });

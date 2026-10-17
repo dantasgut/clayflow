@@ -35,7 +35,7 @@ describe('varreduras do sombreamento físico (spec 011)', () => {
             'presentation/flows/ForwardFlow.ts',
             'presentation/flows/ParticleFlow.ts',
             'presentation/flows/WaterFlow.ts',
-            'presentation/flows/FluidSurfaceFlow.ts',
+            'presentation/flows/FluidFieldPassFlow.ts',
             'presentation/flows/PostFlow.ts',
             'presentation/water/shaders.ts',
             'elements/material/shaders.ts',

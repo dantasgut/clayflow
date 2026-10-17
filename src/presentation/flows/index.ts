@@ -2,8 +2,12 @@ export { ForwardFlow } from './ForwardFlow';
 export type { ForwardFlowOptions, ForwardOutput, ForwardSlots } from './ForwardFlow';
 export { ParticleFlow } from './ParticleFlow';
 export type { ParticleSlots } from './ParticleFlow';
-export { FluidSurfaceFlow } from './FluidSurfaceFlow';
-export type { FluidSurfaceFlowOptions, FluidSurfaceSlots, WaterView } from './FluidSurfaceFlow';
+export { FluidFieldPassFlow } from './FluidFieldPassFlow';
+export type {
+    FluidFieldPassFlowOptions,
+    FluidFieldPassSlots,
+    WaterView,
+} from './FluidFieldPassFlow';
 export { CausticsFlow } from './CausticsFlow';
 export type { CausticsSlots } from './CausticsFlow';
 export { WaterFlow } from './WaterFlow';

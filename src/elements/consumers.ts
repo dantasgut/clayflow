@@ -8,6 +8,7 @@ import { HemisphereLightSchema } from './scene/HemisphereLightSchema';
 import { RaySceneSchema } from './raytrace/schemas';
 import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
+import { FluidFieldSchema } from './fields/schemas';
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
@@ -51,5 +52,10 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             new SingletonResolver(GlobalIlluminationSchema, id, {
                 name: `GlobalIllumination.${id}`,
             }),
+    ),
+    // O campo dos fluidos (spec 033, R11): parâmetros, o buffer das consultas (limites, tabela, blocos, voxels) e a
+    // contagem.
+    ...(['params', 'data', 'counts'] as const).map(
+        (id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` }),
     ),
 ];

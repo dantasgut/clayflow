@@ -20,6 +20,8 @@ import { shCount, shScatter, hashGridResources } from './shaders';
 export interface SpatialHashGridOptions {
     /** Prefixo único dos recursos da instância. */
     readonly discriminator: string;
+    /** Prefixo dos rótulos dos passes (perfil por passo). Padrão `'SpatialHashGrid'`. */
+    readonly label?: string;
 }
 
 /** Menor tabela de baldes. */
@@ -45,6 +47,7 @@ export function hashTableSize(count: number): number {
  */
 export class SpatialHashGrid {
     private readonly disc: string;
+    private readonly label: string;
     private readonly scan: PrefixSum;
     private readonly paramsBuffer: UniformBufferSpec;
     private items: StorageBufferSpec | null = null;
@@ -63,6 +66,7 @@ export class SpatialHashGrid {
         options: SpatialHashGridOptions,
     ) {
         this.disc = options.discriminator;
+        this.label = options.label ?? 'SpatialHashGrid';
         this.paramsBuffer = core.create<UniformBufferSpec>({
             kind: 'buffer',
             subkind: 'uniform',
@@ -72,6 +76,7 @@ export class SpatialHashGrid {
         this.scan = new PrefixSum(core, {
             discriminator: `${this.disc}:scan`,
             capacity: 1 << 24,
+            ...(options.label !== undefined ? { label: `${options.label}.scan` } : {}),
         });
     }
 
@@ -164,10 +169,10 @@ export class SpatialHashGrid {
     record(frame: Frame): void {
         if (this.count === 0 || this.countKernel === null || this.scatterKernel === null) return;
         frame.clear(this.counts!);
-        this.run(frame, 'SpatialHashGrid.count', this.countKernel);
+        this.run(frame, `${this.label}.count`, this.countKernel);
         this.scan.record(frame, { src: this.counts!, dst: this.starts!, count: this.table });
         frame.copy(this.starts!, this.cursors!, this.table * 4);
-        this.run(frame, 'SpatialHashGrid.scatter', this.scatterKernel);
+        this.run(frame, `${this.label}.scatter`, this.scatterKernel);
     }
 
     /** Libera buffers, kernels e uniforms. */

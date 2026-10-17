@@ -38,13 +38,13 @@ export interface WaterSurfaceData {
 
 /**
  * Superfície de água da cena (Camada 4, spec 017): as texturas que os estágios da água compartilham — a superfície
- * genérica (profundidade linear suavizada, espessura e material por pixel) nas vistas da câmera e da luz, a cópia da
- * cena antes da água (fonte da refração), o enquadramento da vista da luz (matriz ajustada à água, produzida na GPU),
- * o mapa de cáusticas e os acumuladores de fótons.
+ * genérica (profundidade linear, material e a normal em mundo com a espessura em w, por pixel) nas vistas da câmera e da luz, a
+ * cópia da cena antes da água (fonte da refração), o enquadramento da vista da luz (matriz ajustada à água, produzida
+ * na GPU), o mapa de cáusticas e os acumuladores de fótons.
  *
- * Quem produz a superfície (hoje o `FluidSurfaceFlow`, a partir das partículas; depois a água por altura da spec 029)
- * escreve `depth`/`thickness`/`material` e `lightDepth`/`lightMaterial`; quem consome (`CausticsFlow`, `WaterFlow`) não
- * sabe a origem. Os descritores dos estágios da água são alocados sob demanda (`allocation: 'onDemand'`): o produtor
+ * Quem produz a superfície (hoje o `FluidFieldPassFlow`, pela marcha no campo dos fluidos da spec 033; depois a água
+ * por altura da spec 029) escreve `depth`/`material`/`normal` e `lightDepth`/`lightMaterial`/`lightNormal`;
+ * quem consome (`CausticsFlow`, `WaterFlow`) não sabe a origem. Os descritores dos estágios da água são alocados sob demanda (`allocation: 'onDemand'`): o produtor
  * pede a alocação quando a primeira água entra. As texturas da vista da câmera têm o tamanho do canvas e são recriadas
  * pela C2 com ele. Uma por cena, inserida pelos estágios padrão.
  *
@@ -135,35 +135,20 @@ export class WaterSurface extends Entity<WaterSurfaceData> implements Resource {
             // Estado lido pelos desenhos (contribuição à transmissão da luz).
             { id: 'state', role: 'uniform', schema: WaterStateSchema },
             // Vista da câmera.
-            view('depthRaw', 'texture', 'r32float'),
-            view('depthTemp', 'storage-texture', 'r32float'),
             view('depth', 'storage-texture', 'r32float'),
-            view('thicknessRaw', 'texture', 'r16float'),
-            view('thicknessTemp', 'storage-texture', 'r32float'),
-            view('thickness', 'storage-texture', 'r32float'),
-            view('material', 'texture', 'r32uint'),
-            view('depthStencil', 'texture', 'depth32float'),
+            view('material', 'storage-texture', 'r32uint'),
+            view('normal', 'storage-texture', 'rgba16float'),
             view('background', 'texture', SCENE_COLOR_FORMAT),
             // Vista da luz e cáusticas.
-            light('lightDepthRaw', 'texture', 'r32float'),
-            light('lightDepthTemp', 'storage-texture', 'r32float'),
             light('lightDepth', 'storage-texture', 'r32float'),
-            light('lightMaterial', 'texture', 'r32uint'),
-            light('lightDepthStencil', 'texture', 'depth32float'),
+            light('lightMaterial', 'storage-texture', 'r32uint'),
+            light('lightNormal', 'storage-texture', 'rgba16float'),
             light('caustics', 'storage-texture', 'rgba16float'),
             {
                 id: 'lightMatrix',
                 role: 'storage-rw',
                 allocation: 'onDemand',
                 schema: WaterLightMatrixSchema,
-                upload: 'never',
-            },
-            {
-                id: 'lightBounds',
-                role: 'storage-rw',
-                allocation: 'onDemand',
-                schema: PhotonSchema,
-                count: 8,
                 upload: 'never',
             },
             {
@@ -183,27 +168,14 @@ export class WaterSurface extends Entity<WaterSurfaceData> implements Resource {
 }
 
 /** Descritores da vista da câmera (alocados juntos pelo produtor). */
-export const WATER_VIEW_TEXTURES = [
-    'depthRaw',
-    'depthTemp',
-    'depth',
-    'thicknessRaw',
-    'thicknessTemp',
-    'thickness',
-    'material',
-    'depthStencil',
-    'background',
-] as const;
+export const WATER_VIEW_TEXTURES = ['depth', 'material', 'normal', 'background'] as const;
 
 /** Descritores da vista da luz e das cáusticas (alocados juntos pelo produtor da luz). */
 export const WATER_LIGHT_TEXTURES = [
-    'lightDepthRaw',
-    'lightDepthTemp',
     'lightDepth',
     'lightMaterial',
-    'lightDepthStencil',
+    'lightNormal',
     'caustics',
     'lightMatrix',
-    'lightBounds',
     'photons',
 ] as const;
