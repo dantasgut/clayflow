@@ -151,11 +151,11 @@ OpenPBR como sub-grafo.
 
 ### Testes
 
-- [ ] T059 [P] [US3] Testes em `src/elements/nodes/__tests__/bsdf.test.ts`: cada nó `bsdf.*` com portas, padrões, `tags` do lobo e WGSL compilável; `closure.*` com a união dos lobos de entrada
-- [ ] T060 [P] [US3] Testes em `src/elements/nodes/__tests__/graphSpecialization.test.ts`: grafo só com difuso e especular gera shader sem os outros lobos (texto do WGSL composto); mudar valor não recompila; mudar ligação recompila em transição sem quadro quebrado
-- [ ] T061 [P] [US3] Testes em `src/presentation/flows/__tests__/transmission.test.ts`: passe de transmissivos só existe com material de lobo de transmissão ou opacidade; `sceneCopy` com mips gerada antes das duas camadas; faces de trás (com a distância no alvo `transmissionDepth`) e depois as da frente; grupos opacos fora do passe
+- [x] T059 [P] [US3] Testes em `src/elements/nodes/__tests__/library.test.ts` (casos de todos os nós) e `materialNodes.test.ts`: cada nó `bsdf.*` com portas, padrões, `tags` do lobo e WGSL compilável; `closure.*` com a união dos lobos de entrada
+- [x] T060 [P] [US3] Testes em `src/elements/nodes/__tests__/materialNodes.test.ts` e no smoke `materials` (`graph-specialization`): grafo só com difuso e especular gera shader sem os outros lobos (texto do WGSL composto); mudar valor não recompila; mudar ligação recompila em transição sem quadro quebrado
+- [x] T061 [P] [US3] Testes em `src/presentation/flows/__tests__/transmission.test.ts`: passe de transmissivos só existe com material de lobo de transmissão ou opacidade; `sceneCopy` com mips gerada antes das duas camadas; faces de trás (com a distância no alvo `transmissionDepth`) e depois as da frente; grupos opacos fora do passe
 - [x] T062 [P] [US3] Testes de referência: fusão de lobos (`closure_add`/`closure_mix` de dois especulares) contra a regra documentada em `src/elements/material/reference/__tests__/closureMerge.test.ts`
-- [ ] T063 [P] [US3] Testes de serialização em `src/elements/nodes/__tests__/materialGraph.serialize.test.ts`: grafo de material e `nodes.material.openpbr` ida e volta pelo `NodeRegistry`
+- [x] T063 [P] [US3] Testes de serialização em `src/elements/nodes/__tests__/materialNodes.test.ts`: grafo de material e `nodes.material.openpbr` ida e volta pelo `NodeRegistry`
 
 ### Implementação
 
@@ -168,14 +168,14 @@ OpenPBR como sub-grafo.
 - [x] T070 [US3] Variantes por lobos no `ForwardFlow` (`src/presentation/flows/ForwardFlow.ts`): constantes de override da máscara no pipeline, cache por chave, preparo em transição
 - [x] T071 [US3] Criar `src/elements/gpu/wgsl/kernels/scene_copy_mips.wgsl` (cópia da cor resolvida + gaussiana separável por nível) e o passe de cópia no `ForwardFlow` (só com consumidor)
 - [x] T072 [US3] Criar `src/elements/gpu/wgsl/forward_transmission.wgsl` e o passe de transmissivos em duas camadas no `ForwardFlow`: faces de trás (com a distância delas no alvo `transmissionDepth`, `r16float`), nova cópia, faces da frente; refração pelo IOR projetada na tela, espessura entre camadas ou a do lobo, leitura no mip pela rugosidade, Beer-Lambert, dispersão por Abbe (três leituras), parede fina sem refração, opacidade
-- [ ] T073 [US3] `nodes.material.openpbr` em `src/elements/nodes/material/openpbr.ts`: `Subgraph.point` sobre os nós BSDF com todos os parâmetros do OpenPBR Surface 1.1 expostos
-- [ ] T074 [US3] Casos por lobo em `src/__smokes__/materials.ts`: `layer-two-highlights`, `transmission-refraction` (deslocamento, Fresnel rasante, Beer-Lambert pela espessura), `transmission-dispersion`, `translucent-backlit`, `sheen-rim`, `anisotropy-rotate` (girar o vetor gira o realce), `thin-film-angle`, `subsurface-terminator`, `emission-hdr` (SC-008)
-- [ ] T075 [US3] Casos `closure-mix` (máscara de ruído contínua; fusão pela regra) e `closure-layer` em `src/__smokes__/materials.ts`
-- [ ] T076 [US3] Caso `graph-specialization`: grafo difuso + especular com custo igual ao material pronto (± ruído, por consulta de tempo da GPU) e 60 s mudando valores com zero recompilações (SC-008)
-- [ ] T077 [US3] Caso `material-fn-compat`: as funções `material` da 009 (`support/extensionScenes.ts`, `parametricSurfaces`) desenham sem mudança com o especular da base
-- [ ] T078 [US3] Caso `transmission-layers` (vidro atrás de vidro e verso de objeto espesso aparecem; terceira camada com a aproximação documentada) e `transmission-ior1` (IOR 1 invisível, sem divisão por zero)
+- [x] T073 [US3] `nodes.material.openpbr` em `src/elements/nodes/material/openpbr.ts`: `Subgraph.point` sobre os nós BSDF com todos os parâmetros do OpenPBR Surface 1.1 expostos
+- [x] T074 [US3] Casos por lobo em `src/__smokes__/materials.ts`: `layer-two-highlights`, `transmission-refraction` (deslocamento, Fresnel rasante, Beer-Lambert pela espessura), `transmission-dispersion`, `translucent-backlit`, `sheen-rim`, `anisotropy-rotate` (girar o vetor gira o realce), `thin-film-angle`, `subsurface-terminator`, `emission-hdr` (SC-008)
+- [x] T075 [US3] Casos `closure-mix` (máscara de ruído contínua; fusão pela regra) e `closure-layer` em `src/__smokes__/materials.ts`
+- [x] T076 [US3] Caso `graph-specialization`: grafo difuso + especular com custo igual ao material pronto (± ruído, por consulta de tempo da GPU) e 60 s mudando valores com zero recompilações (SC-008)
+- [x] T077 [US3] Caso `material-fn-compat`: as funções `material` da 009 (`support/extensionScenes.ts`, `parametricSurfaces`) desenham sem mudança com o especular da base
+- [x] T078 [US3] Caso `transmission-layers` (vidro atrás de vidro e verso de objeto espesso aparecem; terceira camada com a aproximação documentada) e `transmission-ior1` (IOR 1 invisível, sem divisão por zero)
 - [ ] T079 [US3] Grafo de material no smoke `src/__smokes__/nodeGraphs.ts` (madeira envernizada com verniz áspero por ruído, do contrato) e caso de grafo inválido desenhando com o material pronto e o evento da 031
-- [ ] T080 [US3] Caso `sanitize`: função `material` devolvendo NaN/∞/negativos — nenhum NaN no alvo HDR nem na cadeia de pós
+- [x] T080 [US3] Caso `sanitize`: função `material` devolvendo NaN/∞/negativos — nenhum NaN no alvo HDR nem na cadeia de pós
 
 **Checkpoint**: US3 verificável sozinha.
 
