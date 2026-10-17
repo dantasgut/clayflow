@@ -156,7 +156,8 @@ export class WaterSurface extends Entity<WaterSurfaceData> implements Resource {
                 role: 'storage-rw',
                 allocation: 'onDemand',
                 schema: PhotonSchema,
-                count: 3 * size * size,
+                // A soma do quadro (rgb), o histórico do acúmulo temporal do mapa (rgb) e as matrizes da luz anterior e atual.
+                count: 6 * size * size + 32,
                 upload: 'never',
             },
         ];

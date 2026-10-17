@@ -9,9 +9,11 @@ import {
     GI_IRRADIANCE_TEXELS,
     GI_MAX_CASCADES,
     GI_MAX_PROBES,
+    GI_PHOTON_BUFFER_WORDS,
     GI_PROBE_TEXTURE_SIZE,
     GI_SCREEN_TILE_MIN,
     GI_VISIBILITY_TEXELS,
+    GiWordSchema,
     GlobalIlluminationSchema,
     ProbeStateSchema,
 } from './schemas';
@@ -304,6 +306,14 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             screen('screenProbe', 'rgba32float'),
             screen('screenNormal', 'rgba16float'),
             screen('screenIrradiance', 'rgba16float'),
+            // Cáusticas por fótons (US5): o hash em mundo (cabeçalho e baldes), escrito e lido só na GPU.
+            {
+                id: 'caustics',
+                role: 'storage-rw',
+                schema: GiWordSchema,
+                count: GI_PHOTON_BUFFER_WORDS,
+                upload: 'never',
+            },
             {
                 id: 'sampler',
                 role: 'sampler',

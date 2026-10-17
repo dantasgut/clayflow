@@ -255,6 +255,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
             clear: kernel('caustic_clear', [
                 [R.causticParams, this.params],
                 [R.photons, photons],
+                [R.lightMatrix, lightMatrix],
             ]),
             splat: kernel('caustic_splat', [
                 [shadowMatricesResource, matrices],

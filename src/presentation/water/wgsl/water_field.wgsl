@@ -35,7 +35,10 @@ fn water_field_camera(
     let o = rt * (ov - cam.view[3].xyz);
     let d = rt * dv;
     let t_scene = water_scene_linear(pixel, proj) / max(-dv.z, 1e-6);
-    let span = field_clip(o, d, 0.0, t_scene);
+    // Do plano próximo (como a geometria: um borrifo colado na câmera é cortado, não enche a tela de água).
+    var near = 0.0;
+    if (abs(proj[2].w) > 0.5 && abs(proj[2].z) > 1e-12) { near = proj[3].z / proj[2].z; }
+    let span = field_clip(o, d, max(near, 0.0) / max(-dv.z, 1e-6), t_scene);
     var hit = FieldHit(span.y, o, -d, 0u, false);
     if (inside && span.x < span.y) { hit = field_march(o, d, span.x, span.y, false, true); }
     let wet = hit.hit && hit.material > 0u;
@@ -109,5 +112,29 @@ fn water_field_fit() {
             hi = max(hi, q);
         }
     }
-    light_matrix.viewProj = water_light_fit_box(lo, hi, basis);
+    // Enquadramento estável: a caixa arredondada para cima em passos de 10 cm e o centro alinhado aos texels — a matriz
+    // muda só quando a água sai do quadro atual (os texels das cáusticas não deslizam a cada quadro).
+    let step = 0.1;
+    let half = ceil(0.5 * max(hi.x - lo.x, hi.y - lo.y) / step) * step;
+    let texel = 2.0 * (half * 1.25 + 0.05) / max(water_view.viewport.x, 1.0);
+    let c = round(0.5 * (lo.xy + hi.xy) / (4.0 * texel)) * (4.0 * texel);
+    let zlo = floor(lo.z / step) * step;
+    let zhi = ceil(hi.z / step) * step;
+    // Histerese: com a mesma direção de luz, a matriz anterior fica enquanto a água couber nela e não tiver encolhido
+    // para menos de 60 % (cada troca desloca os texels das cáusticas e o acúmulo delas recomeça).
+    let prev = light_matrix.viewProj;
+    let p0 = vec3f(prev[0].x, prev[1].x, prev[2].x);
+    let p2 = vec3f(prev[0].z, prev[1].z, prev[2].z);
+    if (dot(p0, p0) > 0.0 && dot(p2, p2) > 0.0) {
+        let prev_half = 1.0 / length(p0);
+        let prev_dz = 1.0 / length(p2);
+        let prev_c = -vec2f(prev[3].x, prev[3].y) * prev_half;
+        let prev_zlo = -prev[3].z * prev_dz;
+        let same_light = dot(normalize(p0), basis[0]) > 0.99999 && dot(normalize(p2), basis[2]) > 0.99999;
+        let fits = all(abs(0.5 * (lo.xy + hi.xy) - prev_c) + vec2f(0.5 * max(hi.x - lo.x, hi.y - lo.y) * 1.25 + 0.05) <= vec2f(prev_half))
+            && lo.z >= prev_zlo && hi.z <= prev_zlo + prev_dz;
+        let new_half = half * 1.25 + 0.05;
+        if (same_light && fits && new_half >= 0.6 * prev_half) { return; }
+    }
+    light_matrix.viewProj = water_light_fit_box(vec3f(c - vec2f(half), zlo), vec3f(c + vec2f(half), zhi), basis);
 }

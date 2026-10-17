@@ -46,6 +46,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'screenProbe',
             'screenNormal',
             'screenIrradiance',
+            'caustics',
         ] as const
     ).map(
         (id) =>

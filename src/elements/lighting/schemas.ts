@@ -18,6 +18,12 @@ export const GI_VISIBILITY_TEXELS = 16;
  * tamanho; ladrilhos maiores usam o canto delas.
  */
 export const GI_SCREEN_TILE_MIN = 4;
+/** Baldes do hash das cáusticas por fótons (US5): 2¹⁸ células, 8 palavras cada, mais o cabeçalho. */
+export const GI_PHOTON_SLOTS = 1 << 18;
+/** Palavras do buffer das cáusticas. */
+export const GI_PHOTON_BUFFER_WORDS = 8 + GI_PHOTON_SLOTS * 8;
+/** Palavra de 32 bits (o tamanho do descritor do hash das cáusticas). */
+export const GiWordSchema = new StructSchema('GiWord', { value: FieldType.u32 });
 
 /**
  * Parâmetros da iluminação global (uniform, spec 033, R2/R5/R6): a grade (sondas por eixo, cascatas), o canto de cada

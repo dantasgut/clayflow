@@ -32,6 +32,7 @@ import {
     GI_MAX_PROBES,
     GI_SCREEN_TILE_MIN,
     GI_VISIBILITY_TEXELS,
+    GI_PHOTON_SLOTS,
 } from './schemas';
 import {
     giHitMaterialPoint,
@@ -43,6 +44,8 @@ import {
     giScreenPlace,
     giScreenResolve,
     giScreenTrace,
+    giPhotonResolve,
+    giPhotonTrace,
 } from './shaders';
 
 /** Slots do estágio das sondas. */
@@ -86,6 +89,7 @@ const SCREEN_PLACE = compute('gi_screen_place', giScreenPlace, 'gi_screen_place_
 const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
 const SCREEN_FINISH = compute('gi_screen_finish', giScreenResolve, 'gi_screen_finish_main');
 const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
+const PHOTON_RESOLVE = compute('gi_photon_resolve', giPhotonResolve, 'gi_photon_resolve_main');
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -97,15 +101,17 @@ const FIXED = [
     SCREEN_RESOLVE,
     SCREEN_FINISH,
     SCREEN_FILTER,
+    PHOTON_RESOLVE,
 ];
 /** vec4f do começo do histórico da tela: a vista-projeção e a câmera anteriores (`GI_SCREEN_HISTORY_HEADER`). */
 const SCREEN_HISTORY_HEADER = 5;
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
 /** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela) de uma revisão. */
-const traceIds = (revision: number): readonly [string, string] => [
+const traceIds = (revision: number): readonly [string, string, string] => [
     `gi_trace:${revision}`,
     `gi_screen_trace:${revision}`,
+    `gi_photon_trace:${revision}`,
 ];
 
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
@@ -228,6 +234,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
     private announcedRevision = -1;
     private frame = 0;
+    /** Fótons do quadro (0 sem cáusticas). */
+    private photons = 0;
     private active = false;
     /** Coleta final na tela no quadro (ligada, com câmera e com o canvas). */
     private screenActive = false;
@@ -294,6 +302,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 7, tiles, W);
             run(pass, 9, tiles, W);
             run(pass, 8, tiles > 0 ? 1 : 0, 1);
+        });
+        // Cáusticas por fótons (US5): os fótons do quadro e o acúmulo no hash.
+        frame.compute('ProbeFlow.photons', (pass) => {
+            run(pass, -3, Math.max(this.photons, 1), W);
+            run(pass, 10, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
         });
         this.frame++;
     }
@@ -469,11 +482,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             fns.length === 0
                 ? shader
                 : bindPoints(shader, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]]));
-        const [probeId, screenId] = traceIds(this.materialRevision);
+        const [probeId, screenId, photonId] = traceIds(this.materialRevision);
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);
         c.prepare(compute(probeId, compose(giProbeTrace), 'gi_probe_trace_main'));
         c.prepare(compute(screenId, compose(giScreenTrace), 'gi_screen_trace_main'));
+        c.prepare(compute(photonId, compose(giPhotonTrace), 'gi_photon_trace_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
         else this.nextTraceRevision = this.materialRevision;
     }
@@ -504,6 +518,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             ]);
         }
         const coarsest = d.probeSpacing * 2 ** (d.cascades - 1);
+        this.photons = d.caustics ? d.photons : 0;
         const rotation = frameRotation(this.frame);
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         d.params = [
@@ -524,8 +539,9 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,
-                extra: [1, coarsest * 0.25, d.photons, time],
-                counts: [this.resources.poolCount(Light.schema.name), 0, 0, 0],
+                // Cáusticas: a célula do hash (1/16 do espaçamento das sondas), os fótons do quadro e o tempo.
+                extra: [1, d.probeSpacing / 16, this.photons, time],
+                counts: [this.resources.poolCount(Light.schema.name), GI_PHOTON_SLOTS, 0, 0],
                 screen: [sizes.tilesX, sizes.tilesY, sizes.screenRays, cameraSlot],
                 screen1: [
                     Math.round(1 / d.screenFraction),

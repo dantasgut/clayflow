@@ -25,6 +25,11 @@ import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
 import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
+import giPhotonCommonSource from '../gpu/wgsl/gi/gi_photon_common.wgsl?raw';
+import giPhotonSource from '../gpu/wgsl/gi/gi_photon.wgsl?raw';
+import giPhotonTraceSource from '../gpu/wgsl/gi/gi_photon_trace.wgsl?raw';
+import giPhotonResolveSource from '../gpu/wgsl/gi/gi_photon_resolve.wgsl?raw';
+import { rayVolumeHitReady } from '../raytrace/points';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
@@ -121,6 +126,21 @@ export const giResources = Object.freeze({
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
     screenWorkRead: priv('gi_screen_work', 'read', { wgsl: 'vec4f', array: true }),
     screenHistory: priv('gi_screen_history', 'read_write', { wgsl: 'vec4f', array: true }),
+    // Cáusticas por fótons (US5): o hash em mundo — leitura no desenho, atômicos nos fótons e no acúmulo.
+    caustics: wgslResource({
+        name: 'gi_caustics',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'GlobalIllumination.caustics' },
+    }),
+    causticsWrite: wgslResource({
+        name: 'gi_caustics_atomic',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'GlobalIllumination.caustics' },
+    }),
 });
 
 const R = giResources;
@@ -342,4 +362,43 @@ export const giScreenSample = wgslModule({
     name: 'gi_screen_sample',
     source: giScreenSampleSource,
     requires: [R.params, camerasResource, R.screenProbe, R.screenNormal, R.screenIrradiance],
+});
+
+/** Chave, balde e endereços do hash das cáusticas por fótons (US5). */
+const giPhotonCommon = wgslModule({
+    name: 'gi_photon_common',
+    source: giPhotonCommonSource,
+    requires: [R.params],
+});
+
+/** Irradiância das cáusticas num ponto (o desenho). */
+export const giPhoton = wgslModule({
+    name: 'gi_photon',
+    source: giPhotonSource,
+    requires: [R.params, giPhotonCommon, R.caustics],
+});
+
+/** Fótons das fontes pelos caminhos especulares até a primeira difusa (com a composição das funções `material`). */
+export const giPhotonTrace = wgslModule({
+    name: 'gi_photon_trace',
+    source: giPhotonTraceSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        giCommon,
+        R.params,
+        giPhotonCommon,
+        R.causticsWrite,
+        rayScene,
+        giHit,
+        giDirect,
+        rayVolumeHitReady,
+    ],
+});
+
+/** Acúmulo das cáusticas no hash. */
+export const giPhotonResolve = wgslModule({
+    name: 'gi_photon_resolve',
+    source: giPhotonResolveSource,
+    requires: [WORKGROUP_SIZE.module, R.params, giPhotonCommon, R.causticsWrite],
 });

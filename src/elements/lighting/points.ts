@@ -3,7 +3,7 @@ import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { lightTransmissionReady, sceneLightingPoint } from '../scene/points/lighting';
-import { giParamsResource, giSample, giScreenSample } from './shaders';
+import { giParamsResource, giPhoton, giSample, giScreenSample } from './shaders';
 
 /**
  * A luz indireta das sondas no ponto (spec 033, R7): a irradiância na normal dos lobos — a das sondas de tela onde
@@ -12,7 +12,7 @@ import { giParamsResource, giSample, giScreenSample } from './shaders';
  * radiância especular na direção dominante da base e do verniz pelas sondas do mundo só nos lobos brilhantes (rugosidade
  * abaixo de `GI_GLOSSY`): nos ásperos o lóbulo é largo e a irradiância o aproxima (\`closure_indirect\` já mistura as
  * duas pela rugosidade) — o custo por fragmento fica o da leitura das sondas de tela. Pelo meio da luz ambiente
- * (\`light_transmission(NONE, p)\`, a água). Desligada, nada.
+ * (\`light_transmission(NONE, p)\`, a água). As cáusticas por fótons (US5) somam na irradiância. Desligada, nada.
  */
 const giLighting = wgslModule({
     name: 'gi_scene_lighting',
@@ -23,6 +23,7 @@ const giLighting = wgslModule({
         giParamsResource,
         giSample,
         giScreenSample,
+        giPhoton,
         lightTransmissionReady,
     ],
     source: `/** Rugosidade abaixo da qual a especular indireta vem da radiância das sondas do mundo. */
@@ -38,7 +39,8 @@ fn gi_lighting_irradiance(p: vec3f, nl: vec3f, v: vec3f) -> vec3f {
 fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let nb = closure_lobe_normal(c.normal, n, v);
-    let e = gi_lighting_irradiance(p, nb, v);
+    // A irradiância das sondas mais a das cáusticas por fótons (a luz focada por vidro e metal).
+    let e = gi_lighting_irradiance(p, nb, v) + gi_caustic_irradiance(p) / GI_PI;
     var back = e;
     if (c.translucent_weight > 0.0) { back = gi_lighting_irradiance(p, -nb, v); }
     var spec = e;

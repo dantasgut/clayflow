@@ -11,6 +11,8 @@
 // Unidade do ponto fixo: energia 1 = 4096.
 const CAUSTIC_ONE: f32 = 4096.0;
 const CAUSTIC_ITERATIONS: i32 = 6;
+// Peso do histórico no acúmulo temporal do mapa.
+const CAUSTIC_HISTORY: f32 = 0.7;
 
 fn caustic_texel_count() -> u32 {
     return caustic_params.width * caustic_params.height;
@@ -19,8 +21,27 @@ fn caustic_texel_count() -> u32 {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn caustic_clear(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (i == 0u) {
+        // A matriz da vista da luz do quadro anterior e a deste (depois dos acumuladores e do histórico): a resolução
+        // recomeça o acúmulo quando o enquadramento muda.
+        let base = 6u * caustic_texel_count();
+        let m = water_light_matrix.viewProj;
+        for (var k = 0u; k < 16u; k++) {
+            atomicStore(&photons[base + k], atomicLoad(&photons[base + 16u + k]));
+            atomicStore(&photons[base + 16u + k], bitcast<u32>(m[k / 4u][k % 4u]));
+        }
+    }
     if (i >= 3u * caustic_texel_count()) { return; }
     atomicStore(&photons[i], 0u);
+}
+
+/** O enquadramento da luz mudou neste quadro? */
+fn caustic_refit() -> bool {
+    let base = 6u * caustic_texel_count();
+    for (var k = 0u; k < 16u; k++) {
+        if (photon_sums[base + k] != photon_sums[base + 16u + k]) { return true; }
+    }
+    return false;
 }
 
 // Ponto do mundo para coordenadas métricas da vista da luz da água (NDC / escala de cada eixo).
@@ -158,5 +179,19 @@ fn caustic_resolve(@builtin(global_invocation_id) gid: vec3u) {
             sum = sum + caustic_sum(t + vec2i(dx, dy)) * w;
         }
     }
-    textureStore(caustic_out, t, vec4f(sum / 16.0, 1.0));
+    // Acúmulo temporal adaptativo (no enquadramento da luz estável): o tremor das partículas de
+    // um quadro para outro, que a refração amplifica nas cáusticas, não cintila. O histórico fica na segunda metade dos
+    // acumuladores (a limpeza só zera a primeira); sem histórico (0), o valor do quadro.
+    let n = caustic_texel_count();
+    let h = 3u * n + 3u * u32(t.y * dims.x + t.x);
+    let fresh = sum / 16.0;
+    let old = vec3f(bitcast<f32>(photon_sums[h]), bitcast<f32>(photon_sums[h + 1u]), bitcast<f32>(photon_sums[h + 2u]));
+    // Peso do histórico alto só onde a mudança é pequena (o tremor); onde a cáustica se move de verdade, o quadro.
+    let change = length(fresh - old) / (length(fresh) + length(old) + 1e-4);
+    let weight = CAUSTIC_HISTORY * (1.0 - smoothstep(0.03, 0.2, change));
+    let blended = select(mix(fresh, old, weight), fresh, all(old == vec3f(0.0)) || caustic_refit());
+    photon_sums[h] = bitcast<u32>(blended.r);
+    photon_sums[h + 1u] = bitcast<u32>(blended.g);
+    photon_sums[h + 2u] = bitcast<u32>(blended.b);
+    textureStore(caustic_out, t, vec4f(blended, 1.0));
 }
