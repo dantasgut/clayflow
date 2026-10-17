@@ -205,7 +205,10 @@ normal da superfície, e a ausência de padrões da escala das partículas.
    massa visível se conserva (o volume do campo dentro de ±5 % do volume das partículas).
 5. **Given** a resolução da tela dobrada, **When** desenhada, **Then** a superfície fica igualmente lisa (a nitidez
    não depende da resolução do campo além do documentado; sem pixelização ampliada).
-6. **Given** a superfície por campo de distância, **When** a luz rebatida, os reflexos, a refração e as cáusticas a
+6. **Given** o fundo do tanque sob a água iluminado pelo sol, **When** desenhado, **Then** a sombra e a borda das
+   cáusticas que a água projeta no fundo são contínuas (sem o serrilhado em semicírculos da cobertura da água vista pela
+   luz, que o bench mostra hoje): nenhuma ondulação na escala das partículas acima do limiar documentado.
+7. **Given** a superfície por campo de distância, **When** a luz rebatida, os reflexos, a refração e as cáusticas a
    consultam, **Then** é a mesma superfície vista pela câmera (os raios a atingem com erro ≤ meio espaçamento de
    partícula).
 
@@ -298,7 +301,7 @@ contra a referência de traçado de caminhos com meio participante na CPU.
 - **FR-016**: Os fluidos de partículas DEVEM ter uma superfície por campo de distância com sinal construída na GPU a
   cada quadro a partir das partículas (núcleo de suavização documentado, sem fundir gotas separadas), desenhada por
   marcha de raio com reconstrução contínua (interpolação de ordem alta), independente da resolução da tela, substituindo
-  a reconstrução na tela da 017 para a câmera, a luz e as cáusticas.
+  a reconstrução na tela da 017 para a câmera, a luz (sombra e cobertura da água no fundo) e as cáusticas.
 - **FR-017**: A estrutura de raios DEVE ser híbrida: triângulos e esferas pela BVH e volumes de campo (fluidos e meios)
   por marcha no campo, pela mesma consulta de raio.
 - **FR-018**: DEVE existir o meio participante por volume (densidade constante, por campo ou por função/nó; albedo de
@@ -355,8 +358,8 @@ contra a referência de traçado de caminhos com meio participante na CPU.
 - **SC-011**: Trajetórias físicas idênticas bit a bit; smokes no fonte e com `--dist`; `npm run ci` verde.
 - **SC-012**: Vídeos (água por campo de distância de perto e de longe, névoa com feixes de sol, Cornell box, cômodo com o
   sol ao longo do dia, geometria viva, cáusticas) enviados ao usuário.
-- **SC-013**: Água por campo de distância: sem ondulação na escala das partículas na silhueta e na normal (abaixo dos
-  limiares documentados), realce de borda contínuo, volume a ±5 % das partículas, igualmente lisa com a resolução
+- **SC-013**: Água por campo de distância: sem ondulação na escala das partículas na silhueta, na normal e na sombra e
+  nas cáusticas projetadas no fundo (abaixo dos limiares documentados), realce de borda contínuo, volume a ±5 % das partículas, igualmente lisa com a resolução
   dobrada; o tanque do bench avaliado de novo lado a lado com a versão da 017.
 - **SC-014**: Névoa: Beer-Lambert a ≤ 3 %; feixe de espalhamento simples a ≤ 10 % da referência da CPU; sem degraus entre
   pixels vizinhos acima do limiar; variância temporal abaixo do limiar com a câmera andando.

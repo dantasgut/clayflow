@@ -161,8 +161,9 @@ de referência (Apple Metal 3); a reconstrução da TLAS e os refits entram na c
 
 **Achado (bench, fotos do usuário)**: a água do `particles/64k-water` mostra a borda recortada em semicírculos (as
 esferas das partículas), uma textura em favo de mel na superfície (a reconstrução na tela das esferas mais as
-ondulações) e uma linha de brilho serrilhada na borda da frente — todos da superfície reconstruída na tela (017), não do
-material da 011.
+ondulações) uma linha de brilho serrilhada na borda da frente e a sombra serrilhada no fundo (a cobertura da água vista pela luz, em
+semicírculos) — todos da superfície reconstruída a partir das esferas das partículas (017, na tela e na vista da luz),
+não do material da 011.
 
 **Decisão**: a superfície dos fluidos de partículas passa a ser um **campo no espaço**, construído na GPU a cada quadro:
 
