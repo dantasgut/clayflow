@@ -34,7 +34,7 @@ export const GlobalIlluminationSchema = new StructSchema(
         cascade3: FieldType.vec4f,
         rays: FieldType.vec4u,
         tuning: FieldType.vec4f,
-        /** (rebatimentos, ligado, histerese de resposta × 1000, cáusticas). */
+        /** (rebatimentos, ligado, 0, cáusticas). */
         bounces: FieldType.vec4u,
         rotation0: FieldType.vec4f,
         rotation1: FieldType.vec4f,
@@ -61,4 +61,6 @@ export const GlobalIlluminationSchema = new StructSchema(
 export const ProbeStateSchema = new StructSchema('ProbeState', {
     offset: FieldType.vec4f,
     coord: FieldType.vec4i,
+    /** Estado da histerese adaptativa (`gi_response`): média rápida e lenta da luminância, ruído e quadros. */
+    response: FieldType.vec4f,
 });

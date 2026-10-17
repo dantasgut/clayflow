@@ -1,9 +1,11 @@
 // Raios das sondas (spec 033, R2): por sonda atualizada no quadro e raio, o acerto pela estrutura de raios e a
 // radiância que volta à sonda em cada rebatimento k (1..B): a emissão e a luz direta no ponto atingido (as luzes com
 // raio de sombra; com muitas luzes, uma escolhida entre candidatas pelo peso) mais, de k ≥ 2, a irradiância do
-// rebatimento k − 1 lida das sondas no ponto (`gi_generation_irradiance`). Raio que escapa: o ambiente da cena
+// rebatimento k − 1 no ponto: a das sondas de tela do quadro anterior quando o ponto é uma superfície visível
+// (`gi_screen_history_taps`, exata de perto), a das sondas do mundo (`gi_generation_irradiance`) quando não. Raio que escapa: o ambiente da cena
 // (`scene_environment`, o céu). Face de trás: distância negativa (a sonda está dentro da geometria) e sem luz.
-// Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, gi_hit, gi_shade, scene_environment, gi_rays.
+// Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, gi_hit, gi_shade, gi_screen_reproject, closure_eval,
+// scene_environment, gi_rays.
 
 fn gi_trace_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -46,7 +48,18 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let n = hit.normal;
     let direct = gi_shade_direct(c, p, n, v, i * 9781u + gi.rays.y * 6271u);
     gi_rays[out_base] = vec4f(direct, hit.t);
+    if (bounces < 2u) { return; }
+    // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
+    let taps = gi_screen_history_taps(p, n);
+    let screen = gi_screen_history_found(taps) && c.translucent_weight <= 0.0;
     for (var b = 1u; b < bounces; b++) {
-        gi_rays[out_base + b] = vec4f(direct + gi_shade_indirect(c, p, n, v, b - 1u), hit.t);
+        var indirect = vec3f(0.0);
+        if (screen) {
+            let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + b - 1u).rgb / GI_PI;
+            indirect = closure_indirect(c, n, v, IndirectLight(e, e, e, e, e));
+        } else {
+            indirect = gi_shade_indirect(c, p, n, v, b - 1u);
+        }
+        gi_rays[out_base + b] = vec4f(direct + indirect, hit.t);
     }
 }

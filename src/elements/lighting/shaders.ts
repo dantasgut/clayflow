@@ -18,6 +18,7 @@ import giProbeBlendSource from '../gpu/wgsl/gi/gi_probe_blend.wgsl?raw';
 import giProbeClassifySource from '../gpu/wgsl/gi/gi_probe_classify.wgsl?raw';
 import giProbeAtlasSource from '../gpu/wgsl/gi/gi_probe_atlas.wgsl?raw';
 import giShadeSource from '../gpu/wgsl/gi/gi_shade.wgsl?raw';
+import giResponseSource from '../gpu/wgsl/gi/gi_response.wgsl?raw';
 import giScreenCommonSource from '../gpu/wgsl/gi/gi_screen_common.wgsl?raw';
 import giScreenPlaceSource from '../gpu/wgsl/gi/gi_screen_place.wgsl?raw';
 import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
@@ -207,6 +208,20 @@ const giShade = wgslModule({
     requires: [giDirect, giGeneration, closure, closureEval],
 });
 
+/** Sondas de tela: ladrilhos, buffer de trabalho e o raio da câmera ativa. */
+const giScreenCommon = wgslModule({
+    name: 'gi_screen_common',
+    source: giScreenCommonSource,
+    requires: [R.params, camerasResource],
+});
+
+/** Histórico das sondas de tela: o layout e a busca da sonda do quadro anterior num ponto. */
+const giScreenReproject = wgslModule({
+    name: 'gi_screen_reproject',
+    source: giScreenReprojectSource,
+    requires: [NONE.module, R.params, giScreenCommon, R.screenHistory],
+});
+
 /** Raios das sondas atualizadas no quadro. */
 export const giProbeTrace = wgslModule({
     name: 'gi_probe_trace',
@@ -219,10 +234,15 @@ export const giProbeTrace = wgslModule({
         rayScene,
         giHit,
         giShade,
+        giScreenReproject,
+        closureEval,
         sceneEnvironmentReady,
         R.rays,
     ],
 });
+
+/** Histerese adaptativa das sondas (a regra de `reference/response.ts`). */
+const giResponse = wgslModule({ name: 'gi_response', source: giResponseSource });
 
 /** Acúmulo dos raios nos mapas das sondas. */
 export const giProbeBlend = wgslModule({
@@ -231,8 +251,9 @@ export const giProbeBlend = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         giCommon,
+        giResponse,
         R.params,
-        R.probes,
+        R.probesWrite,
         R.raysRead,
         R.generations,
         R.radianceMap,
@@ -264,20 +285,6 @@ export const giProbeAtlas = wgslModule({
         R.visibilityOut,
         R.probeOut,
     ],
-});
-
-/** Sondas de tela: ladrilhos, buffer de trabalho e o raio da câmera ativa. */
-const giScreenCommon = wgslModule({
-    name: 'gi_screen_common',
-    source: giScreenCommonSource,
-    requires: [R.params, camerasResource],
-});
-
-/** Histórico das sondas de tela: o layout e a busca da sonda do quadro anterior num ponto. */
-const giScreenReproject = wgslModule({
-    name: 'gi_screen_reproject',
-    source: giScreenReprojectSource,
-    requires: [NONE.module, R.params, giScreenCommon, R.screenHistory],
 });
 
 /** Colocação das sondas de tela pelo raio da câmera. */
@@ -318,6 +325,7 @@ export const giScreenResolve = wgslModule({
         R.params,
         giScreenCommon,
         giScreenReproject,
+        giResponse,
         camerasResource,
         R.screenWorkRead,
         R.screenProbeOut,

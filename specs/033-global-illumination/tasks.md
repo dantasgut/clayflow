@@ -152,10 +152,23 @@ erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 **Independent Test**: variância temporal parada e com câmera andando; luz dentro de uma caixa fechada sob sol forte.
 
-- [ ] T036 [P] [US4] Teste da histerese adaptativa em `src/elements/lighting/ProbeFlow.test.ts` (limiar de mudança reduz a histerese; volta ao padrão quando estabiliza)
-- [ ] T037 [US4] Histerese adaptativa por sonda em `gi_probe_blend.wgsl` e estado de mudança no buffer das sondas (`ProbeState`)
-- [ ] T038 [US4] Espessura mínima de parede e viés de normal/visão da amostragem em `gi_sample.wgsl`, documentados no Resource
-- [ ] T039 [US4] Smoke `globalIllumination.ts` parte b: convergência em ≤ 2 s com média a ≤ 2 % do convergido (SC-005); variância temporal com câmera andando abaixo do limiar documentado; caixa fechada de paredes finas com luz interna ≤ 1 % da externa (SC-004); luz que acende responde em ≤ 0,25 s sem rastro (SC-006)
+- [x] T036 [P] [US4] Teste da histerese adaptativa em `src/elements/lighting/ProbeFlow.test.ts` (limiar de mudança reduz a histerese; volta ao padrão quando estabiliza)
+- [x] T037 [US4] Histerese adaptativa por sonda em `gi_probe_blend.wgsl` e estado de mudança no buffer das sondas (`ProbeState`)
+- [x] T038 [US4] Espessura mínima de parede e viés de normal/visão da amostragem em `gi_sample.wgsl`, documentados no Resource
+- [x] T039 [US4] Smoke `globalIllumination.ts` parte b: convergência em ≤ 2 s com média a ≤ 2 % do convergido (SC-005); variância temporal com câmera andando abaixo do limiar documentado; caixa fechada de paredes finas com luz interna ≤ 1 % da externa (SC-004); luz que acende responde em ≤ 0,25 s sem rastro (SC-006)
+
+**Notas da implementação (US4)**:
+
+- Histerese adaptativa (`gi_response`, referência `reference/response.ts` + teste — o teste ficou ao lado da referência,
+  não em `ProbeFlow.test.ts`): duas médias da luminância por sonda (rápida e lenta) e o ruído relativo à rápida; a
+  diferença acima de 3 desvios + 5 % é mudança — histerese de resposta 0,3 e a contagem recomeça. Vale para as sondas do
+  mundo (estado no `ProbeState`, a histerese da sonda inteira, no lugar do limiar por texel que disparava com o ruído) e
+  para as de tela (estado no histórico).
+- Sondas de tela: histórico interpolado nas 2 × 2 sondas anteriores em volta da projeção (o ponto exato com a câmera
+  andando) e filtro espacial 3 × 3 para o desenho com força pelo ruído estimado (a convergida fica como está).
+- Medido: em 2 s a 0,53 % do convergido, variação entre quadros parados 0,48 %; cintilação da luz indireta com a câmera
+  andando ≤ 1,2 % (a segunda diferença temporal, documentada: ≤ 2 %); caixa fechada de paredes de 5 cm sob sol forte e
+  céu: dentro a 0,079 % da luz de fora; o sol que acende: 98 % em 0,25 s, 99,7 % em 1 s.
 
 ---
 

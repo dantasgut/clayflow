@@ -19,11 +19,12 @@
 // As regiões medem só os pixels longe das bordas entre objetos e das arestas entre faces.
 // Para rodar: `npm run smoke -- globalIllumination [--query case=cornell]`. Resultado:
 // `GLOBALILLUMINATION SMOKE PASSED` ou `FAIL: …`.
-import { GlobalIllumination, type Application } from 'clayflow';
+import { GlobalIllumination, Transform, type Application } from 'clayflow';
 import type { PtImage } from '../elements/lighting/reference/pathTracer';
 import { settle } from './support/extensionScenes';
 import {
     buildGiScene,
+    closedBox,
     cornellBox,
     darkCornell,
     emissiveCornell,
@@ -33,6 +34,7 @@ import {
     whiteFurnace,
     windowRoom,
     skyFloor,
+    type BuiltGiScene,
     type GiScene,
 } from './support/giScenes';
 import { hdrAt, readHdrTexture, type HdrImage } from './support/imageMeasures';
@@ -75,21 +77,20 @@ async function giReady(app: Application, ready: { revision: number; at: number }
     }
 }
 
-/** Avança `frames` quadros de 1/60 s (as sondas acumulam) e lê o alvo HDR. */
-async function converge(app: Application, frames: number): Promise<HdrImage> {
-    // Tempo real para os pipelines do desenho compilarem (as funções `material`), depois os quadros.
-    await settle(app, 2500);
-    for (let i = 0; i < frames; i++) {
-        app.step(1 / 60);
-        if (i % 20 === 0) await new Promise((r) => setTimeout(r, 0));
-    }
-    const texture = app.resources.textureOf(app.defaults.targets, 'color');
-    if (texture === undefined) throw new Error('alvo HDR não alocado');
-    return readHdrTexture(app, texture);
+/** Uma aplicação com a cena montada e a iluminação global: avança quadros e lê o alvo HDR. */
+interface EngineSession {
+    readonly app: Application;
+    readonly gi: GlobalIllumination;
+    readonly built: BuiltGiScene;
+    /** Avança `frames` quadros de 1/60 s (cedendo ao navegador a cada 20). */
+    step(frames: number): Promise<void>;
+    /** Lê o alvo HDR do último quadro. */
+    read(): Promise<HdrImage>;
+    close(): void;
 }
 
-/** Desenha a cena no motor, com ou sem a iluminação global, e lê o alvo HDR convergido. */
-async function renderEngine(scene: GiScene, size: Size, withGi: boolean): Promise<HdrImage> {
+/** Abre a cena no motor com ou sem a iluminação global; com ela, espera os kernels prontos. */
+async function openEngine(scene: GiScene, size: Size, withGi: boolean): Promise<EngineSession> {
     const { app, canvas } = await giApp(size.width, size.height, engineErrors);
     app.events.on('deviceLost', (e) => engineErrors.push(`deviceLost: ${JSON.stringify(e)}`));
     const ready = { revision: -1, at: 0 };
@@ -97,7 +98,7 @@ async function renderEngine(scene: GiScene, size: Size, withGi: boolean): Promis
         ready.revision = e.revision;
         ready.at = performance.now();
     });
-    buildGiScene(app, scene, size.width / size.height);
+    const built = buildGiScene(app, scene, size.width / size.height);
     const gi = new GlobalIllumination({
         quality: 'high',
         bounces: BOUNCES,
@@ -105,13 +106,59 @@ async function renderEngine(scene: GiScene, size: Size, withGi: boolean): Promis
         cascades: 1,
         center: scene.probeCenter,
         enabled: withGi,
+        screenGather: new URLSearchParams(location.search).get('sg') !== '0',
     });
     app.world.insert(gi);
+    // Tempo real para os pipelines do desenho compilarem (as funções `material`).
+    await settle(app, 2500);
     if (withGi) await giReady(app, ready);
-    const img = await converge(app, withGi ? 300 : 4);
-    app.dispose();
-    canvas.remove();
+    return {
+        app,
+        gi,
+        built,
+        async step(frames) {
+            for (let i = 0; i < frames; i++) {
+                app.step(1 / 60);
+                if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
+            }
+        },
+        async read() {
+            const texture = app.resources.textureOf(app.defaults.targets, 'color');
+            if (texture === undefined) throw new Error('alvo HDR não alocado');
+            return readHdrTexture(app, texture);
+        },
+        close() {
+            app.dispose();
+            canvas.remove();
+        },
+    };
+}
+
+/** Desenha a cena no motor, com ou sem a iluminação global, e lê o alvo HDR convergido. */
+async function renderEngine(scene: GiScene, size: Size, withGi: boolean): Promise<HdrImage> {
+    const session = await openEngine(scene, size, withGi);
+    await session.step(withGi ? 300 : 4);
+    const img = await session.read();
+    session.close();
     return img;
+}
+
+/** Luz indireta de uma imagem com a iluminação global contra a imagem só com a luz direta (nunca negativa). */
+function minus(total: HdrImage, direct: HdrImage): HdrImage {
+    return {
+        width: total.width,
+        height: total.height,
+        data: total.data.map((v, k) => (k % 4 === 3 ? 1 : Math.max(0, v - direct.data[k]!))),
+    };
+}
+
+/** Luminância média dos pixels de uma imagem. */
+function meanLum(img: HdrImage): number {
+    let sum = 0;
+    const n = img.width * img.height;
+    for (let i = 0; i < n; i++)
+        sum += lum([img.data[i * 4]!, img.data[i * 4 + 1]!, img.data[i * 4 + 2]!]);
+    return sum / n;
 }
 
 /** A luz indireta do motor: com a iluminação global menos sem ela (nunca negativa), e as duas imagens. */
@@ -121,12 +168,7 @@ async function engineIndirect(
 ): Promise<{ indirect: HdrImage; total: HdrImage; direct: HdrImage }> {
     const total = await renderEngine(scene, size, true);
     const direct = await renderEngine(scene, size, false);
-    const indirect: HdrImage = {
-        width: size.width,
-        height: size.height,
-        data: total.data.map((v, k) => (k % 4 === 3 ? 1 : Math.max(0, v - direct.data[k]!))),
-    };
-    return { indirect, total, direct };
+    return { indirect: minus(total, direct), total, direct };
 }
 
 /** Pixel longe das bordas: os 4 vizinhos são da mesma região e da mesma face. */
@@ -394,6 +436,145 @@ function windowChecks(engine: HdrImage, ref: PtImage): void {
     );
 }
 
+/**
+ * Estabilidade (SC-005): com tudo parado, 2 s depois de a iluminação global ficar pronta a luz indireta média está a
+ * ≤ 2 % da convergida e a variação entre dois quadros seguidos (desvio relativo por pixel) fica abaixo de 1 %.
+ */
+async function stabilityScene(): Promise<void> {
+    const size = { width: 320, height: 240 };
+    const scene = cornellBox();
+    const direct = await renderEngine(scene, size, false);
+    const session = await openEngine(scene, size, true);
+    await session.step(120);
+    const a = minus(await session.read(), direct);
+    await session.step(1);
+    const b = minus(await session.read(), direct);
+    await session.step(480);
+    const c = minus(await session.read(), direct);
+    session.close();
+    const [ma, mc] = [meanLum(a), meanLum(c)];
+    const conv = Math.abs(ma - mc) / mc;
+    let diff = 0;
+    let base = 0;
+    for (let i = 0; i < size.width * size.height; i++) {
+        const la = lum([a.data[i * 4]!, a.data[i * 4 + 1]!, a.data[i * 4 + 2]!]);
+        const lb = lum([b.data[i * 4]!, b.data[i * 4 + 1]!, b.data[i * 4 + 2]!]);
+        diff += Math.abs(la - lb);
+        base += la;
+    }
+    const flicker = diff / Math.max(base, 1e-9);
+    log(
+        `stability: em 2 s a ${(conv * 100).toFixed(2)} % do convergido; variação entre quadros ${(flicker * 100).toFixed(2)} %`,
+    );
+    check(conv <= 0.02, `stability: em 2 s a ${(conv * 100).toFixed(1)} % do convergido`);
+    check(
+        flicker <= 0.01,
+        `stability: variação entre quadros parados ${(flicker * 100).toFixed(2)} %`,
+    );
+}
+
+/**
+ * Câmera andando devagar (US4): a cintilação — a segunda diferença temporal da luz indireta, |x₁ − (x₀ + x₂)/2|, que
+ * ignora a mudança suave do movimento — fica abaixo de 2 % da luz média, em três trechos do caminho.
+ */
+async function movingScene(): Promise<void> {
+    const size = { width: 320, height: 240 };
+    const scene = cornellBox();
+    // Duas aplicações no mesmo caminho de câmera: com a iluminação global e só com a luz direta (a indireta é a diferença).
+    const lit = await openEngine(scene, size, true);
+    const plain = await openEngine(scene, size, false);
+    await lit.step(300);
+    const c = scene.camera;
+    let worst = 0;
+    const flickers: string[] = [];
+    // Um passo de câmera por quadro: 1 cm para a frente e 0,05° de giro (≈ 0,6 m/s e 3°/s).
+    let frame = 0;
+    const advance = async (): Promise<void> => {
+        frame++;
+        const z = c.position[2] - 0.01 * frame;
+        const yaw = (0.05 * frame * Math.PI) / 180;
+        const position = [c.position[0], c.position[1], z] as const;
+        const target = [
+            c.target[0] + Math.sin(yaw) * 4,
+            c.target[1],
+            z - Math.cos(yaw) * 4,
+        ] as const;
+        for (const s of [lit, plain]) {
+            s.built.view.data.position = [...position, 1];
+            s.built.view.data.rotation = Transform.lookRotation(position, target);
+            await s.step(1);
+        }
+    };
+    for (const at of [20, 40, 60]) {
+        while (frame < at) await advance();
+        const xs: HdrImage[] = [];
+        for (let k = 0; k < 3; k++) {
+            await advance();
+            xs.push(minus(await lit.read(), await plain.read()));
+        }
+        let num = 0;
+        let den = 0;
+        for (let i = 0; i < size.width * size.height; i++) {
+            const l = (img: HdrImage): number =>
+                lum([img.data[i * 4]!, img.data[i * 4 + 1]!, img.data[i * 4 + 2]!]);
+            num += Math.abs(l(xs[1]!) - (l(xs[0]!) + l(xs[2]!)) / 2);
+            den += l(xs[1]!);
+        }
+        const f = num / Math.max(den, 1e-9);
+        worst = Math.max(worst, f);
+        flickers.push(`${(f * 100).toFixed(2)} %`);
+    }
+    lit.close();
+    plain.close();
+    log(`moving: cintilação da luz indireta com a câmera andando ${flickers.join(', ')}`);
+    check(worst <= 0.02, `moving: cintilação ${(worst * 100).toFixed(2)} % com a câmera andando`);
+}
+
+/** Vazamento (SC-004): dentro de uma caixa fechada de paredes finas sob sol forte, luz indireta ≤ 1 % da de fora. */
+async function leakScene(): Promise<void> {
+    const size = { width: 320, height: 240 };
+    const inside = (await engineIndirect(closedBox(true), size)).indirect;
+    const outside = (await engineIndirect(closedBox(false), size)).indirect;
+    const [mi, mo] = [meanLum(inside), meanLum(outside)];
+    log(
+        `leak: luz indireta dentro ${mi.toExponential(3)}, fora ${mo.toFixed(2)} (${((mi / mo) * 100).toFixed(3)} %)`,
+    );
+    check(mi <= 0.01 * mo, `leak: dentro a ${((mi / mo) * 100).toFixed(2)} % da de fora`);
+}
+
+/**
+ * Resposta (SC-006): o sol acende de repente na caixa de Cornell — em 0,25 s (15 quadros) a luz indireta média passa de
+ * 95 % da convergida e, 1 s depois, está a ≤ 2 % dela (sem rastro).
+ */
+async function responseScene(): Promise<void> {
+    const size = { width: 320, height: 240 };
+    const scene = cornellBox();
+    const direct = await renderEngine(scene, size, false);
+    const session = await openEngine(scene, size, true);
+    const sun = session.built.sun!;
+    sun.data.intensity = 0;
+    await session.step(240);
+    sun.data.intensity = scene.sun!.illuminance;
+    await session.step(15);
+    const early = meanLum(minus(await session.read(), direct));
+    await session.step(45);
+    const second = meanLum(minus(await session.read(), direct));
+    await session.step(540);
+    const final = meanLum(minus(await session.read(), direct));
+    session.close();
+    log(
+        `response: 0,25 s depois de acender ${((early / final) * 100).toFixed(1)} % do convergido; 1 s depois ${((second / final) * 100).toFixed(1)} %`,
+    );
+    check(
+        early >= 0.95 * final,
+        `response: em 0,25 s só ${((early / final) * 100).toFixed(1)} % do convergido`,
+    );
+    check(
+        Math.abs(second - final) <= 0.02 * final,
+        `response: 1 s depois a ${((Math.abs(second - final) / final) * 100).toFixed(1)} % do convergido`,
+    );
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     cornell: () =>
         compareScene(
@@ -425,6 +606,10 @@ const CASES: Record<string, () => Promise<void>> = {
     window: () =>
         compareScene('window', windowRoom(), { width: 640, height: 480 }, 512, 0.1, windowChecks),
     skyfloor: () => compareScene('skyfloor', skyFloor(), { width: 320, height: 240 }, 256, 0.1),
+    stability: stabilityScene,
+    moving: movingScene,
+    leak: leakScene,
+    response: responseScene,
     dark: darkScene,
     furnace: furnaceScene,
 };

@@ -68,7 +68,13 @@ export interface GlobalIlluminationValues {
     readonly hysteresis?: number;
     /** Cascatas de sondas, em 1–4. Default 3. */
     readonly cascades?: number;
-    /** Espaçamento das sondas da cascata mais fina (m); as seguintes dobram. Default 1. */
+    /**
+     * Espaçamento das sondas do mundo na cascata mais fina (m); as seguintes dobram. Default 1. As sondas do mundo dão a
+     * luz rebatida fora da tela (e os rebatimentos nos pontos fora dela): paredes mais finas que cerca de metade do
+     * espaçamento podem deixar vazar luz ali — o espaçamento da cena fica abaixo do dobro da parede mais fina que separa
+     * luz de escuro. O ponto amostrado sai da superfície pela normal (0,1 do espaçamento) e para a câmera (0,3), contra o
+     * vazamento nas quinas.
+     */
     readonly probeSpacing?: number;
     /** Cáusticas por fótons (spec 033, US5). Default `true`. */
     readonly caustics?: boolean;
@@ -174,6 +180,10 @@ function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
  * o material da entidade (as mesmas funções `material` do desenho), a luz direta com raio de sombra e a irradiância das
  * sondas do rebatimento anterior; os raios que escapam leem o céu. As sondas guardam a irradiância e a visibilidade em
  * mapas octaédricos (a visibilidade de Chebyshev impede o vazamento pelas paredes) com acúmulo temporal no espaço delas.
+ * Sobre elas, a coleta final na tela: sondas de tela nas superfícies visíveis lançam os próprios raios (o primeiro
+ * rebatimento exato de perto; os seguintes pelas sondas de tela do quadro anterior e, fora da tela, pelas do mundo) e são
+ * filtradas pelo ruído estimado. O acúmulo das duas tem histerese adaptativa: parado, converge e fica estável; quando a
+ * luz muda de verdade (uma luz acende, a geometria muda), responde em poucos quadros sem rastro.
  * Fótons das fontes pelos caminhos especulares dão as cáusticas de toda superfície. A luz indireta chega ao desenho pelo
  * ponto `scene_lighting` (`closure_indirect`); com ela na cena, os estágios padrão retiram o hemisfério. Mudar valores
  * vale no quadro seguinte, sem recompilar.

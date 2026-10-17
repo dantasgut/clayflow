@@ -1,10 +1,11 @@
 // Acúmulo dos raios nas sondas (spec 033, R5; DDGI): por texel dos mapas octaédricos das sondas atualizadas, a média
 // dos raios do quadro ponderada pelo cosseno (irradiância de cada rebatimento, E/π), por um lóbulo estreito (radiância
 // especular) ou pela potência 50 do cosseno (visibilidade: distância média e média do quadrado), misturada ao valor
-// anterior pela histerese — 0 na sonda nova ou que mudou de célula (endereçamento circular), menor quando a mudança do
-// texel passa do limiar (resposta rápida a uma luz que acende). Os mapas vivem em buffers (half empacotado); a cópia
+// anterior pela histerese — 0 na sonda nova ou que mudou de célula (endereçamento circular), a adaptativa da sonda
+// (`gi_response`: a de resposta quando a luz muda de verdade, sem disparar com o ruído dos raios). Os mapas vivem em buffers (half empacotado); a cópia
 // para os atlas filtrados é `gi_probe_atlas`.
-// Requer: WORKGROUP_SIZE, gi_common, gi, gi_probes, gi_rays_read, gi_generations, gi_radiance_map, gi_visibility_map.
+// Requer: WORKGROUP_SIZE, gi_common, gi_response, gi, gi_probes (escrita), gi_rays_read, gi_generations, gi_radiance_map,
+// gi_visibility_map.
 
 fn gi_blend_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -25,14 +26,27 @@ fn gi_probe_reset(index: u32) -> bool {
     return s.offset.w == GI_PROBE_NEW || any(s.coord.xyz != gi_probe_cell(index));
 }
 
-/** Histerese do texel: 0 ao recomeçar; a de resposta quando a média nova se afasta muito da antiga. */
-fn gi_hysteresis(reset: bool, old: vec3f, new_value: vec3f) -> f32 {
-    if (reset) { return 0.0; }
-    let lo = max(max(old.r, old.g), old.b);
-    let hi = max(max(new_value.r, new_value.g), new_value.b);
-    let change = abs(hi - lo) / max(max(lo, hi), 1e-4);
-    // Mudança grande (luz acendeu, geometria mudou): histerese de resposta.
-    return select(gi.tuning.x, f32(gi.bounces.z) * 0.001, change > 0.25);
+/**
+ * Histerese da sonda no quadro (a mesma para todos os texels e rebatimentos): 0 ao recomeçar; senão a adaptativa
+ * (`gi_response`) pela luminância média dos raios do último rebatimento — a de resposta quando a luz muda de verdade.
+ * O texel 0 grava o estado da resposta.
+ */
+fn gi_probe_hysteresis(index: u32, slot: u32, t: u32) -> f32 {
+    let rays = gi.rays.x;
+    let bounces = gi.bounces.x;
+    var lum = 0.0;
+    var n = 0.0;
+    for (var k = 0u; k < rays; k++) {
+        let r = gi_rays[(slot * rays + k) * bounces + bounces - 1u];
+        if (r.w < 0.0) { continue; }
+        lum += gi_response_luminance(r.rgb);
+        n += 1.0;
+    }
+    let reset = gi_probe_reset(index);
+    let state = select(gi_probes[index].response, vec4f(0.0), reset);
+    let response = gi_response(state, lum / max(n, 1.0), gi.tuning.x);
+    if (t == 0u) { gi_probes[index].response = response.state; }
+    return response.h;
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -46,7 +60,7 @@ fn gi_blend_irradiance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let dir = gi_texel_dir(vec2u(t % GI_IRRADIANCE_TEXELS, t / GI_IRRADIANCE_TEXELS), GI_IRRADIANCE_TEXELS);
     let rays = gi.rays.x;
     let bounces = gi.bounces.x;
-    let reset = gi_probe_reset(index);
+    let h = gi_probe_hysteresis(index, slot, t);
     let probes = gi_probe_count();
     for (var b = 0u; b < bounces; b++) {
         var sum = vec3f(0.0);
@@ -69,13 +83,12 @@ fn gi_blend_irradiance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
         let at = (b * probes + index) * texels + t;
         let old = gi_unpack_rgb(gi_generations[at]);
         let value = select(old, sum / wsum, wsum > 0.0);
-        let h = gi_hysteresis(reset, old, value);
         gi_generations[at] = gi_pack_rgb(mix(value, old, h));
         if (b + 1u == bounces) {
             let sat = index * texels + t;
             let sold = gi_unpack_rgb(gi_radiance_map[sat]);
             let svalue = select(sold, spec / ssum, ssum > 0.0);
-            gi_radiance_map[sat] = gi_pack_rgb(mix(svalue, sold, gi_hysteresis(reset, sold, svalue)));
+            gi_radiance_map[sat] = gi_pack_rgb(mix(svalue, sold, h));
         }
     }
 }

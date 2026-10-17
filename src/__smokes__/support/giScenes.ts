@@ -222,6 +222,34 @@ export function windowRoom(): GiScene {
     };
 }
 
+/**
+ * Caixa fechada de 2 m com paredes finas (5 cm) sobre um chão aberto, sob o céu físico e o sol forte (vazamento,
+ * SC-004): `inside` põe a câmera dentro (o interior não recebe luz nenhuma), senão fora, vendo o chão iluminado.
+ */
+export function closedBox(inside: boolean): GiScene {
+    const w = 0.05;
+    const white: Vec3 = [0.75, 0.75, 0.75];
+    const box = (id: number, min: Vec3, max: Vec3): Slab => ({ id, min, max, color: white });
+    return {
+        slabs: [
+            { id: 1, min: [-10, -0.2, -10], max: [10, 0, 10], color: [0.4, 0.38, 0.35] },
+            box(2, [-1 - w, 0, -1 - w], [1 + w, w, 1 + w]),
+            box(2, [-1 - w, 2, -1 - w], [1 + w, 2 + w, 1 + w]),
+            box(2, [-1 - w, w, -1 - w], [-1, 2, 1 + w]),
+            box(2, [1, w, -1 - w], [1 + w, 2, 1 + w]),
+            box(2, [-1, w, -1 - w], [1, 2, -1]),
+            box(2, [-1, w, 1], [1, 2, 1 + w]),
+        ],
+        sun: { direction: sunFrom(40, 30), illuminance: 100000 },
+        sky: true,
+        camera: inside
+            ? { position: [0, 1, 0.8], target: [0, 0.9, -1], fovY: (80 * Math.PI) / 180 }
+            : { position: [4, 1.6, 4.5], target: [1.5, 0, 1.5], fovY: (60 * Math.PI) / 180 },
+        probeCenter: [0, 1, 0],
+        regions: new Map([inside ? [2, 'interior'] : [1, 'chão de fora']]),
+    };
+}
+
 const CORNELL_REGIONS: ReadonlyMap<number, string> = new Map([
     [1, 'chão'],
     [2, 'fundo'],
@@ -247,13 +275,19 @@ export function diffuseFunction(emission?: Vec3): MaterialFunction {
     });
 }
 
-/** Monta a cena no motor (placas difusas e emissoras, o sol com sombra, a câmera). Devolve o sol, se houver. */
+/** O que a cena montada no motor devolve: o sol (se houver) e o `Transform` da câmera. */
+export interface BuiltGiScene {
+    readonly sun: DirectionalLight | undefined;
+    readonly view: Transform;
+}
+
+/** Monta a cena no motor (placas difusas e emissoras, o sol com sombra, a câmera). */
 export function buildGiScene(
     app: Application,
     scene: GiScene,
     aspect: number,
     diffuseFn = true,
-): DirectionalLight | undefined {
+): BuiltGiScene {
     for (const s of scene.slabs) {
         const size = [0, 1, 2].map((k) => s.max[k]! - s.min[k]!);
         const center = [0, 1, 2].map((k) => (s.max[k]! + s.min[k]!) / 2);
@@ -276,15 +310,14 @@ export function buildGiScene(
     if (scene.sky === true && sun !== undefined)
         app.world.insert(new Sky({ sun, sunDisk: false, night: [0, 0, 0] }));
     const c = scene.camera;
+    const view = new Transform({
+        position: [...c.position, 1],
+        rotation: Transform.lookRotation(c.position, c.target),
+    });
     app.world.insert(
-        new Camera({ fov: c.fovY, aspect, aspectMode: 'fixed', near: 0.05, far: 50 }).add(
-            new Transform({
-                position: [...c.position, 1],
-                rotation: Transform.lookRotation(c.position, c.target),
-            }),
-        ),
+        new Camera({ fov: c.fovY, aspect, aspectMode: 'fixed', near: 0.05, far: 60 }).add(view),
     );
-    return sun;
+    return { sun, view };
 }
 
 /** A mesma cena para o traçador de caminhos. */

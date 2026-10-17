@@ -2,7 +2,7 @@
 // normal (a sequência R2 deslocada por sonda e por quadro) e, por geração de rebatimento g, a radiância que volta — no
 // acerto, a luz direta com raio de sombra e a emissão (g = 0: o primeiro rebatimento, exato perto da superfície) mais,
 // de g ≥ 1, a luz rebatida pela irradiância da geração g − 1 no ponto atingido: a das sondas de tela do quadro anterior
-// quando o ponto é uma superfície visível (`gi_screen_history_find`: exata de perto também), a das sondas do mundo
+// quando o ponto é uma superfície visível (`gi_screen_history_taps`: exata de perto também), a das sondas do mundo
 // quando não. Raio que escapa: o ambiente da cena em todas as gerações. Face de trás: sem luz. Grava E_g = π · média.
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_screen_common, gi_screen_reproject, ray_scene, gi_hit,
 // gi_shade, gi_direct, closure_eval, scene_environment, gi_screen_work.
@@ -29,9 +29,9 @@ fn gi_screen_ray_dir(i: u32, k: u32, n: vec3f) -> vec3f {
 }
 
 /** A luz rebatida que sai do ponto atingido pela irradiância da geração `k` (sondas de tela ou do mundo). */
-fn gi_screen_bounce(c: Closure, p: vec3f, n: vec3f, v: vec3f, k: u32, found: u32) -> vec3f {
-    if (found == NONE || c.translucent_weight > 0.0) { return gi_shade_indirect(c, p, n, v, k); }
-    let e = gi_screen_history[found + 2u + k].rgb / GI_PI;
+fn gi_screen_bounce(c: Closure, p: vec3f, n: vec3f, v: vec3f, k: u32, taps: GiScreenTaps) -> vec3f {
+    if (!gi_screen_history_found(taps) || c.translucent_weight > 0.0) { return gi_shade_indirect(c, p, n, v, k); }
+    let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + k).rgb / GI_PI;
     return closure_indirect(c, n, v, IndirectLight(e, e, e, e, e));
 }
 
@@ -63,9 +63,9 @@ fn gi_screen_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
             let direct = gi_shade_direct(c, hit.position, hit.normal, v, (i * rays + k) * 7919u + gi.rays.y * 104729u);
             sums[0] += direct;
             if (bounces > 1u) {
-                let found = gi_screen_history_find(hit.position, hit.normal);
+                let taps = gi_screen_history_taps(hit.position, hit.normal);
                 for (var g = 1u; g < bounces; g++) {
-                    sums[g] += direct + gi_screen_bounce(c, hit.position, hit.normal, v, g - 1u, found);
+                    sums[g] += direct + gi_screen_bounce(c, hit.position, hit.normal, v, g - 1u, taps);
                 }
             }
         }

@@ -85,6 +85,7 @@ const ATLAS_PROBES = compute('gi_atlas_probes', giProbeAtlas, 'gi_atlas_probes_m
 const SCREEN_PLACE = compute('gi_screen_place', giScreenPlace, 'gi_screen_place_main');
 const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
 const SCREEN_FINISH = compute('gi_screen_finish', giScreenResolve, 'gi_screen_finish_main');
+const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -95,9 +96,12 @@ const FIXED = [
     SCREEN_PLACE,
     SCREEN_RESOLVE,
     SCREEN_FINISH,
+    SCREEN_FILTER,
 ];
 /** vec4f do começo do histórico da tela: a vista-projeção e a câmera anteriores (`GI_SCREEN_HISTORY_HEADER`). */
 const SCREEN_HISTORY_HEADER = 5;
+/** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
+const SCREEN_HISTORY_FIXED = 3;
 /** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela) de uma revisão. */
 const traceIds = (revision: number): readonly [string, string] => [
     `gi_trace:${revision}`,
@@ -107,8 +111,6 @@ const traceIds = (revision: number): readonly [string, string] => [
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
 const NORMAL_BIAS = 0.1;
 const VIEW_BIAS = 0.3;
-/** Histerese de resposta (mudança grande no texel): a luz que acende aparece em poucos quadros. */
-const RESPONSE_HYSTERESIS = 0.5;
 /**
  * Ligações de storage que o kernel mais carregado usa sem funções `material` (os raios das sondas de tela: os dois pools
  * da estrutura, as luzes, os rebatimentos das sondas do mundo, o trabalho e o histórico da tela) mais uma forma de
@@ -290,6 +292,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 6, tiles, W);
             run(pass, -2, tiles, W);
             run(pass, 7, tiles, W);
+            run(pass, 9, tiles, W);
             run(pass, 8, tiles > 0 ? 1 : 0, 1);
         });
         this.frame++;
@@ -406,14 +409,15 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
             ),
             // Coleta final na tela: por sonda de tela, posição e normal e a irradiância do quadro de cada geração; o
-            // histórico com a câmera anterior e as duas metades (quadro anterior e atual) de 2 + gerações vec4f.
+            // histórico com a câmera anterior e as duas metades (quadro anterior e atual) de 3 + gerações vec4f.
             screenWork: storage(
                 'screenWork',
                 sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
             ),
             screenHistory: storage(
                 'screenHistory',
-                (SCREEN_HISTORY_HEADER + sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 2)
+                (SCREEN_HISTORY_HEADER
+                    + sizes.tilesX * sizes.tilesY * (SCREEN_HISTORY_FIXED + sizes.bounces) * 2)
                     * 16,
             ),
         };
@@ -516,12 +520,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
-                bounces: [
-                    sizes.bounces,
-                    d.enabled ? 1 : 0,
-                    Math.round(RESPONSE_HYSTERESIS * 1000),
-                    d.caustics ? 1 : 0,
-                ],
+                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, d.caustics ? 1 : 0],
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,
