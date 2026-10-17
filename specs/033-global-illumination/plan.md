@@ -10,7 +10,8 @@
 A luz rebatida da cena, física e estável, sem mudar materiais nem desenho:
 
 1. **Estrutura de raios (C3)**: BVH de dois níveis construída e reajustada na GPU — BLAS por conteúdo de geometria
-   (triângulos de malhas, superfícies e grafos; esferas das partículas), TLAS sobre as instâncias por quadro — e o
+   (triângulos de malhas, superfícies e grafos; esferas das partículas de sprite), TLAS sobre as instâncias e os volumes
+   de campo (fluidos, meios) por quadro, híbrida — e o
    módulo de consulta `ray_scene` como recurso da cena (R1). Serve depois ao débito R1 da 011.
 2. **Céu físico (C3)**: atmosfera de Hillaire em compute ligada ao sol, fonte dos raios que escapam, fundo da cena e
    transmitância do sol pelo ponto `light_transmission` (R4).
@@ -20,7 +21,12 @@ A luz rebatida da cena, física e estável, sem mudar materiais nem desenho:
 5. **Cáusticas (C3)**: fótons das fontes pelos caminhos especulares até a primeira difusa, num hash espacial (R2).
 6. **Integração (C3/C4)**: contribuição da iluminação global ao `scene_lighting` (`closure_indirect`), o hemisfério
    retirado enquanto ela existe, o céu desenhado como fundo (R7).
-7. **Verificação**: traçador de caminhos na CPU para a Cornell box e cenas simples; smokes com medidas; vídeos (R8).
+7. **Fluidos por campo de distância (C3/C4)**: grade esparsa de blocos, densidade anisotrópica, redistanciamento,
+   marcha de raio com interpolação tricúbica — a água lisa em qualquer resolução, a mesma para a câmera, a luz e os
+   raios; substitui a reconstrução na tela da 017 (R11).
+8. **Meios participantes (C3/C4)**: `FogVolume` e froxels com luz direta, céu e rebatida; transmitância nos raios (R12).
+9. **Verificação**: traçador de caminhos na CPU (com meio participante) para a Cornell box, a névoa e cenas simples;
+   smokes com medidas; o tanque do bench avaliado de novo; vídeos (R8).
 
 ## Technical Context
 
@@ -42,7 +48,8 @@ energia, vazamento, convergência, estabilidade, resposta, geometria viva, cáus
 
 **Project Type**: biblioteca (engine)
 
-**Performance Goals**: iluminação global ≤ 4 ms de GPU a 1280×720 com 1 milhão de triângulos (qualidade `medium`,
+**Performance Goals**: campo de distância de 64 mil partículas ≤ 1,5 ms e a marcha da superfície ≤ 1 ms a 1280×720;
+froxels ≤ 1 ms; iluminação global ≤ 4 ms de GPU a 1280×720 com 1 milhão de triângulos (qualidade `medium`,
 perfil de referência); refit de uma superfície de 1 milhão de triângulos ≤ 1 ms; TLAS de 10 mil instâncias ≤ 0,3 ms;
 cenas sem iluminação global sem regressão no `bench:check`
 
@@ -98,6 +105,10 @@ src/elements/material/point/shaders.ts                                        # 
 src/scene/shaders/WgslPoint.ts (ou vizinho)                                   # composição genérica de funções por entidade num kernel
 src/elements/geometry/SurfaceFlow.ts, scene/graph/GraphFlow.ts, physics/flows/SoftSurfaceFlow.ts  # produced('vertices')
 src/presentation/flows/SkyPassFlow.ts (NOVO), defaults.ts                     # céu como fundo, hemisfério por evento
+src/elements/fields/FluidField.ts, FluidFieldFlow.ts (NOVOS)                  # blocos, densidade anisotrópica, redistância
+src/elements/gpu/wgsl/fields/*.wgsl (NOVOS)                                   # campo, marcha, tricúbica
+src/presentation/flows/FluidFieldPassFlow.ts (NOVO)                           # desenho da superfície por marcha (substitui a da 017)
+src/elements/media/FogVolume.ts, FroxelFlow.ts (NOVOS); gpu/wgsl/media/*.wgsl # meios participantes
 src/__smokes__/rayScene.ts, sky.ts, globalIllumination.ts (NOVOS) + support/pathTracer.ts (NOVO)
 bench/scenes/global-illumination (NOVA)
 clay-engine-doc/docs/guides/ (iluminação global, raios, arquitetura), specs/ROADMAP.md, specs/PENDENCIAS.md
@@ -120,11 +131,17 @@ hemisfério na C4; a C2 só ganha o que a composição genérica de funções de
    traçador, energia, cantos, tingimento.
 5. **US4 estabilidade e vazamento**: histerese adaptativa, convergência, resposta, caixa fechada.
 6. **US3 geometria viva e escala**: superfícies animadas, corpos moles, grafos, partículas; 1 milhão de triângulos.
-7. **US5 cáusticas**: fótons pelos caminhos especulares, hash espacial; esfera de vidro, anel metálico.
-8. **US6 raios para outros usos**: contrato documentado; estágio de teste.
-9. **Fixtures**: as que mudam (céu como fundo quando usado; nenhuma cena existente usa os Resources novos — não mudam).
-10. **Docs**: guias, arquitetura, ROADMAP (033 implementada; débito R1 da 011 em seguida), PENDENCIAS.
-11. **Fechamento**: smokes (fonte e `--dist`), `bench:check`, `npm run ci`, baseline, vídeos.
+7. **US7 fluidos por campo de distância**: blocos, densidade anisotrópica, redistanciamento, marcha tricúbica, volumes
+   na estrutura de raios, vista da luz e cáusticas no campo; medidas de continuidade, favo de mel, borda, volume,
+   resolução; o tanque do bench lado a lado com a 017.
+8. **US5 cáusticas**: fótons pelos caminhos especulares, hash espacial; esfera de vidro, anel metálico.
+9. **US8 meios participantes**: `FogVolume`, froxels, luz direta/céu/rebatida, transmitância nos raios; Beer-Lambert,
+   feixes contra a referência, faixas, estabilidade.
+10. **US6 raios para outros usos**: contrato documentado; estágio de teste.
+11. **Fixtures**: as da água da 017 (`fluidSurface-*`, `particles-*` com água, `parametricSurfaces-lake`) mudam com o campo
+    de distância — regravadas com a lista e a montagem antes/depois; as demais não mudam.
+12. **Docs**: guias, arquitetura, ROADMAP (033 implementada; débito R1 da 011 em seguida), PENDENCIAS.
+13. **Fechamento**: smokes (fonte e `--dist`), `bench:check`, `npm run ci`, baseline, vídeos.
 
 ## Complexity Tracking
 

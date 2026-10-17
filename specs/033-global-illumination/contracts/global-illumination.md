@@ -19,7 +19,20 @@ gi.data.bounces = 4; // vale no quadro seguinte, sem recompilar
 app.defaults.presentation.data.exposure = -12; // sol físico: exposição de câmera
 ```
 
+// Fluidos: a superfície por campo de distância é automática para corpos com FluidSurfaceMaterial (nada a mudar).
+// Névoa volumétrica
+app.world.insert(new FogVolume({ shape: { box: [20, 6, 20] }, density: 0.05, albedo: [0.95, 0.95, 0.95], anisotropy: 0.6 }));
+// Densidade por função (nós de ruído, campos): new FogVolume({ density: { graph } })
+
+````
+
 Eventos: `globalIlluminationUnsupported { reason }` (uma vez).
+
+```wgsl
+// fields.wgsl — campos de distância (fluidos) e meios
+fn field_sample(volume: u32, p: vec3f) -> f32                 // distância com sinal, tricúbica
+fn field_normal(volume: u32, p: vec3f) -> vec3f
+fn medium_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f
 
 ## WGSL (biblioteca)
 
@@ -35,7 +48,7 @@ fn sky_sun_transmittance(p: vec3f) -> vec3f
 
 // closure_eval.wgsl (011) — o ambiente geral
 fn closure_indirect(c: Closure, n: vec3f, v: vec3f, irradiance: vec3f, specular: vec3f) -> vec3f
-```
+````
 
 ## Garantias
 

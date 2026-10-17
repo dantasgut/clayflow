@@ -178,6 +178,66 @@ interseção analítica.
 
 ---
 
+### User Story 7 - Fluidos como superfície contínua por campo de distância (Priority: P1)
+
+A água e os outros fluidos aparecem como uma superfície lisa e contínua no espaço — sem a borda recortada em
+semicírculos das partículas, sem a textura em favo de mel e sem a linha de brilho serrilhada na borda que o bench mostra
+hoje — vista de perto ou de longe, em qualquer resolução de tela. A mesma superfície é a que a luz rebatida, os reflexos,
+a refração e as cáusticas enxergam.
+
+**Why this priority**: o usuário avaliou a água do bench como "boa, mas não satisfatória o suficiente"; os defeitos
+vêm da reconstrução da superfície na tela a partir das esferas das partículas. Um campo de distância com sinal (SDF)
+construído das partículas no espaço dá uma superfície contínua, independente da tela, e participa da estrutura de raios.
+
+**Independent Test**: o tanque de água do bench e da 017 de perto e de longe; medir a continuidade da silhueta e da
+normal da superfície, e a ausência de padrões da escala das partículas.
+
+**Acceptance Scenarios**:
+
+1. **Given** o tanque com água em repouso, **When** desenhado de perto (uma partícula cobrindo ≥ 20 pixels), **Then** a
+   silhueta e a borda da água são contínuas: nenhuma ondulação na escala do espaçamento das partículas acima do limiar
+   documentado (sem semicírculos).
+2. **Given** a superfície em repouso, **When** desenhada, **Then** a normal varia suavemente: nenhum padrão periódico na
+   escala das partículas (sem favo de mel) — a energia espectral nessa frequência abaixo do limiar documentado.
+3. **Given** a borda da água contra o vidro do tanque, **When** desenhada, **Then** o realce da borda é contínuo (sem
+   pontos isolados nem serrilhado).
+4. **Given** a água em movimento, **When** desenhada, **Then** a superfície acompanha as partículas a cada quadro e a
+   massa visível se conserva (o volume do campo dentro de ±5 % do volume das partículas).
+5. **Given** a resolução da tela dobrada, **When** desenhada, **Then** a superfície fica igualmente lisa (a nitidez
+   não depende da resolução do campo além do documentado; sem pixelização ampliada).
+6. **Given** a superfície por campo de distância, **When** a luz rebatida, os reflexos, a refração e as cáusticas a
+   consultam, **Then** é a mesma superfície vista pela câmera (os raios a atingem com erro ≤ meio espaçamento de
+   partícula).
+
+---
+
+### User Story 8 - Névoa e meios volumétricos (Priority: P2)
+
+Quem monta a cena coloca névoa, neblina ou fumaça como volumes: a luz do sol atravessa e forma feixes (raios de
+luz), a névoa clareia com a luz rebatida e escurece onde há sombra, objetos ao longe somem na névoa pela distância — sem
+faixas, sem blocos e sem pixelização.
+
+**Why this priority**: o usuário pediu névoa volumétrica; o meio participante usa a mesma estrutura de campos e a
+mesma luz (direta, sombra, rebatida) da spec.
+
+**Independent Test**: um volume de névoa homogênea com o sol: medir a transmitância contra Beer-Lambert e os feixes
+contra a referência de traçado de caminhos com meio participante na CPU.
+
+**Acceptance Scenarios**:
+
+1. **Given** névoa homogênea de densidade conhecida, **When** um objeto é visto através dela, **Then** a atenuação segue
+   Beer-Lambert pela distância (erro ≤ 3 %).
+2. **Given** a névoa com o sol passando por uma janela, **When** desenhada, **Then** aparece o feixe de luz (o
+   espalhamento simples segue a referência a ≤ 10 %) e a névoa fora do feixe é mais escura.
+3. **Given** a névoa num cômodo, **When** a iluminação global está ligada, **Then** a névoa recebe a luz rebatida (clareia
+   perto das paredes iluminadas).
+4. **Given** uma densidade variando no espaço (um campo, um nó, uma função de ruído), **When** desenhada, **Then** a
+   névoa segue a densidade sem faixas nem blocos (variação entre pixels vizinhos sem degraus acima do limiar).
+5. **Given** a câmera andando pela névoa, **When** desenhada, **Then** a névoa é estável no tempo (sem cintilação acima
+   do limiar).
+
+---
+
 ### Edge Cases
 
 - Cena sem nenhuma luz e sem céu: a iluminação global não acrescenta nada (sem energia inventada).
@@ -186,6 +246,11 @@ interseção analítica.
 - Geometria muito fina (paredes de uma face, folhas): não vaza luz; a espessura mínima suportada é documentada.
 - Objetos minúsculos frente às sondas: a luz indireta deles é aproximada pela resolução das sondas, documentada.
 - Geometria que entra ou sai da cena: a estrutura de raios e a luz indireta se atualizam no mesmo quadro ou no seguinte.
+- Fluido com poucas partículas (gotas isoladas, spray): o campo de distância não as funde numa bolha; a superfície
+  segue gotas separadas com o raio documentado.
+- Fluido tocando um sólido: a superfície encosta no sólido sem vão nem sobreposição visível.
+- Névoa dentro de um vidro ou da água: os dois meios se compõem (a névoa atrás do vidro aparece refratada).
+- Névoa muito densa (opaca): os objetos atrás somem; sem banda no limite.
 - Espaços curvos (019, futuro): a estrutura de raios é a do espaço plano nesta spec; o contrato fica aberto ao raio
   curvo (documentado).
 - Sondas dentro da geometria: não contaminam a luz em volta (detectadas e desligadas ou deslocadas).
@@ -228,6 +293,19 @@ interseção analítica.
 - **FR-010**: As cáusticas DEVEM ser produzidas pelo mesmo rastreamento de fótons para toda superfície especular ou
   transmissiva, sem duplicar a luz da água da 011.
 
+**Campos de distância: fluidos e meios volumétricos**
+
+- **FR-016**: Os fluidos de partículas DEVEM ter uma superfície por campo de distância com sinal construída na GPU a
+  cada quadro a partir das partículas (núcleo de suavização documentado, sem fundir gotas separadas), desenhada por
+  marcha de raio com reconstrução contínua (interpolação de ordem alta), independente da resolução da tela, substituindo
+  a reconstrução na tela da 017 para a câmera, a luz e as cáusticas.
+- **FR-017**: A estrutura de raios DEVE ser híbrida: triângulos e esferas pela BVH e volumes de campo (fluidos e meios)
+  por marcha no campo, pela mesma consulta de raio.
+- **FR-018**: DEVE existir o meio participante por volume (densidade constante, por campo ou por função/nó; albedo de
+  espalhamento; anisotropia de fase), iluminado pela luz direta com sombra, pelo céu e pela luz rebatida, desenhado sem
+  faixas nem blocos e estável no tempo, com a absorção e o espalhamento consultáveis pelos raios (a névoa atenua a luz
+  rebatida e as cáusticas).
+
 **Qualidade, contrato e compatibilidade**
 
 - **FR-011**: Nenhuma parte DEVE exigir leitura de volta por quadro; as trajetórias físicas DEVEM continuar idênticas,
@@ -239,7 +317,8 @@ interseção analítica.
   CPU (Cornell box e cenas simples), conservação de energia, convergência, estabilidade temporal, vazamento, céu contra o
   modelo, cáusticas contra a óptica, raios contra a interseção analítica; `bench:check` sem regressão relevante e
   baseline regravado; `npm run ci` verde.
-- **FR-015**: Documentação de arquitetura, guias, ROADMAP e PENDENCIAS atualizados; vídeos para o usuário (Cornell box,
+- **FR-015**: Documentação de arquitetura, guias, ROADMAP e PENDENCIAS atualizados; vídeos para o usuário (água por
+  campo de distância de perto e de longe, névoa com feixes de sol, Cornell box,
   cômodo com sol ao longo do dia, geometria viva, cáusticas).
 
 ### Key Entities
@@ -249,6 +328,9 @@ interseção analítica.
 - **Fóton**: um pacote de energia que sai de uma fonte e rebate pela cena segundo os materiais.
 - **Sonda**: um ponto do espaço que guarda a luz que chega de todas as direções (difusa e especular) e a visibilidade.
 - **Iluminação global**: o Resource que liga, desliga e ajusta a luz rebatida da cena.
+- **Campo de distância**: o volume no espaço que guarda, por ponto, a distância à superfície de um fluido (ou a
+  densidade de um meio), construído na GPU e consultado pela câmera e pelos raios.
+- **Meio participante**: um volume de névoa, neblina ou fumaça com densidade, albedo e fase.
 
 ## Success Criteria _(mandatory)_
 
@@ -271,7 +353,13 @@ interseção analítica.
 - **SC-010**: Desempenho: custo da iluminação global por quadro dentro do orçamento documentado a 1280×720 com 1 milhão
   de triângulos; `bench:check` sem regressão relevante nas cenas sem iluminação global.
 - **SC-011**: Trajetórias físicas idênticas bit a bit; smokes no fonte e com `--dist`; `npm run ci` verde.
-- **SC-012**: Vídeos (Cornell box, cômodo com o sol ao longo do dia, geometria viva, cáusticas) enviados ao usuário.
+- **SC-012**: Vídeos (água por campo de distância de perto e de longe, névoa com feixes de sol, Cornell box, cômodo com o
+  sol ao longo do dia, geometria viva, cáusticas) enviados ao usuário.
+- **SC-013**: Água por campo de distância: sem ondulação na escala das partículas na silhueta e na normal (abaixo dos
+  limiares documentados), realce de borda contínuo, volume a ±5 % das partículas, igualmente lisa com a resolução
+  dobrada; o tanque do bench avaliado de novo lado a lado com a versão da 017.
+- **SC-014**: Névoa: Beer-Lambert a ≤ 3 %; feixe de espalhamento simples a ≤ 10 % da referência da CPU; sem degraus entre
+  pixels vizinhos acima do limiar; variância temporal abaixo do limiar com a câmera andando.
 
 ## Assumptions
 
@@ -289,3 +377,7 @@ interseção analítica.
 - O débito imediato R1 da 011 (refração recalculando o fundo) é corrigido logo após esta spec, usando a estrutura de
   raios; as pendências restantes da 011 (US4–US6, fixtures de imagem, documentação, bench) continuam na fila.
 - Espaços curvos (019) e conteúdo procedural (F8) usarão o mesmo contrato de raios; esta spec trata o espaço plano.
+- A superfície por campo de distância substitui a reconstrução na tela da 017 para os fluidos de partículas; a água de
+  grande escala (029) e o fogo e a fumaça simulados (026) usarão os mesmos campos e meios. As partículas continuam a
+  simulação (inalterada, trajetórias bit a bit).
+- Incluído a pedido do usuário (2026-10-17): o campo de distância para fluidos e névoa volumétrica, sem pixelização.

@@ -1,6 +1,7 @@
 # Research — 033 Iluminação global
 
-Levantamento na `develop` após o PR #47 (011, US1–US3, 2026-10-17). Achados (A) com evidência; decisões (R) com
+Levantamento na `develop` após o PR #47 (011, US1–US3, 2026-10-17). Revisão no mesmo dia: o usuário pediu campo de
+distância para os fluidos e névoa volumétrica sem pixelização (R11, R12, adendo de R1). Achados (A) com evidência; decisões (R) com
 alternativas.
 
 ## Achados
@@ -155,3 +156,46 @@ de referência (Apple Metal 3); a reconstrução da TLAS e os refits entram na c
 
 **Decisão**: a estrutura usa buffers de storage grandes (nós, primitivas, instâncias); sem os limites necessários
 (tamanho de binding, buffers por estágio), a iluminação global se desliga com aviso único e o hemisfério continua.
+
+### R11 — Fluidos por campo de distância (pedido do usuário, 2026-10-17)
+
+**Achado (bench, fotos do usuário)**: a água do `particles/64k-water` mostra a borda recortada em semicírculos (as
+esferas das partículas), uma textura em favo de mel na superfície (a reconstrução na tela das esferas mais as
+ondulações) e uma linha de brilho serrilhada na borda da frente — todos da superfície reconstruída na tela (017), não do
+material da 011.
+
+**Decisão**: a superfície dos fluidos de partículas passa a ser um **campo no espaço**, construído na GPU a cada quadro:
+
+- **Grade esparsa em blocos** (bricks de 8³ voxels) alocada só onde há partículas (hash espacial dos blocos ocupados +
+  compactação, as primitivas existentes), voxel de ½ espaçamento de partícula.
+- **Densidade por núcleos anisotrópicos** (Yu & Turk 2013: a covariância dos vizinhos estica o núcleo ao longo da
+  superfície) — superfícies planas ficam planas, bordas finas, gotas separadas não se fundem; depois **redistanciamento**
+  na faixa estreita (o campo vira distância com sinal, |∇φ| ≈ 1), o que permite marchar com passos seguros.
+- **Desenho por marcha de raio** contra o campo, com refinamento do cruzamento (secante) e **interpolação B-spline
+  tricúbica** do campo para o ponto e a normal (contínuos até a segunda derivada): a superfície é lisa em qualquer
+  resolução de tela — a tela só decide quantos raios, não a forma.
+- A mesma superfície serve à câmera, à vista da luz (as cáusticas da 011 passam a refratar nela), à luz rebatida e aos
+  reflexos e refrações (R1 híbrida). As partículas continuam a simulação (inalterada).
+
+**Alternativas**: melhorar a reconstrução na tela (filtro bilateral mais largo, curvatura): ataca o sintoma, depende da
+resolução e continua sem existir para os raios; marching cubes para malha (malha nova a cada quadro, facetas de
+perto, custo de geração); só núcleos isotrópicos (superfícies "de bolhas", o favo de mel volta).
+
+### R12 — Meios participantes (névoa, neblina, fumaça)
+
+**Decisão**: Resource `FogVolume` (caixa ou esfera, densidade constante, por campo ou por função/nó de ponto; albedo de
+espalhamento; anisotropia de Henyey-Greenstein; emissão opcional). Desenho por **froxels** (grade 3D alinhada à câmera,
+160×90×128 com fatias exponenciais) em compute: por froxel, o espalhamento da luz direta (visibilidade pela sombra e pela
+estrutura de raios), do céu e da luz rebatida das sondas; integração da frente para trás; acúmulo no espaço dos froxels
+com reprojeção e jitter (sem o TAA da 014); leitura **tricúbica** na composição — sem faixas nem blocos. Os raios das
+sondas e dos fótons atravessam os volumes com a transmitância (marcha no volume), então a névoa atenua a luz rebatida e
+as cáusticas, e recebe a luz rebatida.
+
+**Alternativas**: marcha de raio por pixel com ruído e filtragem (mais nítido nos feixes, mais caro, ruído sem TAA);
+neblina analítica por altura (sem feixes nem densidade variável).
+
+### R1 (adendo) — Estrutura híbrida
+
+A TLAS também guarda **instâncias de volume** (caixas dos campos dos fluidos e dos meios): ao atingir a caixa, a consulta
+marcha no campo (superfície do fluido) ou acumula a transmitância (meio). Os corpos de partículas que são fluidos com
+`FluidSurfaceMaterial` entram como volume de campo; os demais (sprites) continuam como esferas.
