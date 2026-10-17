@@ -85,7 +85,36 @@ export interface PtScene {
     readonly lights?: readonly PtLight[];
     /** Radiância do céu por direção (raios que escapam). */
     readonly sky?: (dir: Vec3) => Vec3;
+    /**
+     * O céu como tabela latitude-longitude (vai por mensagem aos workers, ao contrário da função): `width` × `height`
+     * texels rgb, u = azimute (atan2(z, x)) e v = ângulo a partir de +y; lida pelo texel mais próximo. Vale sem `sky`.
+     */
+    readonly skyTable?: PtSkyTable;
     readonly media?: readonly PtMedium[];
+}
+
+/** Tabela latitude-longitude da radiância do céu. */
+export interface PtSkyTable {
+    readonly width: number;
+    readonly height: number;
+    readonly rgb: Float32Array;
+}
+
+/** Direção do centro do texel (i, j) da tabela do céu. */
+export function skyTableDir(table: PtSkyTable, i: number, j: number): Vec3 {
+    const phi = ((i + 0.5) / table.width) * 2 * Math.PI - Math.PI;
+    const theta = ((j + 0.5) / table.height) * Math.PI;
+    return [Math.sin(theta) * Math.cos(phi), Math.cos(theta), Math.sin(theta) * Math.sin(phi)];
+}
+
+/** Radiância da tabela do céu na direção unitária `d`. */
+function skyTableAt(table: PtSkyTable, d: Vec3): Vec3 {
+    const u = (Math.atan2(d[2], d[0]) + Math.PI) / (2 * Math.PI);
+    const v = Math.acos(Math.max(-1, Math.min(1, d[1]))) / Math.PI;
+    const i = Math.min(table.width - 1, Math.max(0, Math.floor(u * table.width)));
+    const j = Math.min(table.height - 1, Math.max(0, Math.floor(v * table.height)));
+    const k = (j * table.width + i) * 3;
+    return [table.rgb[k]!, table.rgb[k + 1]!, table.rgb[k + 2]!];
 }
 
 /** Câmera estenopeica. */
@@ -108,8 +137,13 @@ export interface PtOptions {
     readonly media?: 'single' | 'full';
     /** Passos da marcha do espalhamento simples. Padrão 256. */
     readonly marchSteps?: number;
-    /** Só a luz indireta (descarta a direta na primeira superfície). */
+    /** Só a luz indireta (descarta a direta e a emissão na primeira superfície). */
     readonly indirectOnly?: boolean;
+    /**
+     * Faixa de linhas [início, fim) a renderizar (padrão: todas); as outras ficam zeradas. A semente é por pixel, então
+     * faixas renderizadas à parte (em paralelo) compõem a mesma imagem.
+     */
+    readonly rows?: readonly [number, number];
 }
 
 /** Imagem HDR e a instância vista por pixel (−1 = nada). */
@@ -118,6 +152,8 @@ export interface PtImage {
     readonly height: number;
     readonly rgb: Float32Array;
     readonly ids: Int32Array;
+    /** Face vista no centro do pixel: o eixo dominante da normal e o sinal (0–5; −1 sem acerto). */
+    readonly faces: Int8Array;
 }
 
 interface Hit {
@@ -446,7 +482,8 @@ function radiance(
         const mat = hit.object.material;
         // Quadriláteros emissores entram pela amostragem direta; as outras formas emissoras, pelo acerto.
         const sampledEmitter = hit.object.shape.kind === 'quad';
-        if (mat.emission !== undefined && (countEmission || !sampledEmitter)) {
+        const firstHitDirect = opts.indirectOnly === true && depth === 0;
+        if (mat.emission !== undefined && (countEmission || !sampledEmitter) && !firstHitDirect) {
             sum = add(sum, mul(throughput, mat.emission));
         }
         if (mat.mirror !== undefined) {
@@ -538,10 +575,16 @@ function singleScatter(scene: PtScene, o: Vec3, d: Vec3, opts: PtOptions, rng: R
 }
 
 /** Renderiza a cena: radiância HDR média por pixel e a instância vista no centro do pixel. */
-export function renderPathTraced(scene: PtScene, camera: PtCamera, opts: PtOptions): PtImage {
+export function renderPathTraced(input: PtScene, camera: PtCamera, opts: PtOptions): PtImage {
+    const table = input.skyTable;
+    const scene: PtScene =
+        input.sky === undefined && table !== undefined
+            ? { ...input, sky: (d) => skyTableAt(table, d) }
+            : input;
     const { width, height } = opts;
     const rgb = new Float32Array(width * height * 3);
     const ids = new Int32Array(width * height).fill(-1);
+    const faces = new Int8Array(width * height).fill(-1);
     const forward = normalize(sub(camera.target, camera.position));
     const right = normalize(cross(forward, camera.up ?? [0, 1, 0]));
     const up = cross(right, forward);
@@ -554,11 +597,17 @@ export function renderPathTraced(scene: PtScene, camera: PtCamera, opts: PtOptio
                 scale(up, (1 - (2 * y) / height) * tanY),
             ),
         );
-    for (let y = 0; y < height; y++) {
+    const [y0, y1] = opts.rows ?? [0, height];
+    for (let y = y0; y < y1; y++) {
         for (let x = 0; x < width; x++) {
             const pixel = y * width + x;
             const center = intersect(scene, camera.position, dirAt(x + 0.5, y + 0.5), Infinity);
             ids[pixel] = center === null ? -1 : center.object.id;
+            if (center !== null) {
+                const a = center.normal.map(Math.abs);
+                const axis = a[0]! >= a[1]! && a[0]! >= a[2]! ? 0 : a[1]! >= a[2]! ? 1 : 2;
+                faces[pixel] = axis * 2 + (center.normal[axis] > 0 ? 1 : 0);
+            }
             let acc: Vec3 = ZERO;
             for (let s = 0; s < opts.samples; s++) {
                 const rng = new Rng(pixel, s);
@@ -574,7 +623,7 @@ export function renderPathTraced(scene: PtScene, camera: PtCamera, opts: PtOptio
             rgb[pixel * 3 + 2] = acc[2] / opts.samples;
         }
     }
-    return { width, height, rgb, ids };
+    return { width, height, rgb, ids, faces };
 }
 
 /** Radiância que sai de um ponto de superfície em direção a `view` (para medir pontos isolados). */

@@ -89,6 +89,37 @@ sentido inverso, convergente e estável. Os fótons ficam onde só eles funciona
 ReSTIR GI na tela (só o que a câmera vê; instável em movimento; precisa do acúmulo temporal da 014); radiance cascades
 (promissor em 2D, imaturo em 3D com geometria arbitrária); voxel cone tracing (vazamento).
 
+### R2 (adendo, 2026-10-17) — Coleta final na tela sobre as sondas do mundo
+
+**Achado** (medido na Cornell box da US1): as sondas do mundo acertam a luz que vem de longe (teto a 3 %, paredes a
+0,4–4 %), mas não a de perto. As sombras nítidas da luz rebatida perto da mancha de sol saem borradas: bloco baixo
+−30 %, chão −16 %, bloco alto −11 %. O erro já aparece com um rebatimento e independe do espaçamento (0,15–0,5 m) e
+dos vieses. É o limite conhecido das sondas de irradiância: a superfície a 10 cm da mancha só recebe a luz interpolada
+de sondas a 25–30 cm, num ponto que vê outra parte da fonte.
+
+**Decisão** (aprovada pelo usuário): uma **coleta final na tela** por cima das sondas do mundo, como no Lumen (Unreal)
+e no GI-1.0 (AMD), mas sem pré-passe de desenho:
+
+- **Sondas de tela**: uma a cada 8 × 8 pixels. A posição e a normal vêm de um raio da câmera pelo centro do ladrilho na
+  estrutura de raios (R1), então não há G-buffer nem pré-passe.
+- **Raios**: cada sonda de tela lança raios por cosseno no hemisfério da normal, girados a cada quadro. No acerto entram
+  a luz direta (raio de sombra), a emissão e, a partir do segundo rebatimento, a irradiância das sondas do mundo do
+  rebatimento anterior (`gi_generation_irradiance`). O número total de rebatimentos é o mesmo. Os raios que escapam
+  leem o ambiente.
+- **Acúmulo**: a irradiância na normal da sonda (E = π · média da radiância) acumula por média móvel. A sonda do quadro
+  anterior é achada reprojetando a posição pela vista-projeção anterior (guardada na GPU) e só vale se estiver no mesmo
+  plano e com a mesma normal; se não, o acúmulo recomeça.
+- **Desenho**: o ponto projeta-se na tela e as sondas de tela vizinhas (2 × 2, alargando para 3 × 3) pesam pela
+  distância ao plano delas e pela normal. Sem nenhuma compatível (fora da tela, borda fina, partículas, água), valem as
+  sondas do mundo. A especular continua vindo das sondas do mundo.
+- **Recursos**: as sondas de tela são texturas da `GlobalIllumination` com um oitavo do tamanho do canvas (capacidade
+  da C2: `canvasDivisor` na forma da textura), recriadas quando ele muda. São texturas, não buffers, porque o fragmento
+  do desenho está perto do limite de 10 buffers de storage do Metal. O histórico do acúmulo é privado do `ProbeFlow`.
+
+**Alternativas**: grade de sondas mais densa (custo cúbico; mesmo a 0,15 m o bloco baixo fica a ~20 %); cache em hash no
+mundo (blocos visíveis na escala da célula); pré-passe com G-buffer (todo material por função precisaria de uma
+variante de pré-passe).
+
 ### R3 — Materiais nos pontos atingidos: composição das funções `material` em compute
 
 **Decisão**: o material no ponto atingido é o mesmo da 011: um kernel de sombreamento dos acertos compõe as funções

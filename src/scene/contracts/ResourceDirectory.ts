@@ -4,6 +4,7 @@ import type {
     TextureSpec,
     TextureViewSpec,
 } from '../../core/contracts/index';
+import type { Schema } from '../descriptors/Schema';
 import type { PoolDirectory } from './PoolDirectory';
 import type { Resource } from './Resource';
 
@@ -44,4 +45,10 @@ export interface ResourceDirectory extends PoolDirectory {
      * `undefined` para eles. Chamado numa transição, fora da gravação.
      */
     ensureAllocated(resource: Resource, descId: string): AnyBufferSpec | undefined;
+    /**
+     * Garante o pool de chave `schema.name`: se a cena ainda não tem nenhum recurso dele, cria-o vazio (zerado, com a
+     * capacidade inicial) e o registra como fornecedor `{ pool }` — para quem lê um pool que a cena pode não ter (ex.:
+     * as luzes nos acertos da iluminação global num cômodo só com emissores; spec 033). Chamado numa transição.
+     */
+    ensurePool(schema: Schema): void;
 }

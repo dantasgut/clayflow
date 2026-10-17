@@ -17,6 +17,7 @@ export { Entity } from './Entity';
 
 export * from './scene/index';
 export * from './raytrace/index';
+export * from './lighting/index';
 export * from './geometry/index';
 export * from './material/index';
 export * from './physics/bodies/index';

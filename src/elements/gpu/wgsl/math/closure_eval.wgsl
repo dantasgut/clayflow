@@ -201,21 +201,44 @@ fn closure_hemisphere(d: vec3f, sky: vec3f, ground: vec3f, up: vec3f) -> vec3f {
     return mix(ground, sky, 0.5 + 0.5 * dot(d, up));
 }
 
-// Resposta do fechamento ao hemisfério céu/chão de radiâncias `sky` e `ground` (eixo `up`): o difuso pela irradiância
-// exata do hemisfério na normal; os especulares pela radiância na direção refletida dominante (Frostbite), alargada
-// para a da normal com a rugosidade; × os albedos direcionais. Num ambiente uniforme (teste de forno), exato.
-fn closure_ambient(c: Closure, n: vec3f, v: vec3f, sky: vec3f, ground: vec3f, up: vec3f) -> vec3f {
+// Luz indireta que chega a um ponto, nas direções que o fechamento lê (spec 033, R7): a irradiância na normal dos lobos
+// de base e no verso dela (translúcido), a radiância na direção especular dominante da base e do verniz e a
+// irradiância na normal do verniz. Radiâncias em W/(m²·sr); as irradiâncias divididas por π (a radiância de um ambiente
+// uniforme de mesma irradiância).
+struct IndirectLight {
+    diffuse: vec3f,
+    back: vec3f,
+    specular: vec3f,
+    coat: vec3f,
+    coat_diffuse: vec3f,
+}
+
+// Direção especular dominante dos lobos de base (Frostbite): a refletida alargada para a normal com a rugosidade.
+fn closure_specular_dir(c: Closure, n: vec3f, v: vec3f) -> vec3f {
+    let nb = closure_lobe_normal(c.normal, n, v);
+    let a = c.specular_roughness * c.specular_roughness;
+    return normalize(mix(reflect(-v, nb), nb, a));
+}
+
+// Direção especular dominante do verniz.
+fn closure_coat_dir(c: Closure, n: vec3f, v: vec3f) -> vec3f {
+    let nc = closure_lobe_normal(c.coat_normal, n, v);
+    let a = c.coat_roughness * c.coat_roughness;
+    return normalize(mix(reflect(-v, nc), nc, a));
+}
+
+// Resposta do fechamento à luz indireta (spec 033, R7 — o ambiente geral): o difuso, a subsuperfície e o translúcido
+// pela irradiância; os especulares pela radiância na direção dominante, alargada para a irradiância com a rugosidade;
+// × os albedos direcionais. Num ambiente uniforme (teste de forno), exato.
+fn closure_indirect(c: Closure, n: vec3f, v: vec3f, light: IndirectLight) -> vec3f {
     let nb = closure_lobe_normal(c.normal, n, v);
     let nv = max(dot(nb, v), 1e-4);
-    let irr = closure_hemisphere(nb, sky, ground, up);
+    let irr = light.diffuse;
 
     var spec = vec3f(0.0);
     if (closure_has(CLOSURE_SPECULAR) && c.dielectric_weight + c.conductor_weight > 0.0) {
         let a = c.specular_roughness * c.specular_roughness;
-        let r = reflect(-v, nb);
-        let dom = normalize(mix(r, nb, a));
-        let lr = mix(closure_hemisphere(dom, sky, ground, up), irr, a);
-        spec = closure_base_albedo(c, nv) * lr;
+        spec = closure_base_albedo(c, nv) * mix(light.specular, irr, a);
     }
     var under = vec3f(0.0);
     if (closure_has(CLOSURE_DIFFUSE) && c.diffuse_weight > 0.0) {
@@ -225,7 +248,7 @@ fn closure_ambient(c: Closure, n: vec3f, v: vec3f, sky: vec3f, ground: vec3f, up
         under += c.subsurface_weight * c.subsurface_color * irr;
     }
     if (closure_has(CLOSURE_TRANSLUCENT) && c.translucent_weight > 0.0) {
-        under += c.translucent_weight * c.translucent_color * closure_hemisphere(-nb, sky, ground, up);
+        under += c.translucent_weight * c.translucent_color * light.back;
     }
     let base = spec + closure_under_dielectric(c, nv) * under;
 
@@ -234,15 +257,28 @@ fn closure_ambient(c: Closure, n: vec3f, v: vec3f, sky: vec3f, ground: vec3f, up
         let nc = closure_lobe_normal(c.coat_normal, n, v);
         let ncv = max(dot(nc, v), 1e-4);
         let a = c.coat_roughness * c.coat_roughness;
-        let dom = normalize(mix(reflect(-v, nc), nc, a));
-        let lc = mix(closure_hemisphere(dom, sky, ground, up), closure_hemisphere(nc, sky, ground, up), a);
-        coat = clamp(c.coat_weight, 0.0, 1.0) * closure_coat_albedo(c, ncv) * lc;
+        coat = clamp(c.coat_weight, 0.0, 1.0) * closure_coat_albedo(c, ncv) * mix(light.coat, light.coat_diffuse, a);
     }
     var sheen = vec3f(0.0);
     if (closure_has(CLOSURE_SHEEN) && c.sheen_weight > 0.0) {
         sheen = clamp(c.sheen_weight, 0.0, 1.0) * c.sheen_color * closure_dfg(nv, c.sheen_roughness).z * irr;
     }
     return sheen + closure_sheen_pass(c, nv) * (coat + closure_coat_pass(c, nv) * base);
+}
+
+// Resposta do fechamento ao hemisfério céu/chão de radiâncias `sky` e `ground` (eixo `up`): o caso particular de
+// `closure_indirect` com a luz do hemisfério nas direções que o fechamento lê.
+fn closure_ambient(c: Closure, n: vec3f, v: vec3f, sky: vec3f, ground: vec3f, up: vec3f) -> vec3f {
+    let nb = closure_lobe_normal(c.normal, n, v);
+    let nc = closure_lobe_normal(c.coat_normal, n, v);
+    let light = IndirectLight(
+        closure_hemisphere(nb, sky, ground, up),
+        closure_hemisphere(-nb, sky, ground, up),
+        closure_hemisphere(closure_specular_dir(c, n, v), sky, ground, up),
+        closure_hemisphere(closure_coat_dir(c, n, v), sky, ground, up),
+        closure_hemisphere(nc, sky, ground, up),
+    );
+    return closure_indirect(c, n, v, light);
 }
 
 // Emissão que sai do fechamento: atenuada pelo verniz e pelo sheen de cima.

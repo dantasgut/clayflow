@@ -4,15 +4,8 @@ import type { Resource } from '../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { StructSchema } from '../../scene/descriptors/StructSchema';
-import {
-    RayBlasSchema,
-    RayInstanceSchema,
-    RayNodeSchema,
-    RaySceneSchema,
-    RaySphereSchema,
-    RayTriangleSchema,
-    RayVertexSchema,
-} from './schemas';
+import type { WgslModule } from '../../scene/shaders/WgslModule';
+import { RAY_WORDS, RayBvhSchema, RayGeometrySchema, RaySceneSchema } from './schemas';
 
 /** Capacidades da estrutura (elementos de cada pool). */
 export interface RaySceneCapacity {
@@ -42,6 +35,18 @@ export interface RaySceneData extends RaySceneCapacity {
     tlasRoot: number;
 }
 
+/** Função `material` reunida nos acertos dos raios (a versão renomeada, spec 033 R3). */
+export interface RayMaterialFunction {
+    /** Módulo com a função e o carregador renomeados. */
+    readonly module: WgslModule;
+    /** Nome da função no módulo. */
+    readonly functionName: string;
+    /** Nome do carregador de parâmetros no módulo. */
+    readonly loaderName: string;
+    /** A função devolve um fechamento (senão, `SurfaceParams`). */
+    readonly returnsClosure: boolean;
+}
+
 /** Capacidade inicial (cresce em potências de dois conforme a cena). */
 const INITIAL: RaySceneCapacity = {
     vertices: 1024,
@@ -65,16 +70,24 @@ function grow(current: number, needed: number): number {
  * instâncias —, consultada por qualquer estágio pelo módulo `ray_scene` sem conhecer a origem da geometria. Gerada da
  * cena pelo `RaySceneFlow`; sem dado de autoria.
  *
- * Os dados vivem em pools da C2 (`RayVertex`, `RayTriangle`, `RaySphere`, `RayNode`, `RayBlas`, `RayInstance`), escritos
- * só pela GPU, numa faixa por pool com a capacidade como contagem; quando a cena passa da capacidade, o estágio a
- * aumenta (`reserve`): as faixas são realocadas e os estágios que leem os pools são religados pela C2. O uniform `info`
- * diz onde começa cada faixa, quantas instâncias há e qual nó é a raiz.
+ * Os dados vivem em dois pools da C2 de palavras `vec4u` — `RayGeometry` (vértices, triângulos, esferas) e `RayBvh` (nós,
+ * hierarquias, instâncias) —, escritos só pela GPU, numa faixa por pool com as capacidades como contagem; quando a cena
+ * passa da capacidade, o estágio a aumenta (`reserve`): as faixas são realocadas e os estágios que leem os pools são
+ * religados pela C2. O uniform `info` diz onde começa cada região, quantas instâncias há e qual nó é a raiz.
  */
 export class RayScene extends Entity<RaySceneData> implements Resource {
     /** O uniform da estrutura (as faixas e a raiz). */
     static readonly schema = RaySceneSchema;
 
     state: ResourceState = ResourceState.Uninitialized;
+
+    /**
+     * Funções `material` das instâncias, na ordem dos índices gravados nelas (índice k + 1 → `materialFunctions[k]`),
+     * mantidas pelo `RaySceneFlow`; quem sombreia os acertos as reúne num kernel. Sobe `materialRevision` a cada mudança.
+     */
+    materialFunctions: readonly RayMaterialFunction[] = [];
+    /** Revisão de `materialFunctions`. */
+    materialRevision = 0;
 
     constructor() {
         super();
@@ -101,14 +114,19 @@ export class RayScene extends Entity<RaySceneData> implements Resource {
             count,
             upload: 'never',
         });
+        const w = RAY_WORDS;
         return [
             { id: 'info', role: 'uniform', schema: RayScene.schema },
-            pooled('vertices', RayVertexSchema, d.vertices),
-            pooled('triangles', RayTriangleSchema, d.triangles),
-            pooled('spheres', RaySphereSchema, d.spheres),
-            pooled('nodes', RayNodeSchema, d.nodes),
-            pooled('blas', RayBlasSchema, d.blas),
-            pooled('instances', RayInstanceSchema, d.instances),
+            pooled(
+                'geometry',
+                RayGeometrySchema,
+                w.vertex * d.vertices + w.triangle * d.triangles + w.sphere * d.spheres,
+            ),
+            pooled(
+                'bvh',
+                RayBvhSchema,
+                w.node * d.nodes + w.blas * d.blas + w.instance * d.instances,
+            ),
         ];
     }
 

@@ -97,27 +97,50 @@ erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 ## Phase 4: User Story 1 — Luz que rebate na cena (P1) 🎯
 
-**Goal**: sondas DDGI com acertos sombreados pelas funções `material`, contribuição `closure_indirect`, hemisfério retirado por evento (R2, R3, R6, R7).
+**Goal**: sondas DDGI com acertos sombreados pelas funções `material`, coleta final na tela (R2 adendo), contribuição `closure_indirect`, hemisfério retirado por evento (R2, R3, R6, R7).
 
 **Independent Test**: Cornell box contra o traçador de caminhos da CPU, região por região.
 
 ### Testes
 
-- [ ] T024 [P] [US1] `src/elements/lighting/GlobalIllumination.test.ts`: validação (`bounces` 1–8, `raysPerProbe` em {32, 64, 128, 256}, `probeFraction` em (0, 1], `hysteresis` em [0,8; 0,995]), qualidades `low`/`medium`/`high`, mudança de valores sem recompilar, contribuição ao `scene_lighting`, `HemisphereLight` retirado na inserção e devolvido na remoção (evento)
-- [ ] T025 [P] [US1] Teste da composição de funções de ponto num kernel (C2) em `src/scene/shaders/` (vizinho do `WgslPoint.test.ts`): várias funções por entidade compostas com sufixo de hash e escolhidas pelo slot do registro; funções só de fragmento caem no recuo documentado
-- [ ] T026 [P] [US1] Teste de `closure_indirect` na referência de CPU `src/elements/material/reference/closure.ts`: com irradiância do hemisfério reproduz `closure_ambient` (caso particular)
+- [x] T024 [P] [US1] `src/elements/lighting/GlobalIllumination.test.ts`: validação (`bounces` 1–8, `raysPerProbe` em {32, 64, 128, 256}, `probeFraction` em (0, 1], `hysteresis` em [0,8; 0,995]), qualidades `low`/`medium`/`high`, mudança de valores sem recompilar, contribuição ao `scene_lighting`, `HemisphereLight` retirado na inserção e devolvido na remoção (evento)
+- [x] T025 [P] [US1] Teste da composição de funções de ponto num kernel (C2) em `src/scene/shaders/` (vizinho do `WgslPoint.test.ts`): várias funções por entidade compostas com sufixo de hash e escolhidas pelo slot do registro; funções só de fragmento caem no recuo documentado
+- [x] T026 [P] [US1] Teste de `closure_indirect` na referência de CPU `src/elements/material/reference/closure.ts`: com irradiância do hemisfério reproduz `closure_ambient` (caso particular)
 
 ### Implementação
 
-- [ ] T027 [US1] C2: composição genérica das funções de um ponto por entidade num kernel de compute (como `src/elements/extension/combineFields.ts`), em `src/scene/shaders/WgslPoint.ts` ou vizinho; seleção pelo slot do registro `Renderable`
-- [ ] T028 [US1] `src/elements/material/point/shaders.ts`: as funções `material` da cena compostas no kernel de acertos (R3); sem função, o fechamento pronto das constantes; entradas de derivada de tela sem valor no compute
-- [ ] T029 [US1] `closure_indirect(c, n, v, irradiance, specular)` em `src/elements/gpu/wgsl/math/closure_eval.wgsl`; `closure_ambient` passa a chamá-la
-- [ ] T030 [P] [US1] WGSL em `src/elements/gpu/wgsl/gi/`: `gi_probe_rays.wgsl` (direções esféricas giradas por quadro), `gi_probe_hits.wgsl` (acerto → material → luz direta amostrada pela potência com raio de sombra + céu + irradiância das sondas do quadro anterior; raios que escapam leem o céu), `gi_probe_blend.wgsl` (irradiância e visibilidade octaédricas com bordas), `gi_probe_classify.wgsl` (dentro da geometria: desligada; relocação para fora), `gi_sample.wgsl` (8 sondas da célula, trilinear × Chebyshev × voltada para a normal, cascatas)
-- [ ] T031 [US1] `src/elements/lighting/GlobalIllumination.ts` (+ schema) e `src/elements/lighting/ProbeFlow.ts`: 3 cascatas de 16×8×16 centradas na câmera (R6), fração de sondas por quadro, raios por sonda, rebatimentos pelo quadro anterior; amostragem das 1024 luzes pela potência sem custo linear
-- [ ] T032 [US1] `src/elements/scene/points/giContribution.ts`: contribuição ao `scene_lighting` com `closure_indirect` (irradiância interpolada e radiância especular na direção refletida alargada pela rugosidade)
-- [ ] T033 [US1] Retirada do hemisfério por evento nos estágios padrão (`src/presentation/flows/defaults.ts`): `GlobalIllumination` inserida → `HemisphereLight` retirado; removida → devolvido
-- [ ] T034 [US1] Exportar `GlobalIllumination` em `src/index.ts`
-- [ ] T035 [US1] Smoke `src/__smokes__/globalIllumination.ts` parte a: Cornell box com radiância média por região a ≤ 10 % do traçador com o mesmo número de rebatimentos (SC-001); tingimento vermelho perto da parede (razão vermelho/verde como na referência); cômodo com janela sem paredes pretas e energia como na referência; canto côncavo contra superfície aberta na proporção da referência; nenhuma superfície mais escura que só com a luz direta; ambiente branco fechado contra a série analítica (≤ 5 %, SC-002); emissivo ilumina o cômodo; cena sem luz nem céu não ganha energia; vídeos da Cornell box e do cômodo com o sol ao longo do dia
+- [x] T027 [US1] C2: composição genérica das funções de um ponto por entidade num kernel de compute (como `src/elements/extension/combineFields.ts`), em `src/scene/shaders/WgslPoint.ts` ou vizinho; seleção pelo slot do registro `Renderable`
+- [x] T028 [US1] `src/elements/material/point/shaders.ts`: as funções `material` da cena compostas no kernel de acertos (R3); sem função, o fechamento pronto das constantes; entradas de derivada de tela sem valor no compute
+- [x] T029 [US1] `closure_indirect(c, n, v, irradiance, specular)` em `src/elements/gpu/wgsl/math/closure_eval.wgsl`; `closure_ambient` passa a chamá-la
+- [x] T030 [P] [US1] WGSL em `src/elements/gpu/wgsl/gi/`: `gi_probe_rays.wgsl` (direções esféricas giradas por quadro), `gi_probe_hits.wgsl` (acerto → material → luz direta amostrada pela potência com raio de sombra + céu + irradiância das sondas do quadro anterior; raios que escapam leem o céu), `gi_probe_blend.wgsl` (irradiância e visibilidade octaédricas com bordas), `gi_probe_classify.wgsl` (dentro da geometria: desligada; relocação para fora), `gi_sample.wgsl` (8 sondas da célula, trilinear × Chebyshev × voltada para a normal, cascatas)
+- [x] T031 [US1] `src/elements/lighting/GlobalIllumination.ts` (+ schema) e `src/elements/lighting/ProbeFlow.ts`: 3 cascatas de 16×8×16 centradas na câmera (R6), fração de sondas por quadro, raios por sonda, rebatimentos pelo quadro anterior; amostragem das 1024 luzes pela potência sem custo linear
+- [x] T032 [US1] `src/elements/scene/points/giContribution.ts`: contribuição ao `scene_lighting` com `closure_indirect` (irradiância interpolada e radiância especular na direção refletida alargada pela rugosidade)
+- [x] T033 [US1] Retirada do hemisfério por evento nos estágios padrão (`src/presentation/flows/defaults.ts`): `GlobalIllumination` inserida → `HemisphereLight` retirado; removida → devolvido
+- [x] T034 [US1] Exportar `GlobalIllumination` em `src/index.ts`
+- [x] T071 [US1] C2: `canvasDivisor` em `src/scene/descriptors/TextureShape.ts` e na alocação do `ResourceSystem` (textura com uma fração do tamanho do canvas, recriada quando ele muda), com teste
+- [x] T072 [P] [US1] WGSL da coleta final na tela em `src/elements/gpu/wgsl/gi/`: `gi_screen_place.wgsl` (raio de câmera pelo centro do ladrilho → posição, normal, profundidade), `gi_screen_trace.wgsl` (raios por cosseno; acerto → material, luz direta com raio de sombra, emissão e rebatimento anterior das sondas do mundo), `gi_screen_resolve.wgsl` (E na normal da sonda; acúmulo reprojetado pela vista-projeção anterior com teste de plano e normal) e `gi_screen_sample.wgsl` (o ponto projetado, as sondas de tela vizinhas pesadas por plano e normal, recuo às sondas do mundo) — R2 adendo
+- [x] T073 [US1] `GlobalIllumination` (texturas das sondas de tela, parâmetros da tela no uniform) e `ProbeFlow` (slot das matrizes das câmeras, histórico privado, os kernels da tela no passe); contribuição ao `scene_lighting` com a irradiância da tela
+- [x] T035 [US1] Smoke `src/__smokes__/globalIllumination.ts` parte a: Cornell box com radiância média por região a ≤ 10 % do traçador com o mesmo número de rebatimentos (SC-001); tingimento vermelho perto da parede (razão vermelho/verde como na referência); cômodo com janela sem paredes pretas e energia como na referência; canto côncavo contra superfície aberta na proporção da referência; nenhuma superfície mais escura que só com a luz direta; ambiente branco fechado contra a série analítica (≤ 5 %, SC-002); emissivo ilumina o cômodo; cena sem luz nem céu não ganha energia; vídeos da Cornell box e do cômodo com o sol ao longo do dia
+
+**Notas da implementação (US1)**:
+
+- Coleta final na tela (R2 adendo, aprovada pelo usuário): as sondas do mundo sozinhas não fechavam a Cornell em 10 %
+  (a luz de perto). As sondas de tela (ladrilho de 4 px a 1080 linhas, dobrando com a altura) dão o primeiro rebatimento
+  exato; os seguintes vêm, nos acertos que são superfícies visíveis, das próprias sondas de tela do quadro anterior (uma
+  geração por rebatimento, o total exato) e, fora da tela, das sondas do mundo. Fora de todas as cascatas, as sondas da
+  borda da última (nunca zero).
+- C2: `canvasDivisor` na forma da textura; `ensurePool(schema)` (o pool das luzes existe numa cena só com emissores ou
+  só com o céu); evento `globalIlluminationReady` (os kernels da composição atual prontos — quem mede espera por ele).
+- A composição das funções `material` nos acertos atribui em cada caso e retorna uma vez depois do `switch`: o retorno
+  do fechamento de dentro dos casos, com invocações em casos diferentes, saía errado no Metal (a emissão sumia).
+- A contribuição ao `scene_lighting` ficou em `src/elements/lighting/points.ts` (o Resource dono), não em
+  `scene/points/giContribution.ts`.
+- Smoke: a referência (gabarito independente, na CPU) roda em workers; as medidas em 640×480 e em 4K; as regiões só no
+  interior das faces (sem as arestas entre faces, como já era entre objetos). Resultados: Cornell ≤ 2,4 % (4K ≤ 0,8 %),
+  painel emissor ≤ 3,3 %, cômodo com janela ≤ 9,2 % (canto côncavo 0,741 × 0,758), chão sob o céu 0,7 %, ambiente branco
+  a 0,4 % da série, sem fonte nada somado; o tingimento como na referência.
+- Achados para depois: um pixel do ambiente branco desvia 75 % (mancha num canto; US4) e a luz direta do mapa de sombra
+  vaza nas emendas das placas com o sol baixo (sombra, não iluminação global).
 
 **Checkpoint**: luz rebatida física com as sondas.
 

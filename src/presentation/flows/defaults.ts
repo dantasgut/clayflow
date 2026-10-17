@@ -1,5 +1,9 @@
 import type { FlowRegistry, FlowRegistration } from '../../scene/flows/FlowRegistry';
 import type { World } from '../../scene/world/World';
+import type { EventBus } from '../../scene/events/EventBus';
+import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
+import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
+import { RayScene } from '../../elements/raytrace/RayScene';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
 import { SoftSurfaceFlow } from '../../elements/physics/flows/SoftSurfaceFlow';
@@ -32,6 +36,11 @@ import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
 export interface PresentationDefaultsOptions {
     /** World da cena. */
     readonly world: World;
+    /**
+     * Eventos da cena: com eles, a entrada de uma `GlobalIllumination` retira o hemisfério (e garante a `RayScene`) e a
+     * saída da última o devolve (spec 033, R7).
+     */
+    readonly events?: EventBus;
     /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
     readonly samples?: 1 | 4;
 }
@@ -93,6 +102,8 @@ interface RegisteredDefaults {
     readonly ambient: HemisphereLight;
     readonly world: World;
     users: number;
+    /** Cancela a troca do hemisfério pela iluminação global. */
+    readonly unsubscribe: (() => void) | undefined;
 }
 
 /** Estágios padrão por cena (`FlowRegistry`): registrados uma vez, desregistrados com o último usuário. */
@@ -135,6 +146,10 @@ export function registerPresentationDefaults(
     const ambient = new HemisphereLight();
     options.world.insert(ambient);
     const { flows: stages, registrations } = createPresentationDefaults(flows);
+    const unsubscribe =
+        options.events === undefined
+            ? undefined
+            : swapAmbientForGi(options.world, options.events, ambient);
     const defaults: PresentationDefaults = {
         ...stages,
         presentation,
@@ -151,6 +166,7 @@ export function registerPresentationDefaults(
         ambient,
         world: options.world,
         users: 1,
+        unsubscribe,
     });
     return defaults;
 }
@@ -165,13 +181,35 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.users--;
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
+    entry.unsubscribe?.();
     for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
-    entry.world.remove(entry.ambient);
+    if (entry.world.entityIdOfResource(entry.ambient) !== undefined)
+        entry.world.remove(entry.ambient);
     entry.world.remove(entry.pbrTables);
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.frameTargets);
     return true;
+}
+
+/**
+ * Hemisfério e iluminação global por evento (spec 033, R7): a entrada de uma `GlobalIllumination` retira o hemisfério
+ * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes) e insere a `RayScene` que os
+ * raios das sondas consultam, se a cena não tem; a saída da última devolve o hemisfério. Devolve o cancelamento.
+ */
+function swapAmbientForGi(world: World, events: EventBus, ambient: HemisphereLight): () => void {
+    const giCount = (): number => world.queryBySchemaName(GlobalIllumination.schema.name).length;
+    return events.on('resourcesChanged', (e) => {
+        const added = e.added.some((r) => r instanceof GlobalIllumination);
+        const removed = e.removed.some((r) => r instanceof GlobalIllumination);
+        if (added) {
+            if (world.entityIdOfResource(ambient) !== undefined) world.remove(ambient);
+            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
+                world.insert(new RayScene());
+        } else if (removed && giCount() === 0 && world.entityIdOfResource(ambient) === undefined) {
+            world.insert(ambient);
+        }
+    });
 }
 
 function createPresentationDefaults(flows: FlowRegistry): {
@@ -238,6 +276,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
+    });
+    // Sondas da iluminação global (spec 033) depois do mapa de sombra: a estrutura de raios e o céu já estão prontos.
+    const probeRegistration = flows.register((ctx) => new ProbeFlow(ctx), {
+        type: 'globalIllumination',
+        phase: 'shadow',
+        priority: -5,
     });
     const forwardRegistration = flows.register((ctx) => new ForwardFlow(ctx, { output: 'scene' }), {
         type: 'forward',
@@ -320,6 +364,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             skyRegistration,
             raySceneRegistration,
             shadowRegistration,
+            probeRegistration,
             forwardRegistration,
             particleRegistration,
             fluidLightRegistration,

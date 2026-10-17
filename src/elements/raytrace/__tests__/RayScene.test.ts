@@ -6,6 +6,12 @@ import { Transform } from '../../scene/Transform';
 import { renderScene } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import { RayScene } from '../RayScene';
 import { RaySceneFlow } from '../RaySceneFlow';
+import { RAY_WORDS } from '../schemas';
+import { MaterialFunction } from '../../extension/MaterialFunction';
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
+import { bindPoints } from '../../../scene/shaders/bindPoints';
+import { composeHitMaterial } from '../../lighting/ProbeFlow';
+import { giHitMaterialPoint, giProbeTrace } from '../../lighting/shaders';
 
 // Estrutura de raios (spec 033, T007): descritores, uma hierarquia de baixo por conteúdo de geometria, construção uma
 // vez, hierarquia de cima a cada quadro, crescimento das capacidades.
@@ -35,18 +41,26 @@ const count = (labels: readonly string[], label: string): number =>
     labels.filter((l) => l === label).length;
 
 describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
-    it('descritores: o uniform da estrutura e os seis pools escritos só pela GPU, com a capacidade como contagem', () => {
+    it('descritores: o uniform da estrutura e os dois pools de palavras, escritos só pela GPU', () => {
         const scene = new RayScene();
         const byId = new Map(scene.getDescriptors().map((d) => [d.id, d]));
         expect(byId.get('info')).toMatchObject({ role: 'uniform' });
-        for (const id of ['vertices', 'triangles', 'spheres', 'nodes', 'blas', 'instances']) {
+        for (const id of ['geometry', 'bvh']) {
             expect(byId.get(id)).toMatchObject({
                 storage: 'pool',
                 upload: 'never',
                 role: 'storage-rw',
             });
         }
-        expect(byId.get('nodes')?.count).toBe(scene.data.nodes);
+        const d = scene.data;
+        expect(byId.get('bvh')?.count).toBe(
+            RAY_WORDS.node * d.nodes + RAY_WORDS.blas * d.blas + RAY_WORDS.instance * d.instances,
+        );
+        expect(byId.get('geometry')?.count).toBe(
+            RAY_WORDS.vertex * d.vertices
+                + RAY_WORDS.triangle * d.triangles
+                + RAY_WORDS.sphere * d.spheres,
+        );
     });
 
     it('reserve cresce por potências de dois e só quando passa da capacidade', () => {
@@ -145,5 +159,39 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         expect(scene.data.blas).toBeGreaterThanOrEqual(40);
         expect(scene.data.tlasRoot).toBeGreaterThan(0);
         expect(scene.data.nodes).toBeGreaterThanOrEqual(scene.data.tlasRoot + 2 * 40 - 1);
+    });
+
+    it('funções `material` nos acertos (T025): uma por código, renomeadas pelo hash, compostas num kernel; as de derivada de tela ficam de fora', async () => {
+        const s = await renderScene();
+        s.scene.flows.register((ctx) => new RaySceneFlow(ctx), {
+            type: 'rayScene',
+            phase: 'transform',
+        });
+        const rayScene = new RayScene();
+        s.scene.world.insert(rayScene);
+        const fn = (body: string): MaterialFunction =>
+            new MaterialFunction({
+                code: `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {\n    ${body}\n}`,
+            });
+        const diffuse = 'return closure_diffuse(m.albedo.rgb, 0.0);';
+        const glow =
+            'return closure_add(closure_diffuse(m.albedo.rgb, 0.0), closure_emission(vec3f(2.0), 1.0));';
+        const screen = 'let w = fwidth(s.uv.x);\n    return closure_diffuse(vec3f(w), 0.0);';
+        // Duas entidades com o mesmo código (uma função), uma com outro código e uma que lê derivadas de tela.
+        for (const body of [diffuse, diffuse, glow, screen])
+            s.scene.world.insert(
+                new BoxGeometry().add(new StandardMaterial()).add(new Transform()).add(fn(body)),
+            );
+        s.step();
+        const fns = rayScene.materialFunctions;
+        expect(fns).toHaveLength(2);
+        expect(new Set(fns.map((f) => f.functionName)).size).toBe(2);
+        expect(fns.every((f) => /^material_fn_[0-9a-f]+$/.test(f.functionName))).toBe(true);
+        // As duas compõem juntas no kernel dos raios das sondas, sem símbolos repetidos.
+        const source = composeWgsl(
+            bindPoints(giProbeTrace, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]])),
+        ).spec.source;
+        for (const f of fns) expect(source).toContain(`fn ${f.functionName}(`);
+        expect(source).not.toContain('fwidth');
     });
 });

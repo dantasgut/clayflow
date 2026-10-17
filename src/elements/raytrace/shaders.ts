@@ -16,19 +16,21 @@ import rayRefitSource from '../gpu/wgsl/raytrace/ray_refit.wgsl?raw';
 import rayReorderSource from '../gpu/wgsl/raytrace/ray_reorder.wgsl?raw';
 import rayInstancesSource from '../gpu/wgsl/raytrace/ray_instances.wgsl?raw';
 import raySceneSource from '../gpu/wgsl/raytrace/ray_scene.wgsl?raw';
+import rayGeometryReadSource from '../gpu/wgsl/raytrace/ray_geometry_read.wgsl?raw';
+import rayBvhReadSource from '../gpu/wgsl/raytrace/ray_bvh_read.wgsl?raw';
 import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
 import { worldsResource } from '../scene/resources';
 import {
-    RayBlasSchema,
     RayBuildParamsSchema,
-    RayInstanceSchema,
+    RayBvhSchema,
+    RayGeometrySchema,
     RayInstanceSourceSchema,
-    RayNodeSchema,
     RaySceneSchema,
-    RaySphereSchema,
-    RayTriangleSchema,
-    RayVertexSchema,
 } from './schemas';
+import { renderablesResource } from '../scene/resources';
+import { standardMaterialsResource } from '../material/renderResources';
+import { RenderableSchema } from '../scene/Renderable';
+import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
 
 // Módulos da estrutura de raios (spec 033, R1): as funções comuns, os kernels da construção (privados do
 // `RaySceneFlow`) e a consulta `ray_scene`, que qualquer estágio requer — os pools da `RayScene` e o uniform dela são
@@ -64,34 +66,38 @@ export const raySceneInfoResource = wgslResource({
     provider: { consumer: 'RayScene.info' },
 });
 
-/** Recursos da consulta: os pools da estrutura, leitura. */
+/** Recursos da consulta: os dois pools da estrutura, leitura. */
 export const raySceneResources = Object.freeze({
-    nodes: pool('ray_nodes', { schema: RayNodeSchema, array: true }, 'read', 'frame'),
-    vertices: pool('ray_vertices', { schema: RayVertexSchema, array: true }, 'read', 'frame'),
-    triangles: pool('ray_triangles', { schema: RayTriangleSchema, array: true }, 'read', 'frame'),
-    spheres: pool('ray_spheres', { schema: RaySphereSchema, array: true }, 'read', 'frame'),
-    blas: pool('ray_blas', { schema: RayBlasSchema, array: true }, 'read', 'frame'),
-    instances: pool('ray_instances', { schema: RayInstanceSchema, array: true }, 'read', 'frame'),
+    geometry: pool('ray_geometry', { schema: RayGeometrySchema, array: true }, 'read', 'frame'),
+    bvh: pool('ray_bvh', { schema: RayBvhSchema, array: true }, 'read', 'frame'),
+});
+
+/** Leitura da geometria (vértices, triângulos, esferas). */
+const rayGeometryRead = wgslModule({
+    name: 'ray_geometry_read',
+    source: rayGeometryReadSource,
+    requires: [rayCommon, raySceneResources.geometry],
+});
+
+/** Leitura da hierarquia (nós, hierarquias de baixo, instâncias). */
+const rayBvhRead = wgslModule({
+    name: 'ray_bvh_read',
+    source: rayBvhReadSource,
+    requires: [rayCommon, raySceneResources.bvh],
 });
 
 /**
  * Consulta da estrutura de raios: `ray_scene_hit(origin, dir, t_max) -> RayHit` e `ray_scene_occluded(origin, dir,
- * t_max) -> bool` (spec 033, FR-003). O contrato não expõe a origem da geometria.
+ * t_max) -> bool` (spec 033, FR-003). O contrato não expõe a origem da geometria; liga dois buffers de storage.
  */
 export const rayScene = wgslModule({
     name: 'ray_scene',
     source: raySceneSource,
-    requires: [
-        rayCommon,
-        raySceneInfoResource,
-        raySceneResources.nodes,
-        raySceneResources.vertices,
-        raySceneResources.triangles,
-        raySceneResources.spheres,
-        raySceneResources.blas,
-        raySceneResources.instances,
-    ],
+    requires: [rayCommon, rayGeometryRead, rayBvhRead, raySceneInfoResource],
 });
+
+/** Leitura das instâncias (o material copiado nelas), para quem sombreia os acertos. */
+export const rayInstanceRead = rayBvhRead;
 
 const priv = (name: string, access: 'read' | 'read_write', type: WgslResourceType): WgslResource =>
     wgslResource({
@@ -142,32 +148,12 @@ export const rayBuildResources = Object.freeze({
         schema: RayInstanceSourceSchema,
         array: true,
     }),
-    verticesOut: poolStage(
-        'ray_vertices_out',
-        { schema: RayVertexSchema, array: true },
+    geometryOut: poolStage(
+        'ray_geometry_out',
+        { schema: RayGeometrySchema, array: true },
         'read_write',
     ),
-    trianglesOut: poolStage(
-        'ray_triangles_out',
-        { schema: RayTriangleSchema, array: true },
-        'read_write',
-    ),
-    spheresOut: poolStage(
-        'ray_spheres_out',
-        { schema: RaySphereSchema, array: true },
-        'read_write',
-    ),
-    nodesOut: poolStage('ray_nodes_out', { schema: RayNodeSchema, array: true }, 'read_write'),
-    instancesOut: poolStage(
-        'ray_instances_out',
-        { schema: RayInstanceSchema, array: true },
-        'read_write',
-    ),
-    vertices: poolStage('ray_vertices', { schema: RayVertexSchema, array: true }, 'read'),
-    triangles: poolStage('ray_triangles', { schema: RayTriangleSchema, array: true }, 'read'),
-    spheres: poolStage('ray_spheres', { schema: RaySphereSchema, array: true }, 'read'),
-    nodes: poolStage('ray_nodes', { schema: RayNodeSchema, array: true }, 'read'),
-    blas: poolStage('ray_blas', { schema: RayBlasSchema, array: true }, 'read'),
+    bvhOut: poolStage('ray_bvh_out', { schema: RayBvhSchema, array: true }, 'read_write'),
 });
 
 const B = rayBuildResources;
@@ -184,9 +170,7 @@ export const rayGather = wgslModule({
         B.srcIndices,
         B.srcIndirect,
         B.srcParticles,
-        B.verticesOut,
-        B.trianglesOut,
-        B.spheresOut,
+        B.geometryOut,
     ],
 });
 
@@ -194,7 +178,7 @@ export const rayGather = wgslModule({
 const rayPrimBox = wgslModule({
     name: 'ray_build_prim_box',
     source: rayPrimBoxSource,
-    requires: [rayCommon, B.build, B.vertices, B.triangles, B.spheres],
+    requires: [rayCommon, rayGeometryRead, B.build],
 });
 
 /** Caixa do conjunto reduzida no grupo de trabalho. */
@@ -236,7 +220,7 @@ export const rayLbvh = wgslModule({
         B.build,
         B.keysRead,
         B.valuesRead,
-        B.nodesOut,
+        B.bvhOut,
         B.parents,
     ],
 });
@@ -251,7 +235,7 @@ export const rayRefit = wgslModule({
         rayPrimBox,
         B.build,
         B.aabbsRead,
-        B.nodesOut,
+        B.bvhOut,
         B.parentsRead,
         B.counters,
         B.boxes,
@@ -262,7 +246,7 @@ export const rayRefit = wgslModule({
 export const rayReorder = wgslModule({
     name: 'ray_build_reorder',
     source: rayReorderSource,
-    requires: [WORKGROUP_SIZE.module, B.build, B.valuesRead, B.trianglesOut, B.tris],
+    requires: [WORKGROUP_SIZE.module, rayCommon, B.build, B.valuesRead, B.geometryOut, B.tris],
 });
 
 /** Instâncias da hierarquia de cima. */
@@ -271,14 +255,16 @@ export const rayInstances = wgslModule({
     source: rayInstancesSource,
     requires: [
         WORKGROUP_SIZE.module,
+        NONE.module,
         rayCommon,
         rayReduce,
         B.build,
         B.instanceSources,
         worldsResource,
-        B.blas,
-        B.nodes,
-        B.instancesOut,
+        renderablesResource,
+        standardMaterialsResource,
+        B.bvhOut,
         B.aabbs,
     ],
+    structs: [RenderableSchema, StandardMaterialSchema],
 });

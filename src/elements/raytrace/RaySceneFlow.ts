@@ -32,19 +32,19 @@ import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { RadixSort } from '../gpu/compute/RadixSort';
 import { Geometry } from '../geometry/Geometry';
 import { Material } from '../material/Material';
+import { StandardMaterial } from '../material/StandardMaterial';
+import { MaterialFunction } from '../extension/MaterialFunction';
+import type { WgslModule } from '../../scene/shaders/WgslModule';
 import { renderableRecord } from '../scene/Renderable';
 import { Transform } from '../scene/Transform';
 import { RayScene, type RaySceneCapacity } from './RayScene';
 import {
     RayAabbSchema,
-    RayBlasSchema,
     RayBuildParamsSchema,
-    RayInstanceSchema,
     RayInstanceSourceSchema,
-    RayNodeSchema,
-    RaySphereSchema,
-    RayTriangleSchema,
-    RayVertexSchema,
+    RAY_WORDS,
+    RayBvhSchema,
+    RayGeometrySchema,
 } from './schemas';
 import {
     rayBounds,
@@ -55,8 +55,10 @@ import {
     rayMorton,
     rayRefit,
     rayReorder,
+    raySceneResources,
 } from './shaders';
-import { worldsResource } from '../scene/resources';
+import { renderablesResource, worldsResource } from '../scene/resources';
+import { standardMaterialsResource } from '../material/renderResources';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 /** Tipos de primitiva (os `RAY_KIND_*` do WGSL). */
@@ -168,22 +170,27 @@ interface Scratch {
     readonly sources: StorageBufferSpec;
 }
 
-/** Instância de um quadro: a hierarquia e os slots. */
+/** Instância de um quadro: a hierarquia, os slots e o material (bit `StandardMaterial` + índice da função). */
 interface Instance {
     readonly blas: Blas;
     readonly renderable: number;
     readonly world: number;
+    readonly material: number;
 }
 
+/** Material de uma entidade: `StandardMaterial` (o slot aponta o pool dele) e a função `material`, se houver. */
+interface EntityMaterial {
+    readonly standard: boolean;
+    readonly fn: MaterialFunction | undefined;
+}
+
+/** Bit das instâncias com `StandardMaterial` (o `GI_HIT_STANDARD` do WGSL). */
+const MATERIAL_STANDARD = 0x80000000;
+/** Funções que leem derivadas de tela só valem no desenho (nos acertos, as constantes). */
+const FRAGMENT_ONLY = /\b(dpdx|dpdy|fwidth)\w*\s*\(/;
+
 /** Pools da estrutura (chaves) e os seus buffers ligados. */
-const POOLS = [
-    RayVertexSchema,
-    RayTriangleSchema,
-    RaySphereSchema,
-    RayNodeSchema,
-    RayBlasSchema,
-    RayInstanceSchema,
-] as const;
+const POOLS = [RayGeometrySchema, RayBvhSchema] as const;
 
 /** Palavras por caixa do conjunto (mínimo e máximo em ordem de u32, com folga para 8). */
 const BOUNDS_WORDS = 8;
@@ -212,6 +219,9 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     private readonly params: PerStepUniforms;
     private readonly blas = new Map<string, Blas>();
     private readonly blasOf = new Map<EntityId, Blas>();
+    private readonly materialOf = new Map<EntityId, EntityMaterial>();
+    /** Módulos das funções na ordem dos índices gravados (outros módulos = refaz). */
+    private functionModules: readonly WgslModule[] = [];
     private instances: Instance[] = [];
     private order: Blas[] = [];
     private scratch: Scratch | undefined;
@@ -396,6 +406,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             const b = this.blasOf.get(id);
             if (b === undefined) continue;
             this.blasOf.delete(id);
+            this.materialOf.delete(id);
             b.users.delete(id);
             if (b.users.size === 0) {
                 this.releaseGather(b);
@@ -432,6 +443,12 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             }
             b.users.add(entry.entityId);
             this.blasOf.set(entry.entityId, b);
+            this.materialOf.set(entry.entityId, {
+                standard: entry.get(Material) instanceof StandardMaterial,
+                fn: entry.resources.find(
+                    (r): r is MaterialFunction => r instanceof MaterialFunction,
+                ),
+            });
         }
         this.layoutDirty = true;
     }
@@ -444,6 +461,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             this.layoutDirty = true;
             this.rebuildAll = true;
         }
+        if (this.functionsChanged()) this.layoutDirty = true;
         if (this.layoutDirty) this.layout(scene);
         const pools = POOLS.map((s) => this.resources.poolBufferSpec(s.name));
         if (pools.some((p) => p === undefined)) return;
@@ -501,13 +519,18 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             triangles += b.count;
             nodes += 2 * b.leaves - 1;
         });
+        const functions = this.composeFunctions(scene);
         this.instances = [];
         for (const [id, b] of this.blasOf) {
             if (!b.built && b.action !== 'build') continue;
             const renderable = this.recordSlotOf(id);
             if (renderable === undefined) continue;
             const world = this.resources.poolSlotOf(Transform.worldSchema.name, id) ?? NONE.value;
-            this.instances.push({ blas: b, renderable, world });
+            const m = this.materialOf.get(id);
+            const composite = m?.fn?.composite?.module;
+            const index = composite === undefined ? -1 : functions.indexOf(composite);
+            const material = (m?.standard === true ? MATERIAL_STANDARD : 0) | (index + 1);
+            this.instances.push({ blas: b, renderable, world, material: material >>> 0 });
         }
         // Capacidades por todas as instâncias (prontas ou não): ficar pronta não realoca os pools.
         const tlasNodes = Math.max(1, 2 * this.blasOf.size - 1);
@@ -526,16 +549,65 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 ? undefined
                 : this.resources.poolRangeOf(schema.name, sceneId)?.first) ?? 0;
         const info = scene.data;
-        info.vertexFirst = first(RayVertexSchema);
-        info.triangleFirst = first(RayTriangleSchema);
-        info.sphereFirst = first(RaySphereSchema);
-        info.nodeFirst = first(RayNodeSchema);
-        info.blasFirst = first(RayBlasSchema);
-        info.instanceFirst = first(RayInstanceSchema);
+        // Regiões nos dois pools (palavras): vértices, triângulos e esferas; nós, hierarquias e instâncias.
+        const cap = scene.data;
+        info.vertexFirst = first(RayGeometrySchema);
+        info.triangleFirst = info.vertexFirst + RAY_WORDS.vertex * cap.vertices;
+        info.sphereFirst = info.triangleFirst + RAY_WORDS.triangle * cap.triangles;
+        info.nodeFirst = first(RayBvhSchema);
+        info.blasFirst = info.nodeFirst + RAY_WORDS.node * cap.nodes;
+        info.instanceFirst = info.blasFirst + RAY_WORDS.blas * cap.blas;
         info.instanceCount = this.instances.length;
         this.tlasStale = true;
         info.tlasRoot = nodes;
         this.writeRecords(scene);
+    }
+
+    /**
+     * As funções `material` das entidades (a versão renomeada, uma por código) publicadas na `RayScene` para quem
+     * sombreia os acertos; as que leem derivadas de tela ficam de fora (as constantes valem nos acertos).
+     */
+    private composeFunctions(scene: RayScene): readonly WgslModule[] {
+        const list: { module: WgslModule; fn: MaterialFunction }[] = [];
+        for (const m of this.materialOf.values()) {
+            const composite = m.fn?.composite;
+            if (composite === undefined || m.fn === undefined || FRAGMENT_ONLY.test(m.fn.code))
+                continue;
+            if (!list.some((e) => e.module === composite.module))
+                list.push({ module: composite.module, fn: m.fn });
+        }
+        const modules = list.map((e) => e.module);
+        if (
+            modules.length !== this.functionModules.length
+            || modules.some((m, k) => m !== this.functionModules[k])
+        ) {
+            this.functionModules = modules;
+            scene.materialFunctions = list.map(({ fn }) => ({
+                ...fn.composite!,
+                returnsClosure: fn.returnsClosure,
+            }));
+            scene.materialRevision++;
+        }
+        return modules;
+    }
+
+    /** O código de alguma função `material` mudou desde o leiaute (refaz os índices). */
+    private functionsChanged(): boolean {
+        let k = 0;
+        const seen = new Set<WgslModule>();
+        for (const m of this.materialOf.values()) {
+            const composite = m.fn?.composite?.module;
+            if (
+                composite === undefined
+                || m.fn === undefined
+                || FRAGMENT_ONLY.test(m.fn.code)
+                || seen.has(composite)
+            )
+                continue;
+            seen.add(composite);
+            if (this.functionModules[k++] !== composite) return true;
+        }
+        return k !== this.functionModules.length;
     }
 
     /** Slot do registro `Renderable` da entidade (o `firstInstance` do desenho). */
@@ -545,7 +617,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
 
     /** Registros de hierarquia (CPU conhece as faixas) e origens das instâncias, escritos quando o conjunto muda. */
     private writeRecords(scene: RayScene): void {
-        const blasPool = this.resources.poolBufferSpec(RayBlasSchema.name);
+        const blasPool = this.resources.poolBufferSpec(RayBvhSchema.name);
         if (blasPool !== undefined && this.order.length > 0) {
             const words = new Uint32Array(this.order.length * 8);
             this.order.forEach((b, i) => {
@@ -563,13 +635,25 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                     i * 8,
                 );
             });
-            this.core.write(blasPool, words, scene.data.blasFirst * RayBlasSchema.stride);
+            this.core.write(blasPool, words, scene.data.blasFirst * RayBvhSchema.stride);
         }
         this.ensureScratch();
         if (this.scratch !== undefined && this.instances.length > 0) {
-            const words = new Uint32Array(this.instances.length * 4);
+            const words = new Uint32Array(this.instances.length * 8);
             this.instances.forEach((inst, i) => {
-                words.set([inst.blas.index, inst.renderable, inst.world, KIND_TRIANGLES], i * 4);
+                words.set(
+                    [
+                        inst.blas.index,
+                        inst.renderable,
+                        inst.world,
+                        KIND_TRIANGLES,
+                        inst.material,
+                        0,
+                        0,
+                        0,
+                    ],
+                    i * 8,
+                );
             });
             this.core.write(this.scratch.sources, words);
         }
@@ -606,7 +690,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         };
         if (
             next.prims * RayAabbSchema.stride > limit
-            || next.nodes * RayNodeSchema.stride > limit
+            || next.nodes * RAY_WORDS.node * RayBvhSchema.stride > limit
         ) {
             this.unsupported = true;
             this.events.emit('globalIlluminationUnsupported', {
@@ -632,7 +716,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             parents: storage('parents', next.nodes * 4),
             counters: storage('counters', next.prims * 2 * 4),
             boxes: storage('boxes', next.prims * 2 * 6 * 4),
-            tris: storage('tris', next.prims * RayTriangleSchema.stride),
+            tris: storage('tris', next.prims * RAY_WORDS.triangle * RayGeometrySchema.stride),
             sources: storage('sources', next.instances * RayInstanceSourceSchema.stride),
         };
         if (this.sortCapacity < next.prims) {
@@ -651,14 +735,15 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     /** Kernels genéricos e de cópia que faltam (ou cujos buffers mudaram). */
     private ensureKernels(): void {
         const scratch = this.scratch!;
-        const [vertices, triangles, spheres, nodes, blasPool, instances] = this
-            .pools as StorageBufferSpec[];
+        const [geometry, bvh] = this.pools as StorageBufferSpec[];
         // Ordenações por quadro: uma por hierarquia construída mais a de cima.
         this.sort!.prepare(scratch.keys, scratch.values, this.order.length + 1);
         if (this.params.reserve(this.order.length + 1)) this.releaseShared();
         const build = this.params.source();
         if (this.shared === undefined) {
             const worlds = this.resources.poolBufferSpec(Transform.worldSchema.name);
+            const renderables = this.resources.poolBufferSpec(renderableRecord.schema.name);
+            const materials = this.resources.poolBufferSpec(StandardMaterial.schema.name);
             const kernel = (
                 name: string,
                 shader: Parameters<typeof createComputeKernel>[1]['shader'],
@@ -673,8 +758,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 });
             this.shared = {
                 bounds: kernel('bounds', rayBounds, 'ray_bounds_triangles_main', [
-                    [B.vertices, vertices!],
-                    [B.triangles, triangles!],
+                    [raySceneResources.geometry, geometry!],
                     [B.aabbs, scratch.aabbs],
                     [B.bounds, scratch.bounds],
                 ]),
@@ -686,37 +770,36 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 ]),
                 lbvh: kernel('lbvh', rayLbvh, 'ray_lbvh_main', [
                     [B.keysRead, scratch.keys],
-                    [B.nodesOut, nodes!],
+                    [B.bvhOut, bvh!],
                     [B.parents, scratch.parents],
                 ]),
                 leaves: kernel('leaves', rayLbvh, 'ray_lbvh_leaves_main', [
                     [B.valuesRead, scratch.values],
-                    [B.nodesOut, nodes!],
+                    [B.bvhOut, bvh!],
                     [B.parents, scratch.parents],
                 ]),
                 clear: kernel('counters_clear', rayRefit, 'ray_counters_clear_main', [
                     [B.counters, scratch.counters],
                 ]),
                 leavesTriangles: kernel('leaves_triangles', rayRefit, 'ray_leaves_triangles_main', [
-                    [B.vertices, vertices!],
-                    [B.triangles, triangles!],
-                    [B.nodesOut, nodes!],
+                    [raySceneResources.geometry, geometry!],
+                    [B.bvhOut, bvh!],
                 ]),
                 leavesAabbs: kernel('leaves_aabbs', rayRefit, 'ray_leaves_aabbs_main', [
                     [B.aabbsRead, scratch.aabbs],
-                    [B.nodesOut, nodes!],
+                    [B.bvhOut, bvh!],
                 ]),
                 reorderGather: kernel('reorder_gather', rayReorder, 'ray_reorder_gather_main', [
                     [B.valuesRead, scratch.values],
-                    [B.trianglesOut, triangles!],
+                    [B.geometryOut, geometry!],
                     [B.tris, scratch.tris],
                 ]),
                 reorderStore: kernel('reorder_store', rayReorder, 'ray_reorder_store_main', [
-                    [B.trianglesOut, triangles!],
+                    [B.geometryOut, geometry!],
                     [B.tris, scratch.tris],
                 ]),
                 climb: kernel('climb', rayRefit, 'ray_climb_main', [
-                    [B.nodesOut, nodes!],
+                    [B.bvhOut, bvh!],
                     [B.parentsRead, scratch.parents],
                     [B.counters, scratch.counters],
                     [B.boxes, scratch.boxes],
@@ -724,25 +807,19 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 instances: kernel('instances', rayInstances, 'ray_instances_main', [
                     [B.instanceSources, scratch.sources],
                     [worldsResource, worlds ?? scratch.sources],
-                    [B.blas, blasPool!],
-                    [B.nodes, nodes!],
-                    [B.instancesOut, instances!],
+                    [renderablesResource, renderables ?? scratch.sources],
+                    [standardMaterialsResource, materials ?? scratch.sources],
+                    [B.bvhOut, bvh!],
                     [B.aabbs, scratch.aabbs],
                     [B.bounds, scratch.bounds],
                 ]),
             };
-            void spheres;
         }
-        for (const b of this.order) this.ensureGather(b, build, vertices!, triangles!);
+        for (const b of this.order) this.ensureGather(b, build, geometry!);
     }
 
     /** Kernels de cópia da geometria (refeitos quando os buffers dela mudam). */
-    private ensureGather(
-        b: Blas,
-        build: BindingSource,
-        vertices: StorageBufferSpec,
-        triangles: StorageBufferSpec,
-    ): void {
+    private ensureGather(b: Blas, build: BindingSource, geometry: StorageBufferSpec): void {
         const src = this.sourcesOf(b.geometry);
         if (src === undefined) return;
         const same =
@@ -762,7 +839,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             bindings: new Map<WgslResource, BindingSource>([
                 [B.build, build],
                 [B.srcVertices, asSource(src.vertices)],
-                [B.verticesOut, vertices],
+                [B.geometryOut, geometry],
             ]),
         });
         const entry = b.indirect
@@ -780,7 +857,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 ...(b.indirect && src.indirect !== undefined
                     ? ([[B.srcIndirect, asSource(src.indirect)]] as [WgslResource, BindingSource][])
                     : []),
-                [B.trianglesOut, triangles],
+                [B.geometryOut, geometry],
             ]),
         });
     }

@@ -6,11 +6,24 @@
 // grupo veja a escrita); as das folhas já estão visíveis (despacho anterior). O nó recebe a caixa também por escrita
 // comum, que os passos seguintes leem. Serve à construção e ao reajuste da geometria que se
 // deforma (mesma topologia, caixas novas), sem reconstruir a hierarquia.
-// Requer: WORKGROUP_SIZE, ray_common, ray_prim_box, build, ray_aabbs_read, ray_nodes_out, ray_parents_read,
-// ray_counters, ray_boxes.
+// Requer: WORKGROUP_SIZE, ray_common, ray_prim_box, build, ray_aabbs_read, ray_bvh_out, ray_parents_read, ray_counters,
+// ray_boxes.
 
-fn ray_refit_abs(local: u32) -> u32 {
-    return build.nodeFirst + build.nodeBase + local;
+fn ray_refit_word(local: u32) -> u32 {
+    return build.nodeFirst + (build.nodeBase + local) * RAY_NODE_WORDS;
+}
+
+/** Grava a caixa de um nó mantendo os filhos (o `w` das palavras). */
+fn ray_store_box(local: u32, lo: vec3f, hi: vec3f) {
+    let n = ray_refit_word(local);
+    ray_bvh_out[n].word = vec4u(bitcast<vec3u>(lo), ray_bvh_out[n].word.w);
+    ray_bvh_out[n + 1u].word = vec4u(bitcast<vec3u>(hi), ray_bvh_out[n + 1u].word.w);
+}
+
+/** Nó local de uma hierarquia (do pool em escrita). */
+fn ray_refit_node(local: u32) -> RayNode {
+    let n = ray_refit_word(local);
+    return ray_node_words(ray_bvh_out[n].word, ray_bvh_out[n + 1u].word);
 }
 
 fn ray_refit_index(gid3: vec3u, nwg: vec3u) -> u32 {
@@ -26,9 +39,7 @@ fn ray_set_box(local: u32, lo: vec3f, hi: vec3f) {
     atomicStore(&ray_boxes[k + 3u], bitcast<u32>(hi.x));
     atomicStore(&ray_boxes[k + 4u], bitcast<u32>(hi.y));
     atomicStore(&ray_boxes[k + 5u], bitcast<u32>(hi.z));
-    let n = ray_refit_abs(local);
-    ray_nodes_out[n].lo = vec4f(lo, ray_nodes_out[n].lo.w);
-    ray_nodes_out[n].hi = vec4f(hi, ray_nodes_out[n].hi.w);
+    ray_store_box(local, lo, hi);
 }
 
 fn ray_box_lo(local: u32) -> vec3f {
@@ -45,25 +56,23 @@ fn ray_box_hi(local: u32) -> vec3f {
 
 /** Primitiva local da folha j. */
 fn ray_leaf_prim(j: u32) -> u32 {
-    return bitcast<u32>(ray_nodes_out[ray_refit_abs(build.leaves - 1u + j)].hi.w);
+    return ray_refit_node(build.leaves - 1u + j).right;
 }
 
 /** Caixa de um filho: a da folha (escrita no passo anterior, comum) ou a do nó interno (atômica, deste passo). */
 fn ray_child_lo(local: u32) -> vec3f {
-    if (local + 1u >= build.leaves) { return ray_nodes_out[ray_refit_abs(local)].lo.xyz; }
+    if (local + 1u >= build.leaves) { return ray_refit_node(local).lo; }
     return ray_box_lo(local);
 }
 
 fn ray_child_hi(local: u32) -> vec3f {
-    if (local + 1u >= build.leaves) { return ray_nodes_out[ray_refit_abs(local)].hi.xyz; }
+    if (local + 1u >= build.leaves) { return ray_refit_node(local).hi; }
     return ray_box_hi(local);
 }
 
 /** Grava a caixa de uma folha só no nó (lida pelo passo seguinte sem atômicos). */
 fn ray_set_leaf(j: u32, lo: vec3f, hi: vec3f) {
-    let n = ray_refit_abs(build.leaves - 1u + j);
-    ray_nodes_out[n].lo = vec4f(lo, ray_nodes_out[n].lo.w);
-    ray_nodes_out[n].hi = vec4f(hi, ray_nodes_out[n].hi.w);
+    ray_store_box(build.leaves - 1u + j, lo, hi);
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -108,9 +117,9 @@ fn ray_climb_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
     var node = ray_parents[build.nodeBase + build.leaves - 1u + j];
     loop {
         if (atomicAdd(&ray_counters[node], 1u) == 0u) { return; }
-        let k = ray_refit_abs(node);
-        let l = bitcast<u32>(ray_nodes_out[k].lo.w);
-        let r = bitcast<u32>(ray_nodes_out[k].hi.w);
+        let nd = ray_refit_node(node);
+        let l = nd.left;
+        let r = nd.right;
         ray_set_box(node, min(ray_child_lo(l), ray_child_lo(r)), max(ray_child_hi(l), ray_child_hi(r)));
         if (node == 0u) { return; }
         node = ray_parents[build.nodeBase + node];

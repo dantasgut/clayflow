@@ -1,58 +1,44 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
-// Layouts da estrutura de raios da cena (spec 033, R1). Cada um é um pool da C2 (a `RayScene` ocupa uma faixa de
-// cada, com a capacidade como contagem): os pools crescem por realocação e os estágios que os leem são religados pela
-// C2. Campos em `vec4` para o layout de storage não depender do alinhamento de `vec3`.
+// Layouts da estrutura de raios da cena (spec 033, R1). Dois pools da C2 de palavras `vec4u` (a `RayScene` ocupa uma
+// faixa de cada, com a capacidade como contagem; os pools crescem por realocação e os estágios que os leem são
+// religados pela C2): a geometria (vértices, triângulos, esferas) e a hierarquia (nós, hierarquias de baixo,
+// instâncias). Dois buffers só — a consulta cabe no limite de buffers de storage por estágio (10 no Metal) com folga para
+// quem a usa. Floats guardados pelos bits (`bitcast`): nenhum padrão de bits passa por memória `f32`.
+//
+// Palavras por elemento (as constantes `RAY_*_WORDS` do WGSL):
+//   - vértice (2): posição (w = u), normal (w = v), em espaço de objeto;
+//   - triângulo (1): os três vértices (índices relativos ao início da faixa de vértices), w livre;
+//   - esfera (1): centro e raio, em mundo;
+//   - nó (2): caixa mínima com o filho esquerdo em `w`, caixa máxima com o direito (índices locais à hierarquia; na
+//     folha, o esquerdo tem o bit `RAY_LEAF` com a posição da folha e o direito a primeira primitiva);
+//   - hierarquia de baixo (2): (início dos nós, início das primitivas, primitivas, tipo `RAY_KIND_*`) e (início dos
+//     vértices, volume, primitivas por folha, 0);
+//   - instância (11): mundo → objeto (4), objeto → mundo (4), (hierarquia, registro `Renderable`, tipo, material: bit 31
+//     = `StandardMaterial`, bits baixos = índice da função `material` + 1), o material — (albedo, rugosidade) e
+//     (metalicidade, slot da função, 0, 0).
 
-/** Vértice copiado de uma geometria, em espaço de objeto: posição (w = u) e normal (w = v). */
-export const RayVertexSchema = new StructSchema('RayVertex', {
-    position: FieldType.vec4f,
-    normal: FieldType.vec4f,
-});
+/** Pool da geometria da estrutura (vértices, triângulos, esferas), em palavras `vec4u`. */
+export const RayGeometrySchema = new StructSchema('RayGeometry', { word: FieldType.vec4u });
 
-/** Triângulo: os três vértices (índices relativos ao início da faixa de vértices); w livre. */
-export const RayTriangleSchema = new StructSchema('RayTriangle', {
-    vertices: FieldType.vec4u,
-});
+/** Pool da hierarquia da estrutura (nós, hierarquias de baixo, instâncias), em palavras `vec4u`. */
+export const RayBvhSchema = new StructSchema('RayBvh', { word: FieldType.vec4u });
 
-/** Esfera (partícula de sprite), em mundo: centro e raio. */
-export const RaySphereSchema = new StructSchema('RaySphere', {
-    sphere: FieldType.vec4f,
-});
-
-/**
- * Nó da hierarquia (BLAS ou TLAS): caixa mínima (`lo.xyz`) e máxima (`hi.xyz`); `lo.w` e `hi.w` guardam, em bits, os
- * filhos esquerdo e direito (índices locais à hierarquia) — na folha, `lo.w` tem o bit `RAY_LEAF` com a posição da
- * folha e `hi.w` a primitiva (local).
- */
-export const RayNodeSchema = new StructSchema('RayNode', {
-    lo: FieldType.vec4f,
-    hi: FieldType.vec4f,
-});
-
-/**
- * Hierarquia de baixo (uma por conteúdo de geometria, ou por corpo de partículas): `a` = (início dos nós, início das
- * primitivas, primitivas, tipo — `RAY_KIND_*`), `b` = (início dos vértices, volume, primitivas por folha, 0).
- */
-export const RayBlasSchema = new StructSchema('RayBlas', {
-    a: FieldType.vec4u,
-    b: FieldType.vec4u,
+/** Palavras por elemento (as mesmas do WGSL). */
+export const RAY_WORDS = Object.freeze({
+    vertex: 2,
+    triangle: 1,
+    sphere: 1,
+    node: 2,
+    blas: 2,
+    instance: 11,
 });
 
 /**
- * Instância da cena: as matrizes de mundo → objeto e objeto → mundo e `ids` = (hierarquia, registro `Renderable`,
- * tipo — `RAY_KIND_*`, entidade de volume).
- */
-export const RayInstanceSchema = new StructSchema('RayInstance', {
-    toObject: FieldType.mat4x4f,
-    toWorld: FieldType.mat4x4f,
-    ids: FieldType.vec4u,
-});
-
-/**
- * A estrutura de raios da cena (uniform): o início da faixa da `RayScene` em cada pool, o número de instâncias e a
- * raiz da hierarquia de cima (índice local à faixa de nós). Atualizada pelo estágio que constrói a estrutura.
+ * A estrutura de raios da cena (uniform): a palavra em que começa cada região da `RayScene` nos dois pools
+ * (vértices, triângulos e esferas na geometria; nós, hierarquias e instâncias na hierarquia), o número de instâncias e
+ * a raiz da hierarquia de cima (nó local à região de nós). Atualizada pelo estágio que constrói a estrutura.
  */
 export const RaySceneSchema = new StructSchema(
     'RayScene',
@@ -121,8 +107,10 @@ export const RayAabbSchema = new StructSchema('RayAabb', {
     hi: FieldType.vec4f,
 });
 
-/** Registro de origem de uma instância, escrito pela CPU quando o conjunto muda: hierarquia, slots e tipo. */
+/** Registro de origem de uma instância, escrito pela CPU quando o conjunto muda: hierarquia, slots, tipo e material. */
 export const RayInstanceSourceSchema = new StructSchema('RayInstanceSource', {
     /** (hierarquia, registro `Renderable`, slot da matriz de mundo, tipo `RAY_KIND_*`). */
     ids: FieldType.vec4u,
+    /** (material: bit 31 = `StandardMaterial`, bits baixos = índice da função `material` + 1; 0, 0, 0). */
+    material: FieldType.vec4u,
 });

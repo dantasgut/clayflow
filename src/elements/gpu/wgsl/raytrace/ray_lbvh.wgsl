@@ -4,7 +4,7 @@
 // cada nó guarda o pai (`ray_parents`, para o reajuste). A folha j aponta a primitiva `ray_values[j]` (ordem de Morton),
 // ou o triângulo j (os triângulos são reordenados na ordem das folhas).
 // As caixas vêm depois, pelo reajuste (`ray_refit`).
-// Requer: WORKGROUP_SIZE, ray_common, build, ray_keys_read, ray_values_read, ray_nodes_out, ray_parents.
+// Requer: WORKGROUP_SIZE, ray_common, build, ray_keys_read, ray_values_read, ray_bvh_out, ray_parents.
 
 /** Prefixo comum de (chave, índice) das folhas i e j; −1 fora de [0, n). */
 fn ray_delta(i: i32, j: i32) -> i32 {
@@ -17,15 +17,16 @@ fn ray_delta(i: i32, j: i32) -> i32 {
     return i32(countLeadingZeros(a ^ b));
 }
 
-fn ray_node_abs(local: u32) -> u32 {
-    return build.nodeFirst + build.nodeBase + local;
+/** Palavra do nó local de uma hierarquia. */
+fn ray_node_word(local: u32) -> u32 {
+    return build.nodeFirst + (build.nodeBase + local) * RAY_NODE_WORDS;
 }
 
-/** Escreve os filhos de um nó (os bits em `lo.w`/`hi.w`), sem tocar na caixa. */
+/** Escreve os filhos de um nó (o `w` das duas palavras), sem tocar na caixa. */
 fn ray_set_children(local: u32, left: u32, right: u32) {
-    let k = ray_node_abs(local);
-    ray_nodes_out[k].lo.w = bitcast<f32>(left);
-    ray_nodes_out[k].hi.w = bitcast<f32>(right);
+    let k = ray_node_word(local);
+    ray_bvh_out[k].word.w = left;
+    ray_bvh_out[k + 1u].word.w = right;
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)

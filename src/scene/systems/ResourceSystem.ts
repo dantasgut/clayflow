@@ -488,6 +488,18 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
     }
 
+    ensurePool(schema: Schema): void {
+        if (this.pools.has(schema.name)) return;
+        this.createPool(
+            schema.name,
+            { id: schema.name, role: 'storage-ro', storage: 'pool', schema },
+            schema,
+        );
+        for (const created of this.createdPools.splice(0)) {
+            this.events.emit('poolCreated', { poolKey: created.poolKey, schema: created.schema });
+        }
+    }
+
     /** Desfaz um `acquireEntityRecords`; sem usuários, os registros são liberados (o pool fica). */
     releaseEntityRecords(declaration: EntityRecordDeclaration): void {
         const key = declaration.schema.name;
@@ -1680,7 +1692,15 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
         const size =
             shape.sizeFromCanvas === true
-                ? canvas
+                ? canvas === undefined
+                    ? undefined
+                    : {
+                          width: Math.max(1, Math.ceil(canvas.width / (shape.canvasDivisor ?? 1))),
+                          height: Math.max(
+                              1,
+                              Math.ceil(canvas.height / (shape.canvasDivisor ?? 1)),
+                          ),
+                      }
                 : shape.width !== undefined && shape.height !== undefined
                   ? { width: shape.width, height: shape.height }
                   : undefined;

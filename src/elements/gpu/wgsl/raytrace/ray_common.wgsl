@@ -12,6 +12,13 @@ const RAY_KIND_TRIANGLES: u32 = 0u;
 const RAY_KIND_SPHERES: u32 = 1u;
 /** Volume de campo (fluido por campo de distância, meio participante). */
 const RAY_KIND_VOLUME: u32 = 2u;
+/** Palavras `vec4u` por elemento nos pools da estrutura (os `RAY_WORDS` do TypeScript). */
+const RAY_VERTEX_WORDS: u32 = 2u;
+const RAY_TRIANGLE_WORDS: u32 = 1u;
+const RAY_SPHERE_WORDS: u32 = 1u;
+const RAY_NODE_WORDS: u32 = 2u;
+const RAY_BLAS_WORDS: u32 = 2u;
+const RAY_INSTANCE_WORDS: u32 = 11u;
 /** Distância de "sem acerto". */
 const RAY_MISS: f32 = 3.0e38;
 
@@ -49,6 +56,19 @@ fn ray_box(origin: vec3f, inv_dir: vec3f, lo: vec3f, hi: vec3f, t_max: f32) -> f
     let t0 = max(max(min(a.x, b.x), min(a.y, b.y)), max(min(a.z, b.z), 0.0));
     let t1 = min(min(max(a.x, b.x), max(a.y, b.y)), min(max(a.z, b.z), t_max));
     return select(RAY_MISS, t0, t0 <= t1);
+}
+
+/** Nó da hierarquia: caixas e filhos (na folha: `RAY_LEAF` | posição, primeira primitiva). */
+struct RayNode {
+    lo: vec3f,
+    left: u32,
+    hi: vec3f,
+    right: u32,
+}
+
+/** Nó das duas palavras `a`, `b`. */
+fn ray_node_words(a: vec4u, b: vec4u) -> RayNode {
+    return RayNode(bitcast<vec3f>(a.xyz), a.w, bitcast<vec3f>(b.xyz), b.w);
 }
 
 /** Raio–triângulo dos dois lados: (t, u, v) com t > 0 e < t_max, ou t = `RAY_MISS`. */

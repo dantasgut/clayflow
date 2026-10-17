@@ -17,7 +17,7 @@ import { lightTransmissionReady, lightVisibilityReady, sceneLightingPoint } from
 export const LIGHT_LIMIT = sharedConstant('LIGHT_LIMIT', 1024, 'u32');
 
 /** Bitset de slots vivos do pool `Light` (resolver `Light.live`). */
-const lightLiveResource = wgslResource({
+export const lightLiveResource = wgslResource({
     name: 'light_live',
     binding: { storage: 'read' },
     type: { wgsl: 'u32', array: true },
@@ -35,10 +35,47 @@ const hemisphereResource = wgslResource({
 });
 
 /**
- * As luzes do pool (`DirectionalLight` em lux, `PointLight` e `SpotLight` em candela) num laço sobre os slots vivos: a
- * direção e a radiância de cada uma — a direcional sem queda; a pontual e a spot pelo inverso do quadrado com a janela
- * suave até o alcance `(1 − (d/r)⁴)²`; a spot com a transição em cosseno entre os cones —, a sombra e o meio pelos pontos
- * por luz, e a resposta do fechamento.
+ * A luz que chega de uma fonte do pool a um ponto (spec 011; extraída na 033 para os acertos da iluminação global): a
+ * direção para a luz, a radiância e a distância (`1e30` na direcional). A direcional sem queda (lux); a pontual e a spot
+ * (candela) pelo inverso do quadrado com a janela suave até o alcance `(1 − (d/r)⁴)²`; a spot com a transição em
+ * cosseno entre os cones. Radiância 0 fora do alcance.
+ */
+export const lightIncoming = wgslModule({
+    name: 'light_incoming',
+    requires: [lightsResource],
+    source: `struct LightIncoming {
+    l: vec3f,
+    radiance: vec3f,
+    dist: f32,
+}
+
+fn light_incoming(light: Light, p: vec3f) -> LightIncoming {
+    var l = -light.direction.xyz;
+    var radiance = light.color.rgb * light.intensity;
+    var dist = 1e30;
+    if (light.kind != 0u) {
+        let d = light.position.xyz - p;
+        let dist2 = max(dot(d, d), 1e-8);
+        dist = sqrt(dist2);
+        if (light.range > 0.0 && dist >= light.range) { return LightIncoming(vec3f(0.0, 1.0, 0.0), vec3f(0.0), dist); }
+        l = d / dist;
+        let ratio = dist / max(light.range, 1e-6);
+        let fade = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
+        radiance = radiance * select(1.0, fade * fade, light.range > 0.0) / dist2;
+        if (light.kind == 2u) {
+            let cos_in = cos(light.cones.x);
+            let cos_out = cos(light.cones.y);
+            let t = clamp((dot(-l, normalize(light.direction.xyz)) - cos_out) / max(cos_in - cos_out, 1e-4), 0.0, 1.0);
+            radiance = radiance * t * t;
+        }
+    }
+    return LightIncoming(normalize(l), radiance, dist);
+}`,
+});
+
+/**
+ * As luzes do pool (`DirectionalLight` em lux, `PointLight` e `SpotLight` em candela) num laço sobre os slots vivos:
+ * a luz que chega de cada uma (`light_incoming`), a sombra e o meio pelos pontos por luz, e a resposta do fechamento.
  */
 const poolLights = wgslModule({
     name: 'scene_lighting_pool',
@@ -49,6 +86,7 @@ const poolLights = wgslModule({
         LIGHT_LIMIT.module,
         lightsResource,
         lightLiveResource,
+        lightIncoming,
         lightVisibilityReady,
         lightTransmissionReady,
     ],
@@ -57,29 +95,10 @@ const poolLights = wgslModule({
     let count = min(arrayLength(&lights), LIGHT_LIMIT);
     for (var i = 0u; i < count; i++) {
         if (!pool_live(light_live[i >> 5u], i)) { continue; }
-        let light = lights[i];
-        var l = -light.direction.xyz;
-        var radiance = light.color.rgb * light.intensity;
-        if (light.kind != 0u) {
-            let d = light.position.xyz - p;
-            let dist2 = max(dot(d, d), 1e-8);
-            let dist = sqrt(dist2);
-            if (light.range > 0.0 && dist >= light.range) { continue; }
-            l = d / dist;
-            let ratio = dist / max(light.range, 1e-6);
-            let fade = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
-            radiance = radiance * select(1.0, fade * fade, light.range > 0.0) / dist2;
-            if (light.kind == 2u) {
-                let cos_in = cos(light.cones.x);
-                let cos_out = cos(light.cones.y);
-                let t = clamp((dot(-l, normalize(light.direction.xyz)) - cos_out) / max(cos_in - cos_out, 1e-4), 0.0, 1.0);
-                radiance = radiance * t * t;
-            }
-        }
-        l = normalize(l);
-        if (all(radiance <= vec3f(0.0))) { continue; }
-        radiance = radiance * light_visibility(i, p, dot(n, l)) * light_transmission(i, p);
-        sum = sum + closure_eval(c, n, v, l, radiance);
+        let inc = light_incoming(lights[i], p);
+        if (all(inc.radiance <= vec3f(0.0))) { continue; }
+        let radiance = inc.radiance * light_visibility(i, p, dot(n, inc.l)) * light_transmission(i, p);
+        sum = sum + closure_eval(c, n, v, inc.l, radiance);
     }
     return sum;
 }`,

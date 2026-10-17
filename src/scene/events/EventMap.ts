@@ -153,6 +153,16 @@ export interface GlobalIlluminationUnsupportedPayload {
 }
 
 /**
+ * Payload do evento `globalIlluminationReady` (spec 033): os kernels da iluminação global da composição atual das
+ * funções `material` da cena compilaram e o estágio passou a acumular luz (emitido a cada composição nova que fica
+ * pronta). Antes dele, a cena não tem luz rebatida — quem mede espera por ele.
+ */
+export interface GlobalIlluminationReadyPayload {
+    /** Revisão da composição das funções `material` (a da estrutura de raios). */
+    readonly revision: number;
+}
+
+/**
  * Payload do evento `profilerStats` — emitido periodicamente (throttle
  * 250ms) pelo `DebugFlow` quando habilitado. Permite UI overlays exibirem
  * FPS, frame time e tempo gasto por stage GPU (via timestamp-query).
@@ -299,6 +309,8 @@ export interface EventMap {
     presentationFallback: PresentationFallbackPayload;
     /** A estrutura de raios ou a iluminação global emite (uma vez) quando o dispositivo não a comporta (spec 033). */
     globalIlluminationUnsupported: GlobalIlluminationUnsupportedPayload;
+    /** As sondas da iluminação global emitem quando os kernels da composição atual ficam prontos (spec 033). */
+    globalIlluminationReady: GlobalIlluminationReadyPayload;
 }
 
 /** União dos nomes de evento conhecidos (chaves do EventMap). */

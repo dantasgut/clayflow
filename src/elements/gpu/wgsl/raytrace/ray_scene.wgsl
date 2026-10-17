@@ -3,7 +3,7 @@
 // `ray_scene_occluded` responde se algo bloqueia o segmento — pela hierarquia de cima sobre as instâncias e, em cada
 // instância atingida, pela de baixo em espaço de objeto (a direção não é normalizada, então a distância é a de mundo).
 // Quem consulta não conhece a origem da geometria: malhas, superfícies, grafos e partículas respondem igual.
-// Requer: ray_common, ray_scene_info, ray_nodes, ray_vertices, ray_triangles, ray_spheres, ray_blas, ray_instances.
+// Requer: ray_common, ray_geometry_read, ray_bvh_read, ray_scene_info.
 
 /** Acerto de um raio. `t = RAY_MISS` sem acerto. */
 struct RayHit {
@@ -28,22 +28,23 @@ fn ray_miss() -> RayHit {
     return RayHit(RAY_MISS, NONE, NONE, NONE, vec2f(0.0), 1.0, vec3f(0.0), vec3f(0.0, 1.0, 0.0), vec2f(0.0));
 }
 
-/** Nó absoluto de uma hierarquia que começa em `base` (relativo à faixa). */
+/** Nó local de uma hierarquia que começa no nó `base` (relativo à região de nós). */
 fn ray_node(base: u32, local: u32) -> RayNode {
-    return ray_nodes[ray_scene_info.nodeFirst + base + local];
+    return ray_node_at(ray_scene_info.nodeFirst + (base + local) * RAY_NODE_WORDS);
 }
 
 /** Primitiva local `prim` da hierarquia `blas`: distância em [0, t_max) em espaço de objeto, ou `RAY_MISS`. */
 fn ray_primitive(blas: vec4u, prim: u32, o: vec3f, d: vec3f, t_max: f32) -> vec3f {
     if (blas.w == RAY_KIND_SPHERES) {
-        let s = ray_spheres[ray_scene_info.sphereFirst + blas.y + prim].sphere;
+        let s = ray_sphere_at(ray_scene_info.sphereFirst + (blas.y + prim) * RAY_SPHERE_WORDS);
         return vec3f(ray_sphere(o, d, s.xyz, s.w, t_max), 0.0, 0.0);
     }
-    let tri = ray_triangles[ray_scene_info.triangleFirst + blas.y + prim].vertices;
+    let tri = ray_triangle_at(ray_scene_info.triangleFirst + (blas.y + prim) * RAY_TRIANGLE_WORDS);
     if (tri.x == NONE) { return vec3f(RAY_MISS, 0.0, 0.0); }
     let vf = ray_scene_info.vertexFirst;
-    return ray_triangle(o, d, ray_vertices[vf + tri.x].position.xyz, ray_vertices[vf + tri.y].position.xyz,
-        ray_vertices[vf + tri.z].position.xyz, t_max);
+    return ray_triangle(o, d, ray_vertex_position_at(vf + tri.x * RAY_VERTEX_WORDS),
+        ray_vertex_position_at(vf + tri.y * RAY_VERTEX_WORDS), ray_vertex_position_at(vf + tri.z * RAY_VERTEX_WORDS),
+        t_max);
 }
 
 /** Acerto numa hierarquia de baixo: distância, baricêntricas e a primitiva (`NONE` sem acerto). */
@@ -67,9 +68,9 @@ fn ray_blas_hit(blas: vec4u, leaf_size: u32, o: vec3f, d: vec3f, t_max: f32, fir
         visits = visits + 1u;
         sp = sp - 1u;
         let node = ray_node(blas.x, stack[sp]);
-        if (ray_box(o, inv, node.lo.xyz, node.hi.xyz, best.t) == RAY_MISS) { continue; }
-        let left = bitcast<u32>(node.lo.w);
-        let right = bitcast<u32>(node.hi.w);
+        if (ray_box(o, inv, node.lo, node.hi, best.t) == RAY_MISS) { continue; }
+        let left = node.left;
+        let right = node.right;
         if ((left & RAY_LEAF) != 0u) {
             // Folha: `leafSize` primitivas consecutivas a partir de `right` (sem passar do total).
             let end = min(right + leaf_size, blas.z);
@@ -86,8 +87,8 @@ fn ray_blas_hit(blas: vec4u, leaf_size: u32, o: vec3f, d: vec3f, t_max: f32, fir
         }
         let ln = ray_node(blas.x, left);
         let rn = ray_node(blas.x, right);
-        let tl = ray_box(o, inv, ln.lo.xyz, ln.hi.xyz, best.t);
-        let tr = ray_box(o, inv, rn.lo.xyz, rn.hi.xyz, best.t);
+        let tl = ray_box(o, inv, ln.lo, ln.hi, best.t);
+        let tr = ray_box(o, inv, rn.lo, rn.hi, best.t);
         // O filho mais próximo por último na pilha (sai primeiro).
         let near_left = tl <= tr;
         let far = select(left, right, near_left);
@@ -115,17 +116,19 @@ fn ray_scene_trace(origin: vec3f, dir: vec3f, t_max: f32, first: bool) -> RayHit
         visits = visits + 1u;
         sp = sp - 1u;
         let local = stack[sp];
-        let node = ray_nodes[ray_scene_info.nodeFirst + local];
-        if (ray_box(origin, inv, node.lo.xyz, node.hi.xyz, best) == RAY_MISS) { continue; }
-        let left = bitcast<u32>(node.lo.w);
-        let right = bitcast<u32>(node.hi.w);
+        let node = ray_node(0u, local);
+        if (ray_box(origin, inv, node.lo, node.hi, best) == RAY_MISS) { continue; }
+        let left = node.left;
+        let right = node.right;
         if ((left & RAY_LEAF) != 0u) {
-            let inst = ray_instances[ray_scene_info.instanceFirst + right];
-            if (inst.ids.z == RAY_KIND_VOLUME) { continue; }
-            let record = ray_blas[ray_scene_info.blasFirst + inst.ids.x];
-            let o = (inst.toObject * vec4f(origin, 1.0)).xyz;
-            let d = (inst.toObject * vec4f(dir, 0.0)).xyz;
-            let h = ray_blas_hit(record.a, max(record.b.z, 1u), o, d, best, first);
+            let iw = ray_scene_info.instanceFirst + right * RAY_INSTANCE_WORDS;
+            let ids = ray_instance_ids_at(iw);
+            if (ids.z == RAY_KIND_VOLUME) { continue; }
+            let bw = ray_scene_info.blasFirst + ids.x * RAY_BLAS_WORDS;
+            let to_object = ray_instance_to_object_at(iw);
+            let o = (to_object * vec4f(origin, 1.0)).xyz;
+            let d = (to_object * vec4f(dir, 0.0)).xyz;
+            let h = ray_blas_hit(ray_blas_a(bw), max(ray_blas_b(bw).z, 1u), o, d, best, first);
             if (h.primitive != NONE && h.t < best) {
                 best = h.t;
                 best_uv = h.uv;
@@ -137,10 +140,10 @@ fn ray_scene_trace(origin: vec3f, dir: vec3f, t_max: f32, first: bool) -> RayHit
         }
         // Nós da TLAS: filhos locais à hierarquia de cima (que começa em `tlasRoot`).
         let base = ray_scene_info.tlasRoot;
-        let ln = ray_nodes[ray_scene_info.nodeFirst + base + left];
-        let rn = ray_nodes[ray_scene_info.nodeFirst + base + right];
-        let tl = ray_box(origin, inv, ln.lo.xyz, ln.hi.xyz, best);
-        let tr = ray_box(origin, inv, rn.lo.xyz, rn.hi.xyz, best);
+        let ln = ray_node(base, left);
+        let rn = ray_node(base, right);
+        let tl = ray_box(origin, inv, ln.lo, ln.hi, best);
+        let tr = ray_box(origin, inv, rn.lo, rn.hi, best);
         let near_left = tl <= tr;
         let far = base + select(left, right, near_left);
         let near = base + select(right, left, near_left);
@@ -157,25 +160,25 @@ fn ray_scene_trace(origin: vec3f, dir: vec3f, t_max: f32, first: bool) -> RayHit
 fn ray_scene_resolve(hit_in: RayHit, origin: vec3f, dir: vec3f) -> RayHit {
     var hit = hit_in;
     if (hit.instance == NONE) { return hit; }
-    let inst = ray_instances[ray_scene_info.instanceFirst + hit.instance];
-    let blas = ray_blas[ray_scene_info.blasFirst + inst.ids.x].a;
+    let inst = ray_instance_at(ray_scene_info.instanceFirst + hit.instance * RAY_INSTANCE_WORDS);
+    let blas = ray_blas_a(ray_scene_info.blasFirst + inst.ids.x * RAY_BLAS_WORDS);
     hit.renderable = inst.ids.y;
     hit.position = origin + dir * hit.t;
     // Normais em mundo pela transposta da inversa (as colunas de `toObject`).
     let n3 = transpose(mat3x3f(inst.toObject[0].xyz, inst.toObject[1].xyz, inst.toObject[2].xyz));
     var geometric: vec3f;
     if (blas.w == RAY_KIND_SPHERES) {
-        let s = ray_spheres[ray_scene_info.sphereFirst + blas.y + hit.primitive].sphere;
+        let s = ray_sphere_at(ray_scene_info.sphereFirst + (blas.y + hit.primitive) * RAY_SPHERE_WORDS);
         let o = (inst.toObject * vec4f(hit.position, 1.0)).xyz;
         geometric = normalize(n3 * (o - s.xyz));
         hit.normal = geometric;
         hit.uv = vec2f(0.0);
     } else {
-        let tri = ray_triangles[ray_scene_info.triangleFirst + blas.y + hit.primitive].vertices;
+        let tri = ray_triangle_at(ray_scene_info.triangleFirst + (blas.y + hit.primitive) * RAY_TRIANGLE_WORDS);
         let vf = ray_scene_info.vertexFirst;
-        let a = ray_vertices[vf + tri.x];
-        let b = ray_vertices[vf + tri.y];
-        let c = ray_vertices[vf + tri.z];
+        let a = ray_vertex_at(vf + tri.x * RAY_VERTEX_WORDS);
+        let b = ray_vertex_at(vf + tri.y * RAY_VERTEX_WORDS);
+        let c = ray_vertex_at(vf + tri.z * RAY_VERTEX_WORDS);
         let w = vec3f(1.0 - hit.bary.x - hit.bary.y, hit.bary.x, hit.bary.y);
         geometric = normalize(n3 * cross(b.position.xyz - a.position.xyz, c.position.xyz - a.position.xyz));
         let shading = a.normal.xyz * w.x + b.normal.xyz * w.y + c.normal.xyz * w.z;

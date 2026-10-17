@@ -590,18 +590,18 @@ async function caseStructure(): Promise<void> {
         .flatMap((id) => app.world.resourcesOf(id))
         .find((r) => r instanceof RayScene)!;
     const info = scene.data;
-    const nodesBytes = await readPool(app, 'RayNode');
-    const blasBytes = await readPool(app, 'RayBlas');
-    const f = new Float32Array(nodesBytes.buffer, nodesBytes.byteOffset, nodesBytes.byteLength / 4);
-    const u = new Uint32Array(nodesBytes.buffer, nodesBytes.byteOffset, nodesBytes.byteLength / 4);
-    const b = new Uint32Array(blasBytes.buffer, blasBytes.byteOffset, blasBytes.byteLength / 4);
-    const blasAt = info.blasFirst * 8;
+    const bvhBytes = await readPool(app, 'RayBvh');
+    const f = new Float32Array(bvhBytes.buffer, bvhBytes.byteOffset, bvhBytes.byteLength / 4);
+    const u = new Uint32Array(bvhBytes.buffer, bvhBytes.byteOffset, bvhBytes.byteLength / 4);
+    const b = u;
+    // Palavras de 4 u32: a hierarquia de baixo começa na palavra `blasFirst`.
+    const blasAt = info.blasFirst * 4;
     const nodeBase = b[blasAt]!;
     const prims = b[blasAt + 2]!;
     const leafSize = b[blasAt + 6]!;
     const count = Math.ceil(prims / leafSize);
     const node = (local: number): { lo: V3; hi: V3; left: number; right: number } => {
-        const k = (info.nodeFirst + nodeBase + local) * 8;
+        const k = (info.nodeFirst + (nodeBase + local) * 2) * 4;
         return {
             lo: [f[k]!, f[k + 1]!, f[k + 2]!],
             hi: [f[k + 4]!, f[k + 5]!, f[k + 6]!],

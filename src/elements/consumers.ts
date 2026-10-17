@@ -7,11 +7,12 @@ import { PbrTablesResolver } from './material/pbr/PbrTablesResolver';
 import { HemisphereLightSchema } from './scene/HemisphereLightSchema';
 import { RaySceneSchema } from './raytrace/schemas';
 import { SkySchema } from './scene/sky/SkySchema';
+import { GlobalIlluminationSchema } from './lighting/schemas';
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
  * aplicação): `GravityField`, `ParticleMaterial` e o mapa de sombra que projeta (`ShadowCaster.depth`,
- * `ShadowCaster.sampler`, spec 031) as tabelas do sombreamento físico (`PbrTables.dfg`, `PbrTables.sampler`, spec 011), a estrutura de raios (`RayScene.info`) e o céu físico (`Sky.*`, spec 033). Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
+ * `ShadowCaster.sampler`, spec 031) as tabelas do sombreamento físico (`PbrTables.dfg`, `PbrTables.sampler`, spec 011), a estrutura de raios (`RayScene.info`), o céu físico (`Sky.*`) e a iluminação global (`GlobalIllumination.*`, spec 033). Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
  * `Transform`, `Light`, `ShadowMap`, materiais, corpos, colliders, restrições) têm o `PoolResolver` registrado pela C2
  * ao serem criados; o `Time` é registrado pela cena.
  */
@@ -30,5 +31,25 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     // O céu físico (spec 033): parâmetros, tabelas e amostrador.
     ...(['params', 'transmittance', 'multiscatter', 'view', 'sampler'] as const).map(
         (id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` }),
+    ),
+    // A iluminação global (spec 033): parâmetros, estado das sondas, atlas, amostrador e as sondas de tela.
+    ...(
+        [
+            'params',
+            'probes',
+            'probeTexture',
+            'irradiance',
+            'radiance',
+            'visibility',
+            'sampler',
+            'screenProbe',
+            'screenNormal',
+            'screenIrradiance',
+        ] as const
+    ).map(
+        (id) =>
+            new SingletonResolver(GlobalIlluminationSchema, id, {
+                name: `GlobalIllumination.${id}`,
+            }),
     ),
 ];

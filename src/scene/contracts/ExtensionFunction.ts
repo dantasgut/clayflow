@@ -57,8 +57,27 @@ export interface ExtensionParamsData {
  */
 const built = new Map<
     string,
-    { readonly module: WgslModule; readonly prefix: number; readonly optionals: Set<string> }
+    {
+        readonly module: WgslModule;
+        readonly prefix: number;
+        readonly optionals: Set<string>;
+        readonly composite: WgslModule;
+    }
 >();
+
+/**
+ * A função com os nomes do sufixo do hash (spec 033): várias funções do mesmo ponto convivem num shader — a composição
+ * dos pontos de cena e, nos pontos por entidade, quem as reúne num kernel escolhendo pela entidade (os materiais nos
+ * acertos dos raios da iluminação global).
+ */
+export interface CompositeFunction {
+    /** Módulo com a função obrigatória, as opcionais, o alias e o carregador renomeados. */
+    readonly module: WgslModule;
+    /** Nome da função obrigatória no módulo. */
+    readonly functionName: string;
+    /** Nome do carregador de parâmetros no módulo. */
+    readonly loaderName: string;
+}
 
 /** Pontos já avisados de grafo sem saída (aviso único por ponto). */
 const warnedEmpty = new Set<string>();
@@ -113,6 +132,8 @@ export abstract class ExtensionFunction
     #optionals = new Set<string>();
     /** Registro tipado da forma atual (ponto + parâmetros). */
     #record: PointRecord;
+    /** A versão renomeada do código atual (`undefined` com a implementação pronta). */
+    #composite: WgslModule | undefined;
 
     protected constructor(point: WgslPoint, options: ExtensionFunctionOptions) {
         super();
@@ -205,6 +226,19 @@ export abstract class ExtensionFunction
     get loaderName(): string {
         const base = `${this.point.required.name}_params`;
         return this.renamed ? `${base}_${this.#hash}` : base;
+    }
+
+    /**
+     * A função com os nomes do sufixo do hash (spec 033), para reunir várias funções do ponto num mesmo shader;
+     * `undefined` com a implementação pronta (grafo sem saída).
+     */
+    get composite(): CompositeFunction | undefined {
+        if (this.#composite === undefined) return undefined;
+        return {
+            module: this.#composite,
+            functionName: `${this.point.required.name}_${this.#hash}`,
+            loaderName: `${this.point.required.name}_params_${this.#hash}`,
+        };
     }
 
     /** Linha no código do usuário de uma linha do módulo gerado (≤ 0: no trecho gerado). */
@@ -318,6 +352,7 @@ export abstract class ExtensionFunction
         this.#optionals = new Set();
         this.#prefixLines = 0;
         this.#hash = fnv(`${point.name}|ready`);
+        this.#composite = undefined;
         return point.ready;
     }
 
@@ -335,6 +370,7 @@ export abstract class ExtensionFunction
             this.#optionals = cached.optionals;
             this.#prefixLines = cached.prefix;
             this.#hash = hash;
+            this.#composite = cached.composite;
             return cached.module;
         }
         const record = this.#record;
@@ -365,7 +401,8 @@ export abstract class ExtensionFunction
                   )
                 : code;
             const module = wgslModule({
-                name: `${point.name}_fn_${hash}`,
+                // A versão renomeada de um ponto por entidade tem nome próprio: pode conviver com a outra num shader.
+                name: `${point.name}_fn_${hash}${renamed && !this.renamed ? '_composite' : ''}`,
                 source: `${prefix.join('\n')}\n${body}`,
                 requires: requiresAll,
             });
@@ -376,10 +413,17 @@ export abstract class ExtensionFunction
         const plain = make(false);
         point.check(plain.module, struct);
         this.#optionals = new Set(point.optionalIn(plain.module).map((o) => o.name));
-        const { module, prefix } = this.renamed ? make(true) : plain;
-        built.set(cacheKey, { module, prefix, optionals: this.#optionals });
+        const renamedVersion = make(true);
+        const { module, prefix } = this.renamed ? renamedVersion : plain;
+        built.set(cacheKey, {
+            module,
+            prefix,
+            optionals: this.#optionals,
+            composite: renamedVersion.module,
+        });
         this.#prefixLines = prefix;
         this.#hash = hash;
+        this.#composite = renamedVersion.module;
         return module;
     }
 

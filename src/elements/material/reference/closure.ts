@@ -88,3 +88,30 @@ export function ambientParamsUniform(m: ParamsMaterial, nv: number, l: number): 
         return ((1 - met) * ed + met * ec + (1 - met) * m.albedo[k]! * (1 - ed)) * l;
     }) as unknown as Vec3;
 }
+
+/** Luz indireta nas direções que a base lê (spec 033): a irradiância/π na normal e a radiância especular dominante. */
+export interface IndirectParamsLight {
+    readonly diffuse: Vec3;
+    readonly specular: Vec3;
+}
+
+/**
+ * Radiância refletida pela base do OpenPBR sob a luz indireta (spec 033, `closure_indirect`): o difuso pela irradiância
+ * e o especular pela radiância dominante alargada para a irradiância com a rugosidade (α = r²), × os albedos
+ * direcionais. Com as duas iguais, o forno de `ambientParamsUniform`.
+ */
+export function indirectParams(m: ParamsMaterial, nv: number, light: IndirectParamsLight): Vec3 {
+    const { a, b } = dfg(nv, m.roughness);
+    const met = m.metallic;
+    const alpha = m.roughness * m.roughness;
+    const ed = (F0_DIELECTRIC * a + b) * multiScatter([F0_DIELECTRIC, 0, 0], a + b)[0];
+    return [0, 1, 2].map((k) => {
+        const f0c = m.albedo[k]!;
+        const ec = (f0c * a + b) * multiScatter([f0c, 0, 0], a + b)[0];
+        const lr = light.specular[k]! * (1 - alpha) + light.diffuse[k]! * alpha;
+        return (
+            ((1 - met) * ed + met * ec) * lr
+            + (1 - met) * m.albedo[k]! * (1 - ed) * light.diffuse[k]!
+        );
+    }) as unknown as Vec3;
+}

@@ -142,6 +142,42 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
         expect(core.destroy).toHaveBeenCalledWith(first);
     });
 
+    it('ensurePool cria o pool vazio uma vez, avisa poolCreated e o recurso que chega depois usa o mesmo', () => {
+        const { world, system, events } = setup();
+        const schema = new StructSchema('Lamp', {
+            power: FieldType.f32,
+            _p0: FieldType.f32,
+            _p1: FieldType.f32,
+            _p2: FieldType.f32,
+        });
+        const created: string[] = [];
+        events.on('poolCreated', (e) => created.push(e.poolKey));
+        system.ensurePool(schema);
+        system.ensurePool(schema);
+        expect(created).toEqual(['Lamp']);
+        const info = system.poolInfo('Lamp')!;
+        expect(info.count).toBe(0);
+        const r = new BagResource([{ id: 'lamp', role: 'storage-ro', storage: 'pool', schema }]);
+        world.insert(r);
+        expect(system.poolInfo('Lamp')!.count).toBe(1);
+        expect(created).toEqual(['Lamp']);
+    });
+
+    it('canvasDivisor: uma fração do canvas, arredondada para cima, também ao recriar no resize', () => {
+        const { world, system, events } = setup();
+        const r = new BagResource([
+            {
+                id: 'tiles',
+                role: 'storage-texture',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, canvasDivisor: 8 },
+            },
+        ]);
+        world.insert(r);
+        expect(system.textureOf(r, 'tiles')).toMatchObject({ width: 100, height: 75 });
+        events.emit('canvasReconfigured', { width: 1001, height: 7, format: 'bgra8unorm' });
+        expect(system.textureOf(r, 'tiles')).toMatchObject({ width: 126, height: 1 });
+    });
+
     it("format 'canvas' resolve para o formato do canvas, também ao recriar no resize", () => {
         const { world, system, events } = setup();
         const r = new BagResource([

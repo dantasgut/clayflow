@@ -29,4 +29,9 @@ export interface TextureShape {
     readonly viewDimension?: GPUTextureViewDimension;
     /** Tamanho igual ao do canvas; recriada a cada `canvasReconfigured`. */
     readonly sizeFromCanvas?: boolean;
+    /**
+     * Com `sizeFromCanvas`: o canvas dividido por este fator, arredondado para cima (ex.: 8 = um texel por ladrilho de
+     * 8 × 8 pixels). Default 1.
+     */
+    readonly canvasDivisor?: number;
 }

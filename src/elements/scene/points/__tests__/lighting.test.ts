@@ -101,7 +101,7 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         expect(loop.source).toContain('if (!pool_live(light_live[i >> 5u], i)) { continue; }');
         expect(loop.source).toContain('min(arrayLength(&lights), LIGHT_LIMIT)');
         expect(loop.source).toContain(
-            'light_visibility(i, p, dot(n, l)) * light_transmission(i, p)',
+            'light_visibility(i, p, dot(n, inc.l)) * light_transmission(i, p)',
         );
         expect(() => composeWgsl(loop)).not.toThrow();
     });

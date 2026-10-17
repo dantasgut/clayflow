@@ -127,8 +127,9 @@ hemisfério na C4; a C2 só ganha o que a composição genérica de funções de
    viva, 1 milhão de triângulos).
 3. **US2 céu físico**: `Sky`, tabelas, transmitância do sol, passe do céu; smoke `sky`.
 4. **US1 luz rebatida**: `GlobalIllumination`, sondas (rastreamento, acertos com as funções `material`, irradiância e
-   visibilidade, relocação, cascatas), contribuição `closure_indirect`, hemisfério por evento; Cornell box contra o
-   traçador, energia, cantos, tingimento.
+   visibilidade, relocação, cascatas), coleta final na tela sobre as sondas (R2 adendo: sondas de tela por raios de
+   câmera, acúmulo reprojetado, interpolação por plano e normal), contribuição `closure_indirect`, hemisfério por
+   evento; Cornell box contra o traçador, energia, cantos, tingimento.
 5. **US4 estabilidade e vazamento**: histerese adaptativa, convergência, resposta, caixa fechada.
 6. **US3 geometria viva e escala**: superfícies animadas, corpos moles, grafos, partículas; 1 milhão de triângulos.
 7. **US7 fluidos por campo de distância**: blocos, densidade anisotrópica, redistanciamento, marcha tricúbica, volumes

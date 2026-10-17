@@ -1,10 +1,9 @@
 // Cópia da geometria para a estrutura de raios (spec 033, R1; A1, A4, A9): os vértices (posição, normal, uv) de uma
-// geometria para a faixa da hierarquia no pool `RayVertex`, e os triângulos (índices relativos à faixa de vértices) para
-// o pool `RayTriangle` — todos os objetos num buffer único, que a consulta liga uma vez só. Índices `uint16` são lidos
+// geometria e os triângulos (índices relativos à região de vértices) para as regiões da hierarquia no pool
+// `RayGeometry` — todos os objetos num buffer único, que a consulta liga uma vez só. Índices `uint16` são lidos
 // aos pares; com a contagem só na GPU (malha adaptativa, grafos), os triângulos além de `indirect[0] / 3` ficam vazios.
-// Também copia as partículas de um corpo de sprites como esferas para o pool `RaySphere`.
-// Requer: WORKGROUP_SIZE, ray_common, build, src_vertices, src_indices, src_indirect, src_particles, ray_vertices_out,
-// ray_triangles_out, ray_spheres_out.
+// Também copia as partículas de um corpo de sprites como esferas.
+// Requer: WORKGROUP_SIZE, ray_common, build, src_vertices, src_indices, src_indirect, src_particles, ray_geometry_out.
 
 fn ray_gather_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -15,19 +14,18 @@ fn ray_gather_vertices_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let i = ray_gather_index(gid3, nwg);
     if (i >= build.vertexCount) { return; }
     let v = src_vertices[i];
-    ray_vertices_out[build.vertexFirst + build.vertexBase + i] = RayVertex(
-        vec4f(v.px, v.py, v.pz, v.u),
-        vec4f(v.nx, v.ny, v.nz, v.v),
-    );
+    let w = build.vertexFirst + (build.vertexBase + i) * RAY_VERTEX_WORDS;
+    ray_geometry_out[w] = RayGeometry(bitcast<vec4u>(vec4f(v.px, v.py, v.pz, v.u)));
+    ray_geometry_out[w + 1u] = RayGeometry(bitcast<vec4u>(vec4f(v.nx, v.ny, v.nz, v.v)));
 }
 
 fn ray_write_triangle(t: u32, a: u32, b: u32, c: u32) {
-    ray_triangles_out[build.primFirst + build.primBase + t] =
-        RayTriangle(vec4u(build.vertexBase + a, build.vertexBase + b, build.vertexBase + c, 0u));
+    ray_geometry_out[build.primFirst + (build.primBase + t) * RAY_TRIANGLE_WORDS] =
+        RayGeometry(vec4u(build.vertexBase + a, build.vertexBase + b, build.vertexBase + c, 0u));
 }
 
 fn ray_empty_triangle(t: u32) {
-    ray_triangles_out[build.primFirst + build.primBase + t] = RayTriangle(vec4u(NONE));
+    ray_geometry_out[build.primFirst + (build.primBase + t) * RAY_TRIANGLE_WORDS] = RayGeometry(vec4u(NONE));
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -67,5 +65,6 @@ fn ray_gather_spheres_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(
     let i = ray_gather_index(gid3, nwg);
     if (i >= build.count) { return; }
     let p = src_particles[(build.first + i) * build.strideVec4 + build.posOffsetVec4].xyz;
-    ray_spheres_out[build.primFirst + build.primBase + i] = RaySphere(vec4f(p, build.radius));
+    ray_geometry_out[build.primFirst + (build.primBase + i) * RAY_SPHERE_WORDS] =
+        RayGeometry(bitcast<vec4u>(vec4f(p, build.radius)));
 }
