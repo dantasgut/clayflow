@@ -11,10 +11,10 @@ import {
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 
 describe('ShadowMap', () => {
-    it('padrões: bias 0,005, normalBias 0,001, size 1024×1024', () => {
+    it('padrões: bias 1 texel, normalBias 1,5 texel, size 1024×1024', () => {
         const map = new ShadowMap();
-        expect(map.data.bias).toBeCloseTo(0.005);
-        expect(map.data.normalBias).toBeCloseTo(0.001);
+        expect(map.data.bias).toBe(1);
+        expect(map.data.normalBias).toBe(1.5);
         expect(map.data.size).toEqual([1024, 1024]);
     });
 

@@ -64,8 +64,8 @@ fn gi_screen_noise(state: vec4f) -> f32 {
 }
 
 /**
- * Filtro espacial das sondas de tela para o desenho (o histórico fica sem filtro): as 3 × 3 vizinhas do quadro, pesadas
- * pela gaussiana, pelo plano e pela normal, com força pelo ruído estimado da sonda — a convergida e sem ruído fica
+ * Filtro espacial das sondas de tela para o desenho (o histórico fica sem filtro): as 5 × 5 vizinhas do quadro, pesadas
+ * pela gaussiana (σ = 1,2 ladrilho: o resíduo do acúmulo forma manchas de 2 a 3 ladrilhos), pelo plano e pela normal, com força pelo ruído estimado da sonda — a convergida e sem ruído fica
  * quase como está (a luz de perto), a ruidosa (recém-descoberta, fonte pequena) é suavizada.
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -84,10 +84,10 @@ fn gi_screen_filter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let last = GI_SCREEN_HISTORY_GENERATIONS + gi.bounces.x - 1u;
     let strength = clamp(gi_screen_noise(gi_screen_history[at + 2u]) / 0.02, 0.0, 1.0);
     let tolerance = 0.01 + probe.w * 0.01;
-    var sum = gi_screen_history[at + last].rgb * 4.0;
-    var wsum = 4.0;
-    for (var o = 0u; o < 9u; o++) {
-        let d = vec2i(i32(o % 3u) - 1, i32(o / 3u) - 1);
+    var sum = gi_screen_history[at + last].rgb;
+    var wsum = 1.0;
+    for (var o = 0u; o < 25u; o++) {
+        let d = vec2i(i32(o % 5u) - 2, i32(o / 5u) - 2);
         if (all(d == vec2i(0))) { continue; }
         let t = tile + d;
         if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
@@ -96,7 +96,7 @@ fn gi_screen_filter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
         if (q.w <= 0.0) { continue; }
         let qn = gi_screen_history[j + 1u].xyz;
         let plane = abs(dot(q.xyz - probe.xyz, n));
-        let w = f32(4 >> u32(abs(d.x) + abs(d.y))) * strength * max(0.0, 1.0 - plane / tolerance)
+        let w = exp(-f32(d.x * d.x + d.y * d.y) / (2.0 * 1.2 * 1.2)) * strength * max(0.0, 1.0 - plane / tolerance)
             * smoothstep(0.9, 0.98, dot(qn, n));
         sum += gi_screen_history[j + last].rgb * w;
         wsum += w;

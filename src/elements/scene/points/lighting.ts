@@ -17,12 +17,12 @@ export const sceneLightingReady = wgslModule({
 });
 
 /**
- * `fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32` — visibilidade da luz `light` (slot no pool `Light`,
- * ou `NONE` para a ambiente) no ponto; pronto: 1 (sem sombra).
+ * `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32` — visibilidade da luz `light` (slot no pool `Light`,
+ * ou `NONE` para a ambiente) no ponto de normal `n` (0 num ponto de volume); pronto: 1 (sem sombra).
  */
 export const lightVisibilityReady = wgslModule({
     name: 'light_visibility_ready',
-    source: 'fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32 {\n    return 1.0;\n}',
+    source: 'fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32 {\n    return 1.0;\n}',
 });
 
 /**
@@ -87,8 +87,8 @@ export const lightVisibilityPoint: ContributionPoint = {
             wgslModule({
                 name: `light_visibility:${modules.map((m) => m.name).join('+')}`,
                 requires: modules,
-                source: `fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32 {\n    return ${modules
-                    .map((_, k) => `light_visibility_${k}(light, p, n_dot_l)`)
+                source: `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32 {\n    return ${modules
+                    .map((_, k) => `light_visibility_${k}(light, p, n)`)
                     .join(' * ')};\n}`,
             }),
         ),

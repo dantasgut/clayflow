@@ -129,7 +129,7 @@ describe('FogVolume (spec 033, T055)', () => {
         }
         const inject = composeWgsl(froxelInject[0]).spec.source;
         expect(inject).toContain('fn froxel_inject_main(');
-        expect(inject).toContain('light_visibility(l, p, 1.0)');
+        expect(inject).toContain('light_visibility(l, p, vec3f(0.0))');
         // A luz ambiente vem da grade grossa (o kernel dela consulta `scene_ambient`).
         expect(inject).toContain('textureSampleLevel(froxel_ambient');
         expect(composeWgsl(froxelAmbient).spec.source).toContain('scene_ambient(p)');

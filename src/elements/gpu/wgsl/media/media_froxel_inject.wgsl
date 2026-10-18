@@ -68,7 +68,7 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
         for (var l = 0u; l < lights_n; l++) {
             let inc = light_incoming(lights[l], p);
             if (all(inc.radiance <= vec3f(0.0))) { continue; }
-            let radiance = inc.radiance * light_visibility(l, p, 1.0) * light_transmission(l, p);
+            let radiance = inc.radiance * light_visibility(l, p, vec3f(0.0)) * light_transmission(l, p);
             incoming += radiance * froxel_phase(dot(inc.l, ray), g);
         }
         current = vec4f(sigma_s * incoming + emission, sigma_t);

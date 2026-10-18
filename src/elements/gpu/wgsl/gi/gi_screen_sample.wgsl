@@ -1,7 +1,9 @@
 // Irradiância da coleta final na tela num ponto (spec 033, R2 adendo): o ponto projetado pela câmera ativa cai entre
 // as sondas de tela; as 2 × 2 vizinhas pesam pela posição (bilinear), pela distância ao plano delas e pela normal. Sem
-// nenhuma compatível mas com alguma válida em volta (borda, ou um fragmento que não vira pixel: encoberto ou auxiliar do
-// quad), a válida mais próxima — barato, e quem não vira pixel não paga a leitura das sondas do mundo. A confiança (a): 1
+// nenhuma compatível, as compatíveis num raio de 2 ladrilhos (uma face fina — o vão de uma janela — tem as suas sondas em
+// alguns ladrilhos da faixa, não em todos), pela distância; sem nenhuma, mas com alguma válida em volta (borda, ou um
+// fragmento que não vira pixel: encoberto ou auxiliar do quad), a válida mais próxima — barato, e quem não vira pixel
+// não paga a leitura das sondas do mundo. A confiança (a): 1
 // com sondas compatíveis, 0,5 com a mais próxima, 0 sem nenhuma válida (fora da tela, o que não está na estrutura de
 // raios) — aí valem as sondas do mundo.
 // Requer: gi, cameras, gi_screen_probe_texture, gi_screen_normal_texture, gi_screen_irradiance_texture.
@@ -55,6 +57,17 @@ fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
         }
     }
     if (wsum > 1e-4) { return vec4f(acc / wsum, 1.0); }
+    // As compatíveis em volta (5 × 5 ladrilhos), pesadas pela distância na grade.
+    for (var o = 0u; o < 25u; o++) {
+        let t = base + vec2i(i32(o % 5u) - 2, i32(o / 5u) - 2);
+        if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
+        let tap = gi_screen_tap(t, p, n, tolerance);
+        let d = g - vec2f(t);
+        let w = tap.w / (1.0 + dot(d, d));
+        acc += tap.e * w;
+        wsum += w;
+    }
+    if (wsum > 1e-4) { return vec4f(acc / wsum, 0.5); }
     if (nearest_d < 1e8) { return vec4f(nearest, 0.5); }
     return vec4f(0.0);
 }

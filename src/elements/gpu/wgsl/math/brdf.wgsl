@@ -1,23 +1,36 @@
 // Sombra (spec 005, R7): a visibilidade da luz por PCF 3×3 no mapa de sombra. O sombreamento físico está nos módulos
 // `bsdf`, `closure` e `closure_eval` (spec 011). Função pura: o mapa de sombra e o sampler entram como parâmetros.
 
-// Visibilidade da luz por PCF 3×3 no mapa de sombra (1 = iluminado). Viés inclinado pelo ângulo com a luz; fora do
-// frustum da luz ou com a sombra desligada (`enabled` < 0.5) devolve 1. Sem desvio de fluxo dependente de dados.
+// Visibilidade da luz por PCF 3×3 no mapa de sombra (1 = iluminado), para a projeção ortográfica da luz direcional.
+// Os vieses em texels do mapa, convertidos para mundo pela própria matriz (a escala de x em NDC por metro e a de z):
+// a consulta sai do ponto pela normal da superfície `normal` (0 num volume) `normal_texels` texels, mais quanto mais
+// rasante a luz `light_dir` (unitária, do ponto para a luz) — os vizinhos do PCF ficam acima da superfície — e compara
+// com `bias_texels` texels de profundidade. Pequenos assim, nenhum ponto atrás de quem faz sombra (um canto, a junta
+// de duas placas) passa por iluminado. Fora do frustum da luz ou com a sombra desligada (`enabled` < 0.5) devolve 1.
+// Sem desvio de fluxo dependente de dados.
 fn sample_shadow_pcf(
     shadow_map: texture_depth_2d,
     shadow_sampler: sampler_comparison,
     light_view_proj: mat4x4f,
     world_pos: vec3f,
-    bias_base: f32,
+    normal: vec3f,
+    light_dir: vec3f,
+    bias_texels: f32,
+    normal_texels: f32,
     enabled: f32,
-    n_dot_l: f32,
 ) -> f32 {
-    let lp = light_view_proj * vec4<f32>(world_pos, 1.0);
+    let size = vec2<f32>(textureDimensions(shadow_map, 0));
+    let per_metre_x = length(vec3<f32>(light_view_proj[0][0], light_view_proj[1][0], light_view_proj[2][0]));
+    let per_metre_z = length(vec3<f32>(light_view_proj[0][2], light_view_proj[1][2], light_view_proj[2][2]));
+    let texel_world = 2.0 / max(per_metre_x * size.x, 1e-6);
+    let n_dot_l = clamp(dot(normal, light_dir), 0.0, 1.0);
+    let sin_l = sqrt(max(1.0 - n_dot_l * n_dot_l, 0.0));
+    let offset = normal * (normal_texels * texel_world * (0.5 + sin_l));
+    let lp = light_view_proj * vec4<f32>(world_pos + offset, 1.0);
     let ndc = lp.xyz / max(lp.w, 1e-6);
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    let bias = max(bias_base * (1.0 - n_dot_l), bias_base * 0.1);
-    let ref_depth = ndc.z - bias;
-    let texel = vec2<f32>(1.0) / vec2<f32>(textureDimensions(shadow_map, 0));
+    let ref_depth = ndc.z - bias_texels * texel_world * per_metre_z;
+    let texel = vec2<f32>(1.0) / size;
     var sum = 0.0;
     for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
         for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {

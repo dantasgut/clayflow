@@ -98,7 +98,7 @@ const poolLights = wgslModule({
         if (!pool_live(light_live[i >> 5u], i)) { continue; }
         let inc = light_incoming(lights[i], p);
         if (all(inc.radiance <= vec3f(0.0))) { continue; }
-        let radiance = inc.radiance * light_visibility(i, p, dot(n, inc.l)) * light_transmission(i, p);
+        let radiance = inc.radiance * light_visibility(i, p, n) * light_transmission(i, p);
         sum = sum + closure_eval(c, n, v, inc.l, radiance);
     }
     return sum;

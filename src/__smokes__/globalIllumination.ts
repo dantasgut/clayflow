@@ -750,7 +750,14 @@ async function softGraphScene(): Promise<void> {
  */
 async function budgetScene(): Promise<void> {
     const lib = await import('clayflow');
-    const run = async (gi: boolean): Promise<Map<string, number>> => {
+    /** A cena do orçamento (1 milhão de triângulos animados, sol com sombra e céu) pronta, com ou sem a GI. */
+    const open = async (
+        gi: boolean,
+    ): Promise<{
+        app: Application;
+        canvas: HTMLCanvasElement;
+        perFrame: (n: number) => Promise<number>;
+    }> => {
         const canvas = document.createElement('canvas');
         canvas.width = 1280;
         canvas.height = 720;
@@ -760,7 +767,6 @@ async function budgetScene(): Promise<void> {
             scene: lib.createScene(),
             autoResize: false,
             captureErrors: true,
-            profiling: 'frame',
         });
         app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
         const ready = { revision: -1, at: 0 };
@@ -833,39 +839,90 @@ async function budgetScene(): Promise<void> {
         if (gi) app.world.insert(giRes);
         await settle(app, 2500);
         if (gi) await giReady(app, ready);
-        const stages = new Map<string, number>();
-        let frames = 0;
-        app.events.on('frameComplete', (f) => {
-            if (f.stats.gpuTimeMs === undefined) return;
-            frames++;
-            stages.set('total', (stages.get('total') ?? 0) + f.stats.gpuTimeMs);
-            for (const [k, v] of Object.entries(f.stats.stagesNs ?? {}))
-                stages.set(k, (stages.get(k) ?? 0) + v / 1e6);
-        });
-        for (let i = 0; i < 240; i++) {
-            app.step(1 / 60);
-            if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
+        // Nenhuma compilação pendente por 2 s (só no teste: a fila interna do núcleo).
+        const pending = (): number =>
+            (app.core as unknown as { pendingPipelines: Map<string, unknown> }).pendingPipelines
+                .size;
+        let quiet = performance.now();
+        for (const limit = performance.now() + 60000; performance.now() < limit; ) {
+            await settle(app, 100);
+            if (pending() > 0) quiet = performance.now();
+            else if (performance.now() - quiet > 2000) break;
         }
-        await settle(app, 300);
-        app.dispose();
-        canvas.remove();
-        for (const [k, v] of stages) stages.set(k, v / Math.max(1, frames));
-        return stages;
+        // Espera o trabalho enviado à GPU terminar (uma leitura de volta pequena depois dele).
+        const fence = async (): Promise<void> => {
+            const staging = app.core.create<StagingBufferSpec>({
+                kind: 'buffer',
+                subkind: 'staging',
+                discriminator: 'budget_fence',
+                byteSize: 16,
+            });
+            const texture = app.resources.textureOf(app.defaults.targets, 'color')!;
+            app.core.record('budget-fence', (frame) => {
+                frame.copyTextureToBuffer(
+                    texture,
+                    staging,
+                    { bytesPerRow: 256, rowsPerImage: 1 },
+                    [1, 1],
+                );
+            });
+            app.core.submit();
+            await app.core.readback(staging);
+            app.core.destroy(staging);
+        };
+        const perFrame = async (n: number): Promise<number> => {
+            for (let i = 0; i < 10; i++) app.step(1 / 60);
+            await fence();
+            const t0 = performance.now();
+            for (let i = 0; i < n; i++) app.step(1 / 60);
+            await fence();
+            return (performance.now() - t0) / n;
+        };
+        return { app, canvas, perFrame };
     };
-    const off = await run(false);
-    const on = await run(true);
-    const fmt = (m: Map<string, number>): string =>
-        [...m]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([k, v]) => `${k} ${v.toFixed(2)}`)
-            .join(' · ');
-    log(`budget: sem iluminação global — ${fmt(off)}`);
-    log(`budget: com iluminação global (média) — ${fmt(on)}`);
-    const cost = (on.get('total') ?? 0) - (off.get('total') ?? 0);
+    /** Repete o `dispatch` de um estágio `times` vezes por quadro (só no teste). */
+    const repeat = (flow: { prototype: unknown }, times: () => number): (() => void) => {
+        const proto = flow.prototype as { dispatch: (...args: unknown[]) => void };
+        const original = proto.dispatch;
+        proto.dispatch = function (this: unknown, ...args: unknown[]): void {
+            for (let k = 0; k < times(); k++) original.apply(this, args);
+        };
+        return () => {
+            proto.dispatch = original;
+        };
+    };
+    // (a) Os kernels da GI: o estágio das sondas 41× contra 21× por quadro, (T₄₁ − T₂₁)/20.
+    const on = await open(true);
+    let probeTimes = 1;
+    let restore = repeat(lib.ProbeFlow, () => probeTimes);
+    probeTimes = 21;
+    const low = await on.perFrame(40);
+    probeTimes = 41;
+    const high = await on.perFrame(40);
+    restore();
+    const kernels = Math.max(0, (high - low) / 20);
+    // (b) O que é por pixel (a leitura das sondas no desenho): o desenho 11× por quadro com e sem a GI —
+    // (T_com − T_sem − kernels)/11.
+    let forwardTimes = 11;
+    restore = repeat(lib.ForwardFlow, () => forwardTimes);
+    const withGi = await on.perFrame(40);
+    on.app.dispose();
+    on.canvas.remove();
+    const off = await open(false);
+    const withoutGi = await off.perFrame(40);
+    off.app.dispose();
+    off.canvas.remove();
+    restore();
+    forwardTimes = 1;
+    const perPixel = Math.max(0, (withGi - withoutGi - kernels) / 11);
+    const cost = kernels + perPixel;
     log(
-        `budget: custo da iluminação global ${cost.toFixed(2)} ms/quadro a 1280×720 (orçamento 4 ms)`,
+        `budget: tempo de parede por quadro — sondas 21× ${low.toFixed(2)} ms, 41× ${high.toFixed(2)} ms → kernels ${kernels.toFixed(2)} ms; desenho 11× com a GI ${withGi.toFixed(2)} ms, sem ${withoutGi.toFixed(2)} ms → por pixel ${perPixel.toFixed(2)} ms`,
     );
+    log(
+        `budget: custo da iluminação global ${cost.toFixed(2)} ms/quadro a 1280×720 (orçamento 4 ms; o tempo de GPU do quadro desta máquina repete leituras velhas, então a medida é por repetição com o relógio de parede)`,
+    );
+    check(kernels > 0, 'budget: o trabalho da GI aparece na medida');
     check(cost <= 4, `budget: iluminação global a ${cost.toFixed(2)} ms/quadro (orçamento 4 ms)`);
 }
 

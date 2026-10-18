@@ -4,6 +4,7 @@ import { brdf } from '../../gpu/shaders/math';
 import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
 import {
+    lightsResource,
     shadowCasterDepthResource,
     shadowCasterSamplerResource,
     shadowMapsResource,
@@ -22,16 +23,18 @@ function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
             name: `light_visibility_shadow_${lightSlot}_${shadowSlot}`,
             requires: [
                 brdf,
+                lightsResource,
                 shadowMapsResource,
                 shadowMatricesResource,
                 shadowCasterDepthResource,
                 shadowCasterSamplerResource,
             ],
-            source: `fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32 {
+            source: `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32 {
     if (light != ${lightSlot}u) { return 1.0; }
     let sm = shadow_maps[${shadowSlot}u];
     let light_view_proj = shadow_matrices[${shadowSlot}u].lightViewProj;
-    return sample_shadow_pcf(shadow_map, shadow_sampler, light_view_proj, p, sm.bias, 1.0, max(n_dot_l, 0.0));
+    let l = -normalize(lights[${lightSlot}u].direction.xyz);
+    return sample_shadow_pcf(shadow_map, shadow_sampler, light_view_proj, p, n, l, sm.bias, sm.normalBias, 1.0);
 }`,
         });
         visibilities.set(key, m);
