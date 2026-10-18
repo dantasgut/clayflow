@@ -218,8 +218,10 @@ export interface ForwardFlowOptions {
     /** Compila os pipelines de material em segundo plano; objetos de um material ainda compilando não são desenhados. */
     readonly preferAsync?: boolean;
     /**
-     * Passe de profundidade dos opacos antes da cor (padrão `true`, spec 033): cada pixel é sombreado uma vez — o
-     * sombreamento caro (as luzes, a luz rebatida, a névoa) não paga os fragmentos encobertos.
+     * Passe de profundidade dos opacos antes da cor (spec 033): cada pixel é sombreado uma vez — o sombreamento caro (a
+     * luz rebatida) não paga os fragmentos encobertos. `true` sempre; `false` nunca (sem os pipelines de profundidade);
+     * sem valor (o padrão), o dos `FrameTargets` (`depthPrepass`, ligado pelos estágios padrão com a luz rebatida), lido
+     * a cada quadro sem recompilar.
      */
     readonly depthPrepass?: boolean;
 }
@@ -253,7 +255,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly world: World;
     private readonly resources: ResourceDirectory;
     private readonly preferAsync: boolean;
+    /** Pipelines de profundidade preparados (o passe pode valer). */
     private readonly depthPrepass: boolean;
+    /** O passe sempre (`true`), ou o dos `FrameTargets` (`undefined`). */
+    private readonly depthPrepassForced: boolean | undefined;
     /** Pipeline de profundidade de cada pipeline base de opaco (o mesmo vértice, sem fragmento). */
     private readonly depthPipelines = new Map<string, string>();
     private readonly frameParams: UniformBufferSpec;
@@ -493,6 +498,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.resources = ctx.resources;
         this.preferAsync = options.preferAsync === true;
         this.depthPrepass = options.depthPrepass !== false;
+        this.depthPrepassForced = options.depthPrepass;
         this.slots = slotsOf(options.output ?? 'scene');
         this.frameParams = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
@@ -625,7 +631,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             transmissive.length === 0 ? groups : groups.filter((g) => !transmissive.includes(g));
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
             // A profundidade dos opacos primeiro (só o vértice); a cor depois, um fragmento por pixel.
-            if (this.depthPrepass)
+            if (this.prepassActive(bound))
                 this.recordGroups(pass, bound, opaque, (_entry, id) => this.depthPipelines.get(id));
             this.recordGroups(
                 pass,
@@ -636,6 +642,14 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             this.recordBackground(pass, bound);
         });
         if (transmissive.length > 0) this.recordTransmission(frame, bound, transmissive);
+    }
+
+    /** O passe de profundidade vale neste quadro: forçado pela opção ou ligado nos `FrameTargets`. */
+    private prepassActive(bound: BoundFlow<ForwardSlots>): boolean {
+        if (!this.depthPrepass) return false;
+        if (this.depthPrepassForced === true) return true;
+        const targets = bound.slots.targets?.resource as FrameTargets | undefined;
+        return targets?.data.depthPrepass === 1;
     }
 
     /**
@@ -1073,8 +1087,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     frontFace,
                     vertexBuffers: VERTEX_LAYOUT,
                     colorTargets: [{ format }],
-                    // Depois do passe de profundidade só o fragmento visível passa (o igual); sem ele (o pipeline de
-                    // profundidade ainda compilando), o teste comum.
+                    // Depois do passe de profundidade só o fragmento visível passa (o igual); sem o passe, `less-equal`
+                    // dá o mesmo que o teste comum fora dos empates exatos.
                     depth: {
                         format: 'depth24plus',
                         depthWriteEnabled: true,

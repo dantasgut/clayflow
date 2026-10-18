@@ -3,6 +3,8 @@ import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { StandardMaterial } from '../../../elements/material/StandardMaterial';
 import { Camera } from '../../../elements/scene/Camera';
 import { Transform } from '../../../elements/scene/Transform';
+import { GlobalIllumination } from '../../../elements/lighting/GlobalIllumination';
+import { registerPresentationDefaults } from '../defaults';
 import { registerStages, renderScene } from './helpers/renderHarness';
 
 // Passe de profundidade dos opacos (spec 033): no mesmo passe de render, cada grupo de triângulos primeiro só com o
@@ -52,5 +54,35 @@ describe('ForwardFlow — passe de profundidade (spec 033)', () => {
         const draws = s.draws('ForwardFlow');
         expect(draws).toHaveLength(1);
         expect(draws[0]!.pipeline.depthStencil).toMatchObject({ depthCompare: 'less' });
+    });
+
+    it('padrão: segue os FrameTargets — liga com a luz rebatida (evento), desliga quando ela sai, sem recompilar', async () => {
+        const s = await renderScene();
+        const defaults = registerPresentationDefaults(s.scene.flows, {
+            world: s.scene.world,
+            events: s.scene.events,
+        });
+        const world = s.scene.world;
+        world.insert(new Camera().add(new Transform({ position: [0, 0, 5, 1] })));
+        world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
+        const depthDraws = (): number =>
+            s.draws('ForwardFlow').filter((d) => d.pipeline.fragment?.entryPoint === 'fs_depth')
+                .length;
+        s.step();
+        s.step();
+        expect(defaults.targets.data.depthPrepass).toBe(0);
+        expect(depthDraws()).toBe(0);
+        // Sem o passe, a cor compara `less-equal` (o mesmo que `less` fora dos empates exatos).
+        const gi = new GlobalIllumination();
+        world.insert(gi);
+        s.step();
+        s.step();
+        expect(defaults.targets.data.depthPrepass).toBe(1);
+        expect(depthDraws()).toBe(1);
+        world.remove(gi);
+        s.step();
+        s.step();
+        expect(defaults.targets.data.depthPrepass).toBe(0);
+        expect(depthDraws()).toBe(0);
     });
 });

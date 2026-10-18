@@ -10,6 +10,17 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 export interface FrameTargetsOptions {
     /** Amostras por pixel (MSAA): 4 suaviza as bordas da geometria; 1 desliga. Default 4. */
     readonly samples?: 1 | 4;
+    /**
+     * Passe de profundidade dos opacos antes da cor (spec 033): cada pixel sombreado uma vez. Vale quando o sombreamento
+     * por pixel é caro (a luz rebatida); com sombreamento barato só dobra o trabalho dos vértices. Os estágios padrão o
+     * ligam quando entra uma `GlobalIllumination` e desligam quando sai a última. Default desligado.
+     */
+    readonly depthPrepass?: boolean;
+}
+
+/** Dado dos `FrameTargets`: o passe de profundidade (1 ligado, 0 desligado), lido pelo desenho a cada quadro. */
+export interface FrameTargetsData {
+    depthPrepass: number;
 }
 
 /** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
@@ -22,7 +33,7 @@ export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
  * `color`; a profundidade tem as mesmas amostras. A cópia da cena com mips (`sceneCopy`, spec 011) é alocada sob
  * demanda, por quem a lê (refração da água e dos transmissivos). Um por cena, inserido pela aplicação.
  */
-export class FrameTargets extends Entity<Record<string, never>> implements Resource {
+export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
     /** Identidade dos alvos na cena (o World indexa pelo schema da classe); sem dados de GPU próprios. */
     static readonly schema = new StructSchema('FrameTargets', { _unused: FieldType.u32 });
 
@@ -33,6 +44,7 @@ export class FrameTargets extends Entity<Record<string, never>> implements Resou
     constructor(options: FrameTargetsOptions = {}) {
         super();
         this.samples = options.samples ?? 4;
+        this.data = { depthPrepass: options.depthPrepass === true ? 1 : 0 };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

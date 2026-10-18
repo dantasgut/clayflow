@@ -161,7 +161,7 @@ export function registerPresentationDefaults(
     const unsubscribe =
         options.events === undefined
             ? undefined
-            : swapAmbientForGi(options.world, options.events, ambient);
+            : swapAmbientForGi(options.world, options.events, ambient, frameTargets);
     const defaults: PresentationDefaults = {
         ...stages,
         presentation,
@@ -210,10 +210,18 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
 
 /**
  * Hemisfério e iluminação global por evento (spec 033, R7): a entrada de uma `GlobalIllumination` retira o hemisfério
- * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes) e insere a `RayScene` que os
- * raios das sondas consultam, se a cena não tem; a saída da última devolve o hemisfério. Devolve o cancelamento.
+ * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes), insere a `RayScene` que os
+ * raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
+ * pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estava.
+ * Devolve o cancelamento.
  */
-function swapAmbientForGi(world: World, events: EventBus, ambient: HemisphereLight): () => void {
+function swapAmbientForGi(
+    world: World,
+    events: EventBus,
+    ambient: HemisphereLight,
+    targets: FrameTargets,
+): () => void {
+    const prepass = targets.data.depthPrepass;
     const giCount = (): number => world.queryBySchemaName(GlobalIllumination.schema.name).length;
     return events.on('resourcesChanged', (e) => {
         const added = e.added.some((r) => r instanceof GlobalIllumination);
@@ -222,8 +230,10 @@ function swapAmbientForGi(world: World, events: EventBus, ambient: HemisphereLig
             if (world.entityIdOfResource(ambient) !== undefined) world.remove(ambient);
             if (world.queryBySchemaName(RayScene.schema.name).length === 0)
                 world.insert(new RayScene());
-        } else if (removed && giCount() === 0 && world.entityIdOfResource(ambient) === undefined) {
-            world.insert(ambient);
+            if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
+        } else if (removed && giCount() === 0) {
+            if (world.entityIdOfResource(ambient) === undefined) world.insert(ambient);
+            if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
         }
     });
 }
