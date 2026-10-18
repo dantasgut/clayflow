@@ -76,6 +76,8 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
         ): GPUDescriptor => ({
             id,
             role: 'storage-texture',
+            // Só com névoa na cena (o `FroxelFlow` pede): sem ela, as ~45 MB das grades não existem.
+            allocation: 'onDemand',
             textureShape: {
                 format: 'rgba16float',
                 dimension: '3d',

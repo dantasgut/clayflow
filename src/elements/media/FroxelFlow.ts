@@ -217,6 +217,10 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         const fogs = c.bound.slots.fogs.entries;
         const cameraSlot = this.cameraSlot(c);
         this.active = fogs.length > 0 && cameraSlot !== undefined;
+        // As grades sob demanda: alocadas com a primeira névoa, antes de as contribuições lerem.
+        if (fogs.length > 0)
+            for (const id of ['scatter', 'history0', 'history1', 'ambient'])
+                this.resources.ensureAllocated(froxels, id);
         froxels.setActive(fogs.length > 0);
         if (fogs.length === 0) return;
         this.resources.ensurePool(Light.schema);
