@@ -195,6 +195,9 @@ gravados.
   vez; quadros sem leitura MUST ficar sem valor em vez de repetir o anterior.
 - **FR-009**: Os smokes e o bench que usam o tempo de GPU MUST contar cada quadro medido uma vez e medir com a GPU em
   regime (aquecida), com um método que não dependa do patamar de clock.
+- **FR-009a**: A correção da medição MUST ser multiplataforma: nada específico do Apple/Metal no motor, nos smokes ou no
+  bench; o mesmo código MUST valer em Metal (Apple), D3D12 e Vulkan (ex.: NVIDIA RTX 4090) e em dispositivos sem
+  `timestamp-query`. Tolerâncias e orçamentos não MUST ser calibrados para um único hardware.
 - **FR-010**: O desempenho do `fluidSurface` MUST ser reavaliado com a medida corrigida; se exceder o orçamento, o custo
   MUST ser reduzido no motor.
 
@@ -251,5 +254,7 @@ gravados.
   leitura lisa da cópia no limite.
 - As texturas por derivada nas superfícies atingidas pelo raio (H6) continuam pela 012; aqui valem as constantes, como
   nos acertos da GI.
+- O desenvolvimento roda num Mac (Apple M4, Metal); o usuário valida também numa NVIDIA RTX 4090. Os baselines do bench
+  são por máquina (o nome do arquivo identifica o hardware), e os critérios dos smokes valem nas duas.
 - A medida corrigida do tempo de GPU pode mostrar que o `fluidSurface` cabe no orçamento; nesse caso basta a medida.
 - As falhas H4/H5 são do motor até prova em contrário; a referência de comparação é o `develop` atual (com a 033).
