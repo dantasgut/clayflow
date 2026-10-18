@@ -346,9 +346,9 @@ Notas da US6:
 
 ## Phase 13: Fechamento
 
-- [ ] T067 Todos os smokes `--headless` no fonte e com `--dist`; conferir que não ficou Chrome/crashpad órfão do runner
-- [ ] T068 `npm run bench:check` sem regressão relevante nas cenas sem GI; baseline regravado; tempos da GI registrados em `baseline-check.md`
-- [ ] T069 `npm run ci` verde
+- [x] T067 Todos os smokes `--headless` no fonte e com `--dist`; conferir que não ficou Chrome/crashpad órfão do runner
+- [x] T068 `npm run bench:check` sem regressão relevante nas cenas sem GI; baseline regravado; tempos da GI registrados em `baseline-check.md`
+- [x] T069 `npm run ci` verde
 - [ ] T070 Vídeos enviados ao usuário (água por campo de perto e de longe, névoa com feixes, Cornell box, cômodo ao longo do dia, geometria viva, cáusticas) (SC-012)
 
 ---
