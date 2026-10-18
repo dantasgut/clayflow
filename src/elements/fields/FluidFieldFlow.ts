@@ -29,12 +29,14 @@ import { ParticleBody } from '../physics/bodies/ParticleBody';
 import { ParticleMaterial } from '../physics/materials/ParticleMaterial';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
+import { Time } from '../../scene/time/Time';
 import { FluidField, fieldDataLayout } from './FluidField';
 import { FIELD_BRICK_VOXELS, FIELD_PARTICLES_PER_BRICK, FieldGatherSchema } from './schemas';
 import {
     fieldApron,
     fieldDensity,
     fieldGather,
+    fieldSort,
     fieldKernels,
     fieldLinks,
     fieldMark,
@@ -50,12 +52,15 @@ export interface FluidFieldSlots extends SlotMap {
     readonly bodies: EntitiesSlot;
     /** O material das partículas (o espaçamento). */
     readonly particleMaterial: SingletonSlot<true>;
+    /** O tempo da cena: o nível da superfície só se ajusta nos quadros em que a simulação avança. */
+    readonly time: SingletonSlot<true>;
 }
 
 const slots: FluidFieldSlots = {
     field: slot.singleton(FluidField.schema),
     bodies: slot.entities({ all: [ParticleBody, FluidSurfaceMaterial] }),
     particleMaterial: slot.singleton(ParticleMaterial.schema, { optional: true }),
+    time: slot.singleton(Time.schema, { optional: true }),
 };
 
 type Ctx = TransitionContext<FluidFieldSlots>;
@@ -323,6 +328,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 grid: [spacing, FIELD.voxel * spacing, radius, FIELD.band * FIELD.voxel * spacing],
                 tuning: [FIELD.smoothing, FIELD.ratio, FIELD.sparse, FIELD.iso],
                 limits: [FIELD.neighbors, 32, layout.bricks, layout.voxels],
+                // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
+                // quadros foram desenhados com as partículas paradas.
+                motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],
             },
         ];
         const paramsKey = JSON.stringify(params);
@@ -331,6 +339,12 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             field.data.params = params;
         }
         this.ensureKernels(field, work, counts, data, gridRebuilt);
+    }
+
+    /** A simulação avançou neste quadro (sem o `Time` na cena, sempre). */
+    private advanced(ctx: Ctx): boolean {
+        const time = ctx.bound.slots.time?.resource as Time | undefined;
+        return time === undefined || time.data.steps > 0;
     }
 
     /** Regiões da junção, uma por corpo. */
@@ -461,9 +475,10 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.kernels = {
             key,
             gather,
-            sort: make('sort', fieldGather, 'field_sort_main', [
+            sort: make('sort', fieldSort, 'field_sort_main', [
+                ...gridSources,
                 [R.cellItems, this.grid.cellItems],
-                [R.itemsWrite, work.items],
+                [R.items, work.items],
                 [R.sortedWrite, work.sorted],
             ]),
             kernels: make('kernels', fieldKernels, 'field_kernels_main', [

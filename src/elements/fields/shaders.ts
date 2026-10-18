@@ -11,6 +11,7 @@ import { poolLive, spatialHash } from '../gpu/compute/shaders';
 import fieldCommonSource from '../gpu/wgsl/fields/field_common.wgsl?raw';
 import fieldLookupSource from '../gpu/wgsl/fields/field_lookup.wgsl?raw';
 import fieldGatherSource from '../gpu/wgsl/fields/field_gather.wgsl?raw';
+import fieldSortSource from '../gpu/wgsl/fields/field_sort.wgsl?raw';
 import fieldKernelsSource from '../gpu/wgsl/fields/field_kernels.wgsl?raw';
 import fieldMarkSource from '../gpu/wgsl/fields/field_mark.wgsl?raw';
 import fieldLinksSource from '../gpu/wgsl/fields/field_links.wgsl?raw';
@@ -153,7 +154,21 @@ export const fieldGather = wgslModule({
         R.live,
         poolLive,
         R.itemsWrite,
+    ],
+});
+
+/** As partículas na ordem das células (as mortas, além das vivas da grade, ficam mortas). */
+export const fieldSort = wgslModule({
+    name: 'field_sort',
+    source: fieldSortSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        R.params,
+        R.grid,
+        R.cellStart,
+        R.cellCount,
         R.cellItems,
+        R.items,
         R.sortedWrite,
     ],
 });

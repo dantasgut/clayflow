@@ -15,6 +15,7 @@ import { rayVolumeHitPoint, rayVolumeTransmittancePoint } from '../../raytrace/p
 import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout } from '../FluidField';
 import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS } from '../schemas';
 import { FIELD } from '../reference/field';
+import { fieldSort } from '../shaders';
 
 // Campo dos fluidos (spec 033, T042): o recurso (descritores, capacidades que crescem, o buffer único das consultas) e
 // a contribuição aos raios (só com fluido), e o estágio criando o campo para os corpos com `FluidSurfaceMaterial` sem
@@ -50,6 +51,14 @@ describe('FluidField (spec 033, R11)', () => {
         expect(FIELD_BRICK).toBe(8);
         expect(FIELD.voxel).toBe(0.5);
         expect(FIELD_BRICK_APRON_VOXELS).toBe(12 ** 3);
+    });
+
+    it('cópia ordenada: as posições além das vivas da grade viram mortas (a grade deixa as mortas de fora)', () => {
+        const source = composeWgsl(fieldSort).spec.source;
+        expect(source).toContain(
+            'let live = cell_start[grid.table_mask] + cell_count[grid.table_mask];',
+        );
+        expect(source).toContain('field_sorted[t] = vec4f(0.0, 0.0, 0.0, -1.0);');
     });
 
     it('reserve: as capacidades crescem em potências de dois e o buffer acompanha', () => {

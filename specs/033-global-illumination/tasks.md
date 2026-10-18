@@ -332,7 +332,7 @@ Notas da US6:
 
 ## Phase 11: Fixtures
 
-- [ ] T063 Regravar as fixtures que mudam com o campo de distância (`fluidSurface-*`, `particles-*` com água, `parametricSurfaces-lake`) em `src/__smokes__/fixtures/`, com a lista, a justificativa e a montagem antes/depois em `specs/033-global-illumination/fixtures.md`; conferir que as demais e as de estado ficam bit a bit (SC-011)
+- [x] T063 Regravar as fixtures que mudam com o campo de distância (`fluidSurface-*`, `particles-*` com água, `parametricSurfaces-lake`) em `src/__smokes__/fixtures/`, com a lista, a justificativa e a montagem antes/depois em `specs/033-global-illumination/fixtures.md`; conferir que as demais e as de estado ficam bit a bit (SC-011)
 
 ---
 

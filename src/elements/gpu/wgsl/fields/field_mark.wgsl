@@ -6,7 +6,8 @@
 // reduzida no grupo antes dos atômicos globais) — a caixa da marcha e o enquadramento da vista da luz. Blocos,
 // contagem e limites nunca voltam à CPU. A limpeza também fixa o nível da superfície do quadro: o do anterior corrigido
 // pelo volume que ele deu contra o das partículas (N · espaçamento³) — o campo conserva o volume em movimento, onde a
-// superfície agitada perderia espessura.
+// superfície agitada perderia espessura. Só nos quadros em que a simulação avança: parada, o nível fica (a imagem não
+// depende de quantos quadros foram desenhados).
 // Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_sorted (leitura, na ordem da grade), field_kernel
 // (leitura),
 // field_data_atomic, field_counts_write, field_volume_write.
@@ -24,7 +25,9 @@ fn field_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
         let volume = f32(atomicLoad(&field_volume[0])) / FIELD_VOLUME_ONE;
         let wanted = f32(fluid_field.sizes.x) * pow(fluid_field.grid.x / fluid_field.grid.y, 3.0);
         var iso = fluid_field.tuning.w;
-        if (previous > 0.0 && volume > 0.0 && wanted > 0.0) {
+        if (previous > 0.0 && fluid_field.motion.x == 0u) {
+            iso = previous;
+        } else if (previous > 0.0 && volume > 0.0 && wanted > 0.0) {
             iso = clamp(previous * pow(volume / wanted, FIELD_ISO_GAIN), FIELD_ISO_MIN, FIELD_ISO_MAX);
         }
         atomicStore(&field_data_atomic[FIELD_ISO_WORD], bitcast<u32>(iso));

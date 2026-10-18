@@ -27,6 +27,8 @@ export const FluidFieldSchema = new StructSchema(
         grid: FieldType.vec4f,
         tuning: FieldType.vec4f,
         limits: FieldType.vec4u,
+        /** x: 1 quando a simulação avançou no quadro (o nível da superfície se ajusta só então). */
+        motion: FieldType.vec4u,
     },
     { addressSpace: 'uniform' },
 );
