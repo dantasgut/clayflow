@@ -72,8 +72,9 @@ export interface ApplicationOptions {
      */
     scene?: SceneContext;
     /**
-     * Liga o profiling de GPU por quadro: `frameComplete.stats.gpuTimeMs` passa a ser preenchido (com defasagem de 1–3
-     * quadros). `true` ou `'passes'`: todo passe recebe timestamps e `stagesNs` traz o tempo de cada um; `'frame'`:
+     * Liga o profiling de GPU por quadro: `frameComplete.stats.gpuTimeMs` passa a ser preenchido no evento em que cada
+     * leitura chega (defasagem de alguns quadros; `gpuFrame` diz de qual quadro é, e cada quadro medido aparece uma
+     * vez). `true` ou `'passes'`: todo passe recebe timestamps e `stagesNs` traz o tempo de cada um; `'frame'`:
      * só o total da gravação (dois timestamps por quadro, sem o custo de amostrar cada passe — o modo para medir
      * desempenho). Sem `timestamp-query` no device, avisa uma vez e segue sem tempo de GPU. Default: false.
      */

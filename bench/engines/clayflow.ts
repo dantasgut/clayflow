@@ -90,7 +90,8 @@ export function createClayflowAdapter(options: {
         },
         capabilities(handle) {
             return {
-                gpuTiming: handle.last?.stats.gpuTimeMs !== undefined,
+                // O `frameComplete` traz a leitura só no quadro em que ela chega; a última fica no core.
+                gpuTiming: handle.app.core.lastFrameStats().gpuTimeMs !== undefined,
                 memory: 'exact',
             };
         },

@@ -33,6 +33,7 @@ import {
 import type { PtMedium } from '../elements/lighting/reference/pathTracer';
 import { halfToFloat } from './support/imageMeasures';
 import { settle } from './support/extensionScenes';
+import { repeatDispatch, wallPerFrame } from './support/gpuTiming';
 import {
     buildGiScene,
     giApp,
@@ -725,50 +726,21 @@ async function timingApp(
         if (pending() > 0 || ready.revision < 0) quietSince = performance.now();
         else if (performance.now() - quietSince > 2000) break;
     }
-    // Espera todo o trabalho enviado à GPU terminar (uma leitura de volta pequena depois dele).
-    const fence = async (): Promise<void> => {
-        const staging = app.core.create<StagingBufferSpec>({
-            kind: 'buffer',
-            subkind: 'staging',
-            discriminator: 'fog_timing_fence',
-            byteSize: 16,
-        });
-        const froxels = app.world.findResource(Froxels.schema, Froxels)!;
-        const media = app.resources.bufferOf(froxels, 'media')!;
-        app.core.record('fog-timing-fence', (frame) => {
-            frame.copy(media, staging, 16);
-        });
-        app.core.submit();
-        await app.core.readback(staging);
-        app.core.destroy(staging);
-    };
-    // Tempo de parede por quadro com a GPU como gargalo: quadros seguidos e a espera no fim.
-    const perFrame = async (frames: number): Promise<number> => {
-        for (let i = 0; i < 10; i++) app.step(1 / 60);
-        await fence();
-        const t0 = performance.now();
-        for (let i = 0; i < frames; i++) app.step(1 / 60);
-        await fence();
-        return (performance.now() - t0) / frames;
-    };
+    // Tempo de parede por quadro com a GPU como gargalo: quadros seguidos entre duas cercas.
+    const perFrame = (frames: number): Promise<number> => wallPerFrame(app, frames);
     return { app, canvas, perFrame };
 }
 
 /**
  * O custo da névoa a 1280×720 no cômodo da janela com a luz rebatida, em duas partes medidas com o tempo de parede por
- * quadro (a GPU como gargalo; o tempo de GPU do quadro desta máquina repete leituras velhas e oscila em patamares do
- * relógio): (a) os froxels — na mesma aplicação, o estágio despachado 41 vezes por quadro contra 21 (o `dispatch`
+ * quadro (a GPU como gargalo; a repetição isola o custo da névoa dentro do quadro): (a) os froxels — na mesma aplicação, o estágio despachado 41 vezes por quadro contra 21 (o `dispatch`
  * envolvido só no teste), (T₄₁ − T₂₁)/20; (b) o que é por pixel (a leitura no desenho, a névoa na luz das superfícies e
  * dos raios) — com e sem névoa em 4K, onde ele domina, (T_com − T_sem − froxels)/9 para 1280×720. A soma ≤ 1 ms.
  */
 async function timing(): Promise<void> {
     const t = await timingApp(1280, 720, true);
-    const proto = FroxelFlow.prototype as unknown as { dispatch: (...args: unknown[]) => void };
-    const original = proto.dispatch;
     let repeat = 1;
-    proto.dispatch = function (this: unknown, ...args: unknown[]): void {
-        for (let k = 0; k < repeat; k++) original.apply(this, args);
-    };
+    const restore = repeatDispatch(FroxelFlow, () => repeat);
     const froxelCosts: number[] = [];
     for (let round = 0; round < 2; round++) {
         repeat = 21;
@@ -780,7 +752,7 @@ async function timing(): Promise<void> {
             `timing: froxels a 1280×720 — tempo por quadro com o estágio 21× ${low.toFixed(2)} ms, 41× ${high.toFixed(2)} ms → ${((high - low) / 20).toFixed(2)} ms por despacho`,
         );
     }
-    proto.dispatch = original;
+    restore();
     t.app.dispose();
     t.canvas.remove();
     const froxels = Math.max(...froxelCosts);

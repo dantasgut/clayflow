@@ -34,6 +34,7 @@ import {
 import type { Application, LobeName } from 'clayflow';
 import { capture } from './support/extensionScenes';
 import { hdrAt, type HdrImage } from './support/imageMeasures';
+import { gpuFrameTimes, median } from './support/gpuTiming';
 import {
     closureFn,
     disposeApp,
@@ -776,19 +777,10 @@ async function caseSpecialization(): Promise<void> {
             if (graph) e.add(new MaterialFunction({ graph: plainGraph([0.8, 0.5, 0.3]) }));
             app.world.insert(e);
         }
-        const samples: number[] = [];
-        app.events.on('frameComplete', (e) => {
-            if (e.stats.gpuTimeMs !== undefined) samples.push(e.stats.gpuTimeMs);
-        });
         await renderHdr(app, 1, 1200);
-        samples.length = 0;
-        for (let i = 0; i < 120; i++) {
-            app.step(1 / 60);
-            await new Promise((r) => setTimeout(r, 0));
-        }
+        const samples = await gpuFrameTimes(app, 120);
         disposeApp(app, canvas);
-        samples.sort((a, b) => a - b);
-        gpu.push(samples[Math.floor(samples.length / 2)] ?? NaN);
+        gpu.push(samples.count > 0 ? median(samples.times) : NaN);
     }
     const ratio = gpu[1]! / gpu[0]!;
     log(

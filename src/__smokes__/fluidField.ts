@@ -47,7 +47,6 @@ import type {
     BoundFlow,
     FluidSurfaceMaterialOptions,
     Frame,
-    FrameCompleteEvent,
     StagingBufferSpec,
     StorageBufferSpec,
     TextureSpec,
@@ -68,6 +67,7 @@ import {
     type Rect,
 } from './support/spectralMeasures';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
+import { gpuFrameTimes, median } from './support/gpuTiming';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -970,7 +970,7 @@ async function caseContact(): Promise<void> {
     s.dispose();
 }
 
-/** Tempo de GPU por quadro (perfil por quadro, leituras novas a cada quadro de tela) da barragem de 64 000. */
+/** Tempo de GPU por quadro (perfil por quadro, uma leitura por quadro medido) da barragem de 64 000. */
 async function damFrameTime(
     material: 'water' | 'sprites',
 ): Promise<{ mean: number; readings: number; count: number }> {
@@ -995,26 +995,16 @@ async function damFrameTime(
         box: true,
         ...(material === 'sprites' ? { material: 'sprites' as const } : {}),
     })!;
-    const gpu: number[] = [];
-    let counting = false;
-    app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-        if (counting && e.stats.gpuTimeMs !== undefined) gpu.push(e.stats.gpuTimeMs);
-    });
     // Todos os pipelines compilados antes de medir (a água recompõe os da cena ao entrar).
     await settle(app, 5000);
     await simulate(app, 90);
-    counting = true;
-    for (let i = 0; i < 120; i++) {
-        app.step(1 / 60);
-        await new Promise((r) => requestAnimationFrame(r));
-    }
+    const gpu = await gpuFrameTimes(app, 120);
     app.dispose();
     canvas.remove();
-    const sorted = [...gpu].sort((a, b) => a - b);
-    // A mediana: robusta às leituras repetidas e aos picos de relógio.
+    // A mediana das leituras distintas (uma por quadro medido): robusta aos picos de relógio.
     return {
-        mean: sorted[Math.floor(sorted.length / 2)] ?? NaN,
-        readings: gpu.length,
+        mean: gpu.count > 0 ? median(gpu.times) : NaN,
+        readings: gpu.count,
         count: body.count,
     };
 }

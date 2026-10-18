@@ -53,7 +53,6 @@ import {
 } from 'clayflow';
 import type {
     EntityId,
-    FrameCompleteEvent,
     GraphJSON,
     NodeDefinition,
     StorageBufferSpec,
@@ -66,6 +65,7 @@ type ResourceSpec = Parameters<Application['core']['create']>[0];
 import { capture, readBuffer, settle } from './support/extensionScenes';
 import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
 import { caseSamples, nodeCases, type NodeCase } from './support/nodeLibraryCases';
+import { gpuFrameTimes } from './support/gpuTiming';
 
 function log(msg: string): void {
     console.log(`[nodeGraphs] ${msg}`);
@@ -379,15 +379,7 @@ async function partA(failures: string[]): Promise<void> {
     const gpu: Record<string, number> = { hand: Infinity, graph: Infinity };
     for (const variant of ['hand', 'graph', 'hand', 'graph'] as const) {
         const b = await build(variant, true);
-        const samples: number[] = [];
-        b.app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-            if (e.stats.gpuTimeMs !== undefined) samples.push(e.stats.gpuTimeMs);
-        });
-        for (let k = 0; k < 150; k++) {
-            b.app.step(1 / 60);
-            await new Promise((r) => requestAnimationFrame(r));
-        }
-        const window = samples.slice(-90);
+        const window = (await gpuFrameTimes(b.app, 90)).times;
         const mean = window.reduce((a, c) => a + c, 0) / Math.max(1, window.length);
         if (window.length >= 30) gpu[variant] = Math.min(gpu[variant]!, mean);
         b.app.dispose();

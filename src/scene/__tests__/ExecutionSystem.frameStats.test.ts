@@ -73,4 +73,40 @@ describe('ExecutionSystem — frameComplete.stats e dt', () => {
             { drawCalls: 5, dispatches: 1, passes: 2 },
         ]);
     });
+
+    it('a leitura de GPU entra num único frameComplete: repetida, os campos de GPU saem; nova, voltam', () => {
+        const events = new DefaultEventBus();
+        let last: FrameStats = { drawCalls: 1, dispatches: 0, passes: 1 };
+        const core = {
+            record: vi.fn((label: unknown, body?: unknown) => {
+                const fn = typeof label === 'function' ? label : body;
+                (fn as (frame: Frame) => void)({} as Frame);
+            }),
+            submit: vi.fn(),
+            setFrameProfiling: vi.fn(),
+            lastFrameStats: vi.fn(() => last),
+        } as unknown as EngineCore;
+        new ExecutionSystem(core, events, new FlowRegistry());
+        const seen: FrameStats[] = [];
+        events.on('frameComplete', (e) => seen.push(e.stats));
+        const tick = (): void => {
+            events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
+        };
+        tick();
+        last = {
+            drawCalls: 1,
+            dispatches: 0,
+            passes: 1,
+            gpuTimeMs: 2,
+            gpuFrame: 3,
+            stagesNs: { a: 2e6 },
+        };
+        tick();
+        tick();
+        last = { ...last, gpuTimeMs: 2.5, gpuFrame: 5 };
+        tick();
+        expect(seen.map((s) => s.gpuFrame)).toEqual([undefined, 3, undefined, 5]);
+        expect(seen[2]).toEqual({ drawCalls: 1, dispatches: 0, passes: 1 });
+        expect(seen[3]?.gpuTimeMs).toBe(2.5);
+    });
 });

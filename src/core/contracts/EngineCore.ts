@@ -187,8 +187,8 @@ export interface EngineCore {
     /**
      * Liga/desliga o profiling de GPU por quadro: `lastFrameStats().gpuTimeMs` passa a ser preenchido. Com
      * `granularity: 'passes'` (padrão), todo passe sem timestamps explícitos recebe um par automático e `stagesNs`
-     * traz o tempo de cada um; com `'frame'`, só dois timestamps por gravação (um passe vazio no início e outro no
-     * fim) medem o total — sem o custo de amostrar em cada passe, que em quadros com dezenas de passes (física)
+     * traz o tempo de cada um; com `'frame'`, só dois timestamps por gravação (o início no primeiro passe e o fim nos
+     * passes de render) medem o total — sem o custo de amostrar em cada passe, que em quadros com dezenas de passes (física)
      * pesa no próprio tempo medido. `capacity` = timestamps por quadro (default 256 = 128 passes). No-op com aviso
      * único quando o device não tem `timestamp-query`.
      */
@@ -200,7 +200,8 @@ export interface EngineCore {
     /**
      * Estatísticas da última gravação submetida (draws, dispatches, passes) e a leitura de
      * GPU mais recente resolvida até o momento da chamada (`gpuTimeMs`, com defasagem de
-     * 1–3 quadros; `gpuFrame` diz a que quadro pertence).
+     * alguns quadros; `gpuFrame` diz a que quadro pertence). Consultas seguidas devolvem a mesma leitura até chegar
+     * outra — quem conta quadros deve usar `gpuFrame` (o `frameComplete` já entrega cada leitura uma vez).
      */
     lastFrameStats(): FrameStats;
 

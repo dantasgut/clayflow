@@ -1,29 +1,33 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GpuProfilerSystem } from '../profiler/GpuProfilerSystem';
+import { GpuProfilerSystem, STAGING_RING } from '../profiler/GpuProfilerSystem';
 
+/**
+ * Device falso: cada buffer com `MAP_READ` é um staging com o seu mapeamento pendente; `finishMap` conclui os
+ * mapeamentos pendentes na ordem em que foram pedidos.
+ */
 function fakeDevice(timestamps: () => BigInt64Array) {
-    let resolveMap: (() => void) | null = null;
-    const staging = {
-        destroy: vi.fn(),
-        mapAsync: vi.fn(
-            () =>
-                new Promise<void>((r) => {
-                    resolveMap = r;
-                }),
-        ),
-        getMappedRange: () => timestamps().buffer,
-        unmap: vi.fn(),
-    };
-    const created: object[] = [];
+    const maps: (() => void)[] = [];
+    const stagings: object[] = [];
     const device = {
         features: new Set(['timestamp-query']),
         createQuerySet: vi.fn(() => ({ destroy: vi.fn() })),
         createShaderModule: vi.fn(() => ({})),
         createComputePipeline: vi.fn(() => ({ label: 'profiler.marker' })),
-        createBuffer: vi.fn(() => {
-            const b = created.length % 2 === 0 ? { destroy: vi.fn() } : staging;
-            created.push(b);
-            return b;
+        createBuffer: vi.fn((d: GPUBufferDescriptor) => {
+            if ((d.usage & GPUBufferUsage.MAP_READ) === 0) return { destroy: vi.fn() };
+            const staging = {
+                destroy: vi.fn(),
+                mapAsync: vi.fn(
+                    () =>
+                        new Promise<void>((r) => {
+                            maps.push(r);
+                        }),
+                ),
+                getMappedRange: () => timestamps().buffer,
+                unmap: vi.fn(),
+            };
+            stagings.push(staging);
+            return staging;
         }),
     } as unknown as GPUDevice;
     const encoder = {
@@ -33,10 +37,10 @@ function fakeDevice(timestamps: () => BigInt64Array) {
     return {
         device,
         encoder,
+        stagings,
         finishMap: async () => {
-            resolveMap?.();
-            await Promise.resolve();
-            await Promise.resolve();
+            for (const r of maps.splice(0)) r();
+            for (let i = 0; i < 4; i++) await Promise.resolve();
         },
     };
 }
@@ -69,17 +73,39 @@ describe('GpuProfilerSystem — profiling por quadro', () => {
         });
     });
 
-    it('pula o resolve enquanto o staging anterior ainda está mapeando', async () => {
-        const { device, encoder, finishMap } = fakeDevice(() => new BigInt64Array(72));
+    it('anel de stagings: quadros seguidos resolvem sem pular enquanto há staging livre; cheio, o descarte é contado', async () => {
+        const { device, encoder, stagings, finishMap } = fakeDevice(() => new BigInt64Array(72));
         const p = new GpuProfilerSystem();
         p.configureFrameProfiling(true, 8);
         p.attach(device);
-        frame(p, 0, encoder, ['a']);
-        frame(p, 1, encoder, ['a']);
-        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(1);
+        expect(stagings).toHaveLength(STAGING_RING);
+        for (let i = 0; i < STAGING_RING; i++) frame(p, i, encoder, ['a']);
+        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(STAGING_RING);
+        expect(p.droppedFrames).toBe(0);
+        frame(p, STAGING_RING, encoder, ['a']);
+        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(STAGING_RING);
+        expect(p.droppedFrames).toBe(1);
         await finishMap();
-        frame(p, 2, encoder, ['a']);
-        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(2);
+        frame(p, STAGING_RING + 1, encoder, ['a']);
+        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(STAGING_RING + 1);
+    });
+
+    it('cada quadro do anel vira a sua leitura, na ordem; uma leitura velha não substitui uma nova', async () => {
+        let value = 0n;
+        const { device, encoder, finishMap } = fakeDevice(() => {
+            const ns = new BigInt64Array(72);
+            ns[65] = value;
+            return ns;
+        });
+        const p = new GpuProfilerSystem();
+        p.configureFrameProfiling(true, 8);
+        p.attach(device);
+        frame(p, 7, encoder, ['a']);
+        frame(p, 8, encoder, ['a']);
+        value = 4_000_000n;
+        await finishMap();
+        expect(p.lastFrameReading?.gpuFrame).toBe(8);
+        expect(p.lastFrameReading?.gpuTimeMs).toBe(4);
     });
 
     it('estouro: passes excedentes sem timestamp, leitura descartada e aviso único', async () => {

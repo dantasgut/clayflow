@@ -20,10 +20,10 @@
 //
 // Para rodar: `npm run smoke -- fluidSurface [--record]`. Resultado: `FLUID SURFACE SMOKE PASSED` ou `FAIL: …`.
 import { Application, createScene, FluidBody, PointSpriteMaterial } from 'clayflow';
-import type { FrameCompleteEvent } from 'clayflow';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 import { diff, fromPng, luminance, toPng } from './support/images';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
+import { gpuFrameTimes } from './support/gpuTiming';
 
 const WIDTH = 320;
 const HEIGHT = 200;
@@ -503,17 +503,14 @@ async function performance36k(failures: string[]): Promise<void> {
     });
     app.events.on('engineError', (e) => engineErrors.push(`desempenho: ${e.stage}: ${e.message}`));
     waterScene(app, { width: 1280, height: 720, box: true });
-    const gpu: number[] = [];
-    app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-        if (e.stats.gpuTimeMs !== undefined) gpu.push(e.stats.gpuTimeMs);
-    });
-    for (let i = 0; i < 160; i++) {
+    for (let i = 0; i < 70; i++) {
         app.step(1 / 60);
         await new Promise((r) => requestAnimationFrame(r));
     }
+    // Uma leitura por quadro medido, depois do aquecimento (pipelines prontos, GPU em regime).
+    const window = (await gpuFrameTimes(app, 90)).times;
     app.dispose();
     canvas.remove();
-    const window = gpu.slice(-90);
     const mean = window.reduce((a, b) => a + b, 0) / Math.max(1, window.length);
     log(
         `desempenho: barragem de 36 864 com água e cáusticas, GPU ${mean.toFixed(2)} ms/quadro (${window.length} amostras)`,

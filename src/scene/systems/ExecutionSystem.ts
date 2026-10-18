@@ -1,4 +1,4 @@
-import type { EngineCore } from '../../core/contracts/index';
+import type { EngineCore, FrameStats } from '../../core/contracts/index';
 import type { EventBus, Unsubscribe } from '../events/EventBus';
 import type { FlowRegistry } from '../flows/FlowRegistry';
 import type { Flow } from '../flows/Flow';
@@ -17,6 +17,8 @@ import type { BoundFlow } from '../flows/FlowBinding';
 export class ExecutionSystem {
     private elapsed = 0;
     private lastFrameAt = 0;
+    /** Quadro da última leitura de GPU entregue num `frameComplete` (cada leitura entra num único evento). */
+    private lastGpuFrame: number | undefined = undefined;
     /**
      * Quando true, cada frame envolve record+submit em `core.withErrorScope('validation')`
      * e emite `engineError` em vez de propagar exception. GameLoop continua o próximo
@@ -89,9 +91,22 @@ export class ExecutionSystem {
             timestamp: finishedAt,
             dt: finishedAt - start,
             elapsed: this.elapsed,
-            stats: this.core.lastFrameStats(),
+            stats: this.freshStats(this.core.lastFrameStats()),
         });
         void dt;
+    }
+
+    /**
+     * As estatísticas do quadro com a leitura de GPU só quando ela é nova: o core devolve a última leitura resolvida
+     * em toda consulta (o readback é assíncrono); repetida, os campos de GPU saem do evento.
+     */
+    private freshStats(stats: FrameStats): FrameStats {
+        if (stats.gpuFrame === undefined) return stats;
+        if (stats.gpuFrame !== this.lastGpuFrame) {
+            this.lastGpuFrame = stats.gpuFrame;
+            return stats;
+        }
+        return { drawCalls: stats.drawCalls, dispatches: stats.dispatches, passes: stats.passes };
     }
 
     /** Timestamp (ms) do último `frameComplete` emitido. Útil para sleep detection. */
