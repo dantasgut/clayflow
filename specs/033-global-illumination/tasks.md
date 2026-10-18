@@ -312,8 +312,21 @@ erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 ## Phase 10: User Story 6 — Raios para outros usos (P2)
 
-- [ ] T061 [US6] Estágio de teste do contrato em `src/__smokes__/rayScene.ts` parte b: consulta sem conhecer a origem da geometria (malha, superfície, grafo, campo) pelo mesmo `ray_scene_hit`; contrato aberto ao raio curvo documentado
-- [ ] T062 [P] [US6] Guia `clay-engine-doc/docs/guides/raytracing.md`: `RayScene`, `ray_scene_hit`/`ray_scene_occluded`, volumes, custo, limites, uso pelo débito R1 da 011
+- [x] T061 [US6] Estágio de teste do contrato em `src/__smokes__/rayScene.ts` parte b: consulta sem conhecer a origem da geometria (malha, superfície, grafo, campo) pelo mesmo `ray_scene_hit`; contrato aberto ao raio curvo documentado
+- [x] T062 [P] [US6] Guia `clay-engine-doc/docs/guides/raytracing.md`: `RayScene`, `ray_scene_hit`/`ray_scene_occluded`, volumes, custo, limites, uso pelo débito R1 da 011
+
+Notas da US6:
+
+- Os corpos de partículas com `PointSpriteMaterial` não entravam: o WGSL das esferas existia, mas o `RaySceneFlow` só
+  ligava triângulos. Agora entram como uma hierarquia de esferas por corpo:
+  - posição lida do pool do corpo, raio do material;
+  - cor do sprite como albedo (bit de cor constante na instância);
+  - reajuste por quadro e topologia nova a cada 8;
+  - a água (`FluidSurfaceMaterial`) fica de fora: entra pelo campo.
+- Smoke `rayScene` caso `contract`, pelo mesmo kernel (`ray_scene_hit` + `ray_volume_hit`):
+  - malha 0,048 %, superfície 0 %, grafo 0 %, sprites 0,006 % (normal ≤ 0,05°);
+  - água com os acertos a 0,274–0,309 do centro da bola de raio 0,3 (≤ 1 espaçamento).
+- Guia `raytracing.md` com o contrato, os volumes, o raio curvo como poligonal, o custo e o uso pelo R1.
 
 ---
 

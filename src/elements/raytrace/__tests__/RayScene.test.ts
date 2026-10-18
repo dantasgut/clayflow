@@ -8,6 +8,9 @@ import { RayScene } from '../RayScene';
 import { RaySceneFlow } from '../RaySceneFlow';
 import { RAY_WORDS } from '../schemas';
 import { MaterialFunction } from '../../extension/MaterialFunction';
+import { FluidSurfaceMaterial } from '../../material/FluidSurfaceMaterial';
+import { PointSpriteMaterial } from '../../material/PointSpriteMaterial';
+import { FluidBody } from '../../physics/bodies/FluidBody';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { composeHitMaterial } from '../../lighting/ProbeFlow';
@@ -123,6 +126,36 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         );
         s.step();
         expect(s.flow().lastFrame.built).toBe(1);
+    });
+
+    it('corpos de sprites: esferas reajustadas a cada quadro, topologia nova a cada 8; a água fica de fora', async () => {
+        const s = await sceneWith(1);
+        const sprites = new FluidBody({
+            algorithm: 'SPH',
+            position: [0, 0, 0, 0.1, 0, 0, 0.2, 0, 0],
+        }).add(new PointSpriteMaterial({ radius: 0.05, color: [1, 0.5, 0.25, 1] }));
+        s.scene.world.insert(sprites);
+        s.scene.world.insert(
+            new FluidBody({ algorithm: 'SPH', position: [5, 0, 0] }).add(
+                new FluidSurfaceMaterial(),
+            ),
+        );
+        s.step();
+        // A caixa e as esferas construídas; a água não entra.
+        expect(s.flow().lastFrame).toMatchObject({ built: 2, refit: 0, instances: 2 });
+        const ray = s.scene.world.findResource(RayScene.schema, RayScene)!;
+        expect(ray.data.spheres).toBeGreaterThanOrEqual(3);
+        const frames = Array.from({ length: 9 }, () => {
+            s.step();
+            return { ...s.flow().lastFrame };
+        });
+        // Partículas andam: reajuste por quadro; a cada 8 reajustes, a topologia de novo.
+        expect(frames.slice(0, 8).every((f) => f.built === 0 && f.refit === 1)).toBe(true);
+        expect(frames[8]).toMatchObject({ built: 1, refit: 0 });
+        s.scene.world.remove(sprites);
+        s.step();
+        expect(s.flow().lastFrame).toMatchObject({ built: 0, refit: 0, instances: 1 });
+        expect(s.createdWhileRecording()).toBe(0);
     });
 
     it('sem RayScene na cena o estágio não grava nada', async () => {

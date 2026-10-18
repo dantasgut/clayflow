@@ -7,16 +7,31 @@
 //     sem leitura de volta);
 //   - moving: uma instância que se move é encontrada na posição nova no quadro seguinte (hierarquia de cima por quadro);
 //   - scale: 1 milhão de triângulos (uma malha de superfície grande) — a consulta acerta e o tempo de construção e de
-//     reajuste fica no relatório.
+//     reajuste fica no relatório;
+//   - contract (US6): um estágio novo consulta a cena sem conhecer a origem da geometria — malha, superfície
+//     paramétrica, geometria de grafo de nós, esferas de um corpo de sprites (pelo mesmo `ray_scene_hit`) e a água por
+//     campo de distância (pelo ponto de cena `ray_volume_hit`, composto pela C2 no kernel) — e compara com a interseção
+//     analítica: ≤ 1 % do tamanho e ≤ 3° na normal nos objetos analíticos; na água, os acertos a ≤ 1 espaçamento da esfera
+//     das partículas de fora.
 // Para rodar: `npm run smoke -- rayScene [--query case=analytic]`. Resultado: `RAYSCENE SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
     BoxGeometry,
+    compileSetGraph,
     createScene,
     Flow,
+    FluidBody,
+    FluidSurfaceMaterial,
+    GraphGeometry,
+    NodeGraph,
+    nodes,
     ParametricSurface,
+    ParticleMaterial,
+    PointSpriteMaterial,
     RayScene,
     rayScene,
+    rayVolumeHitReady,
+    SetGraph,
     slot,
     SphereGeometry,
     StandardMaterial,
@@ -25,7 +40,7 @@ import {
     wgslModule,
     wgslResource,
 } from 'clayflow';
-import type { BoundFlow, Frame, StagingBufferSpec, StorageBufferSpec } from 'clayflow';
+import type { BoundFlow, Frame, StagingBufferSpec, StorageBufferSpec, WgslModule } from 'clayflow';
 import { readPool, settle } from './support/extensionScenes';
 
 function log(msg: string): void {
@@ -82,18 +97,42 @@ fn smoke_ray_query_main(@builtin(global_invocation_id) gid: vec3u) {
 }`,
 });
 
+/**
+ * Kernel do contrato (US6): o acerto mais próximo entre as superfícies (`ray_scene_hit`) e os volumes
+ * (`ray_volume_hit`), sem saber quem os escreveu → (ponto, t) e (normal, instância; −2 num volume; −1 sem acerto).
+ */
+const contractKernel = wgslModule({
+    name: 'smoke_ray_contract',
+    requires: [rayScene, rayVolumeHitReady, raysResource, hitsResource],
+    source: /* wgsl */ `
+@compute @workgroup_size(64)
+fn smoke_ray_query_main(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
+    let o = smoke_rays[i * 2u].xyz;
+    let d = smoke_rays[i * 2u + 1u].xyz;
+    let h = ray_scene_hit(o, d, 1e30);
+    let v = ray_volume_hit(o, d, min(h.t, 1e6));
+    if (v.hit) {
+        smoke_hits[i * 2u] = vec4f(v.position, v.t);
+        smoke_hits[i * 2u + 1u] = vec4f(v.normal, -2.0);
+        return;
+    }
+    smoke_hits[i * 2u] = vec4f(h.position, h.t);
+    smoke_hits[i * 2u + 1u] = vec4f(h.normal, select(-1.0, f32(h.instance), h.instance != NONE));
+}`,
+});
+
 /** Estágio de teste: grava a consulta quando pedido (depois da estrutura de raios). */
 class QueryFlow extends Flow<{ readonly scene: ReturnType<typeof slot.singleton> }, 'idle'> {
     readonly type = 'smokeRayQuery';
     readonly slots = { scene: slot.singleton(RayScene.schema) };
-    override readonly pipelines = [
-        {
-            id: 'query',
-            role: 'compute' as const,
-            shader: queryKernel,
-            entryPoints: ['smoke_ray_query_main'],
-        },
-    ];
+    override readonly pipelines: readonly {
+        readonly id: string;
+        readonly role: 'compute';
+        readonly shader: WgslModule;
+        readonly entryPoints: readonly string[];
+    }[];
     override readonly bindings: ReadonlyMap<typeof raysResource, StorageBufferSpec>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions = {
@@ -112,8 +151,12 @@ class QueryFlow extends Flow<{ readonly scene: ReturnType<typeof slot.singleton>
         rays: StorageBufferSpec,
         hits: StorageBufferSpec,
         private readonly count: number,
+        shader: WgslModule,
     ) {
         super();
+        this.pipelines = [
+            { id: 'query', role: 'compute', shader, entryPoints: ['smoke_ray_query_main'] },
+        ];
         this.bindings = new Map([
             [raysResource, rays],
             [hitsResource, hits],
@@ -149,6 +192,7 @@ interface Hit {
 async function rayApp(
     capacity: number,
     profiling = false,
+    kernel: WgslModule = queryKernel,
 ): Promise<{
     app: Application;
     canvas: HTMLCanvasElement;
@@ -187,7 +231,7 @@ async function rayApp(
         discriminator: 'smoke_ray:staging',
         byteSize: bytes,
     });
-    const flow = new QueryFlow(rays, hits, capacity);
+    const flow = new QueryFlow(rays, hits, capacity, kernel);
     scene.flows.register(() => flow, { type: 'smokeRayQuery', phase: 'forward', priority: 100 });
     const query = async (probes: readonly Probe[]): Promise<Hit[]> => {
         const data = new Float32Array(capacity * 8);
@@ -644,6 +688,195 @@ async function caseStructure(): Promise<void> {
     dispose(app, canvas);
 }
 
+/** Interseção analítica raio–plano horizontal `y = h` dentro do quadrado de centro (cx, cz) e meia largura `half`. */
+function planeHit(o: V3, d: V3, h: number, cx: number, cz: number, half: number): number | null {
+    if (Math.abs(d[1]) < 1e-6) return null;
+    const t = (h - o[1]) / d[1];
+    const x = o[0] + d[0] * t;
+    const z = o[2] + d[2] * t;
+    return t > 0 && Math.abs(x - cx) <= half && Math.abs(z - cz) <= half ? t : null;
+}
+
+/** Bola de partículas em grade (espaçamento `s`) de raio `r` em volta de `c`. */
+function particleBall(c: V3, r: number, s: number): number[] {
+    const out: number[] = [];
+    const n = Math.ceil(r / s);
+    for (let z = -n; z <= n; z++)
+        for (let y = -n; y <= n; y++)
+            for (let x = -n; x <= n; x++) {
+                if ((x * x + y * y + z * z) * s * s > r * r) continue;
+                out.push(c[0] + x * s, c[1] + y * s, c[2] + z * s);
+            }
+    return out;
+}
+
+async function caseContract(): Promise<void> {
+    const { app, canvas, query } = await rayApp(1024, false, contractKernel);
+    // Malha: esfera de raio 1 na origem.
+    app.world.insert(
+        new SphereGeometry({ radius: 1, latSegments: 96, lonSegments: 192 })
+            .add(new StandardMaterial())
+            .add(new Transform()),
+    );
+    // Superfície paramétrica (escrita na GPU): plano y = 0,25 sobre [−1,5; 1,5]² em x = −5.
+    app.world.insert(
+        new ParametricSurface({ resolution: [32, 32], domain: [-1.5, 1.5, -1.5, 1.5] })
+            .add(
+                new SurfaceFunction({
+                    code: PLANE_CODE,
+                    params: { h: 'f32' },
+                    values: { h: 0.25 },
+                }),
+            )
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [-5, 0, 0, 1] })),
+    );
+    // Geometria de grafo de nós (só GPU, contagem indireta): grade 2 × 2 em y = 0,4, x = 5.
+    const graph = new NodeGraph({
+        nodes: {
+            g: nodes.set.grid.with({ resolution: [9, 9], size: [2, 2] }),
+            o: nodes.set.meshOutput,
+        },
+        links: [['g.mesh', 'o.mesh']],
+    });
+    const setGraph = new SetGraph({ graph });
+    const plan = compileSetGraph(graph, (n) => setGraph.valuesOf(n));
+    const cap = (key: string): number => plan.sets.find((x) => x.key === key)!.capacity;
+    app.world.insert(
+        setGraph
+            .add(
+                new GraphGeometry({
+                    vertexCapacity: cap('g.mesh.vertices'),
+                    indexCapacity: cap('g.mesh.triangles') * 3,
+                }),
+            )
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [5, 0.4, 0, 1] })),
+    );
+    // Corpo de sprites: esferas de raio 0,15 (paradas: quadros de duração 0).
+    const sprite = 0.15;
+    const spriteAt: V3[] = [
+        [0, 0, -5],
+        [0.5, 0.2, -5],
+        [-0.5, -0.1, -5.3],
+    ];
+    app.world.insert(
+        new FluidBody({ algorithm: 'SPH', position: spriteAt.flat() }).add(
+            new PointSpriteMaterial({ radius: sprite, color: [0.9, 0.4, 0.2, 1] }),
+        ),
+    );
+    // Água por campo de distância: bola de partículas de raio 0,3 em z = 5.
+    const spacing = 0.05;
+    const waterC: V3 = [0, 0, 5];
+    const waterR = 0.3;
+    app.world.insert(new ParticleMaterial({ particleSpacing: spacing }));
+    app.world.insert(
+        new FluidBody({ algorithm: 'SPH', position: particleBall(waterC, waterR, spacing) }).add(
+            new FluidSurfaceMaterial(),
+        ),
+    );
+    await settle(app, 1200);
+
+    type Kind = 'mesh' | 'surface' | 'graph' | 'sprites' | 'water';
+    const r = rng(11);
+    const probes: Probe[] = [];
+    const expected: { kind: Kind; t: number; n: V3 | null; size: number }[] = [];
+    const add = (kind: Kind, origin: V3, target: V3): void => {
+        const dir = norm(sub(target, origin));
+        let t: number | null = null;
+        let n: V3 | null = null;
+        let size = 2;
+        if (kind === 'mesh') {
+            const h = sphereHit(origin, dir, [0, 0, 0], 1);
+            if (h !== null) ({ t, n } = h);
+        } else if (kind === 'surface') {
+            t = planeHit(origin, dir, 0.25, -5, 0, 1.5);
+            n = [0, 1, 0];
+            size = 3;
+        } else if (kind === 'graph') {
+            t = planeHit(origin, dir, 0.4, 5, 0, 1);
+            n = [0, 1, 0];
+        } else if (kind === 'sprites') {
+            size = 2 * sprite;
+            for (const c of spriteAt) {
+                const h = sphereHit(origin, dir, c, sprite);
+                if (h !== null && (t === null || h.t < t)) ({ t, n } = h);
+            }
+        } else {
+            // Só para escolher os raios que chegam à água: a superfície do campo é conferida pelo raio dos acertos.
+            const h = sphereHit(origin, dir, waterC, waterR);
+            size = 2 * waterR;
+            if (h !== null) t = h.t;
+        }
+        if (t === null) return;
+        probes.push({ origin, dir });
+        expected.push({ kind, t, n, size });
+    };
+    for (let i = 0; i < 120; i++) {
+        const j = (): number => r() * 2 - 1;
+        add('mesh', [j() * 3, 4, 6], [j() * 0.7, j() * 0.7, j() * 0.7]);
+        add('surface', [-5 + j(), 4, j()], [-5 + j() * 1.3, 0.25, j() * 1.3]);
+        add('graph', [5 + j(), 4, j()], [5 + j() * 0.9, 0.4, j() * 0.9]);
+        const c = spriteAt[i % 3]!;
+        add(
+            'sprites',
+            [c[0] + j(), c[1] + 3, c[2] + 3],
+            [c[0] + j() * 0.08, c[1] + j() * 0.08, c[2] + j() * 0.08],
+        );
+        add(
+            'water',
+            [j() * 2, 3, 5 + 3],
+            [waterC[0] + j() * 0.15, waterC[1] + j() * 0.15, waterC[2] + j() * 0.15],
+        );
+    }
+    const hits = await query(probes);
+    // Água: a distância radial dos acertos ao centro (a superfície do campo é uma esfera de raio quase constante).
+    const radial = expected
+        .map((e, i) =>
+            e.kind === 'water' && hits[i]!.instance === -2
+                ? len(sub(hits[i]!.position, waterC))
+                : NaN,
+        )
+        .filter((x) => Number.isFinite(x));
+    log(
+        `contract: água — raio dos acertos ${Math.min(...radial).toFixed(4)}..${Math.max(...radial).toFixed(4)}`,
+    );
+    const stats = new Map<Kind, { n: number; pos: number; normal: number; wrong: number }>();
+    expected.forEach((e, i) => {
+        const h = hits[i]!;
+        const st = stats.get(e.kind) ?? { n: 0, pos: 0, normal: 0, wrong: 0 };
+        stats.set(e.kind, st);
+        st.n++;
+        const volume = h.instance === -2;
+        if (volume !== (e.kind === 'water') || h.instance === -1) {
+            st.wrong++;
+            return;
+        }
+        st.pos = Math.max(st.pos, Math.abs(h.t - e.t) / e.size);
+        if (e.n !== null) {
+            const c = Math.abs(dot(norm(h.normal), e.n));
+            st.normal = Math.max(st.normal, (Math.acos(Math.min(1, c)) * 180) / Math.PI);
+        }
+    });
+    for (const [kind, st] of stats) {
+        log(
+            `contract: ${kind} — ${st.n} raios, erro máx ${(st.pos * 100).toFixed(3)} % do tamanho, normal máx ${st.normal.toFixed(2)}°, ${st.wrong} acertos no tipo errado ou ausentes`,
+        );
+        check(st.wrong === 0, `contract: ${kind}: ${st.wrong} raios sem acerto ou no tipo errado`);
+        if (kind === 'water') {
+            const err = Math.max(...radial.map((x) => Math.abs(x - waterR)));
+            check(
+                radial.length === st.n && err <= spacing,
+                `contract: água: acertos a ${err.toFixed(4)} da esfera das partículas > 1 espaçamento`,
+            );
+        } else {
+            check(st.pos <= 0.01, `contract: ${kind}: erro ${(st.pos * 100).toFixed(3)} % > 1 %`);
+            check(st.normal <= 3, `contract: ${kind}: normal ${st.normal.toFixed(2)}° > 3°`);
+        }
+    }
+    dispose(app, canvas);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     structure: caseStructure,
     analytic: caseAnalytic,
@@ -651,6 +884,7 @@ const CASES: Record<string, () => Promise<void>> = {
     moving: caseMoving,
     scale: caseScale,
     tlas: caseTlas,
+    contract: caseContract,
 };
 
 async function main(): Promise<void> {

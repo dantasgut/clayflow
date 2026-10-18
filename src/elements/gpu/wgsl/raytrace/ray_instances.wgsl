@@ -2,12 +2,15 @@
 // `WorldTransform` pelo slot do registro (identidade para as esferas, já em mundo), a inversa, a caixa de mundo da
 // hierarquia de baixo (os oito cantos da caixa da raiz dela) — guardada em `ray_aabbs` e reduzida na caixa do conjunto
 // para os códigos de Morton da hierarquia de cima — e o material copiado do registro da entidade (as constantes do
-// `StandardMaterial` e o slot da função): quem sombreia os acertos não liga os pools de material.
+// `StandardMaterial` e o slot da função, ou a cor constante das esferas dos sprites): quem sombreia os acertos não liga
+// os pools de material.
 // Requer: WORKGROUP_SIZE, NONE, ray_common, ray_reduce, build, ray_instance_sources, worlds, renderables, materials,
 // ray_bvh_out, ray_aabbs.
 
 /** Bit das instâncias com `StandardMaterial` (o registro aponta o pool dele). */
 const RAY_MATERIAL_STANDARD: u32 = 0x80000000u;
+/** Bit das instâncias de cor constante (`material.yzw`: o albedo; as esferas dos corpos de sprites). */
+const RAY_MATERIAL_CONSTANT: u32 = 0x40000000u;
 
 fn ray_store_matrix(word: u32, m: mat4x4f) {
     for (var c = 0u; c < 4u; c++) { ray_bvh_out[word + c].word = bitcast<vec4u>(m[c]); }
@@ -50,9 +53,10 @@ fn ray_instance_update(i: u32) -> array<vec3f, 2> {
             hi = max(hi, p);
         }
     }
-    // Material: as constantes do `StandardMaterial` (cinza médio fosco sem ele) e o slot da função.
+    // Material: as constantes do `StandardMaterial` (cinza médio fosco sem ele), a cor constante e o slot da função.
     let flags = source.material.x;
     var albedo = vec4f(0.5, 0.5, 0.5, 1.0);
+    if ((flags & RAY_MATERIAL_CONSTANT) != 0u) { albedo = vec4f(bitcast<vec3f>(source.material.yzw), 1.0); }
     var roughness = 1.0;
     var metallic = 0.0;
     var fn_slot = NONE;
