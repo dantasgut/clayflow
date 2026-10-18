@@ -6,14 +6,17 @@
 
 /** Constantes da resposta (as mesmas do WGSL). */
 export const GI_RESPONSE = Object.freeze({
-    /** Peso do valor anterior na média rápida (≈ 4 quadros). */
-    fast: 0.75,
+    /** Peso do valor anterior na média rápida (≈ 3 quadros). */
+    fast: 0.65,
     /** Histerese durante a mudança: o acúmulo alcança o valor novo em poucos quadros. */
     hysteresis: 0.3,
     /** Desvios da média rápida acima dos quais a diferença é mudança, não ruído. */
     sigmas: 2.5,
-    /** Parte relativa do limiar (mudanças menores que isso não aceleram o acúmulo). */
-    relative: 0.05,
+    /**
+     * Parte relativa do limiar (mudanças menores que isso não aceleram o acúmulo). 3 %: o reflexo de cor que some num
+     * chão iluminado direto pelo sol muda pouco o maior canal (com 5 % o chão ficava na histerese do acúmulo).
+     */
+    relative: 0.03,
     /** Peso do valor anterior na estimativa do ruído (≈ 10 quadros). */
     noise: 0.9,
     /**

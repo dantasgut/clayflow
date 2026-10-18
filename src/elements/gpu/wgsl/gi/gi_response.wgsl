@@ -3,10 +3,10 @@
 // afasta da lenta mais do que o ruído explica, a luz mudou de verdade: alguns quadros com a histerese de resposta (o estado
 // anterior some exponencialmente) e depois a contagem segue; parado, a histerese do acúmulo.
 
-const GI_RESPONSE_FAST: f32 = 0.75;
+const GI_RESPONSE_FAST: f32 = 0.65;
 const GI_RESPONSE_HYSTERESIS: f32 = 0.3;
 const GI_RESPONSE_SIGMAS: f32 = 2.5;
-const GI_RESPONSE_RELATIVE: f32 = 0.05;
+const GI_RESPONSE_RELATIVE: f32 = 0.03;
 const GI_RESPONSE_NOISE: f32 = 0.9;
 const GI_RESPONSE_RAMP: f32 = 3.0;
 
