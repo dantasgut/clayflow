@@ -118,10 +118,8 @@ export const giResources = Object.freeze({
     // Coleta final na tela (R2 adendo): as texturas das sondas de tela que o desenho lê, as saídas, o trabalho do
     // quadro (sondas e raios) e o histórico do acúmulo (privados do `ProbeFlow`).
     screenProbe: atlas('gi_screen_probe_texture', 'GlobalIllumination.screenProbe'),
-    screenNormal: atlas('gi_screen_normal_texture', 'GlobalIllumination.screenNormal'),
     screenIrradiance: atlas('gi_screen_irradiance_texture', 'GlobalIllumination.screenIrradiance'),
     screenProbeOut: out('gi_screen_probe_out', 'rgba32float'),
-    screenNormalOut: out('gi_screen_normal_out'),
     screenIrradianceOut: out('gi_screen_irradiance_out'),
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
     screenWorkRead: priv('gi_screen_work', 'read', { wgsl: 'vec4f', array: true }),
@@ -353,8 +351,8 @@ export const giScreenResolve = wgslModule({
         giResponse,
         camerasResource,
         R.screenWorkRead,
+        giCommon,
         R.screenProbeOut,
-        R.screenNormalOut,
         R.screenIrradianceOut,
     ],
 });
@@ -363,7 +361,7 @@ export const giScreenResolve = wgslModule({
 export const giScreenSample = wgslModule({
     name: 'gi_screen_sample',
     source: giScreenSampleSource,
-    requires: [R.params, camerasResource, R.screenProbe, R.screenNormal, R.screenIrradiance],
+    requires: [R.params, giCommon, camerasResource, R.screenProbe, R.screenIrradiance],
 });
 
 /** Chave, balde e endereços do hash das cáusticas por fótons (US5). */

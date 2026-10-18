@@ -18,12 +18,18 @@ fn gi_shade_direct(c: Closure, p: vec3f, n: vec3f, v: vec3f, seed: u32) -> vec3f
 }
 
 /**
- * A luz rebatida que sai do ponto com a irradiância do rebatimento `k` das sondas do mundo em todas as direções que o
- * fechamento lê (a especular das sondas é baixa frequência); o verso só quando há translúcido.
+ * A luz rebatida que sai do ponto com a irradiância do rebatimento `k` das sondas do mundo pelos pesos `w` (os do ponto,
+ * calculados uma vez para todas as gerações) em todas as direções que o fechamento lê (a especular das sondas é baixa
+ * frequência); o verso só quando há translúcido.
  */
-fn gi_shade_indirect(c: Closure, p: vec3f, n: vec3f, v: vec3f, k: u32) -> vec3f {
-    let e = gi_generation_irradiance(k, p, n, v) / GI_PI;
+fn gi_shade_indirect_weighted(c: Closure, p: vec3f, n: vec3f, v: vec3f, w: GiGenerationWeights, k: u32) -> vec3f {
+    let e = gi_generation_at(w, k) / GI_PI;
     var back = e;
     if (c.translucent_weight > 0.0) { back = gi_generation_irradiance(k, p, -n, v) / GI_PI; }
     return closure_indirect(c, n, v, IndirectLight(e, back, e, e, e));
+}
+
+/** A luz rebatida do rebatimento `k` das sondas do mundo no ponto (os pesos calculados aqui). */
+fn gi_shade_indirect(c: Closure, p: vec3f, n: vec3f, v: vec3f, k: u32) -> vec3f {
+    return gi_shade_indirect_weighted(c, p, n, v, gi_generation_weights(p, n, v), k);
 }

@@ -217,6 +217,11 @@ export interface ForwardFlowOptions {
     readonly output?: ForwardOutput;
     /** Compila os pipelines de material em segundo plano; objetos de um material ainda compilando não são desenhados. */
     readonly preferAsync?: boolean;
+    /**
+     * Passe de profundidade dos opacos antes da cor (padrão `true`, spec 033): cada pixel é sombreado uma vez — o
+     * sombreamento caro (as luzes, a luz rebatida, a névoa) não paga os fragmentos encobertos.
+     */
+    readonly depthPrepass?: boolean;
 }
 
 /**
@@ -248,6 +253,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly world: World;
     private readonly resources: ResourceDirectory;
     private readonly preferAsync: boolean;
+    private readonly depthPrepass: boolean;
+    /** Pipeline de profundidade de cada pipeline base de opaco (o mesmo vértice, sem fragmento). */
+    private readonly depthPipelines = new Map<string, string>();
     private readonly frameParams: UniformBufferSpec;
     /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
     private readonly dummyDiff: StorageBufferSpec;
@@ -484,6 +492,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.world = ctx.world;
         this.resources = ctx.resources;
         this.preferAsync = options.preferAsync === true;
+        this.depthPrepass = options.depthPrepass !== false;
         this.slots = slotsOf(options.output ?? 'scene');
         this.frameParams = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
@@ -615,6 +624,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const opaque =
             transmissive.length === 0 ? groups : groups.filter((g) => !transmissive.includes(g));
         frame.render(renderTarget, 'ForwardFlow', (pass) => {
+            // A profundidade dos opacos primeiro (só o vértice); a cor depois, um fragmento por pixel.
+            if (this.depthPrepass)
+                this.recordGroups(pass, bound, opaque, (_entry, id) => this.depthPipelines.get(id));
             this.recordGroups(
                 pass,
                 bound,
@@ -1061,13 +1073,39 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     frontFace,
                     vertexBuffers: VERTEX_LAYOUT,
                     colorTargets: [{ format }],
-                    depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+                    // Depois do passe de profundidade só o fragmento visível passa (o igual); sem ele (o pipeline de
+                    // profundidade ainda compilando), o teste comum.
+                    depth: {
+                        format: 'depth24plus',
+                        depthWriteEnabled: true,
+                        depthCompare: this.depthPrepass ? 'less-equal' : 'less',
+                    },
                     multisample: { count: samples },
                     ...(this.preferAsync ? { preferAsync: true } : {}),
                 };
                 ctx.prepare(descriptor);
                 this.baseDescriptors.set(descriptor.id, descriptor);
                 this.prepareVariant(ctx, descriptor);
+                if (this.depthPrepass && topology === 'triangle-list') {
+                    const depth: PipelineDescriptor = {
+                        ...descriptor,
+                        id: `${descriptor.id}:depth`,
+                        // O fragmento vazio: o passe tem o anexo de cor, e o pipeline o declara sem escrever nele.
+                        entryPoints: [
+                            ...descriptor.entryPoints.filter((e) => e.startsWith('vs_')),
+                            'fs_depth',
+                        ],
+                        colorTargets: [{ format, writeMask: 0 }],
+                        depth: {
+                            format: 'depth24plus',
+                            depthWriteEnabled: true,
+                            depthCompare: 'less',
+                        },
+                    };
+                    ctx.prepare(depth);
+                    this.depthPipelines.set(descriptor.id, depth.id);
+                    this.prepareVariant(ctx, depth);
+                }
                 return descriptor.id;
             };
             const pipelines = { ccw: variant('ccw'), cw: variant('cw') };

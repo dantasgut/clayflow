@@ -79,7 +79,9 @@ describe('GlobalIllumination (spec 033, T024)', () => {
                 role: 'storage-texture',
                 textureShape: { format: 'rgba16float' },
             });
-        for (const id of ['screenProbe', 'screenNormal', 'screenIrradiance'])
+        // A normal das sondas de tela vai empacotada no w da textura de posição.
+        expect(byId.has('screenNormal')).toBe(false);
+        for (const id of ['screenProbe', 'screenIrradiance'])
             expect(byId.get(id)).toMatchObject({
                 role: 'storage-texture',
                 textureShape: { sizeFromCanvas: true, canvasDivisor: GI_SCREEN_TILE_MIN },

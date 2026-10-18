@@ -340,6 +340,11 @@ export interface StageOptions {
      * e composição (fase `forward`), com o `WaterSurface` da cena.
      */
     readonly water?: boolean;
+    /**
+     * Passe de profundidade dos opacos no forward (padrão desligado aqui: os testes de grupos contam os desenhos de
+     * cor; o passe tem o seu teste).
+     */
+    readonly depthPrepass?: boolean;
 }
 
 /** Registra os estágios pedidos por factory, como `registerPresentationDefaults`, e devolve as instâncias. */
@@ -388,10 +393,14 @@ export function registerStages(
     const forward =
         output === undefined
             ? undefined
-            : scene.flows.register((ctx) => new ForwardFlow(ctx, { output }), {
-                  type: 'forward',
-                  phase: 'forward',
-              }).flow;
+            : scene.flows.register(
+                  (ctx) =>
+                      new ForwardFlow(ctx, { output, depthPrepass: options.depthPrepass === true }),
+                  {
+                      type: 'forward',
+                      phase: 'forward',
+                  },
+              ).flow;
     if (options.softSurface === true)
         scene.flows.register((ctx) => new SoftSurfaceFlow(ctx), {
             type: 'softSurface',

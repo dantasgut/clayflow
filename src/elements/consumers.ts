@@ -45,7 +45,6 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'visibility',
             'sampler',
             'screenProbe',
-            'screenNormal',
             'screenIrradiance',
             'caustics',
         ] as const

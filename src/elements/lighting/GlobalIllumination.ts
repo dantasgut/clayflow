@@ -304,7 +304,6 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             atlas('visibility', 'rgba16float', GI_VISIBILITY_TEXELS),
             // Sondas de tela (R2 adendo), um texel por ladrilho (o menor): posição (xyz, w = válida), normal e irradiância.
             screen('screenProbe', 'rgba32float'),
-            screen('screenNormal', 'rgba16float'),
             screen('screenIrradiance', 'rgba16float'),
             // Cáusticas por fótons (US5): o hash em mundo (cabeçalho e baldes), escrito e lido só na GPU.
             {

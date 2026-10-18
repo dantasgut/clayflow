@@ -365,7 +365,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 'visibility',
                 'probeTexture',
                 'screenProbe',
-                'screenNormal',
                 'screenIrradiance',
             ] as const
         ).map((id) => c.bound.slots.gi.textureViewOf(id));
@@ -460,8 +459,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.visibilityOut, views[2]!],
                 [R.probeOut, views[3]!],
                 [R.screenProbeOut, views[4]!],
-                [R.screenNormalOut, views[5]!],
-                [R.screenIrradianceOut, views[6]!],
+                [R.screenIrradianceOut, views[5]!],
                 [R.screenWork, b.screenWork],
                 [R.screenWorkRead, b.screenWork],
                 [R.screenHistory, b.screenHistory],

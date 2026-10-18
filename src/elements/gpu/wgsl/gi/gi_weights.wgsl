@@ -48,44 +48,59 @@ fn gi_cascade_weight(p: vec3f, c: u32) -> f32 {
     return clamp(min(min(inside.x, inside.y), inside.z), 0.0, 1.0);
 }
 
-/**
- * As 8 sondas da cascata `c` em volta de `p` (normal `n`, vista `v`) com os pesos normalizados (soma 1), no vetor
- * `taps`; devolve a soma bruta (0 = nenhuma sonda visível).
- */
-fn gi_taps(p: vec3f, n: vec3f, v: vec3f, c: u32, taps: ptr<function, array<GiTap, 8>>) -> f32 {
+/** A célula da cascata `c` para o ponto (com os vieses) e a fração dentro dela: o começo dos 8 pesos. */
+struct GiCell {
+    biased: vec3f,
+    base: vec3i,
+    f: vec3f,
+    lo: vec3i,
+    hi: vec3i,
+}
+
+fn gi_cell_of(p: vec3f, n: vec3f, v: vec3f, c: u32) -> GiCell {
     let cas = gi_cascade(c);
     let s = cas.w;
     let biased = p + (n * gi.tuning.y + v * gi.tuning.z) * s;
     let g = gi_grid_coord(biased, c);
     let base = vec3i(floor(g));
-    let f = g - vec3f(base);
     // Fora da grade (só na última cascata, que vale em toda parte), as sondas da borda: a célula presa à grade.
     let lo = vec3i(floor(cas.xyz));
-    let hi = lo + vec3i(gi.grid.xyz) - vec3i(1);
+    return GiCell(biased, base, g - vec3f(base), lo, lo + vec3i(gi.grid.xyz) - vec3i(1));
+}
+
+/** A sonda `k` (0–7) da célula e o peso bruto dela (trilinear, voltada para a normal, Chebyshev; 0 desligada). */
+fn gi_tap(cell: GiCell, p: vec3f, n: vec3f, c: u32, k: u32) -> GiTap {
+    let o = vec3i(i32(k & 1u), i32((k >> 1u) & 1u), i32((k >> 2u) & 1u));
+    let at = clamp(cell.base + o, cell.lo, cell.hi);
+    let index = gi_probe_index(gi_cell_local(at), c);
+    let state = gi_probe_texel(index);
+    if (state.offset.w == GI_PROBE_INSIDE || any(state.cell != gi_cell_wrap(at))) { return GiTap(index, 0.0); }
+    let probe = gi_cell_position(at, c) + state.offset.xyz;
+    let to_probe = probe - p;
+    let len_to = length(to_probe);
+    let dir_to = select(n, to_probe / len_to, len_to > 1e-6);
+    let wrap = (dot(dir_to, n) + 1.0) * 0.5;
+    var w = wrap * wrap + 0.2;
+    let d = cell.biased - probe;
+    let dist = length(d);
+    w *= max(gi_chebyshev(index, select(n, d / dist, dist > 1e-6), dist), 0.0);
+    // Esmaga pesos muito pequenos (vazamento residual) como no DDGI.
+    if (w < 0.2) { w = w * w * w * 25.0; }
+    let t = mix(vec3f(1.0) - cell.f, cell.f, vec3f(o));
+    return GiTap(index, w * t.x * t.y * t.z);
+}
+
+/**
+ * As 8 sondas da cascata `c` em volta de `p` (normal `n`, vista `v`) com os pesos normalizados (soma 1), no vetor
+ * `taps`; devolve a soma bruta (0 = nenhuma sonda visível).
+ */
+fn gi_taps(p: vec3f, n: vec3f, v: vec3f, c: u32, taps: ptr<function, array<GiTap, 8>>) -> f32 {
+    let cell = gi_cell_of(p, n, v, c);
     var sum = 0.0;
     for (var k = 0u; k < 8u; k++) {
-        let o = vec3i(i32(k & 1u), i32((k >> 1u) & 1u), i32((k >> 2u) & 1u));
-        let cell = clamp(base + o, lo, hi);
-        let index = gi_probe_index(gi_cell_local(cell), c);
-        let state = gi_probe_texel(index);
-        var w = 0.0;
-        if (state.offset.w != GI_PROBE_INSIDE && all(state.cell == gi_cell_wrap(cell))) {
-            let probe = gi_cell_position(cell, c) + state.offset.xyz;
-            let to_probe = probe - p;
-            let len_to = length(to_probe);
-            let dir_to = select(n, to_probe / len_to, len_to > 1e-6);
-            let wrap = (dot(dir_to, n) + 1.0) * 0.5;
-            w = wrap * wrap + 0.2;
-            let d = biased - probe;
-            let dist = length(d);
-            w *= max(gi_chebyshev(index, select(n, d / dist, dist > 1e-6), dist), 0.0);
-            // Esmaga pesos muito pequenos (vazamento residual) como no DDGI.
-            if (w < 0.2) { w = w * w * w * 25.0; }
-            let t = mix(vec3f(1.0) - f, f, vec3f(o));
-            w *= t.x * t.y * t.z;
-        }
-        (*taps)[k] = GiTap(index, w);
-        sum += w;
+        let t = gi_tap(cell, p, n, c, k);
+        (*taps)[k] = t;
+        sum += t.weight;
     }
     if (sum > 0.0) {
         for (var k = 0u; k < 8u; k++) { (*taps)[k].weight = (*taps)[k].weight / sum; }

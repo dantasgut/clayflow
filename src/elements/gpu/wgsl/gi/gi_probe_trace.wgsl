@@ -54,13 +54,16 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
     let taps = gi_screen_history_taps(p, n);
     let screen = gi_screen_history_found(taps) && c.translucent_weight <= 0.0;
+    // Os pesos das sondas do mundo uma vez para todas as gerações.
+    var w: GiGenerationWeights;
+    if (!screen) { w = gi_generation_weights(p, n, v); }
     for (var b = 1u; b < bounces; b++) {
         var indirect = vec3f(0.0);
         if (screen) {
             let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + b - 1u).rgb / GI_PI;
             indirect = closure_indirect(c, n, v, IndirectLight(e, e, e, e, e));
         } else {
-            indirect = gi_shade_indirect(c, p, n, v, b - 1u);
+            indirect = gi_shade_indirect_weighted(c, p, n, v, w, b - 1u);
         }
         gi_rays[out_base + b] = vec4f((direct + indirect) * through, hit.t);
     }

@@ -13,7 +13,8 @@ struct VsIn {
 }
 
 struct VsOut {
-    @builtin(position) clip_position: vec4<f32>,
+    // Invariante: o passe de profundidade e o de cor (pipelines distintos) chegam à mesma profundidade bit a bit.
+    @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) world_normal: vec3<f32>,
     @location(1) world_position: vec3<f32>,
     @location(2) @interpolate(flat) material_slot: u32,
@@ -54,6 +55,10 @@ fn vs_main(
     }
     return out;
 }
+
+// Fragmento do passe de profundidade (spec 033): nada a sombrear — só a profundidade do vértice é gravada.
+@fragment
+fn fs_depth() {}
 
 // Direção para o observador no ponto `p`: da posição da câmera (perspectiva) ou o eixo da vista (ortográfica).
 fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {

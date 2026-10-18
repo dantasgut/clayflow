@@ -78,7 +78,8 @@ describe('apresentação — tabelas de transição', () => {
             expect(flow.lifecycle, flow.type).toBe('ready');
             expect(flow.state, flow.type).toBe('idle');
         }
-        expect(s.draws('ForwardFlow').reduce((n, d) => n + d.instanceCount, 0)).toBe(300);
+        // Os 300 no passe de profundidade e de novo no de cor (estágios padrão).
+        expect(s.draws('ForwardFlow').reduce((n, d) => n + d.instanceCount, 0)).toBe(600);
         expect(s.createdWhileRecording()).toBe(0);
     });
 });

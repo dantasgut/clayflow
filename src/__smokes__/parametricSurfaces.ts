@@ -273,7 +273,9 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
         diffuse = new clayflow.DiffuseParticles({ source: body, maxParticles: 32_768 });
         app.world.insert(diffuse);
     }
-    await settle(app);
+    // Tempo para os pipelines compilarem antes do respingo (com o passe de profundidade do desenho, spec 033, a fila é
+    // maior; o estágio das partículas secundárias pronto tarde perderia o respingo).
+    await settle(app, 3000);
     const levels: number[] = [];
     const sprayPeak = { alive: 0, spray: 0, foam: 0, bubble: 0 };
     let image: ImageData | undefined;

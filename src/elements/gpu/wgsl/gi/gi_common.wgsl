@@ -29,6 +29,20 @@ fn gi_oct_encode(n: vec3f) -> vec2f {
     return p;
 }
 
+/**
+ * Normal unitária num número de ponto flutuante exato (12 bits por eixo da octaédrica, + 1: nunca 0): o `w` livre da
+ * textura das sondas de tela leva a normal delas (uma leitura a menos por sonda no desenho).
+ */
+fn gi_normal_pack(n: vec3f) -> f32 {
+    let q = vec2u(round(clamp(gi_oct_encode(n) * 0.5 + 0.5, vec2f(0.0), vec2f(1.0)) * 4095.0));
+    return f32(1u + q.x * 4096u + q.y);
+}
+
+fn gi_normal_unpack(w: f32) -> vec3f {
+    let v = u32(w) - 1u;
+    return gi_oct_decode(vec2f(f32(v / 4096u), f32(v % 4096u)) / 4095.0 * 2.0 - 1.0);
+}
+
 /** [-1, 1]² → direção unitária. */
 fn gi_oct_decode(p: vec2f) -> vec3f {
     var n = vec3f(p, 1.0 - abs(p.x) - abs(p.y));
@@ -54,14 +68,13 @@ fn gi_probe_count() -> u32 {
     return gi_cascade_probes() * gi.grid.w;
 }
 
-/** Canto (célula de mundo do índice 0, xyz) e espaçamento (w) da cascata. */
+/**
+ * Canto (célula de mundo do índice 0, xyz) e espaçamento (w) da cascata. Por `select`, sem desvio: um `switch` com
+ * índice dinâmico sobre os campos do uniforme faz o compilador do desenho guardar o uniforme em memória local em todo
+ * fragmento — derrubava a ocupação do shader inteiro, mesmo sem chegar à leitura das sondas.
+ */
 fn gi_cascade(c: u32) -> vec4f {
-    switch (c) {
-        case 0u: { return gi.cascade0; }
-        case 1u: { return gi.cascade1; }
-        case 2u: { return gi.cascade2; }
-        default: { return gi.cascade3; }
-    }
+    return select(select(select(gi.cascade3, gi.cascade2, c == 2u), gi.cascade1, c == 1u), gi.cascade0, c == 0u);
 }
 
 /** Índice local na grade (x, y, z) de uma sonda e a cascata. */
