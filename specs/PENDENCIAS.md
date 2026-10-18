@@ -170,7 +170,7 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
   com a GI. A C2 ganhou o `canvasDivisor`, o `ensurePool`, a composição das funções de ponto por entidade num kernel
   e o realocamento dos descritores próprios no `redescribe`.
 - Orçamento: GI 3,7 ms a 1280 × 720 no bench `global-illumination` (o `switch` com índice dinâmico em `gi_cascade`
-  derrubava a ocupação; passe de profundidade no `ForwardFlow`). Névoa 0,55 ms; água a 64 mil 2,3 ms.
+  derrubava a ocupação; passe de profundidade no `ForwardFlow`). Névoa 0,70 ms; água a 64 mil 2,3 ms.
 
 ### Pendências novas (levantadas na 033)
 

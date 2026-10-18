@@ -134,7 +134,7 @@ Medido (smoke `fog`):
 - Beer-Lambert a 0,14 %.
 - Feixe pela janela a 1,9 % do traçador.
 - Câmera andando: +0,05 ponto de cintilação.
-- Custo: 0,55 ms a 1280 × 720.
+- Custo: 0,70 ms a 1280 × 720.
 
 ## Fluidos por campo de distância
 

@@ -469,9 +469,18 @@ async function gi(): Promise<void> {
         const s = await open(scene, size, [roomFog()], { gi: on });
         await s.step(120);
         const froxels = s.app.world.findResource(Froxels.schema, Froxels)!;
+        // A grade ambiente guarda, por quadro, um ponto sorteado dentro de cada célula (perto de uma parede, às vezes do
+        // outro lado dela); a névoa a integra no tempo (histórico dos froxels). A medida é a média de 16 quadros.
+        const ambient = await s.ambient();
+        for (let k = 1; k < 16; k++) {
+            await s.step(1);
+            const next = await s.ambient();
+            for (let i = 0; i < ambient.length; i++) ambient[i]! += next[i]!;
+        }
+        for (let i = 0; i < ambient.length; i++) ambient[i]! /= 16;
         reads.push({
             scatter: await s.froxels(),
-            ambient: await s.ambient(),
+            ambient,
             depth: froxels.data.params[0].depth!,
         });
         s.close();

@@ -4,6 +4,8 @@ import { NONE } from '../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { lightTransmissionReady, sceneLightingPoint } from '../scene/points/lighting';
 import { sceneAmbientPoint } from '../scene/points/media';
+import { camerasResource } from '../scene/resources';
+import { rayScene } from '../raytrace/shaders';
 import { giParamsResource, giPhoton, giSample, giScreenSample } from './shaders';
 
 /**
@@ -64,22 +66,43 @@ fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
  * irradiância das sondas do mundo para cima e para baixo — juntas, os dois hemisférios — sobre 2π, pelo meio da luz
  * ambiente. Média em 4 pontos num tetraedro de meio espaçamento das sondas em volta do ponto: no volume, sem as
  * superfícies que as sondas de tela corrigem, a diferença de uma sonda para a vizinha apareceria como faixas na névoa
- * (as colunas de sondas); a média é o passa-baixa na escala delas. Desligada, nada.
+ * (as colunas de sondas); a média é o passa-baixa na escala delas. O ponto atrás de uma superfície vista pela câmera
+ * (uma célula da grade dos meios que atravessa a parede) vem para antes dela, e um vértice do tetraedro do outro lado
+ * de uma superfície fica no ponto: do outro lado, a luz de fora vazava para a névoa de dentro. Desligada, nada.
  */
 const giAmbient = wgslModule({
     name: 'gi_scene_ambient',
-    requires: [NONE.module, giParamsResource, giSample, lightTransmissionReady],
-    source: `fn scene_ambient(p: vec3f) -> vec3f {
+    requires: [
+        NONE.module,
+        giParamsResource,
+        giSample,
+        lightTransmissionReady,
+        camerasResource,
+        rayScene,
+    ],
+    source: `fn scene_ambient(p_in: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let up = vec3f(0.0, 1.0, 0.0);
     let r = 0.5 * gi.cascade0.w;
+    // Do lado da câmera da primeira superfície no caminho (o lado visível).
+    var p = p_in;
+    let eye = cameras[gi.screen.w].position.xyz;
+    let to = p_in - eye;
+    let dist = length(to);
+    if (dist > 1e-4) {
+        let dir = to / dist;
+        let hit = ray_scene_hit(eye, dir, dist);
+        if (hit.instance != NONE) { p = eye + dir * max(hit.t - r, 0.0); }
+    }
     var e = vec3f(0.0);
     for (var k = 0u; k < 4u; k++) {
         let s = vec3f(select(-1.0, 1.0, (k & 1u) != 0u), select(-1.0, 1.0, (k & 2u) != 0u), select(-1.0, 1.0, k == 1u || k == 2u));
-        let q = p + s * (r * 0.57735);
+        let offset = s * (r * 0.57735);
+        // O vértice do outro lado de uma superfície (o teto, uma parede) fica no ponto.
+        let q = select(p + offset, p, ray_scene_occluded(p, s * 0.57735, r * 0.57735 * 1.7320508));
         e += gi_irradiance(q, up, up) + gi_irradiance(q, -up, -up);
     }
-    return e / (8.0 * GI_PI) * light_transmission(NONE, p);
+    return e / (8.0 * GI_PI) * light_transmission(NONE, p_in);
 }`,
 });
 
