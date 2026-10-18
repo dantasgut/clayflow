@@ -16,13 +16,18 @@ import {
     sceneLightingPoint,
     sceneLightingReady,
 } from '../lighting';
-import { hemisphereContribution, LIGHT_LIMIT, poolLightContribution } from '../lightContributions';
+import {
+    hemisphereAmbientContribution,
+    hemisphereContribution,
+    LIGHT_LIMIT,
+    poolLightContribution,
+} from '../lightContributions';
 
 describe('pontos de cena do sombreamento (spec 011, T039)', () => {
     it('prontos: nenhuma luz (0), visibilidade 1, transmissão 1 — e montam sozinhos', () => {
         expect(sceneLightingReady.source).toContain('return vec3f(0.0);');
         expect(lightVisibilityReady.source).toContain(
-            'fn light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32',
+            'fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32',
         );
         expect(lightTransmissionReady.source).toContain(
             'fn light_transmission(light: u32, p: vec3f) -> vec3f',
@@ -53,13 +58,13 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
                 fn(
                     `vis${k}`,
                     'return 1.0;',
-                    'light_visibility(light: u32, p: vec3f, n_dot_l: f32) -> f32',
+                    'light_visibility(light: u32, p: vec3f, n: vec3f) -> f32',
                 ),
                 `_${k}`,
             ),
         );
         expect(lightVisibilityPoint.combine(vis).source).toContain(
-            'return light_visibility_0(light, p, n_dot_l) * light_visibility_1(light, p, n_dot_l);',
+            'return light_visibility_0(light, p, n) * light_visibility_1(light, p, n);',
         );
         const trans = [0, 1].map((k) =>
             instantiateModule(
@@ -100,15 +105,17 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         expect(loop).toBe(pool!.build(() => 5));
         expect(loop.source).toContain('if (!pool_live(light_live[i >> 5u], i)) { continue; }');
         expect(loop.source).toContain('min(arrayLength(&lights), LIGHT_LIMIT)');
-        expect(loop.source).toContain(
-            'light_visibility(i, p, dot(n, l)) * light_transmission(i, p)',
-        );
+        expect(loop.source).toContain('light_visibility(i, p, n) * light_transmission(i, p)');
         expect(() => composeWgsl(loop)).not.toThrow();
     });
 
     it('o hemisfério contribui depois das luzes, pela transmissão da luz ambiente (NONE)', () => {
         const contributions = new HemisphereLight().getSceneContributions();
-        expect(contributions).toEqual([hemisphereContribution]);
+        // No desenho e, para os meios participantes (spec 033, R12), como radiância média.
+        expect(contributions).toEqual([hemisphereContribution, hemisphereAmbientContribution]);
+        expect(hemisphereAmbientContribution.build(() => undefined)!.source).toContain(
+            'fn scene_ambient(p: vec3f) -> vec3f',
+        );
         expect(hemisphereContribution.order).toBeGreaterThan(poolLightContribution.order);
         const m = hemisphereContribution.build(() => undefined)!;
         expect(m.source).toContain('closure_ambient(');

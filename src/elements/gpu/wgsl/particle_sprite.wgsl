@@ -54,5 +54,6 @@ fn fs_main(in: SpriteOut) -> @location(0) vec4f {
     let p = in.center + n * material.radius;
     let v = normalize(camera.position.xyz - p);
     let c = closure_from_params(SurfaceParams(material.color, 0.5, 0.0, vec3f(0.0)));
-    return vec4f(scene_lighting(c, p, n, v), material.color.a);
+    let fog = scene_fog(p);
+    return vec4f(scene_lighting(c, p, n, v) * fog.a + fog.rgb, material.color.a);
 }

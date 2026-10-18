@@ -243,6 +243,7 @@ export class Application {
         options.consumers?.(scene.consumers);
         const defaults = registerPresentationDefaults(scene.flows, {
             world: scene.world,
+            events: scene.events,
             samples: options.antialias === false ? 1 : 4,
         });
         if (options.captureErrors === true) {

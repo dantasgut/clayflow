@@ -475,6 +475,20 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0, c?.data.fov ?? 0];
     }
 
+    /** O pipeline (ou as passadas adaptativas) da superfície está pronto para gravar a avaliação neste quadro? */
+    private willEvaluate(ctx: Ctx, st: SurfaceState, surface: ParametricSurface): boolean {
+        const active = this.evalPipelines.active(st.id);
+        if (active === undefined) return false;
+        const ids =
+            surface.adaptive !== undefined && st.adapt !== undefined
+                ? ADAPT_ENTRIES.map((e) => adaptId(active.id, e))
+                : [active.id];
+        return ids.every((id) => {
+            const p = ctx.bound.pipelines.get(id);
+            return p?.role === 'compute' && p.ready;
+        });
+    }
+
     /** Decide quem avalia neste quadro e escreve os parâmetros deles. */
     private writeParams(ctx: Ctx): void {
         const { surfaces, functions, spaces, time, diffs, camera, cameras, worlds } =
@@ -496,6 +510,8 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 && st.adapt !== undefined
                 && cameraMoved(st.adapt.camera, cameraPos, a.refreshDistance);
             st.evaluate = st.stale || d.animated || spaced || moved;
+            // A estrutura de raios (spec 033) reajusta a geometria nos quadros em que ela é escrita.
+            ctx.produced(surface, 'vertices', st.evaluate && this.willEvaluate(ctx, st, surface));
             if (!st.evaluate) continue;
             if (a !== undefined && st.adapt !== undefined) {
                 st.adapt.camera = cameraPos;

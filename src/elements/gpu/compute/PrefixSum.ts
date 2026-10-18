@@ -8,6 +8,7 @@ import type {
     StorageBufferSpec,
 } from '../../../scene/contracts/gpu';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
+import type { ComputePass } from '../../../scene/contracts/gpu';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -47,6 +48,8 @@ export interface PrefixSumOptions {
     readonly discriminator: string;
     /** Maior `count` aceito por `record` (dimensiona os buffers dos níveis). */
     readonly capacity: number;
+    /** Prefixo dos rótulos dos passes (perfil por passo). Padrão `'PrefixSum'`. */
+    readonly label?: string;
 }
 
 /** Argumentos de `PrefixSum.record`. */
@@ -62,6 +65,11 @@ export interface PrefixSumRecordArgs {
     readonly count: number | GpuCount;
     /** `exclusive` (padrão): `dst[i] = Σ_{j<i} src[j]`; `inclusive`: `Σ_{j≤i}`. */
     readonly mode?: 'exclusive' | 'inclusive';
+    /**
+     * Passe de compute já aberto: os níveis são gravados nele (despachos em sequência no mesmo passe) em vez de cada um
+     * no seu — menos fronteiras de passe. Exige a soma no lugar (`src === dst`).
+     */
+    readonly pass?: ComputePass;
 }
 
 /** Kernels de um nível: subida, descida e topo. */
@@ -102,6 +110,7 @@ type LevelDispatch = number | GpuCount | null;
  */
 export class PrefixSum {
     private readonly disc: string;
+    private readonly label: string;
     private readonly capacity: number;
     private readonly levelCapacity: readonly number[];
     private readonly params: FrameUniforms;
@@ -120,6 +129,7 @@ export class PrefixSum {
             );
         }
         this.disc = options.discriminator;
+        this.label = options.label ?? 'PrefixSum';
         this.capacity = options.capacity;
         this.levelCapacity = scanLevelCounts(options.capacity);
         this.params = new FrameUniforms(core, {
@@ -173,8 +183,14 @@ export class PrefixSum {
         }
         const counts = scanLevelCounts(count);
         const offsets = this.allocateLevelParams(frame, args, counts, 0);
-        if (src !== dst) frame.copy(src, dst, count * 4);
-        this.runLevels(frame, variant, dst, offsets, counts, count);
+        if (src !== dst) {
+            if (args.pass !== undefined)
+                throw new Error(
+                    `PrefixSum(${this.disc}): num passe aberto a soma é no lugar (src === dst).`,
+                );
+            frame.copy(src, dst, count * 4);
+        }
+        this.runLevels(frame, variant, dst, offsets, counts, count, args.pass);
     }
 
     /** Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no próximo `prepare`. */
@@ -199,10 +215,12 @@ export class PrefixSum {
         }
         const offsets = this.allocateLevelParams(frame, args, this.levelCapacity, count.index);
         if (src !== dst) {
+            if (args.pass !== undefined)
+                throw new Error(`${owner}: num passe aberto a soma é no lugar (src === dst).`);
             const bytes = Math.min(this.capacity * 4, src.byteSize, dst.byteSize);
             frame.copy(src, dst, bytes - (bytes % 4));
         }
-        this.runLevels(frame, variant, dst, offsets, this.levelCapacity, count);
+        this.runLevels(frame, variant, dst, offsets, this.levelCapacity, count, args.pass);
     }
 
     /** Uma região de uniform por nível: contagem (a da CPU, ou a capacidade do nível na variante da GPU) e modo. */
@@ -234,22 +252,31 @@ export class PrefixSum {
         offsets: readonly number[],
         counts: readonly number[],
         first: number | GpuCount,
+        pass: ComputePass | undefined,
     ): void {
         const top = offsets.length - 1;
         const dispatches: LevelDispatch[] = [first, ...counts.slice(1)];
         const kernels = (k: number): LevelKernels =>
             k === 0 ? variant.base.get(dst)! : variant.upper[k - 1]!;
         for (let k = 0; k < top; k++) {
-            this.run(frame, 'PrefixSum.scan_local', kernels(k).local!, offsets[k]!, dispatches[k]!);
+            this.run(
+                frame,
+                `${this.label}.scan_local`,
+                kernels(k).local!,
+                offsets[k]!,
+                dispatches[k]!,
+                pass,
+            );
         }
-        this.run(frame, 'PrefixSum.scan_top', kernels(top).top!, offsets[top]!, null);
+        this.run(frame, `${this.label}.scan_top`, kernels(top).top!, offsets[top]!, null, pass);
         for (let k = top - 1; k >= 0; k--) {
             this.run(
                 frame,
-                'PrefixSum.scan_combine',
+                `${this.label}.scan_combine`,
                 kernels(k).combine!,
                 offsets[k]!,
                 dispatches[k]!,
+                pass,
             );
         }
     }
@@ -354,8 +381,9 @@ export class PrefixSum {
         kernel: ComputeKernel,
         offset: number,
         dispatch: LevelDispatch,
+        open: ComputePass | undefined,
     ): void {
-        frame.compute(label, (pass) => {
+        const body = (pass: ComputePass): void => {
             pass.bind.setPipeline(kernel.pipeline);
             kernel.bindTo(pass.bind, { draw: [offset] });
             if (dispatch === null) pass.dispatch.workgroups(1);
@@ -365,7 +393,9 @@ export class PrefixSum {
                     dispatch.counts,
                     CountToArgs.dispatchOffset(dispatch),
                 );
-        });
+        };
+        if (open !== undefined) body(open);
+        else frame.compute(label, body);
     }
 
     private releaseKernels(): void {

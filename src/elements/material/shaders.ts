@@ -2,7 +2,8 @@ import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
-import { sceneLightingReady } from '../scene/points/lighting';
+import { sceneBackgroundReady, sceneLightingReady } from '../scene/points/lighting';
+import { sceneFogReady } from '../scene/points/media';
 import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
@@ -35,6 +36,7 @@ import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
 import forwardTransmissionSource from '../gpu/wgsl/forward_transmission.wgsl?raw';
+import forwardBackgroundSource from '../gpu/wgsl/forward_background.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
@@ -91,6 +93,7 @@ export const forward = wgslModule({
         closureEval,
         forwardMaterialReady,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -111,6 +114,17 @@ export const forward = wgslModule({
 });
 
 /**
+ * Fundo da cena (spec 033): triângulo de tela cheia no plano distante com a cor do ponto de cena `scene_background`
+ * (o céu físico) pela direção de cada pixel da câmera ativa. O forward o desenha depois dos opacos, só com contribuinte.
+ */
+export const forwardBackground = wgslModule({
+    name: 'forward_background',
+    source: forwardBackgroundSource,
+    requires: [sceneBackgroundReady, sceneFogReady, camerasResource, forwardFrameResource],
+    structs: [Camera.matricesSchema, ForwardFrameParamsSchema],
+});
+
+/**
  * Sprites de partículas (spec 008): quad por partícula com a posição lida do pool do corpo pelo índice da instância,
  * esfera impostora iluminada pelo ponto de cena `scene_lighting` (spec 011). Usado pelo estágio de desenho de corpos de
  * partículas.
@@ -122,6 +136,7 @@ export const particleSprite = wgslModule({
         materialPointTypes,
         closure,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         particleFrameResource,
         particlePoolResource,
@@ -142,6 +157,7 @@ export const pointSprite = wgslModule({
         materialPointTypes,
         closure,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -168,6 +184,7 @@ export const diffuseSprite = wgslModule({
         materialPointTypes,
         closure,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         worldsResource,
         renderablesResource,

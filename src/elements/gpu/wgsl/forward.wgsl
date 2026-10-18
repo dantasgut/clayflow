@@ -13,7 +13,8 @@ struct VsIn {
 }
 
 struct VsOut {
-    @builtin(position) clip_position: vec4<f32>,
+    // Invariante: o passe de profundidade e o de cor (pipelines distintos) chegam à mesma profundidade bit a bit.
+    @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) world_normal: vec3<f32>,
     @location(1) world_position: vec3<f32>,
     @location(2) @interpolate(flat) material_slot: u32,
@@ -55,6 +56,10 @@ fn vs_main(
     return out;
 }
 
+// Fragmento do passe de profundidade (spec 033): nada a sombrear — só a profundidade do vértice é gravada.
+@fragment
+fn fs_depth() {}
+
 // Direção para o observador no ponto `p`: da posição da câmera (perspectiva) ou o eixo da vista (ortográfica).
 fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {
     let axis = vec3f(cam.view[0].z, cam.view[1].z, cam.view[2].z);
@@ -80,5 +85,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let c = closure_specular_aa(material_eval(sample, material, in.fn_slot), variance);
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
     let color = scene_lighting(c, in.world_position, n, v) + closure_emitted(c, n, v);
-    return vec4<f32>(color, c.opacity);
+    // A névoa entre a câmera e o ponto (ponto de cena `scene_fog`; sem névoa, nada muda).
+    let fog = scene_fog(in.world_position);
+    return vec4<f32>(color * fog.a + fog.rgb, c.opacity);
 }

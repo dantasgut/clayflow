@@ -298,6 +298,29 @@ gerada e contada na GPU e desenhada com desenho indireto. É refeita quando a su
 câmera anda mais que `refreshDistance`. Sem `indirect-first-instance` no device, fica no nível máximo (evento
 `adaptiveUnavailable`).
 
+## Pontos de cena (spec 033)
+
+Os pontos de extensão acima são do usuário, um por entidade. Os **pontos de cena** são dos Resources do motor: cada
+Resource contribui um módulo (`getSceneContributions()`), a C2 combina os contribuintes presentes pelo `combine` do
+ponto e põe o resultado no lugar do pronto em todo pipeline que o requer. Um efeito novo entra sem mudar quem
+consome; sem contribuinte, vale o pronto.
+
+| Ponto | Assinatura | Combina | Contribuintes |
+|---|---|---|---|
+| `scene_lighting` | `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` | soma | cada classe de luz, o hemisfério, a GI (indireta e cáusticas) |
+| `light_visibility` | `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32` | produto | os mapas de sombra (com viés pela normal) |
+| `light_transmission` | `fn light_transmission(light: u32, p: vec3f) -> vec3f` | produto | o `Sky` (a cor do sol pela atmosfera), os `Froxels` (a névoa) |
+| `scene_background` | `fn scene_background(dir: vec3f) -> vec3f` | soma | o `Sky` |
+| `scene_environment` | `fn scene_environment(dir: vec3f) -> vec3f` | soma | o `Sky` (os raios que escapam) |
+| `scene_fog` | `fn scene_fog(p: vec3f) -> vec4f` | em ordem (o de trás atenuado pelo da frente) | os `Froxels`: a luz espalhada (rgb) e a transmitância (a) entre a câmera e `p` |
+| `scene_ambient` | `fn scene_ambient(p: vec3f) -> vec3f` | soma | o hemisfério ou a GI: a radiância média em `p` (a névoa lê) |
+| `ray_volume_hit` | `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit` | o mais próximo | o `FluidField` (a água) |
+| `ray_volume_transmittance` | `fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f` | produto | o `FluidField`, os `Froxels` |
+
+A densidade da névoa por função é um ponto de extensão do usuário (`fog_density`,
+`density_fn(p: vec3f, time: f32, data) -> f32`, por `FogVolume`). A consulta da estrutura de raios
+(`ray_scene_hit`, `ray_scene_occluded`) é um módulo comum: ver [Estrutura de raios](./raytracing.md).
+
 ## Fora desta versão
 
 - Espaço aplicado à cena inteira (malhas, luz, sombra) e portais: spec 019.

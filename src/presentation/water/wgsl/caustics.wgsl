@@ -1,5 +1,5 @@
 // Cáusticas por fótons em espaço da luz (spec 017, research R7): um fóton por texel da superfície de água vista pela
-// luz é refratado pela normal da superfície, segue até o receptor (o mapa de sombra: fundo e objetos submersos) por
+// luz é refratado pela normal da superfície (a do campo dos fluidos na vista da luz, spec 033), segue até o receptor (o mapa de sombra: fundo e objetos submersos) por
 // iteração de ponto fixo e deposita a energia transmitida (Fresnel × absorção no percurso) em volta do ponto de
 // chegada (B-spline quadrático 3×3), em ponto fixo (`atomicAdd`): a soma inteira não depende da ordem — imagem determinística. A
 // resolução converte para o fator de transmissão da luz (rgb) com um borrão em tenda 3×3. Espaço métrico da luz: NDC da
@@ -11,6 +11,8 @@
 // Unidade do ponto fixo: energia 1 = 4096.
 const CAUSTIC_ONE: f32 = 4096.0;
 const CAUSTIC_ITERATIONS: i32 = 6;
+// Peso do histórico no acúmulo temporal do mapa.
+const CAUSTIC_HISTORY: f32 = 0.7;
 
 fn caustic_texel_count() -> u32 {
     return caustic_params.width * caustic_params.height;
@@ -19,8 +21,27 @@ fn caustic_texel_count() -> u32 {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn caustic_clear(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (i == 0u) {
+        // A matriz da vista da luz do quadro anterior e a deste (depois dos acumuladores e do histórico): a resolução
+        // recomeça o acúmulo quando o enquadramento muda.
+        let base = 6u * caustic_texel_count();
+        let m = water_light_matrix.viewProj;
+        for (var k = 0u; k < 16u; k++) {
+            atomicStore(&photons[base + k], atomicLoad(&photons[base + 16u + k]));
+            atomicStore(&photons[base + 16u + k], bitcast<u32>(m[k / 4u][k % 4u]));
+        }
+    }
     if (i >= 3u * caustic_texel_count()) { return; }
     atomicStore(&photons[i], 0u);
+}
+
+/** O enquadramento da luz mudou neste quadro? */
+fn caustic_refit() -> bool {
+    let base = 6u * caustic_texel_count();
+    for (var k = 0u; k < 16u; k++) {
+        if (photon_sums[base + k] != photon_sums[base + 16u + k]) { return true; }
+    }
+    return false;
 }
 
 // Ponto do mundo para coordenadas métricas da vista da luz da água (NDC / escala de cada eixo).
@@ -54,26 +75,6 @@ fn caustic_receiver(xy: vec2f, m: mat4x4f, scale: vec3f) -> f32 {
     let depth = mix(mix(d00, d10, w.x), mix(d01, d11, w.x), w.y);
     let sz = water_affine_scale(s).z;
     return (depth - c.z) / sz;
-}
-
-// Profundidade da água num texel (sem água: muito longe).
-fn caustic_water(t: vec2i) -> f32 {
-    let dims = vec2i(i32(caustic_params.width), i32(caustic_params.height));
-    let q = clamp(t, vec2i(0), dims - 1);
-    if (textureLoad(light_material, q, 0).x == 0u) { return 2.0 * WATER_DEPTH_LIMIT; }
-    return textureLoad(light_depth, q, 0).x;
-}
-
-// Inclinação da superfície ao longo de um eixo: diferença central, ou de um lado só na borda da água.
-fn caustic_slope(t: vec2i, axis: vec2i, z: f32, texel: f32, limit: f32) -> f32 {
-    let zp = caustic_water(t + axis);
-    let zm = caustic_water(t - axis);
-    let okp = abs(zp - z) < limit;
-    let okm = abs(zm - z) < limit;
-    if (okp && okm) { return (zp - zm) / (2.0 * texel); }
-    if (okp) { return (zp - z) / texel; }
-    if (okm) { return (z - zm) / texel; }
-    return 0.0;
 }
 
 // Pesos do B-spline quadrático nos texels −1, 0, +1 para o deslocamento `d` ∈ [−½, ½] do centro do texel.
@@ -110,54 +111,58 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     // Um objeto entre a luz e a água: a água está na sombra, nenhum fóton.
     let zr0 = caustic_receiver(xy0, lvp, scale);
     if (zr0 < z0 || zr0 >= WATER_DEPTH_LIMIT) { return; }
-    let texel = vec2f(2.0) / (vec2f(dims) * scale.xy);
-    let limit = 4.0 * max(texel.x, texel.y) + 0.05;
-    let sx = caustic_slope(t, vec2i(1, 0), z0, texel.x, limit);
-    // y da textura desce, y métrico sobe.
-    let sy = -caustic_slope(t, vec2i(0, 1), z0, texel.y, limit);
-    var n = normalize(vec3f(sx, sy, -1.0));
-    // Ondulações do material: a normal vai ao mundo (linhas da matriz da luz normalizadas), recebe a inclinação das
-    // ondas no ponto da superfície e volta — as cáusticas finas vêm delas.
+    // Normal em mundo da vista da luz; as ondulações do material somam a inclinação das ondas no ponto da superfície e
+    // a normal vai à base métrica da luz (linhas da matriz normalizadas) — as cáusticas finas vêm delas.
     let r0 = normalize(vec3f(lvp[0].x, lvp[1].x, lvp[2].x));
     let r1 = normalize(vec3f(lvp[0].y, lvp[1].y, lvp[2].y));
     let r2 = normalize(vec3f(lvp[0].z, lvp[1].z, lvp[2].z));
-    let n_world = normalize(r0 * n.x + r1 * n.y + r2 * n.z);
+    let stored = textureLoad(light_normal, t, 0);
+    var n_world = -r2;
+    if (dot(stored.xyz, stored.xyz) > 1e-8) { n_world = normalize(stored.xyz); }
     let p_world = caustic_to_world(vec3f(xy0, z0), lvp, scale);
     let slope = water_ripple_slope(p_world.xz, caustic_params.time, material) * water_ripple_weight(n_world);
     let n_rippled = normalize(n_world + vec3f(-slope.x, 0.0, -slope.y));
-    n = normalize(vec3f(dot(r0, n_rippled), dot(r1, n_rippled), dot(r2, n_rippled)));
+    let n = normalize(vec3f(dot(r0, n_rippled), dot(r1, n_rippled), dot(r2, n_rippled)));
     let incident = vec3f(0.0, 0.0, 1.0);
-    let eta = 1.0 / max(material.ior, 1.0);
-    var dir = refract(incident, n, eta);
-    if (dot(dir, dir) < 1e-8) { dir = incident; }
     // Intensidade do padrão: 0 = luz reta (só atenuação), 1 = refração física.
     let k = select(0.0, material.causticIntensity, material.caustics != 0u);
-    dir = normalize(mix(incident, dir, k));
     let cos_i = max(-dot(incident, n), 0.0);
-    let f0 = pow((material.ior - 1.0) / (material.ior + 1.0), 2.0);
-    let fresnel = f0 + (1.0 - f0) * pow(1.0 - cos_i, 5.0);
-    // Encontro com o receptor: t = (z_r(xy(t)) − z0) / d.z, ponto fixo.
-    let dz = max(dir.z, 1e-3);
-    var s = max(zr0 - z0, 0.0) / dz;
-    for (var it: i32 = 0; it < CAUSTIC_ITERATIONS; it = it + 1) {
-        let zr = caustic_receiver(xy0 + dir.xy * s, lvp, scale);
-        if (zr >= WATER_DEPTH_LIMIT) { break; }
-        s = max(zr - z0, 0.0) / dz;
-    }
-    let hit = xy0 + dir.xy * s;
-    let transmit = exp(-material.absorption.rgb * s) * (1.0 - fresnel);
-    // Ponto de chegada em texels (contínuo) e depósito B-spline quadrático 3×3 (partição da unidade e suave: sem o
-    // batimento do depósito bilinear quando a densidade de fótons varia devagar).
-    let hit_ndc = hit * scale.xy;
-    let hit_uv = vec2f(hit_ndc.x * 0.5 + 0.5, 0.5 - hit_ndc.y * 0.5);
-    let f = hit_uv * vec2f(dims);
-    let center = vec2i(floor(f));
-    let d = f - floor(f) - 0.5;
-    let wx = caustic_bspline(d.x);
-    let wy = caustic_bspline(d.y);
-    for (var j: i32 = 0; j < 3; j = j + 1) {
-        for (var i: i32 = 0; i < 3; i = i + 1) {
-            caustic_deposit(center + vec2i(i - 1, j - 1), transmit * (wx[i] * wy[j]));
+    // Com dispersão (número de Abbe), cada cor refrata pelo seu IOR e chega num ponto próprio: as franjas coloridas
+    // das cáusticas. Sem ela, um fóton com as três.
+    let iors = closure_dispersion_iors(material.ior, material.abbe);
+    let colors = select(1u, 3u, material.abbe > 0.0 && k > 0.0);
+    for (var channel = 0u; channel < colors; channel++) {
+        let ior = select(material.ior, iors[channel], colors == 3u);
+        var dir = refract(incident, n, 1.0 / max(ior, 1.0));
+        if (dot(dir, dir) < 1e-8) { dir = incident; }
+        dir = normalize(mix(incident, dir, k));
+        let f0 = (ior - 1.0) * (ior - 1.0) / ((ior + 1.0) * (ior + 1.0));
+        let fresnel = f0 + (1.0 - f0) * pow(1.0 - cos_i, 5.0);
+        // Encontro com o receptor: t = (z_r(xy(t)) − z0) / d.z, ponto fixo.
+        let dz = max(dir.z, 1e-3);
+        var s = max(zr0 - z0, 0.0) / dz;
+        for (var it: i32 = 0; it < CAUSTIC_ITERATIONS; it = it + 1) {
+            let zr = caustic_receiver(xy0 + dir.xy * s, lvp, scale);
+            if (zr >= WATER_DEPTH_LIMIT) { break; }
+            s = max(zr - z0, 0.0) / dz;
+        }
+        let hit = xy0 + dir.xy * s;
+        var mask = vec3f(1.0);
+        if (colors == 3u) { mask = vec3f(f32(channel == 0u), f32(channel == 1u), f32(channel == 2u)); }
+        let transmit = exp(-material.absorption.rgb * s) * (1.0 - fresnel) * mask;
+        // Ponto de chegada em texels (contínuo) e depósito B-spline quadrático 3×3 (partição da unidade e suave: sem o
+        // batimento do depósito bilinear quando a densidade de fótons varia devagar).
+        let hit_ndc = hit * scale.xy;
+        let hit_uv = vec2f(hit_ndc.x * 0.5 + 0.5, 0.5 - hit_ndc.y * 0.5);
+        let f = hit_uv * vec2f(dims);
+        let center = vec2i(floor(f));
+        let d = f - floor(f) - 0.5;
+        let wx = caustic_bspline(d.x);
+        let wy = caustic_bspline(d.y);
+        for (var j: i32 = 0; j < 3; j = j + 1) {
+            for (var i: i32 = 0; i < 3; i = i + 1) {
+                caustic_deposit(center + vec2i(i - 1, j - 1), transmit * (wx[i] * wy[j]));
+            }
         }
     }
 }
@@ -182,5 +187,19 @@ fn caustic_resolve(@builtin(global_invocation_id) gid: vec3u) {
             sum = sum + caustic_sum(t + vec2i(dx, dy)) * w;
         }
     }
-    textureStore(caustic_out, t, vec4f(sum / 16.0, 1.0));
+    // Acúmulo temporal adaptativo (no enquadramento da luz estável): o tremor das partículas de
+    // um quadro para outro, que a refração amplifica nas cáusticas, não cintila. O histórico fica na segunda metade dos
+    // acumuladores (a limpeza só zera a primeira); sem histórico (0), o valor do quadro.
+    let n = caustic_texel_count();
+    let h = 3u * n + 3u * u32(t.y * dims.x + t.x);
+    let fresh = sum / 16.0;
+    let old = vec3f(bitcast<f32>(photon_sums[h]), bitcast<f32>(photon_sums[h + 1u]), bitcast<f32>(photon_sums[h + 2u]));
+    // Peso do histórico alto só onde a mudança é pequena (o tremor); onde a cáustica se move de verdade, o quadro.
+    let change = length(fresh - old) / (length(fresh) + length(old) + 1e-4);
+    let weight = CAUSTIC_HISTORY * (1.0 - smoothstep(0.03, 0.2, change));
+    let blended = select(mix(fresh, old, weight), fresh, all(old == vec3f(0.0)) || caustic_refit());
+    photon_sums[h] = bitcast<u32>(blended.r);
+    photon_sums[h + 1u] = bitcast<u32>(blended.g);
+    photon_sums[h + 2u] = bitcast<u32>(blended.b);
+    textureStore(caustic_out, t, vec4f(blended, 1.0));
 }

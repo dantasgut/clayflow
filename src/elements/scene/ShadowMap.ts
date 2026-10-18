@@ -8,9 +8,12 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 
 /** Opções de `ShadowMap`. */
 export interface ShadowMapOptions {
-    /** Viés de profundidade da comparação (contra acne). Padrão 0,005. */
+    /** Viés de profundidade da comparação (contra acne), em texels do mapa. Padrão 1. */
     readonly bias?: number;
-    /** Viés ao longo da normal. Padrão 0,001. */
+    /**
+     * Deslocamento da consulta ao longo da normal da superfície, em texels do mapa (mais quanto mais rasante a luz).
+     * Padrão 1,5.
+     */
     readonly normalBias?: number;
     /** Resolução do mapa em texels `[largura, altura]`. Padrão `[1024, 1024]`. */
     readonly size?: readonly [number, number];
@@ -18,9 +21,9 @@ export interface ShadowMapOptions {
 
 /** Dado de um `ShadowMap` (layout de `ShadowMap.schema`). */
 export interface ShadowMapData {
-    /** Viés de profundidade da comparação. */
+    /** Viés de profundidade da comparação, em texels. */
     bias: number;
-    /** Viés ao longo da normal. */
+    /** Deslocamento ao longo da normal, em texels. */
     normalBias: number;
     /** Tamanho. */
     size: readonly [number, number];
@@ -53,8 +56,8 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
     constructor(options: ShadowMapOptions = {}) {
         super();
         this.data = {
-            bias: options.bias ?? 0.005,
-            normalBias: options.normalBias ?? 0.001,
+            bias: options.bias ?? 1,
+            normalBias: options.normalBias ?? 1.5,
             size: options.size ?? [1024, 1024],
         };
     }

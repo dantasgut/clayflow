@@ -8,6 +8,7 @@ import {
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { FluidSurfaceMaterialSchema } from '../../elements/material/FluidSurfaceMaterialSchema';
 import { sceneLightingReady } from '../../elements/scene/points/lighting';
+import { sceneFogReady } from '../../elements/scene/points/media';
 import {
     camerasResource,
     lightsResource,
@@ -15,20 +16,17 @@ import {
 } from '../../elements/scene/resources';
 import { closure, closureEval } from '../../elements/material/pbr/shaders';
 import { WATER_DEPTH_LIMIT, WATER_NO_DEPTH } from './constants';
+import { fields } from '../../elements/fields/shaders';
 import {
     CausticParamsSchema,
-    WaterBoundsParamsSchema,
     WaterCompositeParamsSchema,
-    WaterDrawParamsSchema,
     WaterLightMatrixSchema,
-    WaterSmoothParamsSchema,
     WaterStateSchema,
     WaterViewParamsSchema,
 } from './schemas';
 import waterViewSource from './wgsl/water_view.wgsl?raw';
-import waterSpheresSource from './wgsl/water_spheres.wgsl?raw';
 import waterSceneSource from './wgsl/water_scene.wgsl?raw';
-import waterSmoothSource from './wgsl/water_smooth.wgsl?raw';
+import waterFieldSource from './wgsl/water_field.wgsl?raw';
 import causticsSource from './wgsl/caustics.wgsl?raw';
 import waterLightSource from './wgsl/water_light.wgsl?raw';
 import waterRippleSource from './wgsl/water_ripple.wgsl?raw';
@@ -36,9 +34,8 @@ import waterCompositeSource from './wgsl/water_composite.wgsl?raw';
 import waterTransmissionSource from './wgsl/water_transmission.wgsl?raw';
 
 // Shaders da água e das cáusticas (spec 017) com recursos declarados (spec 031). Uniforms de parâmetros, texturas e
-// rascunhos são do estágio que os cria (`private`, frequência `stage`); a região por corpo do desenho das esferas tem
-// offset dinâmico (`draw`) e o pool do corpo muda entre pipelines (`batch`). Câmeras e matrizes de sombra são os
-// recursos de cena compartilhados; o pool `FluidSurfaceMaterial` vem da C2.
+// rascunhos são do estágio que os cria (`private`, frequência `stage`). Câmeras e matrizes de sombra são os recursos de
+// cena compartilhados; o pool `FluidSurfaceMaterial` vem da C2; o campo dos fluidos (spec 033), do `FluidField`.
 
 const uniform = (
     name: string,
@@ -68,7 +65,7 @@ const storageTexture = (name: string, format: GPUTextureFormat): WgslResource =>
         provider: 'private',
     });
 
-/** Recursos dos estágios da água (produtor da superfície, suavização, vista da luz, cáusticas e composição). */
+/** Recursos dos estágios da água (produtor da superfície pelo campo, vista da luz, cáusticas e composição). */
 export const waterResources = Object.freeze({
     /** Materiais de água (pool `FluidSurfaceMaterial`). */
     materials: wgslResource({
@@ -80,10 +77,11 @@ export const waterResources = Object.freeze({
     }),
     /** Matriz da vista da luz da água (leitura; o substituto antes de ela existir é do estágio). */
     lightMatrix: storage('water_light_matrix', 'read', { schema: WaterLightMatrixSchema }),
-    // Esferas.
+    // Superfície pelo campo.
     view: uniform('water_view', { schema: WaterViewParamsSchema }),
-    draw: uniform('water_draw', { schema: WaterDrawParamsSchema }, 'draw'),
-    particles: storage('particles', 'read', { wgsl: 'vec4f', array: true }, 'batch'),
+    outDepth: storageTexture('field_out_depth', 'r32float'),
+    outMaterial: storageTexture('field_out_material', 'r32uint'),
+    outNormal: storageTexture('field_out_normal', 'rgba16float'),
     /** Profundidade da cena de amostra única. */
     sceneDepth: wgslResource({
         name: 'water_scene_depth',
@@ -98,22 +96,13 @@ export const waterResources = Object.freeze({
         frequency: 'stage',
         provider: 'private',
     }),
-    // Suavização.
-    smooth: uniform('water_smooth', { schema: WaterSmoothParamsSchema }),
-    radii: storage('water_radii', 'read', { wgsl: 'f32', array: true }),
-    smoothSrc: texture('smooth_src', 'f32'),
-    smoothMaterial: texture('smooth_material', 'u32'),
-    smoothDst: storageTexture('smooth_dst', 'r32float'),
     // Enquadramento da vista da luz.
-    lightBounds: storage('light_bounds', 'read_write', { wgsl: 'atomic<u32>', array: true }),
-    boundsParams: uniform('bounds_params', { schema: WaterBoundsParamsSchema }),
-    boundsParticles: storage('bounds_particles', 'read', { wgsl: 'vec4f', array: true }),
     lightMatrixWrite: storage('light_matrix', 'read_write', { schema: WaterLightMatrixSchema }),
-    boundsIn: storage('bounds_in', 'read', { wgsl: 'u32', array: true }),
     // Cáusticas.
     causticParams: uniform('caustic_params', { schema: CausticParamsSchema }),
     lightDepth: texture('light_depth', 'f32'),
     lightMaterial: texture('light_material', 'u32'),
+    lightNormal: texture('light_normal', 'f32'),
     causticShadow: wgslResource({
         name: 'caustic_shadow',
         binding: { texture: { sample: 'depth' } },
@@ -126,8 +115,8 @@ export const waterResources = Object.freeze({
     // Composição.
     composite: uniform('water_composite', { schema: WaterCompositeParamsSchema }),
     depth: texture('water_depth', 'f32'),
-    thickness: texture('water_thickness', 'f32'),
     material: texture('water_material', 'u32'),
+    normal: texture('water_normal', 'f32'),
     background: texture('water_background', 'f32'),
 });
 const R = waterResources;
@@ -183,50 +172,6 @@ const waterSceneMs = wgslModule({
     requires: [waterView, WATER_NO_DEPTH.module, R.sceneDepthMs],
 });
 
-function waterSpheresModule(name: string, scene: WgslModule): WgslModule {
-    return wgslModule({
-        name,
-        source: waterSpheresSource,
-        requires: [
-            waterView,
-            scene,
-            camerasResource,
-            R.lightMatrix,
-            R.view,
-            R.particles,
-            R.materials,
-            R.draw,
-        ],
-    });
-}
-
-/**
- * Esferas das partículas da superfície de água (spec 017): profundidade linear + material e espessura. Profundidade da
- * cena sem e com MSAA (na vista da câmera ela oculta a água atrás dos objetos; na da luz, um substituto sem uso).
- */
-export const waterSpheres = {
-    scene: waterSpheresModule('water_spheres', waterSceneSingle),
-    sceneMs: waterSpheresModule('water_spheres_ms', waterSceneMs),
-} as const;
-
-/** Suavização bilateral separável da profundidade da água e borrão da espessura (spec 017). */
-export const waterSmooth = wgslModule({
-    name: 'water_smooth_kernels',
-    source: waterSmoothSource,
-    requires: [
-        waterView,
-        WATER_NO_DEPTH.module,
-        camerasResource,
-        R.lightMatrix,
-        R.materials,
-        R.radii,
-        R.smooth,
-        R.smoothSrc,
-        R.smoothMaterial,
-        R.smoothDst,
-    ],
-});
-
 /** Ondulações capilares procedurais do material de água (inclinação somada à normal; spec 017). */
 const waterRipple = wgslModule({
     name: 'water_ripple',
@@ -239,6 +184,7 @@ export const caustics = wgslModule({
     name: 'caustics',
     source: causticsSource,
     requires: [
+        closure,
         waterView,
         waterRipple,
         WATER_DEPTH_LIMIT.module,
@@ -249,6 +195,7 @@ export const caustics = wgslModule({
         R.causticParams,
         R.lightDepth,
         R.lightMaterial,
+        R.lightNormal,
         R.causticShadow,
         R.photons,
         R.photonSums,
@@ -256,23 +203,40 @@ export const caustics = wgslModule({
     ],
 });
 
+/** Enquadramento da vista da luz da água (spec 017): a base da luz e a matriz ortográfica ajustada a uma caixa. */
+const waterLight = wgslModule({ name: 'water_light', source: waterLightSource });
+
+function waterFieldModule(name: string, scene: WgslModule): WgslModule {
+    return wgslModule({
+        name,
+        source: waterFieldSource,
+        requires: [
+            waterView,
+            scene,
+            fields,
+            waterLight,
+            WATER_NO_DEPTH.module,
+            camerasResource,
+            shadowMatricesResource,
+            R.materials,
+            R.view,
+            R.lightMatrix,
+            R.lightMatrixWrite,
+            R.outDepth,
+            R.outMaterial,
+            R.outNormal,
+        ],
+    });
+}
+
 /**
- * Enquadramento da vista da luz da água (spec 017): caixa envolvente das partículas na base da luz e a matriz
- * ortográfica ajustada a ela.
+ * Superfície da água pelo campo dos fluidos (spec 033, R11): a marcha da câmera (profundidade da cena sem e com MSAA),
+ * a da luz e o enquadramento da vista da luz pela caixa do campo.
  */
-export const waterLight = wgslModule({
-    name: 'water_light',
-    source: waterLightSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        shadowMatricesResource,
-        R.lightBounds,
-        R.boundsParams,
-        R.boundsParticles,
-        R.lightMatrixWrite,
-        R.boundsIn,
-    ],
-});
+export const waterField = {
+    scene: waterFieldModule('water_field', waterSceneSingle),
+    sceneMs: waterFieldModule('water_field_ms', waterSceneMs),
+} as const;
 
 function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
     return wgslModule({
@@ -285,13 +249,14 @@ function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
             closureEval,
             waterRipple,
             sceneLightingReady,
+            sceneFogReady,
             WATER_DEPTH_LIMIT.module,
             camerasResource,
             R.materials,
             R.composite,
             R.depth,
-            R.thickness,
             R.material,
+            R.normal,
             R.background,
         ],
     });

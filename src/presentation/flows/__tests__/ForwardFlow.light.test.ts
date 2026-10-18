@@ -54,7 +54,7 @@ describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
         s.step();
         const src = forwardSource(s);
         expect(src).toMatch(
-            /fn light_visibility\(light: u32, p: vec3f, n_dot_l: f32\) -> f32 \{\s*return 1\.0;/,
+            /fn light_visibility\(light: u32, p: vec3f, n: vec3f\) -> f32 \{\s*return 1\.0;/,
         );
         expect(src).not.toMatch(/var shadow_map|shadow_maps\[/);
     });

@@ -5,4 +5,5 @@ export { EmitFunction } from './EmitFunction';
 export { SurfaceFunction } from './SurfaceFunction';
 export { SpaceFunction } from './SpaceFunction';
 export { MaterialFunction } from './MaterialFunction';
+export { DensityFunction } from './DensityFunction';
 export type { MaterialFunctionOptions } from './MaterialFunction';

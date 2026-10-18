@@ -6,6 +6,7 @@ import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import { FieldType } from '../descriptors/FieldType';
 import { StructSchema } from '../descriptors/StructSchema';
 import { DefaultEventBus } from '../events/DefaultEventBus';
+import { SetCountSchema } from '../graph/SetCountSchema';
 import { ResourceSystem } from '../systems/ResourceSystem';
 import { World } from '../world/World';
 import { fakeResourceCore } from './helpers/fakeResourceCore';
@@ -40,6 +41,33 @@ class BagResource extends Entity implements Resource {
     }
     getPipelineDescriptors() {
         return [];
+    }
+}
+
+/** Recurso de capacidade variável: os descritores seguem `data.capacity` (como `RayScene`/`FluidField`). */
+class GrowingResource extends Entity<{ capacity: number }> implements Resource {
+    state: ResourceState = ResourceState.Uninitialized;
+    constructor() {
+        super();
+        this.data = { capacity: 4 };
+    }
+    getDescriptors(): readonly GPUDescriptor[] {
+        return [
+            {
+                id: 'cells',
+                role: 'storage-rw',
+                schema: Item,
+                count: this.rawData.capacity,
+                upload: 'never',
+            },
+            { id: 'fixed', role: 'storage-rw', schema: Item, count: 2, upload: 'never' },
+        ];
+    }
+    getPipelineDescriptors() {
+        return [];
+    }
+    grow(capacity: number): void {
+        this.redescribe(this.getDescriptors(), { capacity });
     }
 }
 
@@ -122,6 +150,34 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
         expect(vi.mocked(core.create).mock.calls.length).toBeGreaterThanOrEqual(7);
     });
 
+    it('indirect com schema: registros do tamanho do schema (contagem e argumentos juntos, SetCount)', () => {
+        const { world, system } = setup();
+        const r = new BagResource([
+            { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 2, upload: 'never' },
+        ]);
+        world.insert(r);
+        expect(system.bufferOf(r, 'counts') as IndirectBufferSpec).toMatchObject({
+            subkind: 'indirect',
+            byteSize: 2 * SetCountSchema.stride,
+        });
+    });
+
+    it('redescribe: descritor próprio que mudou de forma é realocado (o antigo destruído); os iguais ficam', () => {
+        const { world, system, core } = setup();
+        const r = new GrowingResource();
+        world.insert(r);
+        const cells = system.bufferOf(r, 'cells')!;
+        const fixed = system.bufferOf(r, 'fixed')!;
+        expect(cells.byteSize).toBe(4 * Item.stride);
+        r.grow(16);
+        const grown = system.bufferOf(r, 'cells')!;
+        expect(grown).not.toBe(cells);
+        expect(grown.byteSize).toBe(16 * Item.stride);
+        expect(system.bufferOf(r, 'fixed')).toBe(fixed);
+        expect(vi.mocked(core.destroy)).toHaveBeenCalledWith(cells);
+        expect(vi.mocked(core.destroy)).not.toHaveBeenCalledWith(fixed);
+    });
+
     it('texture sizeFromCanvas usa o canvas e é recriada no resize (anterior destruída)', () => {
         const { world, system, events, core } = setup();
         const r = new BagResource([
@@ -140,6 +196,42 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
         expect(second).toMatchObject({ width: 1024, height: 512 });
         expect(core.destroy).toHaveBeenCalledWith(firstView);
         expect(core.destroy).toHaveBeenCalledWith(first);
+    });
+
+    it('ensurePool cria o pool vazio uma vez, avisa poolCreated e o recurso que chega depois usa o mesmo', () => {
+        const { world, system, events } = setup();
+        const schema = new StructSchema('Lamp', {
+            power: FieldType.f32,
+            _p0: FieldType.f32,
+            _p1: FieldType.f32,
+            _p2: FieldType.f32,
+        });
+        const created: string[] = [];
+        events.on('poolCreated', (e) => created.push(e.poolKey));
+        system.ensurePool(schema);
+        system.ensurePool(schema);
+        expect(created).toEqual(['Lamp']);
+        const info = system.poolInfo('Lamp')!;
+        expect(info.count).toBe(0);
+        const r = new BagResource([{ id: 'lamp', role: 'storage-ro', storage: 'pool', schema }]);
+        world.insert(r);
+        expect(system.poolInfo('Lamp')!.count).toBe(1);
+        expect(created).toEqual(['Lamp']);
+    });
+
+    it('canvasDivisor: uma fração do canvas, arredondada para cima, também ao recriar no resize', () => {
+        const { world, system, events } = setup();
+        const r = new BagResource([
+            {
+                id: 'tiles',
+                role: 'storage-texture',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, canvasDivisor: 8 },
+            },
+        ]);
+        world.insert(r);
+        expect(system.textureOf(r, 'tiles')).toMatchObject({ width: 100, height: 75 });
+        events.emit('canvasReconfigured', { width: 1001, height: 7, format: 'bgra8unorm' });
+        expect(system.textureOf(r, 'tiles')).toMatchObject({ width: 126, height: 1 });
     });
 
     it("format 'canvas' resolve para o formato do canvas, também ao recriar no resize", () => {

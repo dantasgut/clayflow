@@ -7,6 +7,7 @@ import type {
     StorageBufferSpec,
 } from '../../../scene/contracts/gpu';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
+import type { ComputePass } from '../../../scene/contracts/gpu';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -52,6 +53,12 @@ export interface RadixSortRecordArgs {
     readonly count: number | GpuCount;
     /** Bits menos significativos considerados: múltiplo de 4 em [4, 32]. Padrão 32. */
     readonly bits?: number;
+    /**
+     * Passe de compute já aberto: as passadas (histograma, soma de prefixos, espalhamento) são gravadas nele em vez de
+     * cada despacho no seu passe — menos fronteiras de passe, o mesmo resultado. Exige contagem da CPU e número par de
+     * passadas (`bits / 4` par: o resultado volta às chaves sem cópia).
+     */
+    readonly pass?: ComputePass;
 }
 
 /** Kernels de um sentido do pingue-pongue. */
@@ -179,9 +186,15 @@ export class RadixSort {
         }
         this.checkValues(values);
         if (typeof count !== 'number') {
+            if (args.pass !== undefined)
+                throw new Error(`RadixSort(${this.disc}): num passe aberto a contagem é da CPU.`);
             this.recordGpu(frame, args, bits, count);
             return;
         }
+        if (args.pass !== undefined && (bits / DIGIT_BITS) % 2 === 1)
+            throw new Error(
+                `RadixSort(${this.disc}): num passe aberto o número de passadas é par.`,
+            );
         if (!Number.isInteger(count) || count < 0) {
             throw new RangeError(
                 `RadixSort(${this.disc}): count deve ser inteiro ≥ 0 (recebeu ${count}).`,
@@ -197,7 +210,7 @@ export class RadixSort {
         if (prepared === undefined || prepared.values !== values) {
             throw new Error(`RadixSort(${this.disc}): prepare(keys, values) antes de gravar.`);
         }
-        this.runPasses(frame, prepared, bits, count, count, 0);
+        this.runPasses(frame, prepared, bits, count, count, 0, args.pass);
         if ((bits / DIGIT_BITS) % 2 === 1) this.copyBack(frame, args, count * 4);
     }
 
@@ -240,6 +253,7 @@ export class RadixSort {
         count: number,
         scatter: number | GpuCount,
         countIndex: number,
+        pass?: ComputePass,
     ): void {
         const groups = Math.ceil(count / SCAN_GROUP);
         const hist = this.hist!;
@@ -251,9 +265,14 @@ export class RadixSort {
                 count_index: countIndex,
             });
             const kernels = p % 2 === 0 ? prepared.fromCaller : prepared.fromTemp;
-            this.run(frame, 'RadixSort.histogram', kernels.histogram, offset, count);
-            this.scan.record(frame, { src: hist, dst: hist, count: DIGITS * groups });
-            this.run(frame, 'RadixSort.scatter', kernels.scatter, offset, scatter);
+            this.run(frame, 'RadixSort.histogram', kernels.histogram, offset, count, pass);
+            this.scan.record(frame, {
+                src: hist,
+                dst: hist,
+                count: DIGITS * groups,
+                ...(pass !== undefined ? { pass } : {}),
+            });
+            this.run(frame, 'RadixSort.scatter', kernels.scatter, offset, scatter, pass);
         }
     }
 
@@ -355,13 +374,16 @@ export class RadixSort {
         kernel: ComputeKernel,
         offset: number,
         count: number | GpuCount,
+        open?: ComputePass,
     ): void {
-        frame.compute(label, (pass) => {
+        const body = (pass: ComputePass): void => {
             pass.bind.setPipeline(kernel.pipeline);
             kernel.bindTo(pass.bind, { draw: [offset] });
             if (typeof count === 'number') pass.dispatch.invocations(count, SCAN_GROUP);
             else pass.dispatch.workgroupsIndirect(count.counts, CountToArgs.dispatchOffset(count));
-        });
+        };
+        if (open !== undefined) body(open);
+        else frame.compute(label, body);
     }
 
     private destroyPrepared(p: PreparedKeys): void {

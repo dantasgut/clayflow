@@ -1,5 +1,9 @@
 import type { FlowRegistry, FlowRegistration } from '../../scene/flows/FlowRegistry';
 import type { World } from '../../scene/world/World';
+import type { EventBus } from '../../scene/events/EventBus';
+import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
+import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
+import { RayScene } from '../../elements/raytrace/RayScene';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
 import { SoftSurfaceFlow } from '../../elements/physics/flows/SoftSurfaceFlow';
@@ -17,7 +21,7 @@ import { ToneMapping } from '../resources/ToneMapping';
 import { PbrTables } from '../../elements/material/pbr/PbrTables';
 import { PbrTablesFlow } from '../../elements/material/pbr/PbrTablesFlow';
 import { HemisphereLight } from '../../elements/scene/HemisphereLight';
-import { FluidSurfaceFlow } from './FluidSurfaceFlow';
+import { FluidFieldPassFlow } from './FluidFieldPassFlow';
 import { CausticsFlow } from './CausticsFlow';
 import { WaterFlow } from './WaterFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
@@ -25,11 +29,22 @@ import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
 import { GraphGeometry } from '../../elements/geometry/GraphGeometry';
 import { GraphFlow } from '../../scene/graph/GraphFlow';
+import { RaySceneFlow } from '../../elements/raytrace/RaySceneFlow';
+import { FluidField } from '../../elements/fields/FluidField';
+import { FluidFieldFlow } from '../../elements/fields/FluidFieldFlow';
+import { Froxels } from '../../elements/media/Froxels';
+import { FroxelFlow } from '../../elements/media/FroxelFlow';
+import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
     /** World da cena. */
     readonly world: World;
+    /**
+     * Eventos da cena: com eles, a entrada de uma `GlobalIllumination` retira o hemisfério (e garante a `RayScene`) e a
+     * saída da última o devolve (spec 033, R7).
+     */
+    readonly events?: EventBus;
     /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
     readonly samples?: 1 | 4;
 }
@@ -50,10 +65,10 @@ export interface PresentationDefaults {
     readonly forward: ForwardFlow;
     /** Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos. */
     readonly particles: ParticleFlow;
-    /** Superfície de água das partículas vista pela câmera (fase `forward`, depois dos sprites; spec 017). */
-    readonly fluidSurface: FluidSurfaceFlow;
-    /** Superfície de água das partículas vista pela luz que projeta sombra (fase `shadow`, depois do mapa). */
-    readonly fluidLightSurface: FluidSurfaceFlow;
+    /** Superfície de água vista pela câmera, pela marcha no campo dos fluidos (fase `forward`, depois dos sprites). */
+    readonly fluidSurface: FluidFieldPassFlow;
+    /** Superfície de água vista pela luz que projeta sombra, pela marcha no campo (fase `shadow`, depois do mapa). */
+    readonly fluidLightSurface: FluidFieldPassFlow;
     /** Cáusticas da água em espaço da luz (fase `shadow`, depois da superfície vista pela luz). */
     readonly caustics: CausticsFlow;
     /** Composição óptica da água nos alvos da cena (fase `forward`, depois da superfície). */
@@ -86,11 +101,15 @@ interface RegisteredDefaults {
     readonly registrations: readonly FlowRegistration[];
     readonly frameTargets: FrameTargets;
     readonly waterSurface: WaterSurface;
+    readonly fluidField: FluidField;
+    readonly froxels: Froxels;
     readonly presentation: ToneMapping;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
     readonly world: World;
     users: number;
+    /** Cancela a troca do hemisfério pela iluminação global. */
+    readonly unsubscribe: (() => void) | undefined;
 }
 
 /** Estágios padrão por cena (`FlowRegistry`): registrados uma vez, desregistrados com o último usuário. */
@@ -123,6 +142,12 @@ export function registerPresentationDefaults(
     // Superfície de água (spec 017): texturas sob demanda, alocadas só quando entra água.
     const waterSurface = new WaterSurface();
     options.world.insert(waterSurface);
+    // Campo dos fluidos (spec 033, R11): a superfície contínua dos corpos com `FluidSurfaceMaterial`, na GPU.
+    const fluidField = new FluidField();
+    options.world.insert(fluidField);
+    // Froxels dos meios participantes (spec 033, R12): a névoa dos `FogVolume`, sem nada a fazer enquanto não há.
+    const froxels = new Froxels();
+    options.world.insert(froxels);
     // Apresentação (spec 011): o último passo do quadro, lido pelo pós pelo slot.
     const presentation = new ToneMapping();
     options.world.insert(presentation);
@@ -133,6 +158,10 @@ export function registerPresentationDefaults(
     const ambient = new HemisphereLight();
     options.world.insert(ambient);
     const { flows: stages, registrations } = createPresentationDefaults(flows);
+    const unsubscribe =
+        options.events === undefined
+            ? undefined
+            : swapAmbientForGi(options.world, options.events, ambient, frameTargets);
     const defaults: PresentationDefaults = {
         ...stages,
         presentation,
@@ -144,11 +173,14 @@ export function registerPresentationDefaults(
         registrations,
         frameTargets,
         waterSurface,
+        fluidField,
+        froxels,
         presentation,
         pbrTables,
         ambient,
         world: options.world,
         users: 1,
+        unsubscribe,
     });
     return defaults;
 }
@@ -163,13 +195,47 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.users--;
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
+    entry.unsubscribe?.();
     for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
-    entry.world.remove(entry.ambient);
+    if (entry.world.entityIdOfResource(entry.ambient) !== undefined)
+        entry.world.remove(entry.ambient);
     entry.world.remove(entry.pbrTables);
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.waterSurface);
+    entry.world.remove(entry.fluidField);
+    entry.world.remove(entry.froxels);
     entry.world.remove(entry.frameTargets);
     return true;
+}
+
+/**
+ * Hemisfério e iluminação global por evento (spec 033, R7): a entrada de uma `GlobalIllumination` retira o hemisfério
+ * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes), insere a `RayScene` que os
+ * raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
+ * pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estava.
+ * Devolve o cancelamento.
+ */
+function swapAmbientForGi(
+    world: World,
+    events: EventBus,
+    ambient: HemisphereLight,
+    targets: FrameTargets,
+): () => void {
+    const prepass = targets.data.depthPrepass;
+    const giCount = (): number => world.queryBySchemaName(GlobalIllumination.schema.name).length;
+    return events.on('resourcesChanged', (e) => {
+        const added = e.added.some((r) => r instanceof GlobalIllumination);
+        const removed = e.removed.some((r) => r instanceof GlobalIllumination);
+        if (added) {
+            if (world.entityIdOfResource(ambient) !== undefined) world.remove(ambient);
+            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
+                world.insert(new RayScene());
+            if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
+        } else if (removed && giCount() === 0) {
+            if (world.entityIdOfResource(ambient) === undefined) world.insert(ambient);
+            if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
+        }
+    });
 }
 
 function createPresentationDefaults(flows: FlowRegistry): {
@@ -220,9 +286,40 @@ function createPresentationDefaults(flows: FlowRegistry): {
             }),
         { type: 'setGraph', phase: 'transform', priority: -50 },
     );
+    // Céu físico (spec 033) na mesma fase: tabelas da atmosfera e a vista do céu, antes da iluminação global e do desenho.
+    const skyRegistration = flows.register((ctx) => new SkyFlow(ctx), {
+        type: 'sky',
+        phase: 'transform',
+        priority: -55,
+    });
+    // Estrutura de raios (spec 033) depois de toda geometria escrita na GPU: registrada depois dos estágios que a
+    // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
+    // Campo dos fluidos (spec 033, R11) depois da física, antes da estrutura de raios (a caixa do volume).
+    const fluidFieldRegistration = flows.register((ctx) => new FluidFieldFlow(ctx), {
+        type: 'fluidField',
+        phase: 'transform',
+        priority: -50,
+    });
+    const raySceneRegistration = flows.register((ctx) => new RaySceneFlow(ctx), {
+        type: 'rayScene',
+        phase: 'transform',
+        priority: -60,
+    });
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
+    });
+    // Sondas da iluminação global (spec 033) depois do mapa de sombra: a estrutura de raios e o céu já estão prontos.
+    const probeRegistration = flows.register((ctx) => new ProbeFlow(ctx), {
+        type: 'globalIllumination',
+        phase: 'shadow',
+        priority: -5,
+    });
+    // Névoa (spec 033, R12) depois das sondas e da vista da luz da água (a luz rebatida e o meio até as luzes prontos).
+    const froxelRegistration = flows.register((ctx) => new FroxelFlow(ctx), {
+        type: 'froxels',
+        phase: 'shadow',
+        priority: -30,
     });
     const forwardRegistration = flows.register((ctx) => new ForwardFlow(ctx, { output: 'scene' }), {
         type: 'forward',
@@ -234,10 +331,11 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -50,
     });
-    // Água (spec 017): superfície vista pela luz e cáusticas depois do mapa de sombra; superfície vista pela câmera e
-    // composição depois dos opacos e dos sprites (lê a profundidade da cena), antes da depuração.
+    // Água (spec 017; superfície pelo campo dos fluidos, spec 033): superfície vista pela luz e cáusticas depois do mapa
+    // de sombra; superfície vista pela câmera e composição depois dos opacos e dos sprites (lê a profundidade da cena),
+    // antes da depuração.
     const fluidLightRegistration = flows.register(
-        (ctx) => new FluidSurfaceFlow(ctx, { view: 'light' }),
+        (ctx) => new FluidFieldPassFlow(ctx, { view: 'light' }),
         { type: 'fluidLightSurface', phase: 'shadow', priority: -10 },
     );
     const causticsRegistration = flows.register((ctx) => new CausticsFlow(ctx), {
@@ -246,7 +344,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
         priority: -20,
     });
     const fluidRegistration = flows.register(
-        (ctx) => new FluidSurfaceFlow(ctx, { view: 'camera' }),
+        (ctx) => new FluidFieldPassFlow(ctx, { view: 'camera' }),
         { type: 'fluidSurface', phase: 'forward', priority: -60 },
     );
     const waterRegistration = flows.register((ctx) => new WaterFlow(ctx), {
@@ -302,7 +400,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
             softSurfaceRegistration,
             surfaceRegistration,
             graphRegistration,
+            skyRegistration,
+            fluidFieldRegistration,
+            raySceneRegistration,
             shadowRegistration,
+            probeRegistration,
+            froxelRegistration,
             forwardRegistration,
             particleRegistration,
             fluidLightRegistration,

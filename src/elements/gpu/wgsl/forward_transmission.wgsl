@@ -31,9 +31,8 @@ fn transmission_background(uv: vec2f, roughness: f32) -> vec3f {
 fn transmission_light(c: Closure, cam: CameraMatrices, p: vec3f, n: vec3f, v: vec3f, thickness: f32, uv_here: vec2f, absorb_path: f32) -> vec3f {
     var out = vec3f(0.0);
     if (closure_has(CLOSURE_TRANSMISSION) && c.transmission_weight > 0.0) {
-        // IOR por canal (R, G, B) pelo número de Abbe: n(λ) ≈ n_d + (n_d − 1)/V · k, k em −0,5…0,5.
-        let dispersion = select(0.0, (c.transmission_ior - 1.0) / max(c.transmission_abbe, 10.0), c.transmission_abbe > 0.0);
-        let iors = vec3f(c.transmission_ior) + dispersion * vec3f(-0.5, 0.0, 0.5);
+        // IOR por canal (R, G, B) pelo número de Abbe.
+        let iors = closure_dispersion_iors(c.transmission_ior, c.transmission_abbe);
         var bg = vec3f(0.0);
         for (var k = 0; k < 3; k = k + 1) {
             let refr = refract(-v, n, 1.0 / iors[k]);
@@ -48,6 +47,19 @@ fn transmission_light(c: Closure, cam: CameraMatrices, p: vec3f, n: vec3f, v: ve
         out = out + c.translucent_weight * c.translucent_color * transmission_background(uv_here, 0.8);
     }
     return out * closure_under_dielectric(c, max(dot(n, v), 1e-4));
+}
+
+// Fração do fundo que atravessa a camada (a transmissão e a parede fina, abaixo do dielétrico): o peso de
+// `transmission_light` sobre o fundo.
+fn transmission_fraction(c: Closure, n: vec3f, v: vec3f, absorb_path: f32) -> vec3f {
+    var tau = vec3f(0.0);
+    if (closure_has(CLOSURE_TRANSMISSION) && c.transmission_weight > 0.0) {
+        tau = tau + c.transmission_weight * transmission_absorb(c, absorb_path);
+    }
+    if (closure_has(CLOSURE_TRANSLUCENT) && c.translucent_weight > 0.0) {
+        tau = tau + c.translucent_weight * c.translucent_color;
+    }
+    return clamp(tau * closure_under_dielectric(c, max(dot(n, v), 1e-4)), vec3f(0.0), vec3f(1.0));
 }
 
 // Beer-Lambert: a cor do lobo atingida a `depth` unidades de percurso, elevada à razão do percurso `path`.
@@ -123,7 +135,13 @@ fn fs_transmission_front(in: VsOut) -> @location(0) vec4f {
     let thickness = select(select(0.1, c.transmission_depth, c.transmission_depth > 0.0), chord, chord > 1e-4);
     let own_back = chord > 1e-4 && abs(back - (here + chord)) <= 0.05 * chord + 1e-3;
     let reflected = scene_lighting(c, in.world_position, n, v) + closure_emitted(c, n, v);
-    let transmitted = transmission_light(c, cam, in.world_position, n, v, thickness, uv, select(thickness, 0.0, own_back));
-    let color = mix(transmission_background(uv, 0.0), reflected + transmitted, c.opacity);
+    let absorb_path = select(thickness, 0.0, own_back);
+    let transmitted = transmission_light(c, cam, in.world_position, n, v, thickness, uv, absorb_path);
+    // Névoa: o fundo lido já a tem até ele; a luz da própria superfície a atravessa até a câmera, e a fração que passa
+    // pelo vidro (τ) leva a do fundo em vez da da frente — T·R + τ·B + (1 − τ)·S.
+    let fog = scene_fog(in.world_position);
+    let tau = transmission_fraction(c, n, v, absorb_path);
+    let surface = reflected * fog.a + transmitted + (vec3f(1.0) - tau) * fog.rgb;
+    let color = mix(transmission_background(uv, 0.0), surface, c.opacity);
     return vec4f(color, 1.0);
 }

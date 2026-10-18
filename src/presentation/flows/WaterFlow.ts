@@ -56,7 +56,7 @@ type Ctx = TransitionContext<WaterSlots>;
  * Na fase `forward`, depois do produtor da vista da câmera: copia a cor da cena para `background` (a fonte da refração,
  * que não pode ser a textura em que o passe resolve) e desenha um triângulo de tela cheia nos alvos da cena — com MSAA,
  * nas amostras, resolvidas na cor —, com teste de profundidade contra a cena (a água se oculta atrás dos objetos) sem
- * escrever nela. Por pixel: normal da profundidade suavizada, refração, absorção pela espessura, dispersão, Fresnel com
+ * escrever nela. Por pixel: a normal da superfície (a do campo, spec 033), refração, absorção pela espessura, dispersão, Fresnel com
  * a cor de ambiente do material, especular e a sombra da cena. Só grava quando a superfície foi produzida no quadro.
  *
  * A luz vem do ponto de cena `scene_lighting` (spec 011), com a sombra e as cáusticas por luz: o estágio não conhece
@@ -200,8 +200,8 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         const tex = (id: string): TextureViewSpec => this.resources.textureViewOf(water, id)!;
         return new Map<WgslResource, BindingSource>([
             [R.depth, tex('depth')],
-            [R.thickness, tex('thickness')],
             [R.material, tex('material')],
+            [R.normal, tex('normal')],
             [R.background, tex('background')],
             [this.samples > 1 ? R.sceneDepthMs : R.sceneDepth, sceneDepth],
         ]);

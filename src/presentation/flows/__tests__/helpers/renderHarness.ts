@@ -21,7 +21,9 @@ import { SoftSurfaceFlow } from '../../../../elements/physics/flows/SoftSurfaceF
 import { PostFlow } from '../../PostFlow';
 import { ShadowFlow } from '../../ShadowFlow';
 import { WaterSurface } from '../../../app/WaterSurface';
-import { FluidSurfaceFlow } from '../../FluidSurfaceFlow';
+import { FluidFieldPassFlow } from '../../FluidFieldPassFlow';
+import { FluidField } from '../../../../elements/fields/FluidField';
+import { FluidFieldFlow } from '../../../../elements/fields/FluidFieldFlow';
 import { CausticsFlow } from '../../CausticsFlow';
 import { WaterFlow } from '../../WaterFlow';
 import { PbrTables } from '../../../../elements/material/pbr/PbrTables';
@@ -338,6 +340,11 @@ export interface StageOptions {
      * e composição (fase `forward`), com o `WaterSurface` da cena.
      */
     readonly water?: boolean;
+    /**
+     * Passe de profundidade dos opacos no forward (padrão desligado aqui: os testes de grupos contam os desenhos de
+     * cor; o passe tem o seu teste).
+     */
+    readonly depthPrepass?: boolean;
 }
 
 /** Registra os estágios pedidos por factory, como `registerPresentationDefaults`, e devolve as instâncias. */
@@ -386,10 +393,14 @@ export function registerStages(
     const forward =
         output === undefined
             ? undefined
-            : scene.flows.register((ctx) => new ForwardFlow(ctx, { output }), {
-                  type: 'forward',
-                  phase: 'forward',
-              }).flow;
+            : scene.flows.register(
+                  (ctx) =>
+                      new ForwardFlow(ctx, { output, depthPrepass: options.depthPrepass === true }),
+                  {
+                      type: 'forward',
+                      phase: 'forward',
+                  },
+              ).flow;
     if (options.softSurface === true)
         scene.flows.register((ctx) => new SoftSurfaceFlow(ctx), {
             type: 'softSurface',
@@ -404,7 +415,13 @@ export function registerStages(
         });
     if (options.water === true) {
         scene.world.insert(new WaterSurface());
-        scene.flows.register((ctx) => new FluidSurfaceFlow(ctx, { view: 'light' }), {
+        scene.world.insert(new FluidField());
+        scene.flows.register((ctx) => new FluidFieldFlow(ctx), {
+            type: 'fluidField',
+            phase: 'transform',
+            priority: -50,
+        });
+        scene.flows.register((ctx) => new FluidFieldPassFlow(ctx, { view: 'light' }), {
             type: 'fluidLightSurface',
             phase: 'shadow',
             priority: -10,
@@ -414,7 +431,7 @@ export function registerStages(
             phase: 'shadow',
             priority: -20,
         });
-        scene.flows.register((ctx) => new FluidSurfaceFlow(ctx, { view: 'camera' }), {
+        scene.flows.register((ctx) => new FluidFieldPassFlow(ctx, { view: 'camera' }), {
             type: 'fluidSurface',
             phase: 'forward',
             priority: -60,

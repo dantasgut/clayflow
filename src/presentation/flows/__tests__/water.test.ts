@@ -1,8 +1,9 @@
 /**
- * Estágios da água (spec 017): sem corpo com `FluidSurfaceMaterial`, nada dos estágios alocado nem gravado (só o que a
- * contribuição à transmissão da luz lê) e o estado `caustics` do `WaterSurface` em 0; com água, a superfície da câmera
- * (esferas, espessura, suavização) e a composição (cópia da cena + tela cheia); com a luz que projeta sombra, a vista
- * da luz (caixa envolvente, esferas, suavização) e as cáusticas antes do forward, que acendem `caustics`; o forward
+ * Estágios da água (spec 017; superfície pelo campo dos fluidos, spec 033): sem corpo com `FluidSurfaceMaterial`, nada
+ * dos estágios alocado nem gravado (só o que a contribuição à transmissão da luz lê) e o estado `caustics` do
+ * `WaterSurface` em 0; com água, o campo, a marcha da câmera (profundidade, espessura, material e normal) e a
+ * composição (cópia da cena + tela cheia); com a luz que projeta sombra, o enquadramento e a marcha na vista da luz e
+ * as cáusticas antes do forward, que acendem `caustics`; o forward
  * chama a transmissão da água pelo ponto de cena `light_transmission` sem conhecê-la (spec 031); parâmetros escritos
  * quando os corpos mudam; troca de material em execução (`World.attach`/`detach`) entre sprites e água; nenhuma
  * leitura de volta.
@@ -114,7 +115,7 @@ describe('estágios da água (spec 017)', () => {
         ).toBe(true);
     });
 
-    it('com água: esferas (um desenho por corpo), espessura, suavização e composição; sprites não desenham o corpo', async () => {
+    it('com água: o campo dos fluidos, a marcha da câmera e a composição; sprites não desenham o corpo', async () => {
         const s = await scene();
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         s.scene.world.insert(
@@ -127,45 +128,30 @@ describe('estágios da água (spec 017)', () => {
         );
         s.step();
         const passes = s.step();
-        const labels = passes.map((p) => p.label);
-        expect(labels).toEqual([
-            'ForwardFlow',
-            'FluidSurfaceFlow.depth',
-            'FluidSurfaceFlow.thickness',
-            'WaterFlow',
-        ]);
-        const depth = passes.find((p) => p.label === 'FluidSurfaceFlow.depth')!;
-        expect(depth.vertexDraws.map((d) => [d.indexCount, d.instanceCount])).toEqual([
-            [6, 1000],
-            [6, 7],
-        ]);
+        expect(passes.map((p) => p.label)).toEqual(['ForwardFlow', 'WaterFlow']);
         expect(passes.find((p) => p.label === 'WaterFlow')!.fullscreen).toBe(1);
-        expect(s.computes()).toEqual(
-            expect.arrayContaining([
-                'FluidSurfaceFlow.smooth',
-                expect.stringMatching(/^copy:color/),
-            ]),
+        const computes = s.computes();
+        const order = [
+            'FluidFieldFlow.gather',
+            'FluidFieldFlow.mark',
+            'FluidFieldFlow.density',
+            'FluidFieldFlow.redistance',
+            'FluidFieldPassFlow.camera',
+        ];
+        expect(order.map((c) => computes.indexOf(c))).toEqual(
+            [...order.map((c) => computes.indexOf(c))].sort((a, b) => a - b),
         );
+        expect(order.every((c) => computes.includes(c))).toBe(true);
+        expect(computes).toEqual(expect.arrayContaining([expect.stringMatching(/^copy:color/)]));
         // A vista da câmera alocou as texturas dela; a da luz (sem luz com sombra) não.
         expect(new Set(waterAllocs(s))).toEqual(
-            new Set([
-                ...EAGER,
-                'depthRaw',
-                'depthTemp',
-                'depth',
-                'thicknessRaw',
-                'thicknessTemp',
-                'thickness',
-                'material',
-                'depthStencil',
-                'background',
-            ]),
+            new Set([...EAGER, 'depth', 'material', 'normal', 'background']),
         );
         expect(warn.mock.calls.filter((c) => String(c[0]).includes('ParticleFlow'))).toEqual([]);
         expect(s.core.readback).not.toHaveBeenCalled();
     });
 
-    it('com luz que projeta sombra: caixa da luz, esferas e suavização na vista da luz e cáusticas antes do forward', async () => {
+    it('com luz que projeta sombra: enquadramento e marcha na vista da luz e cáusticas antes do forward', async () => {
         const s = await scene({ light: true });
         s.scene.world.insert(
             new FluidBody({ algorithm: 'SPH', position: line(50) }).add(new FluidSurfaceMaterial()),
@@ -173,45 +159,53 @@ describe('estágios da água (spec 017)', () => {
         s.step();
         const passes = s.step();
         const labels = passes.map((p) => p.label);
-        expect(labels.indexOf('ShadowFlow')).toBeLessThan(
-            labels.indexOf('FluidSurfaceFlow.lightDepth'),
-        );
-        expect(labels.indexOf('FluidSurfaceFlow.lightDepth')).toBeLessThan(
-            labels.indexOf('ForwardFlow'),
-        );
+        expect(labels.indexOf('ShadowFlow')).toBeLessThan(labels.indexOf('ForwardFlow'));
         const computes = s.computes();
-        const order = [
-            'FluidSurfaceFlow.lightBounds',
-            'FluidSurfaceFlow.lightSmooth',
-            'CausticsFlow',
-        ];
+        const order = ['FluidFieldFlow.redistance', 'FluidFieldPassFlow.light', 'CausticsFlow'];
         expect(order.map((c) => computes.indexOf(c))).toEqual(
             [...order.map((c) => computes.indexOf(c))].sort((a, b) => a - b),
         );
         expect(order.every((c) => computes.includes(c))).toBe(true);
+        expect(new Set(waterAllocs(s))).toEqual(
+            new Set([
+                ...EAGER,
+                'depth',
+                'material',
+                'normal',
+                'background',
+                'lightDepth',
+                'lightMaterial',
+                'lightNormal',
+                'caustics',
+                'lightMatrix',
+                'photons',
+            ]),
+        );
         expect(waterOf(s).data.caustics).toBe(1);
         expect(causticsFlag(s)).toBe(1);
     });
 
-    it('parâmetros de desenho escritos quando os corpos mudam, não por quadro', async () => {
+    it('parâmetros do campo e da marcha escritos quando os corpos mudam, não por quadro', async () => {
         const s = await scene();
         s.scene.world.insert(
             new FluidBody({ algorithm: 'SPH', position: line(4) }).add(new FluidSurfaceMaterial()),
         );
         s.step();
+        s.step();
         s.resetCounts();
         s.step();
         s.step();
-        expect(s.writes().filter((w) => discOf(w).startsWith('water_camera_draw_params'))).toEqual(
-            [],
-        );
+        const params = (): readonly string[] =>
+            s
+                .writes()
+                .map(discOf)
+                .filter((d) => /^(field_gather|water_field_camera_params|params:)/.test(d));
+        expect(params()).toEqual([]);
         s.scene.world.insert(
             new FluidBody({ algorithm: 'SPH', position: line(3) }).add(new FluidSurfaceMaterial()),
         );
         s.step();
-        expect(
-            s.writes().filter((w) => discOf(w).startsWith('water_camera_draw_params')),
-        ).toHaveLength(1);
+        expect(params().filter((d) => d.startsWith('field_gather'))).toHaveLength(1);
     });
 
     it('troca de material em execução: sprites → água → sprites, sem recriar o corpo', async () => {
@@ -226,12 +220,12 @@ describe('estágios da água (spec 017)', () => {
         s.scene.world.attach(body, water);
         let now = labels();
         expect(now).not.toContain('ParticleFlow');
-        expect(now).toContain('FluidSurfaceFlow.depth');
+        expect(s.computes()).toContain('FluidFieldPassFlow.camera');
         s.scene.world.detach(body, water);
         s.scene.world.attach(body, new PointSpriteMaterial());
         now = labels();
         expect(now).toContain('ParticleFlow');
-        expect(now).not.toContain('FluidSurfaceFlow.depth');
+        expect(s.computes()).not.toContain('FluidFieldPassFlow.camera');
         expect(now).not.toContain('WaterFlow');
     });
 });

@@ -488,6 +488,18 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
     }
 
+    ensurePool(schema: Schema): void {
+        if (this.pools.has(schema.name)) return;
+        this.createPool(
+            schema.name,
+            { id: schema.name, role: 'storage-ro', storage: 'pool', schema },
+            schema,
+        );
+        for (const created of this.createdPools.splice(0)) {
+            this.events.emit('poolCreated', { poolKey: created.poolKey, schema: created.schema });
+        }
+    }
+
     /** Desfaz um `acquireEntityRecords`; sem usuários, os registros são liberados (o pool fica). */
     releaseEntityRecords(declaration: EntityRecordDeclaration): void {
         const key = declaration.schema.name;
@@ -1577,7 +1589,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             return { byteSize: alignUp(Math.max(count * bytesPerIndex, 4), 4), count, format };
         }
         return {
-            byteSize: alignUp(content?.byteLength ?? (desc.count ?? 1) * INDIRECT_RECORD_BYTES, 4),
+            // Registro do schema quando declarado (ex.: `SetCount`, contagem e argumentos juntos); senão, o do desenho.
+            byteSize: alignUp(
+                content?.byteLength
+                    ?? (desc.count ?? 1) * (desc.schema?.stride ?? INDIRECT_RECORD_BYTES),
+                4,
+            ),
             count: desc.count ?? 1,
         };
     }
@@ -1680,7 +1697,15 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
         const size =
             shape.sizeFromCanvas === true
-                ? canvas
+                ? canvas === undefined
+                    ? undefined
+                    : {
+                          width: Math.max(1, Math.ceil(canvas.width / (shape.canvasDivisor ?? 1))),
+                          height: Math.max(
+                              1,
+                              Math.ceil(canvas.height / (shape.canvasDivisor ?? 1)),
+                          ),
+                      }
                 : shape.width !== undefined && shape.height !== undefined
                   ? { width: shape.width, height: shape.height }
                   : undefined;
@@ -2180,8 +2205,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     /**
      * Descritores em pool trocados junto com o dado (`Entity.redescribe`; spec 031, R8 — ex.: o registro tipado de uma
      * função de ponto que mudou de forma): libera os slots nos pools de `previous`, troca o dado e ocupa os pools dos
-     * descritores atuais (criando os que faltam), e recompõe a entidade (`entitiesRecomposed`) — os registros de
-     * entidade e os conjuntos dos estágios passam a ver os slots novos. Fora da cena (não alocado), só troca o dado.
+     * descritores atuais (criando os que faltam), realoca os próprios que mudaram de forma (`reallocateOwn`: a
+     * capacidade que cresceu) e recompõe a entidade (`entitiesRecomposed`) — os registros de entidade e os conjuntos dos
+     * estágios passam a ver os slots e buffers novos. Fora da cena (não alocado), só troca o dado.
      */
     private redescribe(
         resource: Resource,
@@ -2195,15 +2221,49 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
         this.releasePooled(resource, tracked, previous);
         tracked.replace(next);
-        const pooled = resource
-            .getDescriptors()
-            .filter((d) => d.storage === 'pool' && d.schema !== undefined);
+        const current = resource.getDescriptors();
+        const pooled = current.filter((d) => d.storage === 'pool' && d.schema !== undefined);
         if (pooled.length > 0) this.allocatePooled(resource, pooled);
+        this.reallocateOwn(resource, previous, current);
         for (const entry of this.createdPools.splice(0)) {
             this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
         }
         const id = this.world.entityIdOfResource(resource);
         if (id !== undefined) this.events.emit('entitiesRecomposed', { entityIds: [id] });
+    }
+
+    /**
+     * Descritores próprios (fora de pool) que mudaram de forma no `redescribe` (contagem, schema, papel, textura — ex.:
+     * a capacidade de uma estrutura que cresceu): o objeto de GPU antigo é destruído e um novo alocado com o dado atual;
+     * os que saíram são liberados e os novos, alocados. Quem consulta vê o buffer novo por `bufferOf` (e religa pela
+     * identidade dele) depois do `entitiesRecomposed`.
+     */
+    private reallocateOwn(
+        resource: Resource,
+        previous: readonly GPUDescriptor[],
+        current: readonly GPUDescriptor[],
+    ): void {
+        if (this.allocations.get(resource) === undefined) return;
+        const before = new Map(previous.filter((d) => d.storage !== 'pool').map((d) => [d.id, d]));
+        const after = current.filter((d) => d.storage !== 'pool');
+        const changed = after.filter((d) => {
+            const old = before.get(d.id);
+            return old === undefined || !sameShape(old, d);
+        });
+        const removed = [...before.keys()].filter((id) => !after.some((d) => d.id === id));
+        if (changed.length === 0 && removed.length === 0) return;
+        const own = this.ownForWrite(resource)!;
+        for (const id of [...removed, ...changed.map((d) => d.id)]) {
+            const allocation = own.get(id);
+            if (allocation === undefined) continue;
+            if (allocation.sharedKey !== undefined)
+                this.releaseSharedGeometry(allocation.sharedKey);
+            else if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
+            this.releaseTexture(allocation);
+            if (allocation.sampler !== undefined) this.core.destroy(allocation.sampler);
+            own.delete(id);
+        }
+        for (const desc of changed) own.set(desc.id, this.allocateDescriptor(resource, desc));
     }
 
     private releaseTexture(allocation: Allocation): void {
@@ -2372,6 +2432,18 @@ function bufferContent(resource: Resource, desc: GPUDescriptor): ArrayBufferView
     }
     if ((desc.count ?? 1) === 1) return schema.pack(resource.data as Record<string, unknown>);
     return undefined;
+}
+
+/** Dois descritores do mesmo id com a mesma forma de GPU (o objeto alocado serve aos dois). */
+function sameShape(a: GPUDescriptor, b: GPUDescriptor): boolean {
+    return (
+        a.role === b.role
+        && a.count === b.count
+        && a.schema === b.schema
+        && a.indexFormat === b.indexFormat
+        && JSON.stringify(a.textureShape) === JSON.stringify(b.textureShape)
+        && JSON.stringify(a.samplerShape) === JSON.stringify(b.samplerShape)
+    );
 }
 
 /** `writeBuffer` exige tamanho múltiplo de 4: completa com zeros quando necessário. */

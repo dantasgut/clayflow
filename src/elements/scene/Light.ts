@@ -62,6 +62,9 @@ export abstract class Light extends Entity<LightData> implements Resource {
                 role: 'storage-ro',
                 schema: Light.schema,
                 storage: 'pool',
+                // Slot liberado volta a zero (intensidade 0): quem percorre o pool sem o bitset de vivos (os acertos da
+                // iluminação global, spec 033) não ilumina com uma luz que saiu.
+                clearOnRelease: true,
             },
         ];
     }

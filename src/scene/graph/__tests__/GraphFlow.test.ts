@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { probeScene } from '../../__tests__/helpers/probeFlow';
+import { ProbeBodySchema, probeScene } from '../../__tests__/helpers/probeFlow';
+import { Entity } from '../../contracts/Entity';
+import type { Resource } from '../../contracts/Resource';
+import { ResourceState } from '../../contracts/ResourceState';
+import type { GPUDescriptor } from '../../descriptors/GPUDescriptor';
+import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import { GraphFlow } from '../GraphFlow';
 import { graphArgument, NodeGraph } from '../NodeGraph';
 import { SetCountSchema } from '../SetCountSchema';
@@ -36,6 +41,25 @@ async function scene(graph: NodeGraph) {
     const id = s.scene.world.insert(set);
     const flow = registration.flow;
     return { ...s, set, id, flow };
+}
+
+/** Geometria escrita pelo grafo (o alvo): só os vértices, escritos pela GPU. */
+class ProbeTarget extends Entity implements Resource {
+    state: ResourceState = ResourceState.Uninitialized;
+    getDescriptors(): readonly GPUDescriptor[] {
+        return [
+            {
+                id: 'vertices',
+                role: 'storage-rw',
+                schema: ProbeBodySchema,
+                count: 4,
+                upload: 'never',
+            },
+        ];
+    }
+    getPipelineDescriptors(): readonly PipelineDescriptor[] {
+        return [];
+    }
 }
 
 const recorded = (): number[] => created.map((i) => i.record.mock.calls.length);
@@ -109,6 +133,20 @@ describe('GraphFlow (spec 031, T068)', () => {
         s.frame();
         s.frame();
         expect(recorded()).toEqual([3, 3]);
+    });
+
+    it('com alvo, marca os vértices dele como produzidos nos quadros em que grava (spec 033)', async () => {
+        const s = await probeScene();
+        s.scene.flows.register((ctx) => new GraphFlow(ctx, { target: ProbeTarget }), {
+            type: 'setGraph',
+            phase: 'transform',
+        });
+        const target = new ProbeTarget();
+        s.scene.world.insert(new SetGraph({ graph: chain() }).add(target));
+        s.frame();
+        expect(s.scene.resourceSystem.isProduced(target, 'vertices')).toBe(true);
+        s.frame();
+        expect(s.scene.resourceSystem.isProduced(target, 'vertices')).toBe(false);
     });
 
     it('saída da entidade: instâncias liberadas', async () => {

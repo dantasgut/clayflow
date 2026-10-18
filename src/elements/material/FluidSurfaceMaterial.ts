@@ -20,11 +20,11 @@ export interface FluidSurfaceMaterialData {
     reflectivity: number;
     /** @deprecated Spec 011: use `roughness` (convertido na construção quando `roughness` não vem). */
     shininess: number;
-    /** Raio da esfera de cada partícula em mundo; 0 = automático (0,6 × espaçamento do `ParticleMaterial`). */
+    /** @deprecated Spec 033: a superfície é a do campo dos fluidos (núcleos pelo espaçamento). Ignorado. */
     particleRadius: number;
-    /** Raio da suavização da superfície em múltiplos do raio da partícula. */
+    /** @deprecated Spec 033: sem suavização na tela (a superfície do campo é contínua). Ignorado. */
     smoothingRadius: number;
-    /** Descontinuidade de silhueta em múltiplos do raio: além dela a suavização não mistura profundidades. */
+    /** @deprecated Spec 033: sem suavização na tela (a superfície do campo é contínua). Ignorado. */
     depthThreshold: number;
     /** Escala da espessura acumulada (absorção e dispersão). */
     thicknessScale: number;
@@ -45,18 +45,18 @@ export interface FluidSurfaceMaterialData {
     rippleSpeed: number;
     /** Rugosidade do especular da superfície (GGX, spec 011): 0,02 = água calma. */
     roughness: number;
-    /** Preenchimento do layout. */
-    _pad1: number;
+    /**
+     * Número de Abbe (dispersão: o IOR por cor, as cores se separam na refração e nas cáusticas); 55,7 = água, 0 = sem
+     * dispersão.
+     */
+    abbe: number;
     /** Preenchimento do layout. */
     _pad2: number;
 }
 
 /** Opções do `FluidSurfaceMaterial`: os campos do dado, com `caustics` booleano. */
 export interface FluidSurfaceMaterialOptions extends Partial<
-    Omit<
-        FluidSurfaceMaterialData,
-        'caustics' | 'color' | 'absorption' | 'ambient' | '_pad1' | '_pad2'
-    >
+    Omit<FluidSurfaceMaterialData, 'caustics' | 'color' | 'absorption' | 'ambient' | '_pad2'>
 > {
     /** Cor da dispersão interna, RGBA linear. */
     readonly color?: readonly number[];
@@ -88,7 +88,7 @@ function warnObsolete(options: FluidSurfaceMaterialOptions): void {
  * superfície como dielétrico físico (Fresnel exato pelo IOR, especular GGX com `roughness`, refletindo as luzes e o
  * hemisfério em HDR) e, sob a luz que projeta sombra, cáusticas no fundo e nos objetos submersos.
  *
- * Desenhado pelos estágios da água (`FluidSurfaceFlow`, `CausticsFlow`, `WaterFlow`); não tem shader de forward (numa
+ * Desenhado pelos estágios da água (`FluidFieldPassFlow`, `CausticsFlow`, `WaterFlow`); não tem shader de forward (numa
  * `Geometry`, não é desenhado) e não projeta sombra: a água atenua a luz que passa, não a bloqueia.
  *
  *     body.add(new FluidSurfaceMaterial({ absorption: [0.45, 0.09, 0.06, 0], caustics: true }));
@@ -126,7 +126,7 @@ export class FluidSurfaceMaterial extends Material<FluidSurfaceMaterialData> {
             rippleSize: positive('rippleSize', options.rippleSize ?? 0.06),
             rippleSpeed: nonNegative('rippleSpeed', options.rippleSpeed ?? 1),
             roughness: Math.min(nonNegative('roughness', roughness), 1),
-            _pad1: 0,
+            abbe: nonNegative('abbe', options.abbe ?? 55.7),
             _pad2: 0,
         };
         this.castsShadow = false;
