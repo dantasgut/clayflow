@@ -161,6 +161,28 @@ do [ROADMAP](ROADMAP.md) em que está previsto.
 | N7  | ~~Comentários de código com a forma antiga~~               | **Resolvida na 031**: doc-comments atualizados para recursos declarados e fornecedores; o campo morto `FlowBindingErrorDetails.consumes` saiu                                                                                                                                                                                                                                                                                                       | ✅ 031   |
 | N8  | ~~Profundidade de projeção na convenção do OpenGL~~        | **Resolvida na 031**: `camera_perspective` e `camera_orthographic` (`math/camera.wgsl`) mapeiam `near` a 0 e `far` a 1, a convenção do WebGPU (antes [-1, 1]: o que ficava entre `near` e cerca de 2× `near` sumia na perspectiva, e a metade de perto de [near, far] na ortográfica). A água e a sombra leem a profundidade pela matriz e não mudaram; fixtures de imagem regravadas com justificativa                                             | —        |
 
+### Notas da 033
+
+- Estrutura de raios na GPU (`RayScene` + `RaySceneFlow`): malhas, superfícies, grafos, corpos moles e as esferas dos
+  sprites pelo mesmo `ray_scene_hit`; os volumes pelos pontos de cena `ray_volume_hit`/`ray_volume_transmittance`.
+- Céu físico (`Sky`), luz rebatida por sondas de tela e do mundo, cáusticas por fótons (`GlobalIllumination`), névoa
+  em froxels (`FogVolume`) e a água como superfície contínua por campo de distância (`FluidField`); o hemisfério sai
+  com a GI. A C2 ganhou o `canvasDivisor`, o `ensurePool`, a composição das funções de ponto por entidade num kernel
+  e o realocamento dos descritores próprios no `redescribe`.
+- Orçamento: GI 3,7 ms a 1280 × 720 no bench `global-illumination` (o `switch` com índice dinâmico em `gi_cascade`
+  derrubava a ocupação; passe de profundidade no `ForwardFlow`). Névoa 0,55 ms; água a 64 mil 2,3 ms.
+
+### Pendências novas (levantadas na 033)
+
+| #   | Pendência                                            | Estado atual (evidência)                                                                                                                                                                                                                                                                                                            | Fase     |
+| --- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| H1  | Tempo de GPU por quadro no Apple                     | O `gpuTimeMs` do quadro e o perfil por passe repetem leituras velhas e oscilam em patamares neste hardware: os smokes da 033 medem por repetição do trabalho no mesmo app com relógio de parede; smokes de outras specs que usam o tempo de GPU (o desempenho do `fluidSurface` da 017, 23 ms > 16,7 ms) podem estar medindo errado | F10      |
+| H2  | Resolvedor de consumidor ausente cai em silêncio     | Quando falta o resolvedor de um consumidor na C2, o estágio fica com o pronto sem aviso (achado ao ligar a névoa)                                                                                                                                                                                                                   | F10      |
+| H3  | p95 do quadro de `particles/64k-water` cruza o vsync | A água por campo custa ~2,2 ms acima dos sprites; o p95 passa a cruzar 16,7 ms em parte dos quadros (a 017 já ficava a 1 ms dele)                                                                                                                                                                                                   | F5       |
+| H4  | Fixtures de imagem divergentes desde a 011           | `render`, `pointCloud`, `particles`, `softSurface`, `extensionPoints`, `nodeGraphs` e `parametricSurfaces` já falham no `develop` (antes da 033); ver `specs/033-global-illumination/fixtures.md`                                                                                                                                   | F4       |
+| H5  | Cáusticas agitadas da 017                            | "cáusticas agitadas ≥ 1,3×" do smoke `fluidSurface` falha como na base (1,29×; a base dava 1,26×)                                                                                                                                                                                                                                   | F5       |
+| H6  | Raios dos acertos sem texturas por derivada          | Nos acertos da estrutura de raios as funções `material` que leem `dpdx`/`fwidth` valem pelas constantes (o compute não tem derivada de tela)                                                                                                                                                                                        | F4 (012) |
+
 ### Pendências novas (levantadas na 007)
 
 | #   | Pendência                                 | Estado atual (evidência)                                                                                                                                                                                                                                   | Fase |

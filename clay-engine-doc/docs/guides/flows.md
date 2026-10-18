@@ -307,6 +307,31 @@ app.flows.unregister(reg);                                                      
 - A factory recebe `FlowContext { core, world, resources, events, bodyType? }`.
 - `FlowRegistrationError`: `type` repetido na fase, `bodyType` vazio, registro fora de uma cena.
 
+### Ordem dos estágios padrão (com a iluminação global, spec 033)
+
+Um quadro com céu, GI, névoa e água por campo passa por estes estágios. Cada um fica pendente (sem custo) sem o
+Resource de que precisa.
+
+| Fase | Estágio (prioridade) | O que faz |
+|---|---|---|
+| `physics` | solvers, `EmitterFlow` (−100) | move as partículas e os corpos |
+| `transform` | `TransformFlow`, `PbrTablesFlow` (10), `CameraFlow` (−10), `ShadowMatrixFlow` (−20) | matrizes de mundo, câmeras, matrizes de sombra |
+| `transform` | `SoftSurfaceFlow` (−30), `SurfaceFlow` (−40), `GraphFlow` (−50) | geometria escrita na GPU |
+| `transform` | `FluidFieldFlow` (−50) | o campo de distância dos fluidos |
+| `transform` | `SkyFlow` (−55) | as tabelas da atmosfera, quando o sol anda |
+| `transform` | `RaySceneFlow` (−60) | a estrutura de raios, depois de toda a geometria do quadro |
+| `shadow` | `ShadowFlow` (0) | mapas de sombra |
+| `shadow` | `ProbeFlow` (−5) | sondas de tela e do mundo, fótons |
+| `shadow` | `FluidFieldPassFlow` luz (−10), `CausticsFlow` (−20) | a água vista da luz, as cáusticas dela |
+| `shadow` | `FroxelFlow` (−30) | a névoa: injeção, acúmulo, integração (lê sombra e sondas) |
+| `forward` | `ForwardFlow` (0) | passe de profundidade, opacos, céu ao fundo, transmissivos |
+| `forward` | `ParticleFlow` (−50), `FluidFieldPassFlow` câmera (−60), `WaterFlow` (−70) | sprites, a água marchada e a composição dela |
+| `post`, `ui` | `PostFlow`, `UIFlow` | pós-processamento, interface |
+
+Os estágios conversam por Resources e pontos de cena, não por chamadas: a GI entra no desenho pelo `scene_lighting`, a
+névoa pelo `scene_fog`, o céu pelo `scene_background`
+([Shaders — pontos de cena](./shaders.md#pontos-de-cena-spec-033)).
+
 ## Flows de render
 
 `RenderFlow` é um `Flow` cujo slot `target` é o alvo de render: o canvas (`slot.target('canvas')`) ou texturas de

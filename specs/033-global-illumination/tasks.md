@@ -338,9 +338,9 @@ Notas da US6:
 
 ## Phase 12: Docs
 
-- [ ] T064 [P] Guia `clay-engine-doc/docs/guides/global_illumination.md` (céu, GI, qualidade, orçamento, névoa, fluidos por campo, limites, espessura mínima)
-- [ ] T065 [P] Arquitetura (ordem dos passes: raios, céu, campos, sondas, fótons, froxels, desenho) em `clay-engine-doc/docs/guides/flows.md` e `shaders.md`
-- [ ] T066 [P] `specs/ROADMAP.md` (033 implementada; débito R1 da 011 em seguida) e `specs/PENDENCIAS.md`
+- [x] T064 [P] Guia `clay-engine-doc/docs/guides/global_illumination.md` (céu, GI, qualidade, orçamento, névoa, fluidos por campo, limites, espessura mínima)
+- [x] T065 [P] Arquitetura (ordem dos passes: raios, céu, campos, sondas, fótons, froxels, desenho) em `clay-engine-doc/docs/guides/flows.md` e `shaders.md`
+- [x] T066 [P] `specs/ROADMAP.md` (033 implementada; débito R1 da 011 em seguida) e `specs/PENDENCIAS.md`
 
 ---
 
