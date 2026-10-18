@@ -35,7 +35,7 @@ describe('Cáusticas por fótons (spec 033, T051)', () => {
         const trace = composeWgsl(giPhotonTrace).spec.source;
         // Os alvos: um kernel lista as instâncias que fazem cáustica (o próprio fechamento) e as áreas por luz.
         expect(trace).toContain('fn gi_photon_targets_main(');
-        expect(trace).toContain('gi_photon_caustic_capable(gi_hit_material(');
+        expect(trace).toContain('gi_photon_caustic_capable(ray_hit_material(');
         // A fonte escolhida pela potência (direcional: a área das projeções dos alvos).
         expect(trace).toContain('fn gi_photon_power(i: u32) -> f32');
         expect(trace).toContain('weight = 1.0 / max(cover, 1.0);');

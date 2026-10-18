@@ -44,6 +44,51 @@ export const rayVolumeTransmittanceReady = wgslModule({
 }`,
 });
 
+/** Meio de um volume atravessado: IOR, número de Abbe e o coeficiente de absorção (1/m, por canal). */
+export const rayVolumeMediumType = wgslModule({
+    name: 'ray_volume_medium_type',
+    source: `/** Meio de um volume: IOR, número de Abbe (0 = sem dispersão) e absorção por metro (Beer-Lambert). */
+struct RayVolumeMedium {
+    ior: f32,
+    abbe: f32,
+    absorption: vec3f,
+}`,
+});
+
+/**
+ * `fn ray_volume_medium(material: u32) -> RayVolumeMedium` — o meio do volume `material` (o de `RayVolumeHit`), para quem
+ * refrata nas superfícies dos volumes e atenua dentro deles (spec 034); pronto: água sem absorção.
+ */
+export const rayVolumeMediumReady = wgslModule({
+    name: 'ray_volume_medium_ready',
+    requires: [rayVolumeMediumType],
+    source: `fn ray_volume_medium(material: u32) -> RayVolumeMedium {
+    return RayVolumeMedium(1.333, 0.0, vec3f(0.0));
+}`,
+});
+
+/**
+ * `fn ray_volume_enter(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit` — com a origem fora dos volumes, a entrada
+ * mais próxima até `t_max`; e `ray_volume_exit` — com a origem dentro, a saída. Para quem sabe de que lado está (a
+ * refração, pela pilha dos meios): sem o teste do lado da origem de `ray_volume_hit`. Prontos: sem acerto.
+ */
+export const rayVolumeEnterReady = wgslModule({
+    name: 'ray_volume_enter_ready',
+    requires: [rayVolumeTypes],
+    source: `fn ray_volume_enter(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit {
+    return RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false);
+}`,
+});
+
+/** Saída dos volumes com a origem dentro deles (ver `rayVolumeEnterReady`). */
+export const rayVolumeExitReady = wgslModule({
+    name: 'ray_volume_exit_ready',
+    requires: [rayVolumeTypes],
+    source: `fn ray_volume_exit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit {
+    return RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, true);
+}`,
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -92,3 +137,56 @@ export const rayVolumeTransmittancePoint: ContributionPoint = {
             }),
         ),
 };
+
+/** Meio dos volumes: o do primeiro contribuinte (os volumes da cena são de um tipo: o campo dos fluidos). */
+export const rayVolumeMediumPoint: ContributionPoint = {
+    name: 'ray_volume_medium',
+    ready: rayVolumeMediumReady,
+    functionName: 'ray_volume_medium',
+    combine: (modules) =>
+        memo(`rvm:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_medium:${modules.map((m) => m.name).join('+')}`,
+                requires: [rayVolumeMediumType, ...modules],
+                source: `fn ray_volume_medium(material: u32) -> RayVolumeMedium {
+    return ray_volume_medium_0(material);
+}`,
+            }),
+        ),
+};
+
+/** O acerto mais próximo entre os contribuintes de um ponto de volume com a assinatura de `ray_volume_hit`. */
+function nearestVolumePoint(name: string, ready: WgslModule, inside: boolean): ContributionPoint {
+    return {
+        name,
+        ready,
+        functionName: name,
+        combine: (modules) =>
+            memo(`${name}:${modules.map((m) => m.name).join('+')}`, () =>
+                wgslModule({
+                    name: `${name}:${modules.map((m) => m.name).join('+')}`,
+                    requires: [rayVolumeTypes, ...modules],
+                    source: `fn ${name}(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit {
+    var best = RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, ${inside});
+${modules
+    .map(
+        (_, k) => `    let h${k} = ${name}_${k}(origin, dir, best.t);
+    if (h${k}.hit && h${k}.t < best.t) { best = h${k}; }`,
+    )
+    .join('\n')}
+    return best;
+}`,
+                }),
+            ),
+    };
+}
+
+/** Entrada nos volumes (origem fora): a mais próxima entre os contribuintes. */
+export const rayVolumeEnterPoint = nearestVolumePoint(
+    'ray_volume_enter',
+    rayVolumeEnterReady,
+    false,
+);
+
+/** Saída dos volumes (origem dentro): a mais próxima entre os contribuintes. */
+export const rayVolumeExitPoint = nearestVolumePoint('ray_volume_exit', rayVolumeExitReady, true);

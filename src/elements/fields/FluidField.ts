@@ -2,8 +2,20 @@ import { Entity } from '../../scene/contracts/Entity';
 import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { rayVolumeHitPoint, rayVolumeTransmittancePoint } from '../raytrace/points';
-import { fieldRayHit, fieldRayTransmittance } from './shaders';
+import {
+    rayVolumeHitPoint,
+    rayVolumeEnterPoint,
+    rayVolumeExitPoint,
+    rayVolumeMediumPoint,
+    rayVolumeTransmittancePoint,
+} from '../raytrace/points';
+import {
+    fieldRayHit,
+    fieldRayEnter,
+    fieldRayExit,
+    fieldRayMedium,
+    fieldRayTransmittance,
+} from './shaders';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
@@ -117,6 +129,24 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldRayTransmittance : undefined),
+        },
+        {
+            point: rayVolumeEnterPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayEnter : undefined),
+        },
+        {
+            point: rayVolumeExitPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayExit : undefined),
+        },
+        {
+            point: rayVolumeMediumPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayMedium : undefined),
         },
     ];
 

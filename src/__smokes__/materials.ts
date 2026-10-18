@@ -919,15 +919,33 @@ async function caseLayers(): Promise<void> {
         sphere(app, -0.3, 0, 0.55, glassFn(1.5));
         const img = await renderHdr(app);
         disposeApp(app, canvas);
-        const [x, y] = frontPixel(0.05, 0, height, W, H);
-        const c = hdrAt(img, x, y);
-        const finite = c.every((v) => Number.isFinite(v));
-        const greenish = c[1] > c[0] * 1.2;
+        // Pelo disco do vidro da frente (spec 034: a refração traçada; a lente desvia os raios — o que se vê por um
+        // pixel é onde o raio refratado chega, que pode ser uma listra preta): a luz média sem buraco e o vidro verde
+        // de trás visto através dele em parte do disco.
+        const [cx, cy] = frontPixel(-0.3, 0, height, W, H);
+        const radius = (0.55 / ((height * W) / H)) * W * 0.95;
+        let total = 0;
+        let green = 0;
+        let count = 0;
+        let finite = true;
+        for (let dy = -radius; dy <= radius; dy++)
+            for (let dx = -radius; dx <= radius; dx++) {
+                if (dx * dx + dy * dy > radius * radius) continue;
+                const c = hdrAt(img, Math.round(cx + dx), Math.round(cy + dy));
+                finite &&= c.every((v) => Number.isFinite(v));
+                total += lum(c);
+                if (c[1] > 0.05 && c[1] > c[0] * 1.2) green++;
+                count++;
+            }
+        const mean = total / Math.max(count, 1);
         log(
-            `transmission-layers: através dos dois vidros (${c.map((v) => v.toFixed(3)).join(', ')}) — ${greenish ? 'o de trás aparece (verde)' : 'o de trás NÃO aparece'}`,
+            `transmission-layers: pelo vidro da frente — luz média ${mean.toFixed(3)}, ${((100 * green) / count).toFixed(1)} % dos pixels verdes (o vidro de trás através dele)`,
         );
-        check(finite && lum(c) > 0.02, 'transmission-layers: buraco através dos dois vidros');
-        check(greenish, 'transmission-layers: o vidro de trás não aparece através do da frente');
+        check(finite && mean > 0.05, 'transmission-layers: buraco através dos dois vidros');
+        check(
+            green >= count * 0.02,
+            'transmission-layers: o vidro de trás não aparece através do da frente',
+        );
     }
     {
         const shots: HdrImage[] = [];

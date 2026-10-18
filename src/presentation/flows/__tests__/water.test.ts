@@ -144,9 +144,7 @@ describe('estágios da água (spec 017)', () => {
         expect(order.every((c) => computes.includes(c))).toBe(true);
         expect(computes).toEqual(expect.arrayContaining([expect.stringMatching(/^copy:color/)]));
         // A vista da câmera alocou as texturas dela; a da luz (sem luz com sombra) não.
-        expect(new Set(waterAllocs(s))).toEqual(
-            new Set([...EAGER, 'depth', 'material', 'normal', 'background']),
-        );
+        expect(new Set(waterAllocs(s))).toEqual(new Set([...EAGER, 'depth', 'material', 'normal']));
         expect(warn.mock.calls.filter((c) => String(c[0]).includes('ParticleFlow'))).toEqual([]);
         expect(s.core.readback).not.toHaveBeenCalled();
     });
@@ -172,7 +170,6 @@ describe('estágios da água (spec 017)', () => {
                 'depth',
                 'material',
                 'normal',
-                'background',
                 'lightDepth',
                 'lightMaterial',
                 'lightNormal',

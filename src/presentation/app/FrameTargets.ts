@@ -23,6 +23,9 @@ export interface FrameTargetsData {
     depthPrepass: number;
 }
 
+/** Cor de limpeza da cena: o fundo onde nada desenha e não há céu (também o que vê o raio refratado que escapa). */
+export const SCENE_CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
+
 /** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
 export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
 
@@ -30,8 +33,9 @@ export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
  * Alvos da cena do quadro (Camada 4): a cor (`color`, HDR em `rgba16float`, lida pelo pós e pela apresentação) e a
  * profundidade (`depth`, `depth24plus`), do tamanho do canvas e recriadas pela C2 quando ele muda. Com MSAA (spec 008,
  * `samples: 4`, o padrão), também a cor multiamostrada (`samples`): os passes da cena desenham nela e resolvem na
- * `color`; a profundidade tem as mesmas amostras. A cópia da cena com mips (`sceneCopy`, spec 011) é alocada sob
- * demanda, por quem a lê (refração da água e dos transmissivos). Um por cena, inserido pela aplicação.
+ * `color`; a profundidade tem as mesmas amostras. A cópia da cena com mips (`sceneCopy`, spec 011) e os alvos da
+ * refração (`refraction*`, spec 034: pedidos, distância, profundidade própria, radiância traçada) são alocados sob
+ * demanda, por quem os usa (a água e os transmissivos). Um por cena, inserido pela aplicação.
  */
 export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
     /** Identidade dos alvos na cena (o World indexa pelo schema da classe); sem dados de GPU próprios. */
@@ -68,22 +72,60 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                 },
             },
             {
-                // Distância às faces de trás dos transmissivos (spec 011): a espessura da camada da frente.
-                id: 'transmissionDepth',
+                // Pedido de refração por pixel (spec 034): normal, IOR e Abbe, rugosidade, absorção e peso.
+                id: 'refractionRequest',
                 role: 'texture',
                 allocation: 'onDemand',
-                textureShape: { format: 'r16float', sizeFromCanvas: true },
+                textureShape: { format: 'rgba32uint', sizeFromCanvas: true },
             },
             {
-                // Profundidade própria da camada de trás dos transmissivos (spec 011): a face mais distante por pixel.
-                id: 'transmissionZ',
+                // Distância da câmera ao ponto de cada pedido de refração.
+                id: 'refractionDistance',
                 role: 'texture',
                 allocation: 'onDemand',
-                textureShape: {
-                    format: 'depth24plus',
-                    sizeFromCanvas: true,
-                    ...(samples > 1 ? { sampleCount: samples } : {}),
-                },
+                textureShape: { format: 'r32float', sizeFromCanvas: true },
+            },
+            {
+                // Profundidade própria do passe de pedidos (a face da frente mais próxima por pixel).
+                id: 'refractionZ',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'depth24plus', sizeFromCanvas: true },
+            },
+            {
+                // Radiância transmitida traçada por pixel (rgb) e a distância à superfície vista (a).
+                id: 'refractionRadiance',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                // O que o traçado traz sem as luzes e o passo intermediário do desfoque da rugosidade.
+                id: 'refractionBlur',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                // A superfície vista pelo raio refratado: ponto e se há superfície a iluminar.
+                id: 'refractionHit',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                // Normal, instância, uv e a direção de onde se vê a superfície.
+                id: 'refractionHitInfo',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32uint', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                // O quanto chega da superfície vista.
+                id: 'refractionThroughput',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
             },
             {
                 id: 'depth',
@@ -101,17 +143,6 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                           role: 'texture' as const,
                           textureShape: {
                               format: SCENE_COLOR_FORMAT,
-                              sizeFromCanvas: true,
-                              sampleCount: samples,
-                          },
-                      },
-                      {
-                          // A distância das faces de trás com as amostras do passe (resolvida em `transmissionDepth`).
-                          id: 'transmissionSamples',
-                          role: 'texture' as const,
-                          allocation: 'onDemand' as const,
-                          textureShape: {
-                              format: 'r16float' as const,
                               sizeFromCanvas: true,
                               sampleCount: samples,
                           },

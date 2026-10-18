@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     channelIor,
+    edgeSteps,
     fresnel,
     traceChannel,
     type RefractionScene,
@@ -64,5 +65,29 @@ describe('referência analítica da refração (spec 034)', () => {
         const s = Math.SQRT1_2;
         const v = traceChannel(scene, [0, 0, 0], [s, 0, -s], 1, [0]);
         expect(Number.isFinite(v)).toBe(true);
+    });
+});
+
+describe('degraus ao longo das bordas (spec 034, SC-001)', () => {
+    const W = 64;
+    const image = (f: (x: number, y: number) => number): Float32Array => {
+        const l = new Float32Array(W * W);
+        for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) l[y * W + x] = f(x, y);
+        return l;
+    };
+    it('borda diagonal lisa: quase nada ao longo dela; em degraus de 8 px: o contraste salta', () => {
+        // Borda a 30°, com cobertura parcial nos pixels cortados (lisa).
+        const smooth = image((x, y) => Math.min(Math.max(y - 0.577 * x - 10 + 0.5, 0), 1));
+        // A mesma borda amostrada em blocos de 8 px (a cópia ampliada 8×).
+        const blocky = image((x, y) => {
+            const bx = Math.floor(x / 8) * 8 + 4;
+            const by = Math.floor(y / 8) * 8 + 4;
+            return by - 0.577 * bx - 10 > 0 ? 1 : 0;
+        });
+        const s = edgeSteps(smooth, W, W, 1);
+        const b = edgeSteps(blocky, W, W, 1);
+        expect(s.count).toBeGreaterThan(20);
+        expect(s.p99).toBeLessThan(0.7);
+        expect(b.p99).toBeGreaterThan(s.p99 * 1.2);
     });
 });

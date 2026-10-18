@@ -3,21 +3,7 @@
 // `ray_scene_occluded` responde se algo bloqueia o segmento — pela hierarquia de cima sobre as instâncias e, em cada
 // instância atingida, pela de baixo em espaço de objeto (a direção não é normalizada, então a distância é a de mundo).
 // Quem consulta não conhece a origem da geometria: malhas, superfícies, grafos e partículas respondem igual.
-// Requer: ray_common, ray_geometry_read, ray_bvh_read, ray_scene_info.
-
-/** Acerto de um raio. `t = RAY_MISS` sem acerto. */
-struct RayHit {
-    t: f32,
-    instance: u32,
-    primitive: u32,
-    renderable: u32,
-    bary: vec2f,
-    /** Lado de fora (1) ou de dentro (−1) da face geométrica, visto pelo raio. */
-    face: f32,
-    position: vec3f,
-    normal: vec3f,
-    uv: vec2f,
-}
+// Requer: ray_common (o `RayHit`), ray_geometry_read, ray_bvh_read, ray_scene_info.
 
 /** Pilha da travessia (a mesma da referência). */
 const RAY_STACK: u32 = 32u;

@@ -15,3 +15,9 @@ export {
 } from './FluidSurfaceMaterial';
 export { PbrTables } from './pbr/PbrTables';
 export { LOBES, type LobeName } from './pbr/lobes';
+export {
+    Refraction,
+    RefractionSchema,
+    type RefractionData,
+    type RefractionValues,
+} from './Refraction';

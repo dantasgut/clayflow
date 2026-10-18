@@ -31,6 +31,10 @@ import causticsSource from './wgsl/caustics.wgsl?raw';
 import waterLightSource from './wgsl/water_light.wgsl?raw';
 import waterRippleSource from './wgsl/water_ripple.wgsl?raw';
 import waterCompositeSource from './wgsl/water_composite.wgsl?raw';
+import waterPointSource from './wgsl/water_point.wgsl?raw';
+import waterRequestSource from './wgsl/water_request.wgsl?raw';
+import { refractionCodec, transmissionResources } from '../../elements/material/shaders';
+import { fluidRefractionIor } from '../../elements/material/fluidShaders';
 import waterTransmissionSource from './wgsl/water_transmission.wgsl?raw';
 
 // Shaders da água e das cáusticas (spec 017) com recursos declarados (spec 031). Uniforms de parâmetros, texturas e
@@ -117,7 +121,6 @@ export const waterResources = Object.freeze({
     depth: texture('water_depth', 'f32'),
     material: texture('water_material', 'u32'),
     normal: texture('water_normal', 'f32'),
-    background: texture('water_background', 'f32'),
 });
 const R = waterResources;
 
@@ -238,26 +241,57 @@ export const waterField = {
     sceneMs: waterFieldModule('water_field_ms', waterSceneMs),
 } as const;
 
+/** O ponto da superfície da água num pixel (posição, normal com as ondulações, observador, espessura), spec 034. */
+const waterPoint = wgslModule({
+    name: 'water_point',
+    source: waterPointSource,
+    requires: [
+        waterView,
+        waterRipple,
+        WATER_DEPTH_LIMIT.module,
+        camerasResource,
+        R.materials,
+        R.composite,
+        R.depth,
+        R.material,
+        R.normal,
+    ],
+});
+
+/**
+ * Pedidos de refração da água (spec 034, R6): o triângulo de tela cheia que grava, por pixel com água, o pedido do
+ * traçado (o mesmo dos transmissivos) e a distância da câmera.
+ */
+export const waterRequest = wgslModule({
+    name: 'water_request',
+    source: waterRequestSource,
+    requires: [
+        waterPoint,
+        refractionCodec,
+        fluidRefractionIor,
+        camerasResource,
+        R.materials,
+        R.composite,
+    ],
+});
+
 function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
     return wgslModule({
         name,
         source: waterCompositeSource,
         requires: [
             waterView,
+            waterPoint,
             scene,
             closure,
             closureEval,
-            waterRipple,
             sceneLightingReady,
             sceneFogReady,
-            WATER_DEPTH_LIMIT.module,
             camerasResource,
             R.materials,
             R.composite,
-            R.depth,
-            R.material,
-            R.normal,
-            R.background,
+            transmissionResources.sceneCopy,
+            transmissionResources.radiance,
         ],
     });
 }

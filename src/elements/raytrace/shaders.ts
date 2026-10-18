@@ -18,6 +18,11 @@ import rayInstancesSource from '../gpu/wgsl/raytrace/ray_instances.wgsl?raw';
 import raySceneSource from '../gpu/wgsl/raytrace/ray_scene.wgsl?raw';
 import rayGeometryReadSource from '../gpu/wgsl/raytrace/ray_geometry_read.wgsl?raw';
 import rayBvhReadSource from '../gpu/wgsl/raytrace/ray_bvh_read.wgsl?raw';
+import rayHitSource from '../gpu/wgsl/raytrace/ray_hit.wgsl?raw';
+import rayHitMaterialReadySource from '../gpu/wgsl/raytrace/ray_hit_material_ready.wgsl?raw';
+import type { BindablePoint } from '../../scene/shaders/bindPoints';
+import { closure } from '../material/pbr/shaders';
+import { materialPointTypes } from '../material/point/types/shaders';
 import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
 import { worldsResource } from '../scene/resources';
 import {
@@ -98,6 +103,41 @@ export const rayScene = wgslModule({
 
 /** Leitura das instâncias (o material copiado nelas), para quem sombreia os acertos. */
 export const rayInstanceRead = rayBvhRead;
+
+/** Composição pronta das funções `material` nos acertos: as constantes do material. */
+export const rayHitMaterialReady = wgslModule({
+    name: 'ray_hit_material_ready',
+    source: rayHitMaterialReadySource,
+    requires: [materialPointTypes, closure],
+    structs: [StandardMaterialSchema],
+});
+
+/**
+ * Ponto da composição das funções `material` nos acertos (spec 033, R3; spec 034, R3): cada estágio que traça troca o
+ * pronto pelo `switch` das funções da cena (`composeHitMaterial` + `bindPoints`).
+ */
+export const rayHitMaterialPoint: BindablePoint = {
+    name: 'ray_hit_material',
+    ready: rayHitMaterialReady,
+};
+
+/**
+ * Material no ponto atingido: `ray_hit_closure(hit, time)` — o mesmo fechamento do desenho. Lê só as instâncias (sem a
+ * geometria): quem sombreia um acerto gravado não precisa da travessia.
+ */
+export const rayHit = wgslModule({
+    name: 'ray_hit',
+    source: rayHitSource,
+    requires: [
+        rayCommon,
+        rayInstanceRead,
+        raySceneInfoResource,
+        materialPointTypes,
+        closure,
+        rayHitMaterialReady,
+    ],
+    structs: [StandardMaterialSchema],
+});
 
 const priv = (name: string, access: 'read' | 'read_write', type: WgslResourceType): WgslResource =>
     wgslResource({

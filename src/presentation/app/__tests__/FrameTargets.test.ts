@@ -3,7 +3,7 @@ import { FrameTargets } from '../FrameTargets';
 import { renderScene } from '../../flows/__tests__/helpers/renderHarness';
 
 describe('FrameTargets', () => {
-    it('descritores (spec 011): cor HDR rgba16float, cópia com mips sob demanda e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
+    it('descritores (spec 011): cor HDR rgba16float, cópia com mips e alvos da refração sob demanda e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
         expect(new FrameTargets({ samples: 1 }).getDescriptors()).toEqual([
             {
                 id: 'color',
@@ -22,16 +22,52 @@ describe('FrameTargets', () => {
                 },
             },
             {
-                id: 'transmissionDepth',
+                id: 'refractionRequest',
                 role: 'texture',
                 allocation: 'onDemand',
-                textureShape: { format: 'r16float', sizeFromCanvas: true },
+                textureShape: { format: 'rgba32uint', sizeFromCanvas: true },
             },
             {
-                id: 'transmissionZ',
+                id: 'refractionDistance',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'r32float', sizeFromCanvas: true },
+            },
+            {
+                id: 'refractionZ',
                 role: 'texture',
                 allocation: 'onDemand',
                 textureShape: { format: 'depth24plus', sizeFromCanvas: true },
+            },
+            {
+                id: 'refractionRadiance',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                id: 'refractionBlur',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                id: 'refractionHit',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                id: 'refractionHitInfo',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32uint', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                id: 'refractionThroughput',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
             },
             {
                 id: 'depth',
@@ -47,11 +83,16 @@ describe('FrameTargets', () => {
         ).toEqual([
             ['color', undefined],
             ['sceneCopy', undefined],
-            ['transmissionDepth', undefined],
-            ['transmissionZ', 4],
+            ['refractionRequest', undefined],
+            ['refractionDistance', undefined],
+            ['refractionZ', undefined],
+            ['refractionRadiance', undefined],
+            ['refractionBlur', undefined],
+            ['refractionHit', undefined],
+            ['refractionHitInfo', undefined],
+            ['refractionThroughput', undefined],
             ['depth', 4],
             ['samples', 4],
-            ['transmissionSamples', 4],
         ]);
         const s = await renderScene();
         const targets = new FrameTargets();

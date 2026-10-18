@@ -11,6 +11,7 @@ import {
 } from 'clayflow';
 import type { LobeName } from 'clayflow';
 import { settle } from './extensionScenes';
+import { warmUp } from './gpuTiming';
 import { readHdrTexture, type HdrImage } from './imageMeasures';
 
 /** Aplicação de teste com os erros dos estágios e das extensões coletados em `errors`. */
@@ -71,6 +72,9 @@ export function frontPixel(
 /** Lê o alvo HDR da cena depois de compilar e desenhar `frames` quadros. */
 export async function renderHdr(app: Application, frames = 1, ms = 800): Promise<HdrImage> {
     await settle(app, ms);
+    // Compilações em segundo plano concluídas (a refração traçada e as funções `material` nos acertos compilam depois
+    // dos pipelines do desenho): nenhuma pendente por 300 ms.
+    await warmUp(app, { quietMs: 300, limitMs: 30000, frames: 0 });
     for (let i = 0; i < frames; i++) app.step(1 / 60);
     const texture = app.resources.textureOf(app.defaults.targets, 'color');
     if (texture === undefined) throw new Error('alvo HDR não alocado');

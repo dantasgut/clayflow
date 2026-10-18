@@ -280,3 +280,79 @@ export function renderReference(scene: RefractionScene, cam: PinholeCamera): Flo
         }
     return out;
 }
+
+/** Luminância (Rec. 709) de uma imagem rgb ou rgba linear. */
+export function luminance(
+    data: Float32Array,
+    width: number,
+    height: number,
+    channels: 3 | 4,
+): Float32Array {
+    const out = new Float32Array(width * height);
+    for (let i = 0; i < width * height; i++)
+        out[i] =
+            0.2126 * data[i * channels]!
+            + 0.7152 * data[i * channels + 1]!
+            + 0.0722 * data[i * channels + 2]!;
+    return out;
+}
+
+/**
+ * Degraus ao longo das bordas (spec 034, SC-001): em cada pixel de borda (gradiente de Sobel acima de `threshold` ×
+ * `contrast`, dentro de `mask`), a maior diferença de luminância para os vizinhos a um pixel na direção da borda
+ * (perpendicular ao gradiente, por interpolação bilinear), dividida por `contrast`. Uma borda lisa varia pouco ao longo
+ * dela; uma em degraus salta o contraste inteiro. Devolve o percentil 99 e quantos pixels de borda entraram.
+ */
+export function edgeSteps(
+    lum: Float32Array,
+    width: number,
+    height: number,
+    contrast: number,
+    mask: (x: number, y: number) => boolean = () => true,
+    threshold = 0.25,
+): { p99: number; count: number } {
+    const at = (x: number, y: number): number =>
+        lum[Math.min(Math.max(y, 0), height - 1) * width + Math.min(Math.max(x, 0), width - 1)]!;
+    const bilinear = (x: number, y: number): number => {
+        const x0 = Math.floor(x);
+        const y0 = Math.floor(y);
+        const fx = x - x0;
+        const fy = y - y0;
+        return (
+            (at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx) * (1 - fy)
+            + (at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx) * fy
+        );
+    };
+    const steps: number[] = [];
+    for (let y = 1; y < height - 1; y++)
+        for (let x = 1; x < width - 1; x++) {
+            if (!mask(x, y)) continue;
+            const gx =
+                at(x + 1, y - 1)
+                + 2 * at(x + 1, y)
+                + at(x + 1, y + 1)
+                - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+            const gy =
+                at(x - 1, y + 1)
+                + 2 * at(x, y + 1)
+                + at(x + 1, y + 1)
+                - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+            const g = Math.hypot(gx, gy) / 8;
+            if (g < threshold * contrast) continue;
+            const tx = -gy / (8 * g);
+            const ty = gx / (8 * g);
+            const c = at(x, y);
+            steps.push(
+                Math.max(
+                    Math.abs(bilinear(x + tx, y + ty) - c),
+                    Math.abs(bilinear(x - tx, y - ty) - c),
+                ) / contrast,
+            );
+        }
+    if (steps.length === 0) return { p99: 0, count: 0 };
+    steps.sort((a, b) => a - b);
+    return {
+        p99: steps[Math.min(steps.length - 1, Math.floor(steps.length * 0.99))]!,
+        count: steps.length,
+    };
+}

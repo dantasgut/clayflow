@@ -46,14 +46,31 @@ export async function warmUp(
         else if (performance.now() - quiet > quietMs) break;
     }
     for (let i = 0; i < (options.frames ?? 30); i++) {
+        await untilReady(app);
         app.step(1 / 60);
         await new Promise((r) => requestAnimationFrame(r));
     }
 }
 
 /**
- * Tempo de GPU por quadro: aquece, roda `frames` quadros no ritmo da tela e devolve as leituras distintas desses
- * quadros (vazio sem `timestamp-query`).
+ * Espera a GPU ter espaço para mais um quadro (o limite de quadros em voo, como o laço e o bench): `app.step` não
+ * espera, e gravar a cada quadro de tela com a GPU mais lenta acumula trabalho sem fim — as leituras de tempo chegam
+ * cada vez mais tarde e o anel de leitura fica sempre ocupado.
+ */
+export async function untilReady(app: Application): Promise<void> {
+    if (app.readyForFrame()) return;
+    await new Promise<void>((resolve) => {
+        const off = app.events.on('frameRetired', () => {
+            if (!app.readyForFrame()) return;
+            off();
+            resolve();
+        });
+    });
+}
+
+/**
+ * Tempo de GPU por quadro: aquece, roda `frames` quadros — cada um quando a GPU tem espaço para ele, no ritmo da tela —
+ * e devolve as leituras distintas desses quadros (vazio sem `timestamp-query`).
  */
 export async function gpuFrameTimes(
     app: Application,
@@ -66,6 +83,7 @@ export async function gpuFrameTimes(
     const samples = collectGpuFrames(app);
     samples.restartAfter(recordedFrames(app));
     for (let i = 0; i < frames; i++) {
+        await untilReady(app);
         step();
         await new Promise((r) => requestAnimationFrame(r));
     }

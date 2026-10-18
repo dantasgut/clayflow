@@ -10,6 +10,7 @@ import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
 import { FluidFieldSchema } from './fields/schemas';
 import { FroxelsSchema } from './media/schemas';
+import { RefractionSchema } from './material/Refraction';
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
@@ -30,6 +31,8 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     new SingletonResolver(HemisphereLightSchema, 'params', { name: 'HemisphereLight.params' }),
     // A estrutura de raios da cena (spec 033): o uniform com as faixas nos pools (os pools têm o resolver da C2).
     new SingletonResolver(RaySceneSchema, 'info', { name: 'RayScene.info' }),
+    // A refração pela estrutura de raios (spec 034): os parâmetros do traçado.
+    new SingletonResolver(RefractionSchema, 'params', { name: 'Refraction.params' }),
     // O céu físico (spec 033): parâmetros, tabelas e amostrador.
     ...(['params', 'transmittance', 'multiscatter', 'view', 'sampler'] as const).map(
         (id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` }),

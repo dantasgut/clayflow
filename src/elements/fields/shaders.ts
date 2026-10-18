@@ -20,9 +20,11 @@ import fieldRedistanceSource from '../gpu/wgsl/fields/field_redistance.wgsl?raw'
 import fieldApronSource from '../gpu/wgsl/fields/field_apron.wgsl?raw';
 import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
+import fieldRaySource from '../gpu/wgsl/fields/field_ray.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
 import { FluidSurfaceMaterialSchema } from '../material/FluidSurfaceMaterialSchema';
-import { rayVolumeTypes } from '../raytrace/points';
+import { fluidRefractionIor } from '../material/fluidShaders';
+import { rayVolumeMediumType, rayVolumeTypes } from '../raytrace/points';
 import { FieldGatherSchema, FluidFieldSchema } from './schemas';
 
 // Módulos do campo dos fluidos (spec 033, R11): a construção por quadro (junção das partículas, núcleos anisotrópicos,
@@ -282,10 +284,49 @@ export const fields = wgslModule({
 });
 
 /** Contribuição do campo ao ponto `ray_volume_hit`: o cruzamento com a superfície da água. */
+/** Entrada e saída dos raios na água pela marcha no campo (as contribuições aos pontos de volume as chamam). */
+const fieldRay = wgslModule({
+    name: 'field_ray',
+    source: fieldRaySource,
+    requires: [rayVolumeTypes, fields, NONE.module],
+});
+
 export const fieldRayHit = wgslModule({
     name: 'field_ray_hit',
     source: fieldRayHitSource,
-    requires: [rayVolumeTypes, fields],
+    requires: [rayVolumeTypes, fields, fieldRay],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_enter` (spec 034): a entrada na água de uma origem fora dela. */
+export const fieldRayEnter = wgslModule({
+    name: 'field_ray_enter',
+    source: `fn ray_volume_enter(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit {
+    return field_ray_enter(origin, dir, t_max);
+}`,
+    requires: [fieldRay],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_exit` (spec 034): a saída da água de uma origem dentro dela. */
+export const fieldRayExit = wgslModule({
+    name: 'field_ray_exit',
+    source: `fn ray_volume_exit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit {
+    return field_ray_exit(origin, dir, t_max);
+}`,
+    requires: [fieldRay],
+});
+
+/**
+ * Contribuição do campo ao ponto `ray_volume_medium` (spec 034): o meio da água atingida — o IOR efetivo, o Abbe e a
+ * absorção do material (escalada como a espessura na composição).
+ */
+export const fieldRayMedium = wgslModule({
+    name: 'field_ray_medium',
+    source: `fn ray_volume_medium(material: u32) -> RayVolumeMedium {
+    if (material == 0u) { return RayVolumeMedium(1.333, 0.0, vec3f(0.0)); }
+    let m = field_materials[material - 1u];
+    return RayVolumeMedium(fluid_refraction_ior(m), m.abbe, max(m.absorption.rgb, vec3f(0.0)) * m.thicknessScale);
+}`,
+    requires: [rayVolumeMediumType, R.materials, fluidRefractionIor],
 });
 
 /** Contribuição do campo ao ponto `ray_volume_transmittance`: a absorção pelos trechos dentro da água. */

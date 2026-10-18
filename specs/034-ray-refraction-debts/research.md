@@ -185,3 +185,45 @@ rodada nesta data (`npm run smoke -- parametricSurfaces,softSurface,extensionPoi
   vizinhos dividido pelo da mesma borda vista sem vidro.
 - **Custo** (SC-004): medidor por repetição (R8) com o vidro cobrindo um quarto da tela a 1280×720; e a mesma cena sem
   transmissão contra o `develop`.
+
+## Adendo da implementação (2026-10-18)
+
+- **R1/R2 — onde o traçado roda**: dentro dos estágios que desenham o que refrata, entre os passes deles — o
+  `ForwardFlow` (pedidos dos transmissivos → traçado → composição) e o `WaterFlow` (pedidos da água → o mesmo traçado →
+  composição). Um estágio de compute separado não teria os pipelines das funções `material` de cada entidade para a
+  composição, que precisa vir depois do traçado no mesmo quadro. As texturas do traçado são alvos dos `FrameTargets`
+  (sob demanda, do tamanho do canvas); a `Refraction` só tem o uniform (`maxInterfaces`, `roughnessBlur`) e fica sempre
+  na cena (inserida pelos estágios padrão).
+- **Dois kernels**: o traçado num kernel só passava de 10 storage buffers por estágio (o limite deste adaptador; a
+  estrutura, os volumes, as funções `material`, as luzes, as sombras, a luz rebatida e as cáusticas juntos). Ficou em
+  dois: o caminho (`refraction_trace_main`: geometria, volumes, fundo, reflexos do ambiente nas faces atravessadas e,
+  com dispersão, a emissão por canal) e a luz da superfície vista (`refraction_shade`: `scene_lighting`). A mensagem de
+  limite da C2 passou a listar os recursos contados.
+- **A cópia onde ela basta (R1)**: o segundo kernel lê a cópia da cena (bicúbica) quando a superfície vista aparece
+  nela (profundidade da cena no ponto projetado = a dela) e a refração não amplia (os acertos vizinhos a ≥ 0,75 texel);
+  senão recalcula a luz. Com dispersão, sempre recalcula (a emissão por canal veio do primeiro kernel).
+- **R3**: `ray_hit_closure(hit, time)` recebe o tempo de quem traça; o módulo lê só as instâncias (`RayHit` passou para
+  `ray_common`), sem a travessia — o segundo kernel não liga a geometria.
+- **Codificação do pedido**: a cor da absorção e o peso em 4 × 8 bits empacotados à mão — `pack4x8unorm` saía zerado
+  no passe de pedidos (Chrome, Metal: a palavra inteira vinha 0 mesmo com o alfa literal 1).
+- **Arestas do raio–triângulo**: o teste baricêntrico ganhou folga relativa (1e-5); o raio refratado que passava pela
+  diagonal comum de dois triângulos não acertava nenhum (fresta visível no bloco de vidro).
+- **Fundo de quem escapa**: o céu (`scene_background`) ou, sem céu, a cor de limpeza da tela (`SCENE_CLEAR_COLOR`), pelo
+  uniform do quadro do traçado; o céu vem pelo slot `sky` dos estágios (sem consulta ao World por quadro).
+- **R6 — a água**: um passe de tela cheia grava os pedidos da água (o mesmo formato, com a marca "entrada num volume") e
+  o traçado é o dos transmissivos. O `refraction` do `FluidSurfaceMaterial` virou a escala do desvio (0,05, o padrão, é
+  o físico pelo IOR; 0 não desvia — os casos de cáusticas do `fluidSurface` usam água sem desvio). O meio da água vem do
+  ponto `ray_volume_medium` (IOR, Abbe, absorção) e entra na pilha dos meios; `ray_volume_transmittance` não é chamado no
+  traçado (o cruzamento já diz onde a água começa e termina). O lado do volume vem da pilha: pontos novos
+  `ray_volume_enter` (de fora) e `ray_volume_exit` (de dentro), sem o teste tricúbico do lado; `ray_volume_hit` (lado
+  desconhecido, a luz rebatida) continua, sobre os dois.
+- **Custo da água (FR-010)**: medido com a leitura corrigida (R8), a barragem de 36 864 partículas custa 12,9 ms sem o
+  traçado — os 19,2 ms de partida eram a média de leituras repetidas. O traçado com a saída da água completa (marcha e
+  normal tricúbica) levava a 19 ms; a saída por pontos e secante na trilinear, sem a normal (a saída vista de dentro não
+  desvia o raio — aproximação registrada; a absorção para nela e o raio segue), leva a 15,1–15,3 ms, dentro dos 16,7 ms.
+  As cruzadas com a água a menos de 5 mm de onde o raio saiu são a própria superfície (a do campo é achada por marcha).
+- **R8 — a causa do H1**: (1) o staging único deixava o quadro sem leitura enquanto mapeava e a última leitura era
+  repetida em todo `frameComplete`; (2) os smokes gravavam um quadro por quadro de tela sem esperar a GPU (`app.step` não
+  espera): com a GPU mais lenta o trabalho acumulava, as leituras chegavam cada vez mais tarde e o anel ficava sempre
+  ocupado (no `fluidSurface`, nenhuma leitura nova depois do quadro ~100). O coletor espera `readyForFrame` (como o laço
+  e o bench). O anel marca um staging como ocupado só no envio — marcar no resolve prendia o de uma gravação não enviada.

@@ -31,7 +31,10 @@ const DEFAULT_FRAME_CAPACITY = 256;
  */
 export const STAGING_RING = 4;
 
-/** Um staging do anel: ocupado do resolve até o fim do mapeamento. */
+/**
+ * Um staging do anel: ocupado do envio (`submitFrame`) até o fim do mapeamento. Marcar já no resolve prendia o staging
+ * de uma gravação que não chegava a ser enviada — com o tempo, todos.
+ */
 interface Staging {
     readonly buffer: GPUBuffer;
     busy: boolean;
@@ -221,7 +224,6 @@ export class GpuProfilerSystem implements Profiler {
         }
         encoder.resolveQuerySet(this.querySet, 0, n, this.resolveBuffer, 0);
         encoder.copyBufferToBuffer(this.resolveBuffer, 0, staging.buffer, 0, n * 8);
-        staging.busy = true;
         this.current = staging;
         this.pending =
             this.frameProfilingActive && this.allocator.pairs.length > 0
@@ -241,6 +243,7 @@ export class GpuProfilerSystem implements Profiler {
         const staging = this.current;
         if (staging === null) return;
         this.current = null;
+        staging.busy = true;
         const pending = this.pending;
         this.pending = null;
         staging.buffer

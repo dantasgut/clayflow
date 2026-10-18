@@ -35,6 +35,10 @@ import { FluidFieldFlow } from '../../elements/fields/FluidFieldFlow';
 import { Froxels } from '../../elements/media/Froxels';
 import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { Refraction } from '../../elements/material/Refraction';
+import { MaterialFunction } from '../../elements/extension/MaterialFunction';
+import { FluidSurfaceMaterial } from '../../elements/material/FluidSurfaceMaterial';
+import { LOBES } from '../../elements/material/pbr/lobes';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -93,6 +97,11 @@ export interface PresentationDefaults {
     readonly ambient: HemisphereLight;
     /** Alvos HDR da cena (cor, amostras, profundidade e a cópia com mips). */
     readonly targets: FrameTargets;
+    /**
+     * Refração pela estrutura de raios (spec 034): o que se vê através do vidro e da água — ajuste em `data`
+     * (`defaults.refraction.data.maxInterfaces = 8`).
+     */
+    readonly refraction: Refraction;
 }
 
 /** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
@@ -106,6 +115,7 @@ interface RegisteredDefaults {
     readonly presentation: ToneMapping;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
+    readonly refraction: Refraction;
     readonly world: World;
     users: number;
     /** Cancela a troca do hemisfério pela iluminação global. */
@@ -157,16 +167,29 @@ export function registerPresentationDefaults(
     // Luz ambiente de hemisfério (spec 011): no lugar da constante 0,18 do desenho Lambert.
     const ambient = new HemisphereLight();
     options.world.insert(ambient);
+    // Refração pela estrutura de raios (spec 034): só o uniform; os alvos do traçado vêm com o primeiro transmissivo.
+    const refraction = new Refraction();
+    options.world.insert(refraction);
     const { flows: stages, registrations } = createPresentationDefaults(flows);
-    const unsubscribe =
+    const unsubscribers =
         options.events === undefined
+            ? []
+            : [
+                  swapAmbientForGi(options.world, options.events, ambient, frameTargets),
+                  rayScenePolicy(options.world, options.events),
+              ];
+    const unsubscribe =
+        unsubscribers.length === 0
             ? undefined
-            : swapAmbientForGi(options.world, options.events, ambient, frameTargets);
+            : () => {
+                  for (const u of unsubscribers) u();
+              };
     const defaults: PresentationDefaults = {
         ...stages,
         presentation,
         ambient,
         targets: frameTargets,
+        refraction,
     };
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
@@ -178,6 +201,7 @@ export function registerPresentationDefaults(
         presentation,
         pbrTables,
         ambient,
+        refraction,
         world: options.world,
         users: 1,
         unsubscribe,
@@ -200,6 +224,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     if (entry.world.entityIdOfResource(entry.ambient) !== undefined)
         entry.world.remove(entry.ambient);
     entry.world.remove(entry.pbrTables);
+    entry.world.remove(entry.refraction);
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.fluidField);
@@ -210,9 +235,9 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
 
 /**
  * Hemisfério e iluminação global por evento (spec 033, R7): a entrada de uma `GlobalIllumination` retira o hemisfério
- * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes), insere a `RayScene` que os
- * raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
- * pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estava.
+ * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes) e liga o passe de profundidade
+ * dos `FrameTargets` (o sombreamento por pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o
+ * hemisfério e o passe como estava.
  * Devolve o cancelamento.
  */
 function swapAmbientForGi(
@@ -228,8 +253,6 @@ function swapAmbientForGi(
         const removed = e.removed.some((r) => r instanceof GlobalIllumination);
         if (added) {
             if (world.entityIdOfResource(ambient) !== undefined) world.remove(ambient);
-            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
-                world.insert(new RayScene());
             if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
         } else if (removed && giCount() === 0) {
             if (world.entityIdOfResource(ambient) === undefined) world.insert(ambient);
@@ -238,8 +261,38 @@ function swapAmbientForGi(
     });
 }
 
+/** A função `material` faz um transmissivo (vidro, parede fina, recorte): o que está atrás aparece através dele. */
+const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
+
+/**
+ * A estrutura de raios por evento (spec 033/034): quem traça raios — a iluminação global, os transmissivos (a refração)
+ * e a água — faz os estágios padrão inserirem uma `RayScene` se a cena não tem; quando o último sai, a que eles
+ * inseriram sai junto (sem consumidor, a construção da estrutura não roda). Devolve o cancelamento.
+ */
+function rayScenePolicy(world: World, events: EventBus): () => void {
+    const users = new Set<object>();
+    let owned: RayScene | undefined;
+    const uses = (r: object): boolean =>
+        r instanceof GlobalIllumination
+        || r instanceof FluidSurfaceMaterial
+        || (r instanceof MaterialFunction && (r.lobeMask & TRANSMISSIVE_LOBES) !== 0);
+    return events.on('resourcesChanged', (e) => {
+        for (const r of e.added) if (uses(r)) users.add(r);
+        for (const r of e.removed) users.delete(r);
+        if (users.size > 0) {
+            if (world.queryBySchemaName(RayScene.schema.name).length === 0) {
+                owned = new RayScene();
+                world.insert(owned);
+            }
+        } else if (owned !== undefined) {
+            if (world.entityIdOfResource(owned) !== undefined) world.remove(owned);
+            owned = undefined;
+        }
+    });
+}
+
 function createPresentationDefaults(flows: FlowRegistry): {
-    flows: Omit<PresentationDefaults, 'presentation' | 'ambient' | 'targets'>;
+    flows: Omit<PresentationDefaults, 'presentation' | 'ambient' | 'targets' | 'refraction'>;
     registrations: readonly FlowRegistration[];
 } {
     const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {

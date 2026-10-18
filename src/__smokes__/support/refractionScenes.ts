@@ -64,8 +64,8 @@ export function thinWallFunction(lib: typeof Clayflow, ior: number): MaterialFun
     });
 }
 
-/** O painel xadrez e a retirada do hemisfério (só o painel emite). */
-export function panelScene(lib: typeof Clayflow, app: Application): void {
+/** O painel xadrez (casas de `cell` m) e a retirada do hemisfério (só o painel emite). */
+export function panelScene(lib: typeof Clayflow, app: Application, cell = CELL): void {
     if (app.world.entityIdOfResource(app.defaults.ambient) !== undefined)
         app.world.remove(app.defaults.ambient);
     app.world.insert(
@@ -75,7 +75,7 @@ export function panelScene(lib: typeof Clayflow, app: Application): void {
                 new lib.MaterialFunction({
                     code: `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {\n${PANEL_CODE}\n}`,
                     params: { cell: 'f32', bright: 'f32', dark: 'f32' },
-                    values: { cell: CELL, bright: PANEL_BRIGHT, dark: PANEL_DARK },
+                    values: { cell, bright: PANEL_BRIGHT, dark: PANEL_DARK },
                     lobes: ['emission'],
                 }),
             )

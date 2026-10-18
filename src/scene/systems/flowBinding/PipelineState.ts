@@ -287,6 +287,7 @@ export class PipelineState {
                 `Flow '${this.flowType}', pipeline '${this.id}'`,
                 entries,
                 this.core.capabilities().limits,
+                this.layout.groups.map((g) => g.entries.map((e) => e.name)),
             );
         } catch (error) {
             // Código de fora (funções de ponto: cada forma traz o seu pool, spec 031 R8) que excede um limite do

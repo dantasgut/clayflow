@@ -30,11 +30,12 @@ export function checkLayoutLimits(
     label: string,
     groups: readonly (readonly BindingLayoutEntry[])[],
     limits: Readonly<Record<string, number>>,
+    names?: readonly (readonly string[])[],
 ): void {
-    const fail = (limit: string, value: number, max: number, where = ''): never => {
+    const fail = (limit: string, value: number, max: number, where = '', detail = ''): never => {
         throw new WgslCompositionError(
             'limit-exceeded',
-            `${label}: ${limit} excedido${where} — ${value} > ${max}`,
+            `${label}: ${limit} excedido${where} — ${value} > ${max}${detail}`,
             [label, limit, String(value), String(max)],
         );
     };
@@ -50,16 +51,23 @@ export function checkLayoutLimits(
     });
     for (const [bit, stage] of STAGES) {
         const counts = new Map<string, number>();
-        for (const g of groups) {
-            for (const e of g) {
-                if ((e.visibility & bit) === 0) continue;
+        const which = new Map<string, string[]>();
+        groups.forEach((g, gi) => {
+            g.forEach((e, ei) => {
+                if ((e.visibility & bit) === 0) return;
                 const k = kindOf(e);
-                if (k !== undefined) counts.set(k, (counts.get(k) ?? 0) + 1);
-            }
-        }
+                if (k === undefined) return;
+                counts.set(k, (counts.get(k) ?? 0) + 1);
+                const list = which.get(k) ?? [];
+                list.push(names?.[gi]?.[ei] ?? `@group(${gi}) @binding(${e.binding})`);
+                which.set(k, list);
+            });
+        });
         for (const [k, n] of counts) {
             const max = limits[k];
-            if (max !== undefined && n > max) fail(k, n, max, ` no estágio ${stage}`);
+            // Os recursos contados vão na mensagem: o que cortar para caber.
+            if (max !== undefined && n > max)
+                fail(k, n, max, ` no estágio ${stage}`, ` (${which.get(k)!.join(', ')})`);
         }
     }
 }

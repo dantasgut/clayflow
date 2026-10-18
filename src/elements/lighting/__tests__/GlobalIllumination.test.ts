@@ -9,7 +9,8 @@ import { DirectionalLight } from '../../scene/DirectionalLight';
 import { HemisphereLight } from '../../scene/HemisphereLight';
 import { Transform } from '../../scene/Transform';
 import { GI_QUALITY, GlobalIllumination } from '../GlobalIllumination';
-import { composeHitMaterial, screenTile } from '../ProbeFlow';
+import { screenTile } from '../ProbeFlow';
+import { composeHitMaterial } from '../../raytrace/hitMaterial';
 import { MaterialFunction } from '../../extension/MaterialFunction';
 import { GI_SCREEN_TILE_MIN } from '../schemas';
 

@@ -90,6 +90,24 @@ describe('GpuProfilerSystem — profiling por quadro', () => {
         expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(STAGING_RING + 1);
     });
 
+    it('gravação resolvida sem envio não prende o staging', async () => {
+        const ns = new BigInt64Array(72);
+        ns[65] = 1_000_000n;
+        const { device, encoder, finishMap } = fakeDevice(() => ns);
+        const p = new GpuProfilerSystem();
+        p.configureFrameProfiling(true, 8);
+        p.attach(device);
+        for (let i = 0; i < STAGING_RING + 2; i++) {
+            p.beginFrame(i);
+            p.passTimestampWrites('a');
+            p.resolveOnto(encoder);
+        }
+        expect(p.droppedFrames).toBe(0);
+        frame(p, 10, encoder, ['a']);
+        await finishMap();
+        expect(p.lastFrameReading?.gpuFrame).toBe(10);
+    });
+
     it('cada quadro do anel vira a sua leitura, na ordem; uma leitura velha não substitui uma nova', async () => {
         let value = 0n;
         const { device, encoder, finishMap } = fakeDevice(() => {

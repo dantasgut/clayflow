@@ -71,6 +71,23 @@ fn ray_node_words(a: vec4u, b: vec4u) -> RayNode {
     return RayNode(bitcast<vec3f>(a.xyz), a.w, bitcast<vec3f>(b.xyz), b.w);
 }
 
+/** Acerto de um raio. `t = RAY_MISS` sem acerto. */
+struct RayHit {
+    t: f32,
+    instance: u32,
+    primitive: u32,
+    renderable: u32,
+    bary: vec2f,
+    /** Lado de fora (1) ou de dentro (−1) da face geométrica, visto pelo raio. */
+    face: f32,
+    position: vec3f,
+    normal: vec3f,
+    uv: vec2f,
+}
+
+/** Folga nas coordenadas baricêntricas do raio–triângulo (estanque nas arestas compartilhadas). */
+const RAY_EDGE_EPS: f32 = 1e-5;
+
 /** Raio–triângulo dos dois lados: (t, u, v) com t > 0 e < t_max, ou t = `RAY_MISS`. */
 fn ray_triangle(origin: vec3f, dir: vec3f, a: vec3f, b: vec3f, c: vec3f, t_max: f32) -> vec3f {
     let e1 = b - a;
@@ -84,7 +101,9 @@ fn ray_triangle(origin: vec3f, dir: vec3f, a: vec3f, b: vec3f, c: vec3f, t_max: 
     let q = cross(s, e1);
     let v = dot(dir, q) * inv;
     let t = dot(e2, q) * inv;
-    let inside = u >= 0.0 && v >= 0.0 && u + v <= 1.0 && t > 0.0 && t < t_max;
+    // Bordas com folga relativa: o raio que passa exatamente pela aresta comum de dois triângulos (a diagonal de uma face)
+    // acerta um deles — sem ela, os arredondamentos dos dois testes deixam a fresta por onde a refração vazava (spec 034).
+    let inside = u >= -RAY_EDGE_EPS && v >= -RAY_EDGE_EPS && u + v <= 1.0 + RAY_EDGE_EPS && t > 0.0 && t < t_max;
     return select(vec3f(RAY_MISS, 0.0, 0.0), vec3f(t, u, v), inside);
 }
 

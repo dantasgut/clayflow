@@ -57,6 +57,11 @@ export const WaterCompositeParamsSchema = new StructSchema(
         /** Tempo da cena (s): fase das ondulações do material. */
         time: FieldType.f32,
         viewport: FieldType.vec2f,
+        /** 1 quando a refração traçada do quadro está pronta (spec 034); 0: a cena deslocada. */
+        traced: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
+        _pad2: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

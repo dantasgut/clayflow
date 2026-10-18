@@ -8,7 +8,7 @@
 // direto numa difusa é a luz direta (já desenhada) e o que entra na água fica com as cáusticas dela (a água da 017).
 // A invocação 0 guarda no cabeçalho a potência por fóton do quadro e a contagem do quadro anterior.
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_photon_common, gi_caustics_atomic, gi_direct (gi_hash,
-// lights, light_incoming, light_transmission), gi_hit, ray_scene, ray_bvh_read, ray_volume_hit, ray_volume_transmittance,
+// lights, light_incoming, light_transmission), ray_hit, ray_scene, ray_bvh_read, ray_volume_hit, ray_volume_transmittance,
 // gi_photon_targets.
 
 const GI_PHOTON_BOUNCES: u32 = 6u;
@@ -80,7 +80,7 @@ fn gi_photon_targets_main(@builtin(local_invocation_index) lid: u32) {
         let m = StandardMaterial(vec4f(inst.material0.rgb, 1.0), inst.material0.w, bitcast<f32>(inst.material1.x), 0.0, 0.0);
         let sample = SurfaceSample(center, vec3f(0.0, 1.0, 0.0), vec2f(0.5), gi.extra.w, vec3f(0.0), vec4f(0.0), vec3f(0.0));
         // O material composto no centro da instância.
-        if (!gi_photon_caustic_capable(gi_hit_material(inst.ids.w & 0xFFFFu, sample, m, inst.material1.y))) { continue; }
+        if (!gi_photon_caustic_capable(ray_hit_material(inst.ids.w & 0xFFFFu, sample, m, inst.material1.y))) { continue; }
         let slot = atomicAdd(&gi_photon_wg_count, 1u);
         if (slot < GI_PHOTON_TARGETS) { gi_photon_wg_list[slot] = k; }
     }
@@ -228,7 +228,7 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         if (hit.t >= 1e6 || hit.instance == NONE) { return; }
         // Os meios atravessados no trecho (a névoa) atenuam o fóton.
         throughput *= ray_volume_transmittance(o, d, hit.t);
-        let c = gi_hit_closure(hit);
+        let c = ray_hit_closure(hit, gi.extra.w);
         let n = hit.normal;
         let outside = hit.face >= 0.0;
         let p = hit.position;

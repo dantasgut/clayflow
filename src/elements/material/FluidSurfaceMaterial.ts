@@ -28,7 +28,10 @@ export interface FluidSurfaceMaterialData {
     depthThreshold: number;
     /** Escala da espessura acumulada (absorção e dispersão). */
     thicknessScale: number;
-    /** Deslocamento da refração na tela por unidade de inclinação da superfície. */
+    /**
+     * Escala do desvio da refração (spec 034: o raio refratado traçado): 0,05 (o padrão) é o desvio físico pelo IOR; 0
+     * não desvia (o fundo visto reto); proporcional entre os dois e além.
+     */
     refraction: number;
     /** Cáusticas ligadas (1) ou desligadas (0). */
     caustics: number;

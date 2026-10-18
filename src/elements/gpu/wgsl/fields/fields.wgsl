@@ -30,6 +30,23 @@ fn field_phi_linear(brick: u32, b: vec3i, p: vec3f) -> f32 {
     return phi;
 }
 
+/** Gradiente (por metro) de φ trilinear no ponto `p` do bloco `brick`: a normal barata, sem a tricúbica. */
+fn field_gradient_linear(brick: u32, b: vec3i, p: vec3f) -> vec3f {
+    let g = p / field_voxel() - 0.5 - vec3f(b * FIELD_BRICK);
+    let base = vec3i(floor(g));
+    let f = g - vec3f(base);
+    var grad = vec3f(0.0);
+    for (var k = 0u; k < 8u; k++) {
+        let o = vec3i(i32(k & 1u), i32((k >> 1u) & 1u), i32(k >> 2u));
+        let v = clamp(base + o, vec3i(-FIELD_APRON), vec3i(FIELD_BRICK + FIELD_APRON - 1));
+        let w = mix(vec3f(1.0) - f, f, vec3f(o));
+        let dw = select(vec3f(-1.0), vec3f(1.0), o == vec3i(1));
+        let value = field_voxel_value(field_apron_at(brick, v));
+        grad += value * vec3f(dw.x * w.y * w.z, w.x * dw.y * w.z, w.x * w.y * dw.z);
+    }
+    return grad / field_voxel();
+}
+
 /** Pesos da B-spline cúbica uniforme (x) e as derivadas (y) para a fração `t`. */
 fn field_bspline(t: f32) -> mat4x2f {
     let t2 = t * t;
