@@ -1,0 +1,15 @@
+# Causas das falhas herdadas (034)
+
+Medidas de partida em 2026-10-18 (`develop` em `3a5ad83`). Cada linha fecha com o commit que introduziu a falha
+(bissecção), a causa medida, a correção no motor e a medida depois. Critério só muda com medida que prove que estava
+errado.
+
+| Falha                                    | Medida de partida                                             | Commit (bissecção) | Causa | Correção | Depois |
+| ---------------------------------------- | ------------------------------------------------------------- | ------------------ | ----- | -------- | ------ |
+| `parametricSurfaces` — cáusticas do lago | 0,66 % da água mais clara (63 px), 0,36 % mais escura (35 px) |                    |       |          |        |
+| `fluidSurface` — cáusticas agitadas      | 1,29× claras / 0,78× escuras                                  |                    |       |          |        |
+| `fluidSurface` — desempenho              | 19,23 ms (média de eventos com leituras repetidas)            |                    |       |          |        |
+| `softSurface` — pano XPBD                | corpo 46 → 189 px (sombra 570 px)                             |                    |       |          |        |
+| `extensionPoints` — xadrez               | 0 trocas na linha                                             |                    |       |          |        |
+| `extensionPoints` — olho de peixe        | 65 536 px acesos, curvatura 3,34 px                           |                    |       |          |        |
+| `nodeGraphs` — caixa 181                 | difere 109 (de 255) da cor do valor; as outras 999 conferem   |                    |       |          |        |
