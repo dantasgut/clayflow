@@ -3,6 +3,7 @@ import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { sceneBackgroundReady, sceneLightingReady } from '../scene/points/lighting';
+import { sceneFogReady } from '../scene/points/media';
 import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
@@ -92,6 +93,7 @@ export const forward = wgslModule({
         closureEval,
         forwardMaterialReady,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -118,7 +120,7 @@ export const forward = wgslModule({
 export const forwardBackground = wgslModule({
     name: 'forward_background',
     source: forwardBackgroundSource,
-    requires: [sceneBackgroundReady, camerasResource, forwardFrameResource],
+    requires: [sceneBackgroundReady, sceneFogReady, camerasResource, forwardFrameResource],
     structs: [Camera.matricesSchema, ForwardFrameParamsSchema],
 });
 
@@ -134,6 +136,7 @@ export const particleSprite = wgslModule({
         materialPointTypes,
         closure,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         particleFrameResource,
         particlePoolResource,
@@ -154,6 +157,7 @@ export const pointSprite = wgslModule({
         materialPointTypes,
         closure,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -180,6 +184,7 @@ export const diffuseSprite = wgslModule({
         materialPointTypes,
         closure,
         sceneLightingReady,
+        sceneFogReady,
         camerasResource,
         worldsResource,
         renderablesResource,

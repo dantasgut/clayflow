@@ -3,6 +3,7 @@ import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { lightTransmissionReady, sceneLightingPoint } from '../scene/points/lighting';
+import { sceneAmbientPoint } from '../scene/points/media';
 import { giParamsResource, giPhoton, giSample, giScreenSample } from './shaders';
 
 /**
@@ -58,7 +59,35 @@ fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     return closure_indirect(c, n, v, IndirectLight(e, back, spec, coat, coat_e)) * light_transmission(NONE, p);
 }`,
 });
-/** Contribuições da `GlobalIllumination` (spec 033, R7): a luz indireta em `scene_lighting`, depois das luzes. */
+/**
+ * A luz rebatida como radiância média de todas as direções (spec 033, R12: o que os meios participantes espalham): a
+ * irradiância das sondas do mundo para cima e para baixo — juntas, os dois hemisférios — sobre 2π, pelo meio da luz
+ * ambiente. Média em 4 pontos num tetraedro de meio espaçamento das sondas em volta do ponto: no volume, sem as
+ * superfícies que as sondas de tela corrigem, a diferença de uma sonda para a vizinha apareceria como faixas na névoa
+ * (as colunas de sondas); a média é o passa-baixa na escala delas. Desligada, nada.
+ */
+const giAmbient = wgslModule({
+    name: 'gi_scene_ambient',
+    requires: [NONE.module, giParamsResource, giSample, lightTransmissionReady],
+    source: `fn scene_ambient(p: vec3f) -> vec3f {
+    if (gi.bounces.y == 0u) { return vec3f(0.0); }
+    let up = vec3f(0.0, 1.0, 0.0);
+    let r = 0.5 * gi.cascade0.w;
+    var e = vec3f(0.0);
+    for (var k = 0u; k < 4u; k++) {
+        let s = vec3f(select(-1.0, 1.0, (k & 1u) != 0u), select(-1.0, 1.0, (k & 2u) != 0u), select(-1.0, 1.0, k == 1u || k == 2u));
+        let q = p + s * (r * 0.57735);
+        e += gi_irradiance(q, up, up) + gi_irradiance(q, -up, -up);
+    }
+    return e / (8.0 * GI_PI) * light_transmission(NONE, p);
+}`,
+});
+
+/**
+ * Contribuições da `GlobalIllumination` (spec 033, R7, R12): a luz indireta em `scene_lighting`, depois das luzes, e
+ * em `scene_ambient` (os meios).
+ */
 export const giContributions: readonly SceneContribution[] = [
     { point: sceneLightingPoint, order: 5, pools: [], build: () => giLighting },
+    { point: sceneAmbientPoint, order: 5, pools: [], build: () => giAmbient },
 ];

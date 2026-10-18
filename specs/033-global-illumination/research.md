@@ -233,6 +233,13 @@ as cáusticas, e recebe a luz rebatida.
 **Alternativas**: marcha de raio por pixel com ruído e filtragem (mais nítido nos feixes, mais caro, ruído sem TAA);
 neblina analítica por altura (sem feixes nem densidade variável).
 
+**Adendo de implementação (US8)**: os volumes não entram como instâncias na TLAS — a transmitância deles é analítica
+(meio homogêneo de borda nítida: o trecho do raio na caixa ou esfera) ou por marcha de 8 passos (função, grade, borda
+suave), contribuída pelos `Froxels` a `ray_volume_transmittance` e `light_transmission`; o buffer dos meios
+(`Froxels.media`) junta registros e grades numa ligação só. A luz ambiente dos froxels vem de um ponto de cena novo,
+`scene_ambient`, numa grade 4× mais grossa por eixo (ler as sondas em cada froxel custava 2,4 ms). Medidas no smoke
+`fog`.
+
 ### R1 (adendo) — Estrutura híbrida
 
 A TLAS também guarda **instâncias de volume** (caixas dos campos dos fluidos e dos meios): ao atingir a caixa, a consulta

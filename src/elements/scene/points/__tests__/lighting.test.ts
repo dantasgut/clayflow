@@ -16,7 +16,12 @@ import {
     sceneLightingPoint,
     sceneLightingReady,
 } from '../lighting';
-import { hemisphereContribution, LIGHT_LIMIT, poolLightContribution } from '../lightContributions';
+import {
+    hemisphereAmbientContribution,
+    hemisphereContribution,
+    LIGHT_LIMIT,
+    poolLightContribution,
+} from '../lightContributions';
 
 describe('pontos de cena do sombreamento (spec 011, T039)', () => {
     it('prontos: nenhuma luz (0), visibilidade 1, transmissão 1 — e montam sozinhos', () => {
@@ -108,7 +113,11 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
 
     it('o hemisfério contribui depois das luzes, pela transmissão da luz ambiente (NONE)', () => {
         const contributions = new HemisphereLight().getSceneContributions();
-        expect(contributions).toEqual([hemisphereContribution]);
+        // No desenho e, para os meios participantes (spec 033, R12), como radiância média.
+        expect(contributions).toEqual([hemisphereContribution, hemisphereAmbientContribution]);
+        expect(hemisphereAmbientContribution.build(() => undefined)!.source).toContain(
+            'fn scene_ambient(p: vec3f) -> vec3f',
+        );
         expect(hemisphereContribution.order).toBeGreaterThan(poolLightContribution.order);
         const m = hemisphereContribution.build(() => undefined)!;
         expect(m.source).toContain('closure_ambient(');

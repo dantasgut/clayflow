@@ -1,8 +1,9 @@
 // Fundo da cena no passe principal (spec 033, R4): um triângulo de tela cheia no plano distante, desenhado depois dos
 // opacos com profundidade `less-equal` sem escrita — só onde nada foi desenhado —, com a direção de cada pixel saindo
 // da câmera ativa (perspectiva: pelos fatores da projeção; ortográfica: a direção da vista) e a cor do ponto de cena
-// `scene_background` (o céu físico, quando há). Sem contribuinte o estágio não desenha (fica a limpeza).
-// Requer: cameras, forward_frame, scene_background.
+// `scene_background` (o céu físico, quando há) atrás da névoa (`scene_fog`). Sem contribuinte de nenhum dos dois o
+// estágio não desenha (fica a limpeza).
+// Requer: cameras, forward_frame, scene_background, scene_fog.
 
 struct BackgroundOut {
     @builtin(position) clip: vec4f,
@@ -28,5 +29,7 @@ fn fs_background(in: BackgroundOut) -> @location(0) vec4f {
     // A inversa da rotação da vista é a transposta.
     let v = cam.view;
     let dir = normalize(transpose(mat3x3f(v[0].xyz, v[1].xyz, v[2].xyz)) * dir_view);
-    return vec4f(scene_background(dir), 1.0);
+    // O fundo atrás de toda a névoa (o ponto bem além da última fatia dos froxels).
+    let fog = scene_fog(cam.position.xyz + dir * 1e5);
+    return vec4f(scene_background(dir) * fog.a + fog.rgb, 1.0);
 }

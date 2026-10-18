@@ -9,6 +9,7 @@ import { RaySceneSchema } from './raytrace/schemas';
 import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
 import { FluidFieldSchema } from './fields/schemas';
+import { FroxelsSchema } from './media/schemas';
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
@@ -58,5 +59,10 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     // contagem.
     ...(['params', 'data', 'counts'] as const).map(
         (id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` }),
+    ),
+    // Os froxels dos meios participantes (spec 033, R12): parâmetros, o buffer dos meios, a névoa integrada, os
+    // históricos, a luz ambiente e o amostrador.
+    ...(['params', 'media', 'scatter', 'history0', 'history1', 'ambient', 'sampler'] as const).map(
+        (id) => new SingletonResolver(FroxelsSchema, id, { name: `Froxels.${id}` }),
     ),
 ];

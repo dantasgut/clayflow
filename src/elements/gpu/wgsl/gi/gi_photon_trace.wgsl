@@ -8,7 +8,8 @@
 // direto numa difusa é a luz direta (já desenhada) e o que entra na água fica com as cáusticas dela (a água da 017).
 // A invocação 0 guarda no cabeçalho a potência por fóton do quadro e a contagem do quadro anterior.
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_photon_common, gi_caustics_atomic, gi_direct (gi_hash,
-// lights, light_incoming, light_transmission), gi_hit, ray_scene, ray_bvh_read, ray_volume_hit, gi_photon_targets.
+// lights, light_incoming, light_transmission), gi_hit, ray_scene, ray_bvh_read, ray_volume_hit, ray_volume_transmittance,
+// gi_photon_targets.
 
 const GI_PHOTON_BOUNCES: u32 = 6u;
 /** Instâncias-alvo dos fótons (no máximo) e luzes com áreas acumuladas. */
@@ -225,6 +226,8 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         let water = ray_volume_hit(o, d, min(hit.t, 1e6));
         if (water.hit) { return; }
         if (hit.t >= 1e6 || hit.instance == NONE) { return; }
+        // Os meios atravessados no trecho (a névoa) atenuam o fóton.
+        throughput *= ray_volume_transmittance(o, d, hit.t);
         let c = gi_hit_closure(hit);
         let n = hit.normal;
         let outside = hit.face >= 0.0;

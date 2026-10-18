@@ -9,6 +9,7 @@ import { HemisphereLightSchema } from '../HemisphereLightSchema';
 import { Light } from '../Light';
 import { lightsResource } from '../resources';
 import { lightTransmissionReady, lightVisibilityReady, sceneLightingPoint } from './lighting';
+import { sceneAmbientPoint } from './media';
 
 /**
  * Teto de luzes do laço por pixel (spec 011, R7): slots do pool `Light` acima dele não iluminam (aviso único). A 013 troca
@@ -145,4 +146,22 @@ export const hemisphereContribution: SceneContribution = {
     order: 10,
     pools: [],
     build: () => hemisphereLight,
+};
+
+/** O hemisfério como radiância média de todas as direções (céu e chão, metade cada), pelo meio da luz ambiente. */
+const hemisphereAmbient = wgslModule({
+    name: 'scene_ambient_hemisphere',
+    requires: [NONE.module, hemisphereResource, lightTransmissionReady],
+    source: `fn scene_ambient(p: vec3f) -> vec3f {
+    return 0.5 * (hemisphere.skyColor.rgb + hemisphere.groundColor.rgb) * hemisphere.intensity
+        * light_transmission(NONE, p);
+}`,
+});
+
+/** Contribuição do hemisfério (spec 033, R12) ao ponto `scene_ambient`: a luz ambiente que os meios espalham. */
+export const hemisphereAmbientContribution: SceneContribution = {
+    point: sceneAmbientPoint,
+    order: 10,
+    pools: [],
+    build: () => hemisphereAmbient,
 };

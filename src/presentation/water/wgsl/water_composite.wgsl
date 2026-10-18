@@ -77,8 +77,11 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     // Dentro: o fundo atenuado por Beer-Lambert e a luz espalhada no volume, na cor da água.
     let absorb = exp(-material.absorption.rgb * thickness);
     let scattered = scene_lighting(closure_diffuse(material.color.rgb, 0.0), pw, n, v);
-    let transmitted = background * absorb + scattered * (1.0 - absorb);
-    var color = reflected + into * transmitted;
+    // Névoa (ponto `scene_fog`): o fundo lido já a tem até ele; a luz da superfície e a espalhada na água a atravessam
+    // até a câmera, e a fração que vem do fundo (τ) leva a dele — T·R + τ·B + (1 − τ)·S.
+    let fog = scene_fog(pw);
+    let tau = into * absorb;
+    var color = (reflected + into * scattered * (1.0 - absorb)) * fog.a + tau * background + (vec3f(1.0) - tau) * fog.rgb;
     if (!all(abs(color) < vec3f(6.5e4))) { color = material.color.rgb; }
     var out: CompositeOut;
     out.color = vec4f(max(color, vec3f(0.0)), 1.0);

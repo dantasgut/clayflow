@@ -286,12 +286,27 @@ erro máx 1,8 % (médio 0,5 %) contra a referência.
 
 **Independent Test**: névoa homogênea contra Beer-Lambert; feixe contra o traçador com meio participante.
 
-- [ ] T055 [P] [US8] `src/elements/media/FogVolume.test.ts`: validação (forma caixa/esfera, densidade constante, por campo ou por grafo, albedo, anisotropia, emissão), contribuição a `ray_volume_transmittance`, sem recompilar ao mudar valores
-- [ ] T056 [P] [US8] WGSL em `src/elements/gpu/wgsl/media/`: `media_density.wgsl` (constante, campo, função/nó de ponto), `media_froxel_inject.wgsl` (160×90×128 com fatias exponenciais e jitter; luz direta com sombra e estrutura de raios, céu, sondas), `media_froxel_integrate.wgsl` (frente para trás, acúmulo reprojetado), `media.wgsl` (`medium_transmittance`, leitura tricúbica)
-- [ ] T057 [US8] `src/elements/media/FogVolume.ts` (+ schema) e `src/elements/media/FroxelFlow.ts`
-- [ ] T058 [US8] Composição da névoa no desenho (opacos, transmissivos e a superfície do campo; névoa atrás do vidro refratada) em `src/presentation/flows/` e transmitância nos raios das sondas e dos fótons
-- [ ] T059 [US8] Exportar `FogVolume` em `src/index.ts`
-- [ ] T060 [US8] Smoke `src/__smokes__/fog.ts`: Beer-Lambert a ≤ 3 %; feixe pela janela a ≤ 10 % do traçador com meio e fora do feixe mais escuro; névoa clareia perto de paredes iluminadas com GI; densidade por ruído sem degraus acima do limiar; câmera andando sem cintilação acima do limiar; névoa opaca sem banda (SC-014); vídeo da névoa com feixes de sol
+- [x] T055 [P] [US8] `src/elements/media/FogVolume.test.ts`: validação (forma caixa/esfera, densidade constante, por campo ou por grafo, albedo, anisotropia, emissão), contribuição a `ray_volume_transmittance`, sem recompilar ao mudar valores
+- [x] T056 [P] [US8] WGSL em `src/elements/gpu/wgsl/media/`: `media_density.wgsl` (constante, campo, função/nó de ponto), `media_froxel_inject.wgsl` (160×90×128 com fatias exponenciais e jitter; luz direta com sombra e estrutura de raios, céu, sondas), `media_froxel_integrate.wgsl` (frente para trás, acúmulo reprojetado), `media.wgsl` (`medium_transmittance`, leitura tricúbica)
+- [x] T057 [US8] `src/elements/media/FogVolume.ts` (+ schema) e `src/elements/media/FroxelFlow.ts`
+- [x] T058 [US8] Composição da névoa no desenho (opacos, transmissivos e a superfície do campo; névoa atrás do vidro refratada) em `src/presentation/flows/` e transmitância nos raios das sondas e dos fótons
+- [x] T059 [US8] Exportar `FogVolume` em `src/index.ts`
+- [x] T060 [US8] Smoke `src/__smokes__/fog.ts`: Beer-Lambert a ≤ 3 %; feixe pela janela a ≤ 10 % do traçador com meio e fora do feixe mais escuro; névoa clareia perto de paredes iluminadas com GI; densidade por ruído sem degraus acima do limiar; câmera andando sem cintilação acima do limiar; névoa opaca sem banda (SC-014); vídeo da névoa com feixes de sol
+      Feito em `src/elements/media/` (`FogVolume`, `Froxels`, `FroxelFlow`, `DensityFunction` em `extension/`, WGSL em
+      `gpu/wgsl/media/`). Os volumes e as grades num buffer só (`Froxels.media`: os kernels da GI já estavam no limite de
+      ligações de storage); densidade constante, por função ou grafo (ponto `fog_density`, composto por volume) ou por grade
+      (descritor `grid`, que a GPU pode escrever). Pontos de cena novos: `scene_fog` (a névoa entre a câmera e o ponto, no
+      desenho dos opacos, do fundo, dos transmissivos — T·R + τ·B + (1 − τ)·S, sem contar a névoa duas vezes atrás do vidro
+      —, dos sprites e da água) e `scene_ambient` (a radiância média: o hemisfério ou a GI, esta com média num tetraedro de
+      meio espaçamento das sondas — sem ela as colunas de sondas viravam faixas na névoa). Os `Froxels` também contribuem a
+      `light_transmission` (superfícies dentro da névoa, a própria névoa) e `ray_volume_transmittance` (sondas, tela,
+      fótons). Injeção com jitter de Halton girado por froxel, a fração exata do trecho no meio homogêneo de borda nítida,
+      histórico 0,9 reprojetado pelo centro do froxel; a luz ambiente numa grade 40 × 23 × 32 (as sondas lidas em cada
+      froxel custavam 2,4 ms); integração de Hillaire; leitura tricúbica. Smoke `fog` (src e `--dist`): Beer-Lambert pior
+      0,14 %; vidro atrás e dentro da névoa 0,01 %; feixe a 1,9 % do traçador; GI 2,9× na névoa e mais perto da mancha de
+      sol; ruído 0,93 %/px; câmera andando +0,05 ponto de cintilação; opaca 0,07 %; custo 0,55 ms a 1280×720 (froxels 0,39
+      medidos por repetição no mesmo app com relógio de parede + por pixel 0,16 em 4K — o tempo de GPU do quadro desta
+      máquina repete leituras velhas e oscila em patamares). Vídeos enviados (névoa homogênea e por ruído).
 
 ---
 

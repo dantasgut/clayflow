@@ -8,6 +8,7 @@ import {
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { FluidSurfaceMaterialSchema } from '../../elements/material/FluidSurfaceMaterialSchema';
 import { sceneLightingReady } from '../../elements/scene/points/lighting';
+import { sceneFogReady } from '../../elements/scene/points/media';
 import {
     camerasResource,
     lightsResource,
@@ -248,6 +249,7 @@ function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
             closureEval,
             waterRipple,
             sceneLightingReady,
+            sceneFogReady,
             WATER_DEPTH_LIMIT.module,
             camerasResource,
             R.materials,

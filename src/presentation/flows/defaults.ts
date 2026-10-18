@@ -32,6 +32,8 @@ import { GraphFlow } from '../../scene/graph/GraphFlow';
 import { RaySceneFlow } from '../../elements/raytrace/RaySceneFlow';
 import { FluidField } from '../../elements/fields/FluidField';
 import { FluidFieldFlow } from '../../elements/fields/FluidFieldFlow';
+import { Froxels } from '../../elements/media/Froxels';
+import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
@@ -100,6 +102,7 @@ interface RegisteredDefaults {
     readonly frameTargets: FrameTargets;
     readonly waterSurface: WaterSurface;
     readonly fluidField: FluidField;
+    readonly froxels: Froxels;
     readonly presentation: ToneMapping;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
@@ -142,6 +145,9 @@ export function registerPresentationDefaults(
     // Campo dos fluidos (spec 033, R11): a superfície contínua dos corpos com `FluidSurfaceMaterial`, na GPU.
     const fluidField = new FluidField();
     options.world.insert(fluidField);
+    // Froxels dos meios participantes (spec 033, R12): a névoa dos `FogVolume`, sem nada a fazer enquanto não há.
+    const froxels = new Froxels();
+    options.world.insert(froxels);
     // Apresentação (spec 011): o último passo do quadro, lido pelo pós pelo slot.
     const presentation = new ToneMapping();
     options.world.insert(presentation);
@@ -168,6 +174,7 @@ export function registerPresentationDefaults(
         frameTargets,
         waterSurface,
         fluidField,
+        froxels,
         presentation,
         pbrTables,
         ambient,
@@ -196,6 +203,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.fluidField);
+    entry.world.remove(entry.froxels);
     entry.world.remove(entry.frameTargets);
     return true;
 }
@@ -297,6 +305,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'shadow',
         priority: -5,
     });
+    // Névoa (spec 033, R12) depois das sondas e da vista da luz da água (a luz rebatida e o meio até as luzes prontos).
+    const froxelRegistration = flows.register((ctx) => new FroxelFlow(ctx), {
+        type: 'froxels',
+        phase: 'shadow',
+        priority: -30,
+    });
     const forwardRegistration = flows.register((ctx) => new ForwardFlow(ctx, { output: 'scene' }), {
         type: 'forward',
         phase: 'forward',
@@ -381,6 +395,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             raySceneRegistration,
             shadowRegistration,
             probeRegistration,
+            froxelRegistration,
             forwardRegistration,
             particleRegistration,
             fluidLightRegistration,

@@ -84,7 +84,11 @@ describe('GlobalIllumination (spec 033, T024)', () => {
                 role: 'storage-texture',
                 textureShape: { sizeFromCanvas: true, canvasDivisor: GI_SCREEN_TILE_MIN },
             });
-        expect(gi.getSceneContributions().map((c) => c.point.name)).toEqual(['scene_lighting']);
+        // A luz indireta no desenho e, para os meios participantes (R12), a radiância média.
+        expect(gi.getSceneContributions().map((c) => c.point.name)).toEqual([
+            'scene_lighting',
+            'scene_ambient',
+        ]);
     });
 
     it('com ela na cena, os estágios padrão retiram o hemisfério e garantem a RayScene; sem ela, o devolvem', async () => {

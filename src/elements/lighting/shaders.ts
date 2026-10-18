@@ -396,6 +396,7 @@ export const giPhotonTrace = wgslModule({
         giHit,
         giDirect,
         rayVolumeHitReady,
+        rayVolumeTransmittanceReady,
     ],
 });
 

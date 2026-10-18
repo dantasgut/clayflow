@@ -80,5 +80,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let c = closure_specular_aa(material_eval(sample, material, in.fn_slot), variance);
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
     let color = scene_lighting(c, in.world_position, n, v) + closure_emitted(c, n, v);
-    return vec4<f32>(color, c.opacity);
+    // A névoa entre a câmera e o ponto (ponto de cena `scene_fog`; sem névoa, nada muda).
+    let fog = scene_fog(in.world_position);
+    return vec4<f32>(color * fog.a + fog.rgb, c.opacity);
 }

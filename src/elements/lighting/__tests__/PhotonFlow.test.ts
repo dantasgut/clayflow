@@ -41,6 +41,8 @@ describe('Cáusticas por fótons (spec 033, T051)', () => {
         expect(trace).toContain('weight = 1.0 / max(cover, 1.0);');
         // Na água (o volume de campo) o fóton para: as cáusticas dela são as da vista da luz (011).
         expect(trace).toContain('if (water.hit) { return; }');
+        // Os meios atravessados (a névoa, spec 033 R12) atenuam o fóton em cada trecho.
+        expect(trace).toContain('throughput *= ray_volume_transmittance(o, d, hit.t);');
         // Cada símbolo uma vez.
         expect(trace.match(/fn gi_photon_caustic_capable\(/g)).toHaveLength(1);
         expect(trace.match(/const GI_PHOTON_ROUGH/g)).toHaveLength(1);

@@ -5,7 +5,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { HemisphereLightSchema } from './HemisphereLightSchema';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { hemisphereContribution } from './points/lightContributions';
+import { hemisphereAmbientContribution, hemisphereContribution } from './points/lightContributions';
 
 /** Valores de uma `HemisphereLight`. */
 export interface HemisphereLightValues {
@@ -62,8 +62,8 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
         return [];
     }
 
-    /** O hemisfério no ponto `scene_lighting`. */
+    /** O hemisfério no ponto `scene_lighting` e, para os meios participantes, em `scene_ambient` (spec 033). */
     getSceneContributions(): readonly SceneContribution[] {
-        return [hemisphereContribution];
+        return [hemisphereContribution, hemisphereAmbientContribution];
     }
 }
