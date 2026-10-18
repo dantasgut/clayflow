@@ -9,7 +9,8 @@
 //   - scale: 1 milhão de triângulos (uma malha de superfície grande) — a consulta acerta e o tempo de construção e de
 //     reajuste fica no relatório;
 //   - contract (US6): um estágio novo consulta a cena sem conhecer a origem da geometria — malha, superfície
-//     paramétrica, geometria de grafo de nós, esferas de um corpo de sprites (pelo mesmo `ray_scene_hit`) e a água por
+//     paramétrica, geometria de grafo de nós, corpo mole (XPBD), esferas de um corpo de sprites (pelo mesmo
+//     `ray_scene_hit`) e a água por
 //     campo de distância (pelo ponto de cena `ray_volume_hit`, composto pela C2 no kernel) — e compara com a interseção
 //     analítica: ≤ 1 % do tamanho e ≤ 3° na normal nos objetos analíticos; na água, os acertos a ≤ 1 espaçamento da esfera
 //     das partículas de fora.
@@ -33,6 +34,7 @@ import {
     rayVolumeHitReady,
     SetGraph,
     slot,
+    SoftBody,
     SphereGeometry,
     StandardMaterial,
     SurfaceFunction,
@@ -775,9 +777,59 @@ async function caseContract(): Promise<void> {
             new FluidSurfaceMaterial(),
         ),
     );
+    // Corpo mole (XPBD, a superfície escrita na GPU a cada quadro): pano 16 × 16 plano em y = 1,3 em volta de
+    // (0; 9) — com quadros de duração 0 a física não anda e ele fica plano.
+    const clothSide = 16;
+    const clothSpacing = 0.05;
+    const clothY = 1.3;
+    const clothZ = 9;
+    {
+        const position: number[] = [];
+        const mass: number[] = [];
+        const uvs: number[] = [];
+        const at = (i: number, j: number): number => j * clothSide + i;
+        const half = (clothSide - 1) / 2;
+        for (let j = 0; j < clothSide; j++)
+            for (let i = 0; i < clothSide; i++) {
+                position.push(
+                    (i - half) * clothSpacing,
+                    clothY,
+                    clothZ + (j - half) * clothSpacing,
+                );
+                mass.push(0.01);
+                uvs.push(i / (clothSide - 1), j / (clothSide - 1));
+            }
+        const a: number[] = [];
+        const b: number[] = [];
+        const triangles: number[] = [];
+        for (let j = 0; j + 1 < clothSide; j++)
+            for (let i = 0; i + 1 < clothSide; i++) {
+                a.push(at(i, j), at(i, j), at(i, j));
+                b.push(at(i + 1, j), at(i, j + 1), at(i + 1, j + 1));
+                triangles.push(
+                    at(i, j),
+                    at(i, j + 1),
+                    at(i + 1, j),
+                    at(i + 1, j),
+                    at(i, j + 1),
+                    at(i + 1, j + 1),
+                );
+            }
+        app.world.insert(
+            new SoftBody({
+                algorithm: 'XPBD',
+                position,
+                mass,
+                edges: { a, b },
+                surface: { triangles, uvs },
+            })
+                .add(new StandardMaterial())
+                .add(new Transform()),
+        );
+    }
     await settle(app, 1200);
 
-    type Kind = 'mesh' | 'surface' | 'graph' | 'sprites' | 'water';
+    type Kind = 'mesh' | 'surface' | 'graph' | 'cloth' | 'sprites' | 'water';
     const r = rng(11);
     const probes: Probe[] = [];
     const expected: { kind: Kind; t: number; n: V3 | null; size: number }[] = [];
@@ -796,6 +848,11 @@ async function caseContract(): Promise<void> {
         } else if (kind === 'graph') {
             t = planeHit(origin, dir, 0.4, 5, 0, 1);
             n = [0, 1, 0];
+        } else if (kind === 'cloth') {
+            const half = ((clothSide - 1) / 2) * clothSpacing;
+            t = planeHit(origin, dir, clothY, 0, clothZ, half);
+            n = [0, 1, 0];
+            size = 2 * half;
         } else if (kind === 'sprites') {
             size = 2 * sprite;
             for (const c of spriteAt) {
@@ -817,6 +874,7 @@ async function caseContract(): Promise<void> {
         add('mesh', [j() * 3, 4, 6], [j() * 0.7, j() * 0.7, j() * 0.7]);
         add('surface', [-5 + j(), 4, j()], [-5 + j() * 1.3, 0.25, j() * 1.3]);
         add('graph', [5 + j(), 4, j()], [5 + j() * 0.9, 0.4, j() * 0.9]);
+        add('cloth', [j(), 4, clothZ + j()], [j() * 0.3, clothY, clothZ + j() * 0.3]);
         const c = spriteAt[i % 3]!;
         add(
             'sprites',

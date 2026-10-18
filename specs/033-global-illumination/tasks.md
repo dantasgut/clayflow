@@ -31,7 +31,7 @@ quadro; um símbolo WGSL por pipeline; só `shaders.ts` importa `.wgsl`; C3/C4 i
 - [x] T003 [P] Criar `src/elements/scene/reference/atmosphere.ts`: integração numérica do modelo de Hillaire (Rayleigh, Mie, ozônio; transmitância, espalhamento simples e o múltiplo da tabela) em direções de amostra; `atmosphere.test.ts` (céu azul ao meio-dia, avermelhando no horizonte, transmitância monótona)
 - [x] T004 [P] Criar `src/elements/lighting/reference/pathTracer.ts` (referência de CPU, como as da 011; testes em `reference/__tests__`): traçador de caminhos determinístico (estratificado) para cenas pequenas (caixas, esferas, planos) com os materiais base da 011 (difuso para a Cornell box), luzes da 011, céu da referência de T003, número de rebatimentos fixo, meio participante homogêneo e por grade (espalhamento simples e múltiplo, Henyey-Greenstein); saída da radiância média por região (máscara por instância) e imagem HDR; `pathTracer.test.ts` (forno branco, série de rebatimentos analítica num ambiente fechado, Beer-Lambert)
 - [x] T005 [P] Medidas novas em `src/__smokes__/support/spectralMeasures.ts` (puras, testadas em `src/__tests__/smokes/`): energia espectral numa faixa de frequência (escala das partículas) ao longo de uma silhueta e numa região, ondulação de contorno, continuidade de realce (pontos isolados), degraus entre vizinhos, radiância média por máscara
-- [ ] T006 [P] Criar os smokes vazios `src/__smokes__/rayScene.ts`, `sky.ts`, `globalIllumination.ts`, `fluidField.ts`, `fog.ts` e `src/__smokes__/support/giScenes.ts` (Cornell box, cômodo com janela, caixa fechada de paredes finas, ambiente branco fechado, canto côncavo), registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
+- [x] T006 [P] Criar os smokes vazios `src/__smokes__/rayScene.ts`, `sky.ts`, `globalIllumination.ts`, `fluidField.ts`, `fog.ts` e `src/__smokes__/support/giScenes.ts` (Cornell box, cômodo com janela, caixa fechada de paredes finas, ambiente branco fechado, canto côncavo), registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
 
 ---
 
@@ -48,12 +48,20 @@ quadro; um símbolo WGSL por pipeline; só `shaders.ts` importa `.wgsl`; C3/C4 i
 
 - [x] T009 Marcar `produced('vertices')` nos estágios que escrevem geometria na GPU (A3): `src/elements/geometry/SurfaceFlow.ts`, `src/scene/graph/GraphFlow.ts`, `src/elements/physics/flows/SoftSurfaceFlow.ts`, `EmitterFlow`/`DiffuseFlow` das nuvens de pontos
 - [x] T010 [P] WGSL de construção em `src/elements/gpu/wgsl/raytrace/`: `ray_gather.wgsl` (cópia de triângulos para o buffer único de primitivas em espaço de objeto, u16 lidos aos pares, contagem do registro indireto, A1/A4/A9; esferas das partículas por `pos` e raio do material, A7), `ray_bounds.wgsl` (caixa por primitiva e caixa da geometria por redução), `ray_morton.wgsl`, `ray_lbvh.wgsl` (hierarquia de Karras), `ray_refit.wgsl` (caixas de baixo para cima com contadores atômicos), `ray_tlas.wgsl` (caixas de mundo das instâncias pelo pool `WorldTransform` e o registro `Renderable`, A5)
-- [ ] T011 [P] `src/elements/gpu/wgsl/raytrace/ray_scene.wgsl`: `RayHit`, `BvhNode`, `RayInstance`, travessia de dois níveis com pilha de 32, `ray_scene_hit`, `ray_scene_occluded`; o ramo de instâncias de volume chama os pontos `ray_volume_hit`/`ray_volume_transmittance` (preenchidos por contribuição na US7 e na US8; sem contribuição, a caixa é ignorada)
+- [x] T011 [P] `src/elements/gpu/wgsl/raytrace/ray_scene.wgsl`: `RayHit`, `BvhNode`, `RayInstance`, travessia de dois níveis com pilha de 32, `ray_scene_hit`, `ray_scene_occluded`; o ramo de instâncias de volume chama os pontos `ray_volume_hit`/`ray_volume_transmittance` (preenchidos por contribuição na US7 e na US8; sem contribuição, a caixa é ignorada)
 - [x] T012 `src/elements/raytrace/RayScene.ts` (Resource gerado da cena, buffers de nós, primitivas, instâncias, contadores) e `src/elements/raytrace/shaders.ts` (módulos e recursos declarados)
 - [x] T013 `src/elements/raytrace/RaySceneFlow.ts`: por geometria, gather → bounds → Morton → `RadixSort` (A6) → LBVH → caixas na primeira vez e na topologia nova; refit nos quadros com `produced('vertices')`; TLAS por LBVH a cada quadro; entradas e saídas de entidade por evento; despacho linear (`invocations` com `WORKGROUP_SIZE`)
 - [x] T014 Limites do dispositivo (R10) em `RaySceneFlow`: conferir tamanho de binding e buffers por estágio; sem limites, evento `globalIlluminationUnsupported { reason }` uma vez em `src/scene/events/EventMap.ts`
 - [x] T015 Exportar `RayScene` e o módulo `ray_scene` em `src/index.ts`
-- [ ] T016 Smoke `src/__smokes__/rayScene.ts`: estágio de teste que consulta raios em cenas de esferas, caixas e superfícies paramétricas conhecidas e compara ponto e normal com a interseção analítica (≤ 1 % do tamanho, SC-009); superfície animada (refit) segue a forma no mesmo quadro; geometria de grafo e corpo mole (só GPU) atingida sem leitura de volta; 1 milhão de triângulos: tempos de build, refit (≤ 1 ms) e TLAS de 10 mil instâncias (≤ 0,3 ms) no relatório
+- [x] T016 Smoke `src/__smokes__/rayScene.ts`: estágio de teste que consulta raios em cenas de esferas, caixas e superfícies paramétricas conhecidas e compara ponto e normal com a interseção analítica (≤ 1 % do tamanho, SC-009); superfície animada (refit) segue a forma no mesmo quadro; geometria de grafo e corpo mole (só GPU) atingida sem leitura de volta; 1 milhão de triângulos: tempos de build, refit (≤ 1 ms) e TLAS de 10 mil instâncias (≤ 0,3 ms) no relatório
+
+Notas (T006, T011, T016, conferidas no fechamento):
+
+- T006: o runner acha os smokes pelo nome (sem registro); o README lista os cinco.
+- T011: os volumes não são um ramo das instâncias de `ray_scene_hit`. São os pontos de cena `ray_volume_hit` e
+  `ray_volume_transmittance` (US7), que quem traça raios chama ao lado da consulta. O contrato fica igual para quem
+  consulta.
+- T016: a geometria de grafo, o corpo mole (pano XPBD) e as esferas dos sprites entram no caso `contract` (US6).
 
 **Checkpoint**: estrutura de raios consultável por qualquer estágio.
 
@@ -349,7 +357,7 @@ Notas da US6:
 - [x] T067 Todos os smokes `--headless` no fonte e com `--dist`; conferir que não ficou Chrome/crashpad órfão do runner
 - [x] T068 `npm run bench:check` sem regressão relevante nas cenas sem GI; baseline regravado; tempos da GI registrados em `baseline-check.md`
 - [x] T069 `npm run ci` verde
-- [ ] T070 Vídeos enviados ao usuário (água por campo de perto e de longe, névoa com feixes, Cornell box, cômodo ao longo do dia, geometria viva, cáusticas) (SC-012)
+- [x] T070 Vídeos enviados ao usuário (água por campo de perto e de longe, névoa com feixes, Cornell box, cômodo ao longo do dia, geometria viva, cáusticas) (SC-012)
 
 ---
 
