@@ -26,6 +26,16 @@ export interface FrameTargetsData {
 /** Cor de limpeza da cena: o fundo onde nada desenha e não há céu (também o que vê o raio refratado que escapa). */
 export const SCENE_CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
 
+/** Um alvo do caminho das amostras extras da refração: um texel por par (pixel marcado, amostra). */
+function aaTarget(id: string, format: GPUTextureFormat): GPUDescriptor {
+    return {
+        id,
+        role: 'storage-texture',
+        allocation: 'onDemand',
+        textureShape: { format, sizeFromCanvas: true, access: 'write-only' },
+    };
+}
+
 /** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
 export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
 
@@ -127,6 +137,41 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                 allocation: 'onDemand',
                 textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
             },
+            {
+                // A amostra do centro de cada pixel (a média com as extras vai à radiância traçada).
+                id: 'refractionAccum',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                // A lista dos pixels marcados pela refração (coordenadas empacotadas, um por texel), uma camada por tipo de
+                // trabalho: só o antisserrilhado, ele e a dispersão, só a dispersão.
+                id: 'refractionMarkList',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'r32uint',
+                    sizeFromCanvas: true,
+                    depthOrArrayLayers: 3,
+                    viewDimension: '2d-array',
+                    access: 'write-only',
+                },
+            },
+            {
+                // O total da lista dos marcados, o início da rodada das amostras extras e as entradas das duas primeiras
+                // camadas da lista.
+                id: 'refractionMarkCount',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'r32uint', width: 4, height: 1, access: 'write-only' },
+            },
+            // O caminho e a luz das amostras extras (um texel por par entrada da lista × amostra, do tamanho da tela).
+            aaTarget('refractionAaPartial', 'rgba16float'),
+            aaTarget('refractionAaHit', 'rgba32float'),
+            aaTarget('refractionAaInfo', 'rgba32uint'),
+            aaTarget('refractionAaThroughput', 'rgba16float'),
+            aaTarget('refractionAaRadiance', 'rgba16float'),
             {
                 id: 'depth',
                 role: 'texture',

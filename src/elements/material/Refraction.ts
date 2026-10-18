@@ -15,12 +15,18 @@ export interface RefractionValues {
     readonly maxInterfaces?: number;
     /** Desfoque da rugosidade da transmissão (o cone da rugosidade sobre a imagem traçada). Default `true`. */
     readonly roughnessBlur?: boolean;
+    /**
+     * Antisserrilhado da imagem refratada: nos pixels onde ela muda de um para o vizinho (bordas, padrões finos vistos
+     * pela lente), mais três raios dentro do pixel. Default `true`.
+     */
+    readonly antialias?: boolean;
 }
 
 /** Dado de uma `Refraction` (layout de `Refraction.schema`). */
 export interface RefractionData {
     maxInterfaces: number;
     roughnessBlur: number;
+    antialias: number;
 }
 
 /** Uniform da refração. */
@@ -29,7 +35,7 @@ export const RefractionSchema = new StructSchema(
     {
         maxInterfaces: FieldType.u32,
         roughnessBlur: FieldType.u32,
-        _pad0: FieldType.u32,
+        antialias: FieldType.u32,
         _pad1: FieldType.u32,
     },
     { addressSpace: 'uniform' },
@@ -71,6 +77,7 @@ export class Refraction extends Entity<RefractionData> implements Resource {
         this.data = {
             maxInterfaces: interfaces,
             roughnessBlur: values.roughnessBlur === false ? 0 : 1,
+            antialias: values.antialias === false ? 0 : 1,
         };
     }
 

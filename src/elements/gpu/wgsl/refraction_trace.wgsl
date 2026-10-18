@@ -23,11 +23,15 @@ const REFRACTION_VOLUME_EPS: f32 = 5e-3;
 /** Meios aninhados acompanhados pelo raio (vidro dentro de vidro, água no copo). */
 const REFRACTION_STACK: u32 = 4u;
 
-/** Um meio atravessado: IOR do canal, cor e distância da absorção (Beer-Lambert); `depth` < 0: `color` é o coeficiente. */
+/**
+ * Um meio atravessado: IOR do canal, cor e distância da absorção (Beer-Lambert; `depth` < 0: `color` é o coeficiente) e
+ * a diferença de IOR entre o vermelho e o azul (`dn`, 0 sem dispersão).
+ */
 struct RefractionMedium {
     ior: f32,
     color: vec3f,
     depth: f32,
+    dn: f32,
 }
 
 /** O caminho de um raio refratado: o que já chegou, a superfície vista e o quanto chega dela. */
@@ -41,8 +45,30 @@ struct RefractionPath {
     /** Há superfície a iluminar. */
     lit: bool,
     hit: RayHit,
-    /** Direção do raio que chegou à superfície. */
+    /** Direção do raio que chegou à superfície (ou que escapou). */
     dir: vec3f,
+    /**
+     * Separação estimada entre os raios do vermelho e do azul onde o caminho termina: na superfície vista, a distância
+     * entre os pontos (m); de quem escapa, o ângulo entre as direções (rad). 0 sem dispersão.
+     */
+    spread: f32,
+}
+
+/** A diferença de IOR entre o vermelho e o azul pelo número de Abbe (0 sem dispersão). */
+fn refraction_channel_dn(ior: f32, abbe: f32) -> f32 {
+    let iors = closure_dispersion_iors(ior, abbe);
+    return iors.z - iors.x;
+}
+
+/**
+ * A separação angular entre o vermelho e o azul depois de uma refração de `n1` para `n2` (Snell derivado pelo IOR de
+ * cada lado, `dn1` e `dn2`, mais a separação `angle` que já chegava, ampliada pela razão dos cossenos), em módulo.
+ */
+fn refraction_spread_angle(angle: f32, n1: f32, n2: f32, dn1: f32, dn2: f32, cosi: f32, cost: f32) -> f32 {
+    let sini = sqrt(max(1.0 - cosi * cosi, 0.0));
+    let sint = sqrt(max(1.0 - cost * cost, 0.0));
+    let c = max(cost, 0.05);
+    return angle * n1 * cosi / (n2 * c) + (sini * dn1 + sint * dn2) / (n2 * c);
 }
 
 fn refraction_absorb(m: RefractionMedium, dist: f32) -> vec3f {
@@ -90,12 +116,16 @@ fn refraction_trace_ray(
     var depth = 0u;
     var dir = -v;
     var origin = p;
+    // A separação entre o vermelho e o azul: angular (rad) e lateral (m), acumuladas ao longo do caminho.
+    var angle = 0.0;
+    var lateral = 0.0;
     if (thin) {
         // Parede fina: atravessa sem desvio nem meio.
         origin = p + dir * REFRACTION_EPS;
     } else {
         let r = refract(-v, n, 1.0 / entry.ior);
         dir = select(-v, normalize(r), dot(r, r) > 0.0);
+        angle = refraction_spread_angle(0.0, 1.0, entry.ior, 0.0, entry.dn, clamp(dot(n, v), 0.0, 1.0), clamp(-dot(n, dir), 0.0, 1.0));
         // Entrada num volume (a superfície da água, achada por marcha): começa já dentro dele, além da folga.
         origin = select(p - n * REFRACTION_EPS, p + dir * REFRACTION_VOLUME_EPS, volume);
         stack[0] = entry;
@@ -106,6 +136,7 @@ fn refraction_trace_ray(
     path.throughput = vec3f(0.0);
     path.first = -1.0;
     path.lit = false;
+    path.spread = 0.0;
     var throughput = vec3f(1.0);
     let interfaces = max(refraction.maxInterfaces, 1u);
     for (var i = 0u; i <= interfaces; i++) {
@@ -121,6 +152,7 @@ fn refraction_trace_ray(
         let water = vol.hit && vol.t < hit.t && vol.t > REFRACTION_VOLUME_EPS;
         let seg = select(min(hit.t, REFRACTION_FAR), vol.t, water);
         if (depth > 0u) { throughput = throughput * refraction_absorb(stack[depth - 1u], seg); }
+        if (hit.t < REFRACTION_FAR || water) { lateral += angle * seg; }
         if (water) {
             // Superfície da água: entra (de fora) ou sai (de dentro); a absorção dentro dela vem do volume.
             if (path.first < 0.0) { path.first = distance(p, vol.position); }
@@ -140,10 +172,15 @@ fn refraction_trace_ray(
             }
             throughput = throughput * (1.0 - wf);
             dir = normalize(refract(dir, wn, wn1 / wn2));
+            let wdn = refraction_channel_dn(medium.ior, medium.abbe);
+            let wdn1 = select(0.0, stack[max(depth, 1u) - 1u].dn, depth > 0u);
+            var wdn2 = wdn;
+            if (vol.inside) { wdn2 = select(0.0, stack[max(depth, 2u) - 2u].dn, depth > 1u); }
+            angle = refraction_spread_angle(angle, wn1, wn2, wdn1, wdn2, wcos, clamp(-dot(wn, dir), 0.0, 1.0));
             origin = vol.position - wn * REFRACTION_EPS;
             if (!vol.inside) {
                 if (depth < REFRACTION_STACK) {
-                    stack[depth] = RefractionMedium(wior, medium.absorption, -1.0);
+                    stack[depth] = RefractionMedium(wior, medium.absorption, -1.0, refraction_channel_dn(medium.ior, medium.abbe));
                     depth = depth + 1u;
                 }
             } else if (depth > 0u) {
@@ -155,6 +192,8 @@ fn refraction_trace_ray(
             // Escapou: o céu na direção ou, sem céu, a cor de limpeza (o mesmo fundo da vista direta).
             let clear = refraction_frame.clear;
             path.radiance += throughput * select(scene_background(dir), clear.rgb, clear.w > 0.5);
+            path.dir = dir;
+            path.spread = angle;
             break;
         }
         let hp = hit.position;
@@ -167,6 +206,8 @@ fn refraction_trace_ray(
             if (all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0))) {
                 path.radiance += throughput * refraction_bicubic(uv);
             }
+            path.dir = dir;
+            path.spread = angle;
             break;
         }
         let c = ray_hit_closure(hit, time);
@@ -180,6 +221,8 @@ fn refraction_trace_ray(
             path.hit = hit;
             path.hit.normal = nf;
             path.dir = dir;
+            // Na superfície, a separação lateral projetada nela (rasante, os pontos se afastam mais).
+            path.spread = lateral / max(-dot(nf, dir), 0.1);
             break;
         }
         let cosi = clamp(-dot(nf, dir), 0.0, 1.0);
@@ -210,10 +253,15 @@ fn refraction_trace_ray(
         }
         throughput = throughput * (1.0 - f) * c.transmission_weight;
         dir = normalize(refract(dir, nf, n1 / n2));
+        let hit_dn = refraction_channel_dn(c.transmission_ior, c.transmission_abbe);
+        let dn1 = select(0.0, stack[max(depth, 1u) - 1u].dn, depth > 0u);
+        var dn2 = hit_dn;
+        if (!entering) { dn2 = select(0.0, stack[max(depth, 2u) - 2u].dn, depth > 1u); }
+        angle = refraction_spread_angle(angle, n1, n2, dn1, dn2, cosi, clamp(-dot(nf, dir), 0.0, 1.0));
         origin = hp - nf * REFRACTION_EPS;
         if (entering) {
             if (depth < REFRACTION_STACK) {
-                stack[depth] = RefractionMedium(hit_ior, c.transmission_color, c.transmission_depth);
+                stack[depth] = RefractionMedium(hit_ior, c.transmission_color, c.transmission_depth, hit_dn);
                 depth = depth + 1u;
             }
         } else if (depth > 0u) {

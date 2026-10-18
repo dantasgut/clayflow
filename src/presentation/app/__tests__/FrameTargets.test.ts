@@ -70,6 +70,44 @@ describe('FrameTargets', () => {
                 textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
             },
             {
+                id: 'refractionAccum',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true, access: 'write-only' },
+            },
+            {
+                id: 'refractionMarkList',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'r32uint',
+                    sizeFromCanvas: true,
+                    depthOrArrayLayers: 3,
+                    viewDimension: '2d-array',
+                    access: 'write-only',
+                },
+            },
+            {
+                id: 'refractionMarkCount',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'r32uint', width: 4, height: 1, access: 'write-only' },
+            },
+            ...(
+                [
+                    ['refractionAaPartial', 'rgba16float'],
+                    ['refractionAaHit', 'rgba32float'],
+                    ['refractionAaInfo', 'rgba32uint'],
+                    ['refractionAaThroughput', 'rgba16float'],
+                    ['refractionAaRadiance', 'rgba16float'],
+                ] as const
+            ).map(([id, format]) => ({
+                id,
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format, sizeFromCanvas: true, access: 'write-only' },
+            })),
+            {
                 id: 'depth',
                 role: 'texture',
                 textureShape: { format: 'depth24plus', sizeFromCanvas: true },
@@ -91,6 +129,14 @@ describe('FrameTargets', () => {
             ['refractionHit', undefined],
             ['refractionHitInfo', undefined],
             ['refractionThroughput', undefined],
+            ['refractionAccum', undefined],
+            ['refractionMarkList', undefined],
+            ['refractionMarkCount', undefined],
+            ['refractionAaPartial', undefined],
+            ['refractionAaHit', undefined],
+            ['refractionAaInfo', undefined],
+            ['refractionAaThroughput', undefined],
+            ['refractionAaRadiance', undefined],
             ['depth', 4],
             ['samples', 4],
         ]);

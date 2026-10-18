@@ -2,6 +2,7 @@ import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
+import { sharedConstant } from '../../scene/shaders/SharedConstant';
 import {
     sceneBackgroundReady,
     sceneEnvironmentReady,
@@ -44,8 +45,17 @@ import forwardTransmissionRequestSource from '../gpu/wgsl/forward_transmission_r
 import refractionTraceSource from '../gpu/wgsl/refraction_trace.wgsl?raw';
 import refractionCodecSource from '../gpu/wgsl/refraction_request.wgsl?raw';
 import refractionShadeSource from '../gpu/wgsl/refraction_shade.wgsl?raw';
+import refractionShadeMainSource from '../gpu/wgsl/refraction_shade_main.wgsl?raw';
+import refractionFootprintSource from '../gpu/wgsl/refraction_footprint.wgsl?raw';
+import refractionSamplesSource from '../gpu/wgsl/refraction_samples.wgsl?raw';
+import refractionResolveSource from '../gpu/wgsl/refraction_resolve.wgsl?raw';
+import refractionResolveMarksSource from '../gpu/wgsl/refraction_resolve_marks.wgsl?raw';
+import refractionMarksSource from '../gpu/wgsl/refraction_marks.wgsl?raw';
+import refractionMarksReadSource from '../gpu/wgsl/refraction_marks_read.wgsl?raw';
 import refractionCopySource from '../gpu/wgsl/refraction_copy.wgsl?raw';
 import refractionTraceMainSource from '../gpu/wgsl/refraction_trace_main.wgsl?raw';
+import refractionTracePixelSource from '../gpu/wgsl/refraction_trace_pixel.wgsl?raw';
+import refractionTraceExtraSource from '../gpu/wgsl/refraction_trace_extra.wgsl?raw';
 import refractionBlurSource from '../gpu/wgsl/refraction_blur.wgsl?raw';
 import refractionBlurHSource from '../gpu/wgsl/refraction_blur_h.wgsl?raw';
 import refractionBlurVSource from '../gpu/wgsl/refraction_blur_v.wgsl?raw';
@@ -246,6 +256,18 @@ export const wire = wgslModule({
     ],
 });
 
+/**
+ * Amostras extras da refração por pixel marcado (além da do centro); as camadas de `refraction_extra`. Três: no
+ * antisserrilhado, três pontos dentro do pixel; na dispersão, um raio por canal (vermelho, verde, azul).
+ */
+const REFRACTION_EXTRA = sharedConstant('REFRACTION_EXTRA', 3, 'u32');
+
+/**
+ * Rodadas das amostras extras da refração por traçado: cada uma processa as entradas da lista dos marcados que cabem
+ * nas texturas do caminho delas (um terço dos pixels da tela); quatro cobrem a tela inteira marcada.
+ */
+export const REFRACTION_ROUNDS = 4;
+
 /** Codificação do pedido de refração e do acerto traçado (spec 034). */
 export const refractionCodec = wgslModule({
     name: 'refraction_codec',
@@ -381,6 +403,114 @@ export const transmissionResources = {
         frequency: 'frame',
         provider: 'private',
     }),
+    /** A amostra do centro de cada pixel (o acumulador): escrita pela luz, lida pela medida e pela média. */
+    accumOut: wgslResource({
+        name: 'refraction_accum_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    accumIn: wgslResource({
+        name: 'refraction_accum_in',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** Argumento do despacho indireto das amostras extras (palavras 0–2) e o contador dos marcados (3). */
+    marks: wgslResource({
+        name: 'refraction_marks',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** A lista dos pixels marcados (coordenadas empacotadas) e a contagem. */
+    markListOut: wgslResource({
+        name: 'refraction_mark_list_out',
+        binding: { storageTexture: { format: 'r32uint', access: 'write', dimension: '2d_array' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    markList: wgslResource({
+        name: 'refraction_mark_list',
+        binding: { texture: { sample: 'u32', dimension: '2d_array' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    markCountOut: wgslResource({
+        name: 'refraction_mark_count_out',
+        binding: { storageTexture: { format: 'r32uint', access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    markCount: wgslResource({
+        name: 'refraction_mark_count',
+        binding: { texture: { sample: 'u32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** O caminho das amostras extras (um texel por par pixel × amostra da lista): escrita e leitura. */
+    aaPartialOut: wgslResource({
+        name: 'refraction_aa_partial_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaPartial: wgslResource({
+        name: 'refraction_aa_partial',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaHitOut: wgslResource({
+        name: 'refraction_aa_hit_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaHit: wgslResource({
+        name: 'refraction_aa_hit',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaInfoOut: wgslResource({
+        name: 'refraction_aa_info_out',
+        binding: { storageTexture: { format: 'rgba32uint', access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaInfo: wgslResource({
+        name: 'refraction_aa_info',
+        binding: { texture: { sample: 'u32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaThroughputOut: wgslResource({
+        name: 'refraction_aa_throughput_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaThroughput: wgslResource({
+        name: 'refraction_aa_throughput',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** A radiância de cada par (pixel marcado, amostra extra): escrita pela luz das extras, lida pela média. */
+    aaRadianceOut: wgslResource({
+        name: 'refraction_aa_radiance_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    aaRadiance: wgslResource({
+        name: 'refraction_aa_radiance',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
     /** Intermediário do desfoque da rugosidade, escrito pela passada horizontal. */
     blurOut: wgslResource({
         name: 'refraction_blur_out',
@@ -454,43 +584,148 @@ export const refractionCore = wgslModule({
     structs: [Camera.matricesSchema],
 });
 
+/** A lista dos pixels marcados pelo antisserrilhado: a escrita (a medida e o argumento indireto) e a leitura. */
+const refractionMarks = wgslModule({
+    name: 'refraction_marks_write',
+    source: refractionMarksSource,
+    requires: [
+        REFRACTION_EXTRA.module,
+        transmissionResources.marks,
+        transmissionResources.markListOut,
+        transmissionResources.markCountOut,
+    ],
+});
+
+const refractionMarksRead = wgslModule({
+    name: 'refraction_marks_read',
+    source: refractionMarksReadSource,
+    requires: [transmissionResources.markList, transmissionResources.markCount],
+});
+
+/** O caminho de uma amostra de um pedido (a do centro e as extras). */
+const refractionTracePixel = wgslModule({
+    name: 'refraction_trace_pixel',
+    source: refractionTracePixelSource,
+    requires: [
+        refractionCore,
+        refractionCodec,
+        camerasResource,
+        refractionFrameResource,
+        transmissionResources.request,
+        transmissionResources.distance,
+    ],
+    structs: [Camera.matricesSchema],
+});
+
+/** A luz da superfície vista por uma amostra (função dos valores gravados pelo caminho). */
+const refractionShade = wgslModule({
+    name: 'refraction_shade',
+    source: refractionShadeSource,
+    requires: [
+        closure,
+        closureEval,
+        rayHit,
+        sceneLightingReady,
+        refractionCodec,
+        refractionFrameResource,
+    ],
+});
+
 /**
- * O traçado dos pedidos (do vidro e da água) em dois kernels: o caminho (`trace`: a geometria, os volumes, o que não
- * depende das luzes) e a luz da superfície vista (`shade`: `scene_lighting`). Separados porque as luzes, as sombras e
- * a luz rebatida pedem mais buffers do que um kernel comporta junto com a estrutura e os volumes.
+ * O traçado dos pedidos (do vidro e da água) em dois kernels por amostra: o caminho (a geometria, os volumes, o que não
+ * depende das luzes) e a luz da superfície vista (`scene_lighting`) — separados porque as luzes, as sombras e a luz
+ * rebatida pedem mais buffers do que um kernel comporta junto com a estrutura e os volumes —, e o antisserrilhado: a
+ * medida de onde a imagem serrilha (e a lista), as amostras extras dos pixels marcados (o caminho e a luz, um fio por
+ * par, um despacho cada) e a média.
  */
 export const refractionKernels = {
+    /** O caminho da amostra do centro (todos os pixels). */
     trace: wgslModule({
         name: 'refraction_trace',
         source: refractionTraceMainSource,
         requires: [
-            refractionCore,
-            refractionCodec,
-            camerasResource,
-            refractionFrameResource,
-            transmissionResources.request,
-            transmissionResources.distance,
+            refractionTracePixel,
             transmissionResources.partialOut,
             transmissionResources.hitOut,
             transmissionResources.hitInfoOut,
             transmissionResources.throughputOut,
         ],
-        structs: [Camera.matricesSchema],
     }),
+    /** A luz da amostra do centro (no acumulador). */
     shade: wgslModule({
-        name: 'refraction_shade',
-        source: refractionShadeSource,
+        name: 'refraction_shade_main',
+        source: refractionShadeMainSource,
         requires: [
-            closure,
-            closureEval,
-            rayHit,
-            sceneLightingReady,
-            refractionCodec,
-            refractionFrameResource,
+            refractionShade,
             transmissionResources.partialIn,
             transmissionResources.hitIn,
             transmissionResources.hitInfoIn,
             transmissionResources.throughputIn,
+            transmissionResources.accumOut,
+        ],
+    }),
+    /** A medida de onde a imagem refratada serrilha e a lista dos marcados. */
+    footprint: wgslModule({
+        name: 'refraction_footprint',
+        source: refractionFootprintSource,
+        requires: [
+            refractionMarks,
+            refractionParamsResource,
+            transmissionResources.hitIn,
+            transmissionResources.accumIn,
+            transmissionResources.throughputIn,
+        ],
+    }),
+    /** O argumento indireto das amostras extras e a contagem dos marcados, e o avanço das rodadas (um fio cada). */
+    marksArgs: refractionMarks,
+    /** O caminho das amostras extras (um fio por par pixel marcado × amostra). */
+    traceExtra: wgslModule({
+        name: 'refraction_trace_extra',
+        source: refractionTraceExtraSource,
+        requires: [
+            refractionTracePixel,
+            refractionMarksRead,
+            REFRACTION_EXTRA.module,
+            transmissionResources.aaPartialOut,
+            transmissionResources.aaHitOut,
+            transmissionResources.aaInfoOut,
+            transmissionResources.aaThroughputOut,
+        ],
+    }),
+    /** A luz das amostras extras (na camada de cada uma). */
+    sample: wgslModule({
+        name: 'refraction_sample',
+        source: refractionSamplesSource,
+        requires: [
+            refractionShade,
+            refractionMarksRead,
+            REFRACTION_EXTRA.module,
+            transmissionResources.aaPartial,
+            transmissionResources.aaHit,
+            transmissionResources.aaInfo,
+            transmissionResources.aaThroughput,
+            transmissionResources.aaRadianceOut,
+        ],
+    }),
+    /** A amostra do centro como a radiância transmitida de cada pixel com pedido. */
+    resolve: wgslModule({
+        name: 'refraction_resolve',
+        source: refractionResolveSource,
+        requires: [
+            transmissionResources.hitIn,
+            transmissionResources.accumIn,
+            transmissionResources.radianceOut,
+        ],
+    }),
+    /** A média dos pixels marcados (um fio por entrada da lista), sobre a do centro. */
+    resolveMarks: wgslModule({
+        name: 'refraction_resolve_marks',
+        source: refractionResolveMarksSource,
+        requires: [
+            refractionMarksRead,
+            REFRACTION_EXTRA.module,
+            transmissionResources.accumIn,
+            transmissionResources.aaRadiance,
             transmissionResources.radianceOut,
         ],
     }),

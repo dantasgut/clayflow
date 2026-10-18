@@ -281,6 +281,8 @@ export class GpuEngineCore implements EngineCore {
             this.pendingPipelines.set(hash, pending);
         }
         await pending;
+        // Desligado durante a compilação (o app descartado): o resultado foi descartado, sem dono a registrar.
+        if (this.shuttingDown) return spec;
         if (this.releasedWhilePending.has(spec)) {
             // destroy(spec) chegou antes do fim da compilação: a posse não fica registrada.
             this.releasedWhilePending.delete(spec);
@@ -295,12 +297,15 @@ export class GpuEngineCore implements EngineCore {
 
     /**
      * Compila o pipeline em background e o registra sem dono; cada `createAsync` que aguarda acrescenta a própria
-     * posse. Device perdido durante a compilação descarta o resultado (o store já foi limpo).
+     * posse. Device perdido durante a compilação descarta o resultado (o store já foi limpo); o desligamento (`shutdown`)
+     * também, em silêncio.
      */
     private async compilePipeline(hash: string, spec: AnyPipelineSpec): Promise<void> {
         const ctx = this.requireContext();
         try {
             const pipeline = await this.materializePipelineAsync(spec, ctx);
+            // Desligado no meio (o app descartado): nada a registrar, e não é erro.
+            if (this.shuttingDown) return;
             if (this.context !== ctx) {
                 throw new Error('GpuEngineCore: device perdido durante a compilação do pipeline.');
             }

@@ -182,6 +182,10 @@ gravados.
   cópia (sem blocos), deslocada pela profundidade da cena.
 - **FR-003**: A refração MUST manter o modelo da 011: absorção pela distância percorrida, dispersão por canal, parede
   fina, rugosidade, Fresnel e a mistura com o reflexo.
+- **FR-003a**: A imagem refratada MUST não serrilhar: onde ela muda de um pixel para o vizinho (bordas vistas pelo
+  vidro, padrões finos reduzidos pela lente) o pixel recebe amostras extras dentro dele, cada uma com a sua luz; a opção
+  `antialias` da `Refraction` desliga (padrão ligada). _Acrescentado na implementação (2026-10-18), a pedido do
+  usuário: nenhum serrilhado na entrega._
 - **FR-004**: A superfície atingida pelo raio refratado MUST receber a mesma iluminação da cena (luz direta, sombras,
   GI e céu) que receberia vista diretamente.
 - **FR-005**: A água de partículas da 017/033 e o material da água MUST usar a mesma refração.
@@ -229,6 +233,20 @@ gravados.
 
 ## Success Criteria _(mandatory)_
 
+### Princípio dos limiares (pedido do usuário, 2026-10-18)
+
+Os limiares servem a simulações de física e engenharia e a jogos, em dois eixos separados:
+
+- **Exatidão** (independe do hardware; vale sempre): a imagem e a física comparadas a uma referência — analítica ou
+  recalculada na CPU — com erro em porcentagem da referência; trajetórias físicas bit a bit entre execuções, no fonte e
+  com `--dist`. Nenhuma otimização (adaptativa ou não) troca exatidão por tempo: ela reproduz o resultado completo
+  dentro do limiar de exatidão, medido.
+- **Tempo** (o perfil tempo real, jogos e visualização interativa): orçamento do quadro a 60 Hz (16,7 ms) e o custo de
+  cada recurso como fração dele, no hardware de referência declarado — o piso é o Apple M4 (integrado); a RTX 4090
+  passa pelos mesmos limites com folga. Nada de número calibrado à medida de uma máquina: o limite vem da fração do
+  orçamento, e a medida só o confirma. Fora do perfil tempo real (engenharia, offline), os parâmetros de qualidade
+  podem subir e o quadro passar do orçamento; os limiares de exatidão continuam valendo.
+
 ### Measurable Outcomes
 
 - **SC-001**: Com a esfera de vidro ampliando ≥ 8× o tabuleiro, nenhuma borda de casa vista pelo vidro mostra degraus:
@@ -237,8 +255,10 @@ gravados.
   esfera, do bloco de vidro com absorção e do copo d'água.
 - **SC-003**: Objetos fora do quadro ou encobertos aparecem na refração em 100 % dos casos medidos (cor do objeto, não
   do vidro nem da borda).
-- **SC-004**: O custo da refração com o vidro cobrindo um quarto da tela a 1280×720 fica ≤ 1,5 ms por quadro; sem
-  transmissão na cena, o custo do quadro não muda (dentro do ruído).
+- **SC-004**: A refração, com o vidro cobrindo um quarto da tela a 1280×720 (um cômodo iluminado atrás dele), custa
+  ≤ 15 % do orçamento do quadro a 60 Hz (≤ 2,5 ms) no hardware de referência, com o antisserrilhado da imagem refratada
+  e a dispersão; sem transmissão na cena, o custo do quadro não muda (dentro do ruído). _Revisto (2026-10-18)_: o limite
+  é a fração do orçamento (princípio dos limiares), não a medida de uma máquina.
 - **SC-005**: O tempo de GPU por quadro e a medida por repetição no relógio de parede concordam a ≤ 15 % numa cena de
   custo conhecido; nenhuma amostra repetida entra nas médias.
 - **SC-006**: Os 31 smokes passam no fonte e com `--dist`, sem exceção; as checagens H4 e H5 passam com os critérios

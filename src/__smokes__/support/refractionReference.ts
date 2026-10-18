@@ -173,8 +173,10 @@ export function traceChannel(
     k: number,
     inside: readonly number[] = [],
     depth = 0,
+    weight = 1,
 ): number {
-    if (depth > MAX_DEPTH) return 0;
+    // Ramo sem peso (as reflexões internas repetidas): sem contribuição mensurável.
+    if (depth > MAX_DEPTH || weight < 1e-4) return 0;
     // O acerto mais próximo: objetos de vidro, emissores, painel.
     let best = Infinity;
     let hitObj = -1;
@@ -233,12 +235,23 @@ export function traceChannel(
     const f = fresnel(n1, n2, cosi);
     const reflDir = norm(add(d, scale(n, 2 * cosi)));
     const off = (dir: Vec3): Vec3 => add(p, scale(dir, 1e-4));
-    let radiance = f * traceChannel(scene, off(reflDir), reflDir, k, inside, depth + 1);
+    let radiance =
+        f * traceChannel(scene, off(reflDir), reflDir, k, inside, depth + 1, weight * f * att);
     if (f < 1) {
         const eta = n1 / n2;
         const cost = Math.sqrt(1 - eta * eta * (1 - cosi * cosi));
         const tDir = norm(add(scale(d, eta), scale(n, eta * cosi - cost)));
-        radiance += (1 - f) * traceChannel(scene, off(tDir), tDir, k, nextInside, depth + 1);
+        radiance +=
+            (1 - f)
+            * traceChannel(
+                scene,
+                off(tDir),
+                tDir,
+                k,
+                nextInside,
+                depth + 1,
+                weight * (1 - f) * att,
+            );
     }
     return att * radiance;
 }
@@ -260,23 +273,49 @@ export interface PinholeCamera {
     readonly height: number;
 }
 
-/** Raio pelo centro do pixel (x, y), y de cima para baixo. */
-export function pixelRay(cam: PinholeCamera, x: number, y: number): { o: Vec3; d: Vec3 } {
+/** Raio pelo ponto (x + 0,5 + dx, y + 0,5 + dy) do pixel (x, y), y de cima para baixo. */
+export function pixelRay(
+    cam: PinholeCamera,
+    x: number,
+    y: number,
+    dx = 0,
+    dy = 0,
+): { o: Vec3; d: Vec3 } {
     const t = Math.tan(cam.fov / 2);
     const aspect = cam.width / cam.height;
-    const u = ((2 * (x + 0.5)) / cam.width - 1) * t * aspect;
-    const v = (1 - (2 * (y + 0.5)) / cam.height) * t;
+    const u = ((2 * (x + 0.5 + dx)) / cam.width - 1) * t * aspect;
+    const v = (1 - (2 * (y + 0.5 + dy)) / cam.height) * t;
     return { o: cam.eye, d: norm([u, v, -1]) };
 }
 
-/** Imagem de referência (rgb linear por pixel, linhas de cima para baixo). */
-export function renderReference(scene: RefractionScene, cam: PinholeCamera): Float32Array {
+/**
+ * As amostras do antisserrilhado da refração do motor (spec 034): o centro e três pontos a 120° num raio de 0,35 px —
+ * as de `refraction_sample_offset`.
+ */
+export const PIXEL_SAMPLES: readonly (readonly [number, number])[] = [
+    [0, 0],
+    ...[1, 2, 3].map((s) => {
+        const a = (s - 1) * ((2 * Math.PI) / 3) + Math.PI / 6;
+        return [0.35 * Math.cos(a), 0.35 * Math.sin(a)] as const;
+    }),
+];
+
+/** Imagem de referência (rgb linear por pixel, a média das amostras do pixel, linhas de cima para baixo). */
+export function renderReference(
+    scene: RefractionScene,
+    cam: PinholeCamera,
+    samples: readonly (readonly [number, number])[] = PIXEL_SAMPLES,
+): Float32Array {
     const out = new Float32Array(cam.width * cam.height * 3);
     for (let y = 0; y < cam.height; y++)
         for (let x = 0; x < cam.width; x++) {
-            const { o, d } = pixelRay(cam, x, y);
-            const c = traceRgb(scene, o, d);
-            out.set(c, (y * cam.width + x) * 3);
+            const sum = [0, 0, 0];
+            for (const [dx, dy] of samples) {
+                const { o, d } = pixelRay(cam, x, y, dx, dy);
+                const c = traceRgb(scene, o, d);
+                for (let k = 0; k < 3; k++) sum[k]! += c[k]! / samples.length;
+            }
+            out.set(sum, (y * cam.width + x) * 3);
         }
     return out;
 }

@@ -43,7 +43,7 @@ D3D12/Vulkan na NVIDIA RTX 4090 — validação do usuário)
 
 **Project Type**: biblioteca (engine)
 
-**Performance Goals**: refração ≤ 1,5 ms a 1280×720 com o vidro em um quarto da tela; sem transmissão, custo inalterado;
+**Performance Goals**: refração ≤ 15 % do quadro a 60 Hz (≤ 2,5 ms) a 1280×720 com o vidro em um quarto da tela (princípio dos limiares da spec); sem transmissão, custo inalterado;
 água a 64 mil partículas sem regressão com a refração nova; desempenho do `fluidSurface` ≤ 16,7 ms pela medida
 corrigida
 

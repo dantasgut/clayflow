@@ -184,4 +184,15 @@ describe('GpuEngineCore — identidade, imutabilidade e posse', () => {
         await again;
         expect(raw.createComputePipelineAsync).toHaveBeenCalledTimes(2);
     });
+
+    it('shutdown durante a compilação assíncrona descarta o resultado sem erro (o app descartado)', async () => {
+        const { core, finishPipeline } = setup();
+        const p = pipelineSpec();
+        core.create(p.shader);
+        core.create(p.layouts[0]!);
+        const pending = core.createAsync(p);
+        core.shutdown();
+        finishPipeline();
+        await expect(pending).resolves.toBe(p);
+    });
 });

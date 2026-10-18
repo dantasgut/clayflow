@@ -4,7 +4,7 @@ import { Refraction } from '../Refraction';
 describe('Refraction (spec 034)', () => {
     it('padrão: 6 interfaces e o desfoque da rugosidade; um uniform', () => {
         const r = new Refraction();
-        expect(r.data).toEqual({ maxInterfaces: 6, roughnessBlur: 1 });
+        expect(r.data).toEqual({ maxInterfaces: 6, roughnessBlur: 1, antialias: 1 });
         expect(r.getDescriptors()).toEqual([
             { id: 'params', role: 'uniform', schema: Refraction.schema },
         ]);
@@ -12,10 +12,9 @@ describe('Refraction (spec 034)', () => {
     });
 
     it('autoria: interfaces e desfoque; fora do intervalo rejeita', () => {
-        expect(new Refraction({ maxInterfaces: 2, roughnessBlur: false }).data).toEqual({
-            maxInterfaces: 2,
-            roughnessBlur: 0,
-        });
+        expect(
+            new Refraction({ maxInterfaces: 2, roughnessBlur: false, antialias: false }).data,
+        ).toEqual({ maxInterfaces: 2, roughnessBlur: 0, antialias: 0 });
         expect(() => new Refraction({ maxInterfaces: 0 })).toThrow(RangeError);
         expect(() => new Refraction({ maxInterfaces: 1.5 })).toThrow(RangeError);
         expect(() => new Refraction({ maxInterfaces: 33 })).toThrow(RangeError);

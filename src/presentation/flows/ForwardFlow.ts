@@ -68,12 +68,14 @@ import {
     forwardTransmissionRequest,
     refractionBlurPasses,
     refractionFrameResource,
-    refractionKernels,
     transmissionResources,
 } from '../../elements/material/shaders';
 import { RayScene } from '../../elements/raytrace/RayScene';
-import { composeHitMaterial } from '../../elements/raytrace/hitMaterial';
-import { rayHitMaterialPoint } from '../../elements/raytrace/shaders';
+import {
+    refractionPipelines,
+    type RefractionDispatch,
+    type RefractionPipelineSet,
+} from '../../elements/material/refractionPipelines';
 import { LOBES } from '../../elements/material/pbr/lobes';
 import {
     createComputeKernel,
@@ -102,7 +104,30 @@ const REFRACTION_TARGETS = [
     'refractionHit',
     'refractionHitInfo',
     'refractionThroughput',
+    'refractionAccum',
+    'refractionMarkList',
+    'refractionMarkCount',
+    'refractionAaPartial',
+    'refractionAaHit',
+    'refractionAaInfo',
+    'refractionAaThroughput',
+    'refractionAaRadiance',
 ] as const;
+
+/** Os alvos do caminho das amostras extras do antisserrilhado e os recursos (escrita, leitura) ligados a cada um. */
+const AA_TARGETS: readonly (readonly [string, readonly BindingKey[]])[] = [
+    ['refractionAaPartial', [transmissionResources.aaPartialOut, transmissionResources.aaPartial]],
+    ['refractionAaHit', [transmissionResources.aaHitOut, transmissionResources.aaHit]],
+    ['refractionAaInfo', [transmissionResources.aaInfoOut, transmissionResources.aaInfo]],
+    [
+        'refractionAaThroughput',
+        [transmissionResources.aaThroughputOut, transmissionResources.aaThroughput],
+    ],
+    [
+        'refractionAaRadiance',
+        [transmissionResources.aaRadianceOut, transmissionResources.aaRadiance],
+    ],
+];
 
 /** As passadas do desfoque da rugosidade da transmissão (spec 034), na ordem. */
 const BLUR_PIPELINES = ['forward:refraction:blur_h', 'forward:refraction:blur_v'] as const;
@@ -534,14 +559,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     /** Views ligadas às variáveis dos transmissivos (religadas quando mudam). */
     private transmissionBound: readonly unknown[] = [];
     /** Pipeline do traçado da refração em uso e o que compila (nova composição das funções `material`), spec 034. */
-    private traceId: string | undefined;
-    private nextTraceId: string | undefined;
+    private trace: RefractionPipelineSet | undefined;
+    private nextTrace: RefractionPipelineSet | undefined;
     /** Revisão das funções `material` da estrutura de raios com que o traçado foi preparado. */
     private traceRevision = -1;
     /** As passadas do desfoque da rugosidade preparadas. */
     private blurPrepared = false;
     /** Câmera ativa e tempo do traçado da refração (spec 034). */
     private readonly refractionFrame: UniformBufferSpec;
+    /** Argumento indireto e contador da lista dos pixels marcados pelo antisserrilhado da refração. */
+    private readonly refractionMarks: IndirectBufferSpec;
 
     constructor(ctx: FlowContext, options: ForwardFlowOptions = {}) {
         super();
@@ -564,6 +591,13 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             discriminator: 'forward_surface_diff_dummy',
             byteSize: SurfaceDiffSchema.stride,
         });
+        this.refractionMarks = ctx.core.create<IndirectBufferSpec>({
+            kind: 'buffer',
+            subkind: 'indirect',
+            discriminator: 'forward_refraction_marks',
+            // O argumento do despacho indireto, o contador da medida, o total e o início da rodada.
+            byteSize: 32,
+        });
         this.refractionFrame = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
             subkind: 'uniform',
@@ -574,6 +608,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             [forwardFrameResource, this.frameParams],
             [surfaceDiffReadResource, this.dummyDiff],
             [refractionFrameResource, this.refractionFrame],
+            [transmissionResources.marks, this.refractionMarks],
         ]);
         const diffs = {
             to: 'idle' as const,
@@ -798,7 +833,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 return id === v.base.cw ? t[side].cw : t[side].ccw;
             };
         this.recordSceneCopy(frame, colorTexture);
-        const trace = this.refractionTracePipeline(bound);
+        const trace = this.tracePipelines(bound);
         // Os pedidos sempre limpos: sem traçado pronto ficam vazios e a composição usa a cópia.
         frame.render(
             {
@@ -825,10 +860,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     Math.ceil(radiance.height / 8),
                 ] as const;
                 // O caminho de cada pedido e a luz da superfície vista.
-                for (const kernel of trace) {
+                for (const [kernel, kind] of trace) {
                     pass.bind.setPipeline(kernel.spec);
                     kernel.bindTo(pass.bind);
-                    pass.dispatch.workgroups(...groups);
+                    if (kind === 'screen') pass.dispatch.workgroups(...groups);
+                    else if (kind === 'single') pass.dispatch.workgroups(1);
+                    else pass.dispatch.workgroupsIndirect(this.refractionMarks, 0);
                 }
                 // O desfoque da rugosidade sobre a imagem traçada (os pixels sem rugosidade só copiam).
                 for (const id of BLUR_PIPELINES) {
@@ -1022,8 +1059,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const hit = this.resources.textureViewOf(targets, 'refractionHit');
         const hitInfo = this.resources.textureViewOf(targets, 'refractionHitInfo');
         const throughput = this.resources.textureViewOf(targets, 'refractionThroughput');
+        const accum = this.resources.textureViewOf(targets, 'refractionAccum');
+        const markList = this.resources.textureViewOf(targets, 'refractionMarkList');
+        const markCount = this.resources.textureViewOf(targets, 'refractionMarkCount');
+        const aa = AA_TARGETS.map(([id]) => this.resources.textureViewOf(targets, id));
         if (
-            texture === undefined
+            aa.some((v) => v === undefined)
+            || markList === undefined
+            || markCount === undefined
+            || accum === undefined
+            || texture === undefined
             || request === undefined
             || distance === undefined
             || radiance === undefined
@@ -1084,6 +1129,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             hit,
             hitInfo,
             throughput,
+            accum,
+            markList,
+            markCount,
+            ...aa,
             sceneDepth,
         ];
         if (sources.some((v, k) => v !== this.transmissionBound[k])) {
@@ -1105,6 +1154,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     [transmissionResources.hitInfoIn, hitInfo],
                     [transmissionResources.throughputOut, throughput],
                     [transmissionResources.throughputIn, throughput],
+                    [transmissionResources.accumIn, accum],
+                    [transmissionResources.accumOut, accum],
+                    [transmissionResources.markList, markList],
+                    [transmissionResources.markListOut, markList],
+                    [transmissionResources.markCount, markCount],
+                    [transmissionResources.markCountOut, markCount],
+                    ...AA_TARGETS.flatMap(([, resources], k) =>
+                        resources.map((r): [BindingKey, BindingSource] => [r, aa[k]!]),
+                    ),
                     [
                         ctx.bound.slots.target.sampleCount > 1
                             ? transmissionResources.sceneDepthMs
@@ -1124,43 +1182,26 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private syncRefraction(ctx: Ctx): void {
         const scene = ctx.bound.slots.rayScene?.resource as RayScene | undefined;
         if (this.sceneCopy === undefined || scene === undefined) return;
-        const ready = (id: string): boolean =>
-            ctx.bound.pipelines.get(id)?.ready === true
-            && ctx.bound.pipelines.get(`${id}:shade`)?.ready === true;
-        if (this.nextTraceId !== undefined && ready(this.nextTraceId)) {
-            if (this.traceId !== undefined) {
-                ctx.release(this.traceId);
-                ctx.release(`${this.traceId}:shade`);
-            }
-            this.traceId = this.nextTraceId;
-            this.nextTraceId = undefined;
+        const ready = (set: RefractionPipelineSet): boolean =>
+            set.descriptors.every((d) => ctx.bound.pipelines.get(d.id)?.ready === true);
+        const release = (set: RefractionPipelineSet): void => {
+            for (const d of set.descriptors) ctx.release(d.id);
+        };
+        if (this.nextTrace !== undefined && ready(this.nextTrace)) {
+            if (this.trace !== undefined) release(this.trace);
+            this.trace = this.nextTrace;
+            this.nextTrace = undefined;
         }
         if (scene.materialRevision === this.traceRevision) return;
         this.traceRevision = scene.materialRevision;
-        const fns = scene.materialFunctions;
-        const id = `forward:refraction:${scene.materialRevision}`;
-        if (this.nextTraceId !== undefined) {
-            ctx.release(this.nextTraceId);
-            ctx.release(`${this.nextTraceId}:shade`);
-        }
-        const compose = (shader: WgslModule): WgslModule =>
-            fns.length === 0
-                ? shader
-                : bindPoints(shader, new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]));
-        ctx.prepare({
-            id,
-            role: 'compute',
-            shader: compose(refractionKernels.trace),
-            entryPoints: ['refraction_trace_main'],
-        });
-        ctx.prepare({
-            id: `${id}:shade`,
-            role: 'compute',
-            shader: compose(refractionKernels.shade),
-            entryPoints: ['refraction_shade_main'],
-        });
-        if (this.traceId === undefined) this.traceId = id;
-        else this.nextTraceId = id;
+        const set = refractionPipelines(
+            'forward:refraction:' + String(scene.materialRevision),
+            scene.materialFunctions,
+        );
+        if (this.nextTrace !== undefined) release(this.nextTrace);
+        for (const d of set.descriptors) ctx.prepare(d);
+        if (this.trace === undefined) this.trace = set;
+        else this.nextTrace = set;
         if (!this.blurPrepared) {
             ctx.prepare({
                 id: BLUR_PIPELINES[0],
@@ -1178,16 +1219,19 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         }
     }
 
-    /** Os dois kernels do traçado da refração (o caminho e a luz), se prontos. */
-    private refractionTracePipeline(
+    /** Os pipelines do traçado da refração na ordem dos despachos, se todos prontos. */
+    private tracePipelines(
         bound: BoundFlow<ForwardSlots>,
-    ): readonly [PreparedCompute, PreparedCompute] | undefined {
-        if (this.traceId === undefined || bound.slots.rayScene === undefined) return undefined;
-        const trace = bound.pipelines.get(this.traceId);
-        const shade = bound.pipelines.get(`${this.traceId}:shade`);
-        return trace?.role === 'compute' && trace.ready && shade?.role === 'compute' && shade.ready
-            ? [trace, shade]
-            : undefined;
+    ): [PreparedCompute, RefractionDispatch['kind']][] | undefined {
+        const set = this.trace;
+        if (set === undefined || bound.slots.rayScene === undefined) return undefined;
+        const out: [PreparedCompute, RefractionDispatch['kind']][] = [];
+        for (const { id, kind } of set.order) {
+            const p = bound.pipelines.get(id);
+            if (p?.role !== 'compute' || !p.ready) return undefined;
+            out.push([p, kind]);
+        }
+        return out;
     }
 
     private releaseSceneCopy(): void {
@@ -1218,6 +1262,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     override dispose(): void {
         this.releaseSceneCopy();
         this.core.destroy(this.refractionFrame);
+        this.core.destroy(this.refractionMarks);
         if (this.copySampler !== undefined) this.core.destroy(this.copySampler);
         for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
         this.indirectArgs.clear();
