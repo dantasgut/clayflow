@@ -44,13 +44,21 @@ export async function readWorlds(
 
 /**
  * Deixa as compilações em segundo plano concluírem: quadros de duração 0 (sem avanço do tempo nem passos da física)
- * intercalados com espera real, até `ms`.
+ * intercalados com espera real, por pelo menos `ms` e até nenhuma compilação pendente por 100 ms (fila interna do
+ * núcleo, só no teste; limite de 30 s). Um tempo fixo não basta: enquanto o pipeline de uma função `material` compila,
+ * o objeto é desenhado sem ela (nenhum quadro sem o objeto), e o tempo de compilação depende do shader e da máquina.
  */
 export async function settle(app: Application, ms = 400): Promise<void> {
-    const end = performance.now() + ms;
-    while (performance.now() < end) {
+    const pending = (): number =>
+        (app.core as unknown as { pendingPipelines: Map<string, unknown> }).pendingPipelines.size;
+    const start = performance.now();
+    let quiet = start;
+    for (;;) {
         app.step(0);
         await new Promise((r) => setTimeout(r, 16));
+        const now = performance.now();
+        if (pending() > 0) quiet = now;
+        if ((now - start >= ms && now - quiet >= 100) || now - start > 30000) break;
     }
     app.step(0);
 }

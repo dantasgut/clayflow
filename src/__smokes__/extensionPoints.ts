@@ -734,14 +734,19 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
             app.dispose();
         }
         // Linha do meio: a cor (canal vermelho) muda de casa em casa com a função (na diagonal de um tabuleiro a casa
-        // não muda).
+        // não muda). Claro: acima de 3/4 do vermelho do plano liso no centro — relativo à mesma cena, não um valor de tela
+        // fixo. Com a luz e a câmera a prumo, o especular GGX da 011 (F0 0,04) soma o mesmo às duas casas: a escura
+        // (albedo 0,15×) fica a ~0,28 da clara em radiância e ~0,55 na tela (AgX + sRGB); a saída sem codificação de
+        // antes da 011 a punha abaixo de um limiar fixo de 60.
         const lum = (img: ImageData, x: number, y: number): number =>
             img.data[(y * img.width + x) * 4]!;
+        const threshold =
+            (3 / 4) * c.measure('vermelho do plano liso no centro', lum(shots[0]!, 64, 61));
         const changes = (img: ImageData): number => {
             let n = 0;
             let prev = -1;
             for (let k = 20; k < 108; k++) {
-                const bright = lum(img, k, 61) > 60 ? 1 : 0;
+                const bright = lum(img, k, 61) > threshold ? 1 : 0;
                 if (prev >= 0 && bright !== prev) n++;
                 prev = bright;
             }
@@ -1050,7 +1055,9 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle 
             app.dispose();
         }
         // Altura (linha) média dos pixels laranja por coluna, no centro e nas bordas: reta na perspectiva, curva no
-        // olho de peixe (o centro mais alto que as pontas, abaulado para fora).
+        // olho de peixe (o centro mais alto que as pontas, abaulado para fora). Laranja: o vermelho domina (o cubo verde
+        // e o fundo azul-marinho têm outro canal dominante) — sem razões fixas entre os canais, que a apresentação da
+        // 011 (AgX + sRGB) comprime.
         const rowOf = (img: ImageData, x0: number, x1: number): number => {
             let sum = 0;
             let n = 0;
@@ -1058,7 +1065,7 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle 
                 for (let x = x0; x < x1; x++) {
                     const i = (y * img.width + x) * 4;
                     const [r, g, b] = [img.data[i]!, img.data[i + 1]!, img.data[i + 2]!];
-                    if (r > 40 && r > g * 1.6 && r > b * 2.5) {
+                    if (r > 40 && r > g && r > b) {
                         sum += y;
                         n++;
                     }

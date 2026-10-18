@@ -6,7 +6,8 @@
 //   2. a densidade normalizada (massa conservada qualquer que seja a forma do núcleo) nos voxels de ½ espaçamento, a
 //      superfície no nível `iso` dela;
 //   3. a distância com sinal na faixa estreita (|∇φ| ≈ 1) pelo método iterativo rápido da eikonal a partir dos voxels
-//      da interface, o que permite marchar com passos seguros;
+//      da interface, o que permite marchar com passos seguros, e o filtro binomial dela (`smoothPhi`: a normal sem o
+//      ruído de poucos voxels dos cruzamentos de primeira ordem);
 //      (a densidade passa antes por um filtro binomial 3 × 3 × 3: sem ondulação na escala das partículas);
 //   4. a amostragem por B-spline tricúbica (contínua até a segunda derivada: ponto e normal lisos de perto) e a marcha
 //      do raio com refinamento por secante.
@@ -41,6 +42,11 @@ export const FIELD = Object.freeze({
     band: 4,
     /** Iterações do método rápido da eikonal (a distância é exata até essa quantidade de voxels da interface). */
     iterations: 6,
+    /**
+     * Passadas do filtro binomial 3 × 3 × 3 de φ depois do redistanciamento: a interface por cruzamentos de primeira
+     * ordem deixa ruído de poucos voxels na normal, que as cáusticas amplificam sob a água parada (spec 034, H5).
+     */
+    phiPasses: 2,
     /** Blocos de voxels por lado (a grade esparsa da GPU). */
     brick: 8,
 });
@@ -244,8 +250,50 @@ export function buildField(positions: readonly Vec3[], params: FieldParams): Fie
         origin,
         voxel,
         dims,
-        phi: redistance(smoothDensity(rho, dims), dims, voxel, params.iso ?? FIELD.iso),
+        phi: smoothPhi(
+            redistance(smoothDensity(rho, dims), dims, voxel, params.iso ?? FIELD.iso),
+            dims,
+            voxel,
+        ),
     };
+}
+
+/**
+ * Filtro binomial 3 × 3 × 3 de φ, `FIELD.phiPasses` vezes (separável: (1, 2, 1)/4 em x, y e z); fora da grade, o teto
+ * positivo das iterações (fora do fluido), como os voxels sem bloco da GPU. A média mantém |∇φ| ≤ 1 e não desloca uma
+ * superfície plana.
+ */
+export function smoothPhi(
+    phi: Float32Array,
+    dims: readonly [number, number, number],
+    voxel: number,
+): Float32Array {
+    const [nx, ny, nz] = dims;
+    const cap = (FIELD.iterations + 1) * voxel;
+    let src = phi;
+    for (let pass = 0; pass < FIELD.phiPasses; pass++) {
+        for (const [ax, ay, az] of [
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ] as const) {
+            const dst = new Float32Array(src.length);
+            const read = (x: number, y: number, z: number): number =>
+                x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz
+                    ? cap
+                    : src[x + nx * (y + ny * z)]!;
+            for (let z = 0; z < nz; z++)
+                for (let y = 0; y < ny; y++)
+                    for (let x = 0; x < nx; x++)
+                        dst[x + nx * (y + ny * z)] =
+                            0.25
+                            * (read(x - ax, y - ay, z - az)
+                                + 2 * read(x, y, z)
+                                + read(x + ax, y + ay, z + az));
+            src = dst;
+        }
+    }
+    return src;
 }
 
 /**

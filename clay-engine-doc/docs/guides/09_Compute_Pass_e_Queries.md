@@ -133,11 +133,13 @@ O motor faz o trabalho das seções anteriores por você. Com `Application.creat
 - **Regiões do QuerySet**: os índices `[0, 64)` continuam livres para uso manual
   (`core.profiler.timestampWritesFor(first, last)`); o profiling por quadro usa a região seguinte, de tamanho
   `profilingCapacity` (default 256 timestamps = 128 passes).
-- **Leitura**: ao fim de cada gravação com timestamps, o motor resolve o QuerySet e copia para um buffer de
-  leitura; se o mapeamento anterior ainda estiver em curso, aquele quadro é pulado (nunca bloqueia). Quando a
-  leitura chega, `frameComplete.stats.gpuTimeMs` passa a valer a soma dos intervalos válidos, com
-  `stats.gpuFrame` indicando o quadro de origem (defasagem de 1–3 quadros) e `stats.stagesNs` o tempo por
-  rótulo de passe (o `DebugFlow` repassa em `profilerStats.stagesNs`).
+- **Leitura**: ao fim de cada gravação com timestamps, o motor resolve o QuerySet e copia para um de **4 buffers de
+  leitura** em anel (ocupado do envio até o mapeamento terminar); com os quatro ocupados, aquele quadro fica sem
+  leitura e é contado em `core.profiler.droppedFrames` (nunca bloqueia). Leituras de quadros mais antigos que a última entregue são
+  descartadas. Cada leitura é entregue **uma vez**: o primeiro `frameComplete` depois de ela chegar traz
+  `stats.gpuTimeMs` (a soma dos intervalos válidos), `stats.gpuFrame` (o quadro de origem, defasagem de 1–3 quadros) e
+  `stats.stagesNs` (o tempo por rótulo de passe; o `DebugFlow` repassa em `profilerStats.stagesNs`); os eventos
+  seguintes vêm sem eles até a próxima leitura. `core.lastFrameStats()` mantém a última para consulta.
 - **Estouro**: um quadro com mais passes do que a capacidade fica sem `gpuTimeMs` e o console avisa uma vez —
   aumente `profilingCapacity`.
 - **Gravações auxiliares** (ex.: `pool_grow:*`, a cópia GPU→GPU quando um pool cresce) não abrem passes, não

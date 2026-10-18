@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildField, marchField, sampleField, symmetricEigen3, type Vec3 } from '../field';
+import {
+    buildField,
+    FIELD,
+    marchField,
+    sampleField,
+    smoothPhi,
+    symmetricEigen3,
+    type Vec3,
+} from '../field';
 
 // Referência do campo dos fluidos (spec 033, T043): autovalores, plano que fica plano, gotas separadas, |∇φ| ≈ 1 e a
 // marcha contra a superfície.
@@ -112,5 +120,36 @@ describe('campo dos fluidos — referência (spec 033, US7)', () => {
             expect(Math.hypot(...g)).toBeGreaterThan(0.85);
             expect(Math.hypot(...g)).toBeLessThan(1.15);
         }
+    });
+
+    it('o filtro de φ (spec 034) não desloca um plano e mantém |∇φ| ≤ 1', () => {
+        const dims = [12, 12, 12] as const;
+        const voxel = 0.01;
+        const cap = (FIELD.iterations + 1) * voxel;
+        // Plano y = 6 voxels, distância limitada ao teto, com ruído de um voxel na interface.
+        const phi = new Float32Array(12 * 12 * 12);
+        for (let z = 0; z < 12; z++)
+            for (let y = 0; y < 12; y++)
+                for (let x = 0; x < 12; x++)
+                    phi[x + 12 * (y + 12 * z)] = Math.max(
+                        -cap,
+                        Math.min(cap, (y + 0.5 - 6) * voxel),
+                    );
+        const out = smoothPhi(phi, dims, voxel);
+        // Longe das bordas da grade (o teto entra pelas bordas), o plano fica onde estava.
+        for (let y = 3; y < 9; y++)
+            expect(out[6 + 12 * (y + 12 * 6)]).toBeCloseTo(phi[6 + 12 * (y + 12 * 6)]!, 6);
+        // No interior (nas bordas da grade entra o teto, também do lado de dentro: no motor, bloco ausente é só fora).
+        for (let i = 3; i < 10; i++) {
+            const a = out[6 + 12 * (i + 12 * 6)]!;
+            const b = out[6 + 12 * (i - 1 + 12 * 6)]!;
+            expect(Math.abs(a - b)).toBeLessThanOrEqual(voxel * (1 + 1e-6));
+        }
+        // Um voxel fora do plano é atenuado: o ruído de um voxel cai.
+        const bumped = Float32Array.from(phi);
+        bumped[6 + 12 * (6 + 12 * 6)]! -= 0.5 * voxel;
+        const d =
+            smoothPhi(bumped, dims, voxel)[6 + 12 * (6 + 12 * 6)]! - out[6 + 12 * (6 + 12 * 6)]!;
+        expect(Math.abs(d)).toBeLessThan(0.5 * voxel * 0.1);
     });
 });

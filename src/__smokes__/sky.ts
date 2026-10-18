@@ -271,10 +271,13 @@ async function caseNoSky(): Promise<void> {
     const img = await renderHdr(app);
     const corner = hdrAt(img, 2, 2);
     const center = hdrAt(img, SIZE / 2, SIZE / 2);
-    const clear = [0.05, 0.07, 0.12];
+    // A limpeza padrão em radiância linear: o azul-marinho de tela (0,05; 0,07; 0,12) convertido de sRGB.
+    const clear = [0.05, 0.07, 0.12].map((c) =>
+        c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4,
+    );
     const clearErr = Math.max(...clear.map((c, k) => Math.abs(corner[k]! - c)));
     log(
-        `no-sky: fundo ${corner.map((x) => x.toFixed(3)).join(',')} (limpeza 0,05/0,07/0,12), plano pelo hemisfério ${center.map((x) => x.toFixed(3)).join(',')}`,
+        `no-sky: fundo ${corner.map((x) => x.toFixed(3)).join(',')} (limpeza ${clear.map((x) => x.toFixed(4)).join('/')}), plano pelo hemisfério ${center.map((x) => x.toFixed(3)).join(',')}`,
     );
     check(clearErr < 2e-3, `no-sky: fundo ${corner.join(',')} não é a cor da limpeza`);
     check(center[1] > 0.02, `no-sky: o hemisfério não ilumina o plano (${center.join(',')})`);

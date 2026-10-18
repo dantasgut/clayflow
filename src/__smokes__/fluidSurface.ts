@@ -24,6 +24,7 @@ import { gpuProfile, readFixture, recording, writeFixture } from './support/fixt
 import { diff, fromPng, luminance, toPng } from './support/images';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
 import { gpuFrameTimes } from './support/gpuTiming';
+import { hdrAt, readHdrTexture, type HdrImage } from './support/imageMeasures';
 
 const WIDTH = 320;
 const HEIGHT = 200;
@@ -50,6 +51,8 @@ const engineErrors: string[] = [];
 
 interface Run {
     readonly frames: readonly ImageData[];
+    /** A radiância HDR dos mesmos quadros (antes da apresentação; a leitura do teste não conta em `readbacks`). */
+    readonly hdr: readonly HdrImage[];
     readonly readbacks: number;
     readonly poolWrites: number;
     readonly profile: string;
@@ -79,9 +82,10 @@ async function run(
     });
     app.events.on('engineError', (e) => engineErrors.push(`${name}: ${e.stage}: ${e.message}`));
     let readbacks = 0;
+    let measuring = false;
     const readback = app.core.readback.bind(app.core);
     app.core.readback = (spec: Parameters<typeof readback>[0]) => {
-        readbacks++;
+        if (!measuring) readbacks++;
         return readback(spec);
     };
     const body = waterScene(app, { width: WIDTH, height: HEIGHT, ...options });
@@ -98,6 +102,7 @@ async function run(
     const ctx = new OffscreenCanvas(WIDTH, HEIGHT).getContext('2d', { willReadFrequently: true });
     if (ctx === null) throw new Error('canvas 2D indisponível');
     const out: ImageData[] = [];
+    const hdr: HdrImage[] = [];
     let frame = 1;
     for (const target of frames) {
         while (frame < target) {
@@ -106,11 +111,16 @@ async function run(
         }
         ctx.drawImage(canvas, 0, 0);
         out.push(ctx.getImageData(0, 0, WIDTH, HEIGHT));
+        const texture = app.resources.textureOf(app.defaults.targets, 'color');
+        if (texture === undefined) throw new Error('alvo HDR não alocado');
+        measuring = true;
+        hdr.push(await readHdrTexture(app, texture));
+        measuring = false;
     }
     const profile = gpuProfile(app);
     app.dispose();
     canvas.remove();
-    return { frames: out, readbacks, poolWrites, profile };
+    return { frames: out, hdr, readbacks, poolWrites, profile };
 }
 
 /** Compara (ou grava) a fixture do caso. */
@@ -188,6 +198,51 @@ function ratios(a: ImageData, b: ImageData, region: (x: number, y: number) => bo
             const lb = luminance(b, x, y);
             if (lb < 0.4) continue;
             out.push(luminance(a, x, y) / lb);
+        }
+    }
+    return out.sort((p, q) => p - q);
+}
+
+/**
+ * Razões de radiância (HDR) entre `a` e `b` na região, nos pixels claros da imagem de tela `bDisplay` (os mesmos de
+ * `ratios`): as cáusticas medidas antes da apresentação, que comprime as razões (AgX + sRGB).
+ */
+function radianceRatios(
+    a: HdrImage,
+    b: HdrImage,
+    bDisplay: ImageData,
+    region: (x: number, y: number) => boolean,
+): number[] {
+    const lum = (img: HdrImage, x: number, y: number): number => {
+        const [r, g, bl] = hdrAt(img, x, y);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+    };
+    // Bordas da textura do fundo (a referência muda mais de 10 % para um vizinho): a razão ali compara dois filtros da
+    // mesma borda — o MSAA do desenho na referência, o antisserrilhado do traçado sob a água —, não a luz.
+    const edge = (x: number, y: number): boolean => {
+        const c = lum(b, x, y);
+        for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+        ] as const) {
+            const n = lum(
+                b,
+                Math.min(bDisplay.width - 1, Math.max(0, x + dx)),
+                Math.min(bDisplay.height - 1, Math.max(0, y + dy)),
+            );
+            if (Math.abs(n - c) > 0.1 * Math.max(n, c)) return true;
+        }
+        return false;
+    };
+    const out: number[] = [];
+    for (let y = 0; y < bDisplay.height; y++) {
+        for (let x = 0; x < bDisplay.width; x++) {
+            if (!region(x, y) || luminance(bDisplay, x, y) < 0.4 || edge(x, y)) continue;
+            const lb = lum(b, x, y);
+            if (lb <= 0) continue;
+            out.push(lum(a, x, y) / lb);
         }
     }
     return out.sort((p, q) => p - q);
@@ -317,13 +372,16 @@ async function main(): Promise<void> {
             { dam: [24, 24, 32], material: { ...CLEAR, caustics: false }, eye: TOP_EYE },
             [AGITATED_FRAME],
         );
-        const base = ratios(flat.frames[0]!, emptyTop.frames[0]!, centralFloor);
+        // Na radiância: o critério (≥ 30 % mais claras, ≥ 20 % mais escuras) é da luz no fundo, não da tela.
+        const radiance = (r: Run): number[] =>
+            radianceRatios(r.hdr[0]!, emptyTop.hdr[0]!, emptyTop.frames[0]!, centralFloor);
+        const base = radiance(flat);
         const median = quantile(base, 0.5);
         const spread = (quantile(base, 0.95) - quantile(base, 0.05)) / median;
-        const wave = ratios(agitated.frames[0]!, emptyTop.frames[0]!, centralFloor);
+        const wave = radiance(agitated);
         const bright = quantile(wave, 0.99) / median;
         const dark = quantile(wave, 0.01) / median;
-        const plain = ratios(off.frames[0]!, emptyTop.frames[0]!, centralFloor);
+        const plain = radiance(off);
         const plainSpread = (quantile(plain, 0.99) - quantile(plain, 0.01)) / quantile(plain, 0.5);
         log(
             `cáusticas: parada mediana ${median.toFixed(3)}, variação ${(spread * 100).toFixed(1)}%; agitada ${bright.toFixed(2)}× / ${dark.toFixed(2)}×; desligadas variação ${(plainSpread * 100).toFixed(1)}%`,

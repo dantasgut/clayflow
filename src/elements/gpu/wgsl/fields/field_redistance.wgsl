@@ -232,3 +232,51 @@ fn field_eikonal_main(
         }
     }
 }
+
+/**
+ * O filtro binomial (1, 2, 1)/4 de φ num eixo, depois do redistanciamento (o passo anterior em `field_src`; sem bloco,
+ * o teto, fora do fluido): a interface por cruzamentos de primeira ordem deixa ruído de poucos voxels no gradiente — a
+ * normal —, que as cáusticas amplificam sob a água parada. A média mantém |∇φ| ≤ 1 (os passos da marcha continuam
+ * seguros) e não desloca uma superfície plana.
+ */
+fn field_phi_smooth(brick: u32, row: u32, axis: vec3i) {
+    let v0 = vec3i(0, i32(row % 8u), i32(row / 8u));
+    for (var x = 0; x < FIELD_BRICK; x++) {
+        let v = v0 + vec3i(x, 0, 0);
+        let sum = field_read_src(brick, v - axis) + 2.0 * field_read_src(brick, v) + field_read_src(brick, v + axis);
+        field_dst[field_interior_at(brick, v)] = 0.25 * sum;
+    }
+}
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn field_phi_smooth_x_main(
+    @builtin(workgroup_id) wid: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let brick = wid.x + wid.y * nwg.x;
+    if (brick >= field_redistance_bricks()) { return; }
+    for (var row = lid; row < 64u; row += WORKGROUP_SIZE) { field_phi_smooth(brick, row, vec3i(1, 0, 0)); }
+}
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn field_phi_smooth_y_main(
+    @builtin(workgroup_id) wid: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let brick = wid.x + wid.y * nwg.x;
+    if (brick >= field_redistance_bricks()) { return; }
+    for (var row = lid; row < 64u; row += WORKGROUP_SIZE) { field_phi_smooth(brick, row, vec3i(0, 1, 0)); }
+}
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn field_phi_smooth_z_main(
+    @builtin(workgroup_id) wid: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let brick = wid.x + wid.y * nwg.x;
+    if (brick >= field_redistance_bricks()) { return; }
+    for (var row = lid; row < 64u; row += WORKGROUP_SIZE) { field_phi_smooth(brick, row, vec3i(0, 0, 1)); }
+}

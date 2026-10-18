@@ -99,6 +99,8 @@ interface Kernels {
     readonly density: ComputeKernel;
     /** Filtro separável da densidade: B (ponto fixo) → A → P → A. */
     readonly smooth: readonly ComputeKernel[];
+    /** O filtro de φ depois do redistanciamento (x, y, z). */
+    readonly phiSmooth: readonly ComputeKernel[];
     /** Filtrada (A) → φ inicial (P). */
     readonly init: ComputeKernel;
     /** φ inicial (P) → interface e sinais (A) e a primeira distância (B). */
@@ -250,6 +252,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 n % 2 === 0 ? k.forward : k.backward,
             ),
         );
+        indirect('FluidFieldFlow.phiSmooth', k.phiSmooth);
         indirect('FluidFieldFlow.apron', [k.apron]);
     }
 
@@ -544,10 +547,34 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             ]),
             forward: eikonal(work.density, work.phi0, 'eikonal_bp'),
             backward: eikonal(work.phi0, work.density, 'eikonal_pb'),
+            // O filtro de φ (`FIELD.phiPasses` passadas x, y, z), da distância (em `density` com as iterações pares,
+            // em `phi0` com as ímpares) até `phiA`, alternando com o outro buffer livre.
+            phiSmooth: ((): ComputeKernel[] => {
+                const first = FIELD.iterations % 2 === 0 ? work.density : work.phi0;
+                const other = FIELD.iterations % 2 === 0 ? work.phi0 : work.density;
+                // A primeira passada: first → phiA → other → phiA; cada seguinte, phiA → other → first → phiA (a
+                // distância de `first` já foi lida).
+                const chain = [first, work.phiA, other, work.phiA];
+                for (let n = 1; n < FIELD.phiPasses; n++) chain.push(other, first, work.phiA);
+                return Array.from({ length: 3 * FIELD.phiPasses }, (_, n) => {
+                    const axis = ['x', 'y', 'z'][n % 3]!;
+                    return make(
+                        `phi_smooth_${axis}${Math.floor(n / 3)}`,
+                        fieldRedistance,
+                        `field_phi_smooth_${axis}_main`,
+                        [
+                            [R.counts, counts],
+                            [R.links, work.links],
+                            [R.src, chain[n]!],
+                            [R.dst, chain[n + 1]!],
+                        ],
+                    );
+                });
+            })(),
             apron: make('apron', fieldApron, 'field_apron_main', [
                 [R.counts, counts],
                 [R.links, work.links],
-                [R.src, FIELD.iterations % 2 === 0 ? work.density : work.phi0],
+                [R.src, work.phiA],
                 [R.dataVoxels, data],
                 [R.volumeWrite, this.volume],
             ]),
@@ -574,6 +601,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             k.links,
             k.density,
             ...k.smooth,
+            ...k.phiSmooth,
             k.init,
             k.classify,
             k.forward,

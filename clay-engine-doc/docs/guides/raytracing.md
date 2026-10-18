@@ -8,8 +8,8 @@ title: Estrutura de raios
 A **estrutura de raios** responde, num shader, qual é a primeira superfície que um raio atinge, e se algo bloqueia um
 segmento. É um recurso da cena (`RayScene`) mantido na GPU pelo `RaySceneFlow` a cada quadro, sem leitura de volta.
 Quem consulta não conhece a origem da geometria: malhas, superfícies paramétricas, geometria de grafos de nós, corpos
-moles e partículas respondem pela mesma função. A iluminação global (sondas, coleta na tela, fótons) é o primeiro
-consumidor; a refração que recalcula o que está atrás do vidro (o débito R1 da 011) é o próximo.
+moles e partículas respondem pela mesma função. Consumidores: a iluminação global (sondas, coleta na tela, fótons) e a
+refração (spec 034), que recalcula o que se vê através do vidro e da água pelo raio refratado.
 
 ## Ligando
 
@@ -104,8 +104,19 @@ fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit        
 fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f   // a luz que atravessa o segmento
 ```
 
-O shader requer os prontos (`rayVolumeHitReady`, `rayVolumeTransmittanceReady`: nenhum volume, transmitância 1) e a C2
-troca pela composição dos contribuintes da cena: o `FluidField` (a água: cruzamento pela marcha no campo e absorção
+Quem já sabe de que lado do volume está (a refração, pela pilha dos meios atravessados) usa as variantes sem o teste do
+lado da origem, e o meio do volume atingido:
+
+```wgsl
+fn ray_volume_enter(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit   // origem fora: a entrada mais próxima
+fn ray_volume_exit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit    // origem dentro: a saída
+struct RayVolumeMedium { ior: f32, abbe: f32, absorption: vec3f }           // absorção por metro, por canal
+fn ray_volume_medium(material: u32) -> RayVolumeMedium
+```
+
+O shader requer os prontos (`rayVolumeHitReady`, `rayVolumeTransmittanceReady`, `rayVolumeEnterReady`,
+`rayVolumeExitReady`, `rayVolumeMediumReady`: nenhum volume, transmitância 1, água sem absorção) e a C2 troca pela
+composição dos contribuintes da cena: o `FluidField` (a água: cruzamento pela marcha no campo e absorção
 dentro dela) e os `Froxels` (a névoa: transmitância). Um volume novo é um Resource com `getSceneContributions()`; quem
 consulta não muda.
 
@@ -138,12 +149,21 @@ uma por folha.
   derivada valem só no desenho.
 - Esferas dos sprites não têm `Renderable` (`renderable = NONE`) nem matriz: já estão em mundo.
 
-## Uso pelo débito R1 da 011
+## Material no acerto
 
-Hoje a transmissão do vidro reaproveita a imagem da cena já desenhada atrás dele, e o fundo refratado fica pixelado e
-sem o que está fora da tela. A correção usa a estrutura de raios: no fragmento do vidro, o raio refratado (e o
-refletido) vai a `ray_scene_hit`, o acerto é sombreado como os das sondas da GI (material da instância, luzes, céu,
-irradiância das sondas) e os volumes no caminho entram por `ray_volume_hit`/`ray_volume_transmittance`.
+`ray_hit_closure(hit, time)` (módulo `rayHit`) devolve o fechamento da superfície atingida — o mesmo do desenho: as
+constantes do material da instância e as funções `material` da cena, compostas no ponto `ray_hit_material` por quem
+traça (`composeHitMaterial` + `bindPoints`). Não depende da GI: a refração e as sondas recebem o mesmo módulo. Ele lê
+só as instâncias, então um kernel que sombreia um acerto gravado por outro não precisa da travessia.
+
+## Refração (spec 034)
+
+O vidro e a água refratam pela estrutura: cada pixel com transmissão grava um pedido (normal, IOR, Abbe, absorção,
+rugosidade), e o raio refratado segue pela cena — entra e sai dos objetos, reflete totalmente, encadeia vidros e a água
+(`ray_volume_enter`/`ray_volume_exit` com o meio de `ray_volume_medium`), absorve pela distância em cada meio — até a
+primeira superfície que não transmite, sombreada por `ray_hit_closure` e `scene_lighting`. O que está fora da tela ou
+encoberto aparece; a lente amplia sem degraus. Ver o guia de materiais (transmissão) para o uso e os parâmetros
+(`Refraction`).
 
 ## Smoke
 

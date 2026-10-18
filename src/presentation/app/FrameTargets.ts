@@ -23,8 +23,23 @@ export interface FrameTargetsData {
     depthPrepass: number;
 }
 
-/** Cor de limpeza da cena: o fundo onde nada desenha e não há céu (também o que vê o raio refratado que escapa). */
-export const SCENE_CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
+/** sRGB (cor de tela, [0, 1]) → radiância linear. */
+function srgbToLinear(c: number): number {
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+/**
+ * Cor de limpeza da cena em radiância linear (a cor HDR, como tudo antes da apresentação): o fundo onde nada desenha e
+ * não há céu (também o que vê o raio refratado que escapa). É o azul-marinho escuro de tela (0,05; 0,07; 0,12) de antes
+ * da 011 — quando a cena ia direto ao canvas, sem codificação — convertido para linear: escrito como linear, ele saía
+ * da apresentação cinco vezes mais claro (spec 034, H4).
+ */
+export const SCENE_CLEAR_COLOR: readonly [number, number, number, number] = [
+    srgbToLinear(0.05),
+    srgbToLinear(0.07),
+    srgbToLinear(0.12),
+    1.0,
+];
 
 /** Um alvo do caminho das amostras extras da refração: um texel por par (pixel marcado, amostra). */
 function aaTarget(id: string, format: GPUTextureFormat): GPUDescriptor {

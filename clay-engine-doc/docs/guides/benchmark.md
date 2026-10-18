@@ -136,6 +136,15 @@ app.events.on('frameComplete', ({ dt, stats }) => {
 - `profiling: true` dá timestamps a todo passe; `stats.gpuTimeMs` chega com 1–3 quadros de defasagem
   (`stats.gpuFrame` diz a que quadro pertence) e `stats.stagesNs` traz o tempo por rótulo de passe, que o
   `DebugFlow` repassa em `profilerStats.stagesNs`.
+- **Entrega única** (spec 034): cada leitura de GPU vem em **um** `frameComplete` — o primeiro depois de ela chegar —;
+  nos outros eventos `gpuTimeMs` fica ausente. Para a média de N quadros, conte os eventos com `gpuTimeMs` (ou filtre
+  por `gpuFrame` distinto); `core.lastFrameStats()` continua devolvendo a última leitura para consulta.
+- **Não grave mais rápido que a GPU**: `app.step()` não espera a GPU. Medir gravando a cada quadro de tela com a GPU
+  mais lenta acumula trabalho — as leituras chegam cada vez mais tarde e o anel de leitura (4 buffers) fica ocupado
+  (`core.profiler.droppedFrames` conta os quadros sem leitura). O laço do motor e o bench respeitam o limite de quadros em voo; os
+  smokes esperam a GPU (`untilReady`) antes de cada quadro medido.
+- **Multiplataforma**: nada na medição depende do backend (Metal, Vulkan, D3D12); os limites dos testes são frações do
+  orçamento do quadro, não números calibrados numa máquina.
 - Capacidade: `profilingCapacity` (default 256 timestamps = 128 passes por quadro). Se um quadro tiver mais
   passes, `gpuTimeMs` fica ausente nele e o console avisa uma vez.
 - Sem a feature `timestamp-query` no device, o motor avisa uma vez e segue sem tempo de GPU.
