@@ -291,6 +291,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     private neighborSources(): Map<WgslResource, BindingSource> {
         return new Map<WgslResource, BindingSource>([
             [pbfResources.neighborList, this.neighborSearch.neighborList!],
+            [pbfResources.neighborOrder, this.neighborSearch.order!],
             [pbfResources.neighborCount, this.neighborSearch.neighborCount!],
         ]);
     }

@@ -53,6 +53,7 @@ export const pbfResources = Object.freeze({
     live: sphResources.live,
     neighborList: sphResources.neighborList,
     neighborCount: sphResources.neighborCount,
+    neighborOrder: sphResources.neighborOrder,
     delta: privateStorage('pbf_delta', 'read_write', vec4s),
     deltaRead: privateStorage('pbf_delta', 'read', vec4s),
     normal: privateStorage('pbf_normal', 'read_write', vec4s),
@@ -60,7 +61,7 @@ export const pbfResources = Object.freeze({
 });
 const R = pbfResources;
 const own = [WORKGROUP_SIZE.module, R.params, R.particles, R.live] as const;
-const neighbors = [R.neighborList, R.neighborCount] as const;
+const neighbors = [R.neighborList, R.neighborCount, R.neighborOrder] as const;
 
 /** Predição. */
 export const pbfPredict = wgslModule({

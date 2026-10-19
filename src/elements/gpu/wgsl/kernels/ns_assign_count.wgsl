@@ -32,14 +32,12 @@ fn ns_assign_count_main(
     let iy = i32(floor((py - origin.y) / cell_size));
     let iz = i32(floor((pz - origin.z) / cell_size));
 
-    // Fora do volume → célula inválida (não contribui para o neighbor search)
-    if (ix < 0 || iy < 0 || iz < 0
-     || u32(ix) >= gx || u32(iy) >= gy || u32(iz) >= gz) {
-        cell_ids[i] = NS_INVALID_CELL;
-        return;
+    // Fora do volume: a célula de fora da grade (a última, `cell_count`) — sem vizinhos e não é vizinha de ninguém, mas
+    // entra na ordem por célula (os estágios que andam nela a processam).
+    var cell = ns_params.cell_count;
+    if (ix >= 0 && iy >= 0 && iz >= 0 && u32(ix) < gx && u32(iy) < gy && u32(iz) < gz) {
+        cell = u32(ix) + u32(iy) * gx + u32(iz) * gx * gy;
     }
-
-    let cell = u32(ix) + u32(iy) * gx + u32(iz) * gx * gy;
     cell_ids[i] = cell;
     atomicAdd(&cell_count[cell], 1u);
 }

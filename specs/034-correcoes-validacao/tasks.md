@@ -210,6 +210,14 @@ caminho do raio.
       amostras (SC-015).
 - [ ] T029a [US4] Água a 64k contra o `develop` (H7) com a medida de T029, na 4090; explicar e corrigir qualquer
       regressão pela causa.
+- [x] T068 [US4] Vizinhança na ordem por célula (análise O5): `NS.find`, densidade, forças e normais do SPH e os 4
+      kernels do PBF andam na ordem por célula (as partículas fora da grade numa célula própria no fim, o total na
+      última palavra da ordem); a lista de cada partícula é a mesma (smoke `particles` idêntico). `NS.find` 5,06 →
+      2,3 ms a 64k.
+- [ ] T069 [US4] Capacidade de blocos do campo (análise O6): crescer pela contagem da GPU (lida com atraso) ou um limite
+      físico justificado; o bloco que falta não pode virar buraco em silêncio.
+- [ ] T070 [US4] Pontas de jato do SPH acima da subida física (análise O7): medir contra uma referência de
+      desabamento de barragem e decidir com o usuário (fidelidade da física, anterior à 034).
 - [x] T030 [P] [US4] `field.test.ts`: culling por grade no `densityAt` (`src/elements/fields/reference/field.ts:200-242`),
       com o teste de equivalência contra a versão sem culling; `npm run test:coverage` 3× sem estouro.
 - [ ] T031 [US4] Smokes completos, fonte e `--dist`, 3 rodadas seguidas (SC-008); `npm run ci` 3×.

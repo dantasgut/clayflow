@@ -10,9 +10,15 @@ fn ns_sort_cells_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     let cell = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (cell >= ns_params.cell_count) { return; }
+    if (cell > ns_params.cell_count) { return; }
     let start = cell_start[cell];
     let count = cell_count_buf[cell];
+    // A célula de fora da grade (a última): grava no fim da ordem quantas partículas ela tem, sem ordenar nem copiar as
+    // posições (ninguém a percorre como vizinha, e elas não têm vizinhos; podem ser muitas, num fio só).
+    if (cell == ns_params.cell_count) {
+        sorted_particles[arrayLength(&sorted_particles) - 1u] = start + count;
+        return;
+    }
     for (var a = 1u; a < count; a++) {
         let value = sorted_particles[start + a];
         var b = a;

@@ -92,6 +92,8 @@ export class NeighborSearchPipeline {
     private readonly maxNeighbors: number;
     private readonly particleStrideF32: number;
     private readonly cellCount: number;
+    /** As células e a de fora da grade (a última): as partículas vivas fora dela entram na ordem por célula também. */
+    private readonly slots: number;
 
     private paramsBuffer: UniformBufferSpec | null = null;
     private cellCountBuffer: StorageBufferSpec | null = null;
@@ -133,9 +135,10 @@ export class NeighborSearchPipeline {
         this.maxNeighbors = options.maxNeighbors;
         this.particleStrideF32 = options.particleStrideF32;
         this.cellCount = this.gridDim[0] * this.gridDim[1] * this.gridDim[2];
+        this.slots = this.cellCount + 1;
     }
 
-    /** Libera os kernels que ligam o buffer de partículas (assign e find). */
+    /** Libera os kernels que ligam os buffers do pool (assign e sort_cells) e a busca. */
     private releaseParticleKernels(): void {
         if (this.assignKernel !== null) destroyComputeKernel(this.core, this.assignKernel);
         if (this.findKernel !== null) destroyComputeKernel(this.core, this.findKernel);
@@ -163,7 +166,7 @@ export class NeighborSearchPipeline {
                 kind: 'buffer',
                 subkind: 'storage',
                 discriminator: `ns_cell_count:${this.disc}`,
-                byteSize: this.cellCount * 4,
+                byteSize: this.slots * 4,
             });
         }
         if (this.cellStartBuffer === null) {
@@ -171,7 +174,7 @@ export class NeighborSearchPipeline {
                 kind: 'buffer',
                 subkind: 'storage',
                 discriminator: `ns_cell_start:${this.disc}`,
-                byteSize: this.cellCount * 4,
+                byteSize: this.slots * 4,
             });
         }
         if (this.cellCursorBuffer === null) {
@@ -179,7 +182,7 @@ export class NeighborSearchPipeline {
                 kind: 'buffer',
                 subkind: 'storage',
                 discriminator: `ns_cell_cursor:${this.disc}`,
-                byteSize: this.cellCount * 4,
+                byteSize: this.slots * 4,
             });
         }
         if (this.cellIdsBuffer === null) {
@@ -192,14 +195,15 @@ export class NeighborSearchPipeline {
         }
         this.scan ??= new PrefixSum(this.core, {
             discriminator: `ns_scan:${this.disc}`,
-            capacity: this.cellCount,
+            capacity: this.slots,
         });
         if (this.sortedParticlesBuffer === null) {
             this.sortedParticlesBuffer = this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
                 subkind: 'storage',
                 discriminator: `ns_sorted:${this.disc}`,
-                byteSize: this.maxParticles * 4,
+                // A ordem por célula e, no fim, quantas partículas ela tem.
+                byteSize: (this.maxParticles + 1) * 4,
             });
         }
         if (this.sortedPositionsBuffer === null) {
@@ -324,13 +328,11 @@ export class NeighborSearchPipeline {
             entryPoint: 'ns_find_main',
             bindings: new Map<WgslResource, BindingSource>([
                 [R.params, nsParams],
-                [R.particles, particlesBuffer],
                 [R.cellStart, this.cellStartBuffer!],
                 [R.cellCountRead, this.cellCountBuffer!],
                 [R.sortedParticlesRead, this.sortedParticlesBuffer!],
                 [R.neighborList, this.neighborListBuffer!],
                 [R.neighborCount, this.neighborCountBuffer!],
-                [R.live, liveBuffer],
                 [R.sortedPositionsRead, this.sortedPositionsBuffer!],
             ]),
         });
@@ -400,6 +402,16 @@ export class NeighborSearchPipeline {
     }
 
     /**
+     * Ordem por célula das partículas vivas (spec 034): os índices delas no pool, as da mesma célula juntas (as fora da
+     * grade no fim), e na última palavra do buffer quantas são. Os estágios que percorrem as listas de vizinhos andam
+     * nela (`ns_order`): os fios de um grupo são partículas vizinhas no espaço e leem os mesmos vizinhos. Null antes de
+     * `allocate`.
+     */
+    get order(): StorageBufferSpec | null {
+        return this.sortedParticlesBuffer;
+    }
+
+    /**
      * Buffer de contadores — `neighborCount[p]` é o número de vizinhos
      * encontrados para a partícula p (≤ maxNeighbors).
      */
@@ -437,7 +449,7 @@ export class NeighborSearchPipeline {
         const cellStart = this.cellStartBuffer!;
         this.uploadParams(particleCount);
         // Zeradas no fluxo de comandos: cada reconstrução do quadro começa de contagens nulas.
-        frame.clear(cellCount, 0, this.cellCount * 4);
+        frame.clear(cellCount, 0, this.slots * 4);
         frame.clear(this.neighborCountBuffer!, 0, particleCount * 4);
         const run = (label: string, k: ComputeKernel, invocations: number): void => {
             frame.compute(label, (pass) => {
@@ -447,13 +459,13 @@ export class NeighborSearchPipeline {
             });
         };
         run('NS.assign_count', assign, particleCount);
-        scan.record(frame, { src: cellCount, dst: cellStart, count: this.cellCount });
+        scan.record(frame, { src: cellCount, dst: cellStart, count: this.slots });
         // cell_cursor recebe cópia de cell_start: scatter usa atomicAdd em
         // cell_cursor para alocar o slot dentro do range [start, start+count).
-        frame.copy(cellStart, this.cellCursorBuffer!, this.cellCount * 4);
+        frame.copy(cellStart, this.cellCursorBuffer!, this.slots * 4);
         run('NS.scatter', scatter, particleCount);
         // Ordem fixa dentro de cada célula: a busca grava a lista determinística direto (sem ordenar por partícula).
-        run('NS.sort_cells', sortCells, this.cellCount);
+        run('NS.sort_cells', sortCells, this.slots);
         run('NS.find', find, particleCount);
     }
 }

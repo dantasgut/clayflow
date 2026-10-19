@@ -47,15 +47,16 @@ describe('NeighborSearchPipeline', () => {
         const rec = recordingFrame();
         ns.prepare(particles, live);
         ns.rebuild(rec.frame, 100);
+        // As 64³ células e a de fora da grade (spec 034: as partículas fora dela também entram na ordem por célula).
         expect(rec.passes.map((p) => [p.label, p.dispatches[0]])).toEqual([
             ['NS.assign_count', [100, 64]],
-            ['PrefixSum.scan_local', [262_144, 256]],
-            ['PrefixSum.scan_local', [1024, 256]],
+            ['PrefixSum.scan_local', [262_145, 256]],
+            ['PrefixSum.scan_local', [1025, 256]],
             ['PrefixSum.scan_top', [1]],
-            ['PrefixSum.scan_combine', [1024, 256]],
-            ['PrefixSum.scan_combine', [262_144, 256]],
+            ['PrefixSum.scan_combine', [1025, 256]],
+            ['PrefixSum.scan_combine', [262_145, 256]],
             ['NS.scatter', [100, 64]],
-            ['NS.sort_cells', [262_144, 64]],
+            ['NS.sort_cells', [262_145, 64]],
             ['NS.find', [100, 64]],
         ]);
         // cellCount → cellStart (o scan roda no lugar em cellStart) e cellStart → cellCursor.

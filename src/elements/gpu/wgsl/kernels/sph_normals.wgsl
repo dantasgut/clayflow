@@ -7,10 +7,11 @@ fn sph_normals_main(
     @builtin(global_invocation_id) gid3: vec3u,
     @builtin(num_workgroups) nwg: vec3u,
 ) {
-    // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
-    let i = gid.x;
-    if (i >= sph_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
+    // Na ordem por célula da vizinhança (spec 034): os fios de um grupo são partículas vizinhas e leem os mesmos vizinhos.
+    let t = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (t >= ns_order[arrayLength(&ns_order) - 1u]) { return; }
+    let i = ns_order[t];
+    if (!pool_live(live[i >> 5u], i)) { return; }
 
     let h    = sph_params.h;
     let volume = sph_params.particle_mass / sph_params.rest_density;

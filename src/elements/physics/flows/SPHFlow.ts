@@ -251,6 +251,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     private neighborSources(): Map<WgslResource, BindingSource> {
         return new Map<WgslResource, BindingSource>([
             [sphResources.neighborList, this.neighborSearch.neighborList!],
+            [sphResources.neighborOrder, this.neighborSearch.order!],
             [sphResources.neighborCount, this.neighborSearch.neighborCount!],
         ]);
     }

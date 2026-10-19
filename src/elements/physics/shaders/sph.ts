@@ -57,12 +57,14 @@ export const sphResources = Object.freeze({
     }),
     neighborList: privateStorage('neighbor_list', 'read', u32s),
     neighborCount: privateStorage('neighbor_count', 'read', u32s),
+    /** A ordem por célula da vizinhança (`NeighborSearchPipeline.order`): os estágios das listas andam nela. */
+    neighborOrder: privateStorage('ns_order', 'read', u32s),
     normal: privateStorage('sph_normal', 'read_write', vec4s),
     normalRead: privateStorage('sph_normal', 'read', vec4s),
 });
 const R = sphResources;
 const own = [WORKGROUP_SIZE.module, R.params, R.particles, R.live] as const;
-const neighbors = [R.neighborList, R.neighborCount] as const;
+const neighbors = [R.neighborList, R.neighborCount, R.neighborOrder] as const;
 
 /** Densidade por soma dos vizinhos. */
 export const sphDensity = wgslModule({

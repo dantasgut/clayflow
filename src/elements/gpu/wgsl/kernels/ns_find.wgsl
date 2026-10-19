@@ -1,5 +1,8 @@
 // portado de legacy/elements/physics/gpu/wgsl/kernels/ns_find.wgsl.ts
 // Posições na ordem de `sorted_particles` (escritas por `ns_sort_cells`): leitura contígua dos candidatos.
+// Um fio por partícula na ordem por célula (spec 034): os fios de um grupo são partículas vizinhas no espaço e leem as
+// mesmas células (na ordem do pool, depois que o fluido se mistura, cada fio lia células espalhadas). A lista de cada
+// partícula é a mesma (as mesmas células, na mesma ordem); a de fora da grade (no fim da ordem) fica sem vizinhos.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn ns_find_main(
@@ -7,11 +10,15 @@ fn ns_find_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
-    let i = gid.x;
-    if (i >= ns_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
+    let t = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (t >= sorted_particles[arrayLength(&sorted_particles) - 1u]) { return; }
+    let i = sorted_particles[t];
+    // Fora da grade (a última faixa da ordem): sem vizinhos.
+    if (t >= cell_start[ns_params.cell_count]) {
+        neighbor_count[i] = 0u;
+        return;
+    }
 
-    let stride    = ns_params.particle_stride;
     let max_nb    = ns_params.max_neighbors;
     let h         = ns_params.cell_size;
     let h_sq      = h * h;
@@ -21,9 +28,10 @@ fn ns_find_main(
     let gy        = ns_params.grid_y;
     let gz        = ns_params.grid_z;
 
-    let px = particle_data[i * stride + 0u];
-    let py = particle_data[i * stride + 1u];
-    let pz = particle_data[i * stride + 2u];
+    let p = sorted_positions[t].xyz;
+    let px = p.x;
+    let py = p.y;
+    let pz = p.z;
 
     let ix0 = i32(floor((px - origin.x) / cell_size));
     let iy0 = i32(floor((py - origin.y) / cell_size));
