@@ -135,6 +135,7 @@ export type {
     Phase,
     ProfilerStatsPayload,
     FrameTickEvent,
+    SimulationHeldEvent,
     TimeDroppedEvent,
     FrameCompleteEvent,
     FrameRecordingEvent,

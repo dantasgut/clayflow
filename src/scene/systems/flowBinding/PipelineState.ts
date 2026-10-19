@@ -163,6 +163,28 @@ export class PipelineState {
         return this.pipelineSpec !== null && this.compiled && !this.waiting;
     }
 
+    /** Conferência ou compilação assíncrona em andamento (nem pronto, nem rejeitado). */
+    get compiling(): boolean {
+        return this.built && !this.compiled && this.rejected === null;
+    }
+
+    /**
+     * A conferência ou a compilação assíncrona falhou. Depois de `release` (o Flow saiu, a cena fechou) o resultado não
+     * importa mais; antes, o pipeline fica rejeitado com a mensagem — nunca uma exceção solta.
+     */
+    private failed(token: number, error: unknown): void {
+        if (token !== this.token) return;
+        this.rejected = [
+            {
+                type: 'error',
+                message: error instanceof Error ? error.message : String(error),
+                line: 0,
+                column: 0,
+            },
+        ];
+        this.onRejected(this, this.rejected);
+    }
+
     /** Visão do pipeline preparado para o Flow. */
     asPrepared(): PreparedCompute | PreparedRender {
         return this as unknown as PreparedCompute | PreparedRender;
@@ -336,15 +358,27 @@ export class PipelineState {
                 let check = verifying.get(this.composedShader);
                 if (check === undefined) {
                     const spec = this.composedShader;
-                    check = this.core.shaderMessages(spec).then((messages) => {
-                        verified.set(spec, messages);
-                        return messages;
-                    });
+                    check = this.core.shaderMessages(spec).then(
+                        (messages) => {
+                            verified.set(spec, messages);
+                            return messages;
+                        },
+                        (error: unknown) => {
+                            // Sem resultado (device perdido, core fechando): a próxima preparação confere de novo.
+                            verifying.delete(spec);
+                            throw error;
+                        },
+                    );
                     verifying.set(spec, check);
                 }
-                void check.then((messages) => {
-                    if (token === this.token) done(messages, true);
-                });
+                check.then(
+                    (messages) => {
+                        if (token === this.token) done(messages, true);
+                    },
+                    (error: unknown) => {
+                        this.failed(token, error);
+                    },
+                );
             }
         } else this.createPipeline(token, this.descriptor.preferAsync === true);
         this.bindGroups = sources.map((list, g) => this.createBindGroup(g, list));
@@ -358,11 +392,16 @@ export class PipelineState {
         this.pipelineSpec = spec;
         if (async) {
             this.compiled = false;
-            void this.core.createAsync(spec).then(() => {
-                if (token !== this.token) return;
-                this.compiled = true;
-                this.onCompiled(this);
-            });
+            this.core.createAsync(spec).then(
+                () => {
+                    if (token !== this.token) return;
+                    this.compiled = true;
+                    this.onCompiled(this);
+                },
+                (error: unknown) => {
+                    this.failed(token, error);
+                },
+            );
         } else {
             this.core.create(spec);
             this.compiled = true;

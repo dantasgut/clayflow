@@ -163,6 +163,7 @@ export class ProbeFlow extends Flow<ProbeSlots, ProbeState> {
                 entitiesChanged: stay,
                 canvasReconfigured: stay,
                 resourceReady: stay,
+                pipelineRejected: stay,
             },
         };
     }

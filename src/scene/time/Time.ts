@@ -84,6 +84,8 @@ export class Time extends Entity<TimeData> implements Resource {
         /** O `fixedDt` da série atual. */
         fixedOf: 0,
     };
+    /** O relógio antes do último `advance` (para `hold`). */
+    private before: typeof this.clock | null = null;
     private scaleBeforePause = 1;
     private physicsScaleBeforePause = 1;
 
@@ -196,6 +198,7 @@ export class Time extends Entity<TimeData> implements Resource {
     /** Avança o relógio um quadro de duração real `realDt` (s, ≥ 0). Ver a regra na documentação da classe. */
     advance(realDt: number): void {
         requireNonNegative('advance(realDt)', realDt);
+        this.before = { ...this.clock };
         this.clock.realDt = Math.min(realDt, this.clock.maxFrameDt);
         this.clock.dt = this.clock.realDt * this.clock.scale;
         this.clock.elapsed += this.clock.dt;
@@ -238,6 +241,24 @@ export class Time extends Entity<TimeData> implements Resource {
         data.elapsed = this.clock.elapsed;
         data.stepDt = this.clock.stepDt;
         data.steps = this.clock.steps;
+    }
+
+    /**
+     * Desfaz o tempo do último `advance` (o quadro conta, mas nada anda): `dt`, `elapsed`, o acumulador, o tempo simulado
+     * e o descartado voltam ao de antes, e o quadro tem 0 passos. A cena chama quando um estágio da física ainda
+     * compila (spec 034): a física nunca avança sem ele, e o tempo dela não se perde — retoma de onde parou.
+     */
+    hold(): void {
+        const before = this.before;
+        if (before === null) return;
+        const { frame, realDt } = this.clock;
+        Object.assign(this.clock, before, { frame, realDt, dt: 0, steps: 0 });
+        this.before = null;
+        const data = this.data;
+        data.dt = 0;
+        data.elapsed = this.clock.elapsed;
+        data.stepDt = this.clock.stepDt;
+        data.steps = 0;
     }
 
     /** Pausa tudo (`scale = 0`), guardando a escala para `resume`. */

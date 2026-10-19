@@ -26,6 +26,7 @@ export type { PoolReallocatedEvent } from './PoolReallocatedEvent';
 export type { PoolWrittenEvent } from './PoolWrittenEvent';
 export type { BindGroupReplacedEvent } from './BindGroupReplacedEvent';
 export type { FrameTickEvent } from './FrameTickEvent';
+export type { SimulationHeldEvent } from './SimulationHeldEvent';
 export type { TimeDroppedEvent } from './TimeDroppedEvent';
 export type { FrameCompleteEvent } from './FrameCompleteEvent';
 export type { FrameRecordingEvent } from './FrameRecordingEvent';

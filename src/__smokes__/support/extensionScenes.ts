@@ -44,7 +44,8 @@ export async function readWorlds(
 
 /**
  * Deixa as compilações em segundo plano concluírem: quadros de duração 0 (sem avanço do tempo nem passos da física)
- * intercalados com espera real, até `ms`.
+ * intercalados com espera real, por `ms` e depois até o motor ficar pronto (`app.ready()`, spec 034) — nenhum estágio
+ * conferindo ou compilando, seja qual for o tempo do driver.
  */
 export async function settle(app: Application, ms = 400): Promise<void> {
     const end = performance.now() + ms;
@@ -52,6 +53,7 @@ export async function settle(app: Application, ms = 400): Promise<void> {
         app.step(0);
         await new Promise((r) => setTimeout(r, 16));
     }
+    await app.ready();
     app.step(0);
 }
 

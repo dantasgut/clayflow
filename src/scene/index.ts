@@ -299,6 +299,7 @@ export type {
     PoolWrittenEvent,
     BindGroupReplacedEvent,
     FrameTickEvent,
+    SimulationHeldEvent,
     TimeDroppedEvent,
     FrameCompleteEvent,
     FrameRecordingEvent,

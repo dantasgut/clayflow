@@ -304,6 +304,22 @@ export class Application {
     }
 
     /**
+     * Resolve quando nenhum estágio tem pipeline em conferência ou compilação assíncrona, nem troca em preparo (spec 034)
+     * — os estágios inseridos até aqui executam no próximo quadro, com a composição de agora (a névoa, a iluminação
+     * global que entrou). Com o laço parado, avança quadros vazios (`step(0)`, sem tempo) a
+     * cada ~16 ms para os estágios nascerem e as compilações chegarem a eles; com o laço rodando, só espera.
+     * Enquanto um estágio da física compila, o relógio fica parado (`simulationHeld`) — `ready()` é o modo de esperar
+     * por isso sem medir tempo.
+     */
+    async ready(): Promise<void> {
+        for (;;) {
+            if (!this.loop.isRunning()) this.step(0);
+            if (this.resources.compilingFlows(undefined, true).length === 0) return;
+            await new Promise((r) => setTimeout(r, 16));
+        }
+    }
+
+    /**
      * `true` quando a GPU tem espaço para mais um quadro (`framesInFlight < maxFramesInFlight`). O laço só grava
      * nesse caso; quem avança por `step()` (ex.: o benchmark) consulta para seguir o mesmo ritmo.
      */

@@ -93,6 +93,17 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
     const unsubscribeFrameRetired = core.onFrameRetired((framesInFlight) => {
         events.emit('frameRetired', { framesInFlight });
     });
+    // A física espera os estágios dela (spec 034): com um pipeline da fase `physics` ainda em conferência ou compilação,
+    // o quadro desenha sem que o tempo ande — nenhum passo sem o colisor, e o resultado não depende da máquina.
+    let held: readonly string[] = [];
+    const unsubscribeHold = events.on('flowsReconciled', () => {
+        const compiling = resourceSystem.compilingFlows('physics');
+        if (compiling.length > 0) {
+            time.hold();
+            if (held.length === 0) events.emit('simulationHeld', { flows: compiling });
+        } else if (held.length > 0) events.emit('simulationResumed', { flows: [] });
+        held = compiling;
+    });
 
     let disposed = false;
     return {
@@ -117,6 +128,7 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
             resourceSystem.dispose();
             unsubscribeDeviceLost();
             unsubscribeFrameRetired();
+            unsubscribeHold();
             core.shutdown();
         },
     };

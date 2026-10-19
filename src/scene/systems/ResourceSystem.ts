@@ -31,6 +31,7 @@ import { PoolLiveResolver } from '../consumers/strategies/PoolLiveResolver';
 import type { Flow } from '../flows/Flow';
 import { RECORD_NONE, type EntityRecordDeclaration, type ResourceType } from '../flows/slots';
 import type { FlowAllocator, RegisterOptions } from '../flows/FlowRegistry';
+import type { Phase } from '../flows/Phase';
 import { FlowBinder } from './flowBinding/FlowBinder';
 import { LayoutInferencer } from './LayoutInferencer';
 import { FreeRanges } from './FreeRanges';
@@ -400,7 +401,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }),
             this.events.on('frameRecording', () => {
                 this.flushDirty();
-                this.binder.prepareFrame();
+                this.binder.prepareFrame(() => {
+                    this.events.emit('flowsReconciled', {});
+                });
                 // Escritas de `framePrepare` em recursos da cena (ex.: matriz da luz no ShadowMap) entram no quadro.
                 this.flushDirty();
             }),
@@ -420,6 +423,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     // ── Flows (FlowAllocator) ────────────────────────────────────────────────
+
+    /**
+     * Os tipos dos Flows (da fase, ou de todos) com pipeline em conferência ou compilação assíncrona; com `swaps`, também
+     * as trocas em preparo.
+     */
+    compilingFlows(phase?: Phase, swaps = false): readonly string[] {
+        return this.binder.compiling(phase, swaps);
+    }
 
     /**
      * Aloca um Flow: resolve os slots, prepara os pipelines declarados (layout inferido do WGSL, fontes privadas ou

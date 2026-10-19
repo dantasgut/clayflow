@@ -12,6 +12,7 @@ import type { FrameTickEvent } from './FrameTickEvent';
 import type { PoolReallocatedEvent } from './PoolReallocatedEvent';
 import type { PoolWrittenEvent } from './PoolWrittenEvent';
 import type { ReadyEvent } from './ReadyEvent';
+import type { SimulationHeldEvent } from './SimulationHeldEvent';
 import type { TimeDroppedEvent } from './TimeDroppedEvent';
 
 /**
@@ -281,6 +282,12 @@ export interface EventMap {
     frameTick: FrameTickEvent;
     /** `Time` emite quando o teto de passos por quadro descarta tempo de física. */
     timeDropped: TimeDroppedEvent;
+    /** A cena parou o relógio: um estágio da física confere ou compila o pipeline (spec 034). */
+    simulationHeld: SimulationHeldEvent;
+    /** O relógio voltou a andar: os estágios da física estão prontos (spec 034). */
+    simulationResumed: SimulationHeldEvent;
+    /** ResourceSystem emite no quadro depois de reconciliar os Flows e antes do `framePrepare` deles. */
+    flowsReconciled: Record<string, never>;
     /** ExecutionSystem emite antes de gravar o quadro — ResourceSystem envia os recursos sujos. */
     frameRecording: FrameRecordingEvent;
     /** ExecutionSystem emite após record+submit — fim do frame. */

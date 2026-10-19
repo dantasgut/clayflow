@@ -195,6 +195,21 @@ export class FlowRuntime {
         return bodyType;
     }
 
+    /**
+     * Algum pipeline atual do Flow em conferência ou compilação assíncrona. As trocas em preparo (`sceneChanged`) não
+     * contam: o pipeline atual segue executando até a troca.
+     */
+    get compiling(): boolean {
+        for (const state of this.pipelineStates.values()) if (state.compiling) return true;
+        return false;
+    }
+
+    /** Alguma troca em preparo (`sceneChanged`) ainda em conferência ou compilação: o quadro desenha com o pipeline atual. */
+    get swapping(): boolean {
+        for (const state of this.nextStates.values()) if (state.compiling) return true;
+        return false;
+    }
+
     /** Entrega um evento ao Flow (tabela de transições). */
     deliver(event: FlowEvent): void {
         if (this.flow.lifecycle === 'disposed') return;

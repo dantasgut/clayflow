@@ -1,5 +1,6 @@
 import type { Flow } from '../../flows/Flow';
 import type { RegisterOptions } from '../../flows/FlowRegistry';
+import type { Phase } from '../../flows/Phase';
 import type { Unsubscribe } from '../../events/EventBus';
 import { FlowRuntime, type FlowRuntimeHost } from './FlowRuntime';
 import { ScenePoints } from './ScenePoints';
@@ -110,14 +111,31 @@ export class FlowBinder {
 
     /**
      * Antes da gravação do quadro: entrega as mudanças de entidades acumuladas (um `entitiesChanged` por slot),
-     * reconcilia e entrega `framePrepare` (escritas por quadro). Uma escrita que mude
+     * reconcilia, chama `reconciled` (os Flows do quadro existem e o estado das compilações é o de agora) e entrega
+     * `framePrepare` (escritas por quadro). Uma escrita que mude
      * fontes (ex.: `ctx.bind`) entra na reconciliação seguinte, ainda antes da gravação.
      */
-    prepareFrame(): void {
+    prepareFrame(reconciled?: () => void): void {
         for (const rt of [...this.runtimes.values()]) rt.deliverEntityChanges();
         this.reconcile();
+        reconciled?.();
         for (const rt of [...this.runtimes.values()]) rt.framePrepare();
         this.reconcile();
+    }
+
+    /**
+     * Os tipos dos Flows (da fase, ou de todas) com pipeline em conferência ou compilação assíncrona; com `swaps`, também
+     * as trocas em preparo (o pipeline novo de uma composição que mudou, enquanto o atual desenha).
+     */
+    compiling(phase?: Phase, swaps = false): readonly string[] {
+        const types: string[] = [];
+        for (const rt of this.runtimes.values())
+            if (
+                (phase === undefined || rt.options.phase === phase)
+                && (rt.compiling || (swaps && rt.swapping))
+            )
+                types.push(rt.options.type);
+        return types;
     }
 
     /** Descarta todos os runtimes e desfaz as inscrições. */
