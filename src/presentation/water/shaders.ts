@@ -9,6 +9,7 @@ import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { FluidSurfaceMaterialSchema } from '../../elements/material/FluidSurfaceMaterialSchema';
 import { sceneLightingReady } from '../../elements/scene/points/lighting';
 import { sceneFogReady } from '../../elements/scene/points/media';
+import { sceneRefractionReady } from '../../elements/scene/points/refraction';
 import {
     camerasResource,
     lightsResource,
@@ -117,7 +118,6 @@ export const waterResources = Object.freeze({
     depth: texture('water_depth', 'f32'),
     material: texture('water_material', 'u32'),
     normal: texture('water_normal', 'f32'),
-    background: texture('water_background', 'f32'),
 });
 const R = waterResources;
 
@@ -257,7 +257,7 @@ function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
             R.depth,
             R.material,
             R.normal,
-            R.background,
+            sceneRefractionReady,
         ],
     });
 }

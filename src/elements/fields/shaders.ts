@@ -22,7 +22,7 @@ import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
 import { FluidSurfaceMaterialSchema } from '../material/FluidSurfaceMaterialSchema';
-import { rayVolumeTypes } from '../raytrace/points';
+import { rayVolumeOpticsTypes, rayVolumeTypes } from '../raytrace/points';
 import { FieldGatherSchema, FluidFieldSchema } from './schemas';
 
 // Módulos do campo dos fluidos (spec 033, R11): a construção por quadro (junção das partículas, núcleos anisotrópicos,
@@ -286,6 +286,18 @@ export const fieldRayHit = wgslModule({
     name: 'field_ray_hit',
     source: fieldRayHitSource,
     requires: [rayVolumeTypes, fields],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_optics`: o meio do material da água (spec 034). */
+export const fieldRayOptics = wgslModule({
+    name: 'field_ray_optics',
+    requires: [rayVolumeOpticsTypes, R.materials],
+    source: `fn ray_volume_optics(material: u32) -> RayVolumeOptics {
+    if (material == 0u) { return RayVolumeOptics(1.0, 0.0, vec3f(0.0)); }
+    let m = field_materials[material - 1u];
+    // A absorção escalada como na composição e nos raios que atravessam (\`thicknessScale\`).
+    return RayVolumeOptics(max(m.ior, 1.0), m.abbe, m.absorption.rgb * m.thicknessScale);
+}`,
 });
 
 /** Contribuição do campo ao ponto `ray_volume_transmittance`: a absorção pelos trechos dentro da água. */

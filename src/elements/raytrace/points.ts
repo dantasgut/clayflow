@@ -44,6 +44,29 @@ export const rayVolumeTransmittanceReady = wgslModule({
 }`,
 });
 
+/** Óptica do meio de um volume: IOR, número de Abbe (0 sem dispersão) e o coeficiente de absorção (1/m). */
+export const rayVolumeOpticsTypes = wgslModule({
+    name: 'ray_volume_optics_types',
+    source: `/** O meio de um volume: IOR, número de Abbe (0: sem dispersão) e o coeficiente de absorção (1/m, por canal). */
+struct RayVolumeOptics {
+    ior: f32,
+    abbe: f32,
+    absorption: vec3f,
+}`,
+});
+
+/**
+ * \`fn ray_volume_optics(material: u32) -> RayVolumeOptics\` — o meio do material \`material\` de um acerto em volume
+ * (spec 034: a refração traçada entra e sai da água); pronto: o ar (IOR 1, sem absorção).
+ */
+export const rayVolumeOpticsReady = wgslModule({
+    name: 'ray_volume_optics_ready',
+    requires: [rayVolumeOpticsTypes],
+    source: `fn ray_volume_optics(material: u32) -> RayVolumeOptics {
+    return RayVolumeOptics(1.0, 0.0, vec3f(0.0));
+}`,
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -88,6 +111,23 @@ export const rayVolumeTransmittancePoint: ContributionPoint = {
                 requires: modules,
                 source: `fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f {
     return ${modules.map((_, k) => `ray_volume_transmittance_${k}(origin, dir, t_max)`).join(' * ')};
+}`,
+            }),
+        ),
+};
+
+/** Óptica dos volumes: um só contribuinte (o último, se houver mais). */
+export const rayVolumeOpticsPoint: ContributionPoint = {
+    name: 'ray_volume_optics',
+    ready: rayVolumeOpticsReady,
+    functionName: 'ray_volume_optics',
+    combine: (modules) =>
+        memo(`rvo:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_optics:${modules.map((m) => m.name).join('+')}`,
+                requires: [rayVolumeOpticsTypes, ...modules],
+                source: `fn ray_volume_optics(material: u32) -> RayVolumeOptics {
+    return ray_volume_optics_${modules.length - 1}(material);
 }`,
             }),
         ),

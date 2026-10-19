@@ -28,7 +28,10 @@ export interface FluidSurfaceMaterialData {
     depthThreshold: number;
     /** Escala da espessura acumulada (absorção e dispersão). */
     thicknessScale: number;
-    /** Deslocamento da refração na tela por unidade de inclinação da superfície. */
+    /**
+     * @deprecated Spec 034: a refração é traçada pelo `ior` (entrada, absorção do caminho e saída refratando), não um
+     * deslocamento na tela. Ignorado pelo desenho.
+     */
     refraction: number;
     /** Cáusticas ligadas (1) ou desligadas (0). */
     caustics: number;

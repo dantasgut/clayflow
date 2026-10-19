@@ -135,6 +135,11 @@ export interface GlobalIlluminationValues {
 export interface GlobalIlluminationData {
     enabled: boolean;
     indirect: boolean;
+    /**
+     * A cena tem material que refrata (o lobo de transmissão, a água): a refração traçada roda. Escrito pelos estágios
+     * padrão (spec 034); sem ele, o passe dela não é despachado.
+     */
+    refraction: boolean;
     bounces: number;
     raysPerProbe: number;
     probeFraction: number;
@@ -245,6 +250,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         const data = {
             enabled: values.enabled ?? true,
             indirect: values.indirect ?? true,
+            refraction: false,
             bounces: values.bounces ?? 3,
             raysPerProbe: values.raysPerProbe ?? q.raysPerProbe,
             probeFraction: values.probeFraction ?? q.probeFraction,

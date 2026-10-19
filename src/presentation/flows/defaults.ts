@@ -5,6 +5,7 @@ import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
 import { RayScene } from '../../elements/raytrace/RayScene';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
+import { FluidSurfaceMaterial } from '../../elements/material/FluidSurfaceMaterial';
 import { LOBES } from '../../elements/material/pbr/lobes';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
@@ -215,7 +216,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
  * - a entrada de uma `GlobalIllumination` com luz indireta retira o hemisfério dos estágios padrão (o céu com oclusão o
  *   substitui, sem contar o ambiente duas vezes) e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
  *   pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estavam;
- * - com material de vidro (o lobo de transmissão) e nenhuma `GlobalIllumination`, insere uma só de refração
+ * - com material que refrata (o lobo de transmissão, a água) e nenhuma `GlobalIllumination`, insere uma só de refração
  *   (`indirect: false`): o vidro refrata pela estrutura de raios e a luz do resto da cena não muda; sem vidro, ou
  *   quando o usuário insere a dele, ela sai;
  * - qualquer `GlobalIllumination` garante a `RayScene` que os raios consultam; a que estes estágios inseriram sai com a
@@ -234,10 +235,14 @@ function swapAmbientForGi(
     let rayScene: RayScene | undefined;
     /** O hemisfério que estes estágios retiraram (só esse volta; o que o usuário tirou fica fora). */
     let ambientTaken = false;
-    /** Funções de material com o lobo de transmissão inseridas (com repetição: o mesmo recurso em várias entidades). */
+    /**
+     * Materiais que refratam inseridos (com repetição: o mesmo recurso em várias entidades): as funções de material com o
+     * lobo de transmissão e a água (`FluidSurfaceMaterial`).
+     */
     let refractive = 0;
     const isRefractive = (r: unknown): boolean =>
-        r instanceof MaterialFunction && (r.lobeMask & LOBES.transmission) !== 0;
+        (r instanceof MaterialFunction && (r.lobeMask & LOBES.transmission) !== 0)
+        || r instanceof FluidSurfaceMaterial;
     const all = (): GlobalIllumination[] =>
         world
             .queryBySchemaName(GlobalIllumination.schema.name)
@@ -255,6 +260,8 @@ function swapAmbientForGi(
             world.remove(leaving);
         }
         const present = all();
+        for (const g of present)
+            if (g.data.refraction !== refractive > 0) g.data.refraction = refractive > 0;
         const indirect = present.some((g) => g.data.indirect);
         if (indirect) {
             if (world.entityIdOfResource(ambient) !== undefined) {

@@ -142,7 +142,9 @@ const RIM = 0.1;
 function walls(app: Application): void {
     const [hx, hz] = WATER_TANK;
     const t = 0.05;
-    const h = 0.8;
+    // Meia altura das paredes de colisão (invisíveis; só a borda aparece): até 2,5 m — a barragem de 1,25 m bate na
+    // parede e sobe; mais baixas, a água passava por cima e saía do tanque.
+    const h = 1.3;
     for (const [x, z, ex, ez] of [
         [hx + t, 0, t, hz + 2 * t],
         [-(hx + t), 0, t, hz + 2 * t],

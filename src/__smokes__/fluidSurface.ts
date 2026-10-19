@@ -212,8 +212,91 @@ const quantile = (sorted: readonly number[], q: number): number =>
     sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))))] ?? 0;
 
 /** Região central do fundo na vista de cima (longe das paredes e da caixa). */
+/**
+ * Razões água ÷ cena vazia vistas através de uma camada plana de água de altura `h` (spec 034, US7): com a refração
+ * traçada, o pixel mostra o ponto do fundo onde o raio da câmera chega depois de refratar na superfície (Snell, IOR
+ * 1,333), não o de baixo dele — a referência é a cena vazia nesse ponto (projetado na mesma câmera). Só os pixels cujo
+ * ponto cai no meio de um ladrilho (os 3 × 3 pixels em volta iguais: sem a borda dos ladrilhos, onde uma fração de
+ * pixel no ponto já muda tudo).
+ */
+function refractedRatios(
+    a: HdrImage,
+    b: HdrImage,
+    bright: ImageData,
+    region: (x: number, y: number) => boolean,
+    h: number,
+    each?: (x: number, y: number, ratio: number) => void,
+): number[] {
+    const sub = (u: readonly number[], v: readonly number[]): number[] =>
+        u.map((c, k) => c - v[k]!);
+    const dot = (u: readonly number[], v: readonly number[]): number =>
+        u.reduce((s, c, k) => s + c * v[k]!, 0);
+    const norm = (u: readonly number[]): number[] => u.map((c) => c / Math.hypot(...u));
+    const cross = (u: readonly number[], v: readonly number[]): number[] => [
+        u[1]! * v[2]! - u[2]! * v[1]!,
+        u[2]! * v[0]! - u[0]! * v[2]!,
+        u[0]! * v[1]! - u[1]! * v[0]!,
+    ];
+    const eye = TOP_EYE;
+    const forward = norm(sub([0, 0.1, 0], eye));
+    const right = norm(cross(forward, [0, 1, 0]));
+    const up = cross(right, forward);
+    const f = HEIGHT / 2 / Math.tan(Math.PI / 8);
+    const eta = 1 / 1.333;
+    const out: number[] = [];
+    for (let y = 0; y < a.height; y++)
+        for (let x = 0; x < a.width; x++) {
+            if (!region(x, y)) continue;
+            const [u, v] = [x + 0.5 - WIDTH / 2, HEIGHT / 2 - (y + 0.5)];
+            const d = norm(forward.map((c, k) => c * f + right[k]! * u + up[k]! * v));
+            const p = eye.map((c, k) => c + d[k]! * ((h - eye[1]) / d[1]!));
+            const cosi = -d[1]!;
+            const t = d.map(
+                (c, k) =>
+                    eta * c
+                    + (k === 1 ? eta * cosi - Math.sqrt(1 - eta * eta * (1 - cosi * cosi)) : 0),
+            );
+            const q = p.map((c, k) => c + t[k]! * (-h / t[1]!));
+            const w = sub(q, eye);
+            const z = dot(w, forward);
+            const sx = WIDTH / 2 + (f * dot(w, right)) / z - 0.5;
+            const sy = HEIGHT / 2 - (f * dot(w, up)) / z - 0.5;
+            const [ix, iy] = [Math.round(sx), Math.round(sy)];
+            let inside = ix >= 1 && iy >= 1 && ix < WIDTH - 1 && iy < HEIGHT - 1;
+            const center = inside ? luminance(bright, ix, iy) : 0;
+            inside &&= center >= 0.4;
+            for (let j = -1; j <= 1 && inside; j++)
+                for (let i = -1; i <= 1 && inside; i++)
+                    inside = Math.abs(luminance(bright, ix + i, iy + j) - center) < 0.03;
+            if (!inside) continue;
+            const [x0, y0] = [Math.floor(sx), Math.floor(sy)];
+            const [fx, fy] = [sx - x0, sy - y0];
+            const ref =
+                (1 - fy) * ((1 - fx) * hdrLuminance(b, x0, y0) + fx * hdrLuminance(b, x0 + 1, y0))
+                + fy
+                    * ((1 - fx) * hdrLuminance(b, x0, y0 + 1)
+                        + fx * hdrLuminance(b, x0 + 1, y0 + 1));
+            out.push(hdrLuminance(a, x, y) / ref);
+            each?.(x, y, hdrLuminance(a, x, y) / ref);
+        }
+    return out.sort((p, q) => p - q);
+}
+
 const centralFloor = (x: number, y: number): boolean =>
     x > WIDTH * 0.3 && x < WIDTH * 0.7 && y > HEIGHT * 0.35 && y < HEIGHT * 0.65;
+
+/**
+ * Diagnóstico pela URL: `?only=caustics,perf` roda só esses blocos; `?stages=1` dá o tempo de cada passe no desempenho
+ * (o critério continua o do quadro); `?dump=1` grava as imagens dos blocos que as expõem (`debug-*.png` nas fixtures).
+ */
+const QUERY = new URLSearchParams(location.search);
+const ONLY = QUERY.get('only')?.split(',');
+const want = (block: string): boolean => ONLY === undefined || ONLY.includes(block);
+
+async function dump(name: string, image: ImageData): Promise<void> {
+    if (QUERY.get('dump') === '1')
+        await writeFixture(`debug-fluidSurface-${name}.png`, await toPng(image));
+}
 
 async function main(): Promise<void> {
     const failures: string[] = [];
@@ -221,7 +304,7 @@ async function main(): Promise<void> {
     const emptyTop = await run('vazio-cima', { material: 'none', eye: TOP_EYE }, [2]);
 
     // Continuidade: água opaca (absorção alta) sobre a área dos sprites do mesmo corpo, parado no primeiro quadro.
-    {
+    if (want('continuity')) {
         const opaque = { absorption: [80, 80, 80, 0], color: [0.9, 0.1, 0.1, 1] } as const;
         const water = await run('continuidade', { material: opaque, box: true }, [2]);
         const sprites = await run('continuidade-sprites', { material: 'sprites', box: true }, [2]);
@@ -249,7 +332,7 @@ async function main(): Promise<void> {
     }
 
     // SPH, PBF e MPM fluido: água visível e em movimento; nenhuma leitura de volta nem escrita no pool.
-    for (const algorithm of ['SPH', 'PBF', 'MPM'] as const) {
+    for (const algorithm of want('algorithms') ? (['SPH', 'PBF', 'MPM'] as const) : []) {
         const name = algorithm.toLowerCase();
         const options = { algorithm, dam: [16, 24, 20] as const, box: true };
         const r = await run(name, options, [20, 60]);
@@ -272,7 +355,7 @@ async function main(): Promise<void> {
     }
 
     // Absorção: camadas de 5, 15 e 30 cm assentadas; luminância do fundo central cai com a profundidade.
-    {
+    if (want('absorption')) {
         const lum: number[] = [];
         let contrast = 0;
         for (const layer of [2, 6, 12]) {
@@ -315,7 +398,7 @@ async function main(): Promise<void> {
     }
 
     // Cáusticas: vista de cima, água sem refração nem tinta; agitada (barragem caindo) × parada (camada assentada).
-    {
+    if (want('caustics')) {
         const agitated = await run(
             'agitada',
             { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE },
@@ -332,9 +415,44 @@ async function main(): Promise<void> {
             { dam: [24, 24, 32], material: { ...CLEAR, caustics: false }, eye: TOP_EYE },
             [AGITATED_FRAME],
         );
-        const base = ratios(flat.hdr[0]!, emptyTop.hdr[0]!, emptyTop.frames[0]!, centralFloor);
+        await dump('parada', flat.frames[0]!);
+        await dump('vazio-cima', emptyTop.frames[0]!);
+        // A camada plana que melhor explica a imagem (a altura assentada não é conhecida de antemão: 0–30 cm, de mm em
+        // mm); a variação que sobra é a da superfície simulada (o relevo e as cáusticas dele).
+        let base: number[] = [];
+        let spread = Infinity;
+        let level = 0;
+        for (let mm = 0; mm <= 300; mm++) {
+            const r = refractedRatios(
+                flat.hdr[0]!,
+                emptyTop.hdr[0]!,
+                emptyTop.frames[0]!,
+                centralFloor,
+                mm / 1000,
+            );
+            if (r.length < 200) continue;
+            const s = (quantile(r, 0.95) - quantile(r, 0.05)) / quantile(r, 0.5);
+            if (s < spread) [base, spread, level] = [r, s, mm];
+        }
         const median = quantile(base, 0.5);
-        const spread = (quantile(base, 0.95) - quantile(base, 0.05)) / median;
+        if (QUERY.get('dump') === '1') {
+            // O mapa das razões: cinza médio = a mediana, ±25 % do preto ao branco; fora da medida, azul.
+            const map = new ImageData(WIDTH, HEIGHT);
+            for (let i = 0; i < map.data.length; i += 4) map.data.set([0, 0, 120, 255], i);
+            refractedRatios(
+                flat.hdr[0]!,
+                emptyTop.hdr[0]!,
+                emptyTop.frames[0]!,
+                centralFloor,
+                level / 1000,
+                (x, y, r) => {
+                    const g = Math.max(0, Math.min(255, 128 + ((r / median - 1) / 0.25) * 127));
+                    map.data.set([g, g, g, 255], (y * WIDTH + x) * 4);
+                },
+            );
+            await dump('parada-razoes', map);
+        }
+        log(`cáusticas: camada parada vista como plana a ${level} mm, ${base.length} px`);
         const wave = ratios(agitated.hdr[0]!, emptyTop.hdr[0]!, emptyTop.frames[0]!, centralFloor);
         const bright = quantile(wave, 0.99) / median;
         const dark = quantile(wave, 0.01) / median;
@@ -387,7 +505,7 @@ async function main(): Promise<void> {
     }
 
     // Caixa submersa: a face de cima recebe a luz transmitida (difere da cena sem água).
-    {
+    if (want('box')) {
         const r = await run(
             'submersa',
             { layer: 12, material: CLEAR, eye: TOP_EYE, box: true },
@@ -421,7 +539,7 @@ async function main(): Promise<void> {
     }
 
     // Sprites e água na mesma cena.
-    {
+    if (want('coexistence')) {
         const extra = (app: Application) => {
             const position: number[] = [];
             for (let i = 0; i < 400; i++)
@@ -465,7 +583,7 @@ async function main(): Promise<void> {
     }
 
     // Câmera dentro da água (no meio da barragem): sem preto nem cor inválida.
-    {
+    if (want('inside')) {
         const r = await run('dentro', { eye: [-0.55, 0.4, 0.05], target: [0.5, 0.2, 0] }, [2]);
         const img = r.frames[0]!;
         let black = 0;
@@ -483,7 +601,7 @@ async function main(): Promise<void> {
     }
 
     // Sem MSAA: a água é desenhada.
-    {
+    if (want('msaa')) {
         const r = await run('sem-msaa', { dam: [16, 24, 20], box: true }, [30], undefined, false);
         const ref = await run(
             'sem-msaa-vazio',
@@ -497,7 +615,7 @@ async function main(): Promise<void> {
         if (water < 1000) failures.push(`sem MSAA: água pouco visível (${water} px)`);
     }
 
-    await performance36k(failures);
+    if (want('perf')) await performance36k(failures);
     failures.push(...new Set(engineErrors));
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);
     else log('FLUID SURFACE SMOKE PASSED');
@@ -514,9 +632,16 @@ async function performance36k(failures: string[]): Promise<void> {
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        profiling: 'frame',
+        ...(QUERY.get('stages') === '1'
+            ? { profiling: 'passes' as const, profilingCapacity: 2048 }
+            : { profiling: 'frame' as const }),
     });
     app.events.on('engineError', (e) => engineErrors.push(`desempenho: ${e.stage}: ${e.message}`));
+    const stages = new Map<string, number[]>();
+    app.events.on('frameComplete', (e) => {
+        for (const [k, ns] of Object.entries(e.stats.stagesNs ?? {}))
+            stages.set(k, [...(stages.get(k) ?? []), ns / 1e6]);
+    });
     waterScene(app, { width: 1280, height: 720, box: true });
     // No ritmo da GPU e cada quadro de GPU uma vez (spec 034, R17); depois de 70 quadros de aquecimento, até 90
     // leituras novas (no máximo 1000 quadros).
@@ -531,6 +656,12 @@ async function performance36k(failures: string[]): Promise<void> {
     log(
         `desempenho: barragem de 36 864 com água e cáusticas, GPU ${mean.toFixed(2)} ms/quadro (${window.length} amostras)`,
     );
+    const median = (v: number[]): number => [...v].sort((a, b) => a - b)[v.length >> 1] ?? 0;
+    for (const [k, v] of [...stages]
+        .filter(() => QUERY.get('stages') === '1')
+        .sort((a, b) => median(b[1]) - median(a[1]))
+        .slice(0, 12))
+        log(`  passe ${k}: ${median(v).toFixed(2)} ms`);
     if (window.length < 30) failures.push(`desempenho: poucas amostras de GPU (${window.length})`);
     else if (mean > 1000 / 60) failures.push(`desempenho: GPU ${mean.toFixed(2)} ms > 16,7 ms`);
 }

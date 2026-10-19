@@ -2,8 +2,12 @@ import { Entity } from '../../scene/contracts/Entity';
 import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { rayVolumeHitPoint, rayVolumeTransmittancePoint } from '../raytrace/points';
-import { fieldRayHit, fieldRayTransmittance } from './shaders';
+import {
+    rayVolumeHitPoint,
+    rayVolumeOpticsPoint,
+    rayVolumeTransmittancePoint,
+} from '../raytrace/points';
+import { fieldRayHit, fieldRayOptics, fieldRayTransmittance } from './shaders';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
@@ -117,6 +121,12 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldRayTransmittance : undefined),
+        },
+        {
+            point: rayVolumeOpticsPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayOptics : undefined),
         },
     ];
 

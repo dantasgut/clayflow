@@ -274,6 +274,10 @@ fino; pilha de interfaces; vidro rugoso; prisma com dispersão; água com fundo 
   leitura atrasada, sem repetir leituras velhas), e os smokes de desempenho MUST usar essa medida (H1).
 - **FR-027c**: O custo da água a 64k partículas MUST ser medido na 4090 contra o `develop` e qualquer regressão
   explicada e corrigida na causa (H7).
+- **FR-027d**: Com a refração traçada, a água tem dois orçamentos (decisão do usuário, 2026-10-19): o campo e as
+  marchas dele ≤ 2,5 ms pela soma dos passes (o critério da 033), e o quadro inteiro com a água de 64 000 partículas
+  ≤ 16,7 ms na 4090 — 60 quadros por segundo no pior caso, com a qualidade inteira (a dispersão por canal exata, sem
+  aproximação). A cena de medida MUST ser fisicamente válida (nenhuma partícula nascendo dentro de um colisor).
 - **FR-028**: O bench MUST medir sem teto de vsync na 4090 e gravar o baseline `nvidia-lovelace` (V3).
 - **FR-029**: Um smoke da cena com janela MUST medir manchas, ruído temporal e viés (US1); um smoke de conservação das
   cáusticas MUST medir o fluxo (US2).
@@ -292,6 +296,9 @@ fino; pilha de interfaces; vidro rugoso; prisma com dispersão; água com fundo 
 - **FR-031d**: A água MUST refratar ao sair do volume (normal da saída, Fresnel, reflexão interna total).
 - **FR-031e**: A normal da superfície da água MUST sair limpa da origem (redistanciamento do campo), sem filtro que
   alise a normal.
+- **FR-031f**: O parâmetro `refraction` do `FluidSurfaceMaterial` (deslocamento na tela) fica obsoleto: a refração é
+  traçada pelo `ior`. As medidas que usavam `refraction: 0` para isolar as cáusticas comparam com o fundo visto através
+  de uma camada plana ideal (Snell), não com o fundo sem água.
 - **FR-032**: Toda tarefa aberta das specs anteriores MUST ter estado conferido no código e destino registrado na
   análise (feita e marcada, parte desta spec, fase futura do ROADMAP, obsoleta ou bloqueada).
 

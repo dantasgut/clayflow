@@ -18,9 +18,13 @@
 //   - caustics: a placa de água parada sobre o fundo: a borda da sombra e das cáusticas no fundo sem ondulação na
 //     escala das partículas (RMS ≤ 0,05 p) e o padrão sem blocos (≤ 2 % de degraus entre vizinhos acima de 0,06);
 //   - contact: a água encosta na caixa: o anel de ½ a 1½ espaçamento em volta da caixa tem água em ≥ 95 % dos pixels;
-//   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
-//     marcha ≤ 1 ms: medidos juntos pela diferença do tempo de GPU por quadro (perfil por quadro: o por passo não é
-//     confiável no Apple) entre a mesma barragem com a água e com sprites, ≤ 2,5 ms.
+//   - floor: a água assentada encosta no fundo — o campo lido de volta, em colunas no meio do tanque: φ < 0 já em
+//     y = 0 (sem fresta de ar entre a água e o sólido) em todas;
+//   - timing: 64 000 partículas em 1280 × 720 (a barragem cabendo no tanque) — o campo (junção, grade, marcação,
+//     densidade, distância) e as marchas (câmera e luz) juntos ≤ 2,5 ms, pela soma dos passes deles (spec 034: a
+//     diferença do quadro contra os sprites passou a incluir a refração traçada, que tem o próprio orçamento; no Apple o
+//     perfil por passe não é confiável — conferir lá); e o quadro inteiro com a água ≤ 16,7 ms (spec 034, decisão do
+//     usuário: 60 quadros por segundo na 4090 no pior caso). `?stages=1` lista os passes.
 //
 // Para rodar: `npm run smoke -- fluidField [--query case=close]`. Resultado: `FLUIDFIELD SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -970,10 +974,56 @@ async function caseContact(): Promise<void> {
     s.dispose();
 }
 
+/**
+ * A água assentada encosta no fundo (spec 034, US7): o campo da GPU lido de volta, em colunas de 5 em 5 cm no meio do
+ * tanque, o primeiro cruzamento de φ subindo do fundo (y = 0). Sem fresta: φ < 0 já em y = 0 (o fundo da água no
+ * sólido, não acima dele) em todas as colunas com água.
+ */
+async function caseFloor(): Promise<void> {
+    const s = await tank(320, 200, { layer: 6, material: { rippleStrength: 0 } });
+    const f = await gpuField(s.app, WATER_SPACING);
+    const step = 0.0005;
+    const bottoms: number[] = [];
+    const tops: number[] = [];
+    for (let x = -0.6; x <= 0.6 + 1e-9; x += 0.05)
+        for (let z = -0.3; z <= 0.3 + 1e-9; z += 0.05) {
+            // De baixo para cima: o primeiro cruzamento para dentro (o fundo da água) e o último para fora (o topo).
+            let bottom: number | undefined;
+            let top: number | undefined;
+            let prev = f.phi([x, -0.03, z]);
+            for (let y = -0.03 + step; y <= 0.3; y += step) {
+                const phi = f.phi([x, y, z]);
+                const at = y - step + (step * prev) / (prev - phi);
+                if (prev >= 0 && phi < 0 && bottom === undefined) bottom = prev === phi ? y : at;
+                if (prev < 0 && phi >= 0) top = at;
+                prev = phi;
+            }
+            if (top === undefined) continue;
+            bottoms.push(bottom ?? -0.03);
+            tops.push(top);
+        }
+    s.dispose();
+    bottoms.sort((a, b) => a - b);
+    tops.sort((a, b) => a - b);
+    const q = (v: number[], t: number): number => v[Math.floor(t * (v.length - 1))] ?? NaN;
+    const gaps = bottoms.filter((b) => b > 0).length;
+    log(
+        `floor: ${bottoms.length} colunas; fundo da água mín ${(q(bottoms, 0) * 1000).toFixed(2)} mm, mediana ${(q(bottoms, 0.5) * 1000).toFixed(2)} mm, máx ${(q(bottoms, 1) * 1000).toFixed(2)} mm (fresta em ${gaps}); topo mediana ${(q(tops, 0.5) * 1000).toFixed(1)} mm`,
+    );
+    check(bottoms.length > 100, `floor: só ${bottoms.length} colunas com água`);
+    check(
+        gaps === 0,
+        `floor: fresta entre a água e o fundo em ${gaps} de ${bottoms.length} colunas`,
+    );
+}
+
 /** Tempo de GPU por quadro (perfil por quadro, leituras novas a cada quadro de tela) da barragem de 64 000. */
+const STAGES = new URLSearchParams(location.search).get('stages') === '1';
+
 async function damFrameTime(
     material: 'water' | 'sprites',
-): Promise<{ mean: number; readings: number; count: number }> {
+    profiling: 'frame' | 'passes' = 'frame',
+): Promise<{ mean: number; readings: number; count: number; stages: Map<string, number> }> {
     const W = 1280;
     const H = 720;
     const canvas = document.createElement('canvas');
@@ -985,14 +1035,24 @@ async function damFrameTime(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        profiling: 'frame',
+        ...(profiling === 'passes' ? { profiling, profilingCapacity: 2048 } : { profiling }),
     });
     app.events.on('engineError', (e) => engineErrors.push(`timing: ${e.stage}: ${e.message}`));
+    const stages = new Map<string, number[]>();
+    let window = false;
+    app.events.on('frameComplete', (e) => {
+        if (window)
+            for (const [k, ns] of Object.entries(e.stats.stagesNs ?? {}))
+                stages.set(k, [...(stages.get(k) ?? []), ns / 1e6]);
+    });
     const body = waterScene(app, {
         width: W,
         height: H,
-        dam: [40, 40, 40],
-        box: true,
+        // 64 000 partículas que cabem no tanque (1,6 × 0,8 m) sem colisor sobreposto: 1 m em x como a 40³ de antes,
+        // 0,8 m em z (a largura do tanque) e 1,25 m de altura, sem a caixa submersa (que ficaria dentro da barragem). A
+        // 40³ (1 m em z) nascia dentro das paredes e da caixa e explodia; uma coluna de 2 m na base livre da caixa
+        // lançava milhares de partículas para fora do domínio da simulação ao bater na parede (spec 034).
+        dam: [40, 50, 32],
         ...(material === 'sprites' ? { material: 'sprites' as const } : {}),
     })!;
     const sampler = gpuSamples(app);
@@ -1002,29 +1062,45 @@ async function damFrameTime(
     await settle(app, 5000);
     await simulate(app, 90);
     sampler.counting = true;
+    window = true;
     for (let i = 0; i < 120; i++) await stepPaced(app);
     app.dispose();
     canvas.remove();
+    const median = (v: number[]): number => [...v].sort((a, b) => a - b)[v.length >> 1] ?? 0;
+    const medians = new Map([...stages].map(([k, v]) => [k, median(v)] as const));
+    if (STAGES)
+        for (const [k, v] of [...medians].sort((a, b) => b[1] - a[1]).slice(0, 12))
+            log(`  ${material}: passe ${k}: ${v.toFixed(2)} ms`);
     const sorted = [...gpu].sort((a, b) => a - b);
     // A mediana: robusta às leituras repetidas e aos picos de relógio.
     return {
         mean: sorted[Math.floor(sorted.length / 2)] ?? NaN,
         readings: gpu.length,
         count: body.count,
+        stages: medians,
     };
 }
 
 async function caseTiming(): Promise<void> {
     const water = await damFrameTime('water');
     const sprites = await damFrameTime('sprites');
-    const cost = water.mean - sprites.mean;
+    const passes = await damFrameTime('water', 'passes');
+    // O campo e as marchas dele (a câmera e a luz): os passes do `FluidFieldFlow` e do `FluidFieldPassFlow`.
+    let field = 0;
+    for (const [k, v] of passes.stages)
+        if (k.startsWith('FluidFieldFlow.') || k.startsWith('FluidFieldPassFlow.')) field += v;
+    const refraction = passes.stages.get('ProbeFlow.refraction') ?? 0;
     log(
-        `timing: ${water.count} partículas em 1280 × 720: quadro com a água pelo campo ${water.mean.toFixed(2)} ms, com sprites ${sprites.mean.toFixed(2)} ms (${water.readings}/${sprites.readings} leituras) → a água custa ${cost.toFixed(2)} ms`,
+        `timing: ${water.count} partículas em 1280 × 720: quadro com a água ${water.mean.toFixed(2)} ms, com sprites ${sprites.mean.toFixed(2)} ms (${water.readings}/${sprites.readings} leituras; a água custa ${(water.mean - sprites.mean).toFixed(2)} ms); por passe: campo + marchas ${field.toFixed(2)} ms, refração traçada ${refraction.toFixed(2)} ms`,
     );
-    check(water.readings >= 30 && sprites.readings >= 30, 'timing: leituras de GPU suficientes');
     check(
-        cost <= 2.5,
-        `timing: campo + marcha da água ${cost.toFixed(2)} ms ≤ 2,5 ms (campo ≤ 1,5 e marcha ≤ 1)`,
+        water.readings >= 30 && sprites.readings >= 30 && passes.readings >= 30,
+        'timing: leituras de GPU suficientes',
+    );
+    check(field > 0 && field <= 2.5, `timing: campo + marchas ${field.toFixed(2)} ms ≤ 2,5 ms`);
+    check(
+        water.mean <= 1000 / 60,
+        `timing: quadro com a água ${water.mean.toFixed(2)} ms ≤ 16,7 ms`,
     );
 }
 
@@ -1038,6 +1114,7 @@ const CASES: Record<string, () => Promise<void>> = {
     volume: caseVolume,
     caustics: caseCaustics,
     contact: caseContact,
+    floor: caseFloor,
     timing: caseTiming,
 };
 

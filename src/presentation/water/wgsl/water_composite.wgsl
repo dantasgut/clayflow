@@ -1,6 +1,7 @@
 // Composição óptica da água (spec 017, research R5): um triângulo de tela cheia sobre os alvos da cena. Por pixel com
-// água: a normal da superfície (a do campo dos fluidos, spec 033: contínua, em mundo), refração da cena de antes da água (`background`, nunca o que
-// está na frente da superfície), absorção pela espessura (Beer-Lambert por canal), dispersão interna iluminada,
+// água: a normal da superfície (a do campo dos fluidos, spec 033: contínua, em mundo), o que se vê através dela pela
+// refração traçada (`scene_refraction`, spec 034: entrada, absorção do caminho e saída refratando), dispersão interna
+// iluminada,
 // e a superfície como dielétrico físico (spec 011, R9): o especular GGX de IOR do material reflete todas as luzes e o
 // hemisfério pelo ponto de cena `scene_lighting` (o sol estoura em HDR, sem corte), e só a energia que não reflete
 // segue para a refração. Consome a superfície genérica (profundidade, material e normal com a espessura em w por
@@ -56,19 +57,12 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     let n = normalize(n_sim + vec3f(-slope.x, 0.0, -slope.y));
     let nv = normalize(r * n);
     let v = normalize(cam.position.xyz - pw);
-    // Espessura atravessada (limitada: dentro da água ela continua finita).
+    // Espessura atravessada (limitada: dentro da água ela continua finita): a luz espalhada no volume.
     let thickness = clamp(stored.w, 0.0, 1e3);
-    // Refração: desloca a leitura da cena pela inclinação; o que está na frente da água não é refratado.
-    // Com dispersão, cada cor desloca na proporção do seu IOR (as bordas do fundo refratado ganham franjas coloridas).
-    let shift = vec2f(nv.x, -nv.y) * material.refraction * min(thickness, 1.0) * size.y;
-    let iors = closure_dispersion_iors(material.ior, material.abbe);
-    let spread = (iors - vec3f(1.0)) / max(material.ior - 1.0, 1e-4);
-    var background = vec3f(0.0);
-    for (var k = 0; k < 3; k++) {
-        var pr = clamp(vec2i(frag.xy + shift * spread[k]), vec2i(0), size_i - 1);
-        if (water_scene_linear(vec2f(pr), proj) < z) { pr = pi; }
-        background[k] = textureLoad(water_background, pr, 0)[k];
-    }
+    // O que se vê através da água: a refração traçada no pixel (spec 034) — o raio entra pela superfície do campo, a
+    // atravessa com a absorção do caminho e sai refratando (Fresnel e reflexão interna total) até o que não transmite;
+    // sem ela (os kernels ainda compilando), nada passa.
+    let traced = scene_refraction(vec2u(frag.xy));
     // Superfície: dielétrico de IOR do material (Fresnel e GGX), refletindo as luzes e o hemisfério.
     let surface = closure_dielectric(material.ior, vec3f(1.0), material.roughness, 0.0, vec3f(0.0));
     let reflected = scene_lighting(surface, pw, n, v);
@@ -77,11 +71,11 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     // Dentro: o fundo atenuado por Beer-Lambert e a luz espalhada no volume, na cor da água.
     let absorb = exp(-material.absorption.rgb * thickness);
     let scattered = scene_lighting(closure_diffuse(material.color.rgb, 0.0), pw, n, v);
-    // Névoa (ponto `scene_fog`): o fundo lido já a tem até ele; a luz da superfície e a espalhada na água a atravessam
-    // até a câmera, e a fração que vem do fundo (τ) leva a dele — T·R + τ·B + (1 − τ)·S.
+    // Névoa (ponto `scene_fog`): o fundo traçado já a tem até ele; a luz da superfície e a espalhada na água a
+    // atravessam até a câmera, e a fração que vem do fundo (τ) leva a dele — T·R + τ·B + (1 − τ)·S.
     let fog = scene_fog(pw);
     let tau = into * absorb;
-    var color = (reflected + into * scattered * (1.0 - absorb)) * fog.a + tau * background + (vec3f(1.0) - tau) * fog.rgb;
+    var color = (reflected + into * scattered * (1.0 - absorb)) * fog.a + into * traced.rgb + (vec3f(1.0) - tau) * fog.rgb;
     if (!all(abs(color) < vec3f(6.5e4))) { color = material.color.rgb; }
     var out: CompositeOut;
     out.color = vec4f(max(color, vec3f(0.0)), 1.0);

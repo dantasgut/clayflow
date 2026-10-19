@@ -171,11 +171,18 @@ caminho do raio.
 - [x] T063 [US7] Rugosidade por GGX (VNDF) na transmissão e na reflexão, com acúmulo temporal reprojetado; remover o
       desfoque bilateral se existir no caminho.
 - [x] T064 [US7] Dispersão: um raio por canal com o IOR do canal, iluminado no próprio acerto; por amostra com MSAA.
-- [ ] T065 [US7] Água (R16): saída do volume com a normal da saída, Fresnel e reflexão interna total; absorção pela
-      distância.
-- [ ] T066 [US7] Normal da água na origem (R16): referência de CPU da distância exata, medir o erro do campo depois do
+- [x] T065 [US7] Água (R16): saída do volume com a normal da saída, Fresnel e reflexão interna total; absorção pela
+      distância. A água é uma interface como o vidro no mesmo traçado (`ray_volume_hit`/`ray_volume_optics`); o desenho
+      da água lê `scene_refraction` (sem a cópia da tela). Custo: bandeira, ladrilhos, frente de onda e uma chamada de
+      cada função grande (research R15) — barragem de 64k a 15,5 ms o quadro.
+- [x] T066 [US7] Normal da água na origem (R16): referência de CPU da distância exata, medir o erro do campo depois do
       redistanciamento em `FluidFieldFlow`, corrigir o redistanciamento até a tolerância; nenhum filtro na normal.
-- [ ] T067 [US7] Rodar `refraction` (SC-014), `materials`, `globalIllumination`, `fluidSurface`, `fluidField`,
+      Medido: o campo da GPU confere com a referência nas mesmas partículas (rms 0,11 mm), a normal na escala das
+      partículas a 0,0021 (≤ 0,01); o relevo que resta vem do solver (análise O8, spec 035). Nada a corrigir no campo.
+- [ ] T067 [US7] (Rodados: `refraction` e `globalIllumination` passam; `fluidField` passa com a cena de 64k corrigida
+      (O4) e os dois orçamentos (FR-027d); `materials` só no O1; `fluidSurface` falha na água parada (O8) e nas
+      fixtures que mudam com a refração física: dam-opaque, sph, pbf, mpm, layer-15cm, caustics, submerged-box,
+      coexistence.) Rodar `refraction` (SC-014), `materials`, `globalIllumination`, `fluidSurface`, `fluidField`,
       `particles` e `parametricSurfaces`; anotar as fixtures que mudam (regravadas uma vez, com montagem antes/depois, na
       fase 9); custo por pixel transmissivo no `bench:check`; demo `caustics` e um vídeo de vidro e água.
 

@@ -10,7 +10,6 @@ import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { lightTransmissionPoint } from '../../elements/scene/points/lighting';
 import { WaterLightMatrixSchema, WaterStateSchema } from '../water/schemas';
 import { waterTransmission } from '../water/shaders';
-import { SCENE_COLOR_FORMAT } from './FrameTargets';
 
 /** Opções da superfície de água da cena. */
 export interface WaterSurfaceOptions {
@@ -138,7 +137,6 @@ export class WaterSurface extends Entity<WaterSurfaceData> implements Resource {
             view('depth', 'storage-texture', 'r32float'),
             view('material', 'storage-texture', 'r32uint'),
             view('normal', 'storage-texture', 'rgba16float'),
-            view('background', 'texture', SCENE_COLOR_FORMAT),
             // Vista da luz e cáusticas.
             light('lightDepth', 'storage-texture', 'r32float'),
             light('lightMaterial', 'storage-texture', 'r32uint'),
@@ -169,7 +167,7 @@ export class WaterSurface extends Entity<WaterSurfaceData> implements Resource {
 }
 
 /** Descritores da vista da câmera (alocados juntos pelo produtor). */
-export const WATER_VIEW_TEXTURES = ['depth', 'material', 'normal', 'background'] as const;
+export const WATER_VIEW_TEXTURES = ['depth', 'material', 'normal'] as const;
 
 /** Descritores da vista da luz e das cáusticas (alocados juntos pelo produtor da luz). */
 export const WATER_LIGHT_TEXTURES = [

@@ -11,7 +11,11 @@ import {
     registerStages,
     renderScene,
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
-import { rayVolumeHitPoint, rayVolumeTransmittancePoint } from '../../raytrace/points';
+import {
+    rayVolumeHitPoint,
+    rayVolumeTransmittancePoint,
+    rayVolumeOpticsPoint,
+} from '../../raytrace/points';
 import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout } from '../FluidField';
 import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS } from '../schemas';
 import { FIELD } from '../reference/field';
@@ -73,15 +77,20 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios só com fluido: ray_volume_hit e ray_volume_transmittance', () => {
+    it('contribuição aos raios só com fluido: ray_volume_hit, ray_volume_transmittance e ray_volume_optics', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
             rayVolumeHitPoint,
             rayVolumeTransmittancePoint,
+            rayVolumeOpticsPoint,
         ]);
         const slotOf = (): undefined => undefined;
-        expect(contributions.map((c) => c.build(slotOf))).toEqual([undefined, undefined]);
+        expect(contributions.map((c) => c.build(slotOf))).toEqual([
+            undefined,
+            undefined,
+            undefined,
+        ]);
         field.setVolume(true);
         const modules = contributions.map((c) => c.build(slotOf)!);
         expect(modules.every((m) => m !== undefined)).toBe(true);
@@ -95,8 +104,16 @@ describe('FluidField (spec 033, R11)', () => {
             'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f',
         );
         expect(transmittance).toContain('field_materials');
+        // O meio da água para a refração traçada (spec 034): IOR, Abbe e a absorção escalada.
+        const optics = composeWgsl(modules[2]!).spec.source;
+        expect(optics).toContain('fn ray_volume_optics(material: u32) -> RayVolumeOptics');
+        expect(optics).toContain('m.absorption.rgb * m.thicknessScale');
         field.setVolume(false);
-        expect(contributions.map((c) => c.build(slotOf))).toEqual([undefined, undefined]);
+        expect(contributions.map((c) => c.build(slotOf))).toEqual([
+            undefined,
+            undefined,
+            undefined,
+        ]);
     });
 });
 

@@ -53,10 +53,9 @@ type Ctx = TransitionContext<WaterSlots>;
  * WaterFlow — composição óptica da água (spec 017, research R5), consumidor da superfície genérica do `WaterSurface`
  * (profundidade, espessura e material por pixel) — não sabe de onde ela vem (partículas hoje, água por altura na 029).
  *
- * Na fase `forward`, depois do produtor da vista da câmera: copia a cor da cena para `background` (a fonte da refração,
- * que não pode ser a textura em que o passe resolve) e desenha um triângulo de tela cheia nos alvos da cena — com MSAA,
+ * Na fase `forward`, depois do produtor da vista da câmera: desenha um triângulo de tela cheia nos alvos da cena — com MSAA,
  * nas amostras, resolvidas na cor —, com teste de profundidade contra a cena (a água se oculta atrás dos objetos) sem
- * escrever nela. Por pixel: a normal da superfície (a do campo, spec 033), refração, absorção pela espessura, dispersão, Fresnel com
+ * escrever nela. Por pixel: a normal da superfície (a do campo, spec 033), a refração traçada (spec 034), dispersão, Fresnel com
  * a cor de ambiente do material, especular e a sombra da cena. Só grava quando a superfície foi produzida no quadro.
  *
  * A luz vem do ponto de cena `scene_lighting` (spec 011), com a sombra e as cáusticas por luz: o estágio não conhece
@@ -121,7 +120,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         };
     }
 
-    /** Copia a cena para `background` e compõe a água sobre ela. */
+    /** Compõe a água sobre a cena (o que se vê através dela é a refração traçada, spec 034). */
     dispatch(frame: Frame, bound: BoundFlow<WaterSlots>): void {
         const water = this.water;
         if (!this.active || water === undefined || this.pipeline === undefined) return;
@@ -129,14 +128,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         const prepared = bound.pipelines.get(this.pipeline);
         if (prepared?.role !== 'render' || !prepared.ready) return;
         const target = bound.slots.target;
-        const colorView = this.colorView(frame, target);
-        const background = this.resources.textureOf(water, 'background');
-        if (colorView === undefined || background === undefined || target.depth === undefined)
-            return;
-        frame.copyTextureToTexture(colorView.source, background, [
-            background.width,
-            background.height,
-        ]);
+        if (target.depth === undefined) return;
         const color = this.colorAttachment(frame, target, { loadOp: 'load' });
         if (color === undefined) return;
         const renderTarget: RenderTarget = {
@@ -202,7 +194,6 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
             [R.depth, tex('depth')],
             [R.material, tex('material')],
             [R.normal, tex('normal')],
-            [R.background, tex('background')],
             [this.samples > 1 ? R.sceneDepthMs : R.sceneDepth, sceneDepth],
         ]);
     }

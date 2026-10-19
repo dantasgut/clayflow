@@ -216,6 +216,21 @@ descartar medidas em P8.
 - **Modo só refração (decisão do usuário, 2026-10-19)**: com material transmissivo e sem `GlobalIllumination`, o motor
   insere uma com a luz indireta desligada. A estrutura de raios e a refração ficam ligadas; o hemisfério continua.
 
+**Custo (medido na 4090, 2026-10-19)** — sem aproximação, cada passo medido antes e depois:
+
+- **Bandeira**: o passe só roda com material que refrata na cena (os estágios padrão escrevem `refraction` na GI).
+- **Ladrilhos de 8 × 8**: 4 raios estratificados por ladrilho e o quadro anterior dele; só os pixels com um ladrilho
+  marcado na vizinhança 3 × 3 traçam (21,6 → 20,8 ms no `fluidSurface`).
+- **Frente de onda**: o passe por pixel anda até 3 trechos de cada caminho; os que continuam vão para uma fila e um
+  despacho indireto os termina (um fio por caminho), e a média temporal é um passe à parte. Os fios de um grupo não
+  esperam o caminho mais longo dele (na água agitada, 1 % dos pixels faz 15–54 trechos). Fila cheia: o caminho
+  termina no próprio fio, com o mesmo resultado.
+- **Uma chamada de cada função grande**: o WGSL copia a função em cada chamada; a amostra e o trecho chamados de dois
+  lugares cada quadruplicavam o kernel (registradores, ocupação). Um laço só para as tentativas na silhueta e para o
+  trecho (20,9 → 15,2 ms no `fluidSurface`).
+- O raio primário custa 0,8 ms a 64k (reaproveitar o passe de câmera do campo não compensa); o resto é o caminho,
+  ~2/3 dele os dois canais extras da dispersão da água (Abbe 55,7) — mantidos exatos por decisão do usuário.
+
 **Descartado** (todos atalhos da tentativa descartada):
 
 - a cópia da tela no limite de interfaces;

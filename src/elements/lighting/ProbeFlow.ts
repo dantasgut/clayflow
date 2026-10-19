@@ -2,6 +2,7 @@ import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/fl
 import type {
     EngineCore,
     Frame,
+    IndirectBufferSpec,
     StorageBufferSpec,
     TextureViewSpec,
 } from '../../scene/contracts/gpu';
@@ -98,6 +99,16 @@ const REFRACTION_FINISH = compute(
     giRefractionFinish,
     'gi_refraction_finish_main',
 );
+const REFRACTION_ARGS = compute(
+    'gi_refraction_args',
+    giRefractionFinish,
+    'gi_refraction_args_main',
+);
+const REFRACTION_RESOLVE = compute(
+    'gi_refraction_resolve',
+    giRefractionFinish,
+    'gi_refraction_resolve_main',
+);
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -112,20 +123,35 @@ const FIXED = [
     PHOTON_RESOLVE,
     PROBE_RESPONSE,
     REFRACTION_FINISH,
+    REFRACTION_ARGS,
+    REFRACTION_RESOLVE,
 ];
 /** vec4f do começo do histórico da tela: a vista-projeção e a câmera anteriores (`GI_SCREEN_HISTORY_HEADER`). */
 const SCREEN_HISTORY_HEADER = 5;
 /** vec4f do começo do histórico da refração: a vista-projeção anterior (`GI_REFRACTION_HEADER`). */
 const REFRACTION_HISTORY_HEADER = 4;
+/** Ladrilhos de 8 × 8 pixels da marcação da refração traçada (`GI_REFRACTION_TILE`). */
+const refractionTiles = (width: number, height: number): number =>
+    Math.ceil(width / 8) * Math.ceil(height / 8);
+/**
+ * Caminhos na fila de continuação da refração traçada: ¼ dos pixels (os longos são poucos; cheia, o caminho termina no
+ * passe por pixel), dentro de um despacho indireto de uma dimensão.
+ */
+const refractionQueue = (pixels: number): number =>
+    Math.min(Math.ceil(pixels / 4), 65535 * WORKGROUP_SIZE.value);
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
 /** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela, alvos e fótons) de uma revisão. */
-const traceIds = (revision: number): readonly [string, string, string, string, string] => [
+const traceIds = (
+    revision: number,
+): readonly [string, string, string, string, string, string, string] => [
     `gi_trace:${revision}`,
     `gi_screen_trace:${revision}`,
     `gi_photon_trace:${revision}`,
     `gi_photon_targets:${revision}`,
     `gi_refraction:${revision}`,
+    `gi_refraction_tiles:${revision}`,
+    `gi_refraction_continue:${revision}`,
 ];
 /** f32 da lista dos alvos dos fótons (`gi_photon_trace.wgsl`: cabeçalho, 64 caixas, áreas de 8 luzes × 64). */
 const PHOTON_TARGET_WORDS = 8 + 8 * 64 + 8 * 64;
@@ -150,8 +176,10 @@ interface Sizes {
     readonly tilesX: number;
     readonly tilesY: number;
     readonly screenRays: number;
-    /** Pixels do alvo (a refração traçada e o histórico dela). */
+    /** Pixels do alvo (a refração traçada e o histórico dela), no total e por eixo. */
     readonly pixels: number;
+    readonly pixelsX: number;
+    readonly pixelsY: number;
     /** Pixels por lado do ladrilho no alvo atual. */
     readonly tile: number;
 }
@@ -169,6 +197,9 @@ interface Buffers {
     readonly screenHistory: StorageBufferSpec;
     readonly photonTargets: StorageBufferSpec;
     readonly refractionHistory: StorageBufferSpec;
+    readonly refractionQueue: StorageBufferSpec;
+    /** Argumentos do despacho indireto da continuação (x, y, z) e a contagem da fila (w). */
+    readonly refractionCount: IndirectBufferSpec;
 }
 
 /** Composição das funções `material` nos acertos (um `switch` pelo índice da função da instância). */
@@ -261,6 +292,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     private active = false;
     /** A luz indireta ligada (sem ela, só a refração traçada roda). */
     private indirect = true;
+    /** Material que refrata na cena: a refração traçada roda. */
+    private refraction = false;
     /** Coleta final na tela no quadro (ligada, com câmera e com o canvas). */
     private screenActive = false;
     private unsupported = false;
@@ -339,10 +372,25 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 10, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
         });
         // Refração traçada (spec 034, US7): depois das sondas e das cáusticas, que a luz dos acertos lê.
-        frame.compute('ProbeFlow.refraction', (pass) => {
-            run(pass, -5, this.buffers?.sizes.pixels ?? 0, W);
-            run(pass, 12, 1, 1);
-        });
+        if (this.refraction) {
+            const { sizes, refractionCount } = this.buffers;
+            const resume = traces[6];
+            frame.compute('ProbeFlow.refraction', (pass) => {
+                // Os ladrilhos com vidro ou água (poucos raios cada, e os que refratavam no quadro anterior); depois o
+                // traçado só perto deles, os primeiros trechos de cada caminho; os caminhos longos continuam num despacho
+                // indireto (um fio por caminho); a média temporal e o fim do quadro.
+                run(pass, -6, refractionTiles(sizes.pixelsX, sizes.pixelsY), W);
+                run(pass, -5, sizes.pixels, W);
+                run(pass, 13, 1, 1);
+                if (resume?.role === 'compute') {
+                    pass.bind.setPipeline(resume.spec);
+                    resume.bindTo(pass.bind);
+                    pass.dispatch.workgroupsIndirect(refractionCount, 0);
+                }
+                run(pass, 14, sizes.pixels, W);
+                run(pass, 12, 1, 1);
+            });
+        }
         this.frame++;
     }
 
@@ -413,6 +461,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             tile,
             screenRays: d.screenRays,
             pixels: canvas === undefined ? 0 : canvas.width * canvas.height,
+            pixelsX: canvas?.width ?? 0,
+            pixelsY: canvas?.height ?? 0,
         };
         const sameSizes =
             this.buffers !== undefined
@@ -440,6 +490,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         this.writeParams(c, gi, sizes, cameraSlot ?? 0);
         this.active = d.enabled;
         this.indirect = d.indirect;
+        this.refraction = d.refraction;
     }
 
     /** Buffers privados nos tamanhos dados (o histórico das sondas recomeça). */
@@ -476,12 +527,24 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     * 16,
             ),
             photonTargets: storage('photonTargets', PHOTON_TARGET_WORDS * 4),
-            // Refração traçada: a vista-projeção anterior e as duas metades (radiância em meia precisão, distância e
-            // quadros acumulados por pixel).
+            // Refração traçada (`gi_refraction_common.wgsl`): a vista-projeção anterior, as duas metades (radiância em
+            // meia precisão, distância e quadros acumulados por pixel), a marca de cada ladrilho, a amostra do quadro
+            // (2 por pixel) e os caminhos na fila; a fila (4 vec4f por caminho) e os argumentos da continuação.
             refractionHistory: storage(
                 'refractionHistory',
-                (REFRACTION_HISTORY_HEADER + sizes.pixels * 2) * 16,
+                (REFRACTION_HISTORY_HEADER
+                    + sizes.pixels * 4
+                    + refractionTiles(sizes.pixelsX, sizes.pixelsY)
+                    + 1)
+                    * 16,
             ),
+            refractionQueue: storage('refractionQueue', refractionQueue(sizes.pixels) * 64),
+            refractionCount: this.core.create<IndirectBufferSpec>({
+                kind: 'buffer',
+                subkind: 'indirect',
+                discriminator: 'gi_probes:refractionCount',
+                byteSize: 16,
+            }),
         };
     }
 
@@ -511,6 +574,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.photonTargets, b.photonTargets],
                 [R.refractionOut, views[6]!],
                 [R.refractionHistory, b.refractionHistory],
+                [R.refractionQueue, b.refractionQueue],
+                [R.refractionCount, { kind: 'buffer', buffer: b.refractionCount }],
             ]),
         );
     }
@@ -534,9 +599,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             fns.length === 0
                 ? shader
                 : bindPoints(shader, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]]));
-        const [probeId, screenId, photonId, targetsId, refractionId] = traceIds(
-            this.materialRevision,
-        );
+        const [probeId, screenId, photonId, targetsId, refractionId, tilesId, continueId] =
+            traceIds(this.materialRevision);
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);
         c.prepare(compute(probeId, compose(giProbeTrace), 'gi_probe_trace_main'));
@@ -544,6 +608,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         c.prepare(compute(photonId, compose(giPhotonTrace), 'gi_photon_trace_main'));
         c.prepare(compute(targetsId, compose(giPhotonTrace), 'gi_photon_targets_main'));
         c.prepare(compute(refractionId, compose(giRefraction), 'gi_refraction_main'));
+        c.prepare(compute(tilesId, compose(giRefraction), 'gi_refraction_tiles_main'));
+        c.prepare(compute(continueId, compose(giRefraction), 'gi_refraction_continue_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
         else this.nextTraceRevision = this.materialRevision;
     }
@@ -595,7 +661,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 bounces: [
                     sizes.bounces,
                     d.enabled && d.indirect ? 1 : 0,
-                    this.traceRevision !== undefined && sizes.pixels > 0 ? 1 : 0,
+                    d.refraction && this.traceRevision !== undefined && sizes.pixels > 0 ? 1 : 0,
                     this.photons > 0 ? 1 : 0,
                 ],
                 rotation0: rotation[0]!,
@@ -652,6 +718,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             b.screenHistory,
             b.photonTargets,
             b.refractionHistory,
+            b.refractionQueue,
+            b.refractionCount,
         ])
             this.core.destroy(buf);
         this.buffers = undefined;
