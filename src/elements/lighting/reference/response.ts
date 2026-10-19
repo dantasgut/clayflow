@@ -27,12 +27,15 @@ export const GI_RESPONSE = Object.freeze({
     /**
      * Deriva (spec 034): uma mudança gradual demais para o limiar de mudança (a cortina andando, o sol baixando) mas
      * maior que o ruído — a rápida a mais de `driftSigmas` desvios e `driftRelative` da lenta. Nela a contagem fica em
-     * no máximo `driftFrames` (a memória de antes, 0,97): o acúmulo acompanha sem rastro; parado, a contagem cresce
-     * até o histórico da sonda (as de tela lembram mais, sem cintilar).
+     * no máximo `driftFrames` (a memória 0,94): o acúmulo acompanha sem rastro; parado, a contagem cresce até o
+     * histórico da sonda (as de tela lembram mais, sem cintilar). 16 e não 32: a luz rebatida que chega aos poucos (os
+     * rebatimentos seguintes, abaixo do limiar de mudança pelo ruído dos raios da sonda de tela) ficava ~5 % atrás em
+     * 0,25 s; medido com a fase dos raios fixa, a resposta passa de 94,4–95,3 % a 95,0–95,4 % e a cintilação da cena da
+     * janela de 0,102 % a 0,106 % (≤ 0,11 %).
      */
     driftSigmas: 2.5,
     driftRelative: 0.015,
-    driftFrames: 32,
+    driftFrames: 16,
 });
 
 /** Estado da resposta de uma sonda. */

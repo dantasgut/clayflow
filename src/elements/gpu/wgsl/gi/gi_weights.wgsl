@@ -84,8 +84,10 @@ fn gi_tap(cell: GiCell, p: vec3f, n: vec3f, c: u32, k: u32) -> GiTap {
     let d = cell.biased - probe;
     let dist = length(d);
     w *= max(gi_chebyshev(index, select(n, d / dist, dist > 1e-6), dist), 0.0);
-    // Esmaga pesos muito pequenos (vazamento residual) como no DDGI.
+    // Esmaga pesos muito pequenos (vazamento residual) e mantém um piso como no DDGI (spec 034, L9: sem ele, com todas
+    // as sondas ativas zeradas, a cascata era pulada).
     if (w < 0.2) { w = w * w * w * 25.0; }
+    w = max(w, 1e-6);
     let t = mix(vec3f(1.0) - cell.f, cell.f, vec3f(o));
     return GiTap(index, w * t.x * t.y * t.z);
 }

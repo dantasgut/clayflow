@@ -11,7 +11,7 @@ const GI_RESPONSE_NOISE: f32 = 0.9;
 const GI_RESPONSE_RAMP: f32 = 3.0;
 const GI_RESPONSE_DRIFT_SIGMAS: f32 = 2.5;
 const GI_RESPONSE_DRIFT_RELATIVE: f32 = 0.015;
-const GI_RESPONSE_DRIFT_FRAMES: f32 = 32.0;
+const GI_RESPONSE_DRIFT_FRAMES: f32 = 16.0;
 
 /** Um quadro da resposta: a histerese do quadro e o estado seguinte (rápida, lenta, ruído, quadros). */
 struct GiResponse {
@@ -31,7 +31,7 @@ fn gi_response(state: vec4f, x: f32, hysteresis: f32) -> GiResponse {
     // Na mudança, `GI_RESPONSE_RAMP` quadros com a histerese de resposta (quadros negativos contam os que faltam) e
     // depois a contagem segue de `GI_RESPONSE_RAMP`.
     // Deriva (spec 034): mudança gradual maior que o ruído, abaixo do limiar de mudança — a contagem fica em no máximo
-    // `GI_RESPONSE_DRIFT_FRAMES` (a memória da histerese 0,97); parado, cresce até o histórico da sonda.
+    // `GI_RESPONSE_DRIFT_FRAMES` (a memória da histerese 0,94); parado, cresce até o histórico da sonda.
     let drift = abs(fast - state.y) > (GI_RESPONSE_DRIFT_SIGMAS * sigma_fast + GI_RESPONSE_DRIFT_RELATIVE) * scale;
     let count = select(state.w, min(state.w, GI_RESPONSE_DRIFT_FRAMES), drift && state.w > 0.0);
     var h = min(count / (count + 1.0), hysteresis);

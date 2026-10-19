@@ -115,8 +115,13 @@ Regras de todas as tarefas:
       limiares.
 - [x] T016 [P] [US1] Corrida das sondas (R7): `gi_probe_response_main` (uma invocação por sonda agendada) antes do
       blend; `gi_probe_blend.wgsl:37-42` passa a só ler. Rodar `globalIllumination` (estabilidade e resposta).
-- [ ] T017 [P] [US1] Rebatimentos ≥ 2 com bilinear (`gi_generation.wgsl:22-24`) e piso de 1e-6 nos pesos DDGI
-      (`gi_weights.wgsl:86-90`) (L8, L9).
+- [x] T017 [P] [US1] Rebatimentos ≥ 2 com bilinear (`gi_generation.wgsl:22-24`) e piso de 1e-6 nos pesos DDGI
+      (`gi_weights.wgsl:86-90`) (L8, L9). O piso entrou (sem efeito medido na janela; o DDGI de referência). A bilinear
+      foi descartada pela medida: a cintilação da janela passou de 0,102 % a 0,112 % (≤ 0,11 %) nas duas rodadas, sem
+      facetas medidas antes. No caminho: o `globalIllumination` aquecia por tempo de parede (a GI avança a rotação dos
+      raios a cada quadro desenhado: cada rodada media noutra fase) — aquecimento em quadros; medido assim, o `living`
+      ficava em 94,4–95,3 % (≤ 95 % falhava de fato), e a memória de deriva da resposta passou de 32 a 16 quadros
+      (95,0–95,4 %; cintilação 0,103–0,106 %). A regra pelo guia das sondas do mundo foi tentada e descartada (0,16 %).
 - [ ] T018 [P] [US1] Sombra direcional sem degrau (L6): filtragem PCF/Poisson e ajuste da resolução à cena em
       `ShadowFlow.ts`. Medida de degrau na borda da mancha de sol no `giNoise`.
 - [ ] T019 [P] [US1] Névoa sem blocos (L7): jitter dos froxels por quadro e reprojeção temporal em

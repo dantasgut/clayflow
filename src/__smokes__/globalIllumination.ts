@@ -17,6 +17,9 @@
 //   - furnace: ambiente branco fechado de paredes que emitem e refletem igual — a luz rebatida é a série analítica
 //     L_e · (ρ + ρ² + ρ³) a ≤ 5 % (SC-002).
 // As regiões medem só os pixels longe das bordas entre objetos e das arestas entre faces.
+// O aquecimento é em quadros (spec 034): a GI avança a rotação dos raios a cada quadro desenhado, e a espera por tempo de
+// parede deixava cada rodada medir numa fase diferente da sequência (a resposta do `living` variava de 94,4 a 95,4 %);
+// `?warm=N` muda os quadros desde a GI pronta (padrão 240) para medir a sensibilidade à fase.
 // Para rodar: `npm run smoke -- globalIllumination [--query case=cornell]`. Resultado:
 // `GLOBALILLUMINATION SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -81,6 +84,37 @@ interface Size {
 }
 
 /**
+ * Quadros desenhados entre a GI pronta e o começo das medidas (spec 034, US4): a GI avança a rotação dos raios a cada
+ * quadro desenhado, também os de espera; contados em quadros (não em tempo de parede), as medidas partem da mesma fase
+ * em toda rodada.
+ */
+const GI_WARM_FRAMES = Number(new URLSearchParams(location.search).get('warm') ?? 240);
+
+/**
+ * Espera a GI e os pipelines ficarem prontos e completa `GI_WARM_FRAMES` quadros desde a GI pronta. Falha se a espera
+ * já passou disso (a medida sairia de outra fase da sequência de raios).
+ */
+async function giWarm(
+    app: Application,
+    ready: { revision: number; at: number },
+    since: { frames: number },
+): Promise<void> {
+    const limit = performance.now() + 120000;
+    while (ready.revision < 0) {
+        if (performance.now() > limit)
+            throw new Error('a iluminação global não ficou pronta em 120 s');
+        app.step(0);
+        await new Promise((r) => setTimeout(r, 16));
+    }
+    await app.ready();
+    if (since.frames > GI_WARM_FRAMES)
+        throw new Error(
+            `a espera pelos pipelines passou de ${GI_WARM_FRAMES} quadros com a GI pronta (${since.frames})`,
+        );
+    while (since.frames < GI_WARM_FRAMES) app.step(0);
+}
+
+/**
  * Espera os kernels da iluminação global da composição final ficarem prontos (`globalIlluminationReady` sem revisão
  * nova por 1 s) — os quadros só contam com a luz rebatida acumulando.
  */
@@ -128,9 +162,13 @@ async function openEngine<T = void>(
     };
     app.events.on('deviceLost', (e) => engineErrors.push(`deviceLost: ${JSON.stringify(e)}`));
     const ready = { revision: -1, at: 0 };
+    const since = { frames: 0 };
     app.events.on('globalIlluminationReady', (e) => {
         ready.revision = e.revision;
         ready.at = performance.now();
+    });
+    app.events.on('frameComplete', () => {
+        if (ready.revision >= 0) since.frames++;
     });
     const built = buildGiScene(app, scene, size.width / size.height);
     const extraValue = extra === undefined ? (undefined as T) : extra(app);
@@ -143,9 +181,9 @@ async function openEngine<T = void>(
         enabled: withGi,
     });
     app.world.insert(gi);
-    // Tempo real para os pipelines do desenho compilarem (as funções `material`).
-    await settle(app, 2500);
-    if (withGi) await giReady(app, ready);
+    // Os pipelines do desenho (as funções `material`) e, com a GI, a mesma quantidade de quadros desde ela pronta.
+    if (withGi) await giWarm(app, ready, since);
+    else await app.ready();
     return {
         app,
         gi,
