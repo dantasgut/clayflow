@@ -14,7 +14,7 @@ const SHADOW_MAX_RADIUS: f32 = 6.0;
 // Visibilidade da luz direcional (1 = iluminado) na projeção ortográfica dela, com a penumbra de uma fonte de diâmetro
 // angular `angular` (rad; 0 = ponto): (1) a profundidade média de quem faz sombra numa vizinhança do tamanho da maior
 // penumbra possível (a distância até o começo do mapa vezes o diâmetro); (2) a penumbra = a distância de quem faz
-// sombra até o ponto vezes o diâmetro; (3) a média das comparações bilineares num disco desse raio (no mínimo 1 texel,
+// sombra até o ponto vezes o diâmetro (sem nenhum achado, a comparação no ponto); (3) a média das comparações bilineares num disco desse raio (no mínimo 1 texel,
 // o antisserrilhado da borda dura). Os vieses em texels do mapa, convertidos para mundo pela própria matriz (a escala de
 // x em NDC por metro e a de z): a consulta sai do ponto pela normal da superfície `normal` (0 num volume)
 // `normal_texels` texels, mais quanto mais rasante a luz `light_dir` (unitária, do ponto para a luz), e compara com
@@ -62,7 +62,9 @@ fn sample_shadow_pcss(
             }
         }
     }
-    if (blockers == 0.0) { return 1.0; }
+    // Sem nenhum na busca, a comparação bilinear no próprio ponto: a grade não amostra o centro e passa por cima de quem
+    // é mais estreito que o passo dela (uma parede fina vista de lado) — declarar iluminado deixaria a luz atravessar.
+    if (blockers == 0.0) { return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, ref_depth); }
     // (2) A penumbra pela distância de quem faz sombra até o ponto (raio = metade do diâmetro).
     let distance = (ref_depth - blocker_depth / blockers) * metres_per_depth;
     let radius = clamp(0.5 * angular * distance / texel_world, 1.0, SHADOW_MAX_RADIUS);

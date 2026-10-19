@@ -3,9 +3,11 @@
 // nenhuma compatível, a válida mais próxima de orientação parecida (borda, superfície curva, ou um fragmento que não vira
 // pixel: encoberto ou auxiliar do quad) — barato, e quem não vira pixel não paga a leitura das sondas do mundo; de
 // orientação diferente (uma face fina — o vão de uma janela — tem as suas sondas em alguns ladrilhos da faixa, não em
-// todos), as compatíveis num raio de 2 ladrilhos, pela distância; sem nenhuma, a mais próxima mesmo assim. A confiança (a): 1
-// com sondas compatíveis, 0,5 com a mais próxima, 0 sem nenhuma válida (fora da tela, o que não está na estrutura de
-// raios) — aí valem as sondas do mundo.
+// todos), as compatíveis num raio de 2,5 ladrilhos, por um núcleo que chega a zero na borda (spec 034, L5: a sonda que
+// entra ou sai da janela não faz degrau ao longo da faixa); sem nenhuma compatível, as sondas do mundo (a sonda de
+// outra orientação dava a luz de outra face: os entalhes escuros da verga). A confiança (a): 1 com sondas compatíveis,
+// 0,5 com as de perto, 0 sem nenhuma (fora da tela, o que não está na estrutura de raios, nenhuma compatível) — aí
+// valem as sondas do mundo.
 // Requer: gi, gi_common (a normal empacotada), cameras, gi_screen_probe_texture, gi_screen_irradiance_texture.
 
 /** Uma sonda de tela para um ponto: irradiância, peso (0 = outro plano ou orientação), se há superfície e a orientação. */
@@ -63,17 +65,17 @@ fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
     if (wsum > 1e-4) { return vec4f(acc / wsum, 1.0); }
     // A mais próxima de orientação parecida (fora do plano: borda, superfície curva, o encoberto) vale como está.
     if (nearest_d < 1e8 && nearest_facing > 0.5) { return vec4f(nearest, 0.5); }
-    // Orientação diferente (a face fina): as compatíveis em volta (5 × 5 ladrilhos), pesadas pela distância na grade.
+    // Orientação diferente (a face fina): as compatíveis em volta (5 × 5 ladrilhos), pelo núcleo (1 − d²/R²)², R = 2,5.
     for (var o = 0u; o < 25u; o++) {
         let t = base + vec2i(i32(o % 5u) - 2, i32(o / 5u) - 2);
         if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
         let tap = gi_screen_tap(t, p, n, tolerance);
         let d = g - vec2f(t);
-        let w = tap.w / (1.0 + dot(d, d));
+        let k = max(0.0, 1.0 - dot(d, d) / 6.25);
+        let w = tap.w * k * k;
         acc += tap.e * w;
         wsum += w;
     }
     if (wsum > 1e-4) { return vec4f(acc / wsum, 0.5); }
-    if (nearest_d < 1e8) { return vec4f(nearest, 0.5); }
     return vec4f(0.0);
 }

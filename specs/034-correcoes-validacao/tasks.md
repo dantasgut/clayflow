@@ -109,7 +109,9 @@ Regras de todas as tarefas:
   - momento de segunda ordem acumulado junto com a média;
   - 3 iterações (passos 1, 2 e 4 ladrilhos) em `gi_screen_resolve.wgsl`, no lugar da gaussiana 5×5;
   - pesos de profundidade, normal e luminância.
-- [ ] T015 [US1] Rodar `giNoise`, `globalIllumination` e `fog`. Critérios: SC-001 (manchas ≤ 1,1× a referência,
+- [x] T015 [US1] (Rodados depois de T017–T020: `giNoise` manchas 1,14 % = 0,97× a referência, cintilação 0,103 %, 2 s a
+      0,11 %; `globalIllumination` passa — Cornell pior 6,4 %, `living` 95,2 %, GI 2,65 ms; `fog` passa. A janela tem
+      viés de 8,7 % no chão, igual no commit da T017; a bilinear descartada o baixava a 6,3 %.) Rodar `giNoise`, `globalIllumination` e `fog`. Critérios: SC-001 (manchas ≤ 1,1× a referência,
       variação ≤ 0,1, 2 % a 10 s), SC-002 (viés ≤ 3 %) e SC-011 (vazamento ≤ 0,067 %, resposta ≥ 99 % a 0,25 s). Se o
       SC-001 não fechar, acrescentar a amostragem por importância (R1, descartado como extensão) antes de mexer nos
       limiares.
@@ -131,11 +133,17 @@ Regras de todas as tarefas:
       espiral de Vogel (raio ≤ 6 texels). Caso `sun` do `giNoise` (sol a 20°): degrau 0,019 → 0,018 px, penumbra 16,5
       (borrão do PCF largo) → 13,6 px (só a caixa: 3,9 px, nítida e serrilhada na tela). Custo: o quadro de 64k 15,5 → 13,75
       ms, a GI 2,77 → 2,55 ms. Fixtures que mudam com a sombra: `parametricSurfaces/lake` (imagem) e `softSurface/
-  xpbd-cloth` (fase 9). O degrau do vídeo `fog` (sol de 20° a 50°, azimute ±35°) se confere na T020.
-- [ ] T019 [P] [US1] (Achado: o jitter por quadro, o histórico reprojetado e a leitura tricúbica já existem desde a
+xpbd-cloth` (fase 9). O degrau do vídeo `fog` (sol de 20° a 50°, azimute ±35°) se confere na T020.
+- [x] T019 [P] [US1] (Conferido no vídeo `fog`: com o contraste ×2,2 a névoa escura não tem o quadriculado — o L7
+      não se reproduz; nada a mudar. Achado: o jitter por quadro, o histórico reprojetado e a leitura tricúbica já existem desde a
       033 — a causa dos blocos do L7 se diagnostica no vídeo `fog`, T020.) Névoa sem blocos (L7): jitter dos froxels por quadro e reprojeção temporal em
       `src/elements/gpu/wgsl/media/media_froxel_*`; medir no smoke `fog` (Beer–Lambert e feixe sem regressão) e no vídeo `fog`.
-- [ ] T020 [US1] Gravar `day` e `fog` (`npm run video -- day,fog`) e conferir manchas, entalhes da janela, borda da
+- [x] T020 [US1] (Gravados nos dois modos, tempo real a 60 FPS sem quadro perdido. A sombra sem degrau e com
+      penumbra; a névoa sem blocos; os entalhes da verga (L5) apareciam como degraus na face fina: a leitura das sondas
+      de tela somava as compatíveis de 5 × 5 ladrilhos por 1/(1 + d²) — sondas entrando e saindo da janela davam
+      saltos — e, sem nenhuma compatível, usava a de outra orientação; agora um núcleo que chega a zero na borda e, sem
+      compatível, as sondas do mundo (verga lisa no vídeo). As manchas suaves do chão com o sol baixo continuam (o
+      SC-001 mede a parede).) Gravar `day` e `fog` (`npm run video -- day,fog`) e conferir manchas, entalhes da janela, borda da
       sombra e névoa.
 
 **Checkpoint**: US1 entregue; manchas, entalhes, degrau e blocos resolvidos e medidos.
