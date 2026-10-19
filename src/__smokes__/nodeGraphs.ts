@@ -53,7 +53,6 @@ import {
 } from 'clayflow';
 import type {
     EntityId,
-    FrameCompleteEvent,
     GraphJSON,
     NodeDefinition,
     StorageBufferSpec,
@@ -64,6 +63,8 @@ import type {
 /** Spec de recurso do núcleo (o que `create` recebe). */
 type ResourceSpec = Parameters<Application['core']['create']>[0];
 import { capture, readBuffer, settle } from './support/extensionScenes';
+import { gpuSamples, stepPaced } from './support/gpuSamples';
+import { hdrAt, readHdrTexture } from './support/imageMeasures';
 import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
 import { caseSamples, nodeCases, type NodeCase } from './support/nodeLibraryCases';
 
@@ -379,14 +380,8 @@ async function partA(failures: string[]): Promise<void> {
     const gpu: Record<string, number> = { hand: Infinity, graph: Infinity };
     for (const variant of ['hand', 'graph', 'hand', 'graph'] as const) {
         const b = await build(variant, true);
-        const samples: number[] = [];
-        b.app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-            if (e.stats.gpuTimeMs !== undefined) samples.push(e.stats.gpuTimeMs);
-        });
-        for (let k = 0; k < 150; k++) {
-            b.app.step(1 / 60);
-            await new Promise((r) => requestAnimationFrame(r));
-        }
+        const { samples } = gpuSamples(b.app);
+        for (let k = 0; k < 150; k++) await stepPaced(b.app);
         const window = samples.slice(-90);
         const mean = window.reduce((a, c) => a + c, 0) / Math.max(1, window.length);
         if (window.length >= 30) gpu[variant] = Math.min(gpu[variant]!, mean);
@@ -863,7 +858,10 @@ async function partC(failures: string[]): Promise<void> {
     // Até todas as entidades desenharem com a função (a variante compila uma vez).
     await settle(app, 600);
     for (let k = 0; k < 3; k++) app.step(1 / 60);
-    const image = capture(app.canvas);
+    // O alvo HDR linear do quadro (antes da apresentação): a medida da cor (spec 034, S1).
+    const color0 = app.resources.textureOf(app.defaults.targets, 'color');
+    if (color0 === undefined) throw new Error('alvo HDR não alocado');
+    const hdr = await readHdrTexture(app, color0);
 
     const first = entities[0]!.fn;
     const modules = new Set(entities.map((e) => e.fn.module));
@@ -910,17 +908,23 @@ async function partC(failures: string[]): Promise<void> {
         if (wrong > 0) failures.push(`(c) ${wrong} valores do pool diferentes dos das entidades`);
     }
 
-    // Cor de cada caixa no centro dela (emissão = a cor; cor base preta).
+    // Cor de cada caixa no centro dela, na radiância (emissão = a cor; cor base preta): a radiância é a emissão mais o
+    // especular do dielétrico sob a luz da cena, o mesmo em todas as caixas (mesmo material, mesma luz) — o termo comum
+    // é medido (a mediana de radiância − cor, por canal) e cada caixa tem de ser a cor dela mais ele (±1/255).
+    const center = (i: number): readonly number[] =>
+        hdrAt(hdr, (i % GRID_X) * PX + PX / 2, Math.floor(i / GRID_X) * PX + PX / 2);
+    const common = [0, 1, 2].map((k) => {
+        const d = entities.map((e, i) => center(i)[k]! - e.color[k]!).sort((a, b) => a - b);
+        return d[Math.floor(d.length / 2)] ?? 0;
+    });
     let checked = 0;
     let worst = 0;
     let worstAt = -1;
     for (let i = 0; i < entities.length; i++) {
-        const cx = i % GRID_X;
-        const rz = Math.floor(i / GRID_X);
-        const o = ((rz * PX + PX / 2) * image.width + cx * PX + PX / 2) * 4;
+        const value = center(i);
         const color = entities[i]!.color;
         for (let k = 0; k < 3; k++) {
-            const d = Math.abs(image.data[o + k]! - color[k]! * 255);
+            const d = Math.abs(value[k]! - color[k]! - common[k]!) * 255;
             if (d > worst) {
                 worst = d;
                 worstAt = i;
@@ -929,7 +933,7 @@ async function partC(failures: string[]): Promise<void> {
         checked++;
     }
     log(
-        `(c) cores na imagem: ${checked} caixas, maior diferença ${worst.toFixed(2)} (de 255) na entidade ${worstAt}`,
+        `(c) cores na radiância: ${checked} caixas, termo comum (especular) ${common.map((c) => c.toFixed(4)).join(', ')}; maior diferença ${worst.toFixed(2)} (de 255) na entidade ${worstAt}`,
     );
     if (worst > 1)
         failures.push(`(c) cor da caixa ${worstAt} difere ${worst.toFixed(2)} da do seu valor`);

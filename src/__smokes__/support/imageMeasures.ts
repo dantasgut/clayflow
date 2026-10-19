@@ -55,6 +55,27 @@ export async function readHdrTexture(app: Application, texture: TextureSpec): Pr
     return { width, height, data };
 }
 
+/** O alvo HDR do quadro de `app` (linear, antes da apresentação), lido de volta (só no teste). */
+export async function readSceneHdr(app: Application): Promise<HdrImage> {
+    const color = app.resources.textureOf(app.defaults.targets, 'color');
+    if (color === undefined) throw new Error('alvo HDR não alocado');
+    return readHdrTexture(app, color);
+}
+
+/**
+ * A radiância linear como imagem de 8 bits (0–255, sem a apresentação, saturada em 1): as medidas de cor e de forma
+ * dos smokes calibradas antes da 011, quando a saída era linear, com os limiares de então (spec 034, S1).
+ */
+export function linearImage(img: HdrImage): ImageData {
+    const out = new ImageData(img.width, img.height);
+    for (let i = 0; i < img.width * img.height; i++) {
+        for (let k = 0; k < 3; k++)
+            out.data[i * 4 + k] = Math.round(Math.min(1, Math.max(0, img.data[i * 4 + k]!)) * 255);
+        out.data[i * 4 + 3] = 255;
+    }
+    return out;
+}
+
 /** Faixas numa sequência de níveis de código: o maior passo entre vizinhos e a sequência igual mais longa. */
 export function banding(levels: readonly number[]): { maxStep: number; longestRun: number } {
     let maxStep = 0;

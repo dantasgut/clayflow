@@ -20,9 +20,10 @@
 //
 // Para rodar: `npm run smoke -- fluidSurface [--record]`. Resultado: `FLUID SURFACE SMOKE PASSED` ou `FAIL: …`.
 import { Application, createScene, FluidBody, PointSpriteMaterial } from 'clayflow';
-import type { FrameCompleteEvent } from 'clayflow';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
+import { gpuSamples, stepPaced } from './support/gpuSamples';
 import { diff, fromPng, luminance, toPng } from './support/images';
+import { hdrLuminance, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
 
 const WIDTH = 320;
@@ -50,6 +51,8 @@ const engineErrors: string[] = [];
 
 interface Run {
     readonly frames: readonly ImageData[];
+    /** O alvo HDR linear dos mesmos quadros (antes da apresentação): as medidas de luz (spec 034, S1). */
+    readonly hdr: readonly HdrImage[];
     readonly readbacks: number;
     readonly poolWrites: number;
     readonly profile: string;
@@ -78,10 +81,12 @@ async function run(
         antialias,
     });
     app.events.on('engineError', (e) => engineErrors.push(`${name}: ${e.stage}: ${e.message}`));
+    // As leituras de volta do motor nos quadros (as das medidas, como a do alvo HDR, ficam de fora).
     let readbacks = 0;
+    let measuring = false;
     const readback = app.core.readback.bind(app.core);
     app.core.readback = (spec: Parameters<typeof readback>[0]) => {
-        readbacks++;
+        if (!measuring) readbacks++;
         return readback(spec);
     };
     const body = waterScene(app, { width: WIDTH, height: HEIGHT, ...options });
@@ -98,6 +103,7 @@ async function run(
     const ctx = new OffscreenCanvas(WIDTH, HEIGHT).getContext('2d', { willReadFrequently: true });
     if (ctx === null) throw new Error('canvas 2D indisponível');
     const out: ImageData[] = [];
+    const hdr: HdrImage[] = [];
     let frame = 1;
     for (const target of frames) {
         while (frame < target) {
@@ -106,11 +112,16 @@ async function run(
         }
         ctx.drawImage(canvas, 0, 0);
         out.push(ctx.getImageData(0, 0, WIDTH, HEIGHT));
+        const color = app.resources.textureOf(app.defaults.targets, 'color');
+        if (color === undefined) throw new Error('alvo HDR não alocado');
+        measuring = true;
+        hdr.push(await readHdrTexture(app, color));
+        measuring = false;
     }
     const profile = gpuProfile(app);
     app.dispose();
     canvas.remove();
-    return { frames: out, readbacks, poolWrites, profile };
+    return { frames: out, hdr, readbacks, poolWrites, profile };
 }
 
 /** Compara (ou grava) a fixture do caso. */
@@ -177,17 +188,21 @@ function erode(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
 }
 
 /**
- * Razão de luminância a/b nos pixels da região, só nos ladrilhos claros iluminados (b > 0,4): nos escuros, a
- * quantização de 8 bits (±1/255 sobre ~0,2) pesaria alguns por cento na razão.
+ * Razão de radiância a/b (o alvo HDR linear, antes da apresentação: o AgX comprime o contraste na tela — spec 034, S1)
+ * nos pixels da região, só nos ladrilhos claros iluminados (`bright` na tela > 0,4: a seleção de antes).
  */
-function ratios(a: ImageData, b: ImageData, region: (x: number, y: number) => boolean): number[] {
+function ratios(
+    a: HdrImage,
+    b: HdrImage,
+    bright: ImageData,
+    region: (x: number, y: number) => boolean,
+): number[] {
     const out: number[] = [];
     for (let y = 0; y < a.height; y++) {
         for (let x = 0; x < a.width; x++) {
             if (!region(x, y)) continue;
-            const lb = luminance(b, x, y);
-            if (lb < 0.4) continue;
-            out.push(luminance(a, x, y) / lb);
+            if (luminance(bright, x, y) < 0.4) continue;
+            out.push(hdrLuminance(a, x, y) / hdrLuminance(b, x, y));
         }
     }
     return out.sort((p, q) => p - q);
@@ -317,13 +332,13 @@ async function main(): Promise<void> {
             { dam: [24, 24, 32], material: { ...CLEAR, caustics: false }, eye: TOP_EYE },
             [AGITATED_FRAME],
         );
-        const base = ratios(flat.frames[0]!, emptyTop.frames[0]!, centralFloor);
+        const base = ratios(flat.hdr[0]!, emptyTop.hdr[0]!, emptyTop.frames[0]!, centralFloor);
         const median = quantile(base, 0.5);
         const spread = (quantile(base, 0.95) - quantile(base, 0.05)) / median;
-        const wave = ratios(agitated.frames[0]!, emptyTop.frames[0]!, centralFloor);
+        const wave = ratios(agitated.hdr[0]!, emptyTop.hdr[0]!, emptyTop.frames[0]!, centralFloor);
         const bright = quantile(wave, 0.99) / median;
         const dark = quantile(wave, 0.01) / median;
-        const plain = ratios(off.frames[0]!, emptyTop.frames[0]!, centralFloor);
+        const plain = ratios(off.hdr[0]!, emptyTop.hdr[0]!, emptyTop.frames[0]!, centralFloor);
         const plainSpread = (quantile(plain, 0.99) - quantile(plain, 0.01)) / quantile(plain, 0.5);
         log(
             `cáusticas: parada mediana ${median.toFixed(3)}, variação ${(spread * 100).toFixed(1)}%; agitada ${bright.toFixed(2)}× / ${dark.toFixed(2)}×; desligadas variação ${(plainSpread * 100).toFixed(1)}%`,
@@ -382,7 +397,7 @@ async function main(): Promise<void> {
         // Topo da caixa na vista de cima (caixa em x = 0,15, z = 0).
         const top = (x: number, y: number) =>
             x > WIDTH * 0.53 && x < WIDTH * 0.6 && y > HEIGHT * 0.45 && y < HEIGHT * 0.55;
-        const lit = ratios(r.frames[0]!, ref.frames[0]!, top);
+        const lit = ratios(r.hdr[0]!, ref.hdr[0]!, ref.frames[0]!, top);
         const spread = quantile(lit, 0.95) - quantile(lit, 0.05);
         log(`caixa submersa: razão ${quantile(lit, 0.5).toFixed(3)}, faixa ${spread.toFixed(3)}`);
         // A luz transmitida chega à face: o padrão das cáusticas nela (com a água límpida e plana, Fresnel e a
@@ -503,17 +518,15 @@ async function performance36k(failures: string[]): Promise<void> {
     });
     app.events.on('engineError', (e) => engineErrors.push(`desempenho: ${e.stage}: ${e.message}`));
     waterScene(app, { width: 1280, height: 720, box: true });
-    const gpu: number[] = [];
-    app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-        if (e.stats.gpuTimeMs !== undefined) gpu.push(e.stats.gpuTimeMs);
-    });
-    for (let i = 0; i < 160; i++) {
-        app.step(1 / 60);
-        await new Promise((r) => requestAnimationFrame(r));
-    }
+    // No ritmo da GPU e cada quadro de GPU uma vez (spec 034, R17); depois de 70 quadros de aquecimento, até 90
+    // leituras novas (no máximo 1000 quadros).
+    const gpu = gpuSamples(app);
+    for (let i = 0; i < 70; i++) await stepPaced(app);
+    gpu.samples.length = 0;
+    for (let i = 0; i < 1000 && gpu.samples.length < 90; i++) await stepPaced(app);
     app.dispose();
     canvas.remove();
-    const window = gpu.slice(-90);
+    const window = gpu.samples.slice(-90);
     const mean = window.reduce((a, b) => a + b, 0) / Math.max(1, window.length);
     log(
         `desempenho: barragem de 36 864 com água e cáusticas, GPU ${mean.toFixed(2)} ms/quadro (${window.length} amostras)`,

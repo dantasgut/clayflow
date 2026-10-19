@@ -2,41 +2,48 @@ import { describe, expect, it, vi } from 'vitest';
 import { GpuProfilerSystem } from '../profiler/GpuProfilerSystem';
 
 function fakeDevice(timestamps: () => BigInt64Array) {
-    let resolveMap: (() => void) | null = null;
-    const staging = {
+    /** Mapeamentos pendentes, na ordem em que foram pedidos (cada buffer de leitura do anel tem o seu). */
+    const maps: (() => void)[] = [];
+    const staging = () => ({
         destroy: vi.fn(),
         mapAsync: vi.fn(
             () =>
                 new Promise<void>((r) => {
-                    resolveMap = r;
+                    maps.push(r);
                 }),
         ),
         getMappedRange: () => timestamps().buffer,
         unmap: vi.fn(),
-    };
-    const created: object[] = [];
+    });
     const device = {
         features: new Set(['timestamp-query']),
         createQuerySet: vi.fn(() => ({ destroy: vi.fn() })),
         createShaderModule: vi.fn(() => ({})),
         createComputePipeline: vi.fn(() => ({ label: 'profiler.marker' })),
-        createBuffer: vi.fn(() => {
-            const b = created.length % 2 === 0 ? { destroy: vi.fn() } : staging;
-            created.push(b);
-            return b;
-        }),
+        createBuffer: vi.fn((d: GPUBufferDescriptor) =>
+            (d.usage & GPUBufferUsage.MAP_READ) !== 0 ? staging() : { destroy: vi.fn() },
+        ),
     } as unknown as GPUDevice;
     const encoder = {
         resolveQuerySet: vi.fn(),
         copyBufferToBuffer: vi.fn(),
     } as unknown as GPUCommandEncoder;
+    const settle = async (): Promise<void> => {
+        await Promise.resolve();
+        await Promise.resolve();
+    };
     return {
         device,
         encoder,
+        /** Conclui todos os mapeamentos pendentes, na ordem. */
         finishMap: async () => {
-            resolveMap?.();
-            await Promise.resolve();
-            await Promise.resolve();
+            for (const r of maps.splice(0)) r();
+            await settle();
+        },
+        /** Conclui o mapeamento pendente `k` (na ordem de pedido), fora de ordem. */
+        finishOne: async (k: number) => {
+            maps.splice(k, 1)[0]?.();
+            await settle();
         },
     };
 }
@@ -69,17 +76,34 @@ describe('GpuProfilerSystem — profiling por quadro', () => {
         });
     });
 
-    it('pula o resolve enquanto o staging anterior ainda está mapeando', async () => {
-        const { device, encoder, finishMap } = fakeDevice(() => new BigInt64Array(72));
+    it('anel de leitura: até 3 quadros mapeando; o 4º fica sem leitura até um buffer voltar (spec 034, R11)', async () => {
+        const ns = new BigInt64Array(72);
+        ns[65] = 1_000_000n;
+        const { device, encoder, finishMap } = fakeDevice(() => ns);
         const p = new GpuProfilerSystem();
         p.configureFrameProfiling(true, 8);
         p.attach(device);
-        frame(p, 0, encoder, ['a']);
-        frame(p, 1, encoder, ['a']);
-        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(1);
+        for (let f = 0; f < 4; f++) frame(p, f, encoder, ['a']);
+        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(3);
         await finishMap();
-        frame(p, 2, encoder, ['a']);
-        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(2);
+        expect(p.lastFrameReading?.gpuFrame).toBe(2);
+        frame(p, 4, encoder, ['a']);
+        expect(encoder.resolveQuerySet).toHaveBeenCalledTimes(4);
+    });
+
+    it('leituras fora de ordem: uma de quadro mais velho não substitui a mais nova', async () => {
+        const ns = new BigInt64Array(72);
+        ns[65] = 1_000_000n;
+        const { device, encoder, finishOne } = fakeDevice(() => ns);
+        const p = new GpuProfilerSystem();
+        p.configureFrameProfiling(true, 8);
+        p.attach(device);
+        frame(p, 10, encoder, ['a']);
+        frame(p, 11, encoder, ['a']);
+        await finishOne(1);
+        expect(p.lastFrameReading?.gpuFrame).toBe(11);
+        await finishOne(0);
+        expect(p.lastFrameReading?.gpuFrame).toBe(11);
     });
 
     it('estouro: passes excedentes sem timestamp, leitura descartada e aviso único', async () => {

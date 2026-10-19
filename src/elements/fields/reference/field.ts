@@ -216,9 +216,46 @@ export function densityAt(kernels: readonly Kernel[], x: Vec3, params: FieldPara
     return rho;
 }
 
+/** Raio máximo do suporte de um núcleo: `r` (os anisotrópicos) ou `FIELD.sparse · r` (os esparsos, esféricos). */
+function kernelReach(params: FieldParams): number {
+    return FIELD.radius * params.spacing * Math.max(1, FIELD.sparse);
+}
+
+/**
+ * Os núcleos que podem alcançar um ponto (spec 034, S4): numa grade de células do tamanho do maior suporte, só os das
+ * 27 células em volta — a mesma densidade que percorrer todos (`densityAt`), sem O(voxels × núcleos).
+ */
+export function kernelGrid(
+    kernels: readonly Kernel[],
+    params: FieldParams,
+): (x: Vec3) => readonly Kernel[] {
+    const cell = kernelReach(params);
+    const cells = new Map<string, Kernel[]>();
+    const keyOf = (i: number, j: number, k: number): string => `${i},${j},${k}`;
+    for (const kernel of kernels) {
+        const c = kernel.center.map((v) => Math.floor(v / cell));
+        const id = keyOf(c[0]!, c[1]!, c[2]!);
+        const list = cells.get(id);
+        if (list === undefined) cells.set(id, [kernel]);
+        else list.push(kernel);
+    }
+    return (x) => {
+        const c = x.map((v) => Math.floor(v / cell));
+        const out: Kernel[] = [];
+        for (let dz = -1; dz <= 1; dz++)
+            for (let dy = -1; dy <= 1; dy++)
+                for (let dx = -1; dx <= 1; dx++) {
+                    const list = cells.get(keyOf(c[0]! + dx, c[1]! + dy, c[2]! + dz));
+                    if (list !== undefined) out.push(...list);
+                }
+        return out;
+    };
+}
+
 /** Constrói o campo numa grade densa em volta das partículas: densidade, φ inicial e redistanciamento. */
 export function buildField(positions: readonly Vec3[], params: FieldParams): FieldGrid {
     const kernels = anisotropicKernels(positions, params);
+    const near = kernelGrid(kernels, params);
     const voxel = FIELD.voxel * params.spacing;
     const margin = FIELD.radius * params.spacing + 4 * voxel;
     const lo = [0, 1, 2].map((k) => Math.min(...positions.map((p) => p[k]!)) - margin);
@@ -234,12 +271,14 @@ export function buildField(positions: readonly Vec3[], params: FieldParams): Fie
     const at = (x: number, y: number, z: number): number => x + dims[0] * (y + dims[1] * z);
     for (let z = 0; z < dims[2]; z++)
         for (let y = 0; y < dims[1]; y++)
-            for (let x = 0; x < dims[0]; x++)
-                rho[at(x, y, z)] = densityAt(
-                    kernels,
-                    [origin[0] + x * voxel, origin[1] + y * voxel, origin[2] + z * voxel],
-                    params,
-                );
+            for (let x = 0; x < dims[0]; x++) {
+                const p: Vec3 = [
+                    origin[0] + x * voxel,
+                    origin[1] + y * voxel,
+                    origin[2] + z * voxel,
+                ];
+                rho[at(x, y, z)] = densityAt(near(p), p, params);
+            }
     return {
         origin,
         voxel,

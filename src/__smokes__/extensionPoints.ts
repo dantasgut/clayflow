@@ -51,6 +51,7 @@ import {
 } from './support/extensionScenes';
 import { gpuProfile, readJsonFixture, recording, writeJsonFixture } from './support/fixtures';
 import { hashBytes } from './support/fluidMeasures';
+import { linearImage, readSceneHdr } from './support/imageMeasures';
 
 function log(msg: string): void {
     console.log(`[extensionPoints] ${msg}`);
@@ -729,8 +730,10 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
             app.world.insert(plane);
             await settle(app);
             app.step(1 / 60);
-            shots.push(capture(app.canvas));
-            c.hash(checker ? 'checker' : 'plain', shots.at(-1)!.data as unknown as Uint8Array);
+            const shot = capture(app.canvas);
+            c.hash(checker ? 'checker' : 'plain', shot.data as unknown as Uint8Array);
+            // A medida na radiância (antes da apresentação: o AgX levanta os escuros — spec 034, S1).
+            shots.push(linearImage(await readSceneHdr(app)));
             app.dispose();
         }
         // Linha do meio: a cor (canal vermelho) muda de casa em casa com a função (na diagonal de um tabuleiro a casa
@@ -1042,11 +1045,10 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle 
             );
             await settle(app);
             app.step(1 / 60);
-            shots.push(capture(app.canvas));
-            c.hash(
-                fisheye ? 'fisheye' : 'perspective',
-                shots.at(-1)!.data as unknown as Uint8Array,
-            );
+            const shot = capture(app.canvas);
+            c.hash(fisheye ? 'fisheye' : 'perspective', shot.data as unknown as Uint8Array);
+            // A medida na radiância (antes da apresentação: o AgX puxa o laranja para o branco — spec 034, S1).
+            shots.push(linearImage(await readSceneHdr(app)));
             app.dispose();
         }
         // Altura (linha) média dos pixels laranja por coluna, no centro e nas bordas: reta na perspectiva, curva no

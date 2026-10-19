@@ -47,7 +47,6 @@ import type {
     BoundFlow,
     FluidSurfaceMaterialOptions,
     Frame,
-    FrameCompleteEvent,
     StagingBufferSpec,
     StorageBufferSpec,
     TextureSpec,
@@ -59,6 +58,7 @@ import {
     type FieldGrid,
     type Vec3,
 } from '../elements/fields/reference/field';
+import { gpuSamples, stepPaced } from './support/gpuSamples';
 import { readHdrTexture } from './support/imageMeasures';
 import {
     bandAmplitude,
@@ -995,19 +995,14 @@ async function damFrameTime(
         box: true,
         ...(material === 'sprites' ? { material: 'sprites' as const } : {}),
     })!;
-    const gpu: number[] = [];
-    let counting = false;
-    app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-        if (counting && e.stats.gpuTimeMs !== undefined) gpu.push(e.stats.gpuTimeMs);
-    });
+    const sampler = gpuSamples(app);
+    sampler.counting = false;
+    const gpu = sampler.samples;
     // Todos os pipelines compilados antes de medir (a água recompõe os da cena ao entrar).
     await settle(app, 5000);
     await simulate(app, 90);
-    counting = true;
-    for (let i = 0; i < 120; i++) {
-        app.step(1 / 60);
-        await new Promise((r) => requestAnimationFrame(r));
-    }
+    sampler.counting = true;
+    for (let i = 0; i < 120; i++) await stepPaced(app);
     app.dispose();
     canvas.remove();
     const sorted = [...gpu].sort((a, b) => a - b);

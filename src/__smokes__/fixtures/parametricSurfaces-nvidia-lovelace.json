@@ -1,0 +1,55 @@
+{
+  "profile": "nvidia-lovelace",
+  "cases": {
+    "field": {
+      "field": "17f57615"
+    },
+    "bodies": {
+      "bodies": "6c03f213"
+    },
+    "solvers": {
+      "XPBD": "a5984996",
+      "FEM": "a3aeff55",
+      "emissor": "12280192"
+    },
+    "animated": {
+      "bodies": "75aa1c58",
+      "fluid": "b0ef8e6a"
+    },
+    "lake": {
+      "particles": "fd5e0ab4",
+      "image": "5c0d7fc8"
+    },
+    "distanceField": {
+      "field": "8b798b9e"
+    },
+    "torusBodies": {
+      "bodies": "f808dfaf"
+    },
+    "sphereFluid": {
+      "sem adesão": "56250ded",
+      "com adesão": "0d3fe5c9"
+    },
+    "curvature": {
+      "esfera (analítica)": "25a2c94e",
+      "esfera (numérica)": "02fff906",
+      "toro (analítica)": "9648ee93",
+      "toro (numérica)": "9c2b732a"
+    },
+    "curvatureMaterial": {
+      "image": "87d0bdd8"
+    },
+    "adaptive": {
+      "terrain": "693ee014",
+      "sphere": "7c67fc7c"
+    },
+    "cpuNormals": {
+      "normals": "b5e549ca"
+    },
+    "fluids": {
+      "SPH": "21b593a2",
+      "PBF": "155752a1",
+      "MPM": "6bca3b1a"
+    }
+  }
+}

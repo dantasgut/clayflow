@@ -1,0 +1,38 @@
+{
+  "profile": "nvidia-lovelace",
+  "cases": {
+    "orbit": {
+      "worlds": "f346f9f7"
+    },
+    "swap": {},
+    "fields": {},
+    "builtinFields": {},
+    "ring": {
+      "ring": "7b67f773"
+    },
+    "emitters": {
+      "spiral": "b2c9f5d5"
+    },
+    "surfaces": {
+      "sphere": "0fdc30c1",
+      "terrain": "9d404728"
+    },
+    "space": {
+      "twist": "4e17dfbc"
+    },
+    "material": {
+      "plain": "a33f01b6",
+      "checker": "12b0f3c1"
+    },
+    "errors": {},
+    "rates": {
+      "field": "8f30fa0f",
+      "emit": "67f3ae2b",
+      "surface": "ff9d44ad"
+    },
+    "fisheye": {
+      "perspective": "135ce917",
+      "fisheye": "ccf951b5"
+    }
+  }
+}

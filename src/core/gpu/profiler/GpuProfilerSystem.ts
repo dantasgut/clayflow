@@ -23,7 +23,19 @@ interface PendingResolve {
     readonly overflowed: boolean;
 }
 
+/** Um buffer de leitura do anel: livre, ou mapeando a resolução de um quadro. */
+interface StagingSlot {
+    readonly buffer: GPUBuffer;
+    busy: boolean;
+}
+
 const DEFAULT_FRAME_CAPACITY = 256;
+/**
+ * Buffers de leitura em anel (spec 034, R11): com a CPU vários quadros à frente da GPU, um único buffer mapeando pulava
+ * todos os quadros seguintes (e o fim da cena o destruía antes de mapear: nenhuma leitura). Com 3, cada quadro resolve
+ * num livre; só sem nenhum livre o quadro fica sem leitura.
+ */
+const STAGING_RING = 3;
 
 /**
  * GpuProfilerSystem real (timestamp-query opcional).
@@ -39,15 +51,18 @@ const DEFAULT_FRAME_CAPACITY = 256;
  *     de passes, pesa no próprio tempo medido).
  *
  * Ciclo por gravação: `beginFrame` → `passTimestampWrites` (um por passe) → `resolveOnto`
- * (só quando há timestamps a ler e o staging está livre) → `submitFrame` (readback
- * assíncrono). Gravações sem passes medidos — ex.: `pool_grow:*` — não resolvem nada e
+ * (só quando há timestamps a ler e um buffer do anel de leitura está livre) → `submitFrame`
+ * (readback assíncrono). As leituras chegam fora de ordem: só uma de quadro mais novo que a
+ * atual a substitui. Gravações sem passes medidos — ex.: `pool_grow:*` — não resolvem nada e
  * não substituem a última leitura.
  */
 export class GpuProfilerSystem implements Profiler {
     private device: GPUDevice | null = null;
     private querySet: GPUQuerySet | null = null;
     private resolveBuffer: GPUBuffer | null = null;
-    private stagingBuffer: GPUBuffer | null = null;
+    private staging: StagingSlot[] = [];
+    /** O buffer do anel em que o quadro atual resolveu (−1: nenhum). */
+    private current = -1;
     private readonly capacity: number;
     private frameProfiling = false;
     private granularity: FrameProfilingGranularity = 'passes';
@@ -55,7 +70,6 @@ export class GpuProfilerSystem implements Profiler {
     private span: TimestampPair | undefined = undefined;
     private frameCapacity = DEFAULT_FRAME_CAPACITY;
     private allocator: FrameTimestampAllocator;
-    private mapInProgress = false;
     private manualUsed = false;
     private resolvedThisFrame = false;
     private pending: PendingResolve | null = null;
@@ -78,7 +92,6 @@ export class GpuProfilerSystem implements Profiler {
     detach(): void {
         this.releaseQueries();
         this.device = null;
-        this.mapInProgress = false;
         this.manualUsed = false;
         this.resolvedThisFrame = false;
         this.pending = null;
@@ -192,19 +205,20 @@ export class GpuProfilerSystem implements Profiler {
     }
 
     /**
-     * Adiciona resolveQuerySet + cópia para o staging ao encoder, só quando há timestamps
-     * a ler neste quadro e o staging anterior não está mapeando (senão pula o quadro).
+     * Adiciona resolveQuerySet + cópia para um buffer livre do anel ao encoder, só quando há
+     * timestamps a ler neste quadro (sem buffer livre, pula o quadro).
      */
     resolveOnto(encoder: GPUCommandEncoder, count?: number): void {
-        if (this.querySet === null || this.resolveBuffer === null || this.stagingBuffer === null)
-            return;
+        if (this.querySet === null || this.resolveBuffer === null) return;
         const frameEnd = this.frameProfilingActive ? this.allocator.end : 0;
         const manualEnd = this.manualUsed ? this.capacity : 0;
         const n = count ?? Math.max(frameEnd, manualEnd);
         this.manualUsed = false;
-        if (n === 0 || this.mapInProgress) return;
+        const slot = this.staging.findIndex((s) => !s.busy);
+        if (n === 0 || slot < 0) return;
         encoder.resolveQuerySet(this.querySet, 0, n, this.resolveBuffer, 0);
-        encoder.copyBufferToBuffer(this.resolveBuffer, 0, this.stagingBuffer, 0, n * 8);
+        encoder.copyBufferToBuffer(this.resolveBuffer, 0, this.staging[slot]!.buffer, 0, n * 8);
+        this.current = slot;
         this.resolvedThisFrame = true;
         this.pending =
             this.frameProfilingActive && this.allocator.pairs.length > 0
@@ -217,28 +231,33 @@ export class GpuProfilerSystem implements Profiler {
     }
 
     /**
-     * Mapeia o staging para leitura quando este quadro resolveu timestamps. Com profiling
-     * por quadro, a leitura vira `lastFrameReading` ao chegar.
+     * Mapeia o buffer do anel em que este quadro resolveu timestamps. Com profiling por quadro,
+     * a leitura vira `lastFrameReading` ao chegar, se for de um quadro mais novo que a atual.
      */
     submitFrame(): void {
-        if (this.stagingBuffer === null || this.mapInProgress || !this.resolvedThisFrame) return;
+        const slot = this.staging[this.current];
+        if (slot === undefined || slot.busy || !this.resolvedThisFrame) return;
         this.resolvedThisFrame = false;
-        this.mapInProgress = true;
+        slot.busy = true;
         const pending = this.pending;
         this.pending = null;
-        this.stagingBuffer
+        slot.buffer
             .mapAsync(GPUMapMode.READ)
             .then(() => {
-                const buf = this.stagingBuffer;
-                if (buf === null) return;
-                const range = buf.getMappedRange();
-                this.lastTimestamps = new BigInt64Array(range.slice(0));
-                buf.unmap();
-                this.mapInProgress = false;
+                if (!this.staging.includes(slot)) return;
+                const timestamps = new BigInt64Array(slot.buffer.getMappedRange().slice(0));
+                slot.buffer.unmap();
+                slot.busy = false;
+                const newer =
+                    pending === null
+                    || this.reading === undefined
+                    || pending.frameIndex > this.reading.gpuFrame;
+                if (!newer) return;
+                this.lastTimestamps = timestamps;
                 if (pending !== null) this.acceptReading(pending);
             })
             .catch(() => {
-                this.mapInProgress = false;
+                slot.busy = false;
             });
     }
 
@@ -288,20 +307,23 @@ export class GpuProfilerSystem implements Profiler {
             size: byteSize,
             usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
         });
-        this.stagingBuffer = device.createBuffer({
-            size: byteSize,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        });
+        this.staging = Array.from({ length: STAGING_RING }, () => ({
+            buffer: device.createBuffer({
+                size: byteSize,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            }),
+            busy: false,
+        }));
     }
 
     private releaseQueries(): void {
         this.querySet?.destroy();
         this.resolveBuffer?.destroy();
-        this.stagingBuffer?.destroy();
+        for (const slot of this.staging) slot.buffer.destroy();
         this.querySet = null;
         this.resolveBuffer = null;
-        this.stagingBuffer = null;
-        this.mapInProgress = false;
+        this.staging = [];
+        this.current = -1;
         this.pending = null;
         this.resolvedThisFrame = false;
     }

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { buildField, marchField, sampleField, symmetricEigen3, type Vec3 } from '../field';
+import {
+    anisotropicKernels,
+    buildField,
+    densityAt,
+    kernelGrid,
+    marchField,
+    sampleField,
+    symmetricEigen3,
+    type Vec3,
+} from '../field';
 
 // Referência do campo dos fluidos (spec 033, T043): autovalores, plano que fica plano, gotas separadas, |∇φ| ≈ 1 e a
 // marcha contra a superfície.
@@ -44,6 +53,26 @@ describe('campo dos fluidos — referência (spec 033, US7)', () => {
                 (r) => m[r * 3]! * v[0] + m[r * 3 + 1]! * v[1] + m[r * 3 + 2]! * v[2],
             );
             for (let r = 0; r < 3; r++) expect(mv[r]).toBeCloseTo(values[k]! * v[r]!, 6);
+        }
+    });
+
+    it('a grade de núcleos dá a mesma densidade que percorrer todos (spec 034, S4)', () => {
+        const particles = [...block([0, 0, 0], 6, 4, 6), ...block([0.4, 0.05, 0.1], 2, 2, 2)];
+        const params = { spacing: H };
+        const kernels = anisotropicKernels(particles, params);
+        const near = kernelGrid(kernels, params);
+        let seed = 7;
+        const rand = (): number => {
+            seed = (seed * 1664525 + 1013904223) >>> 0;
+            return seed / 4294967296;
+        };
+        for (let k = 0; k < 400; k++) {
+            const x: [number, number, number] = [
+                rand() * 0.6 - 0.1,
+                rand() * 0.4 - 0.1,
+                rand() * 0.6 - 0.1,
+            ];
+            expect(densityAt(near(x), x, params)).toBeCloseTo(densityAt(kernels, x, params), 12);
         }
     });
 

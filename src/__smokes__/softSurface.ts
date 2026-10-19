@@ -21,6 +21,7 @@ import {
     Transform,
 } from 'clayflow';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
+import { linearImage, readSceneHdr } from './support/imageMeasures';
 import { block } from './support/particleScenes';
 
 const WIDTH = 256;
@@ -170,6 +171,9 @@ const engineErrors: string[] = [];
 interface Capture {
     readonly early: ImageData;
     readonly late: ImageData;
+    /** A radiância dos mesmos quadros (o alvo HDR antes da apresentação, 0–255): a medida pela cor (spec 034, S1). */
+    readonly earlyLinear: ImageData;
+    readonly lateLinear: ImageData;
     readonly readbacks: number;
     readonly profile: string;
 }
@@ -190,11 +194,19 @@ async function run(
         captureErrors: true,
     });
     app.events.on('engineError', (e) => engineErrors.push(`${name}: ${e.stage}: ${e.message}`));
+    // As leituras de volta do motor nos quadros (as das medidas, como a do alvo HDR, ficam de fora).
     let readbacks = 0;
+    let measuring = false;
     const readback = app.core.readback.bind(app.core);
     app.core.readback = (spec: Parameters<typeof readback>[0]) => {
-        readbacks++;
+        if (!measuring) readbacks++;
         return readback(spec);
+    };
+    const linear = async (): Promise<ImageData> => {
+        measuring = true;
+        const image = linearImage(await readSceneHdr(app));
+        measuring = false;
+        return image;
     };
     build(app);
     const ctx = new OffscreenCanvas(WIDTH, HEIGHT).getContext('2d', { willReadFrequently: true });
@@ -205,12 +217,14 @@ async function run(
     };
     for (let i = 0; i < frames[0]; i++) app.step(1 / 60);
     const early = grab();
+    const earlyLinear = await linear();
     for (let i = frames[0]; i < frames[1]; i++) app.step(1 / 60);
     const late = grab();
+    const lateLinear = await linear();
     const profile = gpuProfile(app);
     app.dispose();
     canvas.remove();
-    return { early, late, readbacks, profile };
+    return { early, late, earlyLinear, lateLinear, readbacks, profile };
 }
 
 function diff(a: ImageData, b: ImageData): { pixels: number; max: number } {
@@ -258,8 +272,8 @@ async function main(): Promise<void> {
     const emptyAt = new Map<number, ImageData>([[120, empty.late]]);
     for (const scene of SCENES) {
         const first = await run(scene.build, scene.name, scene.frames);
-        const early = scene.pixels(first.early);
-        const late = scene.pixels(first.late);
+        const early = scene.pixels(first.earlyLinear);
+        const late = scene.pixels(first.lateLinear);
         const moved = diff(first.early, first.late).pixels;
         const ref = emptyAt.get(scene.frames[1]);
         const shadow = ref === undefined ? 0 : shadowed(first.late, ref);
