@@ -33,6 +33,7 @@ export const GI_QUALITY: Readonly<
             screenRays: number;
             screenTile: number;
             screenFraction: number;
+            screenHistory: number;
         }
     >
 > = {
@@ -43,14 +44,16 @@ export const GI_QUALITY: Readonly<
         screenRays: 8,
         screenTile: 16,
         screenFraction: 0.25,
+        screenHistory: 64,
     },
     medium: {
         raysPerProbe: 64,
         probeFraction: 0.125,
         photons: 262144,
-        screenRays: 8,
+        screenRays: 16,
         screenTile: 8,
         screenFraction: 0.5,
+        screenHistory: 256,
     },
     high: {
         raysPerProbe: 256,
@@ -59,6 +62,7 @@ export const GI_QUALITY: Readonly<
         screenRays: 32,
         screenTile: 4,
         screenFraction: 1,
+        screenHistory: 1024,
     },
 };
 
@@ -66,6 +70,12 @@ export const GI_QUALITY: Readonly<
 export interface GlobalIlluminationValues {
     /** Liga a iluminação global. Default `true`. */
     readonly enabled?: boolean;
+    /**
+     * A luz indireta (sondas do mundo e de tela, cáusticas). Default `true`. Desligada, só a estrutura de raios e a
+     * refração traçada (spec 034): o modo que os estágios padrão ligam sozinhos numa cena com vidro e sem iluminação
+     * global — o vidro refrata de verdade e a luz do resto da cena não muda (o hemisfério continua).
+     */
+    readonly indirect?: boolean;
     /** Qualidade (raios por sonda, fração por quadro, fótons). Default `'medium'`. */
     readonly quality?: GlobalIlluminationQuality;
     /** Rebatimentos da luz indireta, em 1–8. Default 3. */
@@ -109,6 +119,12 @@ export interface GlobalIlluminationValues {
      */
     readonly screenFraction?: number;
     /**
+     * Quadros com raios que o acúmulo das sondas de tela pode lembrar, com a luz parada (substitui o da qualidade): 16 a
+     * 4096. Parada, a média converge até esse número de atualizações (`h = N/(N+1)`); quando a luz muda de verdade, a
+     * contagem volta a zero (resposta em poucos quadros). As sondas do mundo seguem a `hysteresis`.
+     */
+    readonly screenHistory?: number;
+    /**
      * Centro fixo do volume de sondas (m). Sem ele, as cascatas acompanham a câmera — o certo para cenas abertas; um
      * interior visto de fora (a câmera fora do volume que importa) fixa o centro nele.
      */
@@ -118,6 +134,7 @@ export interface GlobalIlluminationValues {
 /** Dado de uma `GlobalIllumination`: os parâmetros de autoria. */
 export interface GlobalIlluminationData {
     enabled: boolean;
+    indirect: boolean;
     bounces: number;
     raysPerProbe: number;
     probeFraction: number;
@@ -130,6 +147,7 @@ export interface GlobalIlluminationData {
     screenRays: number;
     screenTile: number;
     screenFraction: number;
+    screenHistory: number;
     /** Centro fixo do volume de sondas, ou vazio (as cascatas acompanham a câmera). */
     center: number[];
     /**
@@ -192,6 +210,10 @@ function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
         `screenFraction ${d.screenFraction} fora de {1, 0,5, 0,25}`,
     );
     check(
+        Number.isInteger(d.screenHistory) && d.screenHistory >= 16 && d.screenHistory <= 4096,
+        `screenHistory ${d.screenHistory} fora de 16–4096`,
+    );
+    check(
         Number.isInteger(d.photons) && d.photons >= 0,
         `photons ${d.photons} deve ser inteiro ≥ 0`,
     );
@@ -222,6 +244,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         const q = GI_QUALITY[values.quality ?? 'medium'];
         const data = {
             enabled: values.enabled ?? true,
+            indirect: values.indirect ?? true,
             bounces: values.bounces ?? 3,
             raysPerProbe: values.raysPerProbe ?? q.raysPerProbe,
             probeFraction: values.probeFraction ?? q.probeFraction,
@@ -234,6 +257,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             screenRays: values.screenRays ?? q.screenRays,
             screenTile: values.screenTile ?? q.screenTile,
             screenFraction: values.screenFraction ?? q.screenFraction,
+            screenHistory: values.screenHistory ?? q.screenHistory,
             center: values.center === undefined ? [] : [...values.center],
         };
         validate(data);
@@ -252,6 +276,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         this.data.screenRays = v.screenRays;
         this.data.screenTile = v.screenTile;
         this.data.screenFraction = v.screenFraction;
+        this.data.screenHistory = v.screenHistory;
     }
 
     /** Valida os valores atuais (o estágio chama antes de usá-los; um valor inválido mantém o anterior). */
@@ -305,6 +330,17 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             // Sondas de tela (R2 adendo), um texel por ladrilho (o menor): posição (xyz, w = válida), normal e irradiância.
             screen('screenProbe', 'rgba32float'),
             screen('screenIrradiance', 'rgba16float'),
+            // Refração traçada (spec 034, US7): a radiância por baixo da primeira interface transmissiva, por pixel.
+            {
+                id: 'refraction',
+                role: 'storage-texture',
+                textureShape: {
+                    format: 'rgba16float',
+                    sizeFromCanvas: true,
+                    canvasDivisor: 1,
+                    access: 'write-only',
+                },
+            },
             // Cáusticas por fótons (US5): o hash em mundo (cabeçalho e baldes), escrito e lido só na GPU.
             {
                 id: 'caustics',

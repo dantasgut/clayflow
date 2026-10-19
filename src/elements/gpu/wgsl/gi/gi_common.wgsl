@@ -155,3 +155,10 @@ fn gi_ray_dir(k: u32) -> vec3f {
     let d = gi_fibonacci(k, gi.rays.x);
     return normalize(mat3x3f(gi.rotation0.xyz, gi.rotation1.xyz, gi.rotation2.xyz) * d);
 }
+
+/** Hash de 32 bits (PCG) para as sementes dos raios e do arredondamento. */
+fn gi_hash(x: u32) -> u32 {
+    let s = x * 747796405u + 2891336453u;
+    let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}

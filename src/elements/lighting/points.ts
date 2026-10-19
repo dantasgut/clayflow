@@ -4,9 +4,10 @@ import { NONE } from '../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { lightTransmissionReady, sceneLightingPoint } from '../scene/points/lighting';
 import { sceneAmbientPoint } from '../scene/points/media';
+import { sceneRefractionPoint } from '../scene/points/refraction';
 import { camerasResource } from '../scene/resources';
 import { rayScene } from '../raytrace/shaders';
-import { giParamsResource, giPhoton, giSample, giScreenSample } from './shaders';
+import { giParamsResource, giPhoton, giResources, giSample, giScreenSample } from './shaders';
 
 /**
  * A luz indireta das sondas no ponto (spec 033, R7): a irradiância na normal dos lobos — a das sondas de tela onde
@@ -43,7 +44,7 @@ fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let nb = closure_lobe_normal(c.normal, n, v);
     // A irradiância das sondas mais a das cáusticas por fótons (a luz focada por vidro e metal).
-    let e = gi_lighting_irradiance(p, nb, v) + gi_caustic_irradiance(p) / GI_PI;
+    let e = gi_lighting_irradiance(p, nb, v) + gi_caustic_irradiance(p, n) / GI_PI;
     var back = e;
     if (c.translucent_weight > 0.0) { back = gi_lighting_irradiance(p, -nb, v); }
     var spec = e;
@@ -107,10 +108,39 @@ const giAmbient = wgslModule({
 });
 
 /**
- * Contribuições da `GlobalIllumination` (spec 033, R7, R12): a luz indireta em `scene_lighting`, depois das luzes, e
- * em `scene_ambient` (os meios).
+ * A refração traçada no pixel (spec 034, US7): a saída de `gi_refraction_main`. Na borda de um vidro, um fragmento pode
+ * cobrir o pixel sem que o raio pelo centro dele o acerte (a amostra do MSAA na silhueta): vale o vizinho com refração
+ * mais próximo (3 × 3) — o mesmo resultado traçado, nunca a cópia da tela. Desligada ou ainda sem os kernels, nada.
+ */
+const giRefractionLookup = wgslModule({
+    name: 'gi_scene_refraction',
+    requires: [giParamsResource, giResources.refraction],
+    source: `fn scene_refraction(pixel: vec2u) -> vec4f {
+    if (gi.bounces.z == 0u) { return vec4f(0.0); }
+    let size = vec2i(textureDimensions(gi_refraction));
+    let p = clamp(vec2i(pixel), vec2i(0), size - 1);
+    let center = textureLoad(gi_refraction, p, 0);
+    if (center.a > 0.0) { return center; }
+    var best = vec4f(0.0);
+    var nearest = 3;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let q = clamp(p + vec2i(dx, dy), vec2i(0), size - 1);
+            let value = textureLoad(gi_refraction, q, 0);
+            let d = abs(dx) + abs(dy);
+            if (value.a > 0.0 && d < nearest) { best = value; nearest = d; }
+        }
+    }
+    return best;
+}`,
+});
+
+/**
+ * Contribuições da `GlobalIllumination` (spec 033, R7, R12; spec 034, US7): a luz indireta em `scene_lighting`, depois
+ * das luzes, em `scene_ambient` (os meios) e a refração traçada em `scene_refraction`.
  */
 export const giContributions: readonly SceneContribution[] = [
     { point: sceneLightingPoint, order: 5, pools: [], build: () => giLighting },
     { point: sceneAmbientPoint, order: 5, pools: [], build: () => giAmbient },
+    { point: sceneRefractionPoint, order: 0, pools: [], build: () => giRefractionLookup },
 ];

@@ -4,6 +4,8 @@ import type { EventBus } from '../../scene/events/EventBus';
 import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
 import { RayScene } from '../../elements/raytrace/RayScene';
+import { MaterialFunction } from '../../elements/extension/MaterialFunction';
+import { LOBES } from '../../elements/material/pbr/lobes';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
 import { SoftSurfaceFlow } from '../../elements/physics/flows/SoftSurfaceFlow';
@@ -209,10 +211,15 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
 }
 
 /**
- * Hemisfério e iluminação global por evento (spec 033, R7): a entrada de uma `GlobalIllumination` retira o hemisfério
- * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes), insere a `RayScene` que os
- * raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
- * pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estava.
+ * Hemisfério, iluminação global e refração por evento (spec 033, R7; spec 034, US7 e D2):
+ * - a entrada de uma `GlobalIllumination` com luz indireta retira o hemisfério dos estágios padrão (o céu com oclusão o
+ *   substitui, sem contar o ambiente duas vezes) e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
+ *   pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estavam;
+ * - com material de vidro (o lobo de transmissão) e nenhuma `GlobalIllumination`, insere uma só de refração
+ *   (`indirect: false`): o vidro refrata pela estrutura de raios e a luz do resto da cena não muda; sem vidro, ou
+ *   quando o usuário insere a dele, ela sai;
+ * - qualquer `GlobalIllumination` garante a `RayScene` que os raios consultam; a que estes estágios inseriram sai com a
+ *   última delas.
  * Devolve o cancelamento.
  */
 function swapAmbientForGi(
@@ -222,19 +229,62 @@ function swapAmbientForGi(
     targets: FrameTargets,
 ): () => void {
     const prepass = targets.data.depthPrepass;
-    const giCount = (): number => world.queryBySchemaName(GlobalIllumination.schema.name).length;
-    return events.on('resourcesChanged', (e) => {
-        const added = e.added.some((r) => r instanceof GlobalIllumination);
-        const removed = e.removed.some((r) => r instanceof GlobalIllumination);
-        if (added) {
-            if (world.entityIdOfResource(ambient) !== undefined) world.remove(ambient);
-            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
-                world.insert(new RayScene());
+    /** A só de refração que estes estágios inseriram e a `RayScene` deles. */
+    let auto: GlobalIllumination | undefined;
+    let rayScene: RayScene | undefined;
+    /** O hemisfério que estes estágios retiraram (só esse volta; o que o usuário tirou fica fora). */
+    let ambientTaken = false;
+    /** Funções de material com o lobo de transmissão inseridas (com repetição: o mesmo recurso em várias entidades). */
+    let refractive = 0;
+    const isRefractive = (r: unknown): boolean =>
+        r instanceof MaterialFunction && (r.lobeMask & LOBES.transmission) !== 0;
+    const all = (): GlobalIllumination[] =>
+        world
+            .queryBySchemaName(GlobalIllumination.schema.name)
+            .flatMap((id) => world.resourcesOf(id))
+            .filter((r): r is GlobalIllumination => r instanceof GlobalIllumination);
+    const sync = (): void => {
+        const user = all().filter((g) => g !== auto);
+        // A só de refração: com vidro e sem nenhuma do usuário.
+        if (refractive > 0 && user.length === 0 && auto === undefined) {
+            auto = new GlobalIllumination({ indirect: false, quality: 'low', cascades: 1 });
+            world.insert(auto);
+        } else if (auto !== undefined && (refractive === 0 || user.length > 0)) {
+            const leaving = auto;
+            auto = undefined;
+            world.remove(leaving);
+        }
+        const present = all();
+        const indirect = present.some((g) => g.data.indirect);
+        if (indirect) {
+            if (world.entityIdOfResource(ambient) !== undefined) {
+                world.remove(ambient);
+                ambientTaken = true;
+            }
             if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
-        } else if (removed && giCount() === 0) {
-            if (world.entityIdOfResource(ambient) === undefined) world.insert(ambient);
+        } else {
+            if (ambientTaken && world.entityIdOfResource(ambient) === undefined)
+                world.insert(ambient);
+            ambientTaken = false;
             if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
         }
+        if (present.length > 0) {
+            if (world.queryBySchemaName(RayScene.schema.name).length === 0) {
+                rayScene = new RayScene();
+                world.insert(rayScene);
+            }
+        } else if (rayScene !== undefined) {
+            const leaving = rayScene;
+            rayScene = undefined;
+            if (world.entityIdOfResource(leaving) !== undefined) world.remove(leaving);
+        }
+    };
+    return events.on('resourcesChanged', (e) => {
+        refractive += e.added.filter(isRefractive).length - e.removed.filter(isRefractive).length;
+        const relevant =
+            e.added.some((r) => r instanceof GlobalIllumination || isRefractive(r))
+            || e.removed.some((r) => r instanceof GlobalIllumination || isRefractive(r));
+        if (relevant) sync();
     });
 }
 

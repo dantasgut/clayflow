@@ -10,6 +10,8 @@ import giCommonSource from '../gpu/wgsl/gi/gi_common.wgsl?raw';
 import giWeightsSource from '../gpu/wgsl/gi/gi_weights.wgsl?raw';
 import giSampleSource from '../gpu/wgsl/gi/gi_sample.wgsl?raw';
 import giGenerationSource from '../gpu/wgsl/gi/gi_generation.wgsl?raw';
+import giRefractionSource from '../gpu/wgsl/gi/gi_refraction.wgsl?raw';
+import giRefractionFinishSource from '../gpu/wgsl/gi/gi_refraction_finish.wgsl?raw';
 import giHitSource from '../gpu/wgsl/gi/gi_hit.wgsl?raw';
 import giHitMaterialReadySource from '../gpu/wgsl/gi/gi_hit_material_ready.wgsl?raw';
 import giDirectSource from '../gpu/wgsl/gi/gi_direct.wgsl?raw';
@@ -34,9 +36,14 @@ import { closure, closureEval } from '../material/pbr/shaders';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
 import { rayInstanceRead, rayScene } from '../raytrace/shaders';
-import { lightTransmissionReady, sceneEnvironmentReady } from '../scene/points/lighting';
+import {
+    lightTransmissionReady,
+    sceneEnvironmentReady,
+    sceneLightingReady,
+} from '../scene/points/lighting';
 import { rayVolumeTransmittanceReady } from '../raytrace/points';
 import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
+import { sceneFogReady } from '../scene/points/media';
 import { camerasResource, lightsResource } from '../scene/resources';
 import { GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
 
@@ -113,6 +120,11 @@ export const giResources = Object.freeze({
     generationsRead: priv('gi_generations', 'read', { wgsl: 'vec2u', array: true }),
     radianceMap: priv('gi_radiance_map', 'read_write', { wgsl: 'vec2u', array: true }),
     radianceMapRead: priv('gi_radiance_map', 'read', { wgsl: 'vec2u', array: true }),
+    probeH: priv('gi_probe_h', 'read_write', { wgsl: 'vec4f', array: true }),
+    // Refração traçada (spec 034, US7): a saída por pixel que o desenho lê e o histórico (privado do `ProbeFlow`).
+    refraction: atlas('gi_refraction', 'GlobalIllumination.refraction'),
+    refractionOut: out('gi_refraction_out'),
+    refractionHistory: priv('gi_refraction_history', 'read_write', { wgsl: 'vec4f', array: true }),
     visibilityMap: priv('gi_visibility_map', 'read_write', { wgsl: 'u32', array: true }),
     visibilityMapRead: priv('gi_visibility_map', 'read', { wgsl: 'u32', array: true }),
     // Coleta final na tela (R2 adendo): as texturas das sondas de tela que o desenho lê, as saídas, o trabalho do
@@ -212,6 +224,7 @@ const giDirect = wgslModule({
     requires: [
         NONE.module,
         R.params,
+        giCommon,
         closure,
         closureEval,
         rayScene,
@@ -280,6 +293,7 @@ export const giProbeBlend = wgslModule({
         R.generations,
         R.radianceMap,
         R.visibilityMap,
+        R.probeH,
     ],
 });
 
@@ -331,11 +345,41 @@ export const giScreenTrace = wgslModule({
         giHit,
         giShade,
         giDirect,
+        R.radianceAtlas,
+        R.sampler,
         closureEval,
         sceneEnvironmentReady,
         rayVolumeTransmittanceReady,
         R.screenWork,
     ],
+});
+
+/** Refração traçada por pixel (spec 034, US7). */
+export const giRefraction = wgslModule({
+    name: 'gi_refraction',
+    source: giRefractionSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        giCommon,
+        giScreenCommon,
+        rayScene,
+        giHit,
+        closureEval,
+        sceneLightingReady,
+        sceneEnvironmentReady,
+        sceneFogReady,
+        R.refractionHistory,
+        R.refractionOut,
+    ],
+});
+
+/** Vista-projeção para a reprojeção da refração no quadro seguinte. */
+export const giRefractionFinish = wgslModule({
+    name: 'gi_refraction_finish',
+    source: giRefractionFinishSource,
+    requires: [R.params, camerasResource, R.refractionHistory],
 });
 
 /** Acúmulo das sondas de tela e a vista-projeção para o quadro seguinte. */

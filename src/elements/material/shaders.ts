@@ -4,6 +4,7 @@ import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { sceneBackgroundReady, sceneLightingReady } from '../scene/points/lighting';
 import { sceneFogReady } from '../scene/points/media';
+import { sceneRefractionReady } from '../scene/points/refraction';
 import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
@@ -270,8 +271,9 @@ export const transmissionResources = {
 } as const;
 
 /**
- * Transmissivos em duas camadas (spec 011, R6): o vértice do forward e os fragmentos das faces de trás e da frente, que
- * refratam a cópia da cena com mips (Beer-Lambert, dispersão, parede fina, opacidade).
+ * Transmissivos em duas camadas (spec 011, R6; spec 034, US7): o vértice do forward e os fragmentos das faces de trás e
+ * da frente; a luz que atravessa vem da refração traçada (`scene_refraction`), a parede fina e a opacidade da cópia da
+ * cena.
  */
 export const forwardTransmission = {
     /** Alvos sem amostras. */
@@ -287,6 +289,7 @@ function transmissionModule(multisampled: boolean): WgslModule {
         requires: [
             forward,
             closureEval,
+            sceneRefractionReady,
             transmissionResources.sceneCopy,
             transmissionResources.sampler,
             transmissionResources.depth,

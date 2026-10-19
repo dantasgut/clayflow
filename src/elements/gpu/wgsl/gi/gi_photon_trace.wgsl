@@ -122,17 +122,20 @@ fn gi_photon_targets_main(@builtin(local_invocation_index) lid: u32) {
 }
 
 /**
- * Deposita a vazão `rgb` (frações da potência por fóton) nas 8 células em volta de `p`, com os pesos trilineares (a
- * mesma interpolação da leitura: a cáustica sai contínua, sem os blocos das células).
+ * Deposita a vazão `rgb` (frações da potência por fóton) no ponto `p` da superfície de normal `n` (spec 034, R6): nas 4
+ * células em volta dele no plano da superfície, com os pesos bilineares (a mesma interpolação da leitura: a cáustica sai
+ * contínua, sem os blocos das células), na camada do plano no centro de cada uma, × |n_dominante| (a área da superfície na coluna
+ * de células é h²/|n_dominante|).
  */
-fn gi_photon_deposit(p: vec3f, rgb: vec3f) {
-    let g = p / gi.extra.y - 0.5;
-    let base = vec3i(floor(g));
-    let f = g - vec3f(base);
-    for (var k = 0u; k < 8u; k++) {
-        let o = vec3i(i32(k & 1u), i32((k >> 1u) & 1u), i32(k >> 2u));
-        let w = mix(vec3f(1.0) - f, f, vec3f(o));
-        gi_photon_deposit_cell(base + o, rgb * (w.x * w.y * w.z));
+fn gi_photon_deposit(p: vec3f, n: vec3f, rgb: vec3f) {
+    let f = gi_photon_frame(p, n);
+    let base = vec2i(floor(f.plane));
+    let t = f.plane - vec2f(base);
+    for (var k = 0u; k < 4u; k++) {
+        let o = vec2i(i32(k & 1u), i32(k >> 1u));
+        let w = mix(vec2f(1.0) - t, t, vec2f(o));
+        let layer = i32(floor(gi_photon_frame_height(f, base + o)));
+        gi_photon_deposit_cell(gi_photon_frame_cell(f, base + o, layer), rgb * (w.x * w.y * f.slope));
     }
 }
 
@@ -272,7 +275,7 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         }
         // Difusa: deposita se a luz chegou por um caminho especular (o direto já está desenhado).
         if (specular > 0u && outside) {
-            gi_photon_deposit(p, throughput * light_transmission(light, p));
+            gi_photon_deposit(p, n, throughput * light_transmission(light, p));
         }
         return;
     }

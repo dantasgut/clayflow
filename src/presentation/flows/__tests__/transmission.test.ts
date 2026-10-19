@@ -5,6 +5,9 @@ import { StandardMaterial } from '../../../elements/material/StandardMaterial';
 import { Transform } from '../../../elements/scene/Transform';
 import { Camera } from '../../../elements/scene/Camera';
 import { MaterialFunction } from '../../../elements/extension/MaterialFunction';
+import { forwardTransmission } from '../../../elements/material/shaders';
+import { giRefraction } from '../../../elements/lighting/shaders';
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 
 // Passe de transmissivos (spec 011, T061): só existe com material transmissivo; cópia com mips antes de cada camada; os
 // transmissivos saem do passe principal; faces de trás com a distância (MRT) e a profundidade própria, depois as da frente.
@@ -59,5 +62,20 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
         expect(passes[2]!.draws[0]!.pipeline.fragment?.entryPoint).toBe('fs_transmission_front');
         expect(s.computes().filter((c) => c === 'ForwardFlow.sceneCopy')).toHaveLength(2);
         expect(s.computes().filter((c) => c.startsWith('copy:')).length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('a luz que atravessa o vidro é a refração traçada, nunca a cópia da tela (spec 034, US7)', () => {
+        for (const module of [forwardTransmission.single, forwardTransmission.multisampled]) {
+            const source = composeWgsl(module).spec.source;
+            // A transmissão soma o `scene_refraction` do pixel; a cópia só fica na parede fina e na opacidade.
+            expect(source).toContain('out = out + c.transmission_weight * traced.rgb;');
+            expect(source).toContain('scene_refraction(pixel)');
+            expect(source).not.toContain('transmission_screen_uv');
+            expect(source).not.toMatch(/refract\(/);
+        }
+        // O kernel percorre as interfaces pela estrutura de raios e não lê a cópia da cena.
+        const kernel = composeWgsl(giRefraction).spec.source;
+        expect(kernel).toContain('ray_scene_hit(o, d, max_dist)');
+        expect(kernel).not.toContain('scene_copy');
     });
 });

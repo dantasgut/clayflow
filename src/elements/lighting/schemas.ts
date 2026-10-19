@@ -40,7 +40,7 @@ export const GlobalIlluminationSchema = new StructSchema(
         cascade3: FieldType.vec4f,
         rays: FieldType.vec4u,
         tuning: FieldType.vec4f,
-        /** (rebatimentos, ligado, 0, cáusticas). */
+        /** (rebatimentos, ligado, refração traçada pronta, cáusticas). */
         bounces: FieldType.vec4u,
         rotation0: FieldType.vec4f,
         rotation1: FieldType.vec4f,
@@ -53,7 +53,7 @@ export const GlobalIlluminationSchema = new StructSchema(
         screen: FieldType.vec4u,
         /** (período do rodízio das sondas de tela, metade do histórico escrita no quadro, ligada, 0). */
         screen1: FieldType.vec4u,
-        /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, histerese das sondas de tela). */
+        /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, teto da histerese das sondas de tela). */
         screenSize: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },

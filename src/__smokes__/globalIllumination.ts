@@ -961,8 +961,8 @@ function peakNear(
 }
 
 /**
- * A irradiância das cáusticas por célula do chão (y = 0 entre as duas camadas de células em volta), lida de volta do
- * hash (só no teste): chave `x,z` em células.
+ * A irradiância das cáusticas por célula do chão, lida de volta do hash (só no teste): chave `x,z` em células. O chão em
+ * y = 0 fica na fronteira das camadas 0 e −1; cada fóton deposita numa só (spec 034, R6), então as duas somam.
  */
 async function floorCaustics(
     s: Awaited<ReturnType<typeof openEngine>>,
@@ -988,7 +988,7 @@ async function floorCaustics(
         const y = (((key - 1) >> 10) & 1023) - 512;
         if (y !== 0 && y !== -1) continue;
         const k = `${((key - 1) & 1023) - 512},${(((key - 1) >> 20) & 1023) - 512}`;
-        cells.set(k, (cells.get(k) ?? 0) + (floats[w + 4]! + floats[w + 5]! + floats[w + 6]!) / 2);
+        cells.set(k, (cells.get(k) ?? 0) + floats[w + 4]! + floats[w + 5]! + floats[w + 6]!);
     }
     return cells;
 }

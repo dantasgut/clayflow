@@ -21,9 +21,11 @@ import {
     createScene,
     DirectionalLight,
     MaterialFunction,
+    SphereGeometry,
     StandardMaterial,
     Transform,
 } from 'clayflow';
+import { closureFn } from './materialScenes';
 import {
     skyTableDir,
     type PtCamera,
@@ -50,9 +52,46 @@ export interface Slab {
     readonly emission?: Vec3;
 }
 
+/**
+ * Objeto de vidro (spec 034, US7): esfera ou caixa (girada em y), dielétrico liso ou áspero — no motor, o fechamento
+ * dielétrico mais a transmissão; no traçador, o dielétrico com o IOR por canal (Abbe) e a absorção equivalente.
+ */
+export interface Glass {
+    readonly id: number;
+    readonly shape:
+        | { readonly kind: 'sphere'; readonly center: Vec3; readonly radius: number }
+        | {
+              readonly kind: 'box';
+              readonly min: Vec3;
+              readonly max: Vec3;
+              readonly rotationY?: number;
+          };
+    readonly ior: number;
+    /** Número de Abbe (0: sem dispersão). */
+    readonly abbe?: number;
+    readonly roughness?: number;
+    /** A cor atingida a `depth` de percurso dentro (Beer–Lambert; sem `depth`, sem absorção). */
+    readonly color?: Vec3;
+    readonly depth?: number;
+}
+
+/** O IOR por canal pelo número de Abbe (a mesma fórmula de `closure_dispersion_iors`). */
+export function dispersionIors(ior: number, abbe: number): Vec3 {
+    if (abbe <= 0) return [ior, ior, ior];
+    const delta = (ior - 1) / Math.max(abbe, 10);
+    return [ior - 0.5 * delta, ior, ior + 0.5 * delta];
+}
+
+const GLASS_FN = `return closure_add(
+        closure_dielectric(data.ior, vec3f(1.0), data.roughness, 0.0, vec3f(0.0)),
+        closure_transmission(data.ior, data.color, data.depth, data.abbe, data.roughness),
+    );`;
+
 /** Cena das medidas: placas, o sol (direção de propagação e iluminância) e a câmera. */
 export interface GiScene {
     readonly slabs: readonly Slab[];
+    /** Objetos de vidro (spec 034). */
+    readonly glass?: readonly Glass[];
     /** O sol (direção de propagação e iluminância); sem ele, a cena só tem as placas emissoras. */
     readonly sun?: { readonly direction: Vec3; readonly illuminance: number };
     readonly camera: { readonly position: Vec3; readonly target: Vec3; readonly fovY: number };
@@ -307,6 +346,46 @@ export function buildGiScene(
         if (diffuseFn || s.emission !== undefined) e.add(diffuseFunction(s.emission));
         app.world.insert(e);
     }
+    for (const g of scene.glass ?? []) {
+        const shape = g.shape;
+        const geometry =
+            shape.kind === 'sphere'
+                ? new SphereGeometry({ radius: shape.radius, latSegments: 96, lonSegments: 192 })
+                : new BoxGeometry({ size: [0, 1, 2].map((k) => shape.max[k]! - shape.min[k]!) });
+        const center: Vec3 =
+            shape.kind === 'sphere'
+                ? shape.center
+                : [
+                      (shape.max[0] + shape.min[0]) / 2,
+                      (shape.max[1] + shape.min[1]) / 2,
+                      (shape.max[2] + shape.min[2]) / 2,
+                  ];
+        const angle = shape.kind === 'box' ? (shape.rotationY ?? 0) : 0;
+        app.world.insert(
+            geometry
+                .add(new StandardMaterial())
+                .add(
+                    new Transform({
+                        position: [...center, 1],
+                        rotation: [0, Math.sin(angle / 2), 0, Math.cos(angle / 2)],
+                    }),
+                )
+                .add(
+                    closureFn(
+                        GLASS_FN,
+                        ['specular', 'transmission'],
+                        { ior: 'f32', roughness: 'f32', color: 'vec3f', depth: 'f32', abbe: 'f32' },
+                        {
+                            ior: g.ior,
+                            roughness: g.roughness ?? 0,
+                            color: [...(g.color ?? [1, 1, 1])],
+                            depth: g.depth ?? 0,
+                            abbe: g.abbe ?? 0,
+                        },
+                    ),
+                ),
+        );
+    }
     const sun =
         scene.sun === undefined
             ? undefined
@@ -340,6 +419,36 @@ export function pathTracedScene(scene: GiScene): { scene: PtScene; camera: PtCam
                 ? { albedo: s.color }
                 : { albedo: s.color, emission: s.emission },
     }));
+    for (const g of scene.glass ?? []) {
+        const absorption =
+            g.depth === undefined || g.depth <= 0
+                ? undefined
+                : ((g.color ?? [1, 1, 1]).map(
+                      (c) => -Math.log(Math.max(c, 1e-4)) / g.depth!,
+                  ) as unknown as Vec3);
+        objects.push({
+            id: g.id,
+            shape:
+                g.shape.kind === 'sphere'
+                    ? { kind: 'sphere', center: g.shape.center, radius: g.shape.radius }
+                    : {
+                          kind: 'box',
+                          min: g.shape.min,
+                          max: g.shape.max,
+                          ...(g.shape.rotationY !== undefined
+                              ? { rotationY: g.shape.rotationY }
+                              : {}),
+                      },
+            material: {
+                albedo: [0, 0, 0],
+                dielectric: {
+                    ior: (g.abbe ?? 0) > 0 ? dispersionIors(g.ior, g.abbe!) : g.ior,
+                    roughness: g.roughness ?? 0,
+                    ...(absorption !== undefined ? { absorption } : {}),
+                },
+            },
+        });
+    }
     const sun = scene.sun;
     const direction =
         sun === undefined

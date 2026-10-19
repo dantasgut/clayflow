@@ -4,16 +4,10 @@
 // todas; acima, uma escolhida entre `GI_LIGHT_CANDIDATES` candidatas pelo peso da resposta sem sombra (amostragem por
 // importância reamostrada) — custo fixo com qualquer número de luzes, sem viés. Até `GI_EXACT_LIGHTS` slots, todos.
 // Os slots liberados do pool `Light` são zerados (intensidade 0): sem o bitset de vivos, uma ligação de storage a menos.
-// Requer: gi, closure, closure_eval, ray_scene, lights, LIGHT_LIMIT, light_incoming, light_transmission.
+// Requer: gi, gi_common, closure, closure_eval, ray_scene, lights, LIGHT_LIMIT, light_incoming, light_transmission.
 
 const GI_EXACT_LIGHTS: u32 = 8u;
 const GI_LIGHT_CANDIDATES: u32 = 8u;
-
-fn gi_hash(x: u32) -> u32 {
-    var s = x * 747796405u + 2891336453u;
-    let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
-    return (w >> 22u) ^ w;
-}
 
 /** Rugosidade abaixo da qual vidro e metal fazem cáustica: os fótons levam a luz pelo caminho especular (US5). */
 const GI_PHOTON_ROUGH: f32 = 0.3;

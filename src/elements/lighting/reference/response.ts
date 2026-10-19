@@ -24,6 +24,15 @@ export const GI_RESPONSE = Object.freeze({
      * atrasam um quadro por geração: a média igual dos primeiros valores guardaria o resíduo do estado anterior).
      */
     ramp: 3,
+    /**
+     * Deriva (spec 034): uma mudança gradual demais para o limiar de mudança (a cortina andando, o sol baixando) mas
+     * maior que o ruído — a rápida a mais de `driftSigmas` desvios e `driftRelative` da lenta. Nela a contagem fica em
+     * no máximo `driftFrames` (a memória de antes, 0,97): o acúmulo acompanha sem rastro; parado, a contagem cresce
+     * até o histórico da sonda (as de tela lembram mais, sem cintilar).
+     */
+    driftSigmas: 2.5,
+    driftRelative: 0.015,
+    driftFrames: 32,
 });
 
 /** Estado da resposta de uma sonda. */
@@ -71,8 +80,13 @@ export function adaptiveHysteresis(
     // Na mudança, `ramp` quadros com a histerese de resposta (quadros negativos contam os que faltam) e depois a
     // contagem segue de `ramp`.
     const R = GI_RESPONSE.ramp;
-    let h = Math.min(state.frames / (state.frames + 1), hysteresis);
-    let frames = state.frames + 1;
+    const drift =
+        Math.abs(fast - state.mean)
+        > (GI_RESPONSE.driftSigmas * sigmaFast + GI_RESPONSE.driftRelative) * scale;
+    const count =
+        drift && state.frames > 0 ? Math.min(state.frames, GI_RESPONSE.driftFrames) : state.frames;
+    let h = Math.min(count / (count + 1), hysteresis);
+    let frames = count + 1;
     if (transient) {
         h = GI_RESPONSE.hysteresis;
         frames = -R;

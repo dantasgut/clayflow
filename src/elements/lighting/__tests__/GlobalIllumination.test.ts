@@ -24,7 +24,7 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             raysPerProbe: 64,
             probeFraction: 0.125,
             cascades: 3,
-            screenRays: 8,
+            screenRays: 16,
             screenTile: 8,
             screenFraction: 0.5,
         });
@@ -86,10 +86,16 @@ describe('GlobalIllumination (spec 033, T024)', () => {
                 role: 'storage-texture',
                 textureShape: { sizeFromCanvas: true, canvasDivisor: GI_SCREEN_TILE_MIN },
             });
-        // A luz indireta no desenho e, para os meios participantes (R12), a radiância média.
+        // A refração traçada por pixel (spec 034, US7), do tamanho do alvo.
+        expect(byId.get('refraction')).toMatchObject({
+            role: 'storage-texture',
+            textureShape: { format: 'rgba16float', sizeFromCanvas: true, canvasDivisor: 1 },
+        });
+        // A luz indireta no desenho, para os meios participantes (R12) a radiância média e a refração traçada.
         expect(gi.getSceneContributions().map((c) => c.point.name)).toEqual([
             'scene_lighting',
             'scene_ambient',
+            'scene_refraction',
         ]);
     });
 
@@ -109,6 +115,52 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         world.remove(gi);
         expect(inWorld(defaults.ambient)).toBe(true);
         expect(world.queryBySchemaName(HemisphereLight.schema.name)).toHaveLength(1);
+        // A RayScene que os estágios inseriram sai com a última (spec 034, D2).
+        expect(world.queryBySchemaName(RayScene.schema.name)).toHaveLength(0);
+    });
+
+    it('vidro sem iluminação global: os estágios ligam uma só de refração, sem mexer no hemisfério (spec 034, US7)', async () => {
+        const s = await renderScene();
+        const defaults = registerPresentationDefaults(s.scene.flows, {
+            world: s.scene.world,
+            events: s.scene.events,
+        });
+        const world = s.scene.world;
+        const inWorld = (r: object): boolean => world.entityIdOfResource(r as never) !== undefined;
+        const gis = (): GlobalIllumination[] =>
+            world
+                .queryBySchemaName(GlobalIllumination.schema.name)
+                .flatMap((id) => world.resourcesOf(id))
+                .filter((r): r is GlobalIllumination => r instanceof GlobalIllumination);
+        const glass = new BoxGeometry()
+            .add(new StandardMaterial())
+            .add(new Transform())
+            .add(
+                new MaterialFunction({
+                    code: `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {
+    return closure_transmission(1.5, vec3f(1.0), 0.0, 0.0, 0.0);
+}`,
+                    lobes: ['transmission'],
+                }),
+            );
+        world.insert(glass);
+        expect(gis()).toHaveLength(1);
+        expect(gis()[0]!.data.indirect).toBe(false);
+        expect(inWorld(defaults.ambient)).toBe(true);
+        expect(world.queryBySchemaName(RayScene.schema.name)).toHaveLength(1);
+        // A do usuário substitui a automática (e, com a luz indireta, retira o hemisfério).
+        const user = new GlobalIllumination();
+        world.insert(user);
+        expect(gis()).toEqual([user]);
+        expect(inWorld(defaults.ambient)).toBe(false);
+        world.remove(user);
+        expect(gis()).toHaveLength(1);
+        expect(gis()[0]!.data.indirect).toBe(false);
+        expect(inWorld(defaults.ambient)).toBe(true);
+        // Sem vidro, a só de refração sai, e a RayScene dela.
+        world.remove(glass);
+        expect(gis()).toHaveLength(0);
+        expect(world.queryBySchemaName(RayScene.schema.name)).toHaveLength(0);
     });
 
     it('o estágio das sondas grava um passe por quadro (raios, acúmulo, estado e atlas)', async () => {

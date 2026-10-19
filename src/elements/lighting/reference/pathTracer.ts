@@ -1,5 +1,6 @@
 // Traçador de caminhos de referência na CPU (spec 033, R8; só para testes e smokes): a luz física das cenas pequenas dos smokes de iluminação
-// global (Cornell box, cômodo com janela, caixa fechada, ambiente branco, névoa) — difuso de Lambert, espelho, emissão,
+// global (Cornell box, cômodo com janela, caixa fechada, ambiente branco, névoa) — difuso de Lambert, espelho, dielétrico
+// liso e áspero com dispersão e absorção (spec 034), emissão,
 // luzes da 011 (direcional em lux, pontual em candela), céu por função e meios participantes (homogêneos ou por
 // densidade, fase de Henyey-Greenstein). Amostragem determinística (hash por pixel e amostra); o número de rebatimentos é
 // fixo, o mesmo do alvo. Saída: a radiância HDR por pixel e a instância vista, para medir por região.
@@ -30,6 +31,16 @@ export interface PtMaterial {
     readonly emission?: Vec3;
     /** Espelho perfeito com esta refletância (sem difuso). */
     readonly mirror?: Vec3;
+    /**
+     * Dielétrico (vidro, água; spec 034): reflexão e refração de Fresnel exatas, reflexão interna total, sem difuso.
+     * `ior` por canal (r, g, b) faz a dispersão: cada canal segue o próprio raio. `roughness`: micro-normais pela GGX
+     * (α = roughness²). `absorption`: coeficiente de absorção dentro (1/m, Beer-Lambert pelo trecho percorrido).
+     */
+    readonly dielectric?: {
+        readonly ior: number | Vec3;
+        readonly roughness?: number;
+        readonly absorption?: Vec3;
+    };
 }
 
 /** Caixa (opcionalmente girada em torno do eixo y pelo centro). */
@@ -139,6 +150,11 @@ export interface PtOptions {
     readonly marchSteps?: number;
     /** Só a luz indireta (descarta a direta e a emissão na primeira superfície). */
     readonly indirectOnly?: boolean;
+    /**
+     * Todos os raios pelo centro do pixel (sem o antisserrilhado das amostras no pixel): a comparação com o motor que lê
+     * o centro (spec 034, a refração traçada).
+     */
+    readonly pixelCenter?: boolean;
     /**
      * Faixa de linhas [início, fim) a renderizar (padrão: todas); as outras ficam zeradas. A semente é por pixel, então
      * faixas renderizadas à parte (em paralelo) compõem a mesma imagem.
@@ -360,6 +376,79 @@ function basis(n: Vec3): [Vec3, Vec3] {
     return [t, cross(n, t)];
 }
 
+/** Refletância de Fresnel sem polarização de uma interface (`n1` → `n2`) com o cosseno de incidência `cosi`. */
+export function fresnelDielectric(cosi: number, n1: number, n2: number): number {
+    const sint2 = (n1 / n2) ** 2 * Math.max(0, 1 - cosi * cosi);
+    if (sint2 >= 1) return 1;
+    const cost = Math.sqrt(1 - sint2);
+    const rs = (n1 * cosi - n2 * cost) / (n1 * cosi + n2 * cost);
+    const rp = (n2 * cosi - n1 * cost) / (n2 * cosi + n1 * cost);
+    return (rs * rs + rp * rp) / 2;
+}
+
+/** Máscara de Smith da GGX (α) para a direção de cosseno `cos` com a normal. */
+function smithG1(cos: number, alpha: number): number {
+    const c = Math.min(Math.max(Math.abs(cos), 1e-6), 1);
+    const tan2 = (1 - c * c) / (c * c);
+    return 2 / (1 + Math.sqrt(1 + alpha * alpha * tan2));
+}
+
+/** Micro-normal visível da GGX (Heitz 2018) vista de `wo` (lado de `n`), α isotrópico. */
+function sampleGgxVisible(n: Vec3, wo: Vec3, alpha: number, u1: number, u2: number): Vec3 {
+    const [t, b] = basis(n);
+    const lo: Vec3 = [dot(wo, t), dot(wo, b), dot(wo, n)];
+    const vh = normalize([alpha * lo[0], alpha * lo[1], lo[2]]);
+    const lensq = vh[0] * vh[0] + vh[1] * vh[1];
+    const t1: Vec3 = lensq > 0 ? scale([-vh[1], vh[0], 0], 1 / Math.sqrt(lensq)) : [1, 0, 0];
+    const t2 = cross(vh, t1);
+    const r = Math.sqrt(u1);
+    const phi = 2 * Math.PI * u2;
+    const p1 = r * Math.cos(phi);
+    const sv = 0.5 * (1 + vh[2]);
+    const p2 = (1 - sv) * Math.sqrt(Math.max(0, 1 - p1 * p1)) + sv * r * Math.sin(phi);
+    const nh = add(
+        add(scale(t1, p1), scale(t2, p2)),
+        scale(vh, Math.sqrt(Math.max(0, 1 - p1 * p1 - p2 * p2))),
+    );
+    const ne = normalize([alpha * nh[0], alpha * nh[1], Math.max(0, nh[2])]);
+    return normalize(add(add(scale(t, ne[0]), scale(b, ne[1])), scale(n, ne[2])));
+}
+
+/**
+ * Interface dielétrica no ponto: a direção seguinte (refletida ou refratada pela escolha de Fresnel), o peso (a máscara
+ * de Smith da saída nas superfícies ásperas) e se refratou; `null` se a direção amostrada sai do lado errado.
+ */
+function dielectricBounce(
+    d: Vec3,
+    nOut: Vec3,
+    ior: number,
+    roughness: number,
+    rng: Rng,
+): { dir: Vec3; weight: number; refracted: boolean } | null {
+    const entering = dot(d, nOut) < 0;
+    const n = entering ? nOut : scale(nOut, -1);
+    const [n1, n2] = entering ? [1, ior] : [ior, 1];
+    const alpha = roughness * roughness;
+    const wo = scale(d, -1);
+    const m = alpha < 1e-4 ? n : sampleGgxVisible(n, wo, alpha, rng.next(), rng.next());
+    const cosi = Math.min(1, Math.max(0, dot(wo, m)));
+    const f = fresnelDielectric(cosi, n1, n2);
+    let dir: Vec3;
+    let refracted = false;
+    if (rng.next() < f) dir = sub(d, scale(m, 2 * dot(d, m)));
+    else {
+        const eta = n1 / n2;
+        const k = 1 - eta * eta * (1 - cosi * cosi);
+        dir = normalize(add(scale(d, eta), scale(m, eta * cosi - Math.sqrt(Math.max(0, k)))));
+        refracted = true;
+    }
+    // A direção tem de sair do lado certo da macro-superfície (refletida: o de fora; refratada: o de dentro).
+    const side = dot(dir, n);
+    if ((refracted && side >= 0) || (!refracted && side <= 0)) return null;
+    const weight = alpha < 1e-4 ? 1 : smithG1(side, alpha);
+    return { dir, weight, refracted };
+}
+
 function cosineSample(n: Vec3, r1: number, r2: number): Vec3 {
     const r = Math.sqrt(r1);
     const phi = 2 * Math.PI * r2;
@@ -433,15 +522,22 @@ function radiance(
     opts: PtOptions,
     rng: Rng,
     scatter = true,
+    channel = 1,
 ): Vec3 {
     let o = o0;
     let d = d0;
     let throughput: Vec3 = [1, 1, 1];
     let sum: Vec3 = ZERO;
     let countEmission = true;
-    for (let depth = 0; depth <= opts.bounces; depth++) {
+    // O dielétrico em que o raio está (a absorção do trecho) e as interfaces atravessadas (não contam rebatimento).
+    let inside: PtMaterial | null = null;
+    let interfaces = 0;
+    for (let depth = 0; depth <= opts.bounces + interfaces; depth++) {
         const hit = intersect(scene, o, d, Infinity);
         const tSurf = hit === null ? Infinity : hit.t;
+        const absorption = inside?.dielectric?.absorption;
+        if (absorption !== undefined && hit !== null)
+            throughput = mul(throughput, exp3(scale(absorption, -hit.t)));
         // Meio: amostragem de voo livre por rastreamento delta (majorante = coeficiente na densidade 1).
         // Sem espalhamento (modo simples): o meio só atenua, aplicado por quem chama e nas luzes diretas.
         const scatterEvent = scatter ? sampleMedia(scene, o, d, tSurf, rng) : null;
@@ -485,6 +581,24 @@ function radiance(
         const firstHitDirect = opts.indirectOnly === true && depth === 0;
         if (mat.emission !== undefined && (countEmission || !sampledEmitter) && !firstHitDirect) {
             sum = add(sum, mul(throughput, mat.emission));
+        }
+        if (mat.dielectric !== undefined && interfaces < 64) {
+            const ior = mat.dielectric.ior;
+            const bounce = dielectricBounce(
+                d,
+                hit.normal,
+                typeof ior === 'number' ? ior : (ior[channel] ?? ior[1]),
+                mat.dielectric.roughness ?? 0,
+                rng,
+            );
+            if (bounce === null) break;
+            throughput = scale(throughput, bounce.weight);
+            if (bounce.refracted) inside = dot(d, hit.normal) < 0 ? mat : null;
+            d = bounce.dir;
+            o = add(p, scale(d, EPS * 10));
+            countEmission = true;
+            interfaces++;
+            continue;
         }
         if (mat.mirror !== undefined) {
             throughput = mul(throughput, mat.mirror);
@@ -574,6 +688,16 @@ function singleScatter(scene: PtScene, o: Vec3, d: Vec3, opts: PtOptions, rng: R
     return sum;
 }
 
+/** Algum dielétrico com IOR por canal (dispersão: cada canal segue o próprio raio)? */
+function hasDispersion(scene: PtScene): boolean {
+    return scene.objects.some((o) => Array.isArray(o.material.dielectric?.ior));
+}
+
+/** A radiância com um raio por canal (o componente do canal de cada um). */
+function perChannel(scene: PtScene, o: Vec3, d: Vec3, opts: PtOptions, rng: Rng): Vec3 {
+    return [0, 1, 2].map((c) => radiance(scene, o, d, opts, rng, true, c)[c]!) as unknown as Vec3;
+}
+
 /** Renderiza a cena: radiância HDR média por pixel e a instância vista no centro do pixel. */
 export function renderPathTraced(input: PtScene, camera: PtCamera, opts: PtOptions): PtImage {
     const table = input.skyTable;
@@ -582,6 +706,7 @@ export function renderPathTraced(input: PtScene, camera: PtCamera, opts: PtOptio
             ? { ...input, sky: (d) => skyTableAt(table, d) }
             : input;
     const { width, height } = opts;
+    const spectral = hasDispersion(scene);
     const rgb = new Float32Array(width * height * 3);
     const ids = new Int32Array(width * height).fill(-1);
     const faces = new Int8Array(width * height).fill(-1);
@@ -611,11 +736,16 @@ export function renderPathTraced(input: PtScene, camera: PtCamera, opts: PtOptio
             let acc: Vec3 = ZERO;
             for (let s = 0; s < opts.samples; s++) {
                 const rng = new Rng(pixel, s);
-                const d = dirAt(x + rng.next(), y + rng.next());
+                const d =
+                    opts.pixelCenter === true
+                        ? dirAt(x + 0.5, y + 0.5)
+                        : dirAt(x + rng.next(), y + rng.next());
                 const l =
                     opts.media === 'single'
                         ? singleScatter(scene, camera.position, d, opts, rng)
-                        : radiance(scene, camera.position, d, opts, rng);
+                        : spectral
+                          ? perChannel(scene, camera.position, d, opts, rng)
+                          : radiance(scene, camera.position, d, opts, rng);
                 acc = add(acc, l);
             }
             rgb[pixel * 3] = acc[0] / opts.samples;
@@ -626,11 +756,26 @@ export function renderPathTraced(input: PtScene, camera: PtCamera, opts: PtOptio
     return { width, height, rgb, ids, faces };
 }
 
-/** Radiância que sai de um ponto de superfície em direção a `view` (para medir pontos isolados). */
-export function radianceAt(scene: PtScene, origin: Vec3, dir: Vec3, opts: PtOptions): Vec3 {
+/** Radiância que chega à origem ao longo de `dir` (para medir pontos isolados); `seed` separa as sequências de raios. */
+export function radianceAt(
+    scene: PtScene,
+    origin: Vec3,
+    dir: Vec3,
+    opts: PtOptions,
+    seed = 7,
+): Vec3 {
     let acc: Vec3 = ZERO;
-    for (let s = 0; s < opts.samples; s++)
-        acc = add(acc, radiance(scene, origin, normalize(dir), opts, new Rng(7, s)));
+    const spectral = hasDispersion(scene);
+    for (let s = 0; s < opts.samples; s++) {
+        const rng = new Rng(seed, s);
+        const d = normalize(dir);
+        acc = add(
+            acc,
+            spectral
+                ? perChannel(scene, origin, d, opts, rng)
+                : radiance(scene, origin, d, opts, rng),
+        );
+    }
     return scale(acc, 1 / opts.samples);
 }
 

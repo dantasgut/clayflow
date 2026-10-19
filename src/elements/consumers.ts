@@ -34,7 +34,8 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     ...(['params', 'transmittance', 'multiscatter', 'view', 'sampler'] as const).map(
         (id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` }),
     ),
-    // A iluminação global (spec 033): parâmetros, estado das sondas, atlas, amostrador e as sondas de tela.
+    // A iluminação global (spec 033): parâmetros, estado das sondas, atlas, amostrador, as sondas de tela e a refração
+    // traçada (spec 034).
     ...(
         [
             'params',
@@ -47,6 +48,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'screenProbe',
             'screenIrradiance',
             'caustics',
+            'refraction',
         ] as const
     ).map(
         (id) =>

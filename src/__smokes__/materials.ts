@@ -16,7 +16,8 @@
 //   - graph-specialization: grafo difuso + especular custa o mesmo que o material pronto; 60 s mudando valores sem
 //     recompilar; religar recompila sem quadro sem o objeto;
 //   - material-fn-compat: a função da 009 (`SurfaceParams`) desenha igual ao material pronto;
-//   - transmission-layers: vidro atrás de vidro aparece; IOR 1 é invisível;
+//   - transmission-layers: vidro atrás de vidro contra o traçador de caminhos (spec 034: a física exata; o verde de trás
+//     onde a referência o mostra); IOR 1 é invisível;
 //   - sanitize: fechamento com NaN não chega ao HDR.
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -33,7 +34,14 @@ import {
 } from 'clayflow';
 import type { Application, LobeName } from 'clayflow';
 import { capture } from './support/extensionScenes';
+import { gpuSamples, stepPaced } from './support/gpuSamples';
 import { hdrAt, type HdrImage } from './support/imageMeasures';
+import {
+    radianceAt,
+    type PtObject,
+    type PtScene,
+    type Vec3,
+} from '../elements/lighting/reference/pathTracer';
 import {
     closureFn,
     disposeApp,
@@ -204,6 +212,12 @@ async function caseLayer(): Promise<void> {
 
 // ── Transmissão ──────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Quadros acumulados nos casos de transmissão (spec 034): a refração traçada converge pela média temporal (o ponto
+ * sorteado no pixel, as escolhas de Fresnel nas faces de dentro).
+ */
+const TRACED_FRAMES = 64;
+
 const GLASS_CODE = `return closure_add(
         closure_dielectric(data.ior, vec3f(1.0), data.rough, 0.0, vec3f(0.0)),
         closure_transmission(data.ior, data.color, data.depth, data.abbe, data.rough),
@@ -257,7 +271,7 @@ async function caseRefraction(): Promise<void> {
         frontCamera(app, height);
         stripes(app, 0.25);
         if (withGlass) slab(app, 0, 0.4, Math.PI / 6, glassFn(1.5));
-        shots.push(await renderHdr(app));
+        shots.push(await renderHdr(app, TRACED_FRAMES));
         disposeApp(app, canvas);
     }
     const y = H / 2;
@@ -310,7 +324,7 @@ async function caseRefraction(): Promise<void> {
                 .add(closureFn('return closure_emission(vec3f(0.0), 0.0);', ['emission'])),
         );
         sphere(app, 0, 0, 1, glassFn(1.5));
-        const img = await renderHdr(app);
+        const img = await renderHdr(app, TRACED_FRAMES);
         disposeApp(app, canvas);
         const center = lum(hdrAt(img, 100, 100));
         const rim = lum(hdrAt(img, 100 + Math.round(0.97 * 90.9), 100));
@@ -341,7 +355,7 @@ async function caseRefraction(): Promise<void> {
         );
         slab(app, -1, 0.25, 0, glassFn(1.5, [0.5, 0.5, 0.5], 0.25));
         slab(app, 1, 0.5, 0, glassFn(1.5, [0.5, 0.5, 0.5], 0.25));
-        const img = await renderHdr(app);
+        const img = await renderHdr(app, TRACED_FRAMES);
         disposeApp(app, canvas);
         const [ax, ay] = frontPixel(-1, 0, height, W, H);
         const [bx, by] = frontPixel(1, 0, height, W, H);
@@ -369,7 +383,7 @@ async function caseDispersion(): Promise<void> {
         frontCamera(app, height);
         stripes(app, 0.5);
         slab(app, 0, 0.6, Math.PI / 5, glassFn(1.7, [1, 1, 1], 0, abbe));
-        const img = await renderHdr(app);
+        const img = await renderHdr(app, TRACED_FRAMES);
         disposeApp(app, canvas);
         const [x0] = frontPixel(-0.3, 0, height, W, H);
         const [x1] = frontPixel(0.3, 0, height, W, H);
@@ -776,16 +790,10 @@ async function caseSpecialization(): Promise<void> {
             if (graph) e.add(new MaterialFunction({ graph: plainGraph([0.8, 0.5, 0.3]) }));
             app.world.insert(e);
         }
-        const samples: number[] = [];
-        app.events.on('frameComplete', (e) => {
-            if (e.stats.gpuTimeMs !== undefined) samples.push(e.stats.gpuTimeMs);
-        });
+        const { samples } = gpuSamples(app);
         await renderHdr(app, 1, 1200);
         samples.length = 0;
-        for (let i = 0; i < 120; i++) {
-            app.step(1 / 60);
-            await new Promise((r) => setTimeout(r, 0));
-        }
+        for (let i = 0; i < 120; i++) await stepPaced(app);
         disposeApp(app, canvas);
         samples.sort((a, b) => a - b);
         gpu.push(samples[Math.floor(samples.length / 2)] ?? NaN);
@@ -908,6 +916,68 @@ async function caseCompat(): Promise<void> {
     check(worst < 2e-3, `material-fn-compat: a função da 009 desenha diferente (${worst})`);
 }
 
+/**
+ * A cena das camadas no traçador de caminhos da CPU (spec 034): as listras emissivas (período 0,2, luminância 1 em
+ * z = −2) como faixas emissoras, o vidro claro na frente (x = −0,3) e o verde absorvente atrás (x = 0,3, z = −0,9), e
+ * os raios paralelos da câmera ortográfica de altura `height` (z = 6), 64 sorteados no pixel.
+ */
+function layersReference(height: number, w: number, h: number): (x: number, y: number) => number[] {
+    const objects: PtObject[] = [];
+    for (let i = -60; i < 60; i++)
+        objects.push({
+            id: 1,
+            shape: {
+                kind: 'quad',
+                corner: [0.2 * i + 0.1, -10, -2],
+                u: [0.1, 0, 0],
+                v: [0, 20, 0],
+            },
+            material: { albedo: [0, 0, 0], emission: [1, 1, 1] },
+        });
+    objects.push({
+        id: 2,
+        shape: { kind: 'sphere', center: [-0.3, 0, 0], radius: 0.55 },
+        material: { albedo: [0, 0, 0], dielectric: { ior: 1.5 } },
+    });
+    objects.push({
+        id: 3,
+        shape: { kind: 'sphere', center: [0.3, 0, -0.9], radius: 0.55 },
+        material: {
+            albedo: [0, 0, 0],
+            dielectric: {
+                ior: 1.5,
+                absorption: [0.2, 0.8, 0.3].map((c) => -Math.log(c) / 0.3) as unknown as Vec3,
+            },
+        },
+    });
+    const scene: PtScene = { objects };
+    const width = (height * w) / h;
+    const cache = new Map<number, number[]>();
+    return (x, y) => {
+        const key = y * w + x;
+        const hit = cache.get(key);
+        if (hit !== undefined) return hit;
+        const sum = [0, 0, 0];
+        const n = 64;
+        for (let k = 0; k < n; k++) {
+            const u = ((k % 8) + 0.5) / 8;
+            const v = (Math.floor(k / 8) + 0.5) / 8;
+            const wx = ((x + u) / w - 0.5) * width;
+            const wy = (0.5 - (y + v) / h) * height;
+            const l = radianceAt(
+                scene,
+                [wx, wy, 6],
+                [0, 0, -1],
+                { width: 1, height: 1, samples: 1, bounces: 0 },
+                key * 64 + k,
+            );
+            for (let c = 0; c < 3; c++) sum[c]! += l[c]! / n;
+        }
+        cache.set(key, sum);
+        return sum;
+    };
+}
+
 async function caseLayers(): Promise<void> {
     const W = 400;
     const H = 200;
@@ -919,23 +989,69 @@ async function caseLayers(): Promise<void> {
         stripes(app, 0.2);
         // Vidro verde atrás e vidro claro na frente, sobrepostos na vista.
         app.world.insert(
-            new SphereGeometry({ radius: 0.55, latSegments: 64, lonSegments: 128 })
+            new SphereGeometry({ radius: 0.55, latSegments: 192, lonSegments: 384 })
                 .add(new StandardMaterial())
                 .add(new Transform({ position: [0.3, 0, -0.9, 1] }))
                 .add(glassFn(1.5, [0.2, 0.8, 0.3], 0.3)),
         );
-        sphere(app, -0.3, 0, 0.55, glassFn(1.5));
-        const img = await renderHdr(app);
-        disposeApp(app, canvas);
-        const [x, y] = frontPixel(0.05, 0, height, W, H);
-        const c = hdrAt(img, x, y);
-        const finite = c.every((v) => Number.isFinite(v));
-        const greenish = c[1] > c[0] * 1.2;
-        log(
-            `transmission-layers: através dos dois vidros (${c.map((v) => v.toFixed(3)).join(', ')}) — ${greenish ? 'o de trás aparece (verde)' : 'o de trás NÃO aparece'}`,
+        // Malha fina nas duas: a comparação é com as esferas analíticas do traçador (os raios cruzam as duas quase
+        // rasantes na sobreposição).
+        app.world.insert(
+            new SphereGeometry({ radius: 0.55, latSegments: 192, lonSegments: 384 })
+                .add(new StandardMaterial())
+                .add(new Transform({ position: [-0.3, 0, 0, 1] }))
+                .add(glassFn(1.5)),
         );
-        check(finite && lum(c) > 0.02, 'transmission-layers: buraco através dos dois vidros');
-        check(greenish, 'transmission-layers: o vidro de trás não aparece através do da frente');
+        const img = await renderHdr(app, TRACED_FRAMES);
+        disposeApp(app, canvas);
+        // A física exata pelo traçador de caminhos da CPU (decisão do usuário, spec 034): os raios paralelos da câmera
+        // ortográfica, sorteados no pixel, na região através dos dois vidros. A imagem por blocos 4 × 4 (L1 ≤ 3 %), e o
+        // verde de trás onde a referência o mostra (a esfera da frente desvia o raio: em boa parte da sobreposição na
+        // vista ele passa ao lado da verde).
+        const reference = layersReference(height, W, H);
+        const [px0, py0] = frontPixel(-0.25, 0.2, height, W, H);
+        const [px1, py1] = frontPixel(0.25, -0.2, height, W, H);
+        let errors = 0;
+        let total = 0;
+        let greenRef = 0;
+        let greenBoth = 0;
+        let finite = true;
+        for (let by = py0; by + 4 <= py1; by += 4)
+            for (let bx = px0; bx + 4 <= px1; bx += 4) {
+                const e = [0, 0, 0];
+                const r = [0, 0, 0];
+                for (let y = by; y < by + 4; y++)
+                    for (let x = bx; x < bx + 4; x++) {
+                        const a = hdrAt(img, x, y);
+                        const b = reference(x, y);
+                        if (!a.every((v) => Number.isFinite(v))) finite = false;
+                        for (let k = 0; k < 3; k++) {
+                            e[k]! += a[k]!;
+                            r[k]! += b[k]!;
+                        }
+                        if (b[1] > b[0] * 1.2 && lum(b) > 0.01) {
+                            greenRef++;
+                            if (a[1] > a[0] * 1.2) greenBoth++;
+                        }
+                    }
+                for (let k = 0; k < 3; k++) {
+                    errors += Math.abs(e[k]! - r[k]!);
+                    total += r[k]!;
+                }
+            }
+        const l1 = errors / Math.max(total, 1e-9);
+        log(
+            `transmission-layers: através dos dois vidros contra o traçador — erro L1 ${(l1 * 100).toFixed(2)} %; verde na referência em ${greenRef} px, no motor em ${greenBoth} deles`,
+        );
+        check(finite && total > 0, 'transmission-layers: buraco através dos dois vidros');
+        check(
+            l1 <= 0.03,
+            `transmission-layers: a imagem através dos dois vidros a ${(l1 * 100).toFixed(1)} % da física`,
+        );
+        check(
+            greenRef > 0 && greenBoth >= 0.9 * greenRef,
+            `transmission-layers: o vidro de trás aparece em ${greenRef} px na referência e só em ${greenBoth} no motor`,
+        );
     }
     {
         const shots: HdrImage[] = [];
@@ -945,7 +1061,7 @@ async function caseLayers(): Promise<void> {
             frontCamera(app, height);
             stripes(app, 0.2);
             if (glass) sphere(app, 0, 0, 0.7, glassFn(1));
-            shots.push(await renderHdr(app));
+            shots.push(await renderHdr(app, TRACED_FRAMES));
             disposeApp(app, canvas);
         }
         let worst = 0;

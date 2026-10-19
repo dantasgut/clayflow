@@ -40,6 +40,8 @@ import {
     giProbeBlend,
     giProbeClassify,
     giProbeTrace,
+    giRefraction,
+    giRefractionFinish,
     giResources as R,
     giScreenPlace,
     giScreenResolve,
@@ -90,6 +92,12 @@ const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_
 const SCREEN_FINISH = compute('gi_screen_finish', giScreenResolve, 'gi_screen_finish_main');
 const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
 const PHOTON_RESOLVE = compute('gi_photon_resolve', giPhotonResolve, 'gi_photon_resolve_main');
+const PROBE_RESPONSE = compute('gi_probe_response', giProbeBlend, 'gi_probe_response_main');
+const REFRACTION_FINISH = compute(
+    'gi_refraction_finish',
+    giRefractionFinish,
+    'gi_refraction_finish_main',
+);
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -102,17 +110,22 @@ const FIXED = [
     SCREEN_FINISH,
     SCREEN_FILTER,
     PHOTON_RESOLVE,
+    PROBE_RESPONSE,
+    REFRACTION_FINISH,
 ];
 /** vec4f do começo do histórico da tela: a vista-projeção e a câmera anteriores (`GI_SCREEN_HISTORY_HEADER`). */
 const SCREEN_HISTORY_HEADER = 5;
+/** vec4f do começo do histórico da refração: a vista-projeção anterior (`GI_REFRACTION_HEADER`). */
+const REFRACTION_HISTORY_HEADER = 4;
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
 /** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela, alvos e fótons) de uma revisão. */
-const traceIds = (revision: number): readonly [string, string, string, string] => [
+const traceIds = (revision: number): readonly [string, string, string, string, string] => [
     `gi_trace:${revision}`,
     `gi_screen_trace:${revision}`,
     `gi_photon_trace:${revision}`,
     `gi_photon_targets:${revision}`,
+    `gi_refraction:${revision}`,
 ];
 /** f32 da lista dos alvos dos fótons (`gi_photon_trace.wgsl`: cabeçalho, 64 caixas, áreas de 8 luzes × 64). */
 const PHOTON_TARGET_WORDS = 8 + 8 * 64 + 8 * 64;
@@ -137,6 +150,8 @@ interface Sizes {
     readonly tilesX: number;
     readonly tilesY: number;
     readonly screenRays: number;
+    /** Pixels do alvo (a refração traçada e o histórico dela). */
+    readonly pixels: number;
     /** Pixels por lado do ladrilho no alvo atual. */
     readonly tile: number;
 }
@@ -147,10 +162,13 @@ interface Buffers {
     readonly rays: StorageBufferSpec;
     readonly generations: StorageBufferSpec;
     readonly radiance: StorageBufferSpec;
+    /** Por sonda atualizada no quadro: a histerese e o estado da resposta (`gi_probe_response_main`). */
+    readonly probeH: StorageBufferSpec;
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
     readonly screenHistory: StorageBufferSpec;
     readonly photonTargets: StorageBufferSpec;
+    readonly refractionHistory: StorageBufferSpec;
 }
 
 /** Composição das funções `material` nos acertos (um `switch` pelo índice da função da instância). */
@@ -241,6 +259,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     /** Fótons do quadro (0 sem cáusticas). */
     private photons = 0;
     private active = false;
+    /** A luz indireta ligada (sem ela, só a refração traçada roda). */
+    private indirect = true;
     /** Coleta final na tela no quadro (ligada, com câmera e com o canvas). */
     private screenActive = false;
     private unsupported = false;
@@ -293,8 +313,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             pass.dispatch.invocations(count, size);
         };
         const W = WORKGROUP_SIZE.value;
+        const indirect = this.indirect;
         frame.compute('ProbeFlow', (pass) => {
+            if (!indirect) return;
             run(pass, -1, updated * rays, W);
+            // A resposta de cada sonda antes do acúmulo (spec 034, R7).
+            run(pass, 11, updated, W);
             run(pass, 0, updated * GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS, W);
             run(pass, 1, updated * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS, W);
             run(pass, 2, updated, W);
@@ -309,9 +333,15 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         });
         // Cáusticas por fótons (US5): os fótons do quadro e o acúmulo no hash.
         frame.compute('ProbeFlow.photons', (pass) => {
+            if (!indirect) return;
             run(pass, -4, this.photons > 0 ? W : 0, W);
             run(pass, -3, Math.max(this.photons, 1), W);
             run(pass, 10, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
+        });
+        // Refração traçada (spec 034, US7): depois das sondas e das cáusticas, que a luz dos acertos lê.
+        frame.compute('ProbeFlow.refraction', (pass) => {
+            run(pass, -5, this.buffers?.sizes.pixels ?? 0, W);
+            run(pass, 12, 1, 1);
         });
         this.frame++;
     }
@@ -366,6 +396,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 'probeTexture',
                 'screenProbe',
                 'screenIrradiance',
+                'refraction',
             ] as const
         ).map((id) => c.bound.slots.gi.textureViewOf(id));
         if (views.some((v) => v === undefined)) return;
@@ -381,6 +412,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             tilesY: canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.height / tile)),
             tile,
             screenRays: d.screenRays,
+            pixels: canvas === undefined ? 0 : canvas.width * canvas.height,
         };
         const sameSizes =
             this.buffers !== undefined
@@ -400,9 +432,14 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         this.syncTrace(c, c.bound.slots.rays.resource as RayScene);
         const cameraSlot = this.cameraSlot(c);
         this.screenActive =
-            d.enabled && d.screenGather && cameraSlot !== undefined && sizes.tilesX > 0;
+            d.enabled
+            && d.indirect
+            && d.screenGather
+            && cameraSlot !== undefined
+            && sizes.tilesX > 0;
         this.writeParams(c, gi, sizes, cameraSlot ?? 0);
         this.active = d.enabled;
+        this.indirect = d.indirect;
     }
 
     /** Buffers privados nos tamanhos dados (o histórico das sondas recomeça). */
@@ -421,6 +458,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             rays: storage('rays', sizes.updated * sizes.rays * sizes.bounces * 16),
             generations: storage('generations', GI_MAX_PROBES * texels * sizes.bounces * 8),
             radiance: storage('radiance', GI_MAX_PROBES * texels * 8),
+            probeH: storage('probeH', sizes.updated * 16),
             visibility: storage(
                 'visibility',
                 GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
@@ -438,6 +476,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     * 16,
             ),
             photonTargets: storage('photonTargets', PHOTON_TARGET_WORDS * 4),
+            // Refração traçada: a vista-projeção anterior e as duas metades (radiância em meia precisão, distância e
+            // quadros acumulados por pixel).
+            refractionHistory: storage(
+                'refractionHistory',
+                (REFRACTION_HISTORY_HEADER + sizes.pixels * 2) * 16,
+            ),
         };
     }
 
@@ -452,6 +496,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.generationsRead, b.generations],
                 [R.radianceMap, b.radiance],
                 [R.radianceMapRead, b.radiance],
+                [R.probeH, b.probeH],
                 [R.visibilityMap, b.visibility],
                 [R.visibilityMapRead, b.visibility],
                 [R.irradianceOut, views[0]!],
@@ -464,6 +509,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenWorkRead, b.screenWork],
                 [R.screenHistory, b.screenHistory],
                 [R.photonTargets, b.photonTargets],
+                [R.refractionOut, views[6]!],
+                [R.refractionHistory, b.refractionHistory],
             ]),
         );
     }
@@ -487,13 +534,16 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             fns.length === 0
                 ? shader
                 : bindPoints(shader, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]]));
-        const [probeId, screenId, photonId, targetsId] = traceIds(this.materialRevision);
+        const [probeId, screenId, photonId, targetsId, refractionId] = traceIds(
+            this.materialRevision,
+        );
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);
         c.prepare(compute(probeId, compose(giProbeTrace), 'gi_probe_trace_main'));
         c.prepare(compute(screenId, compose(giScreenTrace), 'gi_screen_trace_main'));
         c.prepare(compute(photonId, compose(giPhotonTrace), 'gi_photon_trace_main'));
         c.prepare(compute(targetsId, compose(giPhotonTrace), 'gi_photon_targets_main'));
+        c.prepare(compute(refractionId, compose(giRefraction), 'gi_refraction_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
         else this.nextTraceRevision = this.materialRevision;
     }
@@ -524,7 +574,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             ]);
         }
         const coarsest = d.probeSpacing * 2 ** (d.cascades - 1);
-        this.photons = d.caustics ? d.photons : 0;
+        this.photons = d.caustics && d.indirect ? d.photons : 0;
         const rotation = frameRotation(this.frame);
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         d.params = [
@@ -541,7 +591,13 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
-                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, this.photons > 0 ? 1 : 0],
+                // (rebatimentos, ligada, refração traçada pronta, cáusticas).
+                bounces: [
+                    sizes.bounces,
+                    d.enabled && d.indirect ? 1 : 0,
+                    this.traceRevision !== undefined && sizes.pixels > 0 ? 1 : 0,
+                    this.photons > 0 ? 1 : 0,
+                ],
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,
@@ -555,7 +611,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     this.screenActive ? 1 : 0,
                     0,
                 ],
-                screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
+                screenSize: [
+                    canvas?.width ?? 1,
+                    canvas?.height ?? 1,
+                    sizes.tile,
+                    d.screenHistory / (d.screenHistory + 1),
+                ],
             },
         ];
     }
@@ -585,10 +646,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             b.rays,
             b.generations,
             b.radiance,
+            b.probeH,
             b.visibility,
             b.screenWork,
             b.screenHistory,
             b.photonTargets,
+            b.refractionHistory,
         ])
             this.core.destroy(buf);
         this.buffers = undefined;

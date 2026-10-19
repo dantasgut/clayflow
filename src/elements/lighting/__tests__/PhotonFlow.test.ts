@@ -49,7 +49,7 @@ describe('Cáusticas por fótons (spec 033, T051)', () => {
         const resolve = composeWgsl(giPhotonResolve).spec.source;
         expect(resolve).toContain('mix(sum, old, GI_PHOTON_HYSTERESIS)');
         expect(composeWgsl(giPhoton).spec.source).toContain(
-            'fn gi_caustic_irradiance(p: vec3f) -> vec3f',
+            'fn gi_caustic_irradiance(p: vec3f, n: vec3f) -> vec3f',
         );
     });
 
