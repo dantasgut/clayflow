@@ -19,6 +19,9 @@ export const CHROME_ARGS = [
     '--disable-backgrounding-occluded-windows',
     // No Linux o Chrome cai no SwiftShader (WebGPU por software) sem Vulkan e com a GPU na lista de bloqueio.
     ...(process.platform === 'linux' ? ['--enable-features=Vulkan', '--ignore-gpu-blocklist'] : []),
+    // E a apresentação pela superfície Vulkan ignora o `--disable-gpu-vsync`: o bench ficava preso a 60 FPS (spec 034,
+    // V3). Sem ela (o WebGPU continua no Vulkan; a janela por GL), 287 FPS em `instances/10k`.
+    ...(process.platform === 'linux' ? ['--disable-vulkan-surface'] : []),
 ] as const;
 
 /**
@@ -46,7 +49,11 @@ export interface LaunchedBrowser {
 }
 
 /** Flags que tiram a sincronia com a tela (só para medir; a imagem na tela deixa de acompanhar os quadros). */
-const UNSYNCED = new Set(['--disable-gpu-vsync', '--disable-frame-rate-limit']);
+const UNSYNCED = new Set([
+    '--disable-gpu-vsync',
+    '--disable-frame-rate-limit',
+    '--disable-vulkan-surface',
+]);
 
 /**
  * Abre o Chrome instalado na máquina (Playwright não baixa navegadores). `extraArgs` acrescenta argumentos (ex.: os

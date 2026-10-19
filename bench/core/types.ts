@@ -218,6 +218,15 @@ export interface RunConfig {
     readonly dist: boolean;
 }
 
+/** Clock da GPU amostrado durante a execução (`nvidia-smi`; spec 034, R12). */
+export interface GpuClocks {
+    readonly samples: number;
+    readonly graphicsMHz: { readonly min: number; readonly median: number; readonly max: number };
+    readonly memoryMHz: number;
+    /** P-states vistos (P0 = desempenho máximo, P8 = ocioso). */
+    readonly pstates: readonly string[];
+}
+
 export interface RunFile {
     readonly schemaVersion: 1;
     readonly profile: EnvironmentProfile;
@@ -226,6 +235,8 @@ export interface RunFile {
     readonly startedAt: string;
     readonly durationMs: number;
     readonly results: readonly Result[];
+    /** Clock da GPU durante a execução, quando há `nvidia-smi`. */
+    readonly gpuClocks?: GpuClocks;
 }
 
 export interface BaselineFile {

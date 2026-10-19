@@ -265,7 +265,10 @@ caminho do raio.
 
 **Independent Test**: `npm run bench` em `instances/10k` passa de 60 FPS; `bench:check` verde.
 
-- [ ] T032 [US6] Testar a hipótese da emulação de viewport (`bench/runner/orchestrate.ts:63`) com `viewport: null` e
+- [x] T032 [US6] (A emulação de viewport não era: sem ela, ainda 60 FPS. Era a apresentação pela superfície Vulkan,
+      que ignora o `--disable-gpu-vsync`: com `--disable-vulkan-surface` no modo de medida (o WebGPU segue no Vulkan, a
+      janela por GL; o vídeo em tempo real mantém a vsync), `instances/10k` sai de 60 para 269–287 FPS, p99 7–8 ms. O
+      clock da GPU amostrado por `nvidia-smi` entra no resultado: 210–2520 MHz, mediana 2520 (P0 na medida).) Testar a hipótese da emulação de viewport (`bench/runner/orchestrate.ts:63`) com `viewport: null` e
       `--window-size`. Se não for ela, comparar as flags do Chrome (`bench/runner/browser.ts`) uma a uma, inclusive a
       vsync sob Vulkan/X11. Registrar o clock da GPU (`nvidia-smi`) no resultado do bench (R12).
 - [ ] T033 [US6] Gravar o baseline `nvidia-lovelace` (`bench:baseline`), conferir `bench:check` na mesma build e medir

@@ -23,6 +23,7 @@ import {
     type RunFile,
 } from '../core/types';
 import { EnvironmentError, launchBrowser, type LaunchedBrowser } from './browser';
+import { sampleGpuClocks } from './gpuClocks';
 import { orchestrate } from './orchestrate';
 import { startServer } from './server';
 
@@ -101,6 +102,7 @@ async function execute(config: RunConfig, strict: boolean): Promise<RunFile> {
             launched = await launchBrowser(config.headless);
             return launched.browser;
         };
+        const clocks = sampleGpuClocks();
         const { results, environment } = await orchestrate(
             launched.browser,
             server.url,
@@ -108,6 +110,7 @@ async function execute(config: RunConfig, strict: boolean): Promise<RunFile> {
             config,
             relaunch,
         );
+        const gpuClocks = clocks.stop();
         if (environment?.isFallbackAdapter === true) {
             const msg = `adaptador de software detectado (${environment.gpu.description || 'fallback'}) — números não representativos.`;
             if (strict) throw new EnvironmentError(msg);
@@ -126,6 +129,7 @@ async function execute(config: RunConfig, strict: boolean): Promise<RunFile> {
             startedAt,
             Date.now() - startedAt.getTime(),
             sortResults(results),
+            gpuClocks,
         );
         mkdirSync(RESULTS_DIR, { recursive: true });
         const stamp = startedAt.toISOString().replace(/[:.]/g, '-');

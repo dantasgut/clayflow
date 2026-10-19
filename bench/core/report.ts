@@ -1,4 +1,5 @@
 import type {
+    GpuClocks,
     EngineId,
     EnvironmentProfile,
     Metrics,
@@ -16,6 +17,7 @@ export function toRunFile(
     startedAt: Date,
     durationMs: number,
     results: readonly Result[],
+    gpuClocks?: GpuClocks,
 ): RunFile {
     return {
         schemaVersion: 1,
@@ -24,6 +26,7 @@ export function toRunFile(
         startedAt: startedAt.toISOString(),
         durationMs,
         results: [...results],
+        ...(gpuClocks === undefined ? {} : { gpuClocks }),
     };
 }
 
@@ -123,6 +126,11 @@ export function toMarkdown(run: RunFile): string {
         `- **GPU**: ${[p.gpu.vendor, p.gpu.device || p.gpu.architecture, p.gpu.description].filter(Boolean).join(' · ')}`,
         `- **Navegador**: ${p.browser.name} ${p.browser.version} · **SO**: ${p.os} · **Resolução**: ${p.resolution.width}×${p.resolution.height} (DPR ${p.devicePixelRatio})`,
         `- **Timestamps de GPU**: ${p.timestampQuery ? 'sim' : 'não'} · **Versões**: clayflow ${p.versions.clayflow}, three ${p.versions.three}, rapier ${p.versions.rapier}`,
+        ...(run.gpuClocks === undefined
+            ? []
+            : [
+                  `- **Clock da GPU**: ${run.gpuClocks.graphicsMHz.min}–${run.gpuClocks.graphicsMHz.max} MHz (mediana ${run.gpuClocks.graphicsMHz.median}; memória ${run.gpuClocks.memoryMHz} MHz; ${run.gpuClocks.pstates.join(', ')}; ${run.gpuClocks.samples} amostras)`,
+              ]),
         ...(p.device !== undefined
             ? [
                   `- **Device do clayflow**: potência ${p.device.powerPreference} · features ${p.device.features.length > 0 ? p.device.features.join(', ') : 'nenhuma'} · maxBufferSize ${p.device.limits.maxBufferSize ?? 'n/d'}, maxStorageBufferBindingSize ${p.device.limits.maxStorageBufferBindingSize ?? 'n/d'}, maxComputeWorkgroupsPerDimension ${p.device.limits.maxComputeWorkgroupsPerDimension ?? 'n/d'}`,
