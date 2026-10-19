@@ -22,7 +22,10 @@ export interface LightData {
     direction: number[];
     /** Cor RGBA linear. */
     color: number[];
-    /** Cones da spot em radianos (`[interno, externo, 0, 0]`); zeros nas outras. */
+    /**
+     * Cones da spot em radianos (`[interno, externo, 0, 0]`); na direcional, `z` é o diâmetro angular da fonte (rad,
+     * spec 034: a penumbra); zeros no resto.
+     */
     cones: number[];
 }
 

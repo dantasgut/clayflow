@@ -7,9 +7,12 @@
 //   - variação entre quadros: |L(t) − L(t+1)| médio relativo à média, 2 s depois da GI pronta, na média de 10 pares
 //     seguidos — ≤ 0,11 % (decisão do usuário, 2026-10-19: `medium` com 16 raios de tela e o guia, medido 0,104 %);
 //   - convergência: a média a 2 s contra a média a 10 s, parada — ≤ 2 %.
+// O caso `sun` mede a borda da mancha do sol a 20° no chão (spec 034, L6: o degrau e a penumbra), sem critério.
 // Para rodar: `npm run smoke -- giNoise [--query case=window]`. Resultado: `GINOISE SMOKE PASSED` ou `FAIL: …`.
 import { GlobalIllumination, type Application } from 'clayflow';
 import { settle } from './support/extensionScenes';
+import { writeFixture } from './support/fixtures';
+import { toPng } from './support/images';
 import { buildGiScene, giApp, sunFrom, windowRoom } from './support/giScenes';
 import { hdrLuminance, readHdrTexture, type HdrImage } from './support/imageMeasures';
 
@@ -37,11 +40,12 @@ interface Session {
     close(): void;
 }
 
-async function open(screenGather: boolean): Promise<Session> {
+async function open(screenGather: boolean, elevation = 50): Promise<Session> {
     const { app, canvas } = await giApp(SIZE.width, SIZE.height, engineErrors);
     app.events.on('deviceLost', (e) => engineErrors.push(`deviceLost: ${JSON.stringify(e)}`));
     const scene = windowRoom();
-    const sun = scene.sun === undefined ? undefined : { ...scene.sun, direction: sunFrom(50, 0) };
+    const sun =
+        scene.sun === undefined ? undefined : { ...scene.sun, direction: sunFrom(elevation, 0) };
     buildGiScene(
         app,
         { ...scene, ...(sun === undefined ? {} : { sun }) },
@@ -203,7 +207,71 @@ async function windowScene(): Promise<void> {
     check(conv <= 0.02, `window: em 2 s a ${(conv * 100).toFixed(2)} % do valor a 10 s (≤ 2 %)`);
 }
 
-const CASES: Record<string, () => Promise<void>> = { window: windowScene };
+/**
+ * A borda da mancha do sol a 20° no chão (spec 034, L6): o degrau (o resíduo da borda contra uma reta, em px) e a
+ * penumbra (10–90 %, em px) — medidas, sem critério. `?dump=1` grava a imagem (`debug-sun-<tag>.png` nas fixtures).
+ */
+async function sunScene(): Promise<void> {
+    const s = await open(true, 20);
+    await s.step(240);
+    const img = await s.read();
+    s.close();
+    const png = new ImageData(img.width, img.height);
+    for (let i = 0; i < img.width * img.height; i++)
+        for (let k = 0; k < 3; k++) {
+            const v = img.data[i * 4 + k]! / 400;
+            png.data[i * 4 + k] = Math.round(255 * Math.min(1, v / (1 + v)) ** (1 / 2.2));
+        }
+    for (let i = 0; i < img.width * img.height; i++) png.data[i * 4 + 3] = 255;
+    // A borda de cima da mancha (descendo para a direita entre x = 540 e 640): por coluna, a passagem pela metade entre o
+    // escuro (y = 520) e o claro (y = 650), em subpixel; a reta ajustada e o resíduo (o degrau), e a largura 10–90 %.
+    const lum = (x: number, y: number): number => hdrLuminance(img, x, y);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const widths: number[] = [];
+    for (let x = 540; x <= 640; x++) {
+        const dark = lum(x, 520);
+        const bright = lum(x, 650);
+        const at = (f: number): number | undefined => {
+            const t = dark + f * (bright - dark);
+            for (let y = 520; y < 650; y++) {
+                const a = lum(x, y);
+                const b = lum(x, y + 1);
+                if (a < t && b >= t) return y + (t - a) / (b - a);
+            }
+            return undefined;
+        };
+        const mid = at(0.5);
+        const lo = at(0.1);
+        const hi = at(0.9);
+        if (mid === undefined || lo === undefined || hi === undefined) continue;
+        xs.push(x);
+        ys.push(mid);
+        widths.push(hi - lo);
+    }
+    const n = xs.length;
+    const mx = xs.reduce((a, b) => a + b, 0) / n;
+    const my = ys.reduce((a, b) => a + b, 0) / n;
+    let sxy = 0;
+    let sxx = 0;
+    for (let k = 0; k < n; k++) {
+        sxy += (xs[k]! - mx) * (ys[k]! - my);
+        sxx += (xs[k]! - mx) ** 2;
+    }
+    const slope = sxy / sxx;
+    const rms = Math.sqrt(
+        xs.reduce((a, x, k) => a + (ys[k]! - (my + slope * (x - mx))) ** 2, 0) / n,
+    );
+    const width = [...widths].sort((a, b) => a - b)[widths.length >> 1]!;
+    log(
+        `sun: borda em ${n} colunas — degrau (resíduo RMS da reta) ${rms.toFixed(3)} px, penumbra 10–90 % ${width.toFixed(2)} px`,
+    );
+    const q = new URLSearchParams(location.search);
+    if (q.get('dump') === '1')
+        await writeFixture(`debug-sun-${q.get('tag') ?? 'x'}.png`, await toPng(png));
+}
+
+const CASES: Record<string, () => Promise<void>> = { window: windowScene, sun: sunScene };
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');

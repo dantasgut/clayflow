@@ -121,6 +121,11 @@ export class SurfaceGeometry extends Geometry<SurfaceGeometryData> {
         return undefined;
     }
 
+    /** O corpo mole deforma os vértices na GPU: a caixa inicial não vale. */
+    protected override get gpuVertices(): boolean {
+        return true;
+    }
+
     /** Vértices (estado inicial; depois escritos pela GPU), triângulos e adjacência. */
     getDescriptors(): readonly GPUDescriptor[] {
         return [

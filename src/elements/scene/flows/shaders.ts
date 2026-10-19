@@ -7,6 +7,7 @@ import {
     cameraMatricesWriteResource,
     cameraParamsResource,
     lightsResource,
+    shadowMapsResource,
     shadowMatricesWriteResource,
     transformsResource,
     worldsResource,
@@ -22,6 +23,7 @@ import cameraPointTypesSource from '../../gpu/wgsl/kernels/camera_point_types.wg
 import cameraFnReadySource from '../../gpu/wgsl/kernels/camera_fn_ready.wgsl?raw';
 import cameraComposeFnSource from '../../gpu/wgsl/kernels/camera_compose_fn.wgsl?raw';
 import shadowMatrixSource from '../../gpu/wgsl/kernels/shadow_matrix.wgsl?raw';
+import shadowBoundsSource from '../../gpu/wgsl/kernels/shadow_bounds.wgsl?raw';
 import { Camera } from '../Camera';
 import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
@@ -33,6 +35,8 @@ import {
     CameraRecordSchema,
 } from './CameraSchemas';
 import {
+    ShadowBoundsGroupSchema,
+    ShadowBoundsInstanceSchema,
     ShadowMatrixInstanceSchema,
     ShadowMatrixParamsSchema,
     ShadowRecordSchema,
@@ -115,6 +119,23 @@ export const shadowMatrixResources = Object.freeze({
     params: stageUniform('shadow_params', { schema: ShadowMatrixParamsSchema }),
     records: poolRead('shadow_records', { schema: ShadowRecordSchema, array: true }),
     list: poolRead('shadow_list', { schema: ShadowMatrixInstanceSchema, array: true }),
+    // A caixa da cena (spec 034): a lista das geometrias por grupo, a tabela dos grupos (caixa de objeto e segmento,
+    // escrita pela CPU) e a caixa reduzida (privadas do estágio).
+    boundsList: poolRead('shadow_bounds_list', { schema: ShadowBoundsInstanceSchema, array: true }),
+    boundsGroups: wgslResource({
+        name: 'shadow_bounds_groups',
+        binding: { storage: 'read' },
+        type: { schema: ShadowBoundsGroupSchema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    sceneBounds: wgslResource({
+        name: 'shadow_scene_bounds',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
 });
 
 /** Matriz local `M = T · R · S` e matriz de normais de um `Transform` (raízes e níveis da hierarquia). */
@@ -301,12 +322,35 @@ export const shadowMatrix = wgslModule({
         shadowMatrixResources.records,
         shadowMatrixResources.list,
         shadowMatrixResources.params,
+        shadowMatrixResources.sceneBounds,
+        shadowMapsResource,
     ],
     structs: [
         Light.schema,
+        ShadowMap.schema,
         ShadowMap.matrixSchema,
         ShadowRecordSchema,
         ShadowMatrixInstanceSchema,
+        ShadowMatrixParamsSchema,
+    ],
+});
+
+/** Caixa de mundo da cena (as geometrias), para a caixa da luz da sombra (spec 034). */
+export const shadowBounds = wgslModule({
+    name: 'shadow_bounds',
+    source: shadowBoundsSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        worldsResource,
+        shadowMatrixResources.boundsList,
+        shadowMatrixResources.boundsGroups,
+        shadowMatrixResources.params,
+        shadowMatrixResources.sceneBounds,
+    ],
+    structs: [
+        Transform.worldSchema,
+        ShadowBoundsInstanceSchema,
+        ShadowBoundsGroupSchema,
         ShadowMatrixParamsSchema,
     ],
 });

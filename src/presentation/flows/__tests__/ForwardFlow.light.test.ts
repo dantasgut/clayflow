@@ -44,7 +44,7 @@ describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
             `if (light != ${rs.poolSlotOf('Light', s.lightId)}u) { return 1.0; }`,
         );
         expect(src).toContain(`let sm = shadow_maps[${rs.poolSlotOf('ShadowMap', s.lightId)}u];`);
-        expect(src).toContain('sample_shadow_pcf(shadow_map, shadow_sampler');
+        expect(src).toContain('sample_shadow_pcss(\n        shadow_map, shadow_sampler');
         expect(src).not.toContain('scene_light_direction');
     });
 

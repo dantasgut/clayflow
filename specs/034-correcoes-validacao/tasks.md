@@ -122,9 +122,18 @@ Regras de todas as tarefas:
       raios a cada quadro desenhado: cada rodada media noutra fase) — aquecimento em quadros; medido assim, o `living`
       ficava em 94,4–95,3 % (≤ 95 % falhava de fato), e a memória de deriva da resposta passou de 32 a 16 quadros
       (95,0–95,4 %; cintilação 0,103–0,106 %). A regra pelo guia das sondas do mundo foi tentada e descartada (0,16 %).
-- [ ] T018 [P] [US1] Sombra direcional sem degrau (L6): filtragem PCF/Poisson e ajuste da resolução à cena em
-      `ShadowFlow.ts`. Medida de degrau na borda da mancha de sol no `giNoise`.
-- [ ] T019 [P] [US1] Névoa sem blocos (L7): jitter dos froxels por quadro e reprojeção temporal em
+- [x] T018 [P] [US1] Sombra direcional sem degrau (L6): filtragem PCF/Poisson e ajuste da resolução à cena em
+      `ShadowFlow.ts`. Medida de degrau na borda da mancha de sol no `giNoise`. Feito: (1) a caixa da luz ajustada à cena
+      na GPU (`ShadowMatrixFlow` + `shadow_bounds.wgsl`: a caixa de objeto de cada grupo de geometria, `Geometry.bounds`,
+      pela matriz de mundo, reduzida por atômicos; quadrada, presa aos texels; caixa desconhecida — vértices da GPU — volta
+      aos ±10 m); (2) PCSS (`sample_shadow_pcss`): a penumbra pela distância de quem faz sombra vezes o diâmetro angular da
+      fonte (`DirectionalLight.angularDiameter`, padrão o do sol, 0,53°), filtrada por 32 comparações bilineares numa
+      espiral de Vogel (raio ≤ 6 texels). Caso `sun` do `giNoise` (sol a 20°): degrau 0,019 → 0,018 px, penumbra 16,5
+      (borrão do PCF largo) → 13,6 px (só a caixa: 3,9 px, nítida e serrilhada na tela). Custo: o quadro de 64k 15,5 → 13,75
+      ms, a GI 2,77 → 2,55 ms. Fixtures que mudam com a sombra: `parametricSurfaces/lake` (imagem) e `softSurface/
+  xpbd-cloth` (fase 9). O degrau do vídeo `fog` (sol de 20° a 50°, azimute ±35°) se confere na T020.
+- [ ] T019 [P] [US1] (Achado: o jitter por quadro, o histórico reprojetado e a leitura tricúbica já existem desde a
+      033 — a causa dos blocos do L7 se diagnostica no vídeo `fog`, T020.) Névoa sem blocos (L7): jitter dos froxels por quadro e reprojeção temporal em
       `src/elements/gpu/wgsl/media/media_froxel_*`; medir no smoke `fog` (Beer–Lambert e feixe sem regressão) e no vídeo `fog`.
 - [ ] T020 [US1] Gravar `day` e `fog` (`npm run video -- day,fog`) e conferir manchas, entalhes da janela, borda da
       sombra e névoa.

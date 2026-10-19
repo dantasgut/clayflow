@@ -37,6 +37,40 @@ export abstract class Geometry<TData extends GeometryData = GeometryData>
 
     abstract getDescriptors(): readonly GPUDescriptor[];
 
+    /** Caixa de objeto calculada (cache; `null` = desconhecida). */
+    private objectBounds:
+        | { readonly min: readonly number[]; readonly max: readonly number[] }
+        | null
+        | undefined;
+
+    /**
+     * Caixa em espaço de objeto (spec 034: a caixa da luz da sombra se ajusta à cena), dos vértices em `data` (posição
+     * nos 3 primeiros de cada 8 floats), calculada uma vez; `undefined` quando a CPU não a conhece — vértices escritos
+     * ou deformados na GPU.
+     */
+    get bounds(): { readonly min: readonly number[]; readonly max: readonly number[] } | undefined {
+        if (this.objectBounds === undefined) {
+            const v = this.data.vertices;
+            if (v === undefined || v.length < 8 || this.gpuVertices) this.objectBounds = null;
+            else {
+                const min = [Infinity, Infinity, Infinity];
+                const max = [-Infinity, -Infinity, -Infinity];
+                for (let i = 0; i + 2 < v.length; i += 8)
+                    for (let k = 0; k < 3; k++) {
+                        min[k] = Math.min(min[k]!, v[i + k]!);
+                        max[k] = Math.max(max[k]!, v[i + k]!);
+                    }
+                this.objectBounds = { min, max };
+            }
+        }
+        return this.objectBounds ?? undefined;
+    }
+
+    /** Os vértices em `data` são só o estado inicial (a GPU os deforma): a caixa deles não vale. */
+    protected get gpuVertices(): boolean {
+        return false;
+    }
+
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];
     }
