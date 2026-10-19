@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="utf-8" />
+        <title>clayflow demo</title>
+        <link rel="icon" href="data:," />
+        <style>
+            body {
+                margin: 0;
+                background: #000;
+                overflow: hidden;
+                font-family: monospace;
+                color: #e0e0e0;
+            }
+            canvas {
+                position: fixed;
+                left: 0;
+                top: 0;
+                display: block;
+            }
+            #marker {
+                position: fixed;
+                left: 0;
+                top: 0;
+                z-index: 10;
+                background: #f0f;
+                display: none;
+            }
+            #log {
+                position: fixed;
+                left: 0;
+                top: 740px;
+                white-space: pre-wrap;
+                font-size: 12px;
+                padding: 0 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="marker"></div>
+        <pre id="log"></pre>
+        <script type="module" src="/page/demo.ts"></script>
+    </body>
+</html>

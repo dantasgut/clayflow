@@ -1,0 +1,97 @@
+{
+  "profile": "nvidia-lovelace",
+  "steps": 240,
+  "scenes": [
+    {
+      "name": "lcp",
+      "pool": "LCPSchema",
+      "count": 49,
+      "stride": 160,
+      "offset": 0,
+      "fields": {
+        "pos": 0,
+        "rot": 48
+      },
+      "runToRun": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "xpbd",
+      "pool": "XPBDSoftSchema",
+      "count": 32,
+      "stride": 48,
+      "offset": 7840,
+      "fields": {
+        "pos": 0,
+        "vel": 32
+      },
+      "runToRun": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "fem",
+      "pool": "FEMSchema",
+      "count": 64,
+      "stride": 48,
+      "offset": 9376,
+      "fields": {
+        "pos": 0,
+        "vel": 32
+      },
+      "runToRun": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "mpm-soft",
+      "pool": "MPMSoftSchema",
+      "count": 512,
+      "stride": 128,
+      "offset": 12448,
+      "fields": {
+        "pos": 0,
+        "vel": 16
+      },
+      "runToRun": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "mpm-fluid",
+      "pool": "MPMFluidSchema",
+      "count": 1000,
+      "stride": 128,
+      "offset": 77984,
+      "fields": {
+        "pos": 0,
+        "vel": 16
+      },
+      "runToRun": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "sph",
+      "pool": "SPHSchema",
+      "count": 1000,
+      "stride": 64,
+      "offset": 205984,
+      "fields": {
+        "pos": 0,
+        "vel": 16
+      },
+      "runToRun": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "pbf",
+      "pool": "PBFSchema",
+      "count": 1000,
+      "stride": 64,
+      "offset": 269984,
+      "fields": {
+        "pos": 0,
+        "vel": 16
+      },
+      "runToRun": 0,
+      "tolerance": 0
+    }
+  ]
+}

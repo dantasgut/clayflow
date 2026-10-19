@@ -17,6 +17,8 @@ export const CHROME_ARGS = [
     '--disable-background-timer-throttling',
     '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows',
+    // No Linux o Chrome cai no SwiftShader (WebGPU por software) sem Vulkan e com a GPU na lista de bloqueio.
+    ...(process.platform === 'linux' ? ['--enable-features=Vulkan', '--ignore-gpu-blocklist'] : []),
 ] as const;
 
 /**
@@ -43,20 +45,26 @@ export interface LaunchedBrowser {
     shutdown(ms?: number): Promise<void>;
 }
 
+/** Flags que tiram a sincronia com a tela (só para medir; a imagem na tela deixa de acompanhar os quadros). */
+const UNSYNCED = new Set(['--disable-gpu-vsync', '--disable-frame-rate-limit']);
+
 /**
  * Abre o Chrome instalado na máquina (Playwright não baixa navegadores). `extraArgs` acrescenta argumentos (ex.: os
- * smokes expõem `gc()` para medir memória retida).
+ * smokes expõem `gc()` para medir memória retida). `vsync` mantém a sincronia com a tela, como num navegador comum:
+ * sem ela o motor roda acima da taxa da tela e o compositor atualiza a janela só de vez em quando (a captura de tela
+ * dos vídeos via ~12 imagens novas por segundo).
  */
 export async function launchBrowser(
     headless: boolean,
     extraArgs: readonly string[] = [],
+    vsync = false,
 ): Promise<LaunchedBrowser> {
     let server: Awaited<ReturnType<typeof chromium.launchServer>>;
     try {
         server = await chromium.launchServer({
             channel: 'chrome',
             headless,
-            args: [...CHROME_ARGS, ...extraArgs],
+            args: [...CHROME_ARGS.filter((a) => !vsync || !UNSYNCED.has(a)), ...extraArgs],
         });
     } catch (e) {
         const message = e instanceof Error ? e.message : String(e);

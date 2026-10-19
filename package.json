@@ -45,6 +45,7 @@
     "bench:check": "tsx bench/runner/cli.ts check",
     "bench:baseline": "tsx bench/runner/cli.ts baseline",
     "smoke": "tsx bench/runner/smoke.ts",
+    "video": "tsx bench/runner/video.ts",
     "typecheck:bench": "tsc -p bench/tsconfig.json --noEmit"
   },
   "devDependencies": {

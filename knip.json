@@ -9,7 +9,9 @@
     "eslint.config.js",
     "bench/runner/cli.ts",
     "bench/runner/smoke.ts",
+    "bench/runner/video.ts",
     "bench/page/smoke.ts",
+    "bench/page/demo.ts",
     "bench/page/main.ts",
     "bench/vite.config.ts",
     "bench/**/__tests__/**/*.ts"

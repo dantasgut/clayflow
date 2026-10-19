@@ -1,0 +1,50 @@
+{
+  "profile": "nvidia-lovelace",
+  "cases": {
+    "drop": {
+      "SPH-water": "612bc9a9",
+      "SPH-zero": "7768c206",
+      "PBF-water": "125f4f79",
+      "PBF-zero": "7b8d91ba"
+    },
+    "filament": {
+      "water": "2f9449a9",
+      "zero": "60f99a70"
+    },
+    "dam": {
+      "water": "1c20601d",
+      "zero": "757a61e5"
+    },
+    "meniscus": {
+      "water": "eb4180b2",
+      "zero": "bf73d492"
+    },
+    "slope": {
+      "water": "cd37d94d",
+      "zero": "7c174731"
+    },
+    "puddle": {
+      "adesão 0": "de681190",
+      "adesão 0.5": "1710317c",
+      "adesão 1": "56db322b"
+    },
+    "material": {
+      "mpm-baixa": "57b68789",
+      "mpm-alta": "bdefa3de",
+      "xsph-0": "3fb2e9f8",
+      "xsph-0.3": "cd90bf4b"
+    },
+    "live": {
+      "sempre-zero": "675f7975",
+      "ligada-em-N": "72afca8d"
+    },
+    "rates": {
+      "SPH@60Hz": "685aa138",
+      "SPH@30Hz": "685aa138",
+      "SPH@144Hz": "685aa138",
+      "PBF@60Hz": "31a03357",
+      "PBF@30Hz": "31a03357",
+      "PBF@144Hz": "31a03357"
+    }
+  }
+}
