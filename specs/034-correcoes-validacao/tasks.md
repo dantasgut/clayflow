@@ -271,7 +271,11 @@ caminho do raio.
       clock da GPU amostrado por `nvidia-smi` entra no resultado: 210–2520 MHz, mediana 2520 (P0 na medida).) Testar a hipótese da emulação de viewport (`bench/runner/orchestrate.ts:63`) com `viewport: null` e
       `--window-size`. Se não for ela, comparar as flags do Chrome (`bench/runner/browser.ts`) uma a uma, inclusive a
       vsync sob Vulkan/X11. Registrar o clock da GPU (`nvidia-smi`) no resultado do bench (R12).
-- [ ] T033 [US6] Gravar o baseline `nvidia-lovelace` (`bench:baseline`), conferir `bench:check` na mesma build e medir
+- [x] T033 [US6] (Gravado no commit 702ae00a: `bench/baselines/nvidia-lovelace-chrome153-linux-1280x720-e2sbno.json`, 23
+      resultados, 28,8 min. G3: `rigid-bodies/10k` p99 10,1 / 9,9 ms; H3: `particles/64k-water` p95 18,4 / 18,4 ms. O
+      `bench:check` na mesma build reprovou só `instances/1m` p99, 13,0 → 17,95 ms: o p99 de ~1000 quadros é a média
+      dos 10 piores e um pico isolado o move 38 % — o resto repete a poucos %. Achado para a US3: um piso de ~5 ms por
+      quadro com CPU e GPU de 0,13 ms (`instances/10k` a 192 FPS).) Gravar o baseline `nvidia-lovelace` (`bench:baseline`), conferir `bench:check` na mesma build e medir
       G3 (`rigid-bodies/10k` p99) e H3 (`particles/64k-water` p95).
 
 ---
