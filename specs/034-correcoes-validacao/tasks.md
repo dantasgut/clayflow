@@ -164,7 +164,11 @@ xpbd-cloth` (fase 9). O degrau do vídeo `fog` (sol de 20° a 50°, azimute ±35
     a célula mais próxima no eixo da normal;
   - `gi_caustic_irradiance` (`gi_photon.wgsl:65-76`) com a mesma base;
   - a área do `gi_photon_resolve.wgsl:19-24`.
-- [ ] T023 [US2] Rodar `causticFlux` (SC-003 ≤ 5 %), `globalIllumination` (cáusticas) e a demo `caustics`.
+- [x] T023 [US2] (O `causticFlux` falhava desde o `cc2e2adb` — 0,92× nos três receptores, conferido por bisseção:
+      a câmera vê o receptor sob a placa através dela, e com a refração traçada a vista também paga o Fresnel das duas
+      faces, (1 − R)² ≈ 0,92; o esperado passou a T · T_vista, limite igual: 101,9 %, 101,9 %, 100,6 %. Demo `caustics`
+      gravada nos dois modos: foco coerente; a metade de baixo da esfera tem grão com a câmera andando — a média temporal
+      da refração recomeça a cada quadro.) Rodar `causticFlux` (SC-003 ≤ 5 %), `globalIllumination` (cáusticas) e a demo `caustics`.
 
 **Checkpoint**: US2 entregue.
 

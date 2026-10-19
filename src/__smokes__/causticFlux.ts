@@ -2,9 +2,10 @@
 //
 // Uma placa de vidro (IOR 1,5, lisa, sem absorção) paralela ao receptor, sob o sol: a luz que chega ao receptor embaixo
 // dela é toda transmitida pelas duas faces — a fração de Fresnel T = (1 − R(θ))² (θ o ângulo de incidência; a reflexão
-// múltipla entre as faces soma < 0,2 %). A radiância do receptor sob a placa contra a dele ao lado, descoberto, é T a
-// ≤ 5 %, em três receptores: o chão em y = 0 (múltiplo inteiro da célula das cáusticas), o chão a 1/4 de célula acima
-// e uma rampa a 30°.
+// múltipla entre as faces soma < 0,2 %). A câmera vê o receptor sob a placa através dela (spec 034: com a refração
+// traçada, a vista também passa pelas duas faces): a radiância dele contra a do receptor ao lado, descoberto, é
+// T · T_vista a ≤ 5 %, T_vista = (1 − R(θ_vista))² no ângulo do raio da câmera com a placa — em três receptores: o chão
+// em y = 0 (múltiplo inteiro da célula das cáusticas), o chão a 1/4 de célula acima e uma rampa a 30°.
 // Para rodar: `npm run smoke -- causticFlux [--query case=floor]`. Resultado: `CAUSTICFLUX SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
@@ -146,13 +147,19 @@ async function receiver(label: string, lift: number, angle: number): Promise<voi
     const open = windowMean(img, scene, onReceiver(0.45, 0, angle, lift), 4);
     const c = Math.cos(angle);
     const t = (1 - fresnel(IOR, c)) ** 2;
+    // O raio da câmera até o ponto sob a placa atravessa as duas faces dela (normal da placa girada com o receptor).
+    const p = onReceiver(-0.35, 0, angle, lift);
+    const v = scene.camera.position.map((x, k) => x - p[k]!);
+    const cv = Math.abs(v[1]! * c + v[2]! * Math.sin(angle)) / Math.hypot(...v);
+    const tv = (1 - fresnel(IOR, cv)) ** 2;
+    const expected = t * tv;
     const ratio = under / open;
     log(
-        `${label}: sob a placa ${ratio.toFixed(3)} do chão descoberto (T = ${t.toFixed(3)}; ${((ratio / t) * 100).toFixed(1)} %)`,
+        `${label}: sob a placa ${ratio.toFixed(3)} do chão descoberto (T = ${t.toFixed(3)}, T_vista = ${tv.toFixed(3)}; ${((ratio / expected) * 100).toFixed(1)} %)`,
     );
     check(
-        Math.abs(ratio / t - 1) <= 0.05,
-        `${label}: sob a placa ${(ratio / t).toFixed(3)}× a transmitância de Fresnel (±5 %)`,
+        Math.abs(ratio / expected - 1) <= 0.05,
+        `${label}: sob a placa ${(ratio / expected).toFixed(3)}× a transmitância de Fresnel (±5 %)`,
     );
 }
 
