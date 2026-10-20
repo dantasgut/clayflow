@@ -19,8 +19,8 @@ import { startServer } from './server';
  *   - `<cena>-10bit.mp4` com `--10bit` — HEVC Main10 (`hvc1`, CRF 8), a partir do canvas em `rgba16float` (sem quantizar em
  *     8 bits antes do codificador; SDR BT.709, não é HDR10/PQ);
  *   - `<cena>-lossless.mkv` com `--lossless` — FFV1, os quadros exatos.
- * O vídeo é conferido contra os quadros exatos (FFV1 sempre gravado; apagado sem `--lossless`): o PSNR de cada quadro
- * decodificado, em RGB na profundidade do vídeo e pela ordem dos quadros, tem de ficar ≥ 45 dB (SC-010). Cada processo tem prazo; navegador e ffmpeg são encerrados em
+ * O vídeo é conferido contra os quadros exatos (FFV1 sempre gravado; apagado sem `--lossless`), quadro a quadro: brilho
+ * ≥ 50 dB e RGB ≥ 45 dB contra o exato já em 4:2:0 (SC-010; a subamostragem de cor do formato não conta). Cada processo tem prazo; navegador e ffmpeg são encerrados em
  * qualquer saída. Saída 0 se todas gravaram e passaram, 1 se alguma falhou, 3 em erro de ambiente.
  */
 
@@ -37,8 +37,10 @@ interface VideoArgs {
 
 const PORT = 5184;
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '../results/videos');
-/** PSNR mínimo de cada quadro decodificado contra o exato (SC-010). */
-const MIN_PSNR = 45;
+/** PSNR mínimo do brilho de cada quadro decodificado contra o exato (SC-010). */
+const MIN_LUMA = 50;
+/** PSNR mínimo em RGB contra o quadro exato em 4:2:0 (a perda do codificador). */
+const MIN_RGB = 45;
 /** Prazo do ffmpeg para fechar o arquivo depois do último quadro. */
 const FFMPEG_CLOSE_MS = 120_000;
 
@@ -155,33 +157,59 @@ function halfToU16(src: Buffer): Buffer {
 }
 
 /** PSNR mínimo (em RGB) dos quadros do vídeo contra os exatos. */
-function minPsnr(video: string, exact: string, deep: boolean): number {
-    // Na profundidade do vídeo: reduzir 16 bits a 8 aplica dither do ffmpeg em cada lado e mede ruído que não existe.
-    const rgb = deep ? 'rgb48le' : 'rgb24';
+/** Fidelidade do vídeo contra os quadros exatos (mínimos por quadro, em dB). */
+interface Fidelity {
+    /** Brilho (luma Y) do vídeo contra o exato convertido para o mesmo YUV. */
+    readonly luma: number;
+    /** RGB do vídeo contra o exato convertido para 4:2:0 e de volta (a perda do codificador, sem a do formato). */
+    readonly rgb: number;
+}
+
+/** Roda um grafo de comparação do ffmpeg e devolve o mínimo por quadro do campo pedido. */
+function psnrMin(
+    video: string,
+    exact: string,
+    graph: string,
+    field: 'psnr_y' | 'psnr_avg',
+): number {
     const r = spawnSync(
         'ffmpeg',
-        [
-            '-loglevel',
-            'error',
-            '-i',
-            video,
-            '-i',
-            exact,
-            '-lavfi',
-            // Pela ordem dos quadros (o .mkv guarda o tempo em ms e desalinha a 60 FPS) e decodificado como BT.709.
-            `[0:v]setpts=N/(60*TB),scale=in_color_matrix=bt709:in_range=tv,format=${rgb}[a];[1:v]setpts=N/(60*TB),format=${rgb}[b];[a][b]psnr=stats_file=-`,
-            '-f',
-            'null',
-            '-',
-        ],
+        ['-loglevel', 'error', '-i', video, '-i', exact, '-lavfi', graph, '-f', 'null', '-'],
         { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: FFMPEG_CLOSE_MS },
     );
     if (r.status !== 0) throw new Error(`psnr falhou: ${r.stderr}`);
-    const values = [...r.stdout.matchAll(/psnr_avg:(\S+)/g)].map((m) =>
+    const values = [...r.stdout.matchAll(new RegExp(`${field}:(\\S+)`, 'g'))].map((m) =>
         m[1] === 'inf' ? Infinity : Number(m[1]),
     );
     if (values.length === 0) throw new Error('psnr: nenhum quadro comparado');
     return Math.min(...values);
+}
+
+/**
+ * Fidelidade (SC-010, decisão do usuário em 2026-10-20): o brilho do vídeo contra o do exato (≥ 50 dB) e o RGB contra
+ * o exato já em 4:2:0 (≥ 45 dB) — a subamostragem de cor do formato que abre no celular não conta contra o vídeo.
+ * Pela ordem dos quadros (o .mkv guarda o tempo em ms e desalinha a 60 FPS), BT.709 em faixa limitada, na
+ * profundidade do vídeo (reduzir 16 bits a 8 aplica dither em cada lado e mediria ruído que não existe).
+ */
+function fidelity(video: string, exact: string, deep: boolean): Fidelity {
+    const yuv = deep ? 'yuv420p10le' : 'yuv420p';
+    const rgb = deep ? 'rgb48le' : 'rgb24';
+    const order = 'setpts=N/(60*TB)';
+    const toYuv = `scale=out_color_matrix=bt709:out_range=tv,format=${yuv}`;
+    const toRgb = `scale=in_color_matrix=bt709:in_range=tv,format=${rgb}`;
+    const luma = psnrMin(
+        video,
+        exact,
+        `[0:v]${order},format=${yuv}[a];[1:v]${order},${toYuv}[b];[a][b]psnr=stats_file=-`,
+        'psnr_y',
+    );
+    const color = psnrMin(
+        video,
+        exact,
+        `[0:v]${order},${toRgb}[a];[1:v]${order},${toYuv},${toRgb}[b];[a][b]psnr=stats_file=-`,
+        'psnr_avg',
+    );
+    return { luma, rgb: color };
 }
 
 async function record(
@@ -192,7 +220,7 @@ async function record(
         onStart?: (w: number, h: number, f: string) => Promise<void>;
         onFrame?: (i: number, b64: string) => Promise<void>;
     },
-): Promise<{ frames: number; psnr: number; files: string[] }> {
+): Promise<{ frames: number; fidelity: Fidelity; files: string[] }> {
     const files: string[] = [];
     const encoders: Encoder[] = [];
     let half = false;
@@ -291,12 +319,12 @@ async function record(
     }
     const [video] = files;
     if (video === undefined) throw new Error('nenhum quadro recebido');
-    const psnr = minPsnr(video, exact, args.tenBit);
+    const result = fidelity(video, exact, args.tenBit);
     if (!args.lossless) {
         await rm(exact, { force: true });
         files.pop();
     }
-    return { frames, psnr, files };
+    return { frames, fidelity: result, files };
 }
 
 async function main(): Promise<number> {
@@ -341,9 +369,9 @@ async function main(): Promise<number> {
             console.log(`▶ ${scene}`);
             try {
                 const r = await record(args, scene, page, state);
-                const ok = r.psnr >= MIN_PSNR;
+                const ok = r.fidelity.luma >= MIN_LUMA && r.fidelity.rgb >= MIN_RGB;
                 console.log(
-                    `${ok ? '✔' : '✘'} ${scene}: ${r.frames} quadros, PSNR mínimo ${r.psnr.toFixed(2)} dB (≥ ${MIN_PSNR}) → ${r.files.join(', ')}`,
+                    `${ok ? '✔' : '✘'} ${scene}: ${r.frames} quadros, brilho ${r.fidelity.luma.toFixed(2)} dB (≥ ${MIN_LUMA}), RGB contra o exato em 4:2:0 ${r.fidelity.rgb.toFixed(2)} dB (≥ ${MIN_RGB}) → ${r.files.join(', ')}`,
                 );
                 if (!ok) failed.push(scene);
             } catch (e) {

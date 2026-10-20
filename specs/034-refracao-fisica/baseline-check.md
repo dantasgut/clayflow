@@ -62,3 +62,10 @@ O custo da água pelo campo é desempenho do motor (registrado na 034 com H3, T0
 
 A captura do quadro no Xcode (árvore fase → Flow → passe) é manual: fica para o usuário conferir com a ferramenta de
 captura do Metal; os grupos de depuração estão em toda gravação.
+
+## Vídeos do estado de partida (T023)
+
+Gravados pela ferramenta nova (`npm run video`, H.264 CRF 8, direto da GPU), 1280 × 720, enviados ao usuário: lente,
+dispersao, agua, causticas, cornell, dia, nevoa, pano. Fidelidade (SC-010) nas cenas mais difíceis: Cornell brilho
+52,79 dB e RGB contra o exato em 4:2:0 49,50 dB; água 53,04 / 48,69 dB; dispersão 61,05 / 56,97 dB; lente em 10 bits
+60,58 / 57,95 dB. Falha forçada (cena inexistente): mensagem nomeando a cena e 0 processos órfãos.

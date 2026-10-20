@@ -398,8 +398,10 @@ com estado e destino; smokes e bench das pendências fechadas.
 - **SC-009a**: Toda gravação de quadro sai com um grupo de depuração por fase e por Flow (0 passes sem etiqueta); a
   soma dos tempos por Flow fica a ≤ 2 % do tempo do quadro no M4; o custo das marcações com o profiling desligado é
   0 passes e 0 consultas extras.
-- **SC-010**: Vídeo: cada quadro decodificado ≥ 45 dB de PSNR contra o quadro lido da GPU; 0 processos órfãos após
-  gravação ou falha.
+- **SC-010**: Vídeo: em cada quadro decodificado, brilho (luma) ≥ 50 dB de PSNR contra o quadro lido da GPU e RGB ≥ 45
+  dB contra o mesmo quadro já convertido para 4:2:0 (a subamostragem de cor do formato que abre no celular não conta
+  contra o vídeo — decisão do usuário, 2026-10-20: só a conversão 4:2:0 dá 45,25 dB na Cornell); 0 processos órfãos
+  após gravação ou falha.
 - **SC-011**: Orçamento no M4 a 1280×720: antisserrilhado ≤ 1,5 ms (9 % do quadro de 60 Hz); refração na cena da lente
   ≤ 3 ms (18 %); GI com as correções ≤ orçamento da 033 + 10 %.
 - **SC-012**: Bench do Mac sem regressão > 10 % de GPU em nenhuma cena contra o baseline; `instances/100k`,
