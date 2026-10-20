@@ -5,7 +5,7 @@
 //
 // Cenas: lente (esfera de vidro sobre um xadrez emissor, a bola laranja passando atrás), dispersao (esfera de Abbe 20,
 // câmera orbitando), agua (barragem no tanque, câmera parada), causticas (água agitada vista de cima, fundo de areia), cornell (caixa de
-// Cornell com a luz global), dia (cômodo com janela, o sol andando), nevoa (o mesmo cômodo de paredes pretas com névoa,
+// Cornell com a luz global), dia (cômodo com janela, o sol andando), nevoa (o mesmo cômodo com névoa e a luz global,
 // o feixe do sol), pano (tecido XPBD caindo sob o sol, com a sombra). A refração dos vidros é a do motor no momento da
 // gravação — o título não promete mais do que isso.
 import * as clayflow from 'clayflow';
@@ -236,9 +236,17 @@ const SHOTS: Record<string, Shot> = {
     nevoa: {
         frames: 480,
         build(app) {
-            const room = windowRoom();
-            const scene: GiScene = { ...room, sky: false };
+            // O cômodo com janela inteiro (paredes claras, céu físico e a luz global): o feixe do sol na névoa e a sala
+            // iluminada pelo rebatimento.
+            const scene = windowRoom();
             const built = buildGiScene(app, scene, W / H);
+            app.world.insert(
+                new GlobalIllumination({
+                    quality: 'medium',
+                    probeSpacing: scene.probeSpacing ?? 0.3,
+                    center: scene.probeCenter,
+                }),
+            );
             app.world.insert(
                 new FogVolume({
                     shape: { box: [4, 2.5, 4] },

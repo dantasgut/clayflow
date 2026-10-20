@@ -121,6 +121,8 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 
 - [ ] T060 [US7] Caixa da sombra ajustada ao frustum ∩ cena, estabilizada em texels, 2048² (`shadow_matrix.wgsl`, `ShadowMap.ts`, `ShadowMatrixFlow`)
 - [ ] T061 [US7] PCSS com o tamanho angular do sol e bias do plano receptor (`brdf.wgsl`, `shadowContribution.ts`); borda da mancha de sol sem degrau (US3 cenário 4)
+- [ ] T061a [US7] Sombra de superfícies finas de dois lados (tecido, folhas, paredes de espessura zero): o passe da sombra hoje descarta as faces de trás (`ShadowFlow.ts:106`, `cullMode: 'back'`) e o pano perde a sombra quando vira a face de trás para o sol (vídeo `pano` do estado de partida, apontado pelo usuário); a sombra MUST sair dos dois lados para geometria de dois lados, com o bias certo para cada face
+- [ ] T061b [US7] Pano XPBD preso por dois cantos gira por cima dos pinos no vídeo `pano` (ganho de energia aparente): medir a energia mecânica do pano ao longo de 5 s contra a referência e corrigir no solver se crescer (relacionado ao `softSurface` vermelho desde a 011)
 - [ ] T062 [US7] Fixtures do `render`, `softSurface` e demais afetadas regravadas no perfil `apple-metal-3` com a montagem antes/depois; pedido de regravação no `nvidia-lovelace` registrado para a outra máquina
 - [ ] T063 [US7] `scene/graph` na lista de contratos da C2 (`eslint.config.js`, `.specify/memory/constitution.md` como emenda PATCH) e o lint pegando importações fora dela
 - [ ] T064 [US7] `bench:check` contra o baseline do Mac após as fases 5–7: nenhuma cena > 10 % de GPU; `instances/100k`, `10k-functions`, GI desligada nos valores do baseline (SC-012)
