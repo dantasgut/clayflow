@@ -20,7 +20,7 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 
 ## Phase 1: Setup
 
-- [ ] T001 Estado de partida no M4: `npm run ci`, todos os smokes (fonte e `--dist`) e `npm run bench:check -- --headless`; registrar em `specs/034-refracao-fisica/baseline-check.md` (falhas herdadas com a medida)
+- [x] T001 Estado de partida no M4: `npm run ci`, todos os smokes (fonte e `--dist`) e `npm run bench:check -- --headless`; registrar em `specs/034-refracao-fisica/baseline-check.md` (falhas herdadas com a medida)
 - [ ] T002 [P] Smoke `src/__smokes__/giNoise.ts` com a medida das manchas (viés por face, erro lento dentro da face, cintilação, contra o traçador da CPU; Cornell e janela em `medium`/`high`; névoa andando) — nasce vermelho; remover o `zzManchas.ts` temporário
 - [ ] T003 [P] Teste `src/scene/systems/flowBinding/__tests__/limits.compose.test.ts`: compõe os pipelines das cenas dos smokes e confere ≤ 10 storage por estágio (piso M4)
 
