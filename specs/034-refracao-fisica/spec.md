@@ -315,6 +315,12 @@ com estado e destino; smokes e bench das pendências fechadas.
 
 - **FR-026**: O profiler de GPU MUST entregar uma leitura própria por quadro com a CPU à frente da GPU (vários
   buffers de leitura em rodízio, limite de quadros em voo), sem repetir leituras.
+- **FR-026a**: Marcações de depuração e tempos de GPU MUST ser estruturais e por camada: a C1 oferece as
+  primitivas (etiqueta em todo objeto e passe, grupos de depuração aninhados, par de timestamps por passe e o escopo
+  de cada passe); a C2 abre um escopo por fase e por Flow em toda gravação, de forma automática, e agrega os tempos por
+  escopo (fase → Flow → passe) numa leitura por quadro; C3/C4 só nomeiam os próprios passes e nunca chamam as
+  primitivas da C1. O tempo de cada Flow e de cada fase MUST chegar ao `gpuFrameTimed` e ao `DebugFlow`; as capturas do
+  quadro em ferramentas externas (Xcode/Metal, PIX, RenderDoc) MUST mostrar a árvore fase → Flow → passe com nomes.
 - **FR-027**: As seis checagens quebradas desde `5ef1dd4` e H4/H5 MUST ser resolvidas no motor, conferindo AgX contra a
   curva de referência, exposição padrão, níveis das luzes e do hemisfério e especular dos materiais de teste; mudança de
   critério só com medida apresentada e decisão do usuário.
@@ -389,6 +395,9 @@ com estado e destino; smokes e bench das pendências fechadas.
   idênticas bit a bit com compilação lenta forçada.
 - **SC-009**: ≥ 90 leituras distintas de tempo de GPU nos smokes de desempenho; as seis checagens e H4/H5 verdes com o
   critério original (ou decisão registrada do usuário).
+- **SC-009a**: Toda gravação de quadro sai com um grupo de depuração por fase e por Flow (0 passes sem etiqueta); a
+  soma dos tempos por Flow fica a ≤ 2 % do tempo do quadro no M4; o custo das marcações com o profiling desligado é
+  0 passes e 0 consultas extras.
 - **SC-010**: Vídeo: cada quadro decodificado ≥ 45 dB de PSNR contra o quadro lido da GPU; 0 processos órfãos após
   gravação ou falha.
 - **SC-011**: Orçamento no M4 a 1280×720: antisserrilhado ≤ 1,5 ms (9 % do quadro de 60 Hz); refração na cena da lente

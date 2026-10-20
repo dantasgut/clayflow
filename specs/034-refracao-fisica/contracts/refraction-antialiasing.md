@@ -21,6 +21,15 @@ app.events.on('consumerMissing', (e) => …);   // e.flow, e.name — uma vez po
 
 `app.step(dt)` nunca é bloqueado pela prontidão; quem mede ou grava espera `whenReady`.
 
+## Marcações e tempos de GPU
+
+```ts
+app.events.on('gpuFrameTimed', (e) => …); // e.gpuFrame, e.totalMs, e.phasesMs, e.flowsMs, e.passesMs — uma vez por quadro
+```
+
+C3/C4 nomeiam os passes (`frame.compute('gi.trace', …)`); fase e Flow vêm da C2 automaticamente. Capturas externas
+mostram `forward/ForwardFlow/transmissionFront`.
+
 ## Pontos de cena e módulos (C3)
 
 - `ray_hit_material(hit: RayHit) -> Closure` — material composto nos acertos (único; GI, fótons e refração).

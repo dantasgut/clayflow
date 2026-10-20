@@ -179,3 +179,14 @@ mais a medida das manchas (spec, Contexto). Das tentativas anteriores entram só
 - **Vizinhança das partículas**: só se H3 exigir; com teste de lista e trajetória bit a bit contra o `develop`,
   partículas fora da grade incluídas.
 - **Bench**: `bench:check` contra o baseline do Mac a cada fase grande; nenhuma cena regride > 10 % de GPU.
+
+### R13 — Marcações e tempos de GPU por camada (pedido do usuário, 2026-10-20)
+
+- **Estado na C1**: os passes aceitam etiqueta e recebem par de timestamps automático (`GpuFrame.compute/render` →
+  `GpuProfilerSystem.passTimestampWrites`); `stagesNs` agrega por etiqueta; `frame.marker(label, body)` abre um grupo de
+  depuração (`pushDebugGroup`), mas nenhum código o chama; `frame.resolveTimestamps` é um resto morto
+  (`requireQuerySetForTimestamps` devolve `null`). O WebGPU só escreve timestamps nas fronteiras de passe
+  (`timestampWrites`): o tempo de um escopo é a soma dos passes dentro dele.
+- **Decisão**: C1 = primitivas (etiqueta, grupo aninhado, par por passe com o caminho do escopo); C2 = política (um
+  escopo por fase e por Flow em toda gravação, agregação fase → Flow → passe, entrega no `gpuFrameTimed`); C3/C4 só
+  nomeiam passes. Sem profiling, só os grupos de depuração (custo de CPU desprezível, 0 consultas).
