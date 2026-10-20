@@ -47,7 +47,6 @@ import type {
     BoundFlow,
     FluidSurfaceMaterialOptions,
     Frame,
-    FrameCompleteEvent,
     StagingBufferSpec,
     StorageBufferSpec,
     TextureSpec,
@@ -59,6 +58,7 @@ import {
     type FieldGrid,
     type Vec3,
 } from '../elements/fields/reference/field';
+import { nextGpuFrame } from './support/extensionScenes';
 import { readHdrTexture } from './support/imageMeasures';
 import {
     bandAmplitude,
@@ -212,13 +212,15 @@ function staticBody(
     app.world.insert(body);
 }
 
-/** Deixa as compilações concluírem com quadros de duração 0. */
-async function settle(app: Application, ms = 600): Promise<void> {
+/** Espera o motor pronto (spec 034) com quadros de duração 0, e ao menos `ms` de tempo real. */
+async function settle(app: Application, ms = 0): Promise<void> {
     const end = performance.now() + ms;
+    await app.whenReady({ timeoutMs: 60_000 });
     while (performance.now() < end) {
         app.step(0);
         await new Promise((r) => setTimeout(r, 16));
     }
+    // Um quadro na mesma tarefa de quem chamou: o canvas WebGPU só vale até a tarefa ceder (captura logo depois).
     app.step(0);
 }
 
@@ -997,21 +999,21 @@ async function damFrameTime(
     })!;
     const gpu: number[] = [];
     let counting = false;
-    app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-        if (counting && e.stats.gpuTimeMs !== undefined) gpu.push(e.stats.gpuTimeMs);
+    app.events.on('gpuFrameTimed', (e) => {
+        if (counting) gpu.push(e.totalMs);
     });
     // Todos os pipelines compilados antes de medir (a água recompõe os da cena ao entrar).
-    await settle(app, 5000);
+    await app.whenReady({ timeoutMs: 60_000 });
     await simulate(app, 90);
     counting = true;
     for (let i = 0; i < 120; i++) {
         app.step(1 / 60);
-        await new Promise((r) => requestAnimationFrame(r));
+        await nextGpuFrame(app);
     }
     app.dispose();
     canvas.remove();
     const sorted = [...gpu].sort((a, b) => a - b);
-    // A mediana: robusta às leituras repetidas e aos picos de relógio.
+    // Uma leitura por quadro (spec 034); a mediana, robusta aos picos de relógio.
     return {
         mean: sorted[Math.floor(sorted.length / 2)] ?? NaN,
         readings: gpu.length,
@@ -1026,7 +1028,10 @@ async function caseTiming(): Promise<void> {
     log(
         `timing: ${water.count} partículas em 1280 × 720: quadro com a água pelo campo ${water.mean.toFixed(2)} ms, com sprites ${sprites.mean.toFixed(2)} ms (${water.readings}/${sprites.readings} leituras) → a água custa ${cost.toFixed(2)} ms`,
     );
-    check(water.readings >= 30 && sprites.readings >= 30, 'timing: leituras de GPU suficientes');
+    check(
+        water.readings >= 90 && sprites.readings >= 90,
+        `timing: leituras de GPU suficientes (${water.readings}/${sprites.readings}, ≥ 90)`,
+    );
     check(
         cost <= 2.5,
         `timing: campo + marcha da água ${cost.toFixed(2)} ms ≤ 2,5 ms (campo ≤ 1,5 e marcha ≤ 1)`,

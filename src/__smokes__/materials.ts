@@ -32,7 +32,7 @@ import {
     Transform,
 } from 'clayflow';
 import type { Application, LobeName } from 'clayflow';
-import { capture } from './support/extensionScenes';
+import { capture, nextGpuFrame } from './support/extensionScenes';
 import { hdrAt, type HdrImage } from './support/imageMeasures';
 import {
     closureFn,
@@ -777,14 +777,13 @@ async function caseSpecialization(): Promise<void> {
             app.world.insert(e);
         }
         const samples: number[] = [];
-        app.events.on('frameComplete', (e) => {
-            if (e.stats.gpuTimeMs !== undefined) samples.push(e.stats.gpuTimeMs);
-        });
+        app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
         await renderHdr(app, 1, 1200);
+        await app.whenReady({ timeoutMs: 60_000 });
         samples.length = 0;
         for (let i = 0; i < 120; i++) {
             app.step(1 / 60);
-            await new Promise((r) => setTimeout(r, 0));
+            await nextGpuFrame(app);
         }
         disposeApp(app, canvas);
         samples.sort((a, b) => a - b);

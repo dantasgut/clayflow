@@ -8,7 +8,8 @@ interface ActivePass {
 export class GpuCommandState {
     private encoder: GPUCommandEncoder | null = null;
     private readonly passStack: ActivePass[] = [];
-    private readonly markerDepth: { count: number } = { count: 0 };
+    /** Grupos de depuração abertos, de fora para dentro. */
+    private readonly markers: string[] = [];
 
     open(device: GPUDevice, label?: string): void {
         if (this.encoder !== null) {
@@ -35,12 +36,17 @@ export class GpuCommandState {
         }
     }
 
-    enterMarker(): void {
-        this.markerDepth.count += 1;
+    enterMarker(label: string): void {
+        this.markers.push(label);
     }
 
     leaveMarker(): void {
-        this.markerDepth.count -= 1;
+        this.markers.pop();
+    }
+
+    /** Caminho dos grupos abertos (`fase/Flow`), vazio fora de grupo. */
+    get scope(): string {
+        return this.markers.join('/');
     }
 
     finishAndClose(): GPUCommandBuffer {
@@ -50,7 +56,7 @@ export class GpuCommandState {
         if (this.passStack.length !== 0) {
             throw new Error('GpuCommandState: passes not closed before submit.');
         }
-        if (this.markerDepth.count !== 0) {
+        if (this.markers.length !== 0) {
             throw new Error('GpuCommandState: markers not balanced before submit.');
         }
         const cmd = this.encoder.finish();

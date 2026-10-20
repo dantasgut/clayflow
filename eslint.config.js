@@ -192,6 +192,16 @@ export default tseslint.config(
                     ],
                 },
             ],
+            // Marcações por camada (spec 034): os grupos de depuração por fase e por Flow são da C2; C3/C4 só nomeiam os
+            // próprios passes (o rótulo de `frame.compute`/`frame.render`) e marcam pontos dentro do passe.
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector: "CallExpression[callee.property.name='marker'][arguments.length=2]",
+                    message:
+                        'Grupos de depuração por fase e por Flow são da C2 (spec 034): nomeie o passe no rótulo de `frame.compute`/`frame.render`.',
+                },
+            ],
         },
     },
 

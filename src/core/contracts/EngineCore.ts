@@ -1,6 +1,6 @@
 import type { DeviceCapabilities, DeviceOptions } from './DeviceOptions';
 import type { Frame } from './Frame';
-import type { FrameStats } from './FrameStats';
+import type { FrameGpuTiming, FrameStats } from './FrameStats';
 import type { Profiler } from './Profiler';
 import type { AnyBufferSpec, ResourceSpec } from './specs/ResourceSpec';
 import type { ShaderModuleSpec } from './specs/ShaderModuleSpec';
@@ -203,6 +203,12 @@ export interface EngineCore {
      * 1–3 quadros; `gpuFrame` diz a que quadro pertence).
      */
     lastFrameStats(): FrameStats;
+
+    /**
+     * Leituras de tempo de GPU chegadas desde a última chamada, cada uma uma única vez, na ordem de chegada (spec
+     * 034). Vazio sem profiling por quadro ou sem `timestamp-query`.
+     */
+    takeFrameTimings(): readonly FrameGpuTiming[];
 
     /**
      * Cria (ou reutiliza, por conteúdo) o objeto de GPU descrito por `spec` e devolve `spec`.

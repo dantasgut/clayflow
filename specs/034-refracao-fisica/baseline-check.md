@@ -45,3 +45,20 @@ Ver a tabela do Contexto da spec; vira o smoke `giNoise` (T002).
 | `window-medium`  | 9,71 %               | 3,41 %  | 1,31 %     |
 
 `fogWalk`: cintilação ≤ 1 %; periodicidade na escala do froxel 350,9× a de ruído sem estrutura (L7 confirmado).
+
+## Depois da Fase 2 (prontidão, medida de GPU por quadro, marcações por camada)
+
+Smokes no fonte (35 com `readiness`, `gpuTiming`, `deviceFloor` e `giNoise`): 28 passam; falham as 5 herdadas, o
+`giNoise` (nasceu vermelho, US3) e o `fluidField`, que passou a medir de verdade:
+
+| Medida                                     | Antes (leituras repetidas, CPU à frente) | Depois (uma leitura por quadro, no ritmo da GPU) |
+| ------------------------------------------ | ---------------------------------------- | ------------------------------------------------ |
+| `fluidSurface` desempenho                  | 19,36 ms, falhava                        | 12,67 ms com 90 leituras distintas, passa        |
+| `nodeGraphs` (a) custo do grafo            | 0,363 × 0,237 ms, falhava                | 0,385 × 0,369 ms, passa                          |
+| `fluidField` campo + marcha da água a 64 k | passava (medida quebrada)                | 10,27–10,57 ms contra 2,5 ms — falha real        |
+| `gpuTiming` (cômodo com GI `medium`, 720p) | —                                        | 180 de 180 quadros medidos; Flows cobrem 100 %   |
+
+O custo da água pelo campo é desempenho do motor (registrado na 034 com H3, T068), não critério.
+
+A captura do quadro no Xcode (árvore fase → Flow → passe) é manual: fica para o usuário conferir com a ferramenta de
+captura do Metal; os grupos de depuração estão em toda gravação.

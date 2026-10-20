@@ -3,6 +3,8 @@ export interface TimestampPair {
     readonly first: number;
     readonly last: number;
     readonly label: string;
+    /** Caminho dos grupos de depuração em que o passe foi aberto (`fase/Flow`); vazio fora de grupo. */
+    readonly scope?: string;
 }
 
 /**
@@ -59,12 +61,17 @@ export class FrameTimestampAllocator {
     }
 
     /** Reserva um par na região automática; `undefined` (e estouro) quando não cabe. */
-    allocatePair(label: string): TimestampPair | undefined {
+    allocatePair(label: string, scope = ''): TimestampPair | undefined {
         if (this.next + 2 > this.base + this.capacity) {
             this.overflow = true;
             return undefined;
         }
-        const pair = { first: this.next, last: this.next + 1, label };
+        const pair = {
+            first: this.next,
+            last: this.next + 1,
+            label,
+            ...(scope !== '' ? { scope } : {}),
+        };
         this.next += 2;
         this.list.push(pair);
         return pair;
@@ -101,6 +108,24 @@ export class FrameTimestampAllocator {
             const d = FrameTimestampAllocator.interval(ns, p);
             if (d === undefined) continue;
             out[p.label] = (out[p.label] ?? 0) + d;
+        }
+        return out;
+    }
+
+    /**
+     * Intervalos válidos em ns pelo caminho completo do passe (`escopo/rótulo`; só o rótulo fora de grupo). Rótulos
+     * repetidos no mesmo escopo acumulam.
+     */
+    static intervalsByScope(
+        ns: BigInt64Array,
+        pairs: readonly TimestampPair[],
+    ): Record<string, number> {
+        const out: Record<string, number> = {};
+        for (const p of pairs) {
+            const d = FrameTimestampAllocator.interval(ns, p);
+            if (d === undefined) continue;
+            const key = p.scope !== undefined && p.scope !== '' ? `${p.scope}/${p.label}` : p.label;
+            out[key] = (out[key] ?? 0) + d;
         }
         return out;
     }

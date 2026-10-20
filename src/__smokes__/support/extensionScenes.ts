@@ -43,16 +43,28 @@ export async function readWorlds(
 }
 
 /**
- * Deixa as compilações em segundo plano concluírem: quadros de duração 0 (sem avanço do tempo nem passos da física)
- * intercalados com espera real, até `ms`.
+ * Espera o motor pronto (spec 034): nenhum pipeline sem fonte, em conferência, compilando ou trocando — quadros de
+ * duração 0 (sem avanço do tempo nem passos da física) até a prontidão. `ms` é o mínimo de espera real, para os
+ * smokes que acumulam luz ou deixam a página respirar; o prazo da prontidão é de 60 s.
  */
-export async function settle(app: Application, ms = 400): Promise<void> {
+export async function settle(app: Application, ms = 0): Promise<void> {
     const end = performance.now() + ms;
+    await app.whenReady({ timeoutMs: 60_000 });
     while (performance.now() < end) {
         app.step(0);
         await new Promise((r) => setTimeout(r, 16));
     }
+    // Um quadro na mesma tarefa de quem chamou: o canvas WebGPU só vale até a tarefa ceder (captura logo depois).
     app.step(0);
+}
+
+/**
+ * Espera a GPU ter espaço para mais um quadro (`readyForFrame`, o mesmo ritmo do laço e do bench): medir com a CPU
+ * gravando à frente da GPU enche a fila e deixa os quadros sem leitura de tempo (spec 034, H1).
+ */
+export async function nextGpuFrame(app: Application): Promise<void> {
+    do await new Promise((r) => requestAnimationFrame(r));
+    while (!app.readyForFrame());
 }
 
 /** Pixels RGBA do canvas do app (por um canvas 2D). */

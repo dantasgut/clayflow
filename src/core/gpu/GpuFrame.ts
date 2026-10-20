@@ -2,7 +2,6 @@ import type { ComputePass } from '../contracts/passes/ComputePass';
 import type { RenderPass } from '../contracts/passes/RenderPass';
 import type { RenderTarget } from '../contracts/render_target/RenderTarget';
 import type { AnyBufferSpec } from '../contracts/specs/ResourceSpec';
-import type { StagingBufferSpec } from '../contracts/specs/StagingBufferSpec';
 import type { TextureSpec } from '../contracts/specs/TextureSpec';
 import type { TextureViewSpec } from '../contracts/specs/TextureViewSpec';
 import type { Frame, Extent3D, TextureCopyOptions, TextureDataLayout } from '../contracts/Frame';
@@ -61,6 +60,7 @@ export class GpuFrame implements Frame {
             label ?? `compute#${this.counters?.passes ?? 0}`,
             undefined,
             'compute',
+            this.command.scope,
         );
         const desc: GPUComputePassDescriptor = {
             ...(label !== undefined ? { label } : {}),
@@ -206,25 +206,13 @@ export class GpuFrame implements Frame {
     marker(label: string, body: () => void): void {
         const encoder = this.command.requireEncoder();
         encoder.pushDebugGroup(label);
-        this.command.enterMarker();
+        this.command.enterMarker(label);
         try {
             body();
         } finally {
             this.command.leaveMarker();
             encoder.popDebugGroup();
         }
-    }
-
-    resolveTimestamps(dst: StagingBufferSpec, first: number, count: number): void {
-        const encoder = this.command.requireEncoder();
-        const dstBuf = this.store.require<GPUBuffer>(specHash(dst), 'staging-buffer');
-        const querySet = this.requireQuerySetForTimestamps();
-        if (querySet === null) return;
-        encoder.resolveQuerySet(querySet, first, count, dstBuf, 0);
-    }
-
-    private requireQuerySetForTimestamps(): GPUQuerySet | null {
-        return null;
     }
 
     private toRenderPassDescriptor(
@@ -255,6 +243,8 @@ export class GpuFrame implements Frame {
                 ? this.profiler.passTimestampWrites(
                       label ?? `render#${this.counters?.passes ?? 0}`,
                       target.timestampWrites,
+                      'render',
+                      this.command.scope,
                   )
                 : target.timestampWrites;
         if (timestampWrites !== undefined) {

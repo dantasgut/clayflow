@@ -179,6 +179,23 @@ export interface PendingWork {
     readonly name?: string;
 }
 
+/**
+ * Payload do evento `gpuFrameTimed` (spec 034): o tempo de GPU de um quadro, uma única vez por quadro, agregado pelos
+ * grupos de depuração da gravação (fase → Flow → passe). Chega 1–3 quadros depois da gravação.
+ */
+export interface GpuFrameTimedPayload {
+    /** Índice do quadro medido. */
+    readonly gpuFrame: number;
+    /** Soma dos passes medidos (ms). */
+    readonly totalMs: number;
+    /** Por fase (`transform`, `shadow`, `forward`, `post`, `ui`; `outros` fora dos grupos), em ms. */
+    readonly phasesMs: Readonly<Record<string, number>>;
+    /** Por tipo de Flow, em ms. */
+    readonly flowsMs: Readonly<Record<string, number>>;
+    /** Por caminho completo do passe (`fase/Flow/rótulo`), em ms. */
+    readonly passesMs: Readonly<Record<string, number>>;
+}
+
 /** Payload do evento `enginePreparing` (spec 034): o que falta para o quadro sair completo. */
 export interface EnginePreparingPayload {
     /** Revisão da prontidão (sobe a cada transição). */
@@ -223,6 +240,8 @@ export interface ProfilerStatsPayload {
      * o device não suporta `timestamp-query` feature.
      */
     readonly stagesNs: Readonly<Record<string, number>>;
+    /** Tempo de GPU da última leitura por fase, por Flow e por passe (ms; spec 034). Vazio sem leitura. */
+    readonly gpu?: Omit<GpuFrameTimedPayload, 'gpuFrame'>;
 }
 
 /**
@@ -361,6 +380,8 @@ export interface EventMap {
     engineReady: EngineReadyPayload;
     /** A C2 emite (uma vez por Flow, pipeline e binding) quando um binding de um Flow ativo segue sem fonte (H2). */
     consumerMissing: ConsumerMissingPayload;
+    /** A C2 emite uma vez por quadro medido, quando a leitura de tempo de GPU dele chega (spec 034). */
+    gpuFrameTimed: GpuFrameTimedPayload;
 }
 
 /** União dos nomes de evento conhecidos (chaves do EventMap). */

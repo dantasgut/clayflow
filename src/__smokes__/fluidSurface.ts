@@ -20,7 +20,7 @@
 //
 // Para rodar: `npm run smoke -- fluidSurface [--record]`. Resultado: `FLUID SURFACE SMOKE PASSED` ou `FAIL: …`.
 import { Application, createScene, FluidBody, PointSpriteMaterial } from 'clayflow';
-import type { FrameCompleteEvent } from 'clayflow';
+import { nextGpuFrame } from './support/extensionScenes';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 import { diff, fromPng, luminance, toPng } from './support/images';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
@@ -503,13 +503,13 @@ async function performance36k(failures: string[]): Promise<void> {
     });
     app.events.on('engineError', (e) => engineErrors.push(`desempenho: ${e.stage}: ${e.message}`));
     waterScene(app, { width: 1280, height: 720, box: true });
+    // Medida só com o motor pronto, uma leitura por quadro (spec 034, H1).
+    await app.whenReady({ timeoutMs: 60_000 });
     const gpu: number[] = [];
-    app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-        if (e.stats.gpuTimeMs !== undefined) gpu.push(e.stats.gpuTimeMs);
-    });
+    app.events.on('gpuFrameTimed', (e) => gpu.push(e.totalMs));
     for (let i = 0; i < 160; i++) {
         app.step(1 / 60);
-        await new Promise((r) => requestAnimationFrame(r));
+        await nextGpuFrame(app);
     }
     app.dispose();
     canvas.remove();
@@ -518,7 +518,8 @@ async function performance36k(failures: string[]): Promise<void> {
     log(
         `desempenho: barragem de 36 864 com água e cáusticas, GPU ${mean.toFixed(2)} ms/quadro (${window.length} amostras)`,
     );
-    if (window.length < 30) failures.push(`desempenho: poucas amostras de GPU (${window.length})`);
+    if (window.length < 90)
+        failures.push(`desempenho: poucas amostras de GPU (${window.length} < 90)`);
     else if (mean > 1000 / 60) failures.push(`desempenho: GPU ${mean.toFixed(2)} ms > 16,7 ms`);
 }
 

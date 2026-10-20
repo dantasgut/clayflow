@@ -19,6 +19,7 @@ function tracingCore(order: string[]): EngineCore {
         }),
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        takeFrameTimings: vi.fn(() => []),
     } as unknown as EngineCore;
 }
 

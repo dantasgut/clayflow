@@ -1,4 +1,5 @@
-import type { EngineCore } from '../../core/contracts/index';
+import type { EngineCore, FrameGpuTiming } from '../../core/contracts/index';
+import type { GpuFrameTimedPayload } from '../events/EventMap';
 import type { EventBus, Unsubscribe } from '../events/EventBus';
 import type { FlowRegistry } from '../flows/FlowRegistry';
 import type { Flow } from '../flows/Flow';
@@ -65,11 +66,21 @@ export class ExecutionSystem {
         this.events.emit('frameRecording', { elapsed });
         const recordAndSubmit = (): void => {
             this.core.record('frame', (frame) => {
+                // Um grupo de depuração por fase e por Flow (spec 034): nomeia o quadro nas capturas e dá o escopo dos
+                // tempos de GPU de cada passe.
                 for (const phase of this.flows.phasesInOrder()) {
-                    for (const flow of this.flows.flowsInPhase(phase)) {
-                        const bound = this.active.get(flow);
-                        if (bound !== undefined) flow.dispatch(frame, bound);
-                    }
+                    const flows = this.flows
+                        .flowsInPhase(phase)
+                        .filter((flow) => this.active.has(flow));
+                    if (flows.length === 0) continue;
+                    frame.marker(phase, () => {
+                        for (const flow of flows) {
+                            const bound = this.active.get(flow)!;
+                            frame.marker(flow.type, () => {
+                                flow.dispatch(frame, bound);
+                            });
+                        }
+                    });
                 }
             });
             this.core.submit();
@@ -91,6 +102,9 @@ export class ExecutionSystem {
             elapsed: this.elapsed,
             stats: this.core.lastFrameStats(),
         });
+        for (const timing of this.core.takeFrameTimings()) {
+            this.events.emit('gpuFrameTimed', gpuFrameTimedOf(timing));
+        }
         void dt;
     }
 
@@ -98,4 +112,27 @@ export class ExecutionSystem {
     lastFrameTimestamp(): number {
         return this.lastFrameAt;
     }
+}
+
+/**
+ * Agrega uma leitura de GPU pelos escopos da gravação (`fase/Flow/rótulo`): tempos por fase, por Flow e por passe, em
+ * ms. Passes gravados fora dos grupos da C2 (ex.: cópias de crescimento de pool) entram em `outros`.
+ */
+export function gpuFrameTimedOf(timing: FrameGpuTiming): GpuFrameTimedPayload {
+    const phasesMs: Record<string, number> = {};
+    const flowsMs: Record<string, number> = {};
+    const passesMs: Record<string, number> = {};
+    for (const [path, ns] of Object.entries(timing.scopesNs)) {
+        const ms = ns / 1e6;
+        const parts = path.split('/');
+        passesMs[path] = (passesMs[path] ?? 0) + ms;
+        if (parts.length < 3) {
+            phasesMs.outros = (phasesMs.outros ?? 0) + ms;
+            continue;
+        }
+        const [phase, flow] = parts;
+        phasesMs[phase!] = (phasesMs[phase!] ?? 0) + ms;
+        flowsMs[flow!] = (flowsMs[flow!] ?? 0) + ms;
+    }
+    return { gpuFrame: timing.gpuFrame, totalMs: timing.gpuTimeMs, phasesMs, flowsMs, passesMs };
 }

@@ -6,6 +6,7 @@ export type {
     EngineCore,
     FrameProfilingGranularity,
     FrameStats,
+    FrameGpuTiming,
     AdapterDescription,
     ClampedLimit,
     DeviceLostInfo,

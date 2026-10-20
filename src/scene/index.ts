@@ -318,6 +318,11 @@ export type {
     DeviceRecoveredPayload,
     MemoryWarningPayload,
     PresentationFallbackPayload,
+    EnginePreparingPayload,
+    EngineReadyPayload,
+    ConsumerMissingPayload,
+    GpuFrameTimedPayload,
+    PendingWork,
 } from './events/index';
 
 export type {
@@ -389,3 +394,5 @@ export type {
     InferredResource,
 } from './systems/index';
 export { LayoutInferencer, ResourceSystem, ExecutionSystem } from './systems/index';
+export { EngineReadiness, CONSUMER_MISSING_FRAMES } from './readiness/EngineReadiness';
+export type { ReadinessState } from './readiness/EngineReadiness';

@@ -9,7 +9,7 @@ import type {
 } from '../contracts/EngineCore';
 import type { DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
 import type { Frame } from '../contracts/Frame';
-import type { FrameStats } from '../contracts/FrameStats';
+import type { FrameGpuTiming, FrameStats } from '../contracts/FrameStats';
 import type { Profiler } from '../contracts/Profiler';
 import type { BindGroupSpec } from '../contracts/specs/BindGroupSpec';
 import type { BufferSpec } from '../contracts/specs/BufferSpec';
@@ -337,7 +337,12 @@ export class GpuEngineCore implements EngineCore {
             gpuTimeMs: reading.gpuTimeMs,
             gpuFrame: reading.gpuFrame,
             stagesNs: reading.stagesNs,
+            scopesNs: reading.scopesNs,
         };
+    }
+
+    takeFrameTimings(): readonly FrameGpuTiming[] {
+        return this.profilerSystem.takeFrameReadings();
     }
 
     private warnIfProfilingUnsupported(): void {

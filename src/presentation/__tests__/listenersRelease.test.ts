@@ -32,8 +32,10 @@ describe('liberação de ouvintes (R14)', () => {
     it('DebugFlow se inscreve uma vez, na construção', () => {
         const events = new DefaultEventBus();
         const debug = new DebugFlow({ events });
-        expect(events.listenerCount()).toBe(2);
+        // frameTick, frameComplete e gpuFrameTimed (spec 034).
+        expect(events.listenerCount()).toBe(3);
         debug.dispose();
+        expect(events.listenerCount()).toBe(0);
     });
 
     it('InteractionSystem.detach remove frameTick; dispose também descarta os controllers da cena', () => {

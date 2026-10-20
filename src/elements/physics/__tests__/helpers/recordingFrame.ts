@@ -56,6 +56,9 @@ export function recordingFrame(): {
             const at = offset === undefined ? '' : `@${offset}`;
             sequence.push(`clear:${buffer.discriminator ?? '?'}${at}`);
         },
+        marker: (_label: string, body: () => void) => {
+            body();
+        },
     } as unknown as Frame;
     return {
         frame,

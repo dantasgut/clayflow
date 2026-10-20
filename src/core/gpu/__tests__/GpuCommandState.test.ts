@@ -53,7 +53,7 @@ describe('GpuCommandState', () => {
         const s = new GpuCommandState();
         const { device } = fakeDevice();
         s.open(device);
-        s.enterMarker();
+        s.enterMarker('grupo');
         expect(() => s.finishAndClose()).toThrow(/markers not balanced/);
     });
 
@@ -71,8 +71,22 @@ describe('GpuCommandState', () => {
         const s = new GpuCommandState();
         const { device, cmdBuffer } = fakeDevice();
         s.open(device);
-        s.enterMarker();
+        s.enterMarker('grupo');
         s.leaveMarker();
         expect(s.finishAndClose()).toBe(cmdBuffer);
+    });
+
+    it('escopo: caminho dos grupos abertos, de fora para dentro', () => {
+        const s = new GpuCommandState();
+        const { device } = fakeDevice();
+        s.open(device);
+        expect(s.scope).toBe('');
+        s.enterMarker('forward');
+        s.enterMarker('ForwardFlow');
+        expect(s.scope).toBe('forward/ForwardFlow');
+        s.leaveMarker();
+        expect(s.scope).toBe('forward');
+        s.leaveMarker();
+        expect(s.scope).toBe('');
     });
 });
