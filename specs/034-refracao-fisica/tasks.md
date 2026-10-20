@@ -48,8 +48,8 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 
 ## Phase 3: Fundação — material nos acertos e footprint (R2)
 
-- [ ] T014 Teste de composição em `src/elements/raytrace/__tests__/hitMaterial.test.ts`: um único `ray_hit_material` por pipeline; GI, fótons e refração compõem o mesmo símbolo; revisão por `materialRevision`
-- [ ] T015 Módulo `src/elements/raytrace/hitMaterial.ts` (composição tirada de `ProbeFlow.composeHitMaterial`), tempo simulado no `ray_scene_info`; GI e fótons migrados (`ProbeFlow.ts`, `gi_hit.wgsl`, `gi_photon_trace.wgsl`) — imagens dos smokes da 033 idênticas bit a bit
+- [x] T014 Teste de composição em `src/elements/raytrace/__tests__/hitMaterial.test.ts`: um único `ray_hit_material` por pipeline; GI, fótons e refração compõem o mesmo símbolo; revisão por `materialRevision`
+- [x] T015 Módulo `src/elements/raytrace/hitMaterial.ts` (composição tirada de `ProbeFlow.composeHitMaterial`), tempo simulado no `ray_scene_info`; GI e fótons migrados (`ProbeFlow.ts`, `gi_hit.wgsl`, `gi_photon_trace.wgsl`) — imagens dos smokes da 033 idênticas bit a bit
 - [ ] T016 [P] `SurfaceSample` com `footprint`, `duvdx`, `duvdy` (`src/elements/gpu/wgsl/forward.wgsl`, `forward_transmission.wgsl`); raster pelas derivadas de tela
 - [ ] T017 Cone de raio nos acertos (`ray_hit_sample`) em `src/elements/gpu/wgsl/raytrace/` e AA especular nos acertos pela variância do cone (`closure_specular_aa`)
 - [ ] T018 [P] Referência de CPU dos nós filtrados em `src/elements/nodes/reference/noiseNodes.ts` e testes (média do padrão no footprint)

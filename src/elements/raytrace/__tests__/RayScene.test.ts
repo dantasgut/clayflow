@@ -13,8 +13,8 @@ import { PointSpriteMaterial } from '../../material/PointSpriteMaterial';
 import { FluidBody } from '../../physics/bodies/FluidBody';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
-import { composeHitMaterial } from '../../lighting/ProbeFlow';
-import { giHitMaterialPoint, giProbeTrace } from '../../lighting/shaders';
+import { giProbeTrace } from '../../lighting/shaders';
+import { composeHitMaterial, rayHitMaterialPoint } from '../hitMaterial';
 
 // Estrutura de raios (spec 033, T007): descritores, uma hierarquia de baixo por conteúdo de geometria, construção uma
 // vez, hierarquia de cima a cada quadro, crescimento das capacidades.
@@ -222,7 +222,7 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         expect(fns.every((f) => /^material_fn_[0-9a-f]+$/.test(f.functionName))).toBe(true);
         // As duas compõem juntas no kernel dos raios das sondas, sem símbolos repetidos.
         const source = composeWgsl(
-            bindPoints(giProbeTrace, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]])),
+            bindPoints(giProbeTrace, new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]])),
         ).spec.source;
         for (const f of fns) expect(source).toContain(`fn ${f.functionName}(`);
         expect(source).not.toContain('fwidth');

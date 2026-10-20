@@ -4,14 +4,11 @@ import {
     type WgslResource,
     type WgslResourceType,
 } from '../../scene/shaders/WgslResource';
-import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import giCommonSource from '../gpu/wgsl/gi/gi_common.wgsl?raw';
 import giWeightsSource from '../gpu/wgsl/gi/gi_weights.wgsl?raw';
 import giSampleSource from '../gpu/wgsl/gi/gi_sample.wgsl?raw';
 import giGenerationSource from '../gpu/wgsl/gi/gi_generation.wgsl?raw';
-import giHitSource from '../gpu/wgsl/gi/gi_hit.wgsl?raw';
-import giHitMaterialReadySource from '../gpu/wgsl/gi/gi_hit_material_ready.wgsl?raw';
 import giDirectSource from '../gpu/wgsl/gi/gi_direct.wgsl?raw';
 import giProbeTraceSource from '../gpu/wgsl/gi/gi_probe_trace.wgsl?raw';
 import giProbeBlendSource from '../gpu/wgsl/gi/gi_probe_blend.wgsl?raw';
@@ -31,9 +28,7 @@ import giPhotonTraceSource from '../gpu/wgsl/gi/gi_photon_trace.wgsl?raw';
 import giPhotonResolveSource from '../gpu/wgsl/gi/gi_photon_resolve.wgsl?raw';
 import { rayVolumeHitReady } from '../raytrace/points';
 import { closure, closureEval } from '../material/pbr/shaders';
-import { materialPointTypes } from '../material/point/types/shaders';
-import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
-import { rayInstanceRead, rayScene } from '../raytrace/shaders';
+import { rayHit, rayScene } from '../raytrace/shaders';
 import { lightTransmissionReady, sceneEnvironmentReady } from '../scene/points/lighting';
 import { rayVolumeTransmittanceReady } from '../raytrace/points';
 import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
@@ -173,38 +168,6 @@ const giGeneration = wgslModule({
     requires: [giCommon, giWeights, R.params, R.generationsRead],
 });
 
-/** Composição pronta das funções `material` nos acertos: as constantes do material. */
-export const giHitMaterialReady = wgslModule({
-    name: 'gi_hit_material_ready',
-    source: giHitMaterialReadySource,
-    requires: [materialPointTypes, closure],
-    structs: [StandardMaterialSchema],
-});
-
-/**
- * Ponto da composição das funções `material` nos acertos (spec 033, R3): o `ProbeFlow` troca o pronto pelo `switch`
- * das funções da cena (`bindPoints`).
- */
-export const giHitMaterialPoint: BindablePoint = {
-    name: 'gi_hit_material',
-    ready: giHitMaterialReady,
-};
-
-/** Material no ponto atingido. */
-const giHit = wgslModule({
-    name: 'gi_hit',
-    source: giHitSource,
-    requires: [
-        rayScene,
-        rayInstanceRead,
-        R.params,
-        materialPointTypes,
-        closure,
-        giHitMaterialReady,
-    ],
-    structs: [StandardMaterialSchema],
-});
-
 /** Luz direta no ponto atingido (sombra pela estrutura de raios). */
 const giDirect = wgslModule({
     name: 'gi_direct',
@@ -253,7 +216,7 @@ export const giProbeTrace = wgslModule({
         giWeights,
         R.params,
         rayScene,
-        giHit,
+        rayHit,
         giShade,
         giScreenReproject,
         closureEval,
@@ -328,7 +291,7 @@ export const giScreenTrace = wgslModule({
         giScreenCommon,
         giScreenReproject,
         rayScene,
-        giHit,
+        rayHit,
         giShade,
         giDirect,
         closureEval,
@@ -391,7 +354,7 @@ export const giPhotonTrace = wgslModule({
         R.causticsWrite,
         R.photonTargets,
         rayScene,
-        giHit,
+        rayHit,
         giDirect,
         rayVolumeHitReady,
         rayVolumeTransmittanceReady,

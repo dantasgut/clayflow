@@ -13,14 +13,12 @@ import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { slot, type PoolSlot, type SingletonSlot, type SlotMap } from '../../scene/flows/slots';
 import { bindPoints } from '../../scene/shaders/bindPoints';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Time } from '../../scene/time/Time';
 import type { World } from '../../scene/world/World';
-import { closure } from '../material/pbr/shaders';
-import { materialPointTypes } from '../material/point/types/shaders';
-import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
-import { RayScene, type RayMaterialFunction } from '../raytrace/RayScene';
+import { RayScene } from '../raytrace/RayScene';
+import { composeHitMaterial, rayHitMaterialPoint } from '../raytrace/hitMaterial';
 import { Camera } from '../scene/Camera';
 import { Light } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
@@ -35,7 +33,6 @@ import {
     GI_PHOTON_SLOTS,
 } from './schemas';
 import {
-    giHitMaterialPoint,
     giProbeAtlas,
     giProbeBlend,
     giProbeClassify,
@@ -151,30 +148,6 @@ interface Buffers {
     readonly screenWork: StorageBufferSpec;
     readonly screenHistory: StorageBufferSpec;
     readonly photonTargets: StorageBufferSpec;
-}
-
-/** Composição das funções `material` nos acertos (um `switch` pelo índice da função da instância). */
-export function composeHitMaterial(functions: readonly RayMaterialFunction[]): WgslModule {
-    const cases = functions.map((f, k) => {
-        const call = `${f.functionName}(s, m, ${f.loaderName}(fn_slot))`;
-        return `        case ${k + 1}u: { c = ${f.returnsClosure ? call : `closure_from_params(${call})`}; }`;
-    });
-    return wgslModule({
-        name: `gi_hit_material_${functions.map((f) => f.module.name).join('_')}`,
-        requires: [materialPointTypes, closure, ...functions.map((f) => f.module)],
-        structs: [StandardMaterialSchema],
-        source: [
-            '// Funções `material` da cena nos acertos dos raios (gerado; spec 033, R3).',
-            'fn gi_hit_material(index: u32, s: SurfaceSample, m: StandardMaterial, fn_slot: u32) -> Closure {',
-            '    var c: Closure;',
-            '    switch (index) {',
-            ...cases,
-            '        default: { c = closure_from_params(SurfaceParams(m.albedo, m.roughness, m.metallic, vec3f(0.0))); }',
-            '    }',
-            '    return closure_sanitize(c);',
-            '}',
-        ].join('\n'),
-    });
 }
 
 /**
@@ -486,7 +459,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const compose = (shader: WgslModule): WgslModule =>
             fns.length === 0
                 ? shader
-                : bindPoints(shader, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]]));
+                : bindPoints(shader, new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]));
         const [probeId, screenId, photonId, targetsId] = traceIds(this.materialRevision);
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);

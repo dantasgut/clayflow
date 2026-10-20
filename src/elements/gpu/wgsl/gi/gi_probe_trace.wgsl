@@ -4,7 +4,7 @@
 // rebatimento k − 1 no ponto: a das sondas de tela do quadro anterior quando o ponto é uma superfície visível
 // (`gi_screen_history_taps`, exata de perto), a das sondas do mundo (`gi_generation_irradiance`) quando não. Raio que escapa: o ambiente da cena
 // (`scene_environment`, o céu). Face de trás: distância negativa (a sonda está dentro da geometria) e sem luz.
-// Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, gi_hit, gi_shade, gi_screen_reproject, closure_eval,
+// Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, ray_hit, gi_shade, gi_screen_reproject, closure_eval,
 // scene_environment, ray_volume_transmittance, gi_rays.
 
 fn gi_trace_index(gid3: vec3u, nwg: vec3u) -> u32 {
@@ -45,7 +45,7 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
         return;
     }
     let v = -dir;
-    let c = gi_hit_closure(hit);
+    let c = ray_hit_closure(hit, gi.extra.w);
     let p = hit.position;
     let n = hit.normal;
     let direct = gi_shade_direct(c, p, n, v, i * 9781u + gi.rays.y * 6271u);
