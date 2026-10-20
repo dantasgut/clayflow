@@ -15,8 +15,8 @@ import { startServer } from './server';
  * A página monta a cena, espera o motor pronto e, quadro a quadro com passo fixo de 1/60 s, lê o quadro apresentado
  * (`readCanvas`, sem canvas 2D nem JPEG) e o entrega por função exposta; o runner escreve os pixels no `stdin` do
  * ffmpeg. Saídas por cena em `--out` (padrão `bench/results/videos/`):
- *   - `<cena>.mp4` — H.264 High, 4:2:0, CRF 12, 60 FPS (abre no celular);
- *   - `<cena>-10bit.mp4` com `--10bit` — HEVC Main10 (`hvc1`), a partir do canvas em `rgba16float` (sem quantizar em
+ *   - `<cena>.mp4` — H.264 High, 4:2:0, CRF 8, 60 FPS (abre no celular);
+ *   - `<cena>-10bit.mp4` com `--10bit` — HEVC Main10 (`hvc1`, CRF 8), a partir do canvas em `rgba16float` (sem quantizar em
  *     8 bits antes do codificador; SDR BT.709, não é HDR10/PQ);
  *   - `<cena>-lossless.mkv` com `--lossless` — FFV1, os quadros exatos.
  * O vídeo é conferido contra os quadros exatos (FFV1 sempre gravado; apagado sem `--lossless`): o PSNR de cada quadro
@@ -221,7 +221,7 @@ async function record(
                   '-pix_fmt',
                   'yuv420p10le',
                   '-crf',
-                  '12',
+                  '8',
                   '-preset',
                   'slow',
                   '-tag:v',
@@ -235,7 +235,7 @@ async function record(
                   '-pix_fmt',
                   'yuv420p',
                   '-crf',
-                  '12',
+                  '8',
                   '-preset',
                   'slow',
               ];
