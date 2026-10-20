@@ -78,7 +78,7 @@ fn gi_photon_targets_main(@builtin(local_invocation_index) lid: u32) {
         let root = ray_node(ray_blas_a(ray_scene_info.blasFirst + inst.ids.x * RAY_BLAS_WORDS).x, 0u);
         let center = (inst.toWorld * vec4f(0.5 * (root.lo + root.hi), 1.0)).xyz;
         let m = StandardMaterial(vec4f(inst.material0.rgb, 1.0), inst.material0.w, bitcast<f32>(inst.material1.x), 0.0, 0.0);
-        let sample = SurfaceSample(center, vec3f(0.0, 1.0, 0.0), vec2f(0.5), gi.extra.w, vec3f(0.0), vec4f(0.0), vec3f(0.0));
+        let sample = SurfaceSample(center, vec3f(0.0, 1.0, 0.0), vec2f(0.5), gi.extra.w, vec3f(0.0), vec4f(0.0), vec3f(0.0), 0.0, vec2f(0.0), vec2f(0.0));
         // O material composto no centro da instância.
         if (!gi_photon_caustic_capable(ray_hit_material(inst.ids.w & 0xFFFFu, sample, m, inst.material1.y))) { continue; }
         let slot = atomicAdd(&gi_photon_wg_count, 1u);
@@ -228,7 +228,7 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         if (hit.t >= 1e6 || hit.instance == NONE) { return; }
         // Os meios atravessados no trecho (a névoa) atenuam o fóton.
         throughput *= ray_volume_transmittance(o, d, hit.t);
-        let c = ray_hit_closure(hit, gi.extra.w);
+        let c = ray_hit_closure(hit, gi.extra.w, 0.0);
         let n = hit.normal;
         let outside = hit.face >= 0.0;
         let p = hit.position;

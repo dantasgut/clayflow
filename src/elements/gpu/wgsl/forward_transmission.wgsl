@@ -83,13 +83,17 @@ struct TransmissionBackOut {
 
 @fragment
 fn fs_transmission_back(in: VsOut) -> TransmissionBackOut {
+    // Largura do pixel e derivadas do uv (spec 034) em fluxo uniforme, antes do descarte.
+    let footprint = max(length(dpdx(in.world_position)), length(dpdy(in.world_position)));
+    let duvdx = dpdx(in.uv);
+    let duvdy = dpdy(in.uv);
     // Atrás de um opaco: não é camada (a profundidade própria guarda a face de trás mais distante à frente dos opacos).
     if (in.clip_position.z >= textureLoad(scene_depth, vec2i(in.clip_position.xy), 0)) { discard; }
     let material = materials[in.material_slot];
     let cam = cameras[forward_frame.cameraSlot];
     // Face de trás: a normal voltada para dentro do material (para o observador).
     let n = -normalize(in.world_normal);
-    let sample = SurfaceSample(in.world_position, n, in.uv, forward_frame.time, in.metric, in.curvature, in.principal);
+    let sample = SurfaceSample(in.world_position, n, in.uv, forward_frame.time, in.metric, in.curvature, in.principal, footprint, duvdx, duvdy);
     let c = material_eval(sample, material, in.fn_slot);
     let v = forward_view_dir(cam, in.world_position);
     let uv = in.clip_position.xy / vec2f(textureDimensions(scene_copy, 0));
@@ -120,8 +124,11 @@ fn fs_transmission_front(in: VsOut) -> @location(0) vec4f {
     let material = materials[in.material_slot];
     let n = normalize(in.world_normal);
     let variance = bsdf_normal_variance(n);
+    let footprint = max(length(dpdx(in.world_position)), length(dpdy(in.world_position)));
+    let duvdx = dpdx(in.uv);
+    let duvdy = dpdy(in.uv);
     let cam = cameras[forward_frame.cameraSlot];
-    let sample = SurfaceSample(in.world_position, n, in.uv, forward_frame.time, in.metric, in.curvature, in.principal);
+    let sample = SurfaceSample(in.world_position, n, in.uv, forward_frame.time, in.metric, in.curvature, in.principal, footprint, duvdx, duvdy);
     let c = closure_specular_aa(material_eval(sample, material, in.fn_slot), variance);
     let v = forward_view_dir(cam, in.world_position);
     let pixel = vec2u(in.clip_position.xy);

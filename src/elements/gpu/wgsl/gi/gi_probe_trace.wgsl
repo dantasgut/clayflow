@@ -45,7 +45,7 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
         return;
     }
     let v = -dir;
-    let c = ray_hit_closure(hit, gi.extra.w);
+    let c = ray_hit_closure(hit, gi.extra.w, 0.0);
     let p = hit.position;
     let n = hit.normal;
     let direct = gi_shade_direct(c, p, n, v, i * 9781u + gi.rays.y * 6271u);

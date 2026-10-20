@@ -190,6 +190,28 @@ fn ray_scene_resolve(hit_in: RayHit, origin: vec3f, dir: vec3f) -> RayHit {
     return hit;
 }
 
+/**
+ * Densidade do uv no triângulo atingido (spec 034): √(área em uv / área em mundo) — quanto o uv muda por metro. Com a
+ * largura do cone do raio no ponto, dá as derivadas do uv para filtrar texturas e padrões no acerto. Esferas: 0.
+ */
+fn ray_scene_uv_density(hit: RayHit) -> f32 {
+    if (hit.instance == NONE) { return 0.0; }
+    let inst = ray_instance_at(ray_scene_info.instanceFirst + hit.instance * RAY_INSTANCE_WORDS);
+    let blas = ray_blas_a(ray_scene_info.blasFirst + inst.ids.x * RAY_BLAS_WORDS);
+    if (blas.w == RAY_KIND_SPHERES) { return 0.0; }
+    let tri = ray_triangle_at(ray_scene_info.triangleFirst + (blas.y + hit.primitive) * RAY_TRIANGLE_WORDS);
+    let vf = ray_scene_info.vertexFirst;
+    let a = ray_vertex_at(vf + tri.x * RAY_VERTEX_WORDS);
+    let b = ray_vertex_at(vf + tri.y * RAY_VERTEX_WORDS);
+    let c = ray_vertex_at(vf + tri.z * RAY_VERTEX_WORDS);
+    let w = mat3x3f(inst.toWorld[0].xyz, inst.toWorld[1].xyz, inst.toWorld[2].xyz);
+    let world = length(cross(w * (b.position.xyz - a.position.xyz), w * (c.position.xyz - a.position.xyz)));
+    let du = vec2f(b.position.w - a.position.w, b.normal.w - a.normal.w);
+    let dv = vec2f(c.position.w - a.position.w, c.normal.w - a.normal.w);
+    let uv = abs(du.x * dv.y - du.y * dv.x);
+    return select(0.0, sqrt(uv / world), world > 1e-20);
+}
+
 /** Acerto mais próximo do raio (origem, direção unitária) até `t_max`. */
 fn ray_scene_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayHit {
     return ray_scene_resolve(ray_scene_trace(origin, dir, t_max, false), origin, dir);

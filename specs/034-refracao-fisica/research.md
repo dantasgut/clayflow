@@ -190,3 +190,14 @@ mais a medida das manchas (spec, Contexto). Das tentativas anteriores entram só
 - **Decisão**: C1 = primitivas (etiqueta, grupo aninhado, par por passe com o caminho do escopo); C2 = política (um
   escopo por fase e por Flow em toda gravação, agregação fase → Flow → passe, entrega no `gpuFrameTimed`); C3/C4 só
   nomeiam passes. Sem profiling, só os grupos de depuração (custo de CPU desprezível, 0 consultas).
+
+### Nota de implementação (Fase 3, 2026-10-20)
+
+- `SurfaceSample` ganhou `footprint`, `duvdx`, `duvdy`; no raster pelas derivadas de tela (antes de qualquer ramo ou
+  descarte), nos acertos por `ray_hit_closure(hit, time, width)` com a densidade de uv do triângulo
+  (`ray_scene_uv_density`).
+- A iluminação global passa `width = 0` nos acertos por ora (os números da 033 ficam iguais); a largura do cone das
+  sondas entra junto das correções da US3, medida no `giNoise`.
+- Nós `noise.value2/3`, `gradient2/3` e `fbm3` filtram pela entrada `width` (oitava → média 0 entre ¼ e ¾ de célula
+  por pixel); `width` 0 dá o ruído de antes, bit a bit (hashes das fixtures iguais). O `cellular3` não filtra: a média
+  dele depende do `jitter` — limitação documentada no nó.

@@ -13,6 +13,9 @@ fn material_check_main() {
         vec3f(0.0),
         vec4f(0.0),
         vec3f(0.0),
+        0.0,
+        vec2f(0.0),
+        vec2f(0.0),
     );
     let c = material_eval(s, material_check_materials[0], 0u);
     material_check_out[3] = vec4f(c.diffuse_color + c.emission, c.specular_roughness + c.opacity);

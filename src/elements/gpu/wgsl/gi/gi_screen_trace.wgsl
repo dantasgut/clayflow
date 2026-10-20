@@ -77,7 +77,7 @@ fn gi_screen_trace_main(
             for (var g = 0u; g < bounces; g++) { sums[g] = env; }
         } else if (hit.face >= 0.0) {
             let v = -dir;
-            let c = ray_hit_closure(hit, gi.extra.w);
+            let c = ray_hit_closure(hit, gi.extra.w, 0.0);
             let direct = gi_shade_direct(c, hit.position, hit.normal, v, j * 7919u + gi.rays.y * 104729u);
             sums[0] = direct * through;
             if (bounces > 1u) {

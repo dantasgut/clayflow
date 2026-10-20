@@ -70,8 +70,12 @@ fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let material = materials[in.material_slot];
     let n = normalize(in.world_normal);
-    // Variância da normal na tela (controle de serrilhado especular) em fluxo uniforme, antes de qualquer ramo.
+    // Variância da normal na tela (controle de serrilhado especular) e a largura do pixel no ponto (filtragem na origem,
+    // spec 034) em fluxo uniforme, antes de qualquer ramo.
     let variance = bsdf_normal_variance(n);
+    let footprint = max(length(dpdx(in.world_position)), length(dpdy(in.world_position)));
+    let duvdx = dpdx(in.uv);
+    let duvdy = dpdy(in.uv);
     // Fechamento pelo ponto `material` (spec 009/011; pronto: o das constantes do material).
     let sample = SurfaceSample(
         in.world_position,
@@ -81,6 +85,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         in.metric,
         in.curvature,
         in.principal,
+        footprint,
+        duvdx,
+        duvdy,
     );
     let c = closure_specular_aa(material_eval(sample, material, in.fn_slot), variance);
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
