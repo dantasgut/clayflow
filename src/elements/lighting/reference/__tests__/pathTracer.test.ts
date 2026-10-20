@@ -141,4 +141,29 @@ describe('traçador de caminhos de referência (spec 033, R8)', () => {
         expect(means.get(3)?.[0]).toBeCloseTo(2, 6);
         expect(means.get(4)?.[1]).toBeCloseTo(1, 6);
     });
+
+    it('firstSample: duas metades independentes compõem a imagem de 2N amostras', () => {
+        const scene: PtScene = {
+            objects: [
+                {
+                    id: 1,
+                    shape: { kind: 'quad', corner: [-50, 0, -50], u: [100, 0, 0], v: [0, 0, 100] },
+                    material: { albedo: [0.8, 0.8, 0.8] },
+                },
+                {
+                    id: 2,
+                    shape: { kind: 'quad', corner: [-1, 3, -1], u: [2, 0, 0], v: [0, 0, 2] },
+                    material: { albedo: [0, 0, 0], emission: [5, 5, 5] },
+                },
+            ],
+        };
+        const camera = { position: [0, 1, 4] as const, target: [0, 0, 0] as const, fovY: 1 };
+        const opts = { width: 6, height: 4, samples: 4, bounces: 1 };
+        const a = renderPathTraced(scene, camera, opts);
+        const b = renderPathTraced(scene, camera, { ...opts, firstSample: 4 });
+        const both = renderPathTraced(scene, camera, { ...opts, samples: 8 });
+        expect(Array.from(a.rgb)).not.toEqual(Array.from(b.rgb));
+        for (let i = 0; i < both.rgb.length; i++)
+            expect((a.rgb[i]! + b.rgb[i]!) / 2).toBeCloseTo(both.rgb[i]!, 6);
+    });
 });

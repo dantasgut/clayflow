@@ -34,3 +34,14 @@ Melhorias acima da tolerância: `instances/10k` CPU −16,7 %; `instances/10k-fu
 ## Manchas da luz global (medida da spec, página temporária)
 
 Ver a tabela do Contexto da spec; vira o smoke `giNoise` (T002).
+
+## `giNoise` no estado de partida (T002)
+
+| Caso             | Viés por face (pior) | Manchas | Cintilação |
+| ---------------- | -------------------- | ------- | ---------- |
+| `cornell-high`   | 7,92 %               | 8,80 %  | 1,22 %     |
+| `cornell-medium` | 17,88 %              | 19,74 % | 2,81 %     |
+| `window-high`    | 8,60 %               | ≤ 2 %   | ≤ 1 %      |
+| `window-medium`  | 9,71 %               | 3,41 %  | 1,31 %     |
+
+`fogWalk`: cintilação ≤ 1 %; periodicidade na escala do froxel 350,9× a de ruído sem estrutura (L7 confirmado).

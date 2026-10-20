@@ -144,6 +144,11 @@ export interface PtOptions {
      * faixas renderizadas à parte (em paralelo) compõem a mesma imagem.
      */
     readonly rows?: readonly [number, number];
+    /**
+     * Índice da primeira amostra (padrão 0): duas renderizações com `samples` N e `firstSample` 0 e N são independentes
+     * e a média delas é a de 2N amostras — a diferença entre elas mede o ruído da própria referência.
+     */
+    readonly firstSample?: number;
 }
 
 /** Imagem HDR e a instância vista por pixel (−1 = nada). */
@@ -609,7 +614,8 @@ export function renderPathTraced(input: PtScene, camera: PtCamera, opts: PtOptio
                 faces[pixel] = axis * 2 + (center.normal[axis] > 0 ? 1 : 0);
             }
             let acc: Vec3 = ZERO;
-            for (let s = 0; s < opts.samples; s++) {
+            const first = opts.firstSample ?? 0;
+            for (let s = first; s < first + opts.samples; s++) {
                 const rng = new Rng(pixel, s);
                 const d = dirAt(x + rng.next(), y + rng.next());
                 const l =
