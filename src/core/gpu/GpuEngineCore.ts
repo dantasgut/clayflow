@@ -1,5 +1,6 @@
 import type {
     CanvasOptions,
+    CanvasPixels,
     CanvasOutput,
     DeviceLostHandler,
     DeviceLostInfo,
@@ -392,6 +393,45 @@ export class GpuEngineCore implements EngineCore {
         if (this.pendingPipelines.has(hash)) this.releasedWhilePending.add(spec);
     }
 
+    async readCanvas(): Promise<CanvasPixels> {
+        const ctx = this.requireContext();
+        if (ctx.canvasContext === null) throw new Error('readCanvas(): sem canvas configurado.');
+        const texture = ctx.canvasContext.getCurrentTexture();
+        if ((texture.usage & GPUTextureUsage.COPY_SRC) === 0) {
+            throw new Error(
+                'readCanvas(): configure o canvas com `capture: true` (CanvasOptions).',
+            );
+        }
+        const { width, height, format } = texture;
+        const bytesPerPixel = format === 'rgba16float' ? 8 : 4;
+        const tight = width * bytesPerPixel;
+        const bytesPerRow = Math.ceil(tight / 256) * 256;
+        const buffer = ctx.device.createBuffer({
+            label: 'readCanvas',
+            size: bytesPerRow * height,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        try {
+            // A cópia sai na mesma tarefa do quadro (a textura atual do canvas ainda é a apresentada).
+            const encoder = ctx.device.createCommandEncoder({ label: 'readCanvas' });
+            encoder.copyTextureToBuffer(
+                { texture },
+                { buffer, bytesPerRow, rowsPerImage: height },
+                [width, height],
+            );
+            ctx.queue.submit([encoder.finish()]);
+            await buffer.mapAsync(GPUMapMode.READ);
+            const mapped = new Uint8Array(buffer.getMappedRange());
+            const data = new Uint8Array(tight * height);
+            for (let y = 0; y < height; y++)
+                data.set(mapped.subarray(y * bytesPerRow, y * bytesPerRow + tight), y * tight);
+            buffer.unmap();
+            return { width, height, format, bytesPerPixel, data };
+        } finally {
+            buffer.destroy();
+        }
+    }
+
     async readback(spec: StagingBufferSpec): Promise<ArrayBuffer> {
         const buf = this.requireBuffer(spec);
         await buf.mapAsync(GPUMapMode.READ);
@@ -565,6 +605,9 @@ export class GpuEngineCore implements EngineCore {
             ctx.canvasContext!.configure({
                 device: ctx.device,
                 format,
+                ...(options?.capture === true
+                    ? { usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC }
+                    : {}),
                 alphaMode: options?.alphaMode ?? 'opaque',
                 ...(options?.colorSpace !== undefined ? { colorSpace: options.colorSpace } : {}),
                 ...(hdr ? { toneMapping: { mode: 'extended' } } : {}),

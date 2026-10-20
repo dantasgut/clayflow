@@ -71,6 +71,23 @@ export interface CanvasOptions {
     readonly toneMapping?: 'standard' | 'extended';
     /** Formato do canvas: `preferred` (default, o de `getPreferredCanvasFormat`) ou `rgba16float` (saída HDR). */
     readonly format?: 'preferred' | 'rgba16float';
+    /**
+     * Permite ler o quadro apresentado (`readCanvas`, spec 034): a textura do canvas ganha o uso de cópia. Para
+     * ferramentas (gravação de vídeo, comparação de imagens); sem ela o canvas fica só como alvo de desenho.
+     */
+    readonly capture?: boolean;
+}
+
+/** O quadro apresentado lido da GPU (`EngineCore.readCanvas`, spec 034), linhas sem preenchimento. */
+export interface CanvasPixels {
+    readonly width: number;
+    readonly height: number;
+    /** Formato da textura do canvas (`bgra8unorm`, `rgba8unorm` ou `rgba16float`). */
+    readonly format: GPUTextureFormat;
+    /** Bytes por pixel (4 nos formatos de 8 bits, 8 no `rgba16float`). */
+    readonly bytesPerPixel: number;
+    /** `width · height · bytesPerPixel` bytes, linha a linha, de cima para baixo. */
+    readonly data: Uint8Array;
 }
 
 /** Saída do canvas efetivamente configurada (spec 011): o formato e o mapeamento de tons da tela. */
@@ -248,6 +265,14 @@ export interface EngineCore {
      * Retorna ArrayBuffer com cópia dos dados.
      */
     readback(spec: StagingBufferSpec): Promise<ArrayBuffer>;
+
+    /**
+     * Lê da GPU o quadro apresentado no canvas (spec 034): copia a textura atual do canvas para um buffer de leitura e
+     * devolve os pixels. Chame na mesma tarefa do quadro (a textura do canvas só vale até a tarefa ceder) e com o canvas
+     * configurado com `capture: true`. Para ferramentas — o motor nunca lê de volta por quadro por conta própria.
+     * @throws Error sem canvas, sem `capture` ou depois de a tarefa do quadro ceder.
+     */
+    readCanvas(): Promise<CanvasPixels>;
 
     /**
      * Abre um command encoder, passa um Frame para o body emitir comandos,

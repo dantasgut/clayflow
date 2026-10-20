@@ -59,9 +59,9 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 
 ## Phase 4: User Story 6 — vídeos fiéis ao motor (P2, cedo para validar as fases seguintes)
 
-- [ ] T020 [US6] Usage `COPY_SRC` opcional do canvas (C1, `src/core/gpu/GpuContext.ts` / opções do canvas) e captura em `src/__smokes__/support/capture.ts`: cópia do quadro apresentado para anel de 3 buffers de leitura após cada `step`, entrega ao runner por função exposta
-- [ ] T021 [US6] `bench/runner/video.ts` + script `npm run video`: cenas por nome, `whenReady`, passo fixo 1/60, `stdin` do ffmpeg em `rawvideo`; H.264 High CRF 12 (padrão), `--lossless` FFV1, `--hdr10` HEVC Main10 (alvo rgba16f com o mesmo mapeamento de tons); prazo por processo, encerramento em `finally`, vigia de órfãos
-- [ ] T022 [US6] Página de cenas de vídeo `src/__smokes__/videoScenes.ts` (lente, dispersão, vidros, água, cáusticas, Cornell, dia, névoa, sala, pano com sombra) — títulos fiéis ao que a cena mostra
+- [x] T020 [US6] Usage `COPY_SRC` opcional do canvas (C1, `src/core/gpu/GpuContext.ts` / opções do canvas) e captura em `src/__smokes__/support/capture.ts`: cópia do quadro apresentado para anel de 3 buffers de leitura após cada `step`, entrega ao runner por função exposta
+- [x] T021 [US6] `bench/runner/video.ts` + script `npm run video`: cenas por nome, `whenReady`, passo fixo 1/60, `stdin` do ffmpeg em `rawvideo`; H.264 High CRF 12 (padrão), `--lossless` FFV1, `--hdr10` HEVC Main10 (alvo rgba16f com o mesmo mapeamento de tons); prazo por processo, encerramento em `finally`, vigia de órfãos
+- [x] T022 [US6] Página de cenas de vídeo `src/__smokes__/videoScenes.ts` (lente, dispersão, vidros, água, cáusticas, Cornell, dia, névoa, sala, pano com sombra) — títulos fiéis ao que a cena mostra
 - [ ] T023 [US6] Medida SC-010: PSNR de cada quadro decodificado contra o lido da GPU (≥ 45 dB) e 0 processos órfãos após gravação e após falha forçada; vídeos do estado de partida enviados ao usuário
 
 ---

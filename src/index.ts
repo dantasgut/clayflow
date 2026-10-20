@@ -49,6 +49,7 @@ export type {
     RenderTarget,
     FrameStats,
     FrameGpuTiming,
+    CanvasPixels,
     DeviceOptions,
     DeviceCapabilities,
     AdapterDescription,

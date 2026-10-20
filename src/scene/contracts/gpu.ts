@@ -61,6 +61,7 @@ export type {
     BundleRunner,
     Profiler,
     CanvasOptions,
+    CanvasPixels,
     CanvasOutput,
     DeviceOptions,
     DeviceCapabilities,

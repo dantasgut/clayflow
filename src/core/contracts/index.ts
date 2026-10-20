@@ -17,6 +17,7 @@ export type {
     EngineCore,
     FrameProfilingGranularity,
     CanvasOptions,
+    CanvasPixels,
     CanvasOutput,
     DeviceLostInfo,
     DeviceLostHandler,
