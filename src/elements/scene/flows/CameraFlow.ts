@@ -24,6 +24,7 @@ import { CameraFunction } from '../../extension/CameraFunction';
 import type { World } from '../../../scene/world/World';
 import { Camera } from '../Camera';
 import { Transform } from '../Transform';
+import { pixelJitter, TemporalAntialiasing } from '../TemporalAntialiasing';
 import {
     CameraComposeParamsSchema,
     CameraFnEntrySchema,
@@ -51,6 +52,8 @@ export interface CameraSlots extends SlotMap {
     readonly functions: EntitiesSlot;
     /** Relógio da cena (tempo simulado das funções; sem relógio, 0). */
     readonly time: SingletonSlot<true>;
+    /** Antisserrilhado da cena (spec 034): sem ele, ou fora do modo temporal/acumulação, nenhum deslocamento. */
+    readonly antialiasing: SingletonSlot<true>;
 }
 
 const slots: CameraSlots = {
@@ -65,6 +68,7 @@ const slots: CameraSlots = {
     cameras: slot.entities({ all: [Camera] }),
     functions: slot.entities({ all: [Camera, Transform, CameraFunction] }),
     time: slot.singleton(Time.schema, { optional: true }),
+    antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
 };
 
 /** Câmeras com função reservadas na lista no primeiro uso (cresce em potências de 2). */
@@ -121,6 +125,12 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
     private fnList: StorageBufferSpec;
     private fnCapacity = MIN_FN_CAMERAS;
     private readonly fnGroupUniforms: PerStepUniforms;
+    /** Quadros gravados (índice da sequência do deslocamento da amostra; conta quadros de imagem, não passos). */
+    private frame = 0;
+    /** Deslocamento do quadro (NDC xy, pixels zw). */
+    private jitter: readonly [number, number, number, number] = [0, 0, 0, 0];
+    /** Câmeras com `cut` ligado já enviado num quadro (desligado no seguinte). */
+    private readonly cutSent = new Set<Camera>();
 
     constructor(ctx: FlowContext) {
         super();
@@ -190,6 +200,8 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
                 framePrepare: {
                     to: 'idle',
                     run: (_e, c) => {
+                        this.updateJitter(c);
+                        this.clearCuts(c);
                         this.writeParams(c);
                         this.syncFunctions(c);
                         this.writeGroups(c);
@@ -305,6 +317,7 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
                 count: g.count,
                 time,
                 canvas_aspect: aspect,
+                jitter: this.jitter,
             });
         });
         this.fnGroupUniforms.flush(this.fnGroups.length);
@@ -328,11 +341,43 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             first: list?.first ?? 0,
             count: this.count,
             canvas_aspect: height > 0 ? width / height : 1,
+            jitter: this.jitter,
         };
-        const key = `${values.first}:${values.count}:${values.canvas_aspect}`;
+        const key = `${values.first}:${values.count}:${values.canvas_aspect}:${this.jitter.join(',')}`;
         if (key === this.written) return;
         this.core.write(this.params, CameraComposeParamsSchema.pack(values));
         this.written = key;
+    }
+
+    /**
+     * Deslocamento da amostra dentro do pixel do quadro (spec 034, R3): Halton (2, 3) com o antisserrilhado temporal ou a
+     * acumulação; em NDC (y para cima) e em pixels do alvo.
+     */
+    private updateJitter(ctx: Ctx): void {
+        const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        if (!aa?.jitters) {
+            this.jitter = [0, 0, 0, 0];
+            return;
+        }
+        const { width, height } = this.core.canvasSize() ?? { width: 1, height: 1 };
+        const [px, py] = pixelJitter(this.frame, aa.data.sequence);
+        this.frame++;
+        this.jitter = [(2 * px) / Math.max(1, width), (-2 * py) / Math.max(1, height), px, py];
+    }
+
+    /** `cut` vale um quadro: as câmeras que o enviaram no quadro anterior voltam a 0. */
+    private clearCuts(ctx: Ctx): void {
+        for (const entry of ctx.bound.slots.cameras.entries) {
+            const camera = entry.get(Camera);
+            if (camera.data.cut === 0) {
+                this.cutSent.delete(camera);
+                continue;
+            }
+            if (this.cutSent.has(camera)) {
+                camera.data.cut = 0;
+                this.cutSent.delete(camera);
+            } else this.cutSent.add(camera);
+        }
     }
 
     /** Toda `Camera` precisa de um `Transform` na mesma entidade (posição e orientação). */

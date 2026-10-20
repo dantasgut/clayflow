@@ -75,7 +75,7 @@ async function run(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        antialias,
+        antialias: antialias ? 'msaa' : 'off',
     });
     app.events.on('engineError', (e) => engineErrors.push(`${name}: ${e.stage}: ${e.message}`));
     let readbacks = 0;
@@ -495,6 +495,9 @@ async function performance36k(failures: string[]): Promise<void> {
     canvas.height = 720;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,

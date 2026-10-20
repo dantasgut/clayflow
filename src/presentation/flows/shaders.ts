@@ -8,15 +8,21 @@ import presentSingleSource from './effects/present_single.wgsl?raw';
 import presentMsSource from './effects/present_ms.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
 import sceneCopyMipsSource from './scene_copy_mips.wgsl?raw';
+import temporalResolveSource from './effects/temporal_resolve.wgsl?raw';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { color, present } from '../../elements/gpu/shaders/math';
-import { shadowMatricesResource, worldsResource } from '../../elements/scene/resources';
+import {
+    camerasResource,
+    shadowMatricesResource,
+    worldsResource,
+} from '../../elements/scene/resources';
 import {
     EffectParamsSchema,
     PresentationParamsSchema,
     ScreenParamsSchema,
     ShadowDepthParamsSchema,
     ShadowInstanceSchema,
+    TemporalResolveParamsSchema,
     UiQuadSchema,
 } from './renderSchemas';
 
@@ -138,6 +144,48 @@ export const presentMultisampled = wgslModule({
     name: 'present_ms',
     source: presentMsSource,
     requires: [fullscreen, presentCommon, presentResources.samples],
+});
+
+/** Recursos da resolução temporal (spec 034), privados do `PostFlow`. */
+export const temporalResources = {
+    /** Parâmetros (`TemporalResolveParams`). */
+    params: wgslResource({
+        name: 'taa_params',
+        binding: { uniform: true },
+        type: { schema: TemporalResolveParamsSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    /** O histórico do quadro anterior (a saída da resolução de lá). */
+    history: wgslResource({
+        name: 'taa_history',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    /** A profundidade da cena (`FrameTargets.depth`, sem MSAA). */
+    depth: wgslResource({
+        name: 'taa_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+} as const;
+
+/** Resolução temporal: a cor deslocada do quadro mais o histórico reprojetado e recortado (spec 034, R3). */
+export const temporalResolve = wgslModule({
+    name: 'temporal_resolve',
+    source: temporalResolveSource,
+    requires: [
+        fullscreen,
+        color,
+        camerasResource,
+        temporalResources.params,
+        effectResources.source,
+        temporalResources.history,
+        temporalResources.depth,
+        effectResources.sampler,
+    ],
 });
 
 /** Recursos da UI (spec 031, R1), privados do `UIFlow` (`UiGpuPipeline`). */

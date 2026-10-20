@@ -203,7 +203,15 @@ async function run(): Promise<Capture> {
     canvas.height = HEIGHT;
     document.body.appendChild(canvas);
     const scene = createScene();
-    const app = await Application.create({ canvas, scene, autoResize: false, captureErrors: true });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        scene,
+        autoResize: false,
+        captureErrors: true,
+    });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
     scene.flows.register((ctx) => new SpiralFlow(ctx), { type: 'spiral', phase: 'transform' });
     app.world.insert(

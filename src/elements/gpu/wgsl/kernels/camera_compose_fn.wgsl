@@ -18,8 +18,17 @@ fn camera_compose_fn_main(
     let aspect = select(p.aspect, camera_fn_group.canvas_aspect, p.aspectMode == 0u);
     let out = camera_fn(p, world, aspect, camera_fn_params(e.record), camera_fn_group.time);
     if (!finite_mat4(out.view) || !finite_mat4(out.projection)) { return; }
+    // A anterior já foi guardada pelo estágio padrão neste quadro: só as matrizes da função, com o mesmo deslocamento.
+    let shift = mat4x4f(
+        vec4f(1.0, 0.0, 0.0, 0.0),
+        vec4f(0.0, 1.0, 0.0, 0.0),
+        vec4f(0.0, 0.0, 1.0, 0.0),
+        vec4f(camera_fn_group.jitter.x, camera_fn_group.jitter.y, 0.0, 1.0),
+    );
+    let jittered = shift * out.projection;
     camera_matrices[e.camera].view = out.view;
-    camera_matrices[e.camera].projection = out.projection;
-    camera_matrices[e.camera].viewProjection = out.projection * out.view;
+    camera_matrices[e.camera].projection = jittered;
+    camera_matrices[e.camera].viewProjection = jittered * out.view;
+    camera_matrices[e.camera].unjitteredViewProjection = out.projection * out.view;
     camera_matrices[e.camera].position = vec4f(world[3].xyz, 1.0);
 }

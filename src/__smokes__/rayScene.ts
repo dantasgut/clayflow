@@ -206,6 +206,9 @@ async function rayApp(
     document.body.appendChild(canvas);
     const scene = createScene();
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene,
         autoResize: false,

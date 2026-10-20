@@ -58,7 +58,9 @@ fn gi_camera_ray(px: vec2f) -> GiCameraRay {
     // A inversa da rotação da vista é a transposta.
     let rot = transpose(mat3x3f(cam.view[0].xyz, cam.view[1].xyz, cam.view[2].xyz));
     if (p[3][3] != 1.0) {
-        return GiCameraRay(cam.position.xyz, normalize(rot * vec3f(ndc.x / p[0][0], ndc.y / p[1][1], -1.0)));
+        // O deslocamento da amostra do quadro (spec 034) está em p[2].xy, que a reconstrução não lê: tirado do NDC.
+        let q = ndc - cam.jitter.xy;
+        return GiCameraRay(cam.position.xyz, normalize(rot * vec3f(q.x / p[0][0], q.y / p[1][1], -1.0)));
     }
     let offset = vec3f((ndc.x - p[3][0]) / p[0][0], (ndc.y - p[3][1]) / p[1][1], 0.0);
     return GiCameraRay(cam.position.xyz + rot * offset, normalize(rot * vec3f(0.0, 0.0, -1.0)));

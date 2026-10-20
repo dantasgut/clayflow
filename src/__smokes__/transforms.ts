@@ -244,7 +244,14 @@ async function main(): Promise<void> {
     const W = canvas.width;
     const H = canvas.height;
 
-    const app = await Application.create({ canvas, captureErrors: true, autoResize: false });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        captureErrors: true,
+        autoResize: false,
+    });
     let engineErrors = 0;
     app.events.on('engineError', (e) => {
         engineErrors++;

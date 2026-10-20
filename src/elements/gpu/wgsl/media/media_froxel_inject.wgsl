@@ -30,7 +30,7 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     let uv = (vec2f(cell.xy) + jitter.xy) / vec2f(dims.xy);
     let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     let z = froxel_slice_depth(f32(cell.z) + jitter.z);
-    let p = froxel_world(cam, froxel_view_point(ndc, z, cam.projection));
+    let p = froxel_world(cam, froxel_view_point(ndc, z, froxel_projection(cam)));
     let ray = normalize(p - cam.position.xyz);
     // O trecho do raio da câmera nesta fatia (o meio homogêneo de borda nítida entra pela fração exata dentro dele).
     let stretch = distance(p, cam.position.xyz) / z;
@@ -78,7 +78,7 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     if (froxels.counts.w == 1u) {
         let uv_c = (vec2f(cell.xy) + 0.5) / vec2f(dims.xy);
         let ndc_c = vec2f(uv_c.x * 2.0 - 1.0, 1.0 - uv_c.y * 2.0);
-        let center = froxel_world(cam, froxel_view_point(ndc_c, froxel_slice_depth(f32(cell.z) + 0.5), cam.projection));
+        let center = froxel_world(cam, froxel_view_point(ndc_c, froxel_slice_depth(f32(cell.z) + 0.5), froxel_projection(cam)));
         let f = froxel_locate(froxel_camera[0], froxel_camera[1], center);
         let w = f.z / f32(dims.z);
         if (all(f.xy >= vec2f(0.0)) && all(f.xy <= vec2f(1.0)) && w >= 0.0 && w <= 1.0) {

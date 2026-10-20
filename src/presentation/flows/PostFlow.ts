@@ -20,22 +20,32 @@ import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
+    type PoolSlot,
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
     type TextureSlot,
 } from '../../scene/flows/slots';
+import type { World } from '../../scene/world/World';
+import { Camera } from '../../elements/scene/Camera';
+import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { PostProcessEffect } from '../resources/PostProcessEffect';
 import { ToneMapping, operatorIndex } from '../resources/ToneMapping';
 import { FrameTargets, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
-import { EffectParamsSchema, PresentationParamsSchema } from './renderSchemas';
+import {
+    EffectParamsSchema,
+    PresentationParamsSchema,
+    TemporalResolveParamsSchema,
+} from './renderSchemas';
 import {
     effectResources,
     effectsBase,
     presentMultisampled,
     presentResources,
     presentSingle,
+    temporalResolve,
+    temporalResources,
 } from './shaders';
 
 /** Slots do pós-processamento. */
@@ -48,6 +58,13 @@ export interface PostSlots extends SlotMap {
     readonly presentation: SingletonSlot<true>;
     /** O canvas do quadro (o passe de apresentação). */
     readonly target: TargetSlot;
+    /** Antisserrilhado da cena (spec 034): no modo temporal ou de acumulação, a resolução abre a cadeia. */
+    readonly antialiasing: SingletonSlot<true>;
+    /** Profundidade da cena (`FrameTargets.depth`): a reprojeção do histórico. */
+    readonly depth: TextureSlot<true>;
+    /** A câmera ativa e o pool das matrizes (o deslocamento, a anterior e o corte). */
+    readonly camera: SingletonSlot<true>;
+    readonly cameras: PoolSlot<true>;
 }
 
 const slots: PostSlots = {
@@ -55,6 +72,10 @@ const slots: PostSlots = {
     samples: slot.texture(FrameTargets.schema, 'samples', { optional: true }),
     presentation: slot.singleton(ToneMapping.schema, { optional: true }),
     target: slot.target('canvas'),
+    antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+    depth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
+    camera: slot.singleton(Camera.schema, { optional: true }),
+    cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
 };
 
 type Ctx = TransitionContext<PostSlots>;
@@ -108,11 +129,29 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private chainKey = '';
     /** Saída pedida da última vez que o canvas foi configurado por este estágio. */
     private requestedOutput: 'sdr' | 'hdr' = 'sdr';
+    private readonly world: World;
+    /** Parâmetros da resolução temporal (spec 034). */
+    private readonly taaParams: UniformBufferSpec;
+    /** Os dois históricos (escreve um, lê o outro; trocam a cada quadro). */
+    private history: {
+        textures: [TextureSpec, TextureSpec];
+        views: [TextureViewSpec, TextureViewSpec];
+    } | null = null;
+    /** Histórico escrito neste quadro (0 ou 1); `-1` sem resolução temporal. */
+    private taaWrite = -1;
+    private readonly taaPrepared = new Set<string>();
 
     constructor(ctx: FlowContext) {
         super();
         this.core = ctx.core;
         this.events = ctx.events;
+        this.world = ctx.world;
+        this.taaParams = ctx.core.create<UniformBufferSpec>({
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: 'post_taa_params',
+            byteSize: TemporalResolveParamsSchema.stride,
+        });
         this.sampler = ctx.core.create<SamplerSpec>({
             kind: 'sampler',
             discriminator: 'post_sampler',
@@ -132,6 +171,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         this.bindings = new Map<WgslResource, BindingSource>([
             [effectResources.sampler, this.sampler],
             [presentResources.params, this.presentParams],
+            [temporalResources.params, this.taaParams],
         ]);
         this.transitions = {
             '*': {
@@ -164,6 +204,8 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
+                // O pool das matrizes de câmera realocado: a C2 religa a fonte.
+                poolReallocated: 'ignore',
             },
         };
     }
@@ -182,6 +224,26 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<PostSlots>): void {
         const canvas = this.colorView(frame, bound.slots.target);
         if (canvas === undefined || this.presentPipeline === '') return;
+        if (this.taaWrite >= 0 && this.history !== null) {
+            // A resolução temporal abre a cadeia: escreve o histórico deste quadro, que a cadeia e a apresentação leem.
+            const resolve = bound.pipelines.get(`post:taa:${this.taaWrite}`);
+            if (resolve?.role !== 'render' || !resolve.ready) return;
+            const target: RenderTarget = {
+                colorAttachments: [
+                    {
+                        view: this.history.views[this.taaWrite]!,
+                        loadOp: 'clear',
+                        clearValue: [0, 0, 0, 0],
+                        storeOp: 'store',
+                    },
+                ],
+            };
+            frame.render(target, 'PostFlow.temporalResolve', (p) => {
+                p.bind.setPipeline(resolve.spec);
+                resolve.bindTo(p.bind);
+                p.draw.vertices(3);
+            });
+        }
         const passes = [...this.chain.map((p) => p.pipeline), this.presentPipeline];
         for (let i = 0; i < passes.length; i++) {
             const id = passes[i]!;
@@ -207,6 +269,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         this.releasePingPong();
         this.core.destroy(this.sampler);
         this.core.destroy(this.presentParams);
+        this.core.destroy(this.taaParams);
         for (const pass of this.passes.values()) this.core.destroy(pass.params);
         this.passes.clear();
     }
@@ -237,15 +300,75 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const a = texture('a');
         const b = texture('b');
         this.pingpong = { textures: [a, b], views: [view(a, 'a'), view(b, 'b')] };
+        // Históricos da resolução temporal: recomeçam vazios no redimensionamento (o alfa 0 = nenhum quadro).
+        const h0 = texture('taa0');
+        const h1 = texture('taa1');
+        this.history = { textures: [h0, h1], views: [view(h0, 'taa0'), view(h1, 'taa1')] };
         this.chainKey = '';
         this.prepareChain(ctx);
     }
 
     private releasePingPong(): void {
+        if (this.history !== null) {
+            for (const v of this.history.views) this.core.destroy(v);
+            for (const t of this.history.textures) this.core.destroy(t);
+            this.history = null;
+        }
         if (this.pingpong === null) return;
         for (const v of this.pingpong.views) this.core.destroy(v);
         for (const t of this.pingpong.textures) this.core.destroy(t);
         this.pingpong = null;
+    }
+
+    /**
+     * Resolução temporal do quadro (spec 034): ativa com o antisserrilhado temporal ou de acumulação, a profundidade
+     * sem MSAA e uma câmera. Troca o histórico escrito, escreve os parâmetros e liga/prepara o pipeline da paridade.
+     * Devolve a vista da imagem resolvida deste quadro, ou `undefined` sem a resolução.
+     */
+    private prepareTemporal(ctx: Ctx): TextureViewSpec | undefined {
+        const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        const depth = ctx.bound.slots.depth;
+        const camera = ctx.bound.slots.camera?.resource;
+        const cameraId = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
+        const cameraSlot =
+            cameraId === undefined ? undefined : ctx.bound.slots.cameras?.slotOf(cameraId);
+        if (
+            aa === undefined
+            || !aa.jitters
+            || depth === undefined
+            || ctx.bound.slots.samples !== undefined
+            || cameraSlot === undefined
+            || this.history === null
+        ) {
+            this.taaWrite = -1;
+            return undefined;
+        }
+        this.taaWrite = this.taaWrite === 0 ? 1 : 0;
+        this.core.write(
+            this.taaParams,
+            TemporalResolveParamsSchema.pack({ cameraSlot, mode: aa.data.mode }),
+        );
+        const id = `post:taa:${this.taaWrite}`;
+        const read = this.history.views[1 - this.taaWrite]!;
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [{ pipeline: id, resource: effectResources.source }, ctx.bound.slots.scene.view],
+                [{ pipeline: id, resource: temporalResources.history }, read],
+                [{ pipeline: id, resource: temporalResources.depth }, depth.view],
+            ]),
+        );
+        if (!this.taaPrepared.has(id)) {
+            ctx.prepare({
+                id,
+                role: 'render',
+                shader: temporalResolve,
+                entryPoints: ['vs_fullscreen', 'fs_temporal_resolve'],
+                topology: 'triangle-list',
+                colorTargets: [{ format: SCENE_COLOR_FORMAT }],
+            });
+            this.taaPrepared.add(id);
+        }
+        return this.history.views[this.taaWrite]!;
     }
 
     /** Descritor e uniform de parâmetros do efeito, criados uma vez; o efeito escreve no pingue-pongue HDR. */
@@ -339,7 +462,8 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const chain = enabled.map((e) => this.passOf(e, ctx));
         for (let i = 0; i < enabled.length; i++)
             this.core.write(chain[i]!.params, enabled[i]!.paramsBytes());
-        const scene = ctx.bound.slots.scene.view;
+        // Com a resolução temporal, a cadeia e a apresentação leem a imagem resolvida, não a cor crua da cena.
+        const scene = this.prepareTemporal(ctx) ?? ctx.bound.slots.scene.view;
         const samples = ctx.bound.slots.samples;
         const multisampled = chain.length === 0 && samples !== undefined;
         const present = this.presentDescriptor(multisampled);

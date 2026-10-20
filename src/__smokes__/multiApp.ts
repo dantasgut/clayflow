@@ -38,9 +38,23 @@ async function main(): Promise<void> {
     const scene1 = createScene();
     const scene2 = createScene();
 
-    const app1 = await Application.create({ canvas: c1, scene: scene1, autoResize: false });
+    const app1 = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas: c1,
+        scene: scene1,
+        autoResize: false,
+    });
     log('app1 created (scene1)');
-    const app2 = await Application.create({ canvas: c2, scene: scene2, autoResize: false });
+    const app2 = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas: c2,
+        scene: scene2,
+        autoResize: false,
+    });
     log('app2 created (scene2)');
 
     // Cena 1: cubo

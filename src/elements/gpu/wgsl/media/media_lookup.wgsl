@@ -33,7 +33,7 @@ fn scene_fog(p: vec3f) -> vec4f {
     let none = vec4f(0.0, 0.0, 0.0, 1.0);
     if (froxels.depth.w == 0.0) { return none; }
     let cam = cameras[froxels.grid.w];
-    let f = froxel_locate(cam.view, cam.viewProjection, p);
+    let f = froxel_locate(cam.view, cam.unjitteredViewProjection, p);
     if (f.z <= 0.0) { return none; }
     let n = f32(froxels.grid.z);
     let fog = froxel_tricubic(vec3f(f.xy, clamp((f.z - 0.5) / n, 0.5 / n, 1.0 - 0.5 / n)));

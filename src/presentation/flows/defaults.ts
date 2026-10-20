@@ -35,6 +35,10 @@ import { FluidFieldFlow } from '../../elements/fields/FluidFieldFlow';
 import { Froxels } from '../../elements/media/Froxels';
 import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import {
+    TemporalAntialiasing,
+    type AntialiasingMode,
+} from '../../elements/scene/TemporalAntialiasing';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -47,6 +51,8 @@ export interface PresentationDefaultsOptions {
     readonly events?: EventBus;
     /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
     readonly samples?: 1 | 4;
+    /** Modo do antisserrilhado da cena (spec 034). Default `'temporal'`. */
+    readonly antialiasing?: AntialiasingMode;
 }
 
 /**
@@ -93,6 +99,8 @@ export interface PresentationDefaults {
     readonly ambient: HemisphereLight;
     /** Alvos HDR da cena (cor, amostras, profundidade e a cópia com mips). */
     readonly targets: FrameTargets;
+    /** Antisserrilhado da cena (spec 034): o modo e a sequência das posições da amostra dentro do pixel. */
+    readonly antialiasing: TemporalAntialiasing;
 }
 
 /** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
@@ -104,6 +112,7 @@ interface RegisteredDefaults {
     readonly fluidField: FluidField;
     readonly froxels: Froxels;
     readonly presentation: ToneMapping;
+    readonly antialiasing: TemporalAntialiasing;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
     readonly world: World;
@@ -151,6 +160,9 @@ export function registerPresentationDefaults(
     // Apresentação (spec 011): o último passo do quadro, lido pelo pós pelo slot.
     const presentation = new ToneMapping();
     options.world.insert(presentation);
+    // Antisserrilhado (spec 034): o estágio de câmera desloca a amostra, o pós resolve o histórico.
+    const antialiasing = new TemporalAntialiasing({ mode: options.antialiasing ?? 'temporal' });
+    options.world.insert(antialiasing);
     // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
     const pbrTables = new PbrTables();
     options.world.insert(pbrTables);
@@ -167,6 +179,7 @@ export function registerPresentationDefaults(
         presentation,
         ambient,
         targets: frameTargets,
+        antialiasing,
     };
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
@@ -176,6 +189,7 @@ export function registerPresentationDefaults(
         fluidField,
         froxels,
         presentation,
+        antialiasing,
         pbrTables,
         ambient,
         world: options.world,
@@ -201,6 +215,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
         entry.world.remove(entry.ambient);
     entry.world.remove(entry.pbrTables);
     entry.world.remove(entry.presentation);
+    entry.world.remove(entry.antialiasing);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
@@ -239,7 +254,7 @@ function swapAmbientForGi(
 }
 
 function createPresentationDefaults(flows: FlowRegistry): {
-    flows: Omit<PresentationDefaults, 'presentation' | 'ambient' | 'targets'>;
+    flows: Omit<PresentationDefaults, 'presentation' | 'ambient' | 'targets' | 'antialiasing'>;
     registrations: readonly FlowRegistration[];
 } {
     const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {

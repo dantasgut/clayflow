@@ -24,7 +24,9 @@ fn fs_background(in: BackgroundOut) -> @location(0) vec4f {
     let p = cam.projection;
     var dir_view = vec3f(0.0, 0.0, -1.0);
     if (p[3][3] != 1.0) {
-        dir_view = vec3f(in.ndc.x / p[0][0], in.ndc.y / p[1][1], -1.0);
+        // O deslocamento da amostra do quadro (spec 034) está em p[2].xy: tirado do NDC do raio.
+        let q = in.ndc - cam.jitter.xy;
+        dir_view = vec3f(q.x / p[0][0], q.y / p[1][1], -1.0);
     }
     // A inversa da rotação da vista é a transposta.
     let v = cam.view;

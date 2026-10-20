@@ -86,7 +86,14 @@ async function scenario(
     canvas.width = 64;
     canvas.height = 64;
     document.body.appendChild(canvas);
-    const app = await Application.create({ canvas, scene: createScene(), autoResize: false });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+    });
     buildRigidPile(app, count);
     const flow = app.flows.resolve('LCPSchema')?.flow;
     if (!(flow instanceof LCPFlow)) throw new Error('LCPFlow não registrado para LCPSchema');

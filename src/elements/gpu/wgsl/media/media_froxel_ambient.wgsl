@@ -16,6 +16,6 @@ fn froxel_ambient_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let cam = cameras[froxels.grid.w];
     let ndc = vec2f(uvw.x * 2.0 - 1.0, 1.0 - uvw.y * 2.0);
     let z = froxel_slice_depth(uvw.z * f32(froxels.grid.z));
-    let p = froxel_world(cam, froxel_view_point(ndc, z, cam.projection));
+    let p = froxel_world(cam, froxel_view_point(ndc, z, froxel_projection(cam)));
     textureStore(froxel_ambient_out, cell, vec4f(scene_ambient(p), 1.0));
 }

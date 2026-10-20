@@ -36,6 +36,21 @@ export const PresentationParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
+/**
+ * Parâmetros da resolução temporal (spec 034): slot da câmera ativa no pool `CameraMatrices` e o modo (1 temporal,
+ * 3 acumulação).
+ */
+export const TemporalResolveParamsSchema = new StructSchema(
+    'TemporalResolveParams',
+    {
+        cameraSlot: FieldType.u32,
+        mode: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
 /** Tamanho da tela em pixels (UI). */
 export const ScreenParamsSchema = new StructSchema(
     'ScreenParams',

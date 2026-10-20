@@ -60,7 +60,10 @@ describe('PostFlow — apresentação', () => {
                     === true,
             )
             .filter((c) => (c as { kind: string }).kind === 'texture');
+        // Pingue-pongue dos efeitos e os dois históricos da resolução temporal (spec 034), todos HDR.
         expect(ping.map((t) => (t as { format: string }).format)).toEqual([
+            'rgba16float',
+            'rgba16float',
             'rgba16float',
             'rgba16float',
         ]);

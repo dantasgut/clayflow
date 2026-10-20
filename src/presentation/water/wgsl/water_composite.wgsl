@@ -17,8 +17,9 @@ fn water_composite_vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4
 }
 
 // Ponto da vista no pixel com profundidade linear `z` (projeção simétrica; perspectiva ou ortográfica).
-fn composite_view_pos(pixel: vec2f, z: f32, p: mat4x4f, size: vec2f) -> vec3f {
-    let ndc = vec2f(pixel.x / size.x * 2.0 - 1.0, 1.0 - pixel.y / size.y * 2.0);
+fn composite_view_pos(pixel: vec2f, z: f32, p: mat4x4f, size: vec2f, jitter: vec2f) -> vec3f {
+    // Perspectiva: o deslocamento da amostra do quadro (spec 034) está em p[2].xy, que a reconstrução não lê.
+    let ndc = vec2f(pixel.x / size.x * 2.0 - 1.0, 1.0 - pixel.y / size.y * 2.0) - select(vec2f(0.0), jitter, abs(p[2].w) > 0.5);
     if (abs(p[2].w) > 0.5) {
         return vec3f(ndc.x * z / p[0].x, ndc.y * z / p[1].y, -z);
     }
@@ -42,7 +43,7 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     let material = water_materials[m - 1u];
     let cam = cameras[water_composite.cameraSlot];
     let proj = cam.projection;
-    let pv = composite_view_pos(frag.xy, z, proj, size);
+    let pv = composite_view_pos(frag.xy, z, proj, size, cam.jitter.xy);
     // Vista → mundo (vista rígida).
     let r = mat3x3f(cam.view[0].xyz, cam.view[1].xyz, cam.view[2].xyz);
     let rt = transpose(r);

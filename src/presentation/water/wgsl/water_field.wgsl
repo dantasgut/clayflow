@@ -27,7 +27,9 @@ fn water_field_camera(
     var ov = vec3f(0.0);
     var dv = vec3f(0.0, 0.0, -1.0);
     if (abs(proj[2].w) > 0.5) {
-        dv = normalize(vec3f(ndc.x / proj[0].x, ndc.y / proj[1].y, -1.0));
+        // O deslocamento da amostra do quadro (spec 034) está em proj[2].xy: tirado do NDC do raio.
+        let q = ndc - cam.jitter.xy;
+        dv = normalize(vec3f(q.x / proj[0].x, q.y / proj[1].y, -1.0));
     } else {
         ov = vec3f((ndc.x - proj[3].x) / proj[0].x, (ndc.y - proj[3].y) / proj[1].y, 0.0);
     }

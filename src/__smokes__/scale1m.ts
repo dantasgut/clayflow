@@ -56,7 +56,14 @@ async function main(): Promise<void> {
     canvas.width = 320;
     canvas.height = 180;
     document.body.appendChild(canvas);
-    const app = await Application.create({ canvas, scene: createScene(), autoResize: false });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+    });
     app.world.insert(
         new Camera({ far: 1000 }).add(
             new Transform({

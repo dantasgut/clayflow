@@ -12,14 +12,14 @@ fn froxel_integrate_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let cam = cameras[froxels.grid.w];
     if (i == 0u) {
         froxel_camera[0] = cam.view;
-        froxel_camera[1] = cam.viewProjection;
+        froxel_camera[1] = cam.unjitteredViewProjection;
     }
     if (i >= dims.x * dims.y) { return; }
     let cell = vec2u(i % dims.x, i / dims.x);
     let uv = (vec2f(cell) + 0.5) / vec2f(dims.xy);
     let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     // Comprimento do raio por unidade de profundidade da vista nesta coluna (ortográfica: 1).
-    let stretch = select(length(froxel_view_point(ndc, 1.0, cam.projection)), 1.0, cam.projection[3][3] == 1.0);
+    let stretch = select(length(froxel_view_point(ndc, 1.0, froxel_projection(cam))), 1.0, froxel_projection(cam)[3][3] == 1.0);
     var scattered = vec3f(0.0);
     var transmittance = 1.0;
     var z0 = froxel_slice_depth(0.0);

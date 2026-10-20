@@ -41,6 +41,9 @@ async function main(): Promise<void> {
     canvas.width = 800;
     canvas.height = 600;
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         captureErrors: true,
         memoryBudgetMB: 256,

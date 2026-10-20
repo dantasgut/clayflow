@@ -21,6 +21,19 @@ fn froxel_view_point(ndc: vec2f, z: f32, proj: mat4x4f) -> vec3f {
     return vec3f(z * (ndc.x + proj[2][0]) / proj[0][0], z * (ndc.y + proj[2][1]) / proj[1][1], -z);
 }
 
+/**
+ * A projeção da câmera sem o deslocamento da amostra dentro do pixel (spec 034): a grade dos froxels tem as próprias
+ * amostras (Halton por quadro) e não acompanha o deslocamento do antisserrilhado — senão o histórico dela veria um
+ * movimento que não existe. `(T·P)[c].xy = P[c].xy + jitter.xy · P[c].w`.
+ */
+fn froxel_projection(cam: CameraMatrices) -> mat4x4f {
+    var p = cam.projection;
+    for (var c = 0; c < 4; c++) {
+        p[c] = vec4f(p[c].xy - cam.jitter.xy * p[c].w, p[c].zw);
+    }
+    return p;
+}
+
 /** Vista → mundo (vista rígida). */
 fn froxel_world(cam: CameraMatrices, pv: vec3f) -> vec3f {
     let r = mat3x3f(cam.view[0].xyz, cam.view[1].xyz, cam.view[2].xyz);

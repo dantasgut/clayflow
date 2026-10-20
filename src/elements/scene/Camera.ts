@@ -46,8 +46,11 @@ export interface CameraData {
     far: number;
     /** Razão de aspecto fixa. */
     aspect: number;
-    /** Preenchimento do layout. */
-    _pad0: number;
+    /**
+     * Corte de câmera (spec 034): 1 no quadro em que a imagem não continua a anterior (teletransporte, troca de plano)
+     * — os históricos (antisserrilhado, luz de tela, névoa) recomeçam. `Camera.cut()` liga; o estágio desliga.
+     */
+    cut: number;
 }
 
 /**
@@ -75,7 +78,7 @@ export class Camera extends Entity<CameraData> implements Resource {
         near: FieldType.f32,
         far: FieldType.f32,
         aspect: FieldType.f32,
-        _pad0: FieldType.f32,
+        cut: FieldType.u32,
     });
 
     /** Produto do `CameraFlow`, só na GPU (pool `CameraMatrices`, mesmo slot da câmera). */
@@ -84,6 +87,17 @@ export class Camera extends Entity<CameraData> implements Resource {
         projection: FieldType.mat4x4f,
         viewProjection: FieldType.mat4x4f,
         position: FieldType.vec4f,
+        /** `viewProjection` sem o deslocamento da amostra dentro do pixel (spec 034): reprojeção e vetores de movimento. */
+        unjitteredViewProjection: FieldType.mat4x4f,
+        /** A `unjitteredViewProjection` do quadro anterior (igual à atual no primeiro quadro e no corte). */
+        previousViewProjection: FieldType.mat4x4f,
+        /**
+         * Deslocamento da amostra dentro do pixel neste quadro: xy em NDC (já na `projection` e na `viewProjection`), zw em
+         * pixels. Zero sem antisserrilhado temporal.
+         */
+        jitter: FieldType.vec4f,
+        /** x = 1 quando o quadro não continua o anterior (primeiro quadro ou corte): históricos recomeçam. */
+        history: FieldType.vec4f,
     });
 
     state: ResourceState = ResourceState.Uninitialized;
@@ -98,8 +112,16 @@ export class Camera extends Entity<CameraData> implements Resource {
             near: values.near ?? 0.1,
             far: values.far ?? 1000,
             aspect: values.aspect ?? 16 / 9,
-            _pad0: 0,
+            cut: 0,
         };
+    }
+
+    /**
+     * Corte de câmera (spec 034): o próximo quadro não continua o anterior — o antisserrilhado temporal, a luz de tela e a
+     * névoa descartam o histórico nele. Use ao teletransportar a câmera ou trocar de plano.
+     */
+    cut(): void {
+        this.data.cut = 1;
     }
 
     /** Parâmetros (CPU envia a cada mutação) + matrizes (produzidas só pela GPU). */

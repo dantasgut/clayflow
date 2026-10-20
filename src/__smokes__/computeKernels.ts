@@ -596,6 +596,9 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
 async function main(): Promise<void> {
     const canvas = document.createElement('canvas');
     app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,

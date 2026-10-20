@@ -11,6 +11,14 @@ export type { SpotLightValues } from './SpotLight';
 export { HemisphereLight } from './HemisphereLight';
 export type { HemisphereLightData, HemisphereLightValues } from './HemisphereLight';
 export { ShadowMap, type ShadowMapData } from './ShadowMap';
+export {
+    TemporalAntialiasing,
+    halton,
+    pixelJitter,
+    type AntialiasingMode,
+    type TemporalAntialiasingData,
+    type TemporalAntialiasingOptions,
+} from './TemporalAntialiasing';
 export { RenderableSchema, renderableRecord } from './Renderable';
 export type { ShadowMapOptions } from './ShadowMap';
 export {

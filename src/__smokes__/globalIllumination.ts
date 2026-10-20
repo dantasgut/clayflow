@@ -763,6 +763,9 @@ async function budgetScene(): Promise<void> {
         canvas.height = 720;
         document.body.appendChild(canvas);
         const app = await lib.Application.create({
+            // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+            // temporal, padrão agora, tem o smoke `antialiasing`).
+            antialias: 'msaa',
             canvas,
             scene: lib.createScene(),
             autoResize: false,

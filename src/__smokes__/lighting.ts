@@ -64,6 +64,9 @@ async function createApp(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
+        // As medidas comparam cada pixel com a conta analítica no centro dele: o MSAA com que foram calibradas (o padrão
+        // antes da 034). O deslocamento da amostra do antisserrilhado temporal tem o smoke `antialiasing`.
+        antialias: 'msaa',
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
     app.events.on('extensionRejected', (e) =>

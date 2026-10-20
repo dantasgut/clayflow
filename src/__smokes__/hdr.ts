@@ -67,6 +67,10 @@ interface Emission {
     readonly b: number;
 }
 
+/**
+ * Aplicação do smoke. Antisserrilhado: o MSAA com que as medidas foram calibradas (o padrão antes da 034; o temporal,
+ * padrão agora, tem o smoke `antialiasing`); `false` desliga.
+ */
 async function createApp(
     antialias = true,
 ): Promise<{ app: Application; canvas: HTMLCanvasElement }> {
@@ -79,7 +83,7 @@ async function createApp(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        antialias,
+        antialias: antialias ? 'msaa' : 'off',
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
     app.events.on('extensionRejected', (e) =>

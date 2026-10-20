@@ -27,6 +27,7 @@ import type { InteractionSystem } from '../input/InteractionSystem';
 import { acquireSceneInteraction, releaseSceneInteraction } from './sceneInteraction';
 import { ELEMENT_CONSUMERS } from '../../elements/consumers';
 import { WATER_CONSUMERS } from '../water/consumers';
+import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
 /**
  * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
@@ -46,10 +47,13 @@ export interface ApplicationOptions {
     /** Auto-attach window.resize listener (default true em ambiente browser). */
     autoResize?: boolean;
     /**
-     * Antialiasing da geometria por MSAA (spec 008): 4 amostras por pixel nos alvos da cena, resolvidas antes do pós.
-     * Default true. Vale para a cena (a primeira aplicação dela define).
+     * Antisserrilhado da cena (spec 034): `'temporal'` (padrão: a amostra deslocada dentro do pixel a cada quadro em
+     * todos os passes, histórico reprojetado com rejeição), `'accumulate'` (média uniforme dos quadros desde o último
+     * corte — imagem parada de referência), `'msaa'` (4 amostras por pixel só nas bordas da geometria, spec 008) ou
+     * `'off'`. `true` vale `'temporal'` e `false`, `'off'`. Vale para a cena (a primeira aplicação dela define); o modo
+     * muda depois por `defaults.antialiasing.mode` entre `temporal`, `accumulate` e `off` (o `msaa` só na criação).
      */
-    antialias?: boolean;
+    antialias?: boolean | AntialiasingMode;
     /** Debounce em ms para o handler de resize (default 100). */
     resizeDebounceMs?: number;
     /**
@@ -244,7 +248,7 @@ export class Application {
         const defaults = registerPresentationDefaults(scene.flows, {
             world: scene.world,
             events: scene.events,
-            samples: options.antialias === false ? 1 : 4,
+            ...antialiasOf(options.antialias),
         });
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;
@@ -461,4 +465,14 @@ export class Application {
     get executionSystem(): ExecutionSystem {
         return this.scene.executionSystem;
     }
+}
+
+/** Modo do antisserrilhado e as amostras dos alvos da cena pela opção `antialias` (spec 034). */
+function antialiasOf(option: boolean | AntialiasingMode | undefined): {
+    samples: 1 | 4;
+    antialiasing: AntialiasingMode;
+} {
+    const mode: AntialiasingMode =
+        option === undefined || option === true ? 'temporal' : option === false ? 'off' : option;
+    return { samples: mode === 'msaa' ? 4 : 1, antialiasing: mode };
 }

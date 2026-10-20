@@ -23,8 +23,11 @@ import {
     MaterialFunction,
     StandardMaterial,
     Transform,
+    type AntialiasingMode,
     type DeviceOptions,
 } from 'clayflow';
+
+const aaQuery = new URLSearchParams(location.search).get('aa');
 import {
     skyTableDir,
     type PtCamera,
@@ -393,6 +396,9 @@ export async function giApp(
         autoResize: false,
         captureErrors: true,
         ...(device !== undefined ? { device } : {}),
+        // Antisserrilhado com que as medidas foram calibradas (MSAA, o padrão antes da 034; o temporal, padrão agora,
+        // tem o smoke `antialiasing`). Diagnóstico: `?aa=off|temporal|msaa|accumulate` troca o de todas as cenas.
+        antialias: (aaQuery ?? 'msaa') as AntialiasingMode,
     });
     app.events.on('engineError', (e) => errors.push(`${e.stage}: ${e.message}`));
     app.events.on('extensionRejected', (e) =>
