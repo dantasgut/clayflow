@@ -1,20 +1,24 @@
 // Resolução temporal (spec 034, R3): a cor da cena deste quadro (com a amostra deslocada dentro do pixel) somada ao
-// histórico reprojetado. O ponto do pixel vem da profundidade e da `unjitteredViewProjection` atual; a posição dele no
-// quadro anterior, da `previousViewProjection`. O histórico é lido com Catmull–Rom (5 leituras bilineares) e, no modo
-// temporal, recortado pela variância da vizinhança 3 × 3 da cor atual em YCoCg (o que mudou atrás — desoclusão, objeto
-// que passou, o que se vê através do vidro — cai para a vizinhança atual e não deixa rastro); a mistura é feita com o
-// peso de Karis (1 / (1 + luma)), sem que um realce isolado domine. No modo de acumulação, média uniforme de todos os
-// quadros desde o corte, sem recorte (a referência de imagem parada). O alfa guarda quantos quadros o histórico tem.
-// Corte de câmera (`history.x`), primeiro quadro e ponto que sai da tela recomeçam.
-// Requer: fullscreen, color (luminance), CameraMatrices (cameras), taa_params, src_tex (cor), taa_history, taa_depth,
-// src_smp.
+// histórico reprojetado. A posição do ponto do pixel no quadro anterior vem do vetor de movimento do objeto (passe de
+// movimento do forward) ou, no fundo, da câmera; o histórico é lido com Catmull–Rom (5 leituras bilineares). Desoclusão
+// (a distância à câmera guardada no quadro anterior difere em mais de 5 %), corte de câmera, primeiro quadro e ponto
+// que sai da tela recomeçam o histórico. Parado na tela, sem recorte: o detalhe menor que o pixel converge para a
+// integral do pixel. Em movimento, a caixa da variância da vizinhança 3 × 3 da cor atual em YCoCg recorta o histórico
+// (o que saiu do pixel não deixa rastro). Média exponencial na radiância linear, sem viés. No modo de acumulação, média
+// uniforme dos quadros desde o corte, sem recorte (a referência de imagem parada). O alfa guarda quantos quadros o
+// histórico tem.
+// Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor), taa_history, taa_history_distance, taa_depth,
+// taa_motion, src_smp.
 
-const TAA_TEMPORAL: u32 = 1u;
 const TAA_ACCUMULATE: u32 = 3u;
-/** Peso mínimo do quadro novo no modo temporal (≈ 10 quadros de memória). */
-const TAA_MIN_ALPHA: f32 = 0.1;
-/** Largura do recorte em desvios-padrão da vizinhança. */
-const TAA_GAMMA: f32 = 1.0;
+/**
+ * Peso mínimo do quadro novo no modo temporal: parado, ≈ 32 quadros de memória (a média cobre a sequência inteira de
+ * posições da amostra); em movimento, ≈ 10 (responde rápido ao que muda).
+ */
+const TAA_MIN_ALPHA_STILL: f32 = 1.0 / 32.0;
+const TAA_MIN_ALPHA_MOVING: f32 = 0.1;
+/** Largura da caixa da variância (desvios-padrão) com o ponto em movimento na tela. */
+const TAA_GAMMA_MOVING: f32 = 1.0;
 /** Quadros máximos do histórico no modo de acumulação. */
 const TAA_MAX_FRAMES: f32 = 4096.0;
 
@@ -81,52 +85,77 @@ fn taa_history_catmull(uv: vec2f, size: vec2f) -> vec4f {
     return max(sum / weight, vec4f(0.0));
 }
 
+struct TaaOut {
+    @location(0) color: vec4f,
+    /** Distância da câmera ao ponto do pixel (a desoclusão do quadro seguinte). */
+    @location(1) distance: f32,
+}
+
 @fragment
-fn fs_temporal_resolve(in: VsOut) -> @location(0) vec4f {
+fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let dims = textureDimensions(src_tex, 0);
     let size = vec2f(dims);
     let pixel = vec2i(in.clip_position.xy);
     let current = textureLoad(src_tex, pixel, 0).rgb;
     let cam = cameras[taa_params.cameraSlot];
-    // Onde o ponto do pixel estava no quadro anterior.
+    // O ponto do pixel em mundo (profundidade e a vista-projeção sem o deslocamento) e a distância dele à câmera.
     let depth = textureLoad(taa_depth, pixel, 0);
     let ndc = vec2f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
-    let world = taa_inverse(cam.unjitteredViewProjection) * vec4f(ndc, depth, 1.0);
-    let prev = cam.previousViewProjection * vec4f(world.xyz / world.w, 1.0);
-    let prev_uv = vec2f(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
-    let inside = prev.w > 0.0 && all(prev_uv >= vec2f(0.0)) && all(prev_uv <= vec2f(1.0));
+    let world_h = taa_inverse(cam.unjitteredViewProjection) * vec4f(ndc, depth, 1.0);
+    let world = world_h.xyz / world_h.w;
+    let distance = select(length(world - cam.position.xyz), 1e30, depth >= 1.0);
+    // Onde ele estava no quadro anterior: o vetor de movimento do objeto; no fundo (sem geometria), pela câmera.
+    var prev_uv = in.uv + textureLoad(taa_motion, pixel, 0).xy;
+    if (depth >= 1.0) {
+        let prev = cam.previousViewProjection * vec4f(world, 1.0);
+        prev_uv = vec2f(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
+    }
+    let inside = all(prev_uv >= vec2f(0.0)) && all(prev_uv <= vec2f(1.0));
     let history = taa_history_catmull(prev_uv, size);
-    let frames = select(0.0, history.a, inside && cam.history.x == 0.0);
+    // Desoclusão: o que estava ali no quadro anterior era outra superfície (distância diferente em mais de 5 %).
+    let prev_pixel = clamp(vec2i(prev_uv * size), vec2i(0), vec2i(dims) - 1);
+    let prev_distance = textureLoad(taa_history_distance, prev_pixel, 0).r;
+    let occluded = depth < 1.0 && abs(prev_distance - distance) > 0.05 * distance;
+    let frames = select(0.0, history.a, inside && !occluded && cam.history.x == 0.0);
+    var out: TaaOut;
+    out.distance = distance;
     if (taa_params.mode == TAA_ACCUMULATE) {
         let n = min(frames, TAA_MAX_FRAMES - 1.0);
-        let rgb = mix(history.rgb, current, 1.0 / (n + 1.0));
-        return vec4f(select(current, rgb, n > 0.0), n + 1.0);
+        out.color = vec4f(select(current, mix(history.rgb, current, 1.0 / (n + 1.0)), n > 0.0), n + 1.0);
+        return out;
     }
-    // Vizinhança 3 × 3 em YCoCg: média e desvio para recortar o histórico.
-    var m1 = vec3f(0.0);
-    var m2 = vec3f(0.0);
-    for (var dy = -1; dy <= 1; dy++) {
-        for (var dx = -1; dx <= 1; dx++) {
-            let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
-            let c = taa_ycocg(textureLoad(src_tex, q, 0).rgb);
-            m1 += c;
-            m2 += c * c;
+    let motion = length((prev_uv - in.uv) * size);
+    if ((taa_params._pad0 & 4u) != 0u) {
+        out.color = vec4f(vec3f(motion * 0.25), 1.0);
+        return out;
+    }
+    // Parado na tela (menos de ¼ de pixel por quadro): sem recorte — o histórico de um detalhe menor que o pixel converge
+    // para a integral do pixel. Em movimento (até 1 pixel por quadro, recorte cheio): a caixa da variância da
+    // vizinhança 3 × 3 em YCoCg (Salvi), que corta o que saiu do pixel.
+    let moving = smoothstep(0.25, 1.0, motion);
+    var clipped = history.rgb;
+    if (moving > 0.0 && (taa_params._pad0 & 1u) == 0u) {
+        var m1 = vec3f(0.0);
+        var m2 = vec3f(0.0);
+        for (var dy = -1; dy <= 1; dy++) {
+            for (var dx = -1; dx <= 1; dx++) {
+                let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
+                let c = taa_ycocg(textureLoad(src_tex, q, 0).rgb);
+                m1 += c;
+                m2 += c * c;
+            }
         }
+        let mean = m1 / 9.0;
+        let sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3f(0.0)));
+        let h = taa_ycocg(history.rgb);
+        let d = h - mean;
+        let extent = max(TAA_GAMMA_MOVING * sigma, vec3f(1e-6));
+        let scale = max(abs(d) / extent, vec3f(1.0));
+        let box = taa_rgb(mean + d / max(scale.x, max(scale.y, scale.z)));
+        clipped = mix(history.rgb, box, moving);
     }
-    let mean = m1 / 9.0;
-    let sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3f(0.0)));
-    let lo = mean - TAA_GAMMA * sigma;
-    let hi = mean + TAA_GAMMA * sigma;
-    // Recorte em direção à média (Salvi): o histórico fora da caixa vem para a borda dela.
-    let h = taa_ycocg(history.rgb);
-    let d = h - mean;
-    let extent = max(hi - mean, vec3f(1e-6));
-    let scale = max(abs(d) / extent, vec3f(1.0));
-    let clipped = taa_rgb(mean + d / max(scale.x, max(scale.y, scale.z)));
-    let alpha = max(1.0 / (frames + 1.0), TAA_MIN_ALPHA);
-    // Mistura com o peso de Karis (em luminância comprimida).
-    let wc = alpha / (1.0 + luminance(current));
-    let wh = (1.0 - alpha) / (1.0 + luminance(clipped));
-    let rgb = select(current, (current * wc + clipped * wh) / (wc + wh), frames > 0.0);
-    return vec4f(rgb, min(frames + 1.0, TAA_MAX_FRAMES));
+    // Média exponencial na radiância linear (sem peso por luminância: a média fica sem viés).
+    let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, moving));
+    out.color = vec4f(select(current, mix(clipped, current, alpha), frames > 0.0), min(frames + 1.0, TAA_MAX_FRAMES));
+    return out;
 }

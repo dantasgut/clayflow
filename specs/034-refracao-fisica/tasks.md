@@ -68,12 +68,12 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 
 ## Phase 5: User Story 2 — antisserrilhado global (P1)
 
-- [ ] T024 [US2] Smoke `src/__smokes__/antialiasing.ts` (SC-004, SC-005): referência de 64 jitters parada; rastro da bola atrás do vidro; borrão na órbita a 30°/s contra a referência em movimento (64 sub-quadros); padrão rasante — nasce vermelho
+- [x] T024 [US2] Smoke `src/__smokes__/antialiasing.ts` (SC-004, SC-005): referência de 64 jitters parada; rastro da bola atrás do vidro; borrão na órbita a 30°/s contra a referência em movimento (64 sub-quadros); padrão rasante — nasce vermelho
 - [ ] T025 [P] [US2] Testes de `CameraFlow` em `src/elements/scene/flows/__tests__/CameraFlow.test.ts`: Halton (2,3) de 8, projeção com e sem jitter, `previousViewProjection`, `Camera.cut()`
 - [x] T026 [US2] Jitter e anteriores no pool `CameraMatrices` (`src/elements/scene/Camera.ts`, `flows/CameraSchemas.ts`, `flows/CameraFlow.ts`, `gpu/wgsl/kernels/camera_compose*.wgsl`); prepass e cor com a mesma matriz
 - [x] T027 [US2] Raios por pixel com o mesmo jitter: `gi_screen_common.wgsl` (`gi_camera_ray`), `forward_background.wgsl`, `src/presentation/water/wgsl/water_field.wgsl`, `water_composite.wgsl`
-- [ ] T028 [P] [US2] Testes de `worldsPrevious` (só slots sujos) em `src/elements/scene/flows/__tests__/TransformFlow.test.ts`
-- [ ] T029 [US2] `worldsPrevious` em `src/elements/scene/Transform.ts` e `flows/TransformFlow.ts`; poses publicadas na GPU (`rb_publish_pose.wgsl`) também guardam a anterior
+- [x] T028 [P] [US2] Testes de `worldsPrevious` (só slots sujos) em `src/elements/scene/flows/__tests__/TransformFlow.test.ts`
+- [x] T029 [US2] `worldsPrevious` em `src/elements/scene/Transform.ts` e `flows/TransformFlow.ts`; poses publicadas na GPU (`rb_publish_pose.wgsl`) também guardam a anterior
 - [ ] T030 [US2] Vértices anteriores em anel para `produced('vertices')`: `src/elements/geometry/SurfaceFlow.ts`, `physics/flows/SoftSurfaceFlow.ts`, `src/scene/graph/GraphFlow.ts`
 - [ ] T031 [US2] Alvo `motion` (rg16f) em `src/presentation/app/FrameTargets.ts`; escrito pelo prepass (MRT) em `ForwardFlow.ts`/`forward.wgsl`, pelos sprites (`particle_sprite.wgsl`, `point_sprite.wgsl`, `diffuse_sprite.wgsl` por `velocity·dt`), pela água e pelo fundo
 - [ ] T032 [US2] `TemporalAntialiasing` (Resource, `src/presentation/resources/TemporalAntialiasing.ts`) e `TemporalResolveFlow` (`src/presentation/flows/TemporalResolveFlow.ts`, `effects/temporal_resolve.wgsl`): Catmull–Rom, desoclusão, recorte por variância YCoCg, máscara reativa, descarte em corte/redimensionamento

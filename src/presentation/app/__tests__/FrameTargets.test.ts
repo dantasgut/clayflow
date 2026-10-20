@@ -3,12 +3,18 @@ import { FrameTargets } from '../FrameTargets';
 import { renderScene } from '../../flows/__tests__/helpers/renderHarness';
 
 describe('FrameTargets', () => {
-    it('descritores (spec 011): cor HDR rgba16float, cópia com mips sob demanda e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
+    it('descritores (spec 011, 034): cor HDR rgba16float, movimento rg16float, cópia com mips sob demanda e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
         expect(new FrameTargets({ samples: 1 }).getDescriptors()).toEqual([
             {
                 id: 'color',
                 role: 'texture',
                 textureShape: { format: 'rgba16float', sizeFromCanvas: true },
+            },
+            // Vetores de movimento do antisserrilhado temporal (spec 034), só sem MSAA.
+            {
+                id: 'motion',
+                role: 'texture',
+                textureShape: { format: 'rg16float', sizeFromCanvas: true },
             },
             {
                 id: 'sceneCopy',

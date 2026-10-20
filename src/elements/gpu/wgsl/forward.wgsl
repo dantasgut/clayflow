@@ -27,6 +27,9 @@ struct VsOut {
     @location(7) principal: vec3<f32>,
     // Origem do objeto em mundo (spec 011: a corda dos transmissivos convexos simétricos em torno dela).
     @location(8) @interpolate(flat) origin: vec3<f32>,
+    // Vetores de movimento (spec 034): o ponto em clip no quadro anterior e neste, sem o deslocamento da amostra.
+    @location(9) motion_previous: vec4<f32>,
+    @location(10) motion_current: vec4<f32>,
 }
 
 @vertex
@@ -46,6 +49,9 @@ fn vs_main(
     out.uv = in.uv;
     out.fn_slot = r.fnSlot;
     out.origin = w.world[3].xyz;
+    let cam = cameras[forward_frame.cameraSlot];
+    out.motion_current = cam.unjitteredViewProjection * world;
+    out.motion_previous = cam.previousViewProjection * (previous_worlds[r.transformSlot].world * vec4<f32>(in.position, 1.0));
     if (r.diffSlot != NONE) {
         let d = surface_diff[r.diffSlot + vertex];
         out.metric = d.metric.xyz;
@@ -59,6 +65,15 @@ fn vs_main(
 // Fragmento do passe de profundidade (spec 033): nada a sombrear — só a profundidade do vértice é gravada.
 @fragment
 fn fs_depth() {}
+
+// Passe de movimento (spec 034): o deslocamento do ponto do pixel na tela desde o quadro anterior, em uv (anterior −
+// atual), sem o deslocamento da amostra. Depois do passe principal, com a profundidade dele (teste igual).
+@fragment
+fn fs_motion(in: VsOut) -> @location(0) vec2<f32> {
+    let previous = in.motion_previous.xy / in.motion_previous.w;
+    let current = in.motion_current.xy / in.motion_current.w;
+    return (previous - current) * vec2<f32>(0.5, -0.5);
+}
 
 // Direção para o observador no ponto `p`: da posição da câmera (perspectiva) ou o eixo da vista (ortográfica).
 fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {

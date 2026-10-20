@@ -55,6 +55,17 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                 role: 'texture',
                 textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true },
             },
+            // Vetores de movimento (spec 034): o deslocamento em uv do ponto de cada pixel desde o quadro anterior,
+            // escrito pelo passe de movimento do forward (sem MSAA) e lido pela resolução temporal.
+            ...(samples === 1
+                ? [
+                      {
+                          id: 'motion',
+                          role: 'texture' as const,
+                          textureShape: { format: 'rg16float' as const, sizeFromCanvas: true },
+                      },
+                  ]
+                : []),
             {
                 // Cópia da cor resolvida com a cadeia de mips (borrada por nível): o que está atrás, para refratar.
                 id: 'sceneCopy',

@@ -19,7 +19,7 @@ const MODES: readonly AntialiasingMode[] = ['off', 'temporal', 'msaa', 'accumula
 export interface TemporalAntialiasingOptions {
     /** Modo. Padrão `'temporal'`. */
     readonly mode?: AntialiasingMode;
-    /** Posições da sequência de Halton (2, 3) antes de repetir. Padrão 8 (`accumulate` usa até 1024). */
+    /** Posições da sequência de Halton (2, 3) antes de repetir. Padrão 16 (`accumulate` usa até 1024). */
     readonly sequence?: number;
 }
 
@@ -81,7 +81,7 @@ export class TemporalAntialiasing extends Entity<TemporalAntialiasingData> imple
         super();
         this.data = {
             mode: MODES.indexOf(options.mode ?? 'temporal'),
-            sequence: Math.max(1, Math.min(1024, Math.round(options.sequence ?? 8))),
+            sequence: Math.max(1, Math.min(1024, Math.round(options.sequence ?? 16))),
             _pad0: 0,
             _pad1: 0,
         };

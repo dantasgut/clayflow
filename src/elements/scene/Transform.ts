@@ -56,6 +56,16 @@ export class Transform extends Entity<TransformData> implements Resource {
         normal: FieldType.mat3x3f,
     });
 
+    /**
+     * A `WorldTransform` do quadro anterior (spec 034, pool `PreviousWorldTransform`, mesmo slot e layout): copiada no
+     * início de cada quadro, antes de qualquer escrita nas matrizes de mundo — os vetores de movimento do antisserrilhado
+     * temporal.
+     */
+    static readonly previousWorldSchema = new StructSchema('PreviousWorldTransform', {
+        world: FieldType.mat4x4f,
+        normal: FieldType.mat3x3f,
+    });
+
     state: ResourceState = ResourceState.Uninitialized;
 
     constructor(values: TransformValues = {}) {
@@ -92,6 +102,13 @@ export class Transform extends Entity<TransformData> implements Resource {
                 role: 'storage-rw',
                 storage: 'pool',
                 schema: Transform.worldSchema,
+                upload: 'never',
+            },
+            {
+                id: 'previousWorld',
+                role: 'storage-rw',
+                storage: 'pool',
+                schema: Transform.previousWorldSchema,
                 upload: 'never',
             },
         ];

@@ -62,6 +62,8 @@ export interface PostSlots extends SlotMap {
     readonly antialiasing: SingletonSlot<true>;
     /** Profundidade da cena (`FrameTargets.depth`): a reprojeção do histórico. */
     readonly depth: TextureSlot<true>;
+    /** Vetores de movimento (`FrameTargets.motion`). */
+    readonly motion: TextureSlot<true>;
     /** A câmera ativa e o pool das matrizes (o deslocamento, a anterior e o corte). */
     readonly camera: SingletonSlot<true>;
     readonly cameras: PoolSlot<true>;
@@ -74,6 +76,7 @@ const slots: PostSlots = {
     target: slot.target('canvas'),
     antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
     depth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
+    motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
 };
@@ -132,10 +135,12 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private readonly world: World;
     /** Parâmetros da resolução temporal (spec 034). */
     private readonly taaParams: UniformBufferSpec;
-    /** Os dois históricos (escreve um, lê o outro; trocam a cada quadro). */
+    /** Os dois históricos (escreve um, lê o outro; trocam a cada quadro): a cor e a distância à câmera. */
     private history: {
         textures: [TextureSpec, TextureSpec];
         views: [TextureViewSpec, TextureViewSpec];
+        distanceTextures: [TextureSpec, TextureSpec];
+        distanceViews: [TextureViewSpec, TextureViewSpec];
     } | null = null;
     /** Histórico escrito neste quadro (0 ou 1); `-1` sem resolução temporal. */
     private taaWrite = -1;
@@ -236,6 +241,12 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                         clearValue: [0, 0, 0, 0],
                         storeOp: 'store',
                     },
+                    {
+                        view: this.history.distanceViews[this.taaWrite]!,
+                        loadOp: 'clear',
+                        clearValue: [0, 0, 0, 0],
+                        storeOp: 'store',
+                    },
                 ],
             };
             frame.render(target, 'PostFlow.temporalResolve', (p) => {
@@ -303,15 +314,40 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         // Históricos da resolução temporal: recomeçam vazios no redimensionamento (o alfa 0 = nenhum quadro).
         const h0 = texture('taa0');
         const h1 = texture('taa1');
-        this.history = { textures: [h0, h1], views: [view(h0, 'taa0'), view(h1, 'taa1')] };
+        const distance = (name: string): TextureSpec =>
+            this.core.create<TextureSpec>({
+                kind: 'texture',
+                discriminator: `post_taa_${name}:${width}x${height}`,
+                width,
+                height,
+                format: 'r32float',
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            });
+        const distanceView = (source: TextureSpec, name: string): TextureViewSpec =>
+            this.core.create<TextureViewSpec>({
+                kind: 'textureview',
+                discriminator: `post_taa_${name}_v:${width}x${height}`,
+                source,
+                format: 'r32float',
+            });
+        const d0 = distance('d0');
+        const d1 = distance('d1');
+        this.history = {
+            textures: [h0, h1],
+            views: [view(h0, 'taa0'), view(h1, 'taa1')],
+            distanceTextures: [d0, d1],
+            distanceViews: [distanceView(d0, 'd0'), distanceView(d1, 'd1')],
+        };
         this.chainKey = '';
         this.prepareChain(ctx);
     }
 
     private releasePingPong(): void {
         if (this.history !== null) {
-            for (const v of this.history.views) this.core.destroy(v);
-            for (const t of this.history.textures) this.core.destroy(t);
+            for (const v of [...this.history.views, ...this.history.distanceViews])
+                this.core.destroy(v);
+            for (const t of [...this.history.textures, ...this.history.distanceTextures])
+                this.core.destroy(t);
             this.history = null;
         }
         if (this.pingpong === null) return;
@@ -328,6 +364,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private prepareTemporal(ctx: Ctx): TextureViewSpec | undefined {
         const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
         const depth = ctx.bound.slots.depth;
+        const motion = ctx.bound.slots.motion;
         const camera = ctx.bound.slots.camera?.resource;
         const cameraId = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
         const cameraSlot =
@@ -336,6 +373,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             aa === undefined
             || !aa.jitters
             || depth === undefined
+            || motion === undefined
             || ctx.bound.slots.samples !== undefined
             || cameraSlot === undefined
             || this.history === null
@@ -346,7 +384,11 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         this.taaWrite = this.taaWrite === 0 ? 1 : 0;
         this.core.write(
             this.taaParams,
-            TemporalResolveParamsSchema.pack({ cameraSlot, mode: aa.data.mode }),
+            TemporalResolveParamsSchema.pack({
+                cameraSlot,
+                mode: aa.data.mode,
+                _pad0: aa.data._pad0,
+            }),
         );
         const id = `post:taa:${this.taaWrite}`;
         const read = this.history.views[1 - this.taaWrite]!;
@@ -354,7 +396,12 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             new Map<BindingKey, BindingSource>([
                 [{ pipeline: id, resource: effectResources.source }, ctx.bound.slots.scene.view],
                 [{ pipeline: id, resource: temporalResources.history }, read],
+                [
+                    { pipeline: id, resource: temporalResources.historyDistance },
+                    this.history.distanceViews[1 - this.taaWrite]!,
+                ],
                 [{ pipeline: id, resource: temporalResources.depth }, depth.view],
+                [{ pipeline: id, resource: temporalResources.motion }, motion.view],
             ]),
         );
         if (!this.taaPrepared.has(id)) {
@@ -364,7 +411,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 shader: temporalResolve,
                 entryPoints: ['vs_fullscreen', 'fs_temporal_resolve'],
                 topology: 'triangle-list',
-                colorTargets: [{ format: SCENE_COLOR_FORMAT }],
+                colorTargets: [{ format: SCENE_COLOR_FORMAT }, { format: 'r32float' }],
             });
             this.taaPrepared.add(id);
         }

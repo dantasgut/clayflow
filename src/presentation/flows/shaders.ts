@@ -163,6 +163,20 @@ export const temporalResources = {
         frequency: 'draw',
         provider: 'private',
     }),
+    /** A distância à câmera guardada no quadro anterior (r32float), para a desoclusão. */
+    historyDistance: wgslResource({
+        name: 'taa_history_distance',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'draw',
+        provider: 'private',
+    }),
+    /** Os vetores de movimento (`FrameTargets.motion`). */
+    motion: wgslResource({
+        name: 'taa_motion',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'draw',
+        provider: 'private',
+    }),
     /** A profundidade da cena (`FrameTargets.depth`, sem MSAA). */
     depth: wgslResource({
         name: 'taa_depth',
@@ -178,12 +192,13 @@ export const temporalResolve = wgslModule({
     source: temporalResolveSource,
     requires: [
         fullscreen,
-        color,
         camerasResource,
         temporalResources.params,
         effectResources.source,
         temporalResources.history,
+        temporalResources.historyDistance,
         temporalResources.depth,
+        temporalResources.motion,
         effectResources.sampler,
     ],
 });

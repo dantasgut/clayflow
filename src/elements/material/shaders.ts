@@ -10,6 +10,7 @@ import {
     instancesResource,
     renderablesResource,
     worldsResource,
+    previousWorldsResource,
 } from '../scene/resources';
 import {
     diffuseMaterialsResource,
@@ -96,6 +97,7 @@ export const forward = wgslModule({
         sceneFogReady,
         camerasResource,
         worldsResource,
+        previousWorldsResource,
         renderablesResource,
         instancesResource,
         surfaceDiffReadResource,
@@ -105,6 +107,7 @@ export const forward = wgslModule({
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,
+        Transform.previousWorldSchema,
         RenderableSchema,
         RenderInstanceSchema,
         StandardMaterialSchema,

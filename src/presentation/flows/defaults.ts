@@ -14,6 +14,7 @@ import { DebugFlow } from './DebugFlow';
 import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../elements/scene/flows/ShadowMatrixFlow';
+import { MotionHistoryFlow } from '../../elements/scene/flows/MotionHistoryFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
 import { WaterSurface } from '../app/WaterSurface';
@@ -389,6 +390,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'physics',
         priority: -50,
     });
+    // Histórico de movimento (spec 034): a primeira coisa do quadro (fase `physics`, maior prioridade), antes de qualquer
+    // escrita nas matrizes de mundo.
+    const motionHistoryRegistration = flows.register(() => new MotionHistoryFlow(), {
+        type: 'motionHistory',
+        phase: 'physics',
+        priority: 1000,
+    });
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
@@ -408,6 +416,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             debug: debugRegistration.flow!,
         },
         registrations: [
+            motionHistoryRegistration,
             transformRegistration,
             pbrTablesRegistration,
             cameraRegistration,

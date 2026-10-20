@@ -44,6 +44,18 @@ export const cameraParamsResource = wgslResource({
     provider: { pool: Camera.schema.name },
 });
 
+/**
+ * Matrizes de mundo do quadro anterior (pool `PreviousWorldTransform`, spec 034), leitura — os vetores de movimento do
+ * desenho.
+ */
+export const previousWorldsResource = wgslResource({
+    name: 'previous_worlds',
+    binding: { storage: 'read' },
+    type: { schema: Transform.previousWorldSchema, array: true },
+    frequency: 'stage',
+    provider: { pool: Transform.previousWorldSchema.name },
+});
+
 /** Matrizes das câmeras (pool `CameraMatrices`), escrita — o estágio de câmera. */
 export const cameraMatricesWriteResource = wgslResource({
     name: 'camera_matrices',

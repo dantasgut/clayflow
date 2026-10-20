@@ -37,7 +37,9 @@ import {
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
+    type TextureSlot,
 } from '../../scene/flows/slots';
+import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { SurfaceDiffSchema } from '../../elements/geometry/SurfaceSchemas';
@@ -124,6 +126,10 @@ export interface ForwardSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** Os alvos da cena (a cópia com mips e a espessura dos transmissivos, spec 011; opcional). */
     readonly targets: SingletonSlot<true>;
+    /** Vetores de movimento (`FrameTargets.motion`, spec 034; sem MSAA). */
+    readonly motion: TextureSlot<true>;
+    /** Antisserrilhado da cena: o passe de movimento vale com o modo temporal. */
+    readonly antialiasing: SingletonSlot<true>;
 }
 
 /**
@@ -206,6 +212,8 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
         cameraFunctions: slot.entities({ all: [Camera, CameraFunction] }),
         time: slot.singleton(Time.schema, { optional: true }),
         targets: slot.singleton(FrameTargets.schema, { optional: true }),
+        motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+        antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
     };
 }
 
@@ -261,6 +269,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly depthPrepassForced: boolean | undefined;
     /** Pipeline de profundidade de cada pipeline base de opaco (o mesmo vértice, sem fragmento). */
     private readonly depthPipelines = new Map<string, string>();
+    /** Pipeline de movimento de cada pipeline base de opaco (o mesmo vértice, o fragmento `fs_motion`; spec 034). */
+    private readonly motionPipelines = new Map<string, string>();
     private readonly frameParams: UniformBufferSpec;
     /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
     private readonly dummyDiff: StorageBufferSpec;
@@ -641,7 +651,34 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             );
             this.recordBackground(pass, bound);
         });
+        this.recordMotion(frame, bound, opaque);
         if (transmissive.length > 0) this.recordTransmission(frame, bound, transmissive);
+    }
+
+    /**
+     * Passe de movimento (spec 034): com o antisserrilhado temporal e o alvo de movimento, os opacos de novo só no vértice
+     * (a profundidade do passe principal, teste igual) escrevendo o deslocamento de cada pixel desde o quadro anterior.
+     * O fundo (nenhuma geometria) fica com zero: a resolução usa a reprojeção pela câmera onde a profundidade é a do
+     * plano distante.
+     */
+    private recordMotion(
+        frame: Frame,
+        bound: BoundFlow<ForwardSlots>,
+        opaque: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): void {
+        const motion = bound.slots.motion;
+        const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        const depth = bound.slots.target.depth;
+        if (motion === undefined || depth === undefined || aa?.mode !== 'temporal') return;
+        const target: RenderTarget = {
+            colorAttachments: [
+                { view: motion.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+            ],
+            depthStencilAttachment: { view: depth, depthLoadOp: 'load', depthStoreOp: 'store' },
+        };
+        frame.render(target, 'ForwardFlow.motion', (pass) => {
+            this.recordGroups(pass, bound, opaque, (_entry, id) => this.motionPipelines.get(id));
+        });
     }
 
     /** O passe de profundidade vale neste quadro: forçado pela opção ou ligado nos `FrameTargets`. */
@@ -1119,6 +1156,26 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ctx.prepare(depth);
                     this.depthPipelines.set(descriptor.id, depth.id);
                     this.prepareVariant(ctx, depth);
+                }
+                if (samples === 1 && topology === 'triangle-list') {
+                    // Passe de movimento (spec 034): o mesmo vértice (a mesma profundidade, bit a bit), teste igual sem
+                    // escrita, o deslocamento do pixel no alvo rg16float.
+                    const motion: PipelineDescriptor = {
+                        ...descriptor,
+                        id: `${descriptor.id}:motion`,
+                        entryPoints: [
+                            ...descriptor.entryPoints.filter((e) => e.startsWith('vs_')),
+                            'fs_motion',
+                        ],
+                        colorTargets: [{ format: 'rg16float' }],
+                        depth: {
+                            format: 'depth24plus',
+                            depthWriteEnabled: false,
+                            depthCompare: 'equal',
+                        },
+                    };
+                    ctx.prepare(motion);
+                    this.motionPipelines.set(descriptor.id, motion.id);
                 }
                 return descriptor.id;
             };
