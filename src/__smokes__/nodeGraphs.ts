@@ -12,7 +12,7 @@
 //   (c) sub-grafos (US4): 1 000 caixas com `MaterialFunction({ graph })`, todas com o mesmo sub-grafo de ponto
 //       (`Subgraph.point`) e valores próprios → 1 shader com a função do sub-grafo, as 2 orientações de 1 variante de
 //       pipeline (a forma), 1 registro tipado (pool da forma) com os valores de cada entidade (leitura só para medir) e a
-//       cor de cada caixa (a radiância HDR, antes da apresentação) igual à do seu valor mais o reflexo comum a todas;
+//       cor de cada caixa amostrada na imagem igual à do seu valor;
 //   (d) 60 s simulados mudando parâmetros a cada quadro → 0 shaders novos; troca de topologia (`setGraph`) compila em
 //       transição sem quadro quebrado (a superfície em todos os quadros) e o visual novo aparece;
 //   (e) serialização (US4): os grafos de ponto da parte (a) e o de conjunto da parte (b) passam por
@@ -66,7 +66,6 @@ import { capture, readBuffer, settle } from './support/extensionScenes';
 import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
 import { caseSamples, nodeCases, type NodeCase } from './support/nodeLibraryCases';
 import { gpuFrameTimes } from './support/gpuTiming';
-import { hdrAt, readHdrTexture } from './support/imageMeasures';
 
 function log(msg: string): void {
     console.log(`[nodeGraphs] ${msg}`);
@@ -856,6 +855,7 @@ async function partC(failures: string[]): Promise<void> {
     // Até todas as entidades desenharem com a função (a variante compila uma vez).
     await settle(app, 600);
     for (let k = 0; k < 3; k++) app.step(1 / 60);
+    const image = capture(app.canvas);
 
     const first = entities[0]!.fn;
     const modules = new Set(entities.map((e) => e.fn.module));
@@ -902,25 +902,17 @@ async function partC(failures: string[]): Promise<void> {
         if (wrong > 0) failures.push(`(c) ${wrong} valores do pool diferentes dos das entidades`);
     }
 
-    // Cor de cada caixa no centro dela, na radiância HDR (antes da apresentação, que codifica por AgX + sRGB): emissão =
-    // a cor, cor base preta, mais o reflexo da face (o especular do dielétrico sob a luz e a câmera a prumo), igual em
-    // todas as caixas — a mesma geometria. Cada caixa mostra o seu valor quando radiância − valor é o mesmo em todas.
-    const hdrTexture = app.resources.textureOf(app.defaults.targets, 'color');
-    if (hdrTexture === undefined) throw new Error('alvo HDR não alocado');
-    const hdr = await readHdrTexture(app, hdrTexture);
-    const center = (i: number): [number, number, number] =>
-        hdrAt(hdr, (i % GRID_X) * PX + PX / 2, Math.floor(i / GRID_X) * PX + PX / 2);
-    const offsets = entities.map((e, i) => center(i).map((v, k) => v - e.color[k]!));
-    const common = [0, 1, 2].map((k) => {
-        const sorted = offsets.map((d) => d[k]!).sort((a, b) => a - b);
-        return sorted[Math.floor(sorted.length / 2)]!;
-    });
+    // Cor de cada caixa no centro dela (emissão = a cor; cor base preta).
     let checked = 0;
     let worst = 0;
     let worstAt = -1;
     for (let i = 0; i < entities.length; i++) {
+        const cx = i % GRID_X;
+        const rz = Math.floor(i / GRID_X);
+        const o = ((rz * PX + PX / 2) * image.width + cx * PX + PX / 2) * 4;
+        const color = entities[i]!.color;
         for (let k = 0; k < 3; k++) {
-            const d = Math.abs(offsets[i]![k]! - common[k]!);
+            const d = Math.abs(image.data[o + k]! - color[k]! * 255);
             if (d > worst) {
                 worst = d;
                 worstAt = i;
@@ -928,17 +920,11 @@ async function partC(failures: string[]): Promise<void> {
         }
         checked++;
     }
-    const at = (i: number): string =>
-        `radiância (${center(i)
-            .map((v) => v.toFixed(4))
-            .join(', ')}), valor (${entities[i]!.color.map((v) => v.toFixed(4)).join(', ')})`;
     log(
-        `(c) cores na radiância: ${checked} caixas, reflexo comum (${common.map((v) => v.toFixed(4)).join(', ')}), maior desvio ${worst.toFixed(5)} na entidade ${worstAt}${worstAt >= 0 ? `: ${at(worstAt)}` : ''}`,
+        `(c) cores na imagem: ${checked} caixas, maior diferença ${worst.toFixed(2)} (de 255) na entidade ${worstAt}`,
     );
-    // Tolerância: o meio passo do rgba16float em torno de 1 (2^−11) mais o pontilhamento não entra (antes da
-    // apresentação).
-    if (worst > 1e-3)
-        failures.push(`(c) cor da caixa ${worstAt} difere ${worst.toFixed(5)} da do seu valor`);
+    if (worst > 1)
+        failures.push(`(c) cor da caixa ${worstAt} difere ${worst.toFixed(2)} da do seu valor`);
     app.dispose();
     app.canvas.remove();
 }

@@ -33,8 +33,7 @@ import {
     writeFixture,
     writeJsonFixture,
 } from './support/fixtures';
-import { toPng } from './support/images';
-import { hdrAt, readHdrTexture, type HdrImage } from './support/imageMeasures';
+import { luminance, toPng } from './support/images';
 import { hashBytes } from './support/fluidMeasures';
 import { block, rng } from './support/particleScenes';
 import {
@@ -280,17 +279,10 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     const levels: number[] = [];
     const sprayPeak = { alive: 0, spray: 0, foam: 0, bubble: 0 };
     let image: ImageData | undefined;
-    let hdr: HdrImage | undefined;
     for (let i = 0; i < steps; i++) {
         app.step(1 / 60);
-        // Captura antes de qualquer leitura de volta (a espera apresenta e limpa o canvas); depois, a radiância HDR do
-        // mesmo quadro (antes da apresentação).
-        if (i === steps - 1) {
-            image = capture(canvas);
-            const texture = app.resources.textureOf(app.defaults.targets, 'color');
-            if (texture === undefined) throw new Error('alvo HDR não alocado');
-            hdr = await readHdrTexture(app, texture);
-        }
+        // Captura antes de qualquer leitura de volta (a espera apresenta e limpa o canvas).
+        if (i === steps - 1) image = capture(canvas);
         // Pico de cada tipo de partícula secundária nos 2 primeiros segundos (o respingo).
         if (diffuse !== undefined && i < 120 && i % 10 === 9) {
             const now = await countDiffuse(app, diffuse);
@@ -314,7 +306,7 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     const sprayEnd = diffuse === undefined ? undefined : await countDiffuse(app, diffuse);
     app.dispose();
     canvas.remove();
-    return { image: image!, hdr: hdr!, particles, levels, sprayPeak, sprayEnd };
+    return { image: image!, particles, levels, sprayPeak, sprayEnd };
 }
 
 /** Toro de teste (raios do anel e do tubo) e a distância com sinal analítica. */
@@ -730,12 +722,7 @@ const CASES: Record<string, Case> = {
             `nível ${wet.levels.at(-1)} fora do vale`,
         );
         // Água na imagem: pixels diferentes do vale seco; cáusticas: na água, regiões mais claras e mais escuras que a
-        // mesma água sem cáusticas (o mesmo estado: a física não depende do desenho), na radiância HDR — a apresentação
-        // da 011 (AgX + sRGB) comprime as razões da tela, e o critério foi escrito para a saída sem codificação.
-        const lum = (img: HdrImage, x: number, y: number): number => {
-            const [r, g, b] = hdrAt(img, x, y);
-            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        };
+        // mesma água sem cáusticas (o mesmo estado: a física não depende do desenho).
         let water = 0;
         let brighter = 0;
         let darker = 0;
@@ -748,8 +735,8 @@ const CASES: Record<string, Case> = {
                         differs = true;
                 if (!differs) continue;
                 water++;
-                const a = lum(wet.hdr, x, y);
-                const b = lum(plain.hdr, x, y);
+                const a = luminance(wet.image, x, y);
+                const b = luminance(plain.image, x, y);
                 if (a > b * 1.15 + 0.01) brighter++;
                 if (a < b * 0.9 - 0.01) darker++;
             }

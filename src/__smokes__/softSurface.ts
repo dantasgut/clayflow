@@ -128,16 +128,12 @@ interface Scene {
     readonly frames: readonly [number, number];
 }
 
-/**
- * Pixels avermelhados (o tecido e os sprites são vermelhos; o resto é cinza ou azulado): o vermelho domina com folga
- * sobre o cinza do chão. A razão vem da tela: o albedo (0,8; 0,25; 0,2), 3,2 em radiância, sai a ~1,5–1,7 pela
- * apresentação da 011 (sRGB e a dessaturação do AgX) — a razão 1,8 de antes valia para a saída sem codificação.
- */
+/** Pixels avermelhados (o tecido e os sprites são vermelhos; o resto é cinza ou azulado). */
 function reddish(img: ImageData): number {
     let n = 0;
     for (let i = 0; i < img.data.length; i += 4) {
         const r = img.data[i]!;
-        if (r > 40 && r > 1.25 * Math.max(img.data[i + 1]!, img.data[i + 2]!)) n++;
+        if (r > 40 && r > 1.8 * img.data[i + 1]! && r > 1.8 * img.data[i + 2]!) n++;
     }
     return n;
 }

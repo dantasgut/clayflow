@@ -262,7 +262,10 @@ Os limiares servem a simulações de física e engenharia e a jogos, em dois eix
 - **SC-005**: O tempo de GPU por quadro e a medida por repetição no relógio de parede concordam a ≤ 15 % numa cena de
   custo conhecido; nenhuma amostra repetida entra nas médias.
 - **SC-006**: Os 31 smokes passam no fonte e com `--dist`, sem exceção; as checagens H4 e H5 passam com os critérios
-  originais (ou com critério corrigido justificado por medida registrada).
+  originais (ou com critério corrigido justificado por medida registrada). _Exceção (decisão do usuário,
+  2026-10-18)_: o caso `timing` do `fluidField` (a água a 64 000 partículas) — com a medida correta, o `develop` já
+  custava 10,2 ms contra a meta de 2,5 ms da 033, e a refração da 034 soma ~5,6 ms; fica como pendência H7, a
+  investigar na RTX 4090.
 - **SC-007**: O bench não regride mais que o ruído em nenhuma cena; o baseline é regravado.
 - **SC-008**: `npm run ci` verde e os vídeos dos smokes visuais enviados ao usuário.
 
