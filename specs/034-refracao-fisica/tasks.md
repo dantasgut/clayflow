@@ -22,7 +22,7 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 
 - [x] T001 Estado de partida no M4: `npm run ci`, todos os smokes (fonte e `--dist`) e `npm run bench:check -- --headless`; registrar em `specs/034-refracao-fisica/baseline-check.md` (falhas herdadas com a medida)
 - [x] T002 [P] Smoke `src/__smokes__/giNoise.ts` com a medida das manchas (viés por face, erro lento dentro da face, cintilação, contra o traçador da CPU; Cornell e janela em `medium`/`high`; névoa andando) — nasce vermelho; remover o `zzManchas.ts` temporário
-- [ ] T003 [P] Teste `src/scene/systems/flowBinding/__tests__/limits.compose.test.ts`: compõe os pipelines das cenas dos smokes e confere ≤ 10 storage por estágio (piso M4)
+- [x] T003 [P] Piso de limites: `DeviceOptions.limitsCeiling` (C1, `src/core/contracts/DeviceOptions.ts`, `src/core/gpu/GpuContext.ts`, testes em `GpuContext.capabilities.test.ts`) e smoke `src/__smokes__/deviceFloor.ts` com as cenas que mais ligam recursos (GI + vidro + névoa; GI + água) sob 10 storage por estágio — numa GPU maior falha igual ao M4
 
 ---
 

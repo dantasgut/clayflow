@@ -90,6 +90,7 @@ function readAllLimits(limits: GPUSupportedLimits): Record<string, number> {
 function resolveLimits(
     adapterLimits: GPUSupportedLimits,
     requested: Readonly<Record<string, number>> | undefined,
+    ceiling?: Readonly<Record<string, number>>,
 ): { required: Record<string, number>; clamped: ClampedLimit[] } {
     const required: Record<string, number> = {};
     const clamped: ClampedLimit[] = [];
@@ -114,6 +115,21 @@ function resolveLimits(
                 : isMin
                   ? Math.min(current, granted)
                   : Math.max(current, granted);
+    }
+    for (const [name, cap] of Object.entries(ceiling ?? {})) {
+        if (readLimit(adapterLimits, name) === undefined) {
+            throw new Error(
+                `DeviceOptions.limitsCeiling: limite desconhecido do adaptador: ${name}`,
+            );
+        }
+        if (name.startsWith('min')) {
+            throw new Error(
+                `DeviceOptions.limitsCeiling: ${name} é um limite mínimo (alinhamento); o teto vale só para os máximos`,
+            );
+        }
+        const current = required[name];
+        // Sem pedido, o device fica no padrão do WebGPU, que já é o menor possível.
+        if (current !== undefined) required[name] = Math.min(current, cap);
     }
     return { required, clamped };
 }
@@ -163,6 +179,7 @@ export async function createGpuContext(options: DeviceOptions = {}): Promise<Cre
     const { required: requiredLimits, clamped } = resolveLimits(
         adapter.limits,
         options.requiredLimits,
+        options.limitsCeiling,
     );
     const device = await adapter.requestDevice({ requiredFeatures, requiredLimits });
     const queue = device.queue;

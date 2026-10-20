@@ -23,6 +23,7 @@ import {
     MaterialFunction,
     StandardMaterial,
     Transform,
+    type DeviceOptions,
 } from 'clayflow';
 import {
     skyTableDir,
@@ -380,6 +381,7 @@ export async function giApp(
     width: number,
     height: number,
     errors: string[],
+    device?: DeviceOptions,
 ): Promise<{ app: Application; canvas: HTMLCanvasElement }> {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -390,6 +392,7 @@ export async function giApp(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
+        ...(device !== undefined ? { device } : {}),
     });
     app.events.on('engineError', (e) => errors.push(`${e.stage}: ${e.message}`));
     app.events.on('extensionRejected', (e) =>

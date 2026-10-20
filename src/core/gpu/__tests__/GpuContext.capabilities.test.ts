@@ -199,4 +199,32 @@ describe('createGpuContext — DeviceOptions', () => {
             /maxNada/,
         );
     });
+
+    it('limitsCeiling baixa o limite de escala ao piso pedido (validar o piso de outra GPU)', async () => {
+        const { requestDevice } = installGpu();
+        const { capabilities } = await createGpuContext({
+            limitsCeiling: { maxStorageBuffersPerShaderStage: 10 },
+        });
+        const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
+        expect(desc.requiredLimits?.maxStorageBuffersPerShaderStage).toBe(10);
+        expect(desc.requiredLimits?.maxBindGroups).toBe(ADAPTER_LIMITS.maxBindGroups);
+        expect(capabilities.limits.maxStorageBuffersPerShaderStage).toBe(10);
+    });
+
+    it('limitsCeiling vence o requiredLimits maior e rejeita limite mínimo ou desconhecido', async () => {
+        const { requestDevice } = installGpu();
+        await createGpuContext({
+            requiredLimits: { maxStorageBuffersPerShaderStage: 20 },
+            limitsCeiling: { maxStorageBuffersPerShaderStage: 10 },
+        });
+        const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
+        expect(desc.requiredLimits?.maxStorageBuffersPerShaderStage).toBe(10);
+        installGpu();
+        await expect(
+            createGpuContext({ limitsCeiling: { minUniformBufferOffsetAlignment: 512 } }),
+        ).rejects.toThrow(/mínimo/);
+        await expect(createGpuContext({ limitsCeiling: { maxNada: 1 } })).rejects.toThrow(
+            /maxNada/,
+        );
+    });
 });
