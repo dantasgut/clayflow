@@ -32,6 +32,7 @@ import type { Flow } from '../flows/Flow';
 import { RECORD_NONE, type EntityRecordDeclaration, type ResourceType } from '../flows/slots';
 import type { FlowAllocator, RegisterOptions } from '../flows/FlowRegistry';
 import { FlowBinder } from './flowBinding/FlowBinder';
+import type { EngineReadiness } from '../readiness/EngineReadiness';
 import { LayoutInferencer } from './LayoutInferencer';
 import { FreeRanges } from './FreeRanges';
 
@@ -417,6 +418,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             events,
             inferencer,
         });
+    }
+
+    /** Prontidão do motor (spec 034): `ready` quando nenhum Flow ativo tem trabalho pendente no último quadro. */
+    get readiness(): EngineReadiness {
+        return this.binder.readiness;
     }
 
     // ── Flows (FlowAllocator) ────────────────────────────────────────────────

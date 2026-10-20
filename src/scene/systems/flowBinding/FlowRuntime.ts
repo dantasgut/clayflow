@@ -45,6 +45,7 @@ import type { EntityId } from '../../world/EntityId';
 import type { LayoutInferencer, InferredEntry } from '../LayoutInferencer';
 import type { ResourceDirectory } from '../../contracts/ResourceDirectory';
 import { EntityGroups, type GroupMember, type InstanceListHost } from './EntityGroups';
+import type { PendingWork } from '../../events/EventMap';
 import { PipelineState } from './PipelineState';
 import type { ScenePoints } from './ScenePoints';
 import { normalizeSource } from './sources';
@@ -80,6 +81,13 @@ export interface FlowRuntimeHost {
 export class FlowRuntime {
     /** Algo mudou desde o último `reconcile` (fontes, slots, compilação). */
     dirty = true;
+    /** Slot obrigatório sem valor na última reconciliação (`undefined` com todos resolvidos). */
+    private missingSlot: string | undefined;
+    /**
+     * O recurso do slot ausente está no mundo (avaliado na reconciliação, que roda a cada mudança da cena — nenhuma
+     * consulta ao mundo por quadro).
+     */
+    private missingPresent = false;
     private readonly slotValues: Record<string, unknown> = {};
     /** Fontes privadas por recurso (todos os pipelines). */
     private readonly privates = new Map<WgslResource, BindingSource>();
@@ -214,6 +222,9 @@ export class FlowRuntime {
         if (this.flow.lifecycle === 'disposed' || (!this.dirty && !force)) return;
         this.dirty = false;
         const missing = this.resolveSlots();
+        this.missingSlot = missing;
+        this.missingPresent =
+            missing !== undefined && this.slotResourcePresent(this.flow.slots[missing]!);
         if (missing !== undefined) {
             if (this.flow.lifecycle !== 'pending') {
                 this.leave('pending');
@@ -580,7 +591,56 @@ export class FlowRuntime {
                 this.rejectedQueue.push(s.id);
                 this.dirty = true;
             },
+            (s, message) => {
+                this.pipelineFailed(s, message);
+            },
         );
+    }
+
+    /** Compilação ou conferência que falhou no device: vira `engineError` com o nome do Flow e do pipeline. */
+    private pipelineFailed(state: PipelineState, message: string): void {
+        if (this.flow.lifecycle === 'disposed') return;
+        this.host.events.emit('engineError', {
+            stage: 'pipeline',
+            filter: 'internal',
+            message: `Flow '${this.flow.type}', pipeline '${state.id}': ${message}`,
+        });
+        this.dirty = true;
+    }
+
+    /**
+     * O que este Flow ainda espera para o quadro sair completo (prontidão do motor, spec 034): pipelines sem fonte,
+     * em conferência ou compilando, e trocas pela composição nova da cena ainda não concluídas. Flow sem os slots
+     * obrigatórios (`pending`) não entra: o recurso que ele desenha não está na cena.
+     */
+    pendingWork(): PendingWork[] {
+        const l = this.flow.lifecycle;
+        if (l === 'pending') {
+            // Sem um slot obrigatório: só conta se o recurso dele já está na cena (falta o envio, o pool ou o que outro
+            // Flow produz); ausente da cena, o Flow não tem o que fazer.
+            const name = this.missingSlot;
+            if (name === undefined || !this.missingPresent) return [];
+            return [{ flow: this.flow.type, pipeline: `slot:${name}`, reason: 'waiting', name }];
+        }
+        if (l !== 'preparing' && l !== 'ready') return [];
+        const out: PendingWork[] = [];
+        for (const state of this.pipelineStates.values()) {
+            const reason = state.pending;
+            if (reason === undefined) continue;
+            out.push({
+                flow: this.flow.type,
+                pipeline: state.id,
+                reason,
+                ...(reason === 'waiting' && state.missing !== undefined
+                    ? { name: state.missing }
+                    : {}),
+            });
+        }
+        for (const [id, next] of this.nextStates) {
+            if (next.rejected !== null || next.failed !== null) continue;
+            out.push({ flow: this.flow.type, pipeline: id, reason: 'swapping' });
+        }
+        return out;
     }
 
     private releasePipeline(id: string): void {
@@ -647,6 +707,14 @@ export class FlowRuntime {
                 (s) => {
                     this.nextRejected.push(s.id);
                     this.dirty = true;
+                },
+                (s, message) => {
+                    // A troca falhou: o atual continua, como na rejeição.
+                    this.pipelineFailed(s, message);
+                    if (this.nextStates.get(s.id) === s) {
+                        s.release();
+                        this.nextStates.delete(s.id);
+                    }
                 },
             );
             this.nextStates.set(id, next);
@@ -828,6 +896,27 @@ export class FlowRuntime {
                 return (value as BoundTexture).view;
             default:
                 return value;
+        }
+    }
+
+    /** O recurso de que o slot depende está no mundo (ainda que sem pool, textura ou envio)? */
+    private slotResourcePresent(decl: SlotDeclaration): boolean {
+        const world = this.host.world;
+        const has = (schemaName: string): boolean => world.queryBySchemaName(schemaName).length > 0;
+        switch (decl.kind) {
+            case 'pool':
+                return has(decl.poolKey);
+            case 'bodies':
+                return has(this.bodyType());
+            case 'singleton':
+                return has(decl.schema.name);
+            case 'texture':
+                return has(decl.schema.name);
+            case 'target':
+                return true;
+            case 'pools':
+            case 'entities':
+                return false;
         }
     }
 

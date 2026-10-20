@@ -365,7 +365,9 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
         const g = (gravity?.resource as GravityField | undefined)?.uniformAcceleration() ?? [
             0, -9.81, 0, 0,
         ];
-        this.frame++;
+        // A semente conta os quadros que simulam: quadros sem passo (a cena parada, a espera da prontidão) não a avançam,
+        // e a trajetória das secundárias depende só dos passos dados (spec 034, FR-024).
+        if (clock.steps > 0) this.frame++;
         for (const st of this.states.values()) {
             st.steps = 0;
             const entry = diffuse.entry(st.id);

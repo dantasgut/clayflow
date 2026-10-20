@@ -50,6 +50,12 @@ const verified = new WeakMap<ShaderModuleSpec, readonly ShaderMessage[]>();
 /** Notificação de shader rejeitado pelo compilador (`descriptor.verify`). */
 export type RejectedListener = (state: PipelineState, errors: readonly ShaderMessage[]) => void;
 
+/** Notificação de compilação ou conferência que falhou no device (ex.: device perdido durante a compilação). */
+export type FailedListener = (state: PipelineState, message: string) => void;
+
+/** O que falta para o pipeline ficar pronto (prontidão do motor, spec 034). */
+export type PipelinePending = 'waiting' | 'verifying' | 'compiling';
+
 /**
  * Um pipeline de Flow preparado pela C2: shader montado, layout inferido, fontes resolvidas, layouts, pipeline e bind
  * groups criados. `refresh()` reavalia as fontes: fonte recriada → bind group recriado (o antigo é liberado);
@@ -80,6 +86,10 @@ export class PipelineState {
     private token = 0;
     /** Fontes ausentes na última tentativa (o pipeline espera). */
     waiting = true;
+    /** Nome do binding sem fonte na última tentativa (`undefined` com todas as fontes). */
+    missing: string | undefined;
+    /** Mensagem da compilação ou conferência que falhou no device; `null` sem falha. */
+    failed: string | null = null;
 
     constructor(
         readonly id: string,
@@ -94,6 +104,8 @@ export class PipelineState {
         private readonly onCompiled: (state: PipelineState) => void,
         /** Chamado quando o compilador rejeita o shader (`descriptor.verify`). */
         private readonly onRejected: RejectedListener = () => undefined,
+        /** Chamado quando a compilação ou a conferência falha no device. */
+        private readonly onFailed: FailedListener = () => undefined,
     ) {
         this.role = descriptor.role;
         if (this.role === 'compute' && descriptor.entryPoints.length !== 1) {
@@ -163,6 +175,17 @@ export class PipelineState {
         return this.pipelineSpec !== null && this.compiled && !this.waiting;
     }
 
+    /**
+     * O que falta para ficar pronto: fonte ausente (`waiting`), conferência do compilador em voo (`verifying`) ou
+     * compilação em voo (`compiling`); `undefined` quando pronto ou em estado final (rejeitado ou falho).
+     */
+    get pending(): PipelinePending | undefined {
+        if (this.rejected !== null || this.failed !== null) return undefined;
+        if (this.waiting) return 'waiting';
+        if (this.built && !this.compiled) return this.shader === null ? 'verifying' : 'compiling';
+        return undefined;
+    }
+
     /** Visão do pipeline preparado para o Flow. */
     asPrepared(): PreparedCompute | PreparedRender {
         return this as unknown as PreparedCompute | PreparedRender;
@@ -183,6 +206,7 @@ export class PipelineState {
                 const source = lookup(entry, g.group, this);
                 if (source === undefined) {
                     const changed = !this.waiting;
+                    this.missing = entry.name;
                     this.suspend();
                     return changed;
                 }
@@ -195,6 +219,7 @@ export class PipelineState {
         );
         const wasWaiting = this.waiting;
         this.waiting = false;
+        this.missing = undefined;
         if (!this.built || !this.sameLayout(entries)) {
             this.build(entries, next);
             return true;
@@ -234,6 +259,7 @@ export class PipelineState {
         this.compiled = false;
         this.built = false;
         this.rejected = null;
+        this.failed = null;
         this.waiting = true;
     }
 
@@ -336,15 +362,28 @@ export class PipelineState {
                 let check = verifying.get(this.composedShader);
                 if (check === undefined) {
                     const spec = this.composedShader;
-                    check = this.core.shaderMessages(spec).then((messages) => {
-                        verified.set(spec, messages);
-                        return messages;
-                    });
+                    check = this.core.shaderMessages(spec).then(
+                        (messages) => {
+                            verified.set(spec, messages);
+                            return messages;
+                        },
+                        (error: unknown) => {
+                            // Falha do device, não do código: a próxima tentativa confere de novo.
+                            verifying.delete(spec);
+                            throw error;
+                        },
+                    );
                     verifying.set(spec, check);
                 }
-                void check.then((messages) => {
-                    if (token === this.token) done(messages, true);
-                });
+                void check.then(
+                    (messages) => {
+                        if (token === this.token) done(messages, true);
+                    },
+                    (error: unknown) => {
+                        // Depois do descarte (token trocado) a falha não importa a ninguém.
+                        if (token === this.token) this.fail(error);
+                    },
+                );
             }
         } else this.createPipeline(token, this.descriptor.preferAsync === true);
         this.bindGroups = sources.map((list, g) => this.createBindGroup(g, list));
@@ -358,15 +397,26 @@ export class PipelineState {
         this.pipelineSpec = spec;
         if (async) {
             this.compiled = false;
-            void this.core.createAsync(spec).then(() => {
-                if (token !== this.token) return;
-                this.compiled = true;
-                this.onCompiled(this);
-            });
+            void this.core.createAsync(spec).then(
+                () => {
+                    if (token !== this.token) return;
+                    this.compiled = true;
+                    this.onCompiled(this);
+                },
+                (error: unknown) => {
+                    if (token === this.token) this.fail(error);
+                },
+            );
         } else {
             this.core.create(spec);
             this.compiled = true;
         }
+    }
+
+    /** Compilação ou conferência falhou no device: estado final até o Flow trocar o shader (ou a cena se refazer). */
+    private fail(error: unknown): void {
+        this.failed = error instanceof Error ? error.message : String(error);
+        this.onFailed(this, this.failed);
     }
 
     private createBindGroup(group: number, sources: readonly ResolvedSource[]): BindGroupSpec {

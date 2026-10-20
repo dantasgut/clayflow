@@ -30,12 +30,12 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 
 **⚠️ Bloqueia**: os smokes das fases seguintes esperam `whenReady` e deduplicam a GPU por `gpuFrame`.
 
-- [ ] T004 [US4] Testes `src/scene/readiness/__tests__/EngineReadiness.test.ts`: estados, transições com compilação/verificação/troca em voo, prazo, falha de compilação, falha após descarte absorvida, `consumerMissing` uma vez por par
-- [ ] T005 [US4] `EngineReadiness` (Resource singleton) em `src/scene/readiness/EngineReadiness.ts`; eventos `enginePreparing`, `engineReady`, `consumerMissing` em `src/scene/events/EventMap.ts`
-- [ ] T006 [US4] `catch` nas cadeias de `createAsync` e `shaderMessages` em `src/scene/systems/flowBinding/PipelineState.ts` (erro com o nome do pipeline como `engineError`; absorvido após o descarte); registro do pendente na prontidão
-- [ ] T007 [US4] `FlowRuntime` (`src/scene/systems/flowBinding/FlowRuntime.ts`): Flows em `preparing` e consumidor/slot obrigatório ausente informados à prontidão; `consumerMissing` (H2)
-- [ ] T008 [US4] `Application.whenReady({ timeoutMs })` em `src/presentation/app/Application.ts` (rejeita listando os pendentes)
-- [ ] T009 [US4] Smoke `src/__smokes__/readiness.ts` (SC-008): névoa, GI, vidro e colisor obrigatório inseridos com a cena rodando; medida após `whenReady` igual à de espera longa (≤ 0,5 %); compilação atrasada à força com trajetória bit a bit; prazo com erro nomeado
+- [x] T004 [US4] Testes `src/scene/readiness/__tests__/EngineReadiness.test.ts`: estados, transições com compilação/verificação/troca em voo, prazo, falha de compilação, falha após descarte absorvida, `consumerMissing` uma vez por par
+- [x] T005 [US4] `EngineReadiness` (Resource singleton) em `src/scene/readiness/EngineReadiness.ts`; eventos `enginePreparing`, `engineReady`, `consumerMissing` em `src/scene/events/EventMap.ts`
+- [x] T006 [US4] `catch` nas cadeias de `createAsync` e `shaderMessages` em `src/scene/systems/flowBinding/PipelineState.ts` (erro com o nome do pipeline como `engineError`; absorvido após o descarte); registro do pendente na prontidão
+- [x] T007 [US4] `FlowRuntime` (`src/scene/systems/flowBinding/FlowRuntime.ts`): Flows em `preparing` e consumidor/slot obrigatório ausente informados à prontidão; `consumerMissing` (H2)
+- [x] T008 [US4] `Application.whenReady({ timeoutMs })` em `src/presentation/app/Application.ts` (rejeita listando os pendentes)
+- [x] T009 [US4] Smoke `src/__smokes__/readiness.ts` (SC-008): névoa, GI, vidro e colisor obrigatório inseridos com a cena rodando; medida após `whenReady` igual à de espera longa (≤ 0,5 %); compilação atrasada à força com trajetória bit a bit; prazo com erro nomeado
 - [ ] T010 [US5] Testes do profiler em `src/core/gpu/profiler/__tests__/GpuProfilerSystem.test.ts`: anel de 3 leituras, CPU à frente, uma entrega por quadro, sem repetição
 - [ ] T011 [US5] Anel de leituras e limite de quadros em voo em `src/core/gpu/profiler/GpuProfilerSystem.ts`; evento `gpuFrameTimed` (uma leitura por quadro)
 - [ ] T011a [US5] C1 (`src/core/gpu/GpuFrame.ts`, `GpuCommandState.ts`, `profiler/FrameTimestampAllocator.ts`, contrato `src/core/contracts/Frame.ts`): `marker` aninhado registra o escopo corrente em cada par de timestamps do passe; leitura agregada por caminho de escopo; remover o `resolveTimestamps` morto (`requireQuerySetForTimestamps` devolve `null`) ou implementá-lo; testes em `src/core/gpu/__tests__/` (escopos aninhados, passes sem etiqueta recebem nome do escopo)

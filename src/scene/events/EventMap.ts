@@ -162,6 +162,50 @@ export interface GlobalIlluminationReadyPayload {
     readonly revision: number;
 }
 
+/** Um trabalho que impede o quadro de sair completo (spec 034, prontidão do motor). */
+export interface PendingWork {
+    /** Tipo do Flow. */
+    readonly flow: string;
+    /** Pipeline do Flow. */
+    readonly pipeline: string;
+    /**
+     * `waiting`: um binding sem fonte na cena; `verifying`: conferência do compilador em voo; `compiling`: compilação
+     * em voo; `swapping`: o pipeline refeito com a composição nova da cena ainda não entrou no lugar do atual;
+     * `settling`: entidades entraram ou saíram da cena e as reações delas (envio, Flows novos, composição) ainda não
+     * apareceram — vale nos dois quadros seguintes à mudança (`flow` = `World`).
+     */
+    readonly reason: 'waiting' | 'verifying' | 'compiling' | 'swapping' | 'settling';
+    /** Binding sem fonte (`waiting`). */
+    readonly name?: string;
+}
+
+/** Payload do evento `enginePreparing` (spec 034): o que falta para o quadro sair completo. */
+export interface EnginePreparingPayload {
+    /** Revisão da prontidão (sobe a cada transição). */
+    readonly revision: number;
+    /** Trabalho pendente: Flow, pipeline, motivo e, sem fonte, o binding. */
+    readonly pending: readonly PendingWork[];
+}
+
+/** Payload do evento `engineReady` (spec 034): nenhum trabalho pendente. */
+export interface EngineReadyPayload {
+    /** Revisão da prontidão (sobe a cada transição). */
+    readonly revision: number;
+}
+
+/**
+ * Payload do evento `consumerMissing` (spec 034, H2): o binding de um pipeline de um Flow ativo continua sem fonte
+ * depois de 120 quadros — falta o resolvedor ou o pool que o fornece; o pipeline espera e o Flow não grava.
+ */
+export interface ConsumerMissingPayload {
+    /** Tipo do Flow. */
+    readonly flow: string;
+    /** Pipeline do Flow. */
+    readonly pipeline: string;
+    /** Binding sem fonte. */
+    readonly name: string;
+}
+
 /**
  * Payload do evento `profilerStats` — emitido periodicamente (throttle
  * 250ms) pelo `DebugFlow` quando habilitado. Permite UI overlays exibirem
@@ -311,6 +355,12 @@ export interface EventMap {
     globalIlluminationUnsupported: GlobalIlluminationUnsupportedPayload;
     /** As sondas da iluminação global emitem quando os kernels da composição atual ficam prontos (spec 033). */
     globalIlluminationReady: GlobalIlluminationReadyPayload;
+    /** A C2 emite quando o motor passa a ter trabalho pendente (compilação, conferência, troca, fonte ausente). */
+    enginePreparing: EnginePreparingPayload;
+    /** A C2 emite quando não resta trabalho pendente: o quadro sai completo (spec 034). */
+    engineReady: EngineReadyPayload;
+    /** A C2 emite (uma vez por Flow, pipeline e binding) quando um binding de um Flow ativo segue sem fonte (H2). */
+    consumerMissing: ConsumerMissingPayload;
 }
 
 /** União dos nomes de evento conhecidos (chaves do EventMap). */

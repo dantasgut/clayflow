@@ -3,6 +3,11 @@ import type { RegisterOptions } from '../../flows/FlowRegistry';
 import type { Unsubscribe } from '../../events/EventBus';
 import { FlowRuntime, type FlowRuntimeHost } from './FlowRuntime';
 import { ScenePoints } from './ScenePoints';
+import { EngineReadiness } from '../../readiness/EngineReadiness';
+import type { PendingWork } from '../../events/EventMap';
+
+/** Quadros de acomodação depois de uma mudança de entidades (o da mudança e o seguinte). */
+const SETTLING_FRAMES = 2;
 
 /**
  * Os Flows alocados pela C2 e a sua reação a eventos da cena: entidades (slots `entities`, entregues agregadas por
@@ -15,13 +20,22 @@ export class FlowBinder {
     private readonly runtimes = new Map<Flow, FlowRuntime>();
     private readonly subscriptions: Unsubscribe[];
     private readonly host: FlowRuntimeHost;
+    /** Prontidão do motor, avaliada a cada quadro depois da reconciliação (spec 034). */
+    readonly readiness: EngineReadiness;
+    /**
+     * Quadros que ainda contam como acomodação depois de uma mudança de entidades na cena: o envio e as reações
+     * (Flows novos, composição das funções de cena e a troca dos pipelines) aparecem no quadro da mudança e no seguinte.
+     */
+    private settling = 0;
 
     constructor(host: Omit<FlowRuntimeHost, 'scenePoints'>) {
         const scenePoints = new ScenePoints(host.core, host.world, host.resources);
         this.host = { ...host, scenePoints };
+        this.readiness = new EngineReadiness(host.events);
         const events = host.events;
         this.subscriptions = [
             events.on('resourcesChanged', (e) => {
+                this.settling = SETTLING_FRAMES;
                 this.markAll();
                 if (scenePoints.resourcesChanged(e.added, e.removed)) this.sceneChanged();
             }),
@@ -118,6 +132,13 @@ export class FlowBinder {
         this.reconcile();
         for (const rt of [...this.runtimes.values()]) rt.framePrepare();
         this.reconcile();
+        const pending: PendingWork[] = [];
+        if (this.settling > 0) {
+            this.settling--;
+            pending.push({ flow: 'World', pipeline: 'resourcesChanged', reason: 'settling' });
+        }
+        for (const rt of this.runtimes.values()) pending.push(...rt.pendingWork());
+        this.readiness.update(pending);
     }
 
     /** Descarta todos os runtimes e desfaz as inscrições. */

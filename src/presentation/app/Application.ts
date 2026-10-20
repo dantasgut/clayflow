@@ -304,6 +304,49 @@ export class Application {
     }
 
     /**
+     * Espera o motor ficar pronto (spec 034): nenhum Flow ativo com pipeline sem fonte, em conferência, compilando ou
+     * trocando, avaliado num quadro gravado depois desta chamada (o que acabou de ser inserido entra na conta). Com o
+     * laço parado, avança quadros vazios (`step(0)`, sem tempo de simulação) cedendo ao navegador entre eles; com o
+     * laço rodando, só observa os quadros dele. O tempo da simulação nunca é tocado.
+     *
+     * @param options.timeoutMs Prazo (padrão 30 000 ms).
+     * @throws Error ao vencer o prazo, listando o que ainda está pendente (Flow, pipeline, motivo, binding).
+     */
+    async whenReady(options: { readonly timeoutMs?: number } = {}): Promise<void> {
+        const readiness = this.scene.resourceSystem.readiness;
+        const deadline = performance.now() + (options.timeoutMs ?? 30_000);
+        const start = readiness.evaluations;
+        while (readiness.evaluations === start || readiness.state !== 'ready') {
+            if (performance.now() > deadline) {
+                const list = readiness.pending
+                    .map(
+                        (p) =>
+                            `${p.flow}/${p.pipeline} (${p.reason}${p.name !== undefined ? `: ${p.name}` : ''})`,
+                    )
+                    .join(', ');
+                throw new Error(
+                    `Application.whenReady(): o motor não ficou pronto no prazo — pendente: ${list || 'nenhum quadro gravado'}`,
+                );
+            }
+            if (this.loop.isRunning()) {
+                // Até o próximo quadro do laço, ou o prazo (o laço pode parar enquanto espera).
+                await new Promise<void>((resolve) => {
+                    const timer = setTimeout(done, Math.max(0, deadline - performance.now()));
+                    const off = this.scene.events.on('frameComplete', done);
+                    function done(): void {
+                        clearTimeout(timer);
+                        off();
+                        resolve();
+                    }
+                });
+            } else {
+                this.step(0);
+                await new Promise((r) => setTimeout(r, 16));
+            }
+        }
+    }
+
+    /**
      * `true` quando a GPU tem espaço para mais um quadro (`framesInFlight < maxFramesInFlight`). O laço só grava
      * nesse caso; quem avança por `step()` (ex.: o benchmark) consulta para seguir o mesmo ritmo.
      */
