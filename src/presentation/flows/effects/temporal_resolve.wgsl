@@ -204,9 +204,11 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             let c = taa_ycocg(rgb);
             m1 += c;
             m2 += c * c;
-            // A amostra do vizinho caiu em (vizinho − deslocamento): o peso é o da distância dela ao centro.
+            // A amostra do vizinho caiu em (vizinho − deslocamento): o peso é o da distância dela ao centro, dividido por
+            // (1 + brilho) — uma amostra muito clara (uma luz, radiância ≫ 1) não domina o pixel vizinho, que o
+            // histórico guardaria depois que ela passa.
             let o = vec2f(f32(dx), f32(dy)) - cam.jitter.zw;
-            let w = exp(-TAA_FILTER_SHARPNESS * dot(o, o));
+            let w = exp(-TAA_FILTER_SHARPNESS * dot(o, o)) / (1.0 + c.x);
             filtered += rgb * w;
             wsum += w;
         }

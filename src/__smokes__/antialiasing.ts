@@ -384,6 +384,7 @@ async function trailOf(
     const tmp = await scene('temporal', options);
     const bg = await scene('temporal', bare);
     let worst = 0;
+    let lowest = 0;
     let counted = 0;
     let at = '';
     for (let i = 0; i < 120; i++) {
@@ -418,13 +419,14 @@ async function trailOf(
             if (img[k]! - background[k]! > worst)
                 at = `quadro ${i}, pixel (${k % W}, ${Math.floor(k / W)})`;
             worst = Math.max(worst, img[k]! - background[k]!);
+            lowest = Math.min(lowest, img[k]! - background[k]!);
             counted++;
         }
     }
     close(tmp);
     close(bg);
     log(
-        `${label}: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at})`,
+        `${label}: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at}); maior falta ${pct(-lowest)}`,
     );
     check(counted > 0, `${label}: a bola não foi vista`);
     check(
