@@ -186,8 +186,10 @@ export interface PendingWork {
 export interface GpuFrameTimedPayload {
     /** Índice do quadro medido. */
     readonly gpuFrame: number;
-    /** Soma dos passes medidos (ms). */
+    /** Soma dos passes medidos (ms). Onde a GPU sobrepõe passes seguidos (TBDR), conta a sobreposição mais de uma vez. */
     readonly totalMs: number;
+    /** Do primeiro início ao último fim dos passes (ms): o tempo do quadro na GPU. */
+    readonly spanMs: number;
     /** Por fase (`transform`, `shadow`, `forward`, `post`, `ui`; `outros` fora dos grupos), em ms. */
     readonly phasesMs: Readonly<Record<string, number>>;
     /** Por tipo de Flow, em ms. */

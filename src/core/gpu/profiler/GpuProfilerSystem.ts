@@ -11,6 +11,8 @@ export interface GpuProfilerOptions {
 export interface FrameGpuReading {
     /** Soma dos intervalos válidos de todos os passes do quadro, em ms. */
     readonly gpuTimeMs: number;
+    /** Do primeiro início ao último fim dos passes do quadro, em ms (sem contar a sobreposição entre passes). */
+    readonly spanMs: number;
     /** Índice do quadro a que a leitura pertence. */
     readonly gpuFrame: number;
     /** Intervalos por rótulo de passe, em ns. */
@@ -302,6 +304,7 @@ export class GpuProfilerSystem implements Profiler {
         if (gpuTimeMs === undefined) return;
         const reading = {
             gpuTimeMs,
+            spanMs: FrameTimestampAllocator.span(this.lastTimestamps, pending.pairs) ?? gpuTimeMs,
             gpuFrame: pending.frameIndex,
             stagesNs: FrameTimestampAllocator.intervalsByLabel(this.lastTimestamps, pending.pairs),
             scopesNs: FrameTimestampAllocator.intervalsByScope(this.lastTimestamps, pending.pairs),

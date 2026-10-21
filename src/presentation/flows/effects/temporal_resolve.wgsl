@@ -239,8 +239,8 @@ fn fs_temporal_sharpen(in: VsOut) -> @location(0) vec4f {
     let dims = vec2i(textureDimensions(taa_history, 0));
     let pixel = vec2i(in.clip_position.xy);
     let c = textureLoad(taa_history, pixel, 0);
-    let r = taa_reproject(pixel, in.uv);
-    let k = TAA_SHARPEN * taa_moving(r, pixel, in.uv, vec2f(dims));
+    // O movimento do pixel, já medido pela resolução deste quadro (o estado que ela acabou de escrever).
+    let k = TAA_SHARPEN * textureLoad(taa_history_distance, pixel, 0).g;
     if (k <= 0.0) { return vec4f(c.rgb, 1.0); }
     let n = textureLoad(taa_history, clamp(pixel + vec2i(0, -1), vec2i(0), dims - 1), 0).rgb;
     let s = textureLoad(taa_history, clamp(pixel + vec2i(0, 1), vec2i(0), dims - 1), 0).rgb;

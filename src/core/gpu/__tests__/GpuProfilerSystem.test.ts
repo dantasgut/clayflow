@@ -69,6 +69,8 @@ describe('GpuProfilerSystem — profiling por quadro', () => {
         await finishMap();
         expect(p.lastFrameReading).toEqual({
             gpuTimeMs: 3,
+            // Do primeiro início (0) ao último fim (7 ms), com o intervalo vazio entre os passes.
+            spanMs: 7,
             gpuFrame: 3,
             stagesNs: { TransformFlow: 1_000_000, forward: 2_000_000 },
             scopesNs: { TransformFlow: 1_000_000, forward: 2_000_000 },
@@ -205,6 +207,7 @@ describe('GpuProfilerSystem — granularidade por quadro total', () => {
         await finishMap();
         expect(p.lastFrameReading).toEqual({
             gpuTimeMs: 2.5,
+            spanMs: 2.5,
             gpuFrame: 4,
             stagesNs: { frame: 2_500_000 },
             scopesNs: { frame: 2_500_000 },

@@ -134,5 +134,12 @@ export function gpuFrameTimedOf(timing: FrameGpuTiming): GpuFrameTimedPayload {
         phasesMs[phase!] = (phasesMs[phase!] ?? 0) + ms;
         flowsMs[flow!] = (flowsMs[flow!] ?? 0) + ms;
     }
-    return { gpuFrame: timing.gpuFrame, totalMs: timing.gpuTimeMs, phasesMs, flowsMs, passesMs };
+    return {
+        gpuFrame: timing.gpuFrame,
+        totalMs: timing.gpuTimeMs,
+        spanMs: timing.spanMs,
+        phasesMs,
+        flowsMs,
+        passesMs,
+    };
 }

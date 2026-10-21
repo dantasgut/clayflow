@@ -83,6 +83,7 @@ das branches `feature/034-ray-refraction-debts` e `fix/034-correcoes-validacao`.
 - [ ] T034 [US2] Sombra com PCF rotacionado pela sequência do jitter (`src/elements/gpu/wgsl/math/brdf.wgsl`)
 - [ ] T035 [US2] Fechar SC-004/SC-005 no smoke `antialiasing`; custo ≤ 1,5 ms no M4 (SC-011); se as bordas em movimento não fecharem só com o temporal, levar a medida ao usuário antes de religar o MSAA
   - Estado (2026-10-20): still 0,76 % (16 quadros) e bordas 1,45 % (64), órbita 2,52–2,92 % com borrão ≤ 1,02×, sprites 107 %; rastro 7,45 % só no reflexo da esfera lisa e na refração do vidro (T044a). O smoke mede contra 256 amostras, o rastro pela pegada inteira da bola com o fundo temporal em passo e nos pixels de fundo liso.
+  - Custo (2026-10-20, caso `cost`): 0,77–0,85 ms a 1280 × 720 no M4 (duração do quadro na GPU 2,00 ms com o temporal, 1,23 ms sem) — dentro de 1,5 ms. Medido pela duração do quadro (`spanMs`, do primeiro início ao último fim), não pela soma dos passes: no M4 os passes se sobrepõem e a soma dava 4,4 ms. A nitidez passou a ler o movimento já gravado pela resolução (antes refazia a reprojeção e as 25 leituras).
 - [ ] T036 [US2] Fixtures de imagem afetadas regravadas com a lista e a montagem antes/depois (`src/__smokes__/fixtures/*-apple-metal-3.*`)
 
 ---

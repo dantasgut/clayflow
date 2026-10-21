@@ -71,6 +71,27 @@ describe('FrameTimestampAllocator', () => {
         ).toBeUndefined();
     });
 
+    it('span vai do primeiro início ao último fim sem contar a sobreposição; ignora pares inválidos', () => {
+        // Passes sobrepostos (TBDR): [0, 3] e [1, 5] ms somam 7 ms, mas o quadro dura 5 ms.
+        const ns = new BigInt64Array([
+            0n,
+            3_000_000n,
+            1_000_000n,
+            5_000_000n,
+            9_000_000n,
+            8_000_000n,
+        ]);
+        const pairs = [
+            { first: 0, last: 1, label: 'a' },
+            { first: 2, last: 3, label: 'b' },
+            { first: 4, last: 5, label: 'inválido' },
+        ];
+        expect(FrameTimestampAllocator.sumIntervals(ns, pairs)).toBeCloseTo(7, 6);
+        expect(FrameTimestampAllocator.span(ns, pairs)).toBeCloseTo(5, 6);
+        expect(FrameTimestampAllocator.span(ns, [pairs[2]!])).toBeUndefined();
+        expect(FrameTimestampAllocator.span(ns, [])).toBeUndefined();
+    });
+
     it('rótulos repetidos acumulam em intervalsByLabel', () => {
         const ns = new BigInt64Array([0n, 10n, 20n, 25n]);
         const pairs = [

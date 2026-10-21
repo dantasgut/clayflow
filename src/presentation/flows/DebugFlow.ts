@@ -145,6 +145,7 @@ export class DebugFlow extends Flow<DebugSlots, 'idle'> {
                 ? {
                       gpu: {
                           totalMs: this.gpu.totalMs,
+                          spanMs: this.gpu.spanMs,
                           phasesMs: this.gpu.phasesMs,
                           flowsMs: this.gpu.flowsMs,
                           passesMs: this.gpu.passesMs,

@@ -98,6 +98,24 @@ export class FrameTimestampAllocator {
         return valid === 0 ? undefined : total / 1e6;
     }
 
+    /**
+     * Duração do quadro em ms: do primeiro início ao último fim entre os pares válidos (`undefined` sem nenhum). Numa GPU
+     * que sobrepõe passes seguidos (TBDR: o vértice de um passe começa enquanto o fragmento do anterior termina), a soma
+     * dos intervalos conta a sobreposição mais de uma vez; a duração não.
+     */
+    static span(ns: BigInt64Array, pairs: readonly TimestampPair[]): number | undefined {
+        let begin: bigint | undefined;
+        let end: bigint | undefined;
+        for (const p of pairs) {
+            if (FrameTimestampAllocator.interval(ns, p) === undefined) continue;
+            const a = ns[p.first]!;
+            const b = ns[p.last]!;
+            if (begin === undefined || a < begin) begin = a;
+            if (end === undefined || b > end) end = b;
+        }
+        return begin === undefined || end === undefined ? undefined : Number(end - begin) / 1e6;
+    }
+
     /** Intervalos válidos em ns agrupados por rótulo (rótulos repetidos acumulam). */
     static intervalsByLabel(
         ns: BigInt64Array,

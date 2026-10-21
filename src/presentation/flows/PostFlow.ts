@@ -447,13 +447,17 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 [{ pipeline: id, resource: temporalResources.motion }, motion.view],
             ]),
         );
-        // A nitidez lê o histórico que a resolução acabou de escrever.
+        // A nitidez lê o histórico e o estado (o movimento de cada pixel) que a resolução acabou de escrever.
         const sharpenId = `post:taa_sharpen:${this.taaWrite}`;
         ctx.bind(
             new Map<BindingKey, BindingSource>([
                 [
                     { pipeline: sharpenId, resource: temporalResources.history },
                     this.history.views[this.taaWrite]!,
+                ],
+                [
+                    { pipeline: sharpenId, resource: temporalResources.historyDistance },
+                    this.history.distanceViews[this.taaWrite]!,
                 ],
                 [{ pipeline: sharpenId, resource: temporalResources.depth }, depth.view],
                 [{ pipeline: sharpenId, resource: temporalResources.motion }, motion.view],

@@ -16,6 +16,9 @@
 //     médio ≤ 3 %.
 //   - sprites: partículas em sprites caindo; a cobertura delas no modo temporal ≥ 90 % da do modo sem antisserrilhado
 //     (o histórico não as apaga).
+//   - cost: a 1280 × 720 em órbita, com profiling por passe, a duração do quadro na GPU (mediana de 120 quadros, do
+//     primeiro início ao último fim) com o temporal menos a sem antisserrilhado ≤ 1,5 ms (SC-011, 9 % do quadro de 60 Hz
+//     no M4). Não a soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
 // Para rodar: `npm run smoke -- antialiasing [--query case=still]`. Resultado: `ANTIALIASING SMOKE PASSED` ou `FAIL: …`.
 import * as clayflow from 'clayflow';
 import {
@@ -27,6 +30,7 @@ import {
     Transform,
     type AntialiasingMode,
     type CanvasPixels,
+    type GpuFrameTimedPayload,
 } from 'clayflow';
 import { closureFn } from './support/materialScenes';
 import { writeFixture } from './support/fixtures';
@@ -66,10 +70,14 @@ const TARGET = [0, 0.4, 0] as const;
 const REF_SAMPLES = 256;
 
 /** A cena de teste no modo pedido. */
-async function scene(mode: AntialiasingMode, options: { ball?: boolean } = {}): Promise<Scene> {
+async function scene(
+    mode: AntialiasingMode,
+    options: { ball?: boolean; size?: readonly [number, number]; profiling?: boolean } = {},
+): Promise<Scene> {
+    const [width, height] = options.size ?? [W, H];
     const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
+    canvas.width = width;
+    canvas.height = height;
     document.body.appendChild(canvas);
     const app = await Application.create({
         canvas,
@@ -78,13 +86,14 @@ async function scene(mode: AntialiasingMode, options: { ball?: boolean } = {}): 
         captureErrors: true,
         antialias: mode,
         canvasOptions: { capture: true },
+        ...(options.profiling === true ? { profiling: 'passes' as const } : {}),
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
     if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
     const view = new Transform({ position: [0, 1, 3, 1] });
     const camera = new clayflow.Camera({
         fov: 0.8,
-        aspect: W / H,
+        aspect: width / height,
         aspectMode: 'fixed',
         near: 0.05,
         far: 50,
@@ -464,7 +473,62 @@ async function sprites(): Promise<void> {
     );
 }
 
-const CASES: Record<string, () => Promise<void>> = { still, trail, orbit, sprites };
+/**
+ * Tempos de GPU (mediana dos últimos 120 quadros em órbita, 1280 × 720) no modo pedido: a duração do quadro (do primeiro
+ * início ao último fim) e cada passe.
+ */
+async function gpuTimes(
+    mode: AntialiasingMode,
+): Promise<{ span: number; passes: Record<string, number> }> {
+    const s = await scene(mode, { size: [1280, 720], profiling: true });
+    const timings: GpuFrameTimedPayload[] = [];
+    const off = s.app.events.on('gpuFrameTimed', (e) => timings.push(e));
+    for (let i = 0; i < 180; i++) {
+        s.look(orbitAt(i / 60));
+        s.app.step(1 / 60);
+        await new Promise((r) => setTimeout(r, 4));
+    }
+    // As últimas leituras chegam depois do último quadro; os quadros vazios daqui não entram na medida.
+    for (let i = 0; i < 20; i++) {
+        s.app.step(0);
+        await new Promise((r) => setTimeout(r, 16));
+    }
+    off();
+    close(s);
+    const last = Math.max(...timings.map((t) => t.gpuFrame)) - 20;
+    const steady = timings.filter((t) => t.gpuFrame <= last).slice(-120);
+    const passes: Record<string, number> = {};
+    for (const key of new Set(steady.flatMap((t) => Object.keys(t.passesMs))))
+        passes[key] = median(steady.map((t) => t.passesMs[key] ?? 0));
+    return { span: median(steady.map((t) => t.spanMs)), passes };
+}
+
+function median(v: readonly number[]): number {
+    const s = [...v].sort((a, b) => a - b);
+    return s[s.length >> 1] ?? 0;
+}
+
+/**
+ * SC-011: custo do antisserrilhado a 1280 × 720 — a duração do quadro com o temporal menos a sem antisserrilhado (os
+ * passes do M4 se sobrepõem: o intervalo de cada um conta também o fim do anterior, e a soma passaria do quadro).
+ */
+async function cost(): Promise<void> {
+    const temporal = await gpuTimes('temporal');
+    const plain = await gpuTimes('off');
+    for (const [key, ms] of Object.entries(temporal.passes)) {
+        const without = plain.passes[key];
+        log(
+            `cost: ${key} ${ms.toFixed(3)} ms ${without === undefined ? '(só no temporal)' : `(sem: ${without.toFixed(3)} ms)`}`,
+        );
+    }
+    const own = temporal.span - plain.span;
+    log(
+        `cost: quadro ${temporal.span.toFixed(3)} ms com o temporal, ${plain.span.toFixed(3)} ms sem — antisserrilhado ${own.toFixed(3)} ms`,
+    );
+    check(own <= 1.5, `cost: antisserrilhado ${own.toFixed(3)} ms (≤ 1,5 ms)`);
+}
+
+const CASES: Record<string, () => Promise<void>> = { still, trail, orbit, sprites, cost };
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');

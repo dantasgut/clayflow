@@ -35,6 +35,11 @@ export interface FrameGpuTiming {
     readonly gpuFrame: number;
     /** Soma dos passes medidos, em ms. */
     readonly gpuTimeMs: number;
+    /**
+     * Do primeiro início ao último fim dos passes, em ms: o tempo do quadro na GPU. Menor que a soma onde a GPU sobrepõe
+     * passes seguidos (TBDR).
+     */
+    readonly spanMs: number;
     /** Por rótulo de passe (ns). */
     readonly stagesNs: Readonly<Record<string, number>>;
     /** Pelo caminho completo do passe (`fase/Flow/rótulo`, ns). */
